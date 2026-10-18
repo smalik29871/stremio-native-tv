@@ -82,6 +82,11 @@ typedef struct Stream {
     int addon_order;            /* position of that addon in the user's list */
     StreamTags tags;            /* parsed from name/title (quality.h) */
     long score;                 /* quality_score for the current prefs */
+    /* pre-flight check (sources screen): 0 not checked, 1 checking, 2 verified, 3 header unreadable, 4 link dead */
+    int probe_state;
+    struct ProbeInfo *probe;    /* malloc'd when state 2 */
+    double measured_mbps;       /* download speed seen while fetching the header */
+    double file_mbps;           /* the file's own bitrate from size and duration */
 } Stream;
 
 typedef struct Subtitle { char *id, *url, *lang; } Subtitle;

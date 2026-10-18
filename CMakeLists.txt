@@ -15,6 +15,13 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter -fno-strict-aliasing)
 string(TOUPPER "${SNTV_PLATFORM}" SNTV_PLATFORM_UC)
 add_compile_definitions(SNTV_PLATFORM_${SNTV_PLATFORM_UC}=1)
 
+# ---- libwebp decoder (vendor/libwebp, BSD): WebP posters on TVs without system support
+file(GLOB WEBP_SRC vendor/libwebp/src/dec/*.c vendor/libwebp/src/dsp/*.c vendor/libwebp/src/utils/*.c)
+add_library(webpdecoder STATIC ${WEBP_SRC})
+target_include_directories(webpdecoder PUBLIC vendor/libwebp)
+target_compile_options(webpdecoder PRIVATE -w)   # third-party code: keep our own warnings readable
+set_target_properties(webpdecoder PROPERTIES C_STANDARD 99)
+
 # ---- core: no SDL video dependency, testable on the host --------------------
 add_library(sntv_core STATIC
   vendor/cJSON.c
@@ -25,6 +32,7 @@ add_library(sntv_core STATIC
   src/subs.c
   src/skip.c
   src/quality.c
+  src/probe.c
   src/lang.c
   src/trackmem.c
   src/addon/addon.c
@@ -79,7 +87,7 @@ add_executable(stremio-tv
   ${SNTV_UI_SRC}
   ${SNTV_VIDEO_SRC})
 target_include_directories(stremio-tv PRIVATE ${SNTV_PLATFORM_INCLUDES})
-target_link_libraries(stremio-tv PRIVATE sntv_core ${SNTV_LINK_LIBS})
+target_link_libraries(stremio-tv PRIVATE sntv_core webpdecoder ${SNTV_LINK_LIBS})
 
 install(TARGETS stremio-tv RUNTIME DESTINATION .)
 install(DIRECTORY assets DESTINATION .)
@@ -105,4 +113,8 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   add_executable(test_quality tests/test_quality.c)
   target_link_libraries(test_quality PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME source_quality COMMAND test_quality)
+  add_executable(test_probe tests/test_probe.c)
+  target_link_libraries(test_probe PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  target_compile_definitions(test_probe PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
+  add_test(NAME container_probe COMMAND test_probe)
 endif()

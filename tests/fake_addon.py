@@ -65,6 +65,10 @@ for i, v in enumerate(META["meta"]["videos"]):
     v["thumbnail"] = f"{BASE}/thumb/{i}.png"
 SRT = "1\n00:00:00,500 --> 00:00:09,000\nHello from the <i>fake</i> subtitle addon\n\n2\n00:00:09,500 --> 00:00:20,000\nSecond cue\n"
 STREAMS = load("streams.json")
+MEDIA_DIR = os.path.join(FIX, "media")
+for _s in STREAMS["streams"]:
+    if _s.get("url", "").startswith("https://cdn.example.com"):
+        _s["url"] = f"{BASE}/video/sample_h264_aac.mkv"   # a real header (with chapters) the pre-flight can read
 PALETTE = [(123, 91, 245), (60, 140, 200), (200, 90, 90), (90, 170, 110), (220, 160, 60), (150, 80, 160)]
 PAIRS = [((255, 94, 98), (255, 153, 102)), ((54, 209, 220), (91, 134, 229)), ((142, 45, 226), (74, 0, 224)),
          ((247, 151, 30), (255, 210, 0)), ((17, 153, 142), (56, 239, 125)), ((252, 70, 107), (63, 94, 251)),
@@ -173,7 +177,30 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/link/read"):
             return self.send(200, json.dumps({"result": {}}).encode())
         if p.startswith("/subtitles/"):
-            return self.send(200, json.dumps({"subtitles": [{"id": "fake-eng", "url": f"{BASE}/sub.srt", "lang": "eng"}]}).encode())
+            subs = [{"id": "fake-eng", "url": f"{BASE}/sub.srt", "lang": "eng"}, {"id": "pob1", "url": f"{BASE}/sub.srt", "lang": "pob"},
+                    {"id": "pob2", "url": f"{BASE}/sub.srt", "lang": "pob"}, {"id": "spa1", "url": f"{BASE}/sub.srt", "lang": "spa"},
+                    {"id": "eng2", "url": f"{BASE}/sub.srt", "lang": "eng"}, {"id": "por1", "url": f"{BASE}/sub.srt", "lang": "por"}]
+            return self.send(200, json.dumps({"subtitles": subs}).encode())
+        if p.startswith("/video/"):
+            name = os.path.basename(p)
+            path = os.path.join(MEDIA_DIR, name)
+            if not os.path.isfile(path):
+                return self.send(404, b"")
+            with open(path, "rb") as f:
+                data = f.read()
+            rng = self.headers.get("Range")
+            if rng and rng.startswith("bytes="):
+                a, _, b = rng[6:].partition("-")
+                a = int(a or 0); b = int(b) if b else len(data) - 1
+                b = min(b, len(data) - 1)
+                self.send_response(206)
+                self.send_header("Content-Type", "video/x-matroska")
+                self.send_header("Content-Range", f"bytes {a}-{b}/{len(data)}")
+                self.send_header("Content-Length", str(b - a + 1))
+                self.end_headers()
+                self.wfile.write(data[a:b + 1])
+                return
+            return self.send(200, data, "video/x-matroska")
         if p == "/sub.srt":
             return self.send(200, SRT.encode(), "text/plain")
         if p.startswith("/thumb/"):
@@ -183,6 +210,11 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, png(320, 180, PALETTE[i % len(PALETTE)], pattern=True), "image/png")
         if p.startswith("/poster/") or p.startswith("/bg/"):
             i = int(p.rsplit("/", 1)[1].split(".")[0])
+            if HAVE_PIL and p.startswith("/poster/") and i % 4 == 2:   # metahub serves WebP for newer titles
+                from PIL import Image as _I
+                im = _I.open(_io.BytesIO(art("poster", i)))
+                out = _io.BytesIO(); im.save(out, format="WEBP", quality=80)
+                return self.send(200, out.getvalue(), "image/webp")
             kind = "poster" if p.startswith("/poster/") else "bg"
             if HAVE_PIL:
                 title = CATALOG["metas"][i]["name"] if kind == "poster" and i < len(CATALOG["metas"]) else ""

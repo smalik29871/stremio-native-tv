@@ -33,9 +33,15 @@ int lang_count(void)
     return n;
 }
 
+static int is_brazilian(const char *code)
+{
+    return code && (!strcasecmp(code, "pob") || !strcasecmp(code, "pt-br") || !strcasecmp(code, "pt_br") || !strcasecmp(code, "ptbr") || !strcasecmp(code, "por-br"));
+}
+
 const char *lang_canonical(const char *code)
 {
     if (!code || !*code) return NULL;
+    if (is_brazilian(code)) return "por";
     char c[24];
     size_t n = 0;
     /* "en-US", "pt_BR", "eng (forced)" -> the language part */
@@ -73,6 +79,7 @@ int lang_index(const char *code)
 
 const char *lang_display(const char *code)
 {
+    if (is_brazilian(code)) return "Portugu\xC3\xAAs (Brasil)";
     int i = lang_index(code);
     return i ? LANG_NAMES[i] : code;
 }

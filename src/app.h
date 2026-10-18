@@ -65,6 +65,8 @@ typedef struct App {
     int quality_mode;          /* QUAL_*: how sources are ranked */
     int res_cap;               /* 2160, 1080 or 720 */
     int auto_recommended;      /* play the recommended source without asking */
+    int preflight;             /* read the top candidates' headers before recommending */
+    int live_scrub;            /* the video follows the seek bar while the key is held */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
 

@@ -40,7 +40,7 @@ run player 280 "down,right,ok,down,down,ok,ok"
 run player_subs 340 "down,right,ok,down,down,ok,ok,down,right,ok"
 run player_audio 320 "down,right,ok,down,down,ok,ok,down,ok"
 run player_cue 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1
-run player_seek 268 "down,right,ok,down,down,ok,ok,right,right,right"
+run player_seek 268 "down,right,ok,down,down,ok,ok,right,right,right" SNTV_FAKE_DURATION=1
 run upnext_card 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run upnext_auto 380 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_skipped 300 "down,right,ok,down,down,ok,ok,ok"
@@ -48,10 +48,10 @@ run upnext_credits 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run settings 160 "right,ok,down,down,down,down,down"
-run diagnostics 300 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok"
-run diagnostics_filter 320 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok,left,left"
-run diagnostics_qr 320 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok,ok"
-run diagnostics_prev_qr 340 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok,blue,ok"
+run diagnostics 500 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok"
+run diagnostics_filter 540 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok,left,left"
+run diagnostics_qr 520 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok,ok"
+run diagnostics_prev_qr 540 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok,blue,ok"
 run settings_more 200 "right,ok,down,down,down,down,down,down,down,down,down,down,down,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
 run welcome 90 "" HOME="$(home_with fresh '{}')"
@@ -77,6 +77,8 @@ run player_bar 300 "down,right,ok,down,down,ok,ok,down"
 run player_bar_style 340 "down,right,ok,down,down,ok,ok,down,right,right,ok"
 run player_bar_sources 360 "down,right,ok,down,down,ok,ok,down,right,right,right,ok"
 run pip_focus 420 "$P,back,back,down,down,down,down,down,down,down"
+run pip_focus_close 460 "$P,back,back,down,down,down,down,down,down,down,right,ok"
+run player_subs_scrolled 360 "down,right,ok,down,down,ok,ok,down,right,ok,down,down,down,down,down,down"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)
 run ambient 200 "" SNTV_AMBIENT_SECONDS=1

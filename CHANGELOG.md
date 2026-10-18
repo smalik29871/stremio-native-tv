@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.1
+
+The TV checks the file, not just its name.
+
+- **Pre-flight check** (Settings > Playback > *Check sources before recommending*, on by
+  default). Before recommending, the app fetches the first 2 MB of the three best
+  candidates, one at a time, and reads the real container header: Matroska tracks,
+  chapters and colour metadata, or MP4 `moov`. The recommendation card then says
+  *Verified: HEVC 1080p 10-bit · Dolby Digital+ 5.1 · 3 subtitle tracks · 14 Mbit/s
+  (this link gives 85)*; the same fetch measures the link's download speed, so a file
+  faster than the link is marked *Too fast for this link* and loses the recommendation,
+  and a dead link is marked *Link not responding* and dropped. A name that lies about
+  its codec or audio is corrected by what the file says.
+- **WebP posters decode.** metahub serves newer titles' posters as WebP, which the TV
+  cannot read; libwebp's decoder (BSD, 1.4.0) is now built into the app, so those
+  posters appear like any other.
+- **Subtitles menu** groups files by language (Left/Right picks another file of the same
+  language), puts your preferred language first, scrolls to the focused row, names
+  Brazilian Portuguese properly, and has a *Subtitle timing* row for the offset.
+- **Sources menu** gains *Browse all sources*, which leaves the player for the full list
+  (with the recommendation), so a playback started from *Resume* can still switch.
+- **Corner player** offers *Full screen* and *Close* buttons when selected (Left/Right,
+  OK), for remotes without a Stop key.
+- **Live scrub** (Settings > Playback > *Show the picture while seeking*): while Left or
+  Right is held the video jumps along every third of a second, so the picture is the
+  preview. **Chapters** from the file's header appear as marks on the timeline and in
+  the seek bubble; Rewind/Forward jump chapter to chapter (and 60 s without chapters).
+
 ## 0.5.0
 
 - **Recommended source.** Every source is read for its resolution, codec (H.264, HEVC, AV1),

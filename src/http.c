@@ -19,6 +19,7 @@ enum {
     OPT_LOW_SPEED_TIME = 20, OPT_POST = 47, OPT_FOLLOWLOCATION = 52,
     OPT_POSTFIELDSIZE = 60, OPT_SSL_VERIFYPEER = 64, OPT_CONNECTTIMEOUT = 78,
     OPT_NOSIGNAL = 99, OPT_ACCEPT_ENCODING = 10102, OPT_MAXREDIRS = 68,
+    OPT_RANGE = 10007, OPT_HEADERFUNCTION = 20079, OPT_HEADERDATA = 10029,
     INFO_RESPONSE_CODE = 0x200002,
     GLOBAL_DEFAULT = 3,
 };
@@ -90,15 +91,44 @@ static size_t on_write(char *ptr, size_t size, size_t nmemb, void *user)
 
 /* A handle per worker keeps TCP/TLS sessions alive between requests, which on
  * the TV's old libcurl is the difference between 80 ms and 600 ms per poster. */
-static int request_with(CURL *h, const char *url, const char *post_json, HttpResponse *out)
+static size_t on_header(char *ptr, size_t size, size_t nmemb, void *user)
+{
+    HttpResponse *out = user;
+    size_t n = size * nmemb;
+    char line[256];
+    if (n >= sizeof line) n = sizeof line - 1;
+    memcpy(line, ptr, n);
+    line[n] = 0;
+    if (!strncasecmp(line, "Content-Range:", 14)) {
+        const char *slash = strrchr(line, '/');
+        if (slash && slash[1] != '*') out->total_size = strtoull(slash + 1, NULL, 10);
+    } else if (!strncasecmp(line, "Content-Length:", 15) && !out->total_size) {
+        out->total_size = strtoull(line + 15, NULL, 10);
+    } else if (!strncasecmp(line, "Content-Type:", 13)) {
+        const char *v = line + 13;
+        while (*v == ' ') v++;
+        snprintf(out->content_type, sizeof out->content_type, "%.63s", v);
+        out->content_type[strcspn(out->content_type, ";\r\n")] = 0;
+    }
+    return size * nmemb;
+}
+
+static int request_with(CURL *h, const char *url, const char *post_json, const HttpOptions *opt, HttpResponse *out)
 {
     memset(out, 0, sizeof *out);
     C.easy_reset(h);
 
     Buf b = {0};
     struct curl_slist *hdrs = NULL;
-    hdrs = C.slist_append(hdrs, "Accept: application/json");
+    if (!opt || !opt->no_json_accept) hdrs = C.slist_append(hdrs, "Accept: application/json");
     if (post_json) hdrs = C.slist_append(hdrs, "Content-Type: application/json");
+    char range[64];
+    if (opt && opt->range_bytes) {
+        snprintf(range, sizeof range, "0-%llu", (unsigned long long)(opt->range_bytes - 1));
+        C.easy_setopt(h, OPT_RANGE, range);
+    }
+    C.easy_setopt(h, OPT_HEADERFUNCTION, on_header);
+    C.easy_setopt(h, OPT_HEADERDATA, out);
 
     C.easy_setopt(h, OPT_URL, url);
     C.easy_setopt(h, OPT_WRITEFUNCTION, on_write);
@@ -110,7 +140,7 @@ static int request_with(CURL *h, const char *url, const char *post_json, HttpRes
     C.easy_setopt(h, OPT_MAXREDIRS, 5L);
     C.easy_setopt(h, OPT_NOSIGNAL, 1L);
     C.easy_setopt(h, OPT_CONNECTTIMEOUT, 10L);
-    C.easy_setopt(h, OPT_TIMEOUT, 30L);
+    C.easy_setopt(h, OPT_TIMEOUT, opt && opt->timeout_s ? opt->timeout_s : 30L);
     C.easy_setopt(h, OPT_LOW_SPEED_LIMIT, 1L);
     C.easy_setopt(h, OPT_LOW_SPEED_TIME, 15L);
     C.easy_setopt(h, OPT_ACCEPT_ENCODING, "");
@@ -120,7 +150,9 @@ static int request_with(CURL *h, const char *url, const char *post_json, HttpRes
         C.easy_setopt(h, OPT_POSTFIELDSIZE, (long)strlen(post_json));
     }
 
+    Uint32 t0 = SDL_GetTicks();
     CURLcode rc = C.easy_perform(h);
+    out->seconds = (SDL_GetTicks() - t0) / 1000.0;
     if (rc == 0) {
         C.easy_getinfo(h, INFO_RESPONSE_CODE, &out->status);
     } else if (!out->error[0]) {
@@ -138,7 +170,7 @@ int http_request(const char *url, const char *post_json, HttpResponse *out)
     if (!C.lib) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "libcurl unavailable"); return -1; }
     CURL *h = C.easy_init();
     if (!h) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "curl_easy_init failed"); return -1; }
-    int rc = request_with(h, url, post_json, out);
+    int rc = request_with(h, url, post_json, NULL, out);
     C.easy_cleanup(h);
     return rc;
 }
@@ -158,6 +190,7 @@ typedef struct Job {
     HttpCallback cb;
     void *user;
     HttpResponse resp;
+    HttpOptions opt;
     int cancelled;
     struct Job *next;
 } Job;
@@ -186,7 +219,7 @@ static int worker_main(void *arg)
         SDL_UnlockMutex(g_qlock);
 
         if (!j->cancelled) {
-            if (h) request_with(h, j->url, j->post, &j->resp);
+            if (h) request_with(h, j->url, j->post, &j->opt, &j->resp);
             else http_request(j->url, j->post, &j->resp);
         }
 
@@ -200,11 +233,12 @@ static int worker_main(void *arg)
     }
 }
 
-unsigned http_request_async(const char *url, const char *post_json, HttpCallback cb, void *user)
+static unsigned enqueue(const char *url, const char *post_json, const HttpOptions *opt, HttpCallback cb, void *user)
 {
     Job *j = calloc(1, sizeof *j);
     j->url = strdup(url);
     j->post = post_json ? strdup(post_json) : NULL;
+    if (opt) j->opt = *opt;
     j->cb = cb;
     j->user = user;
     SDL_LockMutex(g_qlock);
@@ -214,6 +248,16 @@ unsigned http_request_async(const char *url, const char *post_json, HttpCallback
     SDL_CondSignal(g_qcond);
     SDL_UnlockMutex(g_qlock);
     return j->id;
+}
+
+unsigned http_request_async(const char *url, const char *post_json, HttpCallback cb, void *user)
+{
+    return enqueue(url, post_json, NULL, cb, user);
+}
+
+unsigned http_request_async_ex(const char *url, const HttpOptions *opt, HttpCallback cb, void *user)
+{
+    return enqueue(url, NULL, opt, cb, user);
 }
 
 void http_cancel(unsigned id)

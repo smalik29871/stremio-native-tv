@@ -22,6 +22,7 @@ int main(void)
     CHECK(lang_index("en") == 1 && lang_index("") == 0 && lang_index("xx") == 0);
     CHECK(!strcmp(lang_display("ja"), LANG_NAMES[lang_index("jpn")]));
     CHECK(lang_count() > 10 && LANG_CODES[0][0] == 0);
+    CHECK(lang_same("pob", "por") && strstr(lang_display("pob"), "Brasil") && !strstr(lang_display("por"), "Brasil"));
 
     char dir[] = "/tmp/sntv_prefs_XXXXXX";
     if (!mkdtemp(dir)) return 2;

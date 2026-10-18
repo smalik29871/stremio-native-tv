@@ -1,4 +1,5 @@
 #include "image.h"
+#include "src/webp/decode.h"
 #include "http.h"
 #include "log.h"
 #include "platform/platform.h"
@@ -161,7 +162,14 @@ static int decoder_main(void *arg)
         SDL_UnlockMutex(g_lock);
 
         int w = 0, h = 0, n = 0;
-        unsigned char *px = stbi_load_from_memory(i->encoded, (int)i->encoded_len, &w, &h, &n, 4);
+        unsigned char *px = NULL;
+        if (i->encoded_len > 12 && !memcmp(i->encoded, "RIFF", 4) && !memcmp(i->encoded + 8, "WEBP", 4)) {
+            /* libwebp hands back its own buffer; copy so the rest of the pipeline can free() it */
+            uint8_t *wp = WebPDecodeRGBA(i->encoded, i->encoded_len, &w, &h);
+            if (wp) { px = malloc((size_t)w * h * 4); if (px) memcpy(px, wp, (size_t)w * h * 4); WebPFree(wp); }
+        } else {
+            px = stbi_load_from_memory(i->encoded, (int)i->encoded_len, &w, &h, &n, 4);
+        }
         if (px) {
             if (!i->from_disk && g_cache_dir[0] && i->encoded_len <= DISK_FILE_MAX) {
                 char path[1200], tmp[1210];
@@ -176,7 +184,7 @@ static int decoder_main(void *arg)
             i->pixels = px; i->w = w; i->h = h;
         } else {
             const unsigned char *e = i->encoded;
-            const char *kind = i->encoded_len > 12 && !memcmp(e, "RIFF", 4) && !memcmp(e + 8, "WEBP", 4) ? "WebP, not supported" :
+            const char *kind = i->encoded_len > 12 && !memcmp(e, "RIFF", 4) && !memcmp(e + 8, "WEBP", 4) ? "WebP, damaged or unsupported variant" :
                                i->encoded_len > 12 && !memcmp(e + 4, "ftyp", 4) ? "AVIF/HEIF, not supported" :
                                i->encoded_len > 1 && e[0] == '<' ? "HTML or SVG, not an image" : stbi_failure_reason();
             LOGW("image: cannot decode %s (%s, %zu bytes)", i->url, kind ? kind : "?", i->encoded_len);

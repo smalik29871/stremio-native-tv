@@ -502,6 +502,7 @@ void streams_free(Stream *s, int n)
         free(s[i].url); free(s[i].yt_id); free(s[i].info_hash); free(s[i].external_url);
         free(s[i].name); free(s[i].title); free(s[i].description);
         free(s[i].binge_group); free(s[i].filename); free(s[i].addon_name);
+        free(s[i].probe);
     }
     if (n) free(s);
 }

@@ -1,6 +1,7 @@
 #include "../app.h"
 #include "../http.h"
 #include "../log.h"
+#include "../probe.h"
 #include "../store.h"
 #include "font.h"
 #include "theme.h"
@@ -32,7 +33,12 @@ struct Streams {
     int from_prefetch;        /* answers still arriving belong to the prefetch */
     int check_autoplay;
     int auto_rec_done;        /* the recommended source was started by itself */
+    int probes_started, probe_inflight;
+    unsigned probe_gen;
 };
+#define PROBE_BYTES (2u << 20)   /* enough header for Tracks, Chapters or a faststart moov */
+#define PROBE_MAX 3               /* candidates checked, best first, one at a time */
+typedef struct ProbeReq { Streams *owner; unsigned gen; char *url; } ProbeReq;
 #define REC_H 150.0f          /* the recommendation card above the list */
 
 /* Streams fetched ahead of time for the next episode (the player asks when the
@@ -68,12 +74,77 @@ static long rank(const Streams *st, const Stream *s)
     return r;
 }
 
+static void sort_items(Streams *st);
+
+static void on_probe(HttpResponse *r, void *user)
+{
+    ProbeReq *q = user;
+    Streams *st = q->owner;
+    if (st != g_live || q->gen != st->probe_gen) { free(q->url); free(q); return; }
+    st->probe_inflight = 0;
+    for (int i = 0; i < st->n; i++) {
+        Stream *s = &st->items[i];
+        if (!s->url || strcmp(s->url, q->url) != 0) continue;
+        char host[96];
+        const char *hs = strstr(q->url, "://"); hs = hs ? hs + 3 : q->url;
+        snprintf(host, sizeof host, "%.*s", (int)strcspn(hs, "/:?"), hs);
+        if ((r->status != 200 && r->status != 206) || r->len == 0) {
+            s->probe_state = 4;
+            LOGW("probe: %s -> HTTP %ld %s", host, r->status, r->error);
+            break;
+        }
+        s->measured_mbps = r->seconds > 0.05 ? (double)r->len * 8.0 / r->seconds / 1e6 : 0;
+        ProbeInfo *info = malloc(sizeof *info);
+        if (probe_parse((const uint8_t *)r->body, r->len, info)) {
+            s->probe_state = 2;
+            free(s->probe);
+            s->probe = info;
+            probe_apply(info, &s->tags);
+            s->file_mbps = probe_mbits(info, r->total_size);
+            char d[200];
+            probe_describe(info, d, sizeof d);
+            LOGI("probe: %s -> %s; file %.0f Mbit/s, link %.0f Mbit/s, %d chapters", host, d, s->file_mbps, s->measured_mbps, info->n_chapters);
+        } else {
+            s->probe_state = 3;
+            char d[200];
+            probe_describe(info, d, sizeof d);
+            LOGI("probe: %s -> alive, %s (%s), link %.0f Mbit/s", host, d, r->content_type, s->measured_mbps);
+            free(info);
+        }
+        break;
+    }
+    free(q->url); free(q);
+    sort_items(st);
+    app_redraw();
+}
+
+/* Fetch the header of the next-best unchecked candidate. */
+static void probe_next(Streams *st)
+{
+    if (!g_app.preflight || st->probe_inflight || st->probes_started >= PROBE_MAX) return;
+    int best = -1;
+    for (int i = 0; i < st->n; i++) {
+        Stream *s = &st->items[i];
+        if (s->probe_state || !s->url || strncmp(s->url, "http", 4) != 0 || !playable(s)) continue;
+        if (best < 0 || s->score > st->items[best].score) best = i;
+    }
+    if (best < 0) return;
+    Stream *s = &st->items[best];
+    s->probe_state = 1;
+    st->probes_started++;
+    st->probe_inflight = 1;
+    ProbeReq *q = malloc(sizeof *q);
+    q->owner = st; q->gen = st->probe_gen; q->url = strdup(s->url);
+    HttpOptions opt = { PROBE_BYTES, 5, 1 };
+    http_request_async_ex(s->url, &opt, on_probe, q);
+}
+
 /* Best-scoring playable source, or -1 when nothing looks safe for this TV. */
 static int recommended(const Streams *st)
 {
     int best = -1;
     for (int i = 0; i < st->n; i++)
-        if (playable(&st->items[i]) && (best < 0 || st->items[i].score > st->items[best].score)) best = i;
+        if (playable(&st->items[i]) && st->items[i].probe_state != 4 && (best < 0 || st->items[i].score > st->items[best].score)) best = i;
     return best >= 0 && st->items[best].score > -500 ? best : -1;
 }
 
@@ -81,7 +152,16 @@ static void sort_items(Streams *st)
 {
     QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
     double runtime = quality_runtime_minutes(st->meta.runtime);
-    for (int i = 0; i < st->n; i++) st->items[i].score = quality_score(&st->items[i].tags, &g_app.tv, &qp, runtime);
+    for (int i = 0; i < st->n; i++) {
+        Stream *s = &st->items[i];
+        s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
+        if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */
+        else if (s->probe_state == 2) {
+            s->score += 60;                                              /* alive and understood */
+            if (s->measured_mbps > 0 && s->file_mbps > s->measured_mbps * 0.85) s->score -= 400 + (long)((s->file_mbps / s->measured_mbps - 0.85) * 400);
+            if (s->probe && s->probe->bit_depth > 8 && s->probe->vcodec == CODEC_AVC) s->score -= 500;   /* 10-bit H.264: no TV decodes it */
+        }
+    }
     for (int i = 1; i < st->n; i++)
         for (int j = i; j > 0 && rank(st, &st->items[j]) < rank(st, &st->items[j - 1]); j--) {
             Stream t = st->items[j]; st->items[j] = st->items[j - 1]; st->items[j - 1] = t;
@@ -227,7 +307,10 @@ static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
     if (st->check_autoplay) { st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return; }
-    if (g_app.auto_recommended && !st->autoplay_group && !st->auto_rec_done && st->n && (st->pending == 0 || g_app.time - st->started > 6)) {
+    if (st->n && !st->autoplay_group && (st->pending == 0 || g_app.time - st->started > 3)) probe_next(st);
+    if (st->probe_inflight) app_redraw();
+    int checks_done = !g_app.preflight || (!st->probe_inflight && (st->probes_started >= PROBE_MAX || g_app.time - st->started > 12));
+    if (g_app.auto_recommended && !st->autoplay_group && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > 6)) {
         int r = recommended(st);
         if (r >= 0) {
             st->auto_rec_done = 1;
@@ -366,7 +449,19 @@ static void draw(Screen *s)
         char head[300];
         snprintf(head, sizeof head, "%s%s%s", sm->addon_name, l1[0] ? "  \xC2\xB7  " : "", l1);
         font_draw_fit(head, x + 90, LIST_Y + 46, FONT_M | FONT_B, THEME_TEXT, w - 320);
-        quality_summary(&sm->tags, runtime, summary, sizeof summary);
+        if (sm->probe_state == 2 && sm->probe) {
+            char d[200];
+            probe_describe(sm->probe, d, sizeof d);
+            if (sm->file_mbps > 0 && sm->measured_mbps > 0) snprintf(summary, sizeof summary, "Verified: %.120s  \xC2\xB7  %.0f Mbit/s (this link gives %.0f)", d, sm->file_mbps, sm->measured_mbps);
+            else if (sm->measured_mbps > 0) snprintf(summary, sizeof summary, "Verified: %.120s  \xC2\xB7  link %.0f Mbit/s", d, sm->measured_mbps);
+            else snprintf(summary, sizeof summary, "Verified: %.150s", d);
+        } else {
+            quality_summary(&sm->tags, runtime, summary, sizeof summary);
+            if (sm->probe_state == 1 || (g_app.preflight && !sm->probe_state && st->probes_started < PROBE_MAX)) {
+                size_t u = strlen(summary);
+                snprintf(summary + u, sizeof summary - u, "%s", summary[0] ? "  \xC2\xB7  checking the file..." : "Checking the file...");
+            }
+        }
         font_draw_fit(summary[0] ? summary : "Playable on this TV", x + 90, LIST_Y + 88, FONT_XS, THEME_TEXT_DIM, w - 320);
         ui_pill("Play", 1, ICON_PLAY, x + w - 170, LIST_Y + (h - 56) / 2, 56, foc ? PILL_PRIMARY : PILL_SECONDARY, foc);
         list_y += REC_H;
@@ -410,6 +505,19 @@ static void draw(Screen *s)
         }
         const char *warn[3];
         int nw = ok ? quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 3) : 0;
+        if (sm->probe_state == 4) {
+            float fw = font_measure("Link not responding", FONT_XS | FONT_B) + 24;
+            bx -= fw + 8;
+            ui_chip("Link not responding", bx, ry + 18, COLOR_ALPHA(THEME_DANGER, 0x30), THEME_DANGER);
+        } else if (sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85) {
+            float fw = font_measure("Too fast for this link", FONT_XS | FONT_B) + 24;
+            bx -= fw + 8;
+            ui_chip("Too fast for this link", bx, ry + 18, COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+        } else if (sm->probe_state == 2 && !nw) {
+            float fw = font_measure("Verified", FONT_XS | FONT_B) + 24;
+            bx -= fw + 8;
+            ui_chip("Verified", bx, ry + 18, COLOR_ALPHA(THEME_OK, 0x30), THEME_OK);
+        }
         if (nw) {
             float fw = font_measure(warn[0], FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
@@ -512,6 +620,7 @@ static void destroy(Screen *s)
 {
     Streams *st = s->st;
     if (g_live == st) { g_live = NULL; g_generation++; }
+    st->probe_gen++;
     if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */
     streams_free(st->items, st->n);
     meta_preview_free(&st->meta);

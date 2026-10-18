@@ -218,9 +218,11 @@ int main(int argc, char **argv)
                 if (a == KEY_NONE) continue;
                 if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); continue; }
                 if (g_app.pip && a == KEY_STOP) { app_pip_close(); continue; }
-                if (g_app.pip && g_pip_focus) {   /* the corner player has the focus */
-                    if (a == KEY_OK) app_pip_restore();
-                    else if (a == KEY_UP || a == KEY_LEFT || a == KEY_BACK) g_pip_focus = 0;
+                if (g_app.pip && g_pip_focus) {   /* the corner player has the focus: 1 = Full screen, 2 = Close */
+                    if (a == KEY_OK) { if (g_pip_focus == 2) app_pip_close(); else app_pip_restore(); }
+                    else if (a == KEY_LEFT) g_pip_focus = 1;
+                    else if (a == KEY_RIGHT) g_pip_focus = 2;
+                    else if (a == KEY_UP || a == KEY_BACK) g_pip_focus = 0;
                     app_redraw();
                     continue;
                 }

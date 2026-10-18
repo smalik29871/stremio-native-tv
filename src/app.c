@@ -591,6 +591,8 @@ static void load_prefs(void)
     if (g_app.quality_mode < 0 || g_app.quality_mode >= QUAL_MODE_COUNT) g_app.quality_mode = QUAL_ADDON_ORDER;
     g_app.res_cap = store_get_int("resCap", 2160);
     g_app.auto_recommended = store_get_int("autoRecommended", 0);
+    g_app.preflight = store_get_int("preflight", 1);
+    g_app.live_scrub = store_get_int("liveScrub", 1);
     tv_profile_load();
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
@@ -611,6 +613,8 @@ void app_save_prefs(void)
     store_set_int("qualityMode", g_app.quality_mode);
     store_set_int("resCap", g_app.res_cap);
     store_set_int("autoRecommended", g_app.auto_recommended);
+    store_set_int("preflight", g_app.preflight);
+    store_set_int("liveScrub", g_app.live_scrub);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();
