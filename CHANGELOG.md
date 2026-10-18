@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.4
+
+- **Breaks as long as the adhan.** Settings > Take breaks > Break length has a new
+  first choice, *Same as the recording*: the break ends when your recording finishes
+  (and the closing dua after it, if you set one), and the countdown shows the
+  recording's own time left. With the chime or silence there is nothing to follow, so
+  such a break lasts one minute. A recording that never starts gives up after 20 s.
+
 ## 0.7.3
 
 - **Episode details where you can read them.** With the episode row focused, the

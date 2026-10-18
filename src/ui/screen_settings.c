@@ -314,7 +314,12 @@ static void draw(Screen *s)
         case IT_BR_DETECT: draw_row(y, ICON_LINK, breaks_detecting() ? "Finding your location\xE2\x80\xA6" : "Find my location from the internet", "Uses ip-api.com; usually right to the city", foc, KIND_ACTION, 0); break;
         case IT_BR_TODAY: { char t[300]; breaks_describe_today(t, sizeof t); draw_row(y, ICON_CALENDAR, "Today", t, foc, KIND_ACTION, 0); break; }
         case IT_BR_LEAD: snprintf(v, sizeof v, "%d min before", g_app.break_lead_min); draw_row(y, ICON_CLOCK, "Reminder banner", v, foc, KIND_CHOICE, 0); break;
-        case IT_BR_LEN: if (g_app.break_len_min) snprintf(v, sizeof v, "%d min", g_app.break_len_min); else snprintf(v, sizeof v, "Until I press OK"); draw_row(y, ICON_CLOCK, "Break length", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_LEN:
+            if (g_app.break_len_min < 0) snprintf(v, sizeof v, "%s", g_app.break_sound == 1 ? "Same as the recording" : "Same as the recording (1 min)");
+            else if (g_app.break_len_min) snprintf(v, sizeof v, "%d min", g_app.break_len_min);
+            else snprintf(v, sizeof v, "Until I press OK");
+            draw_row(y, ICON_CLOCK, "Break length", v, foc, KIND_CHOICE, 0);
+            break;
         case IT_BR_SOUND: { static const char *S[] = { "Soft chime", "My own recording", "Silent" }; draw_row(y, ICON_AUDIO, "Sound", S[g_app.break_sound], foc, KIND_CHOICE, 0); break; }
         case IT_BR_AUDIO: draw_row(y, ICON_AUDIO, "Recording at the start", !g_app.break_audio ? "Not set  \xC2\xB7  send one from your phone, or a link (adhan, bell, chant)" : strncmp(g_app.break_audio, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_audio, foc, KIND_ACTION, 0); break;
         case IT_BR_END: draw_row(y, ICON_AUDIO, "Recording at the end", !g_app.break_end ? "Not set  \xC2\xB7  played before playback continues (a dua, a closing bell)" : strncmp(g_app.break_end, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_end, foc, KIND_ACTION, 0); break;
@@ -579,7 +584,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_BR_METHOD: g_app.break_method = (g_app.break_method + dir + SUN_METHOD_COUNT) % SUN_METHOD_COUNT; break;
     case IT_BR_ASR: g_app.break_asr_hanafi = !g_app.break_asr_hanafi; break;
     case IT_BR_LEAD: { static const int L[] = { 1, 2, 3, 5, 10, 15 }; int k = 3; for (int i = 0; i < 6; i++) if (L[i] == g_app.break_lead_min) k = i; g_app.break_lead_min = L[(k + dir + 6) % 6]; break; }
-    case IT_BR_LEN: { static const int L[] = { 0, 3, 5, 10, 15, 20, 30 }; int k = 3; for (int i = 0; i < 7; i++) if (L[i] == g_app.break_len_min) k = i; g_app.break_len_min = L[(k + dir + 7) % 7]; break; }
+    case IT_BR_LEN: { static const int L[] = { -1, 0, 3, 5, 10, 15, 20, 30 }; int k = 4; for (int i = 0; i < 8; i++) if (L[i] == g_app.break_len_min) k = i; g_app.break_len_min = L[(k + dir + 8) % 8]; break; }
     case IT_BR_SOUND: g_app.break_sound = (g_app.break_sound + dir + 3) % 3; break;
     case IT_BR_HEALTH: { static const int L[] = { 0, 30, 45, 60, 90, 120 }; int k = 0; for (int i = 0; i < 6; i++) if (L[i] == g_app.break_health_min) k = i; g_app.break_health_min = L[(k + dir + 6) % 6]; break; }
     case IT_BR_HEALTH_LEN: { static const int L[] = { 2, 3, 5, 10 }; int k = 1; for (int i = 0; i < 4; i++) if (L[i] == g_app.break_health_len) k = i; g_app.break_health_len = L[(k + dir + 4) % 4]; break; }
