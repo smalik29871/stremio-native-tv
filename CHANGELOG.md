@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.6
+
+- **No more stray strips while scrolling Home.** A row sliding off the top was cut
+  hard at the edge, and the last strip of a Continue Watching card (its dark shade,
+  progress line and episode number) floated under the synopsis like a glitch. Rows now
+  fade out as they reach the edge and fade back in on the way down. The shade on a
+  Continue card also follows the card's rounded corners (a square one showed past
+  them, most in Duotone), and in Marquee its text and progress rise with the focused
+  card.
+
 ## 0.7.5
 
 - **Breaks as long as the adhan.** Settings > Take breaks > Break length has a new

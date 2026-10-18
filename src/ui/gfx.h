@@ -64,6 +64,8 @@ void gfx_tex_blur(unsigned tex, float x, float y, float w, float h, float u0, fl
 
 /* Everything drawn afterwards is shifted by (dx, dy) UI units (screen transitions). */
 void gfx_set_translate(float dx, float dy);
+/* Multiplies the alpha of everything drawn afterwards (1 = as drawn). */
+void gfx_set_alpha(float a);
 void gfx_clip_push(float x, float y, float w, float h);
 void gfx_clip_pop(void);
 

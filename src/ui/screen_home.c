@@ -495,11 +495,10 @@ static void draw_row(Home *h, int ri, float y)
             if (r->kind == ROW_CONTINUE) {
                 const char *bg = app_art_background(m, buf, sizeof buf);
                 ui_card(bg, px, cy, cw, ch, f, dim, m->name, 0);
-                float sc = ui_focus_scale(f), w2 = cw * sc, h2 = ch * sc, x2 = px - (w2 - cw) / 2, y2 = cy - (h2 - ch) / 2;
-                /* label + progress inside the card */
-                gfx_clip_push(x2, y2, w2, h2);
-                gfx_gradient_v(x2, y2 + h2 * 0.45f, w2, h2 * 0.55f + 1, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
-                gfx_clip_pop();
+                float sc = ui_focus_scale(f), w2 = cw * sc, h2 = ch * sc, x2 = px - (w2 - cw) / 2, y2 = cy - (h2 - ch) / 2 - ui_focus_lift(f);
+                /* label + progress inside the card; the shade takes the card's own corners
+                 * (a clipped square one showed past them) */
+                gfx_rrect_grad_v(x2, y2 + h2 * 0.45f, w2, h2 * 0.55f, R_CARD, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
                 LibraryItem *li = app_library_find(m->id);
                 char sub[64] = "";
                 if (li && li->video_id) {
@@ -558,7 +557,16 @@ static void draw(Screen *s)
         Row *r = h->rows[i];
         if (!row_visible(r)) continue;
         float rh = row_h(r);
-        if (y + rh > rows_y() - 40 && y < SNTV_UI_H) draw_row(h, i, y);
+        /* A row sliding off the top fades as its cards reach the edge instead of being
+         * sliced there (the last strip of a Continue card read as a floating bar). */
+        float edge = rows_y() - 24, bottom = y + TITLE_H + card_h(r);
+        float a = (bottom - edge) / card_h(r);
+        a = a < 1 ? a * a : 1;   /* a thin strip left at the edge is all but invisible */
+        if (a > 0.01f && y < SNTV_UI_H) {
+            gfx_set_alpha(a);
+            draw_row(h, i, y);
+            gfx_set_alpha(1);
+        }
         y += rh;
     }
     gfx_clip_pop();

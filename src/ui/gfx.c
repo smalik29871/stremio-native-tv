@@ -23,6 +23,7 @@ static GLint g_a_pos, g_a_uv, g_a_loc, g_a_col, g_a_sdf, g_a_misc, g_u_tex, g_u_
 static int g_draw_w, g_draw_h;
 static float g_scale, g_off_x, g_off_y, g_aa;
 static float g_tx, g_ty;   /* UI-space translation */
+static float g_alpha = 1;  /* fades everything drawn (a row leaving the screen) */
 static Vtx g_v[MAXQ * 4];
 static int g_nq, g_calls, g_last_calls;
 static GLuint g_cur_tex;
@@ -234,7 +235,8 @@ static void push(const float px[4], const float py[4], const float uv[8], const 
         v[i].x = px[i] + g_tx; v[i].y = py[i] + g_ty;
         v[i].u = uv[i * 2]; v[i].v = uv[i * 2 + 1];
         v[i].lx = LX[i]; v[i].ly = LY[i];
-        v[i].r = (GLubyte)(c[i] >> 24); v[i].g = (GLubyte)(c[i] >> 16); v[i].b = (GLubyte)(c[i] >> 8); v[i].a = (GLubyte)c[i];
+        v[i].r = (GLubyte)(c[i] >> 24); v[i].g = (GLubyte)(c[i] >> 16); v[i].b = (GLubyte)(c[i] >> 8);
+        v[i].a = g_alpha < 1 ? (GLubyte)((c[i] & 0xFF) * g_alpha + 0.5f) : (GLubyte)c[i];
         v[i].sx = sx; v[i].sy = sy; v[i].rad = rad; v[i].soft = soft;
         v[i].mode = (float)mode; v[i].extra = extra;
     }
@@ -363,6 +365,7 @@ static void apply_clip(void)
 }
 
 void gfx_set_translate(float dx, float dy) { if (dx != g_tx || dy != g_ty) { flush(); g_tx = dx; g_ty = dy; } }
+void gfx_set_alpha(float a) { g_alpha = a < 0 ? 0 : a > 1 ? 1 : a; }
 
 void gfx_clip_push(float x, float y, float w, float h)
 {
