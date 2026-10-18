@@ -1,4 +1,7 @@
 #include "app.h"
+#include "audio.h"
+#include "breaks.h"
+#include "phone.h"
 #include "ui/widgets.h"
 #include "http.h"
 #include "image.h"
@@ -202,6 +205,8 @@ int main(int argc, char **argv)
     }
     if (http_init() != 0) LOGE("network unavailable: libcurl missing");
     image_init(dir, image_budget());
+    audio_init();
+    phone_start();
     if (video_init(win) != 0) LOGW("video backend failed to initialise");
     LOGI("video backend: %s", video_backend_name());
     app_init();
@@ -269,6 +274,8 @@ int main(int argc, char **argv)
         if (g_app.pip) { player_pip_update(g_app.pip, dt); if (g_app.pip && player_pip_done(g_app.pip)) app_pip_close(); }
         top = app_top();   /* update() may have popped or replaced the screen */
 
+        breaks_tick(dt);
+        top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }
 
@@ -283,6 +290,7 @@ int main(int argc, char **argv)
             if (top && strcmp(top->name, "player") != 0 && strcmp(top->name, "ambient") != 0) ui_clock_pill();   /* the player shows it with its controls */
             if (!g_app.pip) g_pip_focus = 0;
             if (g_app.pip) player_pip_draw(g_app.pip, g_pip_focus);
+            if (top && strcmp(top->name, "break") != 0 && strcmp(top->name, "pin") != 0) breaks_draw_banner();
             app_draw_toast();
             dev_hooks(win, frame++);
             gfx_end_frame();
@@ -297,6 +305,8 @@ int main(int argc, char **argv)
 
     app_shutdown();
     video_shutdown();
+    audio_shutdown();
+    phone_stop();
     image_shutdown();
     http_shutdown();
     font_shutdown();

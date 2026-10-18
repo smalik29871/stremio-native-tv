@@ -80,6 +80,12 @@ typedef struct App {
     int memory_mode;           /* 0 automatic, 1 low, 2 normal */
     int low_memory;            /* effective: fewer rows and posters kept */
     int transitions;           /* animated screen changes */
+    /* take breaks (breaks.h) */
+    int breaks_on, break_sched, break_method, break_asr_hanafi;
+    int break_lead_min, break_len_min, break_sound;   /* sound: 0 chime, 1 custom audio, 2 silent */
+    char *break_audio, *break_end;                    /* URLs played at the start and the end */
+    int break_health_min, break_health_len, break_bed, break_custom[3], breaks_everywhere;
+    double break_lat, break_lon; char break_city[64];
     int home_rows_version;     /* bumped when rows are reordered or hidden */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
@@ -184,6 +190,7 @@ Screen *screen_settings_create(void);
 Screen *screen_diagnostics_create(int playback_only);
 Screen *screen_welcome_create(void);   /* first-run setup */
 Screen *screen_pin_create(const char *title, int setting, void (*done)(int ok, void *user), void *user);
+Screen *screen_break_create(const char *name, const char *detail, int kind);
 Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + clock */
 
 /* Picture-in-picture: Back in the player parks the video in a corner and keeps it
@@ -199,6 +206,7 @@ void player_pip_update(Screen *s, float dt);
 void player_pip_draw(Screen *s, int focused);
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);
+void player_reload_at(Screen *s, double position_s);   /* the same source again from `position_s` (after a break) */
 
 /* Fetch an episode's streams ahead of time so Up Next starts without a spinner. */
 void streams_prefetch(const MetaPreview *meta, const char *video_id);

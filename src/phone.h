@@ -1,0 +1,15 @@
+/* Type on your phone: a tiny web page served by the TV on the home network. When a
+ * text field is open on the TV it shows a QR code; the phone opens the page, the
+ * viewer pastes the key or URL there, and it lands in the field. Nothing leaves
+ * the network and the page only accepts text while a field is open. */
+#ifndef SNTV_PHONE_H
+#define SNTV_PHONE_H
+#include <stddef.h>
+void phone_start(void);                          /* listens on 11471 (or the next free port) */
+void phone_stop(void);
+int  phone_url(char *out, size_t n);             /* "http://192.168.1.20:11471/" or 0 when not listening */
+/* The field the page offers; NULL title closes it. */
+void phone_prompt(const char *title, const char *hint, const char *current);
+/* 1 when the phone sent text for the open field (copied into out). */
+int  phone_take(char *out, size_t n);
+#endif

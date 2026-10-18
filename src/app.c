@@ -876,6 +876,25 @@ static void load_prefs(void)
     { const char *t = store_get_str("thumbServer", NULL); free(g_app.thumb_server); g_app.thumb_server = t && *t ? strdup(t) : NULL; }
     { const char *t = store_get_str("tmdbKey", NULL); free(g_app.tmdb_key); g_app.tmdb_key = t && *t ? strdup(t) : NULL; }
     g_app.memory_mode = store_get_int("memoryMode", 0);
+    g_app.breaks_on = store_get_int("breaksOn", 0);
+    g_app.break_sched = store_get_int("breakSched", 0);
+    g_app.break_method = store_get_int("breakMethod", 0);
+    g_app.break_asr_hanafi = store_get_int("breakAsr", 0);
+    g_app.break_lead_min = store_get_int("breakLead", 5);
+    g_app.break_len_min = store_get_int("breakLen", 10);
+    g_app.break_sound = store_get_int("breakSound", 0);
+    g_app.break_health_min = store_get_int("breakHealth", 0);
+    g_app.break_health_len = store_get_int("breakHealthLen", 3);
+    g_app.break_bed = store_get_int("breakBed", -1);
+    g_app.break_custom[0] = store_get_int("breakCustom1", -1);
+    g_app.break_custom[1] = store_get_int("breakCustom2", -1);
+    g_app.break_custom[2] = store_get_int("breakCustom3", -1);
+    g_app.breaks_everywhere = store_get_int("breaksEverywhere", 0);
+    g_app.break_lat = atof(store_get_str("breakLat", "0"));
+    g_app.break_lon = atof(store_get_str("breakLon", "0"));
+    snprintf(g_app.break_city, sizeof g_app.break_city, "%s", store_get_str("breakCity", ""));
+    { const char *t = store_get_str("breakAudio", NULL); free(g_app.break_audio); g_app.break_audio = t && *t ? strdup(t) : NULL; }
+    { const char *t = store_get_str("breakEnd", NULL); free(g_app.break_end); g_app.break_end = t && *t ? strdup(t) : NULL; }
     g_app.transitions = store_get_int("transitions", 1);
     {
         FILE *f = fopen("/proc/meminfo", "r"); long kb = 0;
@@ -912,6 +931,24 @@ void app_save_prefs(void)
     store_set_str("thumbServer", g_app.thumb_server && *g_app.thumb_server ? g_app.thumb_server : NULL);
     store_set_str("tmdbKey", g_app.tmdb_key && *g_app.tmdb_key ? g_app.tmdb_key : NULL);
     store_set_int("memoryMode", g_app.memory_mode);
+    store_set_int("breaksOn", g_app.breaks_on);
+    store_set_int("breakSched", g_app.break_sched);
+    store_set_int("breakMethod", g_app.break_method);
+    store_set_int("breakAsr", g_app.break_asr_hanafi);
+    store_set_int("breakLead", g_app.break_lead_min);
+    store_set_int("breakLen", g_app.break_len_min);
+    store_set_int("breakSound", g_app.break_sound);
+    store_set_int("breakHealth", g_app.break_health_min);
+    store_set_int("breakHealthLen", g_app.break_health_len);
+    store_set_int("breakBed", g_app.break_bed);
+    store_set_int("breakCustom1", g_app.break_custom[0]);
+    store_set_int("breakCustom2", g_app.break_custom[1]);
+    store_set_int("breakCustom3", g_app.break_custom[2]);
+    store_set_int("breaksEverywhere", g_app.breaks_everywhere);
+    { char b[32]; snprintf(b, sizeof b, "%.5f", g_app.break_lat); store_set_str("breakLat", b); snprintf(b, sizeof b, "%.5f", g_app.break_lon); store_set_str("breakLon", b); }
+    store_set_str("breakCity", g_app.break_city[0] ? g_app.break_city : NULL);
+    store_set_str("breakAudio", g_app.break_audio && *g_app.break_audio ? g_app.break_audio : NULL);
+    store_set_str("breakEnd", g_app.break_end && *g_app.break_end ? g_app.break_end : NULL);
     store_set_int("transitions", g_app.transitions);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);

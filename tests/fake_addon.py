@@ -225,6 +225,8 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/tmdbimg/"):
             i = int(p.rsplit("/p", 1)[1].split(".")[0]) if "/p" in p else 0
             return self.send(200, art("poster", i + 2, ""), "image/png")
+        if p.startswith("/ipapi"):
+            return self.send(200, json.dumps({"status": "success", "city": "Makkah", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
         if p.startswith("/thumbs/frame"):   # the seek preview server (tools/thumbs) stands in
             t = int(float(p.split("t=")[1].split("&")[0])) if "t=" in p else 0
             return self.send(200, art("bg", (t // 10) % 6, f"{t // 60}:{t % 60:02d}"), "image/png")

@@ -1589,6 +1589,7 @@ void player_set_pip(Screen *s, int on)
 }
 
 void player_pip_update(Screen *s, float dt) { update(s, dt); }
+void player_reload_at(Screen *s, double position_s) { Player *p = s->st; start_candidate(p, p->cur, position_s); }
 int player_pip_done(Screen *s) { return ((Player *)s->st)->pip_done; }
 const char *player_video_id(Screen *s) { return ((Player *)s->st)->video_id; }
 

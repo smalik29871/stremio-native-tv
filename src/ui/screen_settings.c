@@ -2,6 +2,10 @@
  * choice, OK toggles or opens, Back returns to the categories. Home rows can be
  * reordered and hidden; addons can be reordered (synced to the account). */
 #include "../app.h"
+#include "../breaks.h"
+#include "../phone.h"
+#include "qrcodegen.h"
+#include "../suntimes.h"
 #include "../image.h"
 #include "../lang.h"
 #include "../log.h"
@@ -16,11 +20,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_KEYS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
-static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "API keys", "Parental", "About" };
+enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_BREAKS, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_KEYS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
+static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Take breaks", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "API keys", "Parental", "About" };
 static const char *const CAT_DESC[CAT_COUNT] = {
     "Your Stremio account and the streaming server for torrents.",
     "What happens while a video plays.",
+    "Pause for what matters: prayer times computed for your place, a stretch, bedtime, or your own times. A banner warns first; playback continues by itself.",
     "Preferred languages and how subtitles look.",
     "How sources are ranked and checked for this TV.",
     "The look of the app.",
@@ -29,13 +34,15 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "Your own keys for services that need one. Each unlocks a feature; nothing is asked without a key.",
     "A PIN that keeps Settings closed and adult addons out of the catalogs.",
     "Logs, device information and setup." };
-static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LINK, ICON_LOCK, ICON_INFO };
+static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LINK, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS,
+       IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
        IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END };
 enum { MAX_ROWS = 160 };
 #define ROW_H 88.0f
 #define COL_X 560.0f
@@ -50,6 +57,7 @@ typedef struct {
     Keyboard kb;
     float scroll, scroll_target;
     float pane_t; int pane_cat;   /* rows slide in when the category changes */
+    uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* type on your phone */
     HomeRowDef rows[MAX_ROWS]; int n_rows; int rows_seen;
     char accounts[8][128]; int n_accounts;
 } Settings;
@@ -70,6 +78,15 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; break;
     case CAT_INTERFACE: ids[n++] = IT_HOME_STYLE; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
     case CAT_KEYS: ids[n++] = IT_TMDB; break;
+    case CAT_BREAKS:
+        ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
+        if (g_app.break_sched == BRK_ISLAM) { ids[n++] = IT_BR_METHOD; ids[n++] = IT_BR_ASR; }
+        ids[n++] = IT_BR_LOCATION; ids[n++] = IT_BR_DETECT; ids[n++] = IT_BR_TODAY;
+        ids[n++] = IT_BR_LEAD; ids[n++] = IT_BR_LEN; ids[n++] = IT_BR_SOUND;
+        if (g_app.break_sound == 1) { ids[n++] = IT_BR_AUDIO; ids[n++] = IT_BR_END; }
+        ids[n++] = IT_BR_HEALTH; if (g_app.break_health_min) ids[n++] = IT_BR_HEALTH_LEN;
+        ids[n++] = IT_BR_BED; ids[n++] = IT_BR_CUSTOM1; ids[n++] = IT_BR_CUSTOM2; ids[n++] = IT_BR_CUSTOM3; ids[n++] = IT_BR_WHERE;
+        break;
     case CAT_ROWS:
         if (st->rows_seen != g_app.home_rows_version + g_app.addons_version * 1000) { st->n_rows = app_home_rows(st->rows, MAX_ROWS); st->rows_seen = g_app.home_rows_version + g_app.addons_version * 1000; }
         for (int i = 0; i < st->n_rows && n < max; i++) ids[n++] = IT_ROWS_BASE + i;
@@ -118,9 +135,16 @@ static void draw_row(float y, Icon icon, const char *title, const char *value, i
     if (value) font_draw_fit(value, x + w * 0.52f, y + (h - font_height(FONT_S)) / 2, FONT_S, dim, w * 0.48f - 40);
 }
 
+static void finish_edit(Settings *st, int save);
+static const char *edit_title(int which);
+static const char *edit_hint(int which);
 static void update(Screen *s, float dt)
 {
     Settings *st = s->st;
+    if (st->edit != EDIT_NONE) {   /* text sent from the phone fills the field and saves */
+        char got[600];
+        if (phone_take(got, sizeof got)) { snprintf(st->kb.text, sizeof st->kb.text, "%.255s", got); app_toast("Received from your phone"); finish_edit(st, 1); app_redraw(); }
+    }
     int first = st->focus - 7;
     st->scroll_target = (first < 0 ? 0 : first) * (float)ROW_H;
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 12);
@@ -150,11 +174,7 @@ static void draw(Screen *s)
     draw_categories(st);
 
     if (st->edit != EDIT_NONE) {
-        const char *title = st->edit == EDIT_SERVER ? "Streaming server URL" : st->edit == EDIT_THUMBS ? "Seek preview server" : st->edit == EDIT_TMDB ? "TMDB API key" : "Addon manifest URL";
-        const char *hint = st->edit == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
-                         : st->edit == EDIT_THUMBS ? "tools/thumbs/server.py on a computer or NAS with ffmpeg, e.g. http://192.168.1.10:11480. Empty turns previews off."
-                         : st->edit == EDIT_TMDB ? "Free at themoviedb.org > Settings > API (the v3 key, 32 characters). Empty removes it."
-                         : "Paste or type the addon's manifest.json address";
+        const char *title = edit_title(st->edit), *hint = edit_hint(st->edit);
         float x = COL_X;
         font_draw(title, x, 100, FONT_L | FONT_B, THEME_TEXT);
         font_draw(hint, x, 156, FONT_S, THEME_TEXT_DIM);
@@ -162,6 +182,19 @@ static void draw(Screen *s)
         font_draw_fit(st->kb.text[0] ? st->kb.text : " ", x + 32, 210 + (76 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT, keyboard_width() - 64);
         keyboard_draw(&st->kb, x, 320, 1);
         font_draw("Done saves  \xC2\xB7  Back cancels", x, 320 + keyboard_height() + 30, FONT_S, THEME_TEXT_MUTED);
+        if (st->qr_ready) {   /* or type it on the phone */
+            float qx = x + keyboard_width() + 70, qy = 320, qs = 250;
+            if (qx + qs < SNTV_UI_W - 40) {
+                int n = qrcodegen_getSize(st->qr);
+                float cell = qs / (n + 4), off = (qs - cell * n) / 2;
+                gfx_rrect(qx, qy, qs, qs, 20, RGBA(255, 255, 255, 255));
+                for (int ry = 0; ry < n; ry++) for (int rx = 0; rx < n; rx++)
+                    if (qrcodegen_getModule(st->qr, rx, ry)) gfx_rect(qx + off + rx * cell, qy + off + ry * cell, cell + 0.6f, cell + 0.6f, RGBA(0x0B, 0x0A, 0x16, 255));
+                font_draw("Or type it on your phone", qx, qy + qs + 22, FONT_S | FONT_B, THEME_TEXT);
+                font_draw_wrapped("Scan, paste the text, Send. It lands here and saves.", qx, qy + qs + 56, FONT_XS, THEME_TEXT_DIM, 380, 2);
+                font_draw(st->phone_url, qx, qy + qs + 112, FONT_XS, THEME_TEXT_MUTED);
+            }
+        }
         return;
     }
 
@@ -233,6 +266,34 @@ static void draw(Screen *s)
             break;
         }
         case IT_TRANSITIONS: draw_row(y, ICON_STAR, "Animated screen changes", NULL, foc, KIND_TOGGLE, g_app.transitions); break;
+        case IT_BR_TEST: draw_row(y, ICON_PLAY, "Try a break now", "See and hear what a break looks like", foc, KIND_ACTION, 0); break;
+        case IT_BR_ON: draw_row(y, ICON_CLOCK, "Take breaks", NULL, foc, KIND_TOGGLE, g_app.breaks_on); break;
+        case IT_BR_SCHED: draw_row(y, ICON_CALENDAR, "Schedule", BRK_SCHED_NAMES[g_app.break_sched], foc, KIND_CHOICE, 0); break;
+        case IT_BR_METHOD: draw_row(y, ICON_COMPASS, "Calculation method", SUN_METHOD_NAMES[g_app.break_method], foc, KIND_CHOICE, 0); break;
+        case IT_BR_ASR: draw_row(y, ICON_COMPASS, "Asr", g_app.break_asr_hanafi ? "Hanafi (later)" : "Standard (Shafi, Maliki, Hanbali)", foc, KIND_CHOICE, 0); break;
+        case IT_BR_LOCATION:
+            if (breaks_location_known()) snprintf(v, sizeof v, "%.3f, %.3f%s%s", g_app.break_lat, g_app.break_lon, g_app.break_city[0] ? "  \xC2\xB7  " : "", g_app.break_city);
+            else snprintf(v, sizeof v, "Not set  \xC2\xB7  needed for sun-based times");
+            draw_row(y, ICON_COMPASS, "Location", v, foc, KIND_ACTION, 0);
+            break;
+        case IT_BR_DETECT: draw_row(y, ICON_LINK, breaks_detecting() ? "Finding your location\xE2\x80\xA6" : "Find my location from the internet", "Uses ip-api.com; usually right to the city", foc, KIND_ACTION, 0); break;
+        case IT_BR_TODAY: { char t[300]; breaks_describe_today(t, sizeof t); draw_row(y, ICON_CALENDAR, "Today", t, foc, KIND_ACTION, 0); break; }
+        case IT_BR_LEAD: snprintf(v, sizeof v, "%d min before", g_app.break_lead_min); draw_row(y, ICON_CLOCK, "Reminder banner", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_LEN: if (g_app.break_len_min) snprintf(v, sizeof v, "%d min", g_app.break_len_min); else snprintf(v, sizeof v, "Until I press OK"); draw_row(y, ICON_CLOCK, "Break length", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_SOUND: { static const char *S[] = { "Soft chime", "My own recording", "Silent" }; draw_row(y, ICON_AUDIO, "Sound", S[g_app.break_sound], foc, KIND_CHOICE, 0); break; }
+        case IT_BR_AUDIO: draw_row(y, ICON_AUDIO, "Recording at the start", g_app.break_audio ? g_app.break_audio : "Not set  \xC2\xB7  URL of an MP3 (adhan, bell, chant)", foc, KIND_ACTION, 0); break;
+        case IT_BR_END: draw_row(y, ICON_AUDIO, "Recording at the end", g_app.break_end ? g_app.break_end : "Not set  \xC2\xB7  played before playback continues", foc, KIND_ACTION, 0); break;
+        case IT_BR_HEALTH: if (g_app.break_health_min) snprintf(v, sizeof v, "Every %d min of watching", g_app.break_health_min); else snprintf(v, sizeof v, "Off"); draw_row(y, ICON_STAR, "Stretch reminder", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_HEALTH_LEN: snprintf(v, sizeof v, "%d min", g_app.break_health_len); draw_row(y, ICON_STAR, "Stretch length", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_BED: if (g_app.break_bed >= 0) snprintf(v, sizeof v, "%d:%02d", g_app.break_bed / 60, g_app.break_bed % 60); else snprintf(v, sizeof v, "Off"); draw_row(y, ICON_CLOCK, "Bedtime (playback stops)", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3: {
+            int m = g_app.break_custom[id - IT_BR_CUSTOM1]; char t[32];
+            snprintf(t, sizeof t, "My time %d", id - IT_BR_CUSTOM1 + 1);
+            if (m >= 0) snprintf(v, sizeof v, "%d:%02d", m / 60, m % 60); else snprintf(v, sizeof v, "Off");
+            draw_row(y, ICON_CLOCK, t, v, foc, KIND_CHOICE, 0);
+            break;
+        }
+        case IT_BR_WHERE: draw_row(y, ICON_HOME, "Breaks apply", g_app.breaks_everywhere ? "Everywhere in the app" : "Only while a video plays", foc, KIND_CHOICE, 0); break;
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_HOME_STYLE: draw_row(y, ICON_HOME, "Home screen", HOME_STYLE_NAMES[g_app.home_style], foc, KIND_CHOICE, 0); break;
         case IT_HIDE_WATCHED: draw_row(y, ICON_CHECK, "Hide watched titles in catalogs", NULL, foc, KIND_TOGGLE, g_app.hide_watched); break;
@@ -287,11 +348,43 @@ static void draw(Screen *s)
     }
 }
 
+static const char *edit_title(int which)
+{
+    return which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Seek preview server" : which == EDIT_TMDB ? "TMDB API key"
+         : which == EDIT_LOCATION ? "Your location" : which == EDIT_BR_AUDIO ? "Audio at the start of a break" : which == EDIT_BR_END ? "Audio at the end of a break" : "Addon manifest URL";
+}
+static const char *edit_hint(int which)
+{
+    return which == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
+         : which == EDIT_THUMBS ? "tools/thumbs/server.py on a computer or NAS with ffmpeg, e.g. http://192.168.1.10:11480. Empty turns previews off."
+         : which == EDIT_TMDB ? "Free at themoviedb.org > Settings > API (the v3 key, 32 characters). Empty removes it."
+         : which == EDIT_LOCATION ? "Latitude, longitude  (e.g. 51.5074, -0.1278). Maps apps show them when you long-press a spot."
+         : which == EDIT_BR_AUDIO ? "A recording you have the right to use (an adhan, a bell, a chant): http(s) URL of an MP3 or M4A"
+         : which == EDIT_BR_END ? "Played when the break ends, before playback continues (a dua, a closing bell). Empty for none"
+         : "Paste or type the addon's manifest.json address";
+}
+
+static void phone_qr_make(Settings *st)
+{
+    st->qr_ready = 0;
+    char url[96];
+    if (!phone_url(url, sizeof url)) return;
+    uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
+    st->qr_ready = qrcodegen_encodeText(url, tmp, st->qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
+    snprintf(st->phone_url, sizeof st->phone_url, "%s", url);
+}
+
 static void begin_edit(Settings *st, int which)
 {
     st->edit = which;
-    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : which == EDIT_THUMBS ? (g_app.thumb_server ? g_app.thumb_server : "http://") : which == EDIT_TMDB ? (g_app.tmdb_key ? g_app.tmdb_key : "") : "https://");
+    char loc[64] = "";
+    if (breaks_location_known()) snprintf(loc, sizeof loc, "%.4f, %.4f", g_app.break_lat, g_app.break_lon);
+    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : which == EDIT_THUMBS ? (g_app.thumb_server ? g_app.thumb_server : "http://")
+                  : which == EDIT_TMDB ? (g_app.tmdb_key ? g_app.tmdb_key : "") : which == EDIT_LOCATION ? loc
+                  : which == EDIT_BR_AUDIO ? (g_app.break_audio ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end ? g_app.break_end : "https://") : "https://");
     SDL_StartTextInput();
+    phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
+    phone_qr_make(st);
 }
 
 static void finish_edit(Settings *st, int save)
@@ -315,6 +408,16 @@ static void finish_edit(Settings *st, int save)
             g_app.tmdb_key = n >= 20 ? strdup(v) : NULL;
             app_save_prefs();
             app_toast(g_app.tmdb_key ? "TMDB key saved: cast photos and age ratings on" : n ? "That does not look like a TMDB key" : "TMDB key removed");
+        } else if (st->edit == EDIT_LOCATION) {
+            double la, lo;
+            if (sscanf(st->kb.text, " %lf , %lf", &la, &lo) == 2 && la >= -90 && la <= 90 && lo >= -180 && lo <= 180) { breaks_set_location(la, lo, ""); app_toast("Location saved"); }
+            else if (!st->kb.text[0]) { breaks_set_location(0, 0, ""); app_toast("Location cleared"); }
+            else app_toast("Please enter latitude, longitude");
+        } else if (st->edit == EDIT_BR_AUDIO || st->edit == EDIT_BR_END) {
+            char **slot = st->edit == EDIT_BR_AUDIO ? &g_app.break_audio : &g_app.break_end;
+            free(*slot);
+            *slot = strlen(st->kb.text) > 10 ? strdup(st->kb.text) : NULL;
+            app_save_prefs();
         } else if (st->edit == EDIT_THUMBS) {
             char *v = st->kb.text;
             size_t n = strlen(v);
@@ -329,6 +432,7 @@ static void finish_edit(Settings *st, int save)
     }
     st->edit = EDIT_NONE;
     SDL_StopTextInput();
+    phone_prompt(NULL, NULL, NULL);
 }
 
 /* Left/Right on a row. Returns 1 when the row took it. */
@@ -367,6 +471,29 @@ static int adjust(Settings *st, int id, int dir)
         break;
     }
     case IT_TMDB: return 1;
+    case IT_BR_ON: g_app.breaks_on = !g_app.breaks_on; break;
+    case IT_BR_SCHED: g_app.break_sched = (g_app.break_sched + dir + BRK_SCHED_COUNT) % BRK_SCHED_COUNT; break;
+    case IT_BR_METHOD: g_app.break_method = (g_app.break_method + dir + SUN_METHOD_COUNT) % SUN_METHOD_COUNT; break;
+    case IT_BR_ASR: g_app.break_asr_hanafi = !g_app.break_asr_hanafi; break;
+    case IT_BR_LEAD: { static const int L[] = { 1, 2, 3, 5, 10, 15 }; int k = 3; for (int i = 0; i < 6; i++) if (L[i] == g_app.break_lead_min) k = i; g_app.break_lead_min = L[(k + dir + 6) % 6]; break; }
+    case IT_BR_LEN: { static const int L[] = { 0, 3, 5, 10, 15, 20, 30 }; int k = 3; for (int i = 0; i < 7; i++) if (L[i] == g_app.break_len_min) k = i; g_app.break_len_min = L[(k + dir + 7) % 7]; break; }
+    case IT_BR_SOUND: g_app.break_sound = (g_app.break_sound + dir + 3) % 3; break;
+    case IT_BR_HEALTH: { static const int L[] = { 0, 30, 45, 60, 90, 120 }; int k = 0; for (int i = 0; i < 6; i++) if (L[i] == g_app.break_health_min) k = i; g_app.break_health_min = L[(k + dir + 6) % 6]; break; }
+    case IT_BR_HEALTH_LEN: { static const int L[] = { 2, 3, 5, 10 }; int k = 1; for (int i = 0; i < 4; i++) if (L[i] == g_app.break_health_len) k = i; g_app.break_health_len = L[(k + dir + 4) % 4]; break; }
+    case IT_BR_BED: {   /* Off, 20:00 ... 23:30, 0:00, 0:30, 1:00 */
+        static const int L[] = { -1, 1200, 1230, 1260, 1290, 1320, 1350, 1380, 1410, 0, 30, 60 };
+        int k = 0; for (int i = 0; i < 12; i++) if (L[i] == g_app.break_bed) k = i;
+        g_app.break_bed = L[(k + dir + 12) % 12];
+        break;
+    }
+    case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3: {
+        int *m = &g_app.break_custom[id - IT_BR_CUSTOM1];
+        *m = *m < 0 ? (dir > 0 ? 0 : 23 * 60 + 45) : *m + dir * 15;
+        if (*m >= 24 * 60 || *m < 0) *m = -1;
+        break;
+    }
+    case IT_BR_WHERE: g_app.breaks_everywhere = !g_app.breaks_everywhere; break;
+    case IT_BR_TEST: case IT_BR_LOCATION: case IT_BR_DETECT: case IT_BR_TODAY: case IT_BR_AUDIO: case IT_BR_END: return 1;
     case IT_PIN_SETTINGS: case IT_HIDE_ADULT: case IT_PIN: case IT_THUMBS: return 1;   /* OK (with the PIN) changes these */
     case IT_OLED: g_app.oled = !g_app.oled; break;
     case IT_AMBIENT: {
@@ -439,6 +566,12 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));
         else if (id == IT_THUMBS) begin_edit(st, EDIT_THUMBS);
         else if (id == IT_TMDB) begin_edit(st, EDIT_TMDB);
+        else if (id == IT_BR_TEST) breaks_fire_now(g_app.break_sched == BRK_ISLAM ? "Maghrib" : "Break", "This is how a break looks; OK continues", g_app.break_sched == BRK_ISLAM ? BRK_KIND_PRAYER : BRK_KIND_TEST);
+        else if (id == IT_BR_LOCATION) begin_edit(st, EDIT_LOCATION);
+        else if (id == IT_BR_DETECT) breaks_detect_location();
+        else if (id == IT_BR_AUDIO) begin_edit(st, EDIT_BR_AUDIO);
+        else if (id == IT_BR_END) begin_edit(st, EDIT_BR_END);
+        else if (id == IT_BR_TODAY) { char t[300]; breaks_describe_today(t, sizeof t); app_toast("%s", t); }
         else if (id == IT_PIN) { if (g_app.parental_pin[0]) app_push(screen_pin_create("Remove the parental PIN", 0, after_pin_clear, NULL)); else app_push(screen_pin_create("Parental PIN", 1, NULL, NULL)); }
         else if (id == IT_PIN_SETTINGS) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.pin_settings));
         else if (id == IT_HIDE_ADULT) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.hide_adult));

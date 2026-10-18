@@ -34,6 +34,7 @@ add_library(sntv_core STATIC
   src/quality.c
   src/probe.c
   src/tmdb.c
+  src/suntimes.c
   src/lang.c
   src/trackmem.c
   src/addon/addon.c
@@ -85,6 +86,9 @@ add_executable(stremio-tv
   src/main.c
   src/app.c
   src/image.c
+  src/audio.c
+  src/breaks.c
+  src/phone.c
   ${SNTV_UI_SRC}
   ${SNTV_VIDEO_SRC})
 target_include_directories(stremio-tv PRIVATE ${SNTV_PLATFORM_INCLUDES})
@@ -114,6 +118,9 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   add_executable(test_quality tests/test_quality.c)
   target_link_libraries(test_quality PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME source_quality COMMAND test_quality)
+  add_executable(test_sun tests/test_sun.c)
+  target_link_libraries(test_sun PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME sun_times COMMAND test_sun)
   add_executable(test_probe tests/test_probe.c)
   target_link_libraries(test_probe PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_probe PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")

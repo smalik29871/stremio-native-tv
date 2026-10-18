@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.1
+
+- **Take breaks** (Settings > Take breaks). Pick a schedule: Islamic prayer times (Fajr,
+  Dhuhr, Asr, Maghrib, Isha computed on the TV from your location, with the usual
+  methods and Hanafi Asr), Christian Angelus, Jewish Shacharit / Mincha / Maariv from
+  sunrise and nightfall, Hindu Sandhya at sunrise, noon and sunset, Sikh Nitnem, Baha'i
+  prayer windows, Buddhist morning and evening chanting, or only your own times. Add a
+  stretch reminder every so many minutes of watching, a bedtime that stops playback,
+  and up to three times of your own. A banner warns a few minutes ahead; at the time the
+  picture pauses and a calm page shows the moment with a chime, or a recording you
+  provide (an adhan at the start, a dua at the end), then playback continues by itself.
+  The location comes from a tap on *Find my location* (ip-api.com) or typed as
+  latitude, longitude; sun times are computed offline, so no account and no key.
+  See docs/BREAKS.md for how each schedule is derived.
+- **Type it on your phone**: every text field in Settings (API key, server addresses,
+  recording URLs, location) shows a QR code. Scan it, paste on the phone, Send, and the
+  text lands in the field and saves. The page is served by the TV itself on your home
+  network (port 11471) and only accepts text while a field is open.
+
 ## 0.6.0
 
 - **API keys** (Settings > API keys): add your own TMDB key and titles get cast photos

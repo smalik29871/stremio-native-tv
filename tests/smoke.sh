@@ -48,12 +48,12 @@ run player_skipped 300 "right,ok,down,down,ok,ok,ok"
 run upnext_credits 300 "right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
-run settings 260 "left,down,down,down,down,down,ok,down,down,right,down,down,down"
-run diagnostics 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok"
-run diagnostics_filter 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,left,left"
-run diagnostics_qr 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,ok"
-run diagnostics_prev_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,blue,ok"
-run settings_more 320 "left,down,down,down,down,down,ok,down,down,down,down,right,down"
+run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down"
+run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok"
+run diagnostics_filter 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,left,left"
+run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,ok"
+run diagnostics_prev_qr 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,blue,ok"
+run settings_more 340 "left,down,down,down,down,down,ok,down,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
 run welcome 90 "" HOME="$(home_with fresh '{}')"
 run welcome_subs_when 170 "ok,down,ok" HOME="$(home_with fresh2 '{}')"
@@ -64,7 +64,7 @@ MEM="$(home_with memory '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_pick_tracks 520 "right,ok,down,down,ok,ok,down,right,right,right,right,ok,down,down,ok,left,ok,down,down,down,down,ok" HOME="$MEM"
 run player_remembered 300 "right,ok,down,down,ok,ok" HOME="$MEM"
 run home_oled 150 "right,right" HOME="$(home_with oled '{"oled":1,"setupDone":1}')"
-run settings_subs_style 320 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right"
+run settings_subs_style 340 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,right"
 run player_cue_yellow 300 "right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with yellow '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":2,"subsSize":2}')"
 run player_cue_boxed 300 "right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with boxed '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":3}')"
 P='right,ok,down,down,ok,ok,back'
@@ -91,20 +91,26 @@ run explore 320 "left,down,ok,right,down,down,down"
 run explore_cats 300 "left,down,ok,right,down,right"
 run library 260 "left,down,down,down,ok"
 run calendar 300 "left,down,down,down,down,ok"
-run settings_rows 360 "left,down,down,down,down,down,ok,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run settings_addons 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,down"
+run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
 run player_subs_second 480 "right,ok,down,down,ok,ok,down,right,right,right,ok,ok,down,down,down,down,ok" SNTV_FAKE_START=200
 run player_seek_thumb 238 "right,ok,down,down,ok,ok,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
-run settings_parental 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
-run pin_pad 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,ok,right,ok"
+run settings_parental 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right"
+run pin_pad 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,ok,right,ok"
 run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"parentalPin":"1234","pinSettings":1}')"
 run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_with accts '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"accounts":[{"email":"other@example.com","key":"k"}]}')"
 TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
 run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run player_paused_tmdb 320 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
-run settings_keys 320 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right"
+run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 run home_lowmem 150 "right,right" HOME="$(home_with lowmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"memoryMode":1}')"
+BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":723,"breakLead":5,"breaksEverywhere":1}'
+run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
+run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
+run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
+run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
+run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)
