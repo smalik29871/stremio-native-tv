@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.5
+
+- **Subtitle styles** (Settings > Playback > *Subtitle style*): Soft shadow, Bold outline,
+  Classic yellow, or Black box, with a live preview while the size or style row is
+  focused. Applies to subtitles from addons (SRT/VTT); embedded subtitle tracks are drawn
+  by the TV's own player and cannot be styled by apps.
+
 ## 0.4.4
 
 - **Instant Up Next.** When the credits start (or 90 s before the end), the next

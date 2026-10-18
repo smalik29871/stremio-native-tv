@@ -269,6 +269,45 @@ float ui_dot_sep(float x, float y, Color c)
     return x + 24;
 }
 
+const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT] = { "Soft shadow", "Bold outline", "Classic yellow", "Black box" };
+
+void ui_subtitle(const char *text, float bottom, int size_setting, int style)
+{
+    if (!text || !*text) return;
+    int size = (size_setting == 0 ? FONT_M : size_setting == 2 ? FONT_XL : FONT_L) | FONT_B;
+    float max_w = SNTV_UI_W * 0.78f, lh = font_height(size) * 1.04f;
+    int lines = font_draw_wrapped(text, 0, 0, size, 0, max_w, 3);
+    float y = bottom - lines * lh;
+    Color fg = style == SUBS_STYLE_YELLOW ? RGBA(0xFF, 0xE1, 0x3C, 0xFF) : RGBA(255, 255, 255, 255);
+    char tmp[512];
+    snprintf(tmp, sizeof tmp, "%s", text);
+    int i = 0;
+    for (char *l = strtok(tmp, "\n"); l && i < lines; l = strtok(NULL, "\n"), i++) {
+        float lw = font_measure(l, size);
+        if (lw > max_w) lw = max_w;
+        float lx = (SNTV_UI_W - lw) / 2, ly = y + i * lh;
+        switch (style) {
+        case SUBS_STYLE_BOXED:
+            gfx_rrect(lx - 18, ly - 2, lw + 36, lh + 4, 8, RGBA(0, 0, 0, 0xB8));
+            break;
+        case SUBS_STYLE_OUTLINE:
+        case SUBS_STYLE_YELLOW:
+            /* a thick ring of dark copies: holds up on bright, busy pictures */
+            for (int dx = -3; dx <= 3; dx += 3) for (int dy = -3; dy <= 3; dy += 3)
+                if (dx || dy) font_draw_fit(l, lx + dx, ly + dy, size, RGBA(0, 0, 0, 0xE0), max_w);
+            font_draw_fit(l, lx, ly + 4, size, RGBA(0, 0, 0, 0xE0), max_w);
+            break;
+        default:
+            /* soft shadow + thin outline: readable on any picture without a box */
+            font_draw_fit(l, lx + 3, ly + 3, size, RGBA(0, 0, 0, 0xB0), max_w);
+            for (int dx = -2; dx <= 2; dx += 2) for (int dy = -2; dy <= 2; dy += 2)
+                if (dx || dy) font_draw_fit(l, lx + dx, ly + dy, size, RGBA(0, 0, 0, 0x90), max_w);
+            break;
+        }
+        font_draw_fit(l, lx, ly, size, fg, max_w);
+    }
+}
+
 void ui_toggle(float x, float y, int on, int focused)
 {
     float w = 76, h = 40;

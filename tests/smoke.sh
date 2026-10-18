@@ -62,6 +62,9 @@ MEM="$(home_with memory '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_pick_tracks 340 "down,right,ok,down,down,ok,ok,up,down,ok,down,down,down,ok" HOME="$MEM"
 run player_remembered 300 "down,right,ok,down,down,ok,ok" HOME="$MEM"
 run home_oled 150 "down,right,right" HOME="$(home_with oled '{"oled":1,"setupDone":1}')"
+run settings_subs_style 200 "right,ok,down,down,down,down,down,down,right"
+run player_cue_yellow 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with yellow '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":2,"subsSize":2}')"
+run player_cue_boxed 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with boxed '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":3}')"
 run player_stats 300 "down,right,ok,down,down,ok,ok,red"
 # screensaver after one quiet second (no keys at all)
 run ambient 200 "" SNTV_AMBIENT_SECONDS=1

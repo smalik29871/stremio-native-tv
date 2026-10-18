@@ -493,24 +493,8 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     const char *text = NULL;
     if (p->track_loaded) text = subs_at(&p->track, vi->position);
     if (!text) return;
-    int size = (g_app.subs_size == 0 ? FONT_M : g_app.subs_size == 2 ? FONT_XL : FONT_L) | FONT_B;
-    float max_w = SNTV_UI_W * 0.78f, lh = font_height(size) * 1.04f;
-    int lines = font_draw_wrapped(text, 0, 0, size, 0, max_w, 3);
     float bottom = g_app.time < p->overlay_until ? SNTV_UI_H - 250 : SNTV_UI_H - 96;
-    float y = bottom - lines * lh;
-    char tmp[512];
-    snprintf(tmp, sizeof tmp, "%s", text);
-    int i = 0;
-    for (char *l = strtok(tmp, "\n"); l && i < lines; l = strtok(NULL, "\n"), i++) {
-        float lw = font_measure(l, size);
-        if (lw > max_w) lw = max_w;
-        float lx = (SNTV_UI_W - lw) / 2;
-        /* soft shadow + outline: readable on any picture without a box */
-        font_draw_fit(l, lx + 3, y + i * lh + 3, size, RGBA(0, 0, 0, 0xB0), max_w);
-        for (int dx = -2; dx <= 2; dx += 2) for (int dy = -2; dy <= 2; dy += 2)
-            if (dx || dy) font_draw_fit(l, lx + dx, y + i * lh + dy, size, RGBA(0, 0, 0, 0x90), max_w);
-        font_draw_fit(l, lx, y + i * lh, size, RGBA(255, 255, 255, 255), max_w);
-    }
+    ui_subtitle(text, bottom, g_app.subs_size, g_app.subs_style);
 }
 
 static void draw_menu(Player *p)

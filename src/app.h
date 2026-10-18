@@ -52,6 +52,7 @@ typedef struct App {
     int spoiler_blur;          /* blur thumbnails of unwatched episodes */
     char pref_audio[8], pref_subs[8];   /* ISO 639-2/3 like "eng", or "" */
     int subs_size;             /* 0 small, 1 medium, 2 large */
+    int subs_style;            /* SUBS_STYLE_* for addon subtitles */
     int autoplay_next;         /* Up Next at the credits */
     int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
     int subs_always;           /* 0: subtitles only when the audio is in another language */

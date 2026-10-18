@@ -39,6 +39,12 @@ float ui_imdb(const char *rating, float x, float y);
 float ui_dot_sep(float x, float y, Color c);
 
 void ui_toggle(float x, float y, int on, int focused);
+
+/* Subtitle text in the chosen size (0 small, 1 medium, 2 large) and style, centred,
+ * with its last line ending at `bottom`. Used by the player and the Settings preview. */
+enum { SUBS_STYLE_SHADOW, SUBS_STYLE_OUTLINE, SUBS_STYLE_YELLOW, SUBS_STYLE_BOXED, SUBS_STYLE_COUNT };
+extern const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT];
+void ui_subtitle(const char *text, float bottom, int size_setting, int style);
 void ui_progress(float x, float y, float w, float h, float frac, Color fill);
 void ui_skeleton(float x, float y, float w, float h, float r);
 void ui_spinner(float cx, float cy, float radius);

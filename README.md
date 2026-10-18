@@ -9,7 +9,7 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.4.4**. The desktop preview builds warning-free, passes its unit tests and
+> Status: **v0.4.5**. The desktop preview builds warning-free, passes its unit tests and
 > runs every screen headlessly against a fake addon (including subtitles, the track menu,
 > source fallback and Up Next). The webOS and Tizen video backends follow the platform
 > APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
@@ -34,6 +34,8 @@ backdrop.
 | ![Skip intro](docs/screenshots/player_skip.jpg) | ![Up Next at the credits](docs/screenshots/upnext_credits.jpg) |
 | **First-run setup** | **OLED background** |
 | ![Setup](docs/screenshots/welcome.jpg) | ![OLED](docs/screenshots/home_oled.jpg) |
+| **Subtitle styles** | **Classic yellow in the player** |
+| ![Subtitle styles](docs/screenshots/settings_subs_style.jpg) | ![Yellow subtitles](docs/screenshots/player_cue_yellow.jpg) |
 | **Screensaver** | **Stats for nerds** |
 | ![Screensaver](docs/screenshots/ambient.jpg) | ![Stats](docs/screenshots/player_stats.jpg) |
 | **Diagnostics** | **Log as a QR code** |
@@ -79,6 +81,8 @@ backdrop.
 - **Screensaver**: drifting backdrops from your library with a clock after a quiet spell;
   OLED-safe (pixel shift, never static), never over a playing video.
 - **Stats for nerds** (Red in the player): codec, resolution, fps, bitrate, buffer, stalls.
+- **Subtitle styles**: soft shadow, bold outline, classic yellow or black box, previewed
+  live in Settings (addon subtitles; the TV draws embedded tracks itself).
 - **Player clock** with "Ends at" next to the remaining time (12-hour, 24-hour or off).
 - **First-run setup**: audio and subtitle language, when subtitles turn on, intro
   skipping, autoplay, background and QR sign-in, one question per screen.
@@ -213,7 +217,7 @@ in this build; `src/http.c` is still the curl implementation, so a `fetch()`-bas
 | Area | Status |
 |---|---|
 | Addon protocol + API parsing, link login, subtitles, skip markers, language matching, track memory | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`, `tests/test_skip.c`, `tests/test_prefs.c`) |
-| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, track memory, first-run setup, OLED, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (33 scripted runs, screenshots in `tests/out/`) |
+| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, track memory, first-run setup, OLED, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (36 scripted runs, screenshots in `tests/out/`) |
 | Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS playback (LS2 payloads, exported window, ACB binding) | Follows what the Nuvio native client documents from real TVs; **not yet run on a TV from this repo** |

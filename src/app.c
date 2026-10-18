@@ -494,6 +494,8 @@ static void load_prefs(void)
     g_app.fx_light = g_app.fx_setting == FX_LIGHT;
     g_app.spoiler_blur = store_get_int("spoilerBlur", 1);
     g_app.subs_size = store_get_int("subsSize", 1);
+    g_app.subs_style = store_get_int("subsStyle", 0);
+    if (g_app.subs_style < 0 || g_app.subs_style > 3) g_app.subs_style = 0;
     g_app.autoplay_next = store_get_int("autoplayNext", 1);
     g_app.skip_mode = store_get_int("skipMode", 0);
     if (g_app.skip_mode < 0 || g_app.skip_mode > 2) g_app.skip_mode = 0;
@@ -511,6 +513,7 @@ void app_save_prefs(void)
     store_set_int("fx", g_app.fx_setting);
     store_set_int("spoilerBlur", g_app.spoiler_blur);
     store_set_int("subsSize", g_app.subs_size);
+    store_set_int("subsStyle", g_app.subs_style);
     store_set_int("autoplayNext", g_app.autoplay_next);
     store_set_int("skipMode", g_app.skip_mode);
     store_set_int("subsAlways", g_app.subs_always);

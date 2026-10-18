@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_AUTOPLAY, IT_SKIP,
+enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_AUTOPLAY, IT_SKIP,
        IT_CLOCK, IT_UI_HEADER, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR, IT_DIAG, IT_SETUP, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
 #define ROW_H 88.0f
@@ -124,6 +124,7 @@ static void draw(Screen *s)
         case IT_PREF_AUDIO: draw_row(y, ICON_AUDIO, "Preferred audio", lang_name(g_app.pref_audio), foc, KIND_CHOICE, 0); break;
         case IT_PREF_SUBS: draw_row(y, ICON_SUBS, "Preferred subtitles", lang_name(g_app.pref_subs), foc, KIND_CHOICE, 0); break;
         case IT_SUBS_SIZE: draw_row(y, ICON_SUBS, "Subtitle size", SIZE_NAMES[g_app.subs_size], foc, KIND_CHOICE, 0); break;
+        case IT_SUBS_STYLE: draw_row(y, ICON_SUBS, "Subtitle style", SUBS_STYLE_NAMES[g_app.subs_style], foc, KIND_CHOICE, 0); break;
         case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
         case IT_SKIP: {
             static const char *SKIP_NAMES[] = { "Show a Skip button", "Skip automatically", "Off" };
@@ -173,6 +174,16 @@ static void draw(Screen *s)
         }
     }
     gfx_clip_pop();
+
+    /* live preview of the subtitle look while those rows are focused */
+    if (st->edit == EDIT_NONE && (st->focus == IT_SUBS_SIZE || st->focus == IT_SUBS_STYLE)) {
+        float band = 300;
+        gfx_gradient_v(0, SNTV_UI_H - band, SNTV_UI_W, band, RGBA(0x08, 0x07, 0x12, 0), RGBA(0x08, 0x07, 0x12, 0xF4));
+        gfx_rect(0, SNTV_UI_H - 200, SNTV_UI_W, 200, RGBA(0x08, 0x07, 0x12, 0xF4));
+        font_draw_center("PREVIEW  \xC2\xB7  applies to subtitles from addons; the TV draws embedded ones itself",
+                         SNTV_UI_W / 2, SNTV_UI_H - 190, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        ui_subtitle("Subtitles will look like this.\nTwo lines, the way films do it.", SNTV_UI_H - 40, g_app.subs_size, g_app.subs_style);
+    }
 }
 
 static void begin_edit(Settings *st, int which)
@@ -208,6 +219,7 @@ static void adjust(Settings *st, int dir)
     case IT_PREF_AUDIO: cycle_lang(g_app.pref_audio, sizeof g_app.pref_audio, dir); break;
     case IT_PREF_SUBS: cycle_lang(g_app.pref_subs, sizeof g_app.pref_subs, dir); break;
     case IT_SUBS_SIZE: g_app.subs_size = (g_app.subs_size + dir + 3) % 3; break;
+    case IT_SUBS_STYLE: g_app.subs_style = (g_app.subs_style + dir + SUBS_STYLE_COUNT) % SUBS_STYLE_COUNT; break;
     case IT_FX: g_app.fx_setting = (FxLevel)(((int)g_app.fx_setting + dir + 3) % 3); break;
     case IT_AUTOPLAY: g_app.autoplay_next = !g_app.autoplay_next; break;
     case IT_SKIP: g_app.skip_mode = (g_app.skip_mode + dir + 3) % 3; break;
@@ -255,7 +267,7 @@ static int key(Screen *s, KeyAction a)
         else if (st->focus == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (st->focus == IT_DIAG) app_push(screen_diagnostics_create(0));
         else if (st->focus == IT_SETUP) app_push(screen_welcome_create());
-        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_SUBS_WHEN || st->focus == IT_CLOCK || st->focus == IT_OLED || st->focus == IT_AMBIENT || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
+        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_SUBS_WHEN || st->focus == IT_CLOCK || st->focus == IT_OLED || st->focus == IT_AMBIENT || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_SUBS_STYLE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
         else if (st->focus >= IT_FIXED_COUNT) {
             int idx = st->focus - IT_FIXED_COUNT;
             if (st->confirm_remove == idx) { app_remove_addon(idx); st->confirm_remove = -1; if (st->focus >= item_count()) st->focus = item_count() - 1; }
