@@ -1,0 +1,10 @@
+{ "metas": [
+  { "id": "tt0111161", "type": "movie", "name": "The Shawshank Redemption",
+    "poster": "https://images.metahub.space/poster/small/tt0111161/img",
+    "releaseInfo": "1994", "imdbRating": "9.3", "genres": ["Drama"], "posterShape": "poster" },
+  { "id": "tt0903747", "type": "series", "name": "Breaking Bad",
+    "poster": "https://images.metahub.space/poster/small/tt0903747/img",
+    "releaseInfo": "2008-2013", "imdbRating": 9.5,
+    "links": [ { "name": "Crime", "category": "Genres", "url": "stremio:///discover/..." } ] },
+  { "id": "broken", "type": "movie" }
+] }

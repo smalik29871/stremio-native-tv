@@ -1,0 +1,13 @@
+{
+  "id": "org.example.streams",
+  "version": "1.2.3",
+  "name": "Example Streams",
+  "description": "Streams for IMDb and Kitsu ids",
+  "resources": [
+    { "name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt", "kitsu:"] },
+    "subtitles"
+  ],
+  "types": ["movie", "series", "anime"],
+  "catalogs": [],
+  "behaviorHints": { "p2p": true, "configurable": true, "configurationRequired": false }
+}

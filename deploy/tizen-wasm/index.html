@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Stremio</title>
+<style>html,body{margin:0;background:#000;overflow:hidden;width:100%;height:100%}canvas{display:block;width:100vw;height:100vh;background:transparent}</style>
+</head><body>
+<canvas id="canvas" tabindex="0"></canvas>
+<script>
+  // Samsung remote keys arrive as keydown events; register the extra ones so
+  // the browser hands them to the page instead of the TV shell.
+  try { ['MediaPlayPause','MediaPlay','MediaPause','MediaStop','MediaRewind','MediaFastForward','ColorF0Red','ColorF1Green','ColorF2Yellow','ColorF3Blue','Info'].forEach(function(k){ tizen.tvinputdevice.registerKey(k); }); } catch (e) {}
+  var Module = { canvas: document.getElementById('canvas') };
+</script>
+<script src="stremio-tv.js"></script>
+</body></html>

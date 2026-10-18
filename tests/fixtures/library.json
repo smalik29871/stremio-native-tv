@@ -1,0 +1,9 @@
+{ "result": [
+  { "_id": "tt0903747", "name": "Breaking Bad", "type": "series", "poster": "https://x/p.jpg", "posterShape": "poster",
+    "removed": false, "temp": false, "_ctime": "2024-05-01T10:00:00.000Z", "_mtime": 1714557600000,
+    "state": { "lastWatched": "2024-05-02T20:30:00.000Z", "timeWatched": 1200000, "timeOffset": 1500000,
+               "overallTimeWatched": 90000000, "timesWatched": 3, "flaggedWatched": 0, "duration": 2940000,
+               "video_id": "tt0903747:2:3", "noNotif": false } },
+  { "_id": "tt0111161", "name": "The Shawshank Redemption", "type": "movie", "removed": true, "temp": false, "_mtime": 1714557600000,
+    "state": { "timeWatched": 0, "timeOffset": 0, "overallTimeWatched": 0, "timesWatched": 0, "flaggedWatched": 0, "duration": 0 } }
+] }

@@ -1,0 +1,20 @@
+{
+  "id": "com.linvo.cinemeta",
+  "version": "3.0.13",
+  "name": "Cinemeta",
+  "description": "The official addon for movie and series catalogs",
+  "resources": ["catalog", "meta", { "name": "addon_catalog", "types": ["all"] }],
+  "types": ["movie", "series"],
+  "idPrefixes": ["tt"],
+  "catalogs": [
+    { "type": "movie", "id": "top", "name": "Popular",
+      "extra": [ { "name": "genre", "options": ["Action", "Drama"] }, { "name": "skip" } ] },
+    { "type": "series", "id": "top", "name": "Popular",
+      "extra": [ { "name": "genre", "options": ["Comedy"] }, { "name": "skip" } ] },
+    { "type": "movie", "id": "year", "name": "By year",
+      "extra": [ { "name": "genre", "isRequired": true, "options": ["2024", "2023"] } ] },
+    { "type": "movie", "id": "search", "name": "Search",
+      "extraSupported": ["search"], "extraRequired": ["search"] }
+  ],
+  "behaviorHints": { "configurable": false }
+}

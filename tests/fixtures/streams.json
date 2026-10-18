@@ -1,0 +1,8 @@
+{ "streams": [
+  { "name": "Example\n1080p", "title": "Movie.2024.1080p.WEB-DL\n👤 120 💾 2.1 GB", "url": "https://cdn.example.com/v/abc.mp4",
+    "behaviorHints": { "bingeGroup": "example-1080p", "filename": "Movie.2024.1080p.mkv", "videoSize": 2254857830, "notWebReady": true } },
+  { "name": "Torrent", "infoHash": "0123456789abcdef0123456789abcdef01234567", "fileIdx": 2, "sources": ["tracker:udp://x:1337"] },
+  { "name": "Trailer", "ytId": "dQw4w9WgXcQ" },
+  { "name": "Netflix", "externalUrl": "https://www.netflix.com/title/70143836" },
+  { "name": "Useless" }
+] }

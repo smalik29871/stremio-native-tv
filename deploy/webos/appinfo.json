@@ -1,0 +1,17 @@
+{
+  "id": "org.stremio.nativetv",
+  "version": "0.1.0",
+  "vendor": "Stremio community (unofficial)",
+  "type": "native",
+  "main": "stremio-tv",
+  "title": "Stremio",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#0F0D20",
+  "iconColor": "#7B5BF5",
+  "splashBackground": "splash.png",
+  "requiredMemory": 120,
+  "transparent": true,
+  "handlesRelaunch": true,
+  "disableBackHistoryAPI": true
+}
