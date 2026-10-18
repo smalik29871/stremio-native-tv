@@ -59,6 +59,7 @@ struct Player {
     char audio_lang[16]; int audio_lang_known;
     time_t clock_minute;
     int prefetched;           /* next episode's streams requested */
+    int pip, pip_done;        /* parked in a corner; finished there */
 
     /* stats for nerds (Red) */
     int stats;
@@ -80,6 +81,7 @@ struct Player {
 static Player *g_live;
 
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
+static int error_final(const Player *p, const VideoInfo *vi);
 
 static void report(Player *p, int force)
 {
@@ -454,6 +456,16 @@ static void update(Screen *s, float dt)
     skip_fetch(p, &vi);
     if (g_app.skip_mode == 1) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
 
+    if (p->pip) {   /* no Up Next card in the corner: finish quietly and hand the plane back */
+        if (vi.state == VIDEO_ENDED || error_final(p, &vi)) {
+            report(p, 1);
+            if (vi.state == VIDEO_ENDED) app_toast("Finished: %s", p->title); else app_toast("Couldn't keep playing: %s", vi.error);
+            p->finished = 1;
+            p->pip_done = 1;
+        }
+        return;
+    }
+
     /* Up Next: at the credits when the markers say where they start (and the
      * next episode begins 20 s later), else 45 s before the end */
     double credits = skip_credits_start(p->skip, p->n_skip);
@@ -645,6 +657,27 @@ static void clock_text(double from_now, char *out, size_t n)
     else snprintf(out, n, "%d:%02d %s", tmv.tm_hour % 12 ? tmv.tm_hour % 12 : 12, tmv.tm_min, tmv.tm_hour < 12 ? "AM" : "PM");
 }
 
+/* Where the video shows: a hole for the hardware plane on TVs; on the desktop
+ * preview the title's backdrop stands in for it. */
+static void draw_video_area(Player *p, float x, float y, float w, float h)
+{
+#ifdef SNTV_PLATFORM_LINUX
+    char buf[512];
+    const char *bg = app_art_background(&p->meta, buf, sizeof buf);
+    int iw, ih;
+    unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
+    gfx_rect(x, y, w, h, RGBA(0, 0, 0, 0xFF));
+    if (bgt) {
+        float ia = (float)iw / ih, sa = w / h, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+        if (ia > sa) { float k = sa / ia; u0 = (1 - k) / 2; u1 = 1 - u0; } else { float k = ia / sa; v0 = (1 - k) / 2; v1 = 1 - v0; }
+        gfx_tex_uv(bgt, x, y, w, h, u0, v0, u1, v1, RGBA(255, 255, 255, 255));
+    }
+#else
+    (void)p;
+    gfx_video_hole(x, y, w, h);
+#endif
+}
+
 /* every candidate has failed and the error card is up */
 static int error_final(const Player *p, const VideoInfo *vi)
 {
@@ -656,21 +689,7 @@ static void draw(Screen *s)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
-#ifdef SNTV_PLATFORM_LINUX
-    /* desktop preview: show the backdrop where the video would be */
-    char buf[512];
-    const char *bg = app_art_background(&p->meta, buf, sizeof buf);
-    int iw, ih;
-    unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF));
-    if (bgt) {
-        float ia = (float)iw / ih, sa = (float)SNTV_UI_W / SNTV_UI_H, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-        if (ia > sa) { float k = sa / ia; u0 = (1 - k) / 2; u1 = 1 - u0; } else { float k = ia / sa; v0 = (1 - k) / 2; v1 = 1 - v0; }
-        gfx_tex_uv(bgt, 0, 0, SNTV_UI_W, SNTV_UI_H, u0, v0, u1, v1, RGBA(255, 255, 255, 255));
-    }
-#else
-    gfx_video_hole(0, 0, SNTV_UI_W, SNTV_UI_H);
-#endif
+    draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
     draw_subtitle(p, &vi);
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
@@ -875,7 +894,10 @@ static int key(Screen *s, KeyAction a)
     case KEY_GREEN: if (p->next_video_id) go_up_next(p); return 1;
     case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
     case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->cur + 1, vi.position); } return 1;
-    case KEY_STOP: case KEY_BACK:
+    case KEY_BACK:
+        if ((vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
+        /* fall through */
+    case KEY_STOP:
         report(p, 1);
         video_stop();
         p->finished = 1;
@@ -921,4 +943,62 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);
     query_addon_subs(p);
     return s;
+}
+
+/* ---- picture-in-picture ------------------------------------------------------- */
+
+#define PIP_W 560.0f
+#define PIP_H 315.0f
+
+static void pip_rect(float *x, float *y, float *w, float *h)
+{
+    *w = PIP_W; *h = PIP_H;
+    *x = SNTV_UI_W - 72 - PIP_W;
+    *y = SNTV_UI_H - 60 - PIP_H;
+}
+
+void player_set_pip(Screen *s, int on)
+{
+    Player *p = s->st;
+    p->pip = on;
+    p->menu = MENU_NONE;
+    p->stats = 0;
+    if (on) {
+        float x, y, w, h;
+        int px, py, pw, ph;
+        pip_rect(&x, &y, &w, &h);
+        gfx_ui_to_pixels(x, y, w, h, &px, &py, &pw, &ph);
+        video_set_display_rect(px, py, pw, ph);
+        LOGI("player: picture-in-picture %dx%d at %d,%d", pw, ph, px, py);
+    } else {
+        int w, h;
+        gfx_drawable_size(&w, &h);
+        video_set_display_rect(0, 0, w, h);
+        show_overlay(p);
+        LOGI("player: back to full screen");
+    }
+}
+
+void player_pip_update(Screen *s, float dt) { update(s, dt); }
+int player_pip_done(Screen *s) { return ((Player *)s->st)->pip_done; }
+const char *player_video_id(Screen *s) { return ((Player *)s->st)->video_id; }
+
+void player_pip_draw(Screen *s)
+{
+    Player *p = s->st;
+    VideoInfo vi;
+    video_info(&vi);
+    float x, y, w, h;
+    pip_rect(&x, &y, &w, &h);
+    if (!g_app.fx_light) gfx_shadow(x, y, w, h, 4, 44, RGBA(0, 0, 0, 0xC0));
+    draw_video_area(p, x, y, w, h);
+    gfx_rrect_ring(x, y, w, h, 2, 2, RGBA(0xFF, 0xFF, 0xFF, 0x50));
+    gfx_gradient_v(x, y + h - 96, w, 96, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xC8));
+    font_draw_fit(p->title, x + 18, y + h - 64, FONT_XS | FONT_B, THEME_TEXT, w - 36);
+    if (vi.duration > 0) ui_progress(x + 18, y + h - 20, w - 36, 4, (float)(vi.position / vi.duration), THEME_ACCENT);
+    float cx = x + w / 2, cy = y + h / 2 - 10;
+    if (vi.state == VIDEO_PAUSED) { gfx_circle(cx, cy, 34, RGBA(0, 0, 0, 0x90)); ui_icon(ICON_PLAY, cx + 3, cy, 30, THEME_TEXT); }
+    else if (vi.state == VIDEO_LOADING || vi.buffering) ui_spinner(cx, cy, 20);
+    ui_chip("Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), THEME_TEXT_DIM);
+    if (vi.state == VIDEO_PLAYING) app_redraw();
 }

@@ -296,6 +296,7 @@ static void open_streams_for_video(Detail *d, int video_idx)
     char title[200];
     if (v->season >= 0 && v->episode >= 0) snprintf(title, sizeof title, "S%d E%d  %s", v->season, v->episode, v->title ? v->title : "");
     else snprintf(title, sizeof title, "%s", v->title ? v->title : "");
+    if (app_pip_claim(v->id)) return;   /* already playing in the corner */
     app_push(screen_streams_create(&d->preview, v->id, title));
 }
 
@@ -315,6 +316,7 @@ static int key(Screen *s, KeyAction a)
         case KEY_OK:
             if (d->btn == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
             if (d->resume_label[0]) {
+                if (app_pip_claim(d->resume_video)) return 1;
                 PlayCandidate *c = calloc(1, sizeof *c);
                 c->url = strdup(d->resume_url);
                 c->label = strdup("Resume");
@@ -325,6 +327,7 @@ static int key(Screen *s, KeyAction a)
             }
             if (series) { d->area = AREA_EPISODES; d->focus_t = 0; return 1; }
             if (!d->has_meta && d->loading) { app_toast("Still loading details..."); return 1; }
+            if (app_pip_claim(d->meta.default_video_id ? d->meta.default_video_id : d->preview.id)) return 1;
             app_push(screen_streams_create(&d->preview, d->meta.default_video_id ? d->meta.default_video_id : d->preview.id, NULL));
             return 1;
         default: return 0;

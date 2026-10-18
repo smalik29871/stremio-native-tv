@@ -42,6 +42,7 @@ typedef struct App {
     char *streaming_server;   /* optional http://host:11470 for infoHash streams */
 
     Screen *stack[12]; int depth;
+    Screen *pip;               /* the player, detached to a corner while browsing */
     int quit;
     float time;
     char toast[160]; float toast_until;
@@ -128,6 +129,20 @@ Screen *screen_settings_create(void);
 Screen *screen_diagnostics_create(int playback_only);
 Screen *screen_welcome_create(void);   /* first-run setup */
 Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + clock */
+
+/* Picture-in-picture: Back in the player parks the video in a corner and keeps it
+ * playing under the other screens; Play/Pause brings it back, Stop closes it. */
+void app_pip_enter(void);
+void app_pip_restore(void);
+void app_pip_close(void);
+/* About to play `video_id`: restores the corner player if it is that video (1),
+ * otherwise closes it so the new video can have the plane (0). */
+int  app_pip_claim(const char *video_id);
+void player_set_pip(Screen *s, int on);
+void player_pip_update(Screen *s, float dt);
+void player_pip_draw(Screen *s);
+int  player_pip_done(Screen *s);
+const char *player_video_id(Screen *s);
 
 /* Fetch an episode's streams ahead of time so Up Next starts without a spinner. */
 void streams_prefetch(const MetaPreview *meta, const char *video_id);

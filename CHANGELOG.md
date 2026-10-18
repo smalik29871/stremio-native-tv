@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.6
+
+- **Picture-in-picture.** Back in the player now parks the video in the bottom-right
+  corner and keeps it playing while you browse the episode list, Home, Search or
+  Settings. Play/Pause brings it back to full screen; Stop closes it; picking the same
+  episode again also brings it back, and starting anything else replaces it. Automatic
+  intro skipping and progress sync keep working in the corner; when the episode ends
+  there, the corner closes with a note. Stop (or Back on the error card) still stops
+  playback outright.
+
 ## 0.4.5
 
 - **Subtitle styles** (Settings > Playback > *Subtitle style*): Soft shadow, Bold outline,

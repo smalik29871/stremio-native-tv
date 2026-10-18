@@ -141,6 +141,14 @@ void gfx_shutdown(void)
 }
 
 float gfx_scale(void) { return g_scale; }
+void gfx_drawable_size(int *w, int *h) { *w = g_draw_w; *h = g_draw_h; }
+void gfx_ui_to_pixels(float x, float y, float w, float h, int *px, int *py, int *pw, int *ph)
+{
+    *px = (int)(g_off_x + x * g_scale + 0.5f);
+    *py = (int)(g_off_y + y * g_scale + 0.5f);
+    *pw = (int)(w * g_scale + 0.5f);
+    *ph = (int)(h * g_scale + 0.5f);
+}
 int gfx_draw_calls(void) { return g_last_calls; }
 
 static void flush(void)

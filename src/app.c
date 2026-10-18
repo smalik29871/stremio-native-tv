@@ -53,6 +53,52 @@ void app_replace(Screen *s)
 
 Screen *app_top(void) { return g_app.depth ? g_app.stack[g_app.depth - 1] : NULL; }
 
+void app_pip_enter(void)
+{
+    Screen *s = app_top();
+    if (!s || strcmp(s->name, "player") != 0 || g_app.depth < 2) return;
+    if (g_app.pip) app_pip_close();
+    g_app.depth--;               /* detach, keep alive */
+    g_app.pip = s;
+    player_set_pip(s, 1);
+    Screen *top = app_top();
+    if (top && strcmp(top->name, "streams") == 0 && g_app.depth > 1) app_pop();   /* land on the episodes, not the source list */
+    else if (top && top->resume) top->resume(top);
+    app_toast("Playing in the corner.  Play/Pause: full screen  \xC2\xB7  Stop: close");
+    app_redraw();
+}
+
+void app_pip_restore(void)
+{
+    Screen *s = g_app.pip;
+    if (!s) return;
+    g_app.pip = NULL;
+    g_app.toast_until = 0;   /* the "playing in the corner" note no longer applies */
+    player_set_pip(s, 0);
+    app_push(s);
+    app_redraw();
+}
+
+void app_pip_close(void)
+{
+    Screen *s = g_app.pip;
+    if (!s) return;
+    g_app.pip = NULL;
+    g_app.toast_until = 0;
+    player_set_pip(s, 0);
+    if (s->destroy) s->destroy(s);
+    app_redraw();
+}
+
+int app_pip_claim(const char *video_id)
+{
+    if (!g_app.pip) return 0;
+    const char *cur = player_video_id(g_app.pip);
+    if (video_id && cur && strcmp(cur, video_id) == 0) { app_pip_restore(); return 1; }
+    app_pip_close();   /* one video plane: the new video takes it */
+    return 0;
+}
+
 void app_toast(const char *fmt, ...)
 {
     app_redraw();
@@ -723,6 +769,7 @@ void app_init(void)
 
 void app_shutdown(void)
 {
+    app_pip_close();
     while (g_app.depth) { Screen *s = g_app.stack[--g_app.depth]; if (s->destroy) s->destroy(s); }
     free_addons();
     library_items_free(g_app.library, g_app.n_library);

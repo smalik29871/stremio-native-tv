@@ -9,7 +9,7 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.4.5**. The desktop preview builds warning-free, passes its unit tests and
+> Status: **v0.4.6**. The desktop preview builds warning-free, passes its unit tests and
 > runs every screen headlessly against a fake addon (including subtitles, the track menu,
 > source fallback and Up Next). The webOS and Tizen video backends follow the platform
 > APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
@@ -34,6 +34,8 @@ backdrop.
 | ![Skip intro](docs/screenshots/player_skip.jpg) | ![Up Next at the credits](docs/screenshots/upnext_credits.jpg) |
 | **First-run setup** | **OLED background** |
 | ![Setup](docs/screenshots/welcome.jpg) | ![OLED](docs/screenshots/home_oled.jpg) |
+| **Picture-in-picture over the episode list** | **...and over Home** |
+| ![PiP detail](docs/screenshots/pip_detail.jpg) | ![PiP home](docs/screenshots/pip_home.jpg) |
 | **Subtitle styles** | **Classic yellow in the player** |
 | ![Subtitle styles](docs/screenshots/settings_subs_style.jpg) | ![Yellow subtitles](docs/screenshots/player_cue_yellow.jpg) |
 | **Screensaver** | **Stats for nerds** |
@@ -77,6 +79,9 @@ backdrop.
   another language; language codes are matched across 639-1/639-2/names (`en`, `eng`,
   `English`). Track names and forced/SDH flags are not reported by LG's media service, so
   keyword rules like Stremio-Kai's need a container parser and are left out for now.
+- **Picture-in-picture**: Back parks the video in a corner and keeps it playing while
+  you browse; Play/Pause restores it, Stop closes it. The TV's video plane is resized
+  live, which web apps cannot do.
 - **Instant Up Next**: the next episode's sources are fetched while the credits roll.
 - **Screensaver**: drifting backdrops from your library with a clock after a quiet spell;
   OLED-safe (pixel shift, never static), never over a playing video.
@@ -217,7 +222,7 @@ in this build; `src/http.c` is still the curl implementation, so a `fetch()`-bas
 | Area | Status |
 |---|---|
 | Addon protocol + API parsing, link login, subtitles, skip markers, language matching, track memory | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`, `tests/test_skip.c`, `tests/test_prefs.c`) |
-| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, track memory, first-run setup, OLED, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (36 scripted runs, screenshots in `tests/out/`) |
+| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, track memory, first-run setup, OLED, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (41 scripted runs, screenshots in `tests/out/`) |
 | Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS playback (LS2 payloads, exported window, ACB binding) | Follows what the Nuvio native client documents from real TVs; **not yet run on a TV from this repo** |
@@ -249,7 +254,8 @@ the "This source can't be played" card.
 
 ## Player keys
 
-Red stats for nerds, OK play/pause (while *Skip intro* / *Skip recap* is on screen, OK skips), Left/Right
+Back parks the video in a corner (picture-in-picture) and Play/Pause brings it back,
+Stop stops, Red stats for nerds, OK play/pause (while *Skip intro* / *Skip recap* is on screen, OK skips), Left/Right
 seek 10 s (accelerates while held), Up audio menu, Down subtitle menu (Left/Right inside
 it shifts timing by 0.5 s), Green play Up Next now, Yellow switch to the next source,
 Back hides the Up Next card (and cancels its countdown) or stops and saves progress.

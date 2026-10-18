@@ -88,7 +88,7 @@ static int ambient_due(const Screen *top)
     if (strcmp(top->name, "ambient") == 0 || strcmp(top->name, "login") == 0) return 0;
     VideoInfo vi;
     video_info(&vi);
-    if (strcmp(top->name, "player") == 0 && vi.state != VIDEO_PAUSED) return 0;
+    if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) return 0;   /* full screen or in the corner */
     return 1;
 }
 
@@ -99,7 +99,8 @@ static void dev_hooks(SDL_Window *win, int frame)
 {
     static const struct { const char *n; SDL_Keycode k; } keys[] = {
         { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "left", SDLK_LEFT }, { "right", SDLK_RIGHT },
-        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 }, { NULL, 0 } };
+        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 },
+        { "play", SDLK_p }, { "stop", SDLK_AUDIOSTOP }, { NULL, 0 } };
     const char *script = getenv("SNTV_KEYS");
     if (script && frame % 20 == 10) {
         int idx = frame / 20;
@@ -213,10 +214,13 @@ int main(int argc, char **argv)
                 g_app.last_input = g_app.time;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) continue;
+                if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); continue; }
+                if (g_app.pip && a == KEY_STOP) { app_pip_close(); continue; }
                 if (top && top->key && top->key(top, a)) continue;
                 if (a == KEY_BACK) app_pop();
             } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
+                if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST || e.window.event == SDL_WINDOWEVENT_HIDDEN || e.window.event == SDL_WINDOWEVENT_MINIMIZED)) {
                 video_app_background();
@@ -247,6 +251,7 @@ int main(int argc, char **argv)
 
         Screen *top = app_top();
         if (top && top->update) top->update(top, dt);
+        if (g_app.pip) { player_pip_update(g_app.pip, dt); if (g_app.pip && player_pip_done(g_app.pip)) app_pip_close(); }
         top = app_top();   /* update() may have popped or replaced the screen */
 
         /* Screensaver after a quiet spell, never over a playing video. */
@@ -260,6 +265,7 @@ int main(int argc, char **argv)
             g_app.need_redraw = 0;
             gfx_begin_frame(RGBA(0x08, 0x07, 0x12, 0xFF));
             if (top && top->draw) top->draw(top);
+            if (g_app.pip) player_pip_draw(g_app.pip);
             app_draw_toast();
             dev_hooks(win, frame++);
             gfx_end_frame();

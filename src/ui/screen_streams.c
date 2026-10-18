@@ -377,6 +377,7 @@ static void remember_resume(Streams *st, const char *url)
  * (same binge group preferred), capped so a bad addon can't stall for ages. */
 static void play_from(Streams *st, int index)
 {
+    if (app_pip_claim(st->video_id)) return;
     char reason[160];
     char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
     if (!url) { app_toast("%s", reason); return; }
