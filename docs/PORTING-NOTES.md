@@ -5,38 +5,30 @@ TV. Each one names the file to adjust.
 
 ## LG webOS
 
-1. **Toolchain + SDL fork.** Build with the buildroot-nc4 SDK (`tools/webos.sh`). Its SDL2
-   is the webosbrew fork; `src/video/video_webos.c` declares
-   `SDL_webOSCreateExportedWindow/SetExportedWindow/DestroyExportedWindow` as weak symbols
-   so the binary still loads when the fork lacks them (then ACB is used).
-2. **`com.webos.media/load` payload.** Two variants are tried: a full option block
-   (`appId`, `windowId`, `needAudio`, `mediaTransportType: URI`, `mediaFormat`,
-   `transmission.playTime`) and, if that returns `returnValue:false`, a minimal one
-   (`appId`, `windowId`). `app.log` records both replies. Note that the official
-   Stremio web app does not call `load` itself: it plays through a `<video>` element
-   and only uses `com.webos.media` for `selectTrack`, `setSubtitleEnable`, subtitle
-   styling and `setPlayRate` with the `mediaId` the element exposes. Those calls and
-   their parameter names are what `video_webos.c` reuses.
-2b. **Exported window.** `SDL_webOSCreateExportedWindow(SDL_WEBOS_EXPORTED_WINDOW_TYPE_VIDEO)`
-   and `SDL_webOSSetExportedWindow(id, NULL, &panel_rect)` come from the fork's
-   `SDL_system.h`; the panel size comes from `SDL_webOSGetPanelResolution`. All are
-   weak symbols, so a stock SDL falls back to ACB.
-3. **ACB on webOS 2-4.** Constants `PLAYER_TYPE_MSE=2`, `SINK_TYPE_MAIN=1`,
-   `APPSTATE_FOREGROUND=1`, `PLAYSTATE_*` are the values moonlight-tv uses. If the video
-   plane stays black while audio plays, the ACB state sequence is the first suspect.
-4. **Video hole.** `gfx_video_hole()` writes alpha 0 with `GL_ONE, GL_ZERO`. It needs an
-   RGBA8 EGL config (requested in `main.c`) and `"transparent": true` in `appinfo.json`.
-   `glReadPixels` screenshots will show black where the video is; that is expected.
-5. **Remote keys.** `SDL_WEBOS_ACCESS_POLICY_KEYS_BACK/EXIT` hints are set before window
-   creation. Scancodes come from the fork's `SDL_scancode.h`: Back 482, Exit 505,
-   Red/Green/Yellow/Blue 486-489, channel up/down 480/481, Guide 495 (`src/ui/input.c`).
-6. **Writable dir.** `SDL_GetPrefPath` is probed for writability and falls back to
-   `$HOME/.org.stremio.nativetv`, then `/tmp`. If Continue Watching does not persist across
-   launches, check which path `app.log` printed on start.
-7. **Memory.** webOS 3 sets have ~300 MB free. `SNTV_IMAGE_CACHE_BYTES` is 48 MB and images
-   are capped at 512 px. Lower both in `src/platform/platform.h` if the app is killed.
-8. **DTS audio.** Not handled. Nuvio transcodes DTS to AAC with FFmpeg on webOS; that is a
-   separate component (LGPL) and out of scope for v0.1.
+The build is now real: CI cross-compiles with the openlgtv buildroot SDK
+(`webos-a38c582`) and `tools/check-ipk.sh` verifies the package. What still needs
+a TV is playback. The backend (`src/video/video_webos.c`) follows the behaviour
+the Nuvio native client documents from real TVs:
+
+1. **Bus name.** `LSRegister("com.webos.media.client.org.stremio.nativetv")`; other
+   names are refused. Fallback `....<pid>` if the hub still holds the name.
+2. **Load payload.** `{"payload":{"option":{"useSeekableRanges":true,"appId":...,
+   "bufferControl":{"userBufferCtrl":false},"windowId":...}},"uri":...,"type":"media"}`.
+3. **webOS 5+.** `SDL_webOSCreateExportedWindow(0)`, then
+   `SDL_webOSSetExportedWindow(id, &{0,0,videoW,videoH}, &screen)`; never a NULL source.
+4. **webOS 3-4.** `AcbAPI_create`, `initialize(id, 0, appId, cb)`, `setSinkType(0)`;
+   after each `loadCompleted`: `setMediaId`, state 1, `connectDass(0)`,
+   `setMediaVideoData` (JSON with `"context":mediaId`, `mediaSei/mediaVui` keys on
+   webOS < 5), `setDisplayWindow`, state 2.
+5. **Events.** `currentTime` nested object; `sourceInfo` tracks; `videoInfo`
+   size; `bufferRange`; error 200 = unsupported audio, not fatal.
+6. **Permission.** `appinfo.json` has `requiredPermissions: ["all"]`. Whether a
+   non-rooted Homebrew Channel install may call `com.webos.media` is unmeasured.
+   Symptom if not: the UI works, video is black. `app.log` shows the LS2 replies.
+7. **Remote keys.** Hints `SDL_WEBOS_ACCESS_POLICY_KEYS_BACK/EXIT` are set before
+   the window exists; scancodes match LG's `SDL_webOS.h`.
+8. **Memory.** webOS 3 sets have ~300 MB free; the artwork budget follows RAM.
+9. **DTS.** Not handled; error 200 is shown as a notice so you can switch audio.
 
 ## Samsung Tizen native
 

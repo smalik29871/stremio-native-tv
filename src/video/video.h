@@ -15,6 +15,8 @@ typedef struct VideoInfo {
     char error[160];
     char codec[48];    /* informational, e.g. "H264 1920x1080 / AAC" */
     int tracks_version; /* bumps when the track lists change */
+    char warning[160];  /* non-fatal problem worth telling the viewer (e.g. unsupported audio) */
+    int warning_version;
 } VideoInfo;
 
 typedef enum { TRACK_AUDIO = 0, TRACK_TEXT = 1 } TrackKind;

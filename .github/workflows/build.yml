@@ -1,0 +1,112 @@
+# Builds and tests on every push. A tag like v0.3.0 also publishes a GitHub
+# release with the LG .ipk plus the Homebrew Channel repository files, so TVs
+# subscribed to .../releases/latest/download/repo.json get the update.
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # openlgtv buildroot SDK pinned to the release the Nuvio native client ships with.
+  WEBOS_SDK_URL: https://github.com/openlgtv/buildroot-nc4/releases/download/webos-a38c582/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+  WEBOS_SDK_SHA256: 04ad3311b48b4557a7002aef56ae2e167478e8e129f37daac04649bddf813616
+
+jobs:
+  desktop:
+    name: Desktop build and tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake libsdl2-dev libgles-dev libegl-dev libcurl4-openssl-dev
+      - name: Build
+        run: |
+          cmake -S . -B build -DSNTV_PLATFORM=linux -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+  webos:
+    name: LG webOS package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache webOS toolchain
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/webos-sdk
+          key: webos-sdk-${{ env.WEBOS_SDK_SHA256 }}
+      - name: Download webOS toolchain
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/webos-sdk
+          curl -fsSL --retry 3 "$WEBOS_SDK_URL" -o /tmp/sdk.tar.gz
+          echo "$WEBOS_SDK_SHA256  /tmp/sdk.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/sdk.tar.gz -C ~/webos-sdk
+          rm /tmp/sdk.tar.gz
+      - name: Relocate toolchain
+        run: ~/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot/relocate-sdk.sh
+      - name: Build .ipk
+        env:
+          WEBOS_TOOLCHAIN: /home/runner/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot
+        run: bash tools/webos.sh --ipk
+      - name: Check package
+        run: |
+          IPK=$(ls build-webos/*.ipk)
+          bash tools/check-ipk.sh "$IPK" ~/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot
+          bash tools/hb-repo.sh "$IPK" dist
+          cp "$IPK" dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webos-ipk
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, webos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: webos-ipk
+          path: dist
+      - name: Check tag matches app version
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('deploy/webos/appinfo.json'))['version'])")
+          [ "$GITHUB_REF_NAME" = "v$VERSION" ] || { echo "Tag $GITHUB_REF_NAME does not match appinfo.json version $VERSION"; exit 1; }
+      - name: Release notes from CHANGELOG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="## $VERSION" '$0==v{on=1;next} /^## /{if(on)exit} on' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "### Install on LG webOS"
+            echo "In the Homebrew Channel, open Settings, add this repository, and install **Stremio (native)**:"
+            echo
+            echo '```'
+            echo "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/repo.json"
+            echo '```'
+          } >> notes.md
+          cat notes.md
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Stremio Native TV ${GITHUB_REF_NAME}" \
+            --notes-file notes.md

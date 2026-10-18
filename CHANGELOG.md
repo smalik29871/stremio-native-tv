@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0
+
+First installable LG build.
+
+- Releases now ship a ready-made LG package plus a Homebrew Channel repository.
+  Add `https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json`
+  in the Homebrew Channel and install from the TV; updates arrive the same way.
+- GitHub Actions builds and checks the package on every push with the openlgtv
+  webOS toolchain: ARM binary, only SDL2/GLESv2/libc linked, nothing newer than
+  glibc 2.7 (loads on webOS 3), required files present, no credentials inside.
+- webOS playback rewritten around what works on real TVs (as documented by the
+  Nuvio native client):
+  - registers on the media bus as `com.webos.media.client.<appId>` (other names
+    are refused), with a process-id fallback after an unclean exit
+  - LS2, glib, ACB and the SDL webOS functions are loaded at run time, so one
+    binary covers webOS 3 to current firmware
+  - load payload in the shape the TV accepts, with the real exported window on
+    webOS 5+
+  - the exported window always gets a real source rectangle (a NULL one closes
+    the app on some newer TVs)
+  - webOS 3-4: the video plane is bound through ACB after every load with the
+    correct player, sink and state values; the old values would have sent video
+    to the picture-in-picture plane
+  - position, duration, buffering, video size and tracks parsed from the event
+    shapes the TV actually sends
+  - "audio not supported" (error 200) is shown as a notice; playback continues
+    instead of switching source
+- `appinfo.json` requests `requiredPermissions: ["all"]`, like other native apps.
+
 ## 0.3.0
 
 Look and feel

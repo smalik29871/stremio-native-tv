@@ -9,7 +9,7 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.3.0**. The desktop preview builds warning-free, passes its unit tests and
+> Status: **v0.4.0**. The desktop preview builds warning-free, passes its unit tests and
 > runs every screen headlessly against a fake addon (including subtitles, the track menu,
 > source fallback and Up Next). The webOS and Tizen video backends follow the platform
 > APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
@@ -113,6 +113,29 @@ vendor/                cJSON (MIT), qrcodegen (MIT), stb_truetype, stb_image (pu
 assets/fonts/          Inter Medium + Bold (SIL Open Font License, see Inter-LICENSE.txt)
 ```
 
+## Install on an LG TV
+
+You need the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel)
+on the TV (it works without root). Then, on the TV:
+
+1. Open **Homebrew Channel**, then **Settings**.
+2. Add this repository URL:
+
+   ```
+   https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json
+   ```
+3. Go back to the app list and install **Stremio (native)**. Updates show up there too.
+
+Or download the `.ipk` from the [latest release](https://github.com/smalik29871/stremio-native-tv/releases/latest)
+and install it with Developer Mode (`ares-install`) or Dev Manager.
+
+**The one open question is video on TVs without root.** The app talks to the
+TV's media service directly. That is confirmed for native apps on rooted TVs,
+but whether a Homebrew Channel install on a non-rooted TV gets the same bus
+permission has not been measured (the Nuvio project documents the same caveat).
+If the interface works but video is black, send `app.log` from the app's data
+folder; it records every reply from the media service.
+
 ## Building
 
 ### Desktop preview (Linux, no video)
@@ -153,9 +176,10 @@ in this build; `src/http.c` is still the curl implementation, so a `fetch()`-bas
 | Addon protocol + API parsing, link login, subtitles | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`) |
 | Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, QR screen | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (14 scripted runs, screenshots in `tests/out/`) |
 | Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
-| webOS build, LS2 payloads, exported window / ACB binding | Written from the webOS OSE reference and stremio-video/moonlight-tv practice; **needs a TV** |
+| webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
+| webOS playback (LS2 payloads, exported window, ACB binding) | Follows what the Nuvio native client documents from real TVs; **not yet run on a TV from this repo** |
 | Tizen native player | Written against capi-media-player; **needs Tizen Studio + TV** |
-| Remote scancodes | From the webosbrew SDL fork's `SDL_scancode.h` (Back 482, Exit 505, colours 486-489) |
+| Remote scancodes | Match LG's `SDL_webOS.h` in the webOS SDK (Back 482, Exit 505, colours 486-489) |
 | Live `link.stremio.com` QR flow | Endpoint shapes from stremio-core; unreachable from the sandbox, untested live |
 
 Things known from the Nuvio port that are already handled: `SDL_WEBOS_ACCESS_POLICY_KEYS_BACK`

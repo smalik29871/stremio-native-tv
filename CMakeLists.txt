@@ -50,10 +50,11 @@ else()
 endif()
 
 if(SNTV_PLATFORM STREQUAL "webos")
-  pkg_check_modules(LS2 REQUIRED luna-service2 glib-2.0)
-  list(APPEND SNTV_LINK_LIBS ${LS2_LIBRARIES})
+  # LS2, glib, ACB and the SDL webOS extensions are all dlopen'ed at run time
+  # (src/video/video_webos.c), so nothing beyond SDL2 + GLESv2 is linked. That
+  # keeps one binary loadable from webOS 3 to current firmware.
   set(SNTV_VIDEO_SRC src/video/video_webos.c)
-  set(SNTV_PLATFORM_INCLUDES ${LS2_INCLUDE_DIRS})
+  set(SNTV_PLATFORM_INCLUDES "")
 elseif(SNTV_PLATFORM STREQUAL "tizen")
   pkg_check_modules(TIZEN REQUIRED capi-media-player capi-appfw-application elementary)
   list(APPEND SNTV_LINK_LIBS ${TIZEN_LIBRARIES})

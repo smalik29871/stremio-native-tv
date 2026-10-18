@@ -49,6 +49,7 @@ struct Player {
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
     int last_tracks_version;
+    int last_warning_version;
 
     int menu, menu_focus;
     float play_flash;          /* big centre icon after play/pause */
@@ -241,6 +242,10 @@ static void update(Screen *s, float dt)
     if (p->seek_commit > 0) { p->seek_commit -= dt; if (p->seek_commit <= 0) video_seek(p->seek_target); }
 
     if (vi.tracks_version != p->last_tracks_version) { p->last_tracks_version = vi.tracks_version; app_redraw(); }
+    if (vi.warning_version != p->last_warning_version) {
+        p->last_warning_version = vi.warning_version;
+        if (vi.warning[0]) app_toast("%s", vi.warning);
+    }
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) auto_select_tracks(p);
 
     if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
