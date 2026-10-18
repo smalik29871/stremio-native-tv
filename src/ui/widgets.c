@@ -202,8 +202,8 @@ void ui_backdrop_image(unsigned tex, int iw, int ih, float alpha, float height)
     v0 += shift; v1 += shift;
     float left = g_fade_left, bottom = g_fade_bottom;
     float mid = x0 + (left - x0) * 0.45f, bm = bottom + (height - bottom) * 0.5f;
-    float xs[4] = { x0, mid, left, SNTV_UI_W }, ax[4] = { 0.0f, 0.42f, 1.0f, 1.0f };
-    float ys[5] = { 0, 150, bottom, bm, height }, ay[5] = { 0.55f, 1.0f, 1.0f, 0.42f, 0.0f };
+    float xs[4] = { x0, mid, left, SNTV_UI_W }, ax[4] = { 0.0f, 0.75f, 1.0f, 1.0f };
+    float ys[5] = { 0, 150, bottom, bm, height }, ay[5] = { 0.55f, 1.0f, 1.0f, 0.8f, 0.0f };
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 4; j++) {
             float cx = xs[i], cw = xs[i + 1] - xs[i], cy = ys[j], ch = ys[j + 1] - ys[j];
@@ -235,8 +235,8 @@ void ui_text_scrim(float width, float height)
 {
     Color bg = THEME_BG;
     float mid = width * 0.55f;
-    gfx_gradient_h(0, 0, mid, height, COLOR_ALPHA(bg, 0xD0), COLOR_ALPHA(bg, 0x90));
-    gfx_gradient_h(mid, 0, width - mid, height, COLOR_ALPHA(bg, 0x90), COLOR_ALPHA(bg, 0));
+    gfx_gradient_h(0, 0, mid, height, COLOR_ALPHA(bg, 0xC8), COLOR_ALPHA(bg, 0x78));
+    gfx_gradient_h(mid, 0, width - mid, height, COLOR_ALPHA(bg, 0x78), COLOR_ALPHA(bg, 0));
 }
 
 void ui_backdrop_blur(unsigned tex, int iw, int ih, float alpha)

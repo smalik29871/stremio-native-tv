@@ -1,4 +1,5 @@
 #include "lang.h"
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
@@ -81,7 +82,14 @@ const char *lang_display(const char *code)
 {
     if (is_brazilian(code)) return "Portugu\xC3\xAAs (Brasil)";
     int i = lang_index(code);
-    return i ? LANG_NAMES[i] : code;
+    if (i) return LANG_NAMES[i];
+    const char *en = lang_display_english(code);
+    if (en == code || !en[0]) return code;
+    static char ring[8][24]; static int next;
+    char *out = ring[next++ & 7];
+    snprintf(out, sizeof ring[0], "%s", en);
+    if (out[0] >= 'a' && out[0] <= 'z') out[0] -= 32;
+    return out;
 }
 
 const char *lang_display_english(const char *code)

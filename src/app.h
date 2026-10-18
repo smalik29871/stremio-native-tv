@@ -29,6 +29,8 @@ typedef enum { FX_AUTO = 0, FX_FULL = 1, FX_LIGHT = 2 } FxLevel;
  * fall back to the next source when the pipeline rejects one. */
 typedef struct PlayCandidate {
     char *url, *label, *binge_group, *filename;
+    char *detail, *release;     /* "1080p HEVC · DD+ · cached", the release name; NULL when unknown */
+    int addon_order;            /* the addon's place in the user's list */
     uint64_t video_size;
     unsigned needs;             /* TVCAP_* bits this source depends on (quality.h) */
 } PlayCandidate;
