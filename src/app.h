@@ -71,6 +71,8 @@ typedef struct App {
     int preflight;             /* read the top candidates' headers before recommending */
     int live_scrub;            /* the video follows the seek bar while the key is held */
     int home_style;            /* HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT */
+    int hide_watched;          /* catalogs skip titles the library marks watched */
+    int home_rows_version;     /* bumped when rows are reordered or hidden */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
 
@@ -95,6 +97,20 @@ void app_draw_toast(void);
 void app_load_addons(void);                    /* from account or defaults; caches to disk */
 void app_install_addon(const char *transport_url); /* fetches manifest, adds, pushes to account */
 void app_remove_addon(int index);
+int  app_move_addon(int index, int dir);       /* swaps with its neighbour; 1 when moved; synced to the account */
+int  app_title_watched(const char *id);        /* the library says this title was watched */
+
+/* Home rows: the order and visibility the viewer chose (Settings > Home rows). */
+typedef struct HomeRowDef {
+    char key[200];             /* "continue", "library", "catalog:<addon id>:<type>:<catalog id>" */
+    char title[128];
+    int kind;                  /* 0 continue watching, 1 library, 2 catalog */
+    int addon, catalog;
+    int hidden;
+} HomeRowDef;
+int  app_home_rows(HomeRowDef *out, int max);   /* ordered; hidden ones flagged */
+void app_home_row_move(const char *key, int dir);
+void app_home_row_toggle(const char *key);
 void app_login(const char *email, const char *password, void (*done)(int ok, const char *msg));
 void app_logout(void);
 void app_load_library(void);

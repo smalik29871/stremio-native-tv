@@ -29,6 +29,7 @@ enum { NAV_SEARCH, NAV_SETTINGS, NAV_ACCOUNT, NAV_COUNT };
 #define TITLE_H 58.0f
 
 typedef struct Row {
+    char key[200];
     char title[128];
     int kind;
     int addon, catalog;
@@ -45,7 +46,7 @@ typedef struct {
     int focus_row;            /* -1 = nav bar */
     int focus_nav;
     float scroll_y;
-    int addons_seen, library_seen;
+    int addons_seen, library_seen, rows_seen, watched_seen;
     float focus_t;            /* 0..1 grow-in of the focused card */
     int prev_row, prev_col; float prev_t;
     char hero_id[256];
@@ -155,45 +156,48 @@ static Row *new_row(int kind, const char *title)
 static void rebuild_rows(Home *h)
 {
     Row **old = h->rows; int n_old = h->n_rows;
-    int cap = 2;
-    for (int a = 0; a < g_app.n_addons; a++) cap += g_app.addons[a].manifest.n_catalogs;
-    h->rows = calloc((size_t)cap, sizeof(Row *));
+    HomeRowDef defs[160];
+    int nd = app_home_rows(defs, 160);
+    h->rows = calloc((size_t)nd + 1, sizeof(Row *));
     h->n_rows = 0;
-
-    for (int kind = ROW_CONTINUE; kind <= ROW_LIBRARY; kind++) {
+    for (int d = 0; d < nd; d++) {
+        if (defs[d].hidden) continue;
         Row *r = NULL;
-        for (int i = 0; i < n_old; i++) if (old[i] && old[i]->kind == kind) { r = old[i]; old[i] = NULL; break; }
-        if (!r) r = new_row(kind, kind == ROW_CONTINUE ? "Continue Watching" : "My Library");
-        build_library_row(r);
+        for (int i = 0; i < n_old; i++) if (old[i] && strcmp(old[i]->key, defs[d].key) == 0) { r = old[i]; old[i] = NULL; break; }
+        if (!r) { r = new_row(defs[d].kind == 0 ? ROW_CONTINUE : defs[d].kind == 1 ? ROW_LIBRARY : ROW_CATALOG, defs[d].title); snprintf(r->key, sizeof r->key, "%s", defs[d].key); }
+        if (r->kind == ROW_CATALOG) {
+            /* the row title drops the addon name; it is drawn beside it */
+            char *sep = strstr(defs[d].title, "  \xC2\xB7  ");
+            snprintf(r->title, sizeof r->title, "%.*s", sep ? (int)(sep - defs[d].title) : (int)strlen(defs[d].title), defs[d].title);
+            r->addon = defs[d].addon; r->catalog = defs[d].catalog;
+        } else build_library_row(r);
         h->rows[h->n_rows++] = r;
-    }
-    for (int a = 0; a < g_app.n_addons; a++) {
-        const Addon *ad = &g_app.addons[a];
-        for (int c = 0; c < ad->manifest.n_catalogs; c++) {
-            const AddonCatalog *cat = &ad->manifest.catalogs[c];
-            if (addon_catalog_has_required_extra(cat)) continue;
-            char title[128];
-            const char *type = strcmp(cat->type, "movie") == 0 ? "Movies" : strcmp(cat->type, "series") == 0 ? "Series" : cat->type;
-            snprintf(title, sizeof title, "%s %s", cat->name, type);
-            Row *r = NULL;
-            for (int i = 0; i < n_old; i++)
-                if (old[i] && old[i]->kind == ROW_CATALOG && old[i]->addon < 1000 && strcmp(old[i]->title, title) == 0) { r = old[i]; old[i] = NULL; break; }
-            if (!r) r = new_row(ROW_CATALOG, title);
-            r->addon = a; r->catalog = c;
-            h->rows[h->n_rows++] = r;
-        }
     }
     for (int i = 0; i < n_old; i++) row_free(old[i]);
     free(old);
     if (h->focus_row >= h->n_rows) h->focus_row = h->n_rows - 1;
     h->addons_seen = g_app.addons_version;
+    h->rows_seen = g_app.home_rows_version;
     h->library_seen = g_app.library_version;
+}
+
+/* Titles the library marks watched leave catalog rows when the viewer asked for it. */
+static void drop_watched(MetaPreview **m, int *n)
+{
+    if (!g_app.hide_watched) return;
+    int k = 0;
+    for (int i = 0; i < *n; i++) {
+        if (app_title_watched((*m)[i].id)) meta_preview_free(&(*m)[i]);
+        else (*m)[k++] = (*m)[i];
+    }
+    *n = k;
 }
 
 static void apply_catalog(Row *row, const char *json)
 {
     MetaPreview *m; int n;
     if (addon_parse_metas(json, &m, &n) != 0) return;
+    drop_watched(&m, &n);
     char *focused = row->n && row->focus < row->n ? strdup(row->metas[row->focus].id) : NULL;
     meta_previews_free(row->metas, row->n);
     row->metas = m; row->n = n;
@@ -307,7 +311,11 @@ static void request_desc(Home *h, const MetaPreview *m)
 static void update(Screen *s, float dt)
 {
     Home *h = s->st;
-    if (h->addons_seen != g_app.addons_version) rebuild_rows(h);
+    if (h->addons_seen != g_app.addons_version || h->rows_seen != g_app.home_rows_version) rebuild_rows(h);
+    if (h->watched_seen != g_app.hide_watched) {   /* the toggle changed: catalogs reload from cache */
+        h->watched_seen = g_app.hide_watched;
+        for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CATALOG) { h->rows[i]->requested = 0; h->rows[i]->req = 0; }
+    }
     if (h->library_seen != g_app.library_version) {
         for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind != ROW_CATALOG) build_library_row(h->rows[i]);
         h->library_seen = g_app.library_version;
@@ -639,6 +647,7 @@ Screen *screen_home_create(void)
     h->focus_t = 1;
     h->hero_fade = 1;
     h->hero_text_t = 1;
+    h->watched_seen = g_app.hide_watched;
     s->name = "home"; s->st = h;
     g_home_live = h;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;

@@ -136,6 +136,11 @@ static void on_page(HttpResponse *r, void *user)
         return;
     }
     if (!append) app_cache_put(e->url, r->body, r->len);
+    if (g_app.hide_watched) {
+        int k = 0;
+        for (int i = 0; i < n; i++) { if (app_title_watched(m[i].id)) meta_preview_free(&m[i]); else m[k++] = m[i]; }
+        n = k;
+    }
     if (n == 0) { e->done = 1; app_redraw(); return; }
     MetaPreview *all = realloc(e->items, (size_t)(e->n + n + 1) * sizeof(MetaPreview));
     if (!all) { meta_previews_free(m, n); return; }

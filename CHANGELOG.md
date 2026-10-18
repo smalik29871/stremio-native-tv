@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.4
+
+Settings you can find your way around, and a Home that is yours.
+
+- **Settings redesign**: categories down the left (Account, Playback, Audio & subtitles,
+  Sources, Interface, Home rows, Addons, About), their rows on the right. Up/Down picks
+  a category and the pane follows; Right enters the rows, Back returns.
+- **Home rows**: show or hide any row (Continue Watching, My Library, each catalog) and
+  put them in your order. OK toggles, Left/Right moves; Home follows at once.
+- **Addon order**: Left/Right moves an addon up or down in Settings > Addons. The order
+  is pushed to your Stremio account, so sources list in that order everywhere.
+- **Hide watched titles** (Settings > Interface): catalogs on Home and in Explore skip
+  titles the library marks watched.
+
 ## 0.5.3
 
 Side navigation, and three new places to find things.

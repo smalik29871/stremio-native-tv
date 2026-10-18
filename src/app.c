@@ -319,6 +319,117 @@ void app_remove_addon(int i)
     if (g_app.auth_key) push_collection_to_account(); else persist_local_addon_urls();
 }
 
+int app_move_addon(int i, int dir)
+{
+    int j = i + dir;
+    if (i < 0 || j < 0 || i >= g_app.n_addons || j >= g_app.n_addons) return 0;
+    Addon t = g_app.addons[i]; g_app.addons[i] = g_app.addons[j]; g_app.addons[j] = t;
+    g_app.addons_version++;
+    if (g_app.auth_key) push_collection_to_account(); else persist_local_addon_urls();
+    return 1;
+}
+
+int app_title_watched(const char *id)
+{
+    LibraryItem *li = app_library_find(id);
+    return li && !li->removed && (li->flagged_watched || li->times_watched > 0) && li->time_offset == 0;
+}
+
+/* ---- home rows --------------------------------------------------------------- */
+
+enum { HR_MAX = 160 };
+static struct { char key[200]; int hidden; } g_hr[HR_MAX];
+static int g_n_hr = -1;
+
+static void home_rows_load(void)
+{
+    g_n_hr = 0;
+    const char *s = store_get_str("homeRows", "");
+    while (*s && g_n_hr < HR_MAX) {
+        const char *e = strchr(s, '\n');
+        size_t len = e ? (size_t)(e - s) : strlen(s);
+        char line[232];
+        snprintf(line, sizeof line, "%.*s", (int)(len < 231 ? len : 231), s);
+        char *tab = strchr(line, '\t');
+        if (tab) { *tab = 0; g_hr[g_n_hr].hidden = tab[1] == '1'; } else g_hr[g_n_hr].hidden = 0;
+        snprintf(g_hr[g_n_hr].key, sizeof g_hr[g_n_hr].key, "%.199s", line);
+        if (line[0]) g_n_hr++;
+        s = e ? e + 1 : s + len;
+    }
+}
+
+static void home_rows_save(void)
+{
+    char *buf = malloc((size_t)HR_MAX * 232 + 1);
+    size_t o = 0;
+    for (int i = 0; i < g_n_hr; i++) o += (size_t)snprintf(buf + o, 232, "%s\t%d\n", g_hr[i].key, g_hr[i].hidden);
+    store_set_str("homeRows", buf);
+    store_save();
+    free(buf);
+    g_app.home_rows_version++;
+}
+
+static int hr_find(const char *key) { for (int i = 0; i < g_n_hr; i++) if (strcmp(g_hr[i].key, key) == 0) return i; return -1; }
+
+int app_home_rows(HomeRowDef *out, int max)
+{
+    if (g_n_hr < 0) home_rows_load();
+    HomeRowDef *all = calloc((size_t)max, sizeof *all);
+    int n = 0;
+    if (n < max) { snprintf(all[n].key, sizeof all[n].key, "continue"); snprintf(all[n].title, sizeof all[n].title, "Continue Watching"); all[n].kind = 0; n++; }
+    if (n < max) { snprintf(all[n].key, sizeof all[n].key, "library"); snprintf(all[n].title, sizeof all[n].title, "My Library"); all[n].kind = 1; n++; }
+    for (int a = 0; a < g_app.n_addons; a++) {
+        const Addon *ad = &g_app.addons[a];
+        for (int c = 0; c < ad->manifest.n_catalogs && n < max; c++) {
+            const AddonCatalog *cat = &ad->manifest.catalogs[c];
+            if (addon_catalog_has_required_extra(cat)) continue;
+            const char *type = strcmp(cat->type, "movie") == 0 ? "Movies" : strcmp(cat->type, "series") == 0 ? "Series" : cat->type;
+            snprintf(all[n].key, sizeof all[n].key, "catalog:%s:%s:%s", ad->manifest.id ? ad->manifest.id : ad->transport_url, cat->type, cat->id);
+            snprintf(all[n].title, sizeof all[n].title, "%s %s  \xC2\xB7  %s", cat->name, type, ad->manifest.name);
+            all[n].kind = 2; all[n].addon = a; all[n].catalog = c;
+            n++;
+        }
+    }
+    /* saved order first, then anything new in its natural place */
+    int k = 0;
+    for (int i = 0; i < g_n_hr && k < n; i++) {
+        for (int j = 0; j < n; j++) if (all[j].key[0] && strcmp(all[j].key, g_hr[i].key) == 0) { out[k] = all[j]; out[k].hidden = g_hr[i].hidden; k++; all[j].key[0] = 0; break; }
+    }
+    for (int j = 0; j < n; j++) if (all[j].key[0]) { out[k] = all[j]; out[k].hidden = 0; k++; }
+    free(all);
+    return k;
+}
+
+static void hr_sync(void)
+{
+    /* make the saved list the complete current one, in the order shown */
+    HomeRowDef rows[HR_MAX];
+    int n = app_home_rows(rows, HR_MAX);
+    g_n_hr = n;
+    for (int i = 0; i < n; i++) { snprintf(g_hr[i].key, sizeof g_hr[i].key, "%.199s", rows[i].key); g_hr[i].hidden = rows[i].hidden; }
+}
+
+void app_home_row_move(const char *key, int dir)
+{
+    hr_sync();
+    int i = hr_find(key), j = i + dir;
+    if (i < 0 || j < 0 || j >= g_n_hr) return;
+    char tk[200]; int th;
+    memcpy(tk, g_hr[i].key, sizeof tk); th = g_hr[i].hidden;
+    memcpy(g_hr[i].key, g_hr[j].key, sizeof tk); g_hr[i].hidden = g_hr[j].hidden;
+    memcpy(g_hr[j].key, tk, sizeof tk); g_hr[j].hidden = th;
+    home_rows_save();
+}
+
+void app_home_row_toggle(const char *key)
+{
+    hr_sync();
+    int i = hr_find(key);
+    if (i < 0) return;
+    g_hr[i].hidden = !g_hr[i].hidden;
+    home_rows_save();
+}
+
 /* ---- auth ------------------------------------------------------------------ */
 
 static void (*g_login_done)(int, const char *);
@@ -594,6 +705,7 @@ static void load_prefs(void)
     g_app.preflight = store_get_int("preflight", 1);
     g_app.live_scrub = store_get_int("liveScrub", 1);
     g_app.home_style = store_get_int("homeStyle", HOME_CINEMATIC);
+    g_app.hide_watched = store_get_int("hideWatched", 0);
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
@@ -618,6 +730,7 @@ void app_save_prefs(void)
     store_set_int("preflight", g_app.preflight);
     store_set_int("liveScrub", g_app.live_scrub);
     store_set_int("homeStyle", g_app.home_style);
+    store_set_int("hideWatched", g_app.hide_watched);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();

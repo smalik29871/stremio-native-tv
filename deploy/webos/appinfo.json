@@ -1,6 +1,6 @@
 {
   "id": "org.stremio.nativetv",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "vendor": "Stremio community (unofficial)",
   "type": "native",
   "main": "stremio-tv",
