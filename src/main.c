@@ -228,6 +228,7 @@ int main(int argc, char **argv)
                 app_redraw();
             } else if (e.type == SDL_APP_WILLENTERBACKGROUND) {
                 video_app_background();
+                app_library_flush(1);
                 store_save();
             } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
                 video_app_foreground();
@@ -255,6 +256,7 @@ int main(int argc, char **argv)
         top = app_top();   /* update() may have popped or replaced the screen */
 
         breaks_tick(dt);
+        app_library_flush(0);
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }
@@ -273,13 +275,18 @@ int main(int argc, char **argv)
             if (top && strcmp(top->name, "break") != 0 && strcmp(top->name, "pin") != 0) breaks_draw_banner();
             app_draw_toast();
             dev_hooks(win, frame++);
+            Uint32 swap_at = SDL_GetTicks();
             gfx_end_frame();
-            Uint32 spent = SDL_GetTicks() - now;
+            Uint32 end = SDL_GetTicks(), spent = end - now;
             app_note_frame((float)spent);
             if (frame == 120) LOGI("perf: %d draw calls, %u ms frame", gfx_draw_calls(), spent);
-            if (spent < 16) SDL_Delay(16 - spent);
+            /* A swap that waited for the display already paced the frame; sleeping on top of
+             * it only delays the next key. Cap the rate only when the swap returned at once. */
+            if (end - swap_at < 2 && spent < 16) SDL_Delay(16 - spent);
         } else {
-            SDL_Delay(25);   /* poll input/network at 40 Hz while idle */
+            /* idle: sleep until an event arrives (a key wakes us at once, it stays queued)
+             * or 25 ms pass for the network and image threads */
+            SDL_WaitEventTimeout(NULL, 25);
         }
     }
 

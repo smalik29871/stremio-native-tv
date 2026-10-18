@@ -199,7 +199,10 @@ enum { WORKERS = 6 };
 static SDL_Thread *g_workers[WORKERS];
 static SDL_mutex *g_qlock;
 static SDL_cond *g_qcond;
-static Job *g_pending, *g_pending_tail, *g_done, *g_inflight;
+/* Two lanes: API/JSON requests in order, and artwork newest-first (what is on screen
+ * now beats what scrolled past). Workers always drain the first lane before the second,
+ * so pressing OK on a title isn't queued behind fifty posters. */
+static Job *g_pending, *g_pending_tail, *g_artwork, *g_done, *g_inflight;
 static int g_quit;
 static unsigned g_next_id = 1;
 
@@ -209,11 +212,17 @@ static int worker_main(void *arg)
     CURL *h = C.easy_init();
     for (;;) {
         SDL_LockMutex(g_qlock);
-        while (!g_pending && !g_quit) SDL_CondWait(g_qcond, g_qlock);
+        while (!g_pending && !g_artwork && !g_quit) SDL_CondWait(g_qcond, g_qlock);
         if (g_quit) { SDL_UnlockMutex(g_qlock); if (h) C.easy_cleanup(h); return 0; }
-        Job *j = g_pending;
-        g_pending = j->next;
-        if (!g_pending) g_pending_tail = NULL;
+        Job *j;
+        if (g_pending) {
+            j = g_pending;
+            g_pending = j->next;
+            if (!g_pending) g_pending_tail = NULL;
+        } else {
+            j = g_artwork;
+            g_artwork = j->next;
+        }
         j->next = g_inflight;
         g_inflight = j;
         SDL_UnlockMutex(g_qlock);
@@ -243,8 +252,11 @@ static unsigned enqueue(const char *url, const char *post_json, const HttpOption
     j->user = user;
     SDL_LockMutex(g_qlock);
     j->id = g_next_id++;
-    if (g_pending_tail) g_pending_tail->next = j; else g_pending = j;
-    g_pending_tail = j;
+    if (j->opt.background) { j->next = g_artwork; g_artwork = j; }
+    else {
+        if (g_pending_tail) g_pending_tail->next = j; else g_pending = j;
+        g_pending_tail = j;
+    }
     SDL_CondSignal(g_qcond);
     SDL_UnlockMutex(g_qlock);
     return j->id;
@@ -264,6 +276,7 @@ void http_cancel(unsigned id)
 {
     SDL_LockMutex(g_qlock);
     for (Job *j = g_pending; j; j = j->next) if (j->id == id) j->cancelled = 1;
+    for (Job *j = g_artwork; j; j = j->next) if (j->id == id) j->cancelled = 1;
     for (Job *j = g_inflight; j; j = j->next) if (j->id == id) j->cancelled = 1;
     for (Job *j = g_done; j; j = j->next) if (j->id == id) j->cancelled = 1;
     SDL_UnlockMutex(g_qlock);
@@ -316,6 +329,7 @@ void http_shutdown(void)
     SDL_UnlockMutex(g_qlock);
     for (int i = 0; i < WORKERS; i++) if (g_workers[i]) SDL_WaitThread(g_workers[i], NULL);
     for (Job *j = g_pending; j;) { Job *n = j->next; job_free(j); j = n; }
+    for (Job *j = g_artwork; j;) { Job *n = j->next; job_free(j); j = n; }
     for (Job *j = g_done; j;) { Job *n = j->next; job_free(j); j = n; }
     g_pending = g_done = NULL;
     SDL_DestroyCond(g_qcond);

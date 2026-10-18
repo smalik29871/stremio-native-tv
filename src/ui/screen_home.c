@@ -278,6 +278,7 @@ static void on_desc(HttpResponse *r, void *user)
     if (strcmp(g_desc_pending, id) == 0) g_desc_pending[0] = 0;
     MetaItem item;
     if (r->status == 200 && addon_parse_meta(r->body, &item) == 0) {
+        app_meta_put(item.p.type, id, r->body, r->len);
         int slot = g_n_desc < DESC_CACHE ? g_n_desc++ : g_desc_next;
         if (g_n_desc == DESC_CACHE) g_desc_next = (g_desc_next + 1) % DESC_CACHE;
         if (g_desc[slot].id[0]) meta_preview_free(&g_desc[slot].p);

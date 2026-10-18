@@ -21,6 +21,7 @@ typedef struct HttpOptions {
     uint64_t range_bytes;   /* fetch only the first N bytes (Range: bytes=0-(N-1)) */
     long timeout_s;         /* whole-transfer timeout */
     int no_json_accept;     /* don't ask for application/json */
+    int background;         /* artwork: waits behind API requests, newest first */
 } HttpOptions;
 
 int  http_init(void);          /* 0 on success */

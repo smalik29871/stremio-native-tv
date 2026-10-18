@@ -107,6 +107,7 @@ static void on_meta(HttpResponse *r, void *user)
     Detail *d = user;
     d->req = 0;
     d->loading = 0;
+    if (r->status == 200 && r->len && r->seconds >= 0) app_meta_put(d->preview.type, d->preview.id, r->body, r->len);
     if (r->status != 200 || addon_parse_meta(r->body, &d->meta) != 0) {
         snprintf(d->error, sizeof d->error, "Couldn't load details (%s)", r->error[0] ? r->error : "bad response");
         app_redraw();
@@ -127,6 +128,14 @@ static void on_meta(HttpResponse *r, void *user)
 
 static void fetch_meta(Detail *d)
 {
+    char *cached = app_meta_get(d->preview.type, d->preview.id);
+    if (cached) {   /* Home fetched it already: no wait */
+        HttpResponse r = { 0 };
+        r.status = 200; r.body = cached; r.len = strlen(cached); r.seconds = -1;   /* from the cache */
+        on_meta(&r, d);
+        free(cached);
+        if (d->has_meta) return;
+    }
     for (int i = 0; i < g_app.n_addons; i++) {
         if (!addon_supports(&g_app.addons[i], "meta", d->preview.type, d->preview.id)) continue;
         char url[1024];

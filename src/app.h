@@ -172,6 +172,10 @@ void app_save_prefs(void);
 void app_tv_learn(unsigned needs, int worked);
 void app_note_frame(float ms);          /* feeds the Auto effects level */
 void app_redraw(void);                  /* request a frame even when idle */
+void app_library_flush(int force);
+/* Raw meta JSON for a title, shared by Home (synopsis) and Detail; get returns a copy or NULL. */
+void  app_meta_put(const char *type, const char *id, const char *body, size_t len);
+char *app_meta_get(const char *type, const char *id);      /* write the library cache if it changed (deferred while playing) */
 
 /* --- screens --- */
 Screen *screen_home_create(void);

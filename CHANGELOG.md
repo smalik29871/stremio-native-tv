@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.0
+
+- **Three themes of its own** (Settings > Interface > *Theme* and *Accent colour*),
+  switched on the spot, six accents each:
+  - **Signal** (new default): graphite, a lime accent, sharp 4 px corners, focus as an
+    accent frame with a hard offset block, capital titles, mono metadata
+    (`2012 / 95 MIN / MOVIE`), numbered row headings (`01 ── POPULAR MOVIES ── 14`).
+  - **Marquee**: warm ink and parchment, projector amber, condensed display titles,
+    a light bar under the focused card, amber kickers over each row.
+  - **Duotone**: artwork printed in two tones that blooms into full colour when
+    focused, soft capsules.
+  All three are flat (no blur, no full-screen glows), so they cost less to draw than
+  the old look. The Stremio logo keeps its own colours in every theme.
+- **Next episode readiness**: the player's Next button fills as a ring (or the focused
+  pill fills left to right, "Getting it ready") while the next episode's sources
+  arrive, and lights up fully with a pulse when it can start at once. The Up Next
+  card's button reads *Preparing* until then. Opening the control bar starts the fetch.
+- **Snappier**:
+  - Baked glyph atlases are cached on disk, so later starts skip the font bake.
+  - A key press wakes the idle loop at once, and no extra sleep follows a swap that
+    already waited for the display.
+  - Detail opens with the meta Home already fetched (memory, and on disk for an hour).
+  - API requests no longer wait behind poster downloads; artwork goes newest first.
+  - Posters are read from disk on two decoder threads instead of inside drawing, and
+    the disk-cache tidy-up moved off the main thread.
+  - The library cache is written when nothing is playing, not every 30 s during
+    playback.
+  - Screen transitions clip the page underneath, and text fitting/wrapping walks
+    each string once.
+- See `docs/OVERHAUL.md` for the plan, the performance audit and what comes next.
+
 ## 0.6.2
 
 - **Picture-in-picture is off by default.** Back in the player stops playback and

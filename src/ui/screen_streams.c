@@ -135,7 +135,7 @@ static void probe_next(Streams *st)
     st->probe_inflight = 1;
     ProbeReq *q = malloc(sizeof *q);
     q->owner = st; q->gen = st->probe_gen; q->url = strdup(s->url);
-    HttpOptions opt = { PROBE_BYTES, 5, 1 };
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .timeout_s = 5, .no_json_accept = 1 };
     http_request_async_ex(s->url, &opt, on_probe, q);
 }
 

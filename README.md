@@ -9,7 +9,7 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.6.2**. The desktop preview builds warning-free, passes its unit tests and
+> Status: **v0.7.0**. The desktop preview builds warning-free, passes its unit tests and
 > runs every screen headlessly against a fake addon (including subtitles, the track menu,
 > source fallback and Up Next). The webOS and Tizen video backends follow the platform
 > APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
@@ -21,9 +21,11 @@ Captured headlessly from the desktop build against the test addon (generated
 artwork, not real titles). On a TV the player shows video where these show the
 backdrop.
 
-| Home | Detail + episodes |
+| Home (Signal, the default theme) | Detail + episodes |
 |---|---|
 | ![Home](docs/screenshots/home.jpg) | ![Episodes](docs/screenshots/episodes.jpg) |
+| **Marquee theme** | **Duotone theme** |
+| ![Marquee](docs/screenshots/home_marquee.jpg) | ![Duotone](docs/screenshots/home_duotone.jpg) |
 | **Sources** | **Player + subtitles** |
 | ![Streams](docs/screenshots/streams.jpg) | ![Player](docs/screenshots/player_cue.jpg) |
 | **Track panel** | **Up Next** |
@@ -57,6 +59,11 @@ backdrop.
 - **Type**: Inter Medium and Bold, packed into two 2048² alpha atlases at start-up.
 
 ## What it does
+
+- **Three themes** (Settings > Interface): **Signal** (default; graphite, lime, sharp
+  corners, mono metadata), **Marquee** (warm ink, amber, condensed display titles) and
+  **Duotone** (two-tone artwork that turns to colour on focus), six accents each. All
+  flat, no blur. See `docs/OVERHAUL.md`.
 
 - **Addon protocol**: manifests (string and object resources, `idPrefixes`, modern `extra`
   and legacy `extraSupported`), catalogs with extras (`search`, `skip`, `genre`), meta,
@@ -171,6 +178,7 @@ src/
   subs.c/.h            SRT / WebVTT parser and cue lookup
   addon/addon.c        Stremio addon protocol: manifest, catalog/meta/stream/subtitles
   addon/stremio_api.c  api.strem.io requests/responses, LibraryItem (de)serialisation
+  ui/theme.c           runtime themes (Signal, Marquee, Duotone): tokens, accents, fonts per theme
   ui/gfx.c             batched GLES2 renderer: SDF rounded rects, rings, shadows, lines, video hole
   ui/font.c            two-face stb_truetype atlases (Inter), UTF-8, ellipsis, wrap, shadowed text
   ui/widgets.c         design kit: icons, pills, chips, toggles, cards, skeletons, backdrops, ambient light
@@ -189,7 +197,7 @@ tools/                 linux.sh, webos.sh (+ --ipk/--install), package-ipk.sh,
                        tizen-native.sh, tizen-wasm.sh, env.sh
 tests/                 test_addon.c (protocol/API unit tests), fake_addon.py, smoke.sh
 vendor/                cJSON (MIT), qrcodegen (MIT), stb_truetype, stb_image (public domain)
-assets/fonts/          Inter Medium + Bold (SIL Open Font License, see Inter-LICENSE.txt)
+assets/fonts/          Inter, Space Grotesk, JetBrains Mono, Sora, Bebas Neue (SIL OFL, licences alongside)
 ```
 
 ## Install on an LG TV
@@ -316,6 +324,8 @@ No credentials are compiled into the binary.
 
 ## Third-party code
 
+Theme fonts in `assets/fonts` are under the SIL Open Font License 1.1, each with its
+licence file: Space Grotesk, JetBrains Mono, Sora and Bebas Neue (plus Inter).
 `vendor/libwebp` is libwebp 1.4.0's decoder (BSD-3-Clause, see `vendor/libwebp/COPYING`);
 `vendor/cJSON`, `vendor/qrcodegen` and `stb_image` keep their own licences in place.
 

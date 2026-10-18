@@ -69,19 +69,27 @@ void app_draw_screen(Screen *top, float dt)
     float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
     float W = SNTV_UI_W;
     Screen *from = g_trans.from;
+    /* The page underneath is clipped to the strip the sliding page has not covered yet,
+     * so the two pages together shade one screen of pixels instead of two plus a dim. */
     if (g_trans.dir > 0) {   /* push: the old page slides back and dims, the new one slides in from the right */
+        float edge = W * (1 - e);
+        gfx_clip_push(0, 0, edge, SNTV_UI_H);
         gfx_set_translate(-0.22f * W * e, 0);
         if (from->draw) from->draw(from);
         gfx_set_translate(0, 0);
-        gfx_rect(0, 0, W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, (int)(0xA0 * e)));
-        gfx_set_translate(W * (1 - e), 0);
+        gfx_rect(0, 0, edge, SNTV_UI_H, COLOR_ALPHA(THEME_BG, (int)(0xA0 * e)));
+        gfx_clip_pop();
+        gfx_set_translate(edge, 0);
         top->draw(top);
     } else {                 /* pop: the page underneath comes forward, the old one slides out to the right */
+        float edge = W * e;
+        gfx_clip_push(0, 0, edge, SNTV_UI_H);
         gfx_set_translate(-0.22f * W * (1 - e), 0);
         top->draw(top);
         gfx_set_translate(0, 0);
-        gfx_rect(0, 0, W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, (int)(0xA0 * (1 - e))));
-        gfx_set_translate(W * e, 0);
+        gfx_rect(0, 0, edge, SNTV_UI_H, COLOR_ALPHA(THEME_BG, (int)(0xA0 * (1 - e))));
+        gfx_clip_pop();
+        gfx_set_translate(edge, 0);
         if (from->draw) from->draw(from);
     }
     gfx_set_translate(0, 0);
@@ -686,9 +694,28 @@ LibraryItem *app_library_find(const char *id)
 
 static int64_t now_ms(void) { return (int64_t)time(NULL) * 1000; }
 
+/* Writing the whole library is 50-100 ms on a TV CPU, and progress lands every 30 s
+ * while a video plays (the server copy is updated at once by push_library_item). So a
+ * change only marks the cache dirty; it is written once nothing plays and the app has
+ * been quiet for a moment, when it goes to the background, and at exit. */
+static int g_library_dirty;
+static float g_library_dirty_at;
+
 static void save_library_cache(void)
 {
     g_app.library_version++;
+    if (!g_library_dirty) g_library_dirty_at = g_app.time;
+    g_library_dirty = 1;
+}
+
+void app_library_flush(int force)
+{
+    if (!g_library_dirty) return;
+    if (!force) {
+        const Screen *top = app_top();
+        if (g_app.pip || (top && strcmp(top->name, "player") == 0) || g_app.time - g_library_dirty_at < 3) return;
+    }
+    g_library_dirty = 0;
     cJSON *root = cJSON_CreateObject();
     cJSON *arr = cJSON_AddArrayToObject(root, "result");
     for (int i = 0; i < g_app.n_library; i++) cJSON_AddItemToArray(arr, library_item_to_json(&g_app.library[i]));
@@ -805,6 +832,44 @@ void app_cache_put(const char *url, const char *body, size_t len)
     mkdir(dir, 0755);
     cache_name(url, name, sizeof name);
     store_write_file(name, body, len);
+}
+
+/* ---- meta cache ---------------------------------------------------------------
+ * Home already asks for a title's meta to show its synopsis; Detail asked for the
+ * same thing again and waited on it. The raw answer is kept in memory (and on disk
+ * for an hour) so Detail opens with its episodes already there. */
+
+#define META_CACHE 32
+#define META_FRESH_S (30 * 60)
+static struct { char key[200]; char *body; float at; } g_meta[META_CACHE];
+static int g_meta_next;
+
+static void meta_key(const char *type, const char *id, char *out, size_t n) { snprintf(out, n, "meta:%s:%s", type ? type : "", id ? id : ""); }
+
+void app_meta_put(const char *type, const char *id, const char *body, size_t len)
+{
+    if (!body || !len) return;
+    char key[200];
+    meta_key(type, id, key, sizeof key);
+    int slot = -1;
+    for (int i = 0; i < META_CACHE; i++) if (strcmp(g_meta[i].key, key) == 0) slot = i;
+    if (slot < 0) { slot = g_meta_next; g_meta_next = (g_meta_next + 1) % META_CACHE; }
+    free(g_meta[slot].body);
+    snprintf(g_meta[slot].key, sizeof g_meta[slot].key, "%s", key);
+    g_meta[slot].body = malloc(len + 1);
+    memcpy(g_meta[slot].body, body, len);
+    g_meta[slot].body[len] = 0;
+    g_meta[slot].at = g_app.time;
+    app_cache_put(key, body, len);
+}
+
+char *app_meta_get(const char *type, const char *id)
+{
+    char key[200];
+    meta_key(type, id, key, sizeof key);
+    for (int i = 0; i < META_CACHE; i++)
+        if (g_meta[i].body && strcmp(g_meta[i].key, key) == 0 && g_app.time - g_meta[i].at < META_FRESH_S) return strdup(g_meta[i].body);
+    return app_cache_get(key, 3600);
 }
 
 /* ---- preferences & perf ----------------------------------------------------- */
@@ -1195,6 +1260,7 @@ void app_init(void)
 void app_shutdown(void)
 {
     app_pip_close();
+    app_library_flush(1);
     while (g_app.depth) { Screen *s = g_app.stack[--g_app.depth]; if (s->destroy) s->destroy(s); }
     free_addons();
     library_items_free(g_app.library, g_app.n_library);

@@ -33,6 +33,7 @@ typedef struct Img {
     unsigned tint;
     unsigned req;
     int from_disk;
+    int need_net;          /* the decoder found no disk copy: fetch it */
     unsigned char *encoded; size_t encoded_len;
     unsigned char *pixels;
     struct Img *next;      /* hash chain */
@@ -46,7 +47,8 @@ static unsigned g_clock;
 static char g_cache_dir[1024];
 static int g_pending_decodes;
 
-static SDL_Thread *g_decoder;
+enum { DECODERS = 2 };
+static SDL_Thread *g_decoder[DECODERS];
 static SDL_mutex *g_lock;
 static SDL_cond *g_cond;
 static Img *g_decode_q, *g_done_q;
@@ -150,9 +152,13 @@ static unsigned char *to_pot(unsigned char *px, int *w, int *h)
     return out;
 }
 
+static void trim_disk_cache(void);
+static int read_disk(Img *i);
+static const HttpOptions ARTWORK = { .no_json_accept = 1, .background = 1 };
+
 static int decoder_main(void *arg)
 {
-    (void)arg;
+    if (arg && g_cache_dir[0]) trim_disk_cache();   /* the first decoder tidies the disk cache, off the main thread */
     for (;;) {
         SDL_LockMutex(g_lock);
         while (!g_decode_q && !g_quit) SDL_CondWait(g_cond, g_lock);
@@ -161,6 +167,14 @@ static int decoder_main(void *arg)
         g_decode_q = i->qnext;
         SDL_UnlockMutex(g_lock);
 
+        if (!i->encoded && !read_disk(i)) {   /* no disk copy: hand back for a download */
+            i->need_net = 1;
+            SDL_LockMutex(g_lock);
+            i->qnext = g_done_q;
+            g_done_q = i;
+            SDL_UnlockMutex(g_lock);
+            continue;
+        }
         int w = 0, h = 0, n = 0;
         unsigned char *px = NULL;
         if (i->encoded_len > 12 && !memcmp(i->encoded, "RIFF", 4) && !memcmp(i->encoded + 8, "WEBP", 4)) {
@@ -231,7 +245,8 @@ static void on_http(HttpResponse *r, void *user)
     enqueue_decode(i);
 }
 
-static int load_from_disk(Img *i)
+/* Decoder thread: the cached file's bytes, 1 when there is one. */
+static int read_disk(Img *i)
 {
     if (!g_cache_dir[0]) return 0;
     char path[1200];
@@ -246,15 +261,16 @@ static int load_from_disk(Img *i)
     i->encoded_len = fread(i->encoded, 1, (size_t)n, f);
     fclose(f);
     i->from_disk = 1;
-    enqueue_decode(i);
     return 1;
 }
 
+/* The disk lookup happens on a decoder thread (it used to read up to 2 MB inside
+ * image_get, from draw); a miss comes back through image_pump as need_net. */
 static void request(Img *i)
 {
     i->state = IMG_LOADING;
-    if (load_from_disk(i)) return;
-    i->req = http_request_async(i->url, NULL, on_http, i);
+    if (!g_cache_dir[0]) { i->req = http_request_async_ex(i->url, &ARTWORK, on_http, i); return; }
+    enqueue_decode(i);
 }
 
 static void evict_if_needed(void)
@@ -336,6 +352,13 @@ void image_pump(void)
     while (done) {
         Img *i = done;
         done = i->qnext;
+        if (i->need_net) {
+            i->need_net = 0;
+            i->state = IMG_LOADING;
+            SDL_LockMutex(g_lock); g_pending_decodes--; SDL_UnlockMutex(g_lock);
+            i->req = http_request_async_ex(i->url, &ARTWORK, on_http, i);
+            continue;
+        }
         if (i->pixels) {
             i->tex = (i->flags & IMAGE_MIPMAP) ? gfx_texture_rgba_mip(i->pixels, i->w, i->h) : gfx_texture_rgba(i->pixels, i->w, i->h);
             i->bytes = (size_t)i->w * i->h * 4;
@@ -419,13 +442,13 @@ int image_init(const char *cache_dir, size_t budget_bytes)
     if (cache_dir) {
         snprintf(g_cache_dir, sizeof g_cache_dir, "%s/img", cache_dir);
         mkdir(g_cache_dir, 0755);
-        trim_disk_cache();
     }
     g_lock = SDL_CreateMutex();
     g_cond = SDL_CreateCond();
-    g_decoder = SDL_CreateThread(decoder_main, "img-decode", NULL);
+    /* two decoders: a 1080p backdrop no longer holds up the posters behind it */
+    for (int d = 0; d < DECODERS; d++) g_decoder[d] = SDL_CreateThread(decoder_main, "img-decode", d == 0 ? (void *)1 : NULL);
     LOGI("image: budget %zu MB, disk cache %s", g_budget >> 20, g_cache_dir[0] ? g_cache_dir : "off");
-    return g_decoder ? 0 : -1;
+    return g_decoder[0] ? 0 : -1;
 }
 
 void image_shutdown(void)
@@ -434,7 +457,7 @@ void image_shutdown(void)
     g_quit = 1;
     SDL_CondBroadcast(g_cond);
     SDL_UnlockMutex(g_lock);
-    SDL_WaitThread(g_decoder, NULL);
+    for (int d = 0; d < DECODERS; d++) if (g_decoder[d]) SDL_WaitThread(g_decoder[d], NULL);
     for (int b = 0; b < BUCKETS; b++)
         for (Img *i = g_buckets[b]; i;) {
             Img *n = i->next;

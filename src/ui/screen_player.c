@@ -380,7 +380,7 @@ static void probe_current(Player *p)
     if (strncmp(url, "http", 4) != 0) return;
     SubReq *q = malloc(sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0;
-    HttpOptions opt = { 2u << 20, 8, 1 };
+    HttpOptions opt = { .range_bytes = 2u << 20, .timeout_s = 8, .no_json_accept = 1 };
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
 
