@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1
+
+- New **Diagnostics** screen (Settings > Diagnostics, or OK on the playback error card):
+  the app's log on the TV, filterable to playback lines or problems, plus the previous
+  session's log. OK turns the selected lines and the device details (version, video
+  backend, webOS release, root or not) into a QR code you can scan with a phone, so
+  problems can be reported from a non-rooted TV.
+- Logging keeps the last 600 lines in memory for that screen.
+
 ## 0.4.0
 
 First installable LG build.

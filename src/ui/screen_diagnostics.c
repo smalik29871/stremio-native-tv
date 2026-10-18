@@ -1,0 +1,311 @@
+/* Diagnostics: the app's own log on screen, for TVs where nobody can reach the
+ * log file. Tabs filter to playback lines, problems (warnings and errors) or
+ * everything; Blue switches to the previous run (useful after a crash); OK
+ * shows a QR code with the device details and the lines up to the cursor, so
+ * the log can be scanned with a phone and pasted into a bug report. */
+#include "../app.h"
+#include "../log.h"
+#include "../video/video.h"
+#include "../platform/platform.h"
+#include "qrcodegen.h"
+#include "font.h"
+#include "theme.h"
+#include "widgets.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+enum { TAB_PLAYBACK, TAB_PROBLEMS, TAB_ALL, TAB_COUNT };
+#define LIST_Y 300.0f
+#define ROW_H 36.0f
+#define LIST_ROWS 15
+#define QR_BUDGET 700    /* bytes of log text in the QR; denser codes are hard to scan off a TV */
+
+typedef struct {
+    LogLine *lines; int n;          /* source lines (current snapshot or previous file) */
+    int *vis; int n_vis;            /* indexes of lines passing the tab filter */
+    int tab, previous;
+    int cursor;                     /* index into vis */
+    int follow;                     /* cursor sticks to the newest line */
+    float scroll;
+    unsigned seen_version;
+    int show_qr;
+    uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
+    int qr_ok, qr_lines;
+    char system[256];
+} Diag;
+
+static int contains_ci(const char *hay, const char *needle)
+{
+    size_t n = strlen(needle);
+    for (const char *p = hay; *p; p++) {
+        size_t i = 0;
+        while (i < n && p[i] && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) i++;
+        if (i == n) return 1;
+    }
+    return 0;
+}
+
+static int is_playback(const LogLine *l)
+{
+    static const char *keys[] = { "media", "acb", "video", "player", "lsregister", "ls2", "subs:", "stream", "luna", NULL };
+    for (int i = 0; keys[i]; i++) if (contains_ci(l->text, keys[i])) return 1;
+    return 0;
+}
+
+static int passes(const Diag *d, const LogLine *l)
+{
+    switch (d->tab) {
+    case TAB_PLAYBACK: return is_playback(l) || l->level == 'E';
+    case TAB_PROBLEMS: return l->level == 'E' || l->level == 'W';
+    default: return 1;
+    }
+}
+
+static void refilter(Diag *d)
+{
+    free(d->vis);
+    d->vis = malloc(sizeof(int) * (size_t)(d->n + 1));
+    d->n_vis = 0;
+    for (int i = 0; i < d->n; i++) if (passes(d, &d->lines[i])) d->vis[d->n_vis++] = i;
+    if (d->follow || d->cursor >= d->n_vis) d->cursor = d->n_vis ? d->n_vis - 1 : 0;
+}
+
+static void load_current(Diag *d)
+{
+    free(d->lines);
+    d->lines = malloc(sizeof(LogLine) * LOG_RING_LINES);
+    d->n = log_snapshot(d->lines, LOG_RING_LINES);
+    d->seen_version = log_version();
+}
+
+static void load_previous(Diag *d)
+{
+    free(d->lines);
+    d->lines = NULL; d->n = 0;
+    const char *path = log_previous_path();
+    FILE *f = path[0] ? fopen(path, "r") : NULL;
+    if (!f) return;
+    int cap = 256;
+    d->lines = malloc(sizeof(LogLine) * (size_t)cap);
+    char buf[2048];
+    while (fgets(buf, sizeof buf, f)) {
+        buf[strcspn(buf, "\r\n")] = 0;
+        if (!buf[0]) continue;
+        if (d->n == cap) { cap *= 2; d->lines = realloc(d->lines, sizeof(LogLine) * (size_t)cap); }
+        LogLine *l = &d->lines[d->n++];
+        /* "HH:MM:SS L message" */
+        if (strlen(buf) > 11 && buf[8] == ' ' && buf[10] == ' ') {
+            l->level = buf[9];
+            snprintf(l->text, sizeof l->text, "%.8s %.*s", buf, LOG_LINE_MAX - 12, buf + 11);
+        } else {
+            l->level = 'I';
+            snprintf(l->text, sizeof l->text, "%.*s", LOG_LINE_MAX - 1, buf);
+        }
+    }
+    fclose(f);
+    /* keep only the most recent lines, like the live view */
+    if (d->n > LOG_RING_LINES) {
+        memmove(d->lines, d->lines + (d->n - LOG_RING_LINES), sizeof(LogLine) * LOG_RING_LINES);
+        d->n = LOG_RING_LINES;
+    }
+}
+
+static void reload(Diag *d)
+{
+    if (d->previous) load_previous(d); else load_current(d);
+    refilter(d);
+}
+
+/* QR payload: header + the lines that lead up to the cursor, newest last. */
+static void build_qr(Diag *d)
+{
+    static const char *TAB_NAMES[] = { "playback", "problems", "everything" };
+    char *text = malloc(QR_BUDGET + 600);
+    int budget = QR_BUDGET;
+    for (int attempt = 0; attempt < 6; attempt++, budget = budget * 3 / 4) {
+        int o = snprintf(text, 600, "Stremio Native TV %s\n%s\n%s\n%s log, %s session\n---\n",
+                         SNTV_APP_VERSION, video_backend_name(), d->system, TAB_NAMES[d->tab],
+                         d->previous ? "previous" : "this");
+        /* walk backwards from the cursor to find how many lines fit */
+        int first = d->cursor + 1, used = 0;
+        while (first > 0) {
+            const LogLine *l = &d->lines[d->vis[first - 1]];
+            int len = (int)strlen(l->text) + 3;
+            if (used + len > budget) break;
+            used += len;
+            first--;
+        }
+        for (int k = first; k <= d->cursor && k < d->n_vis; k++) {
+            const LogLine *l = &d->lines[d->vis[k]];
+            o += snprintf(text + o, (size_t)(QR_BUDGET + 600 - o), "%c %s\n", l->level, l->text);
+        }
+        d->qr_lines = d->n_vis ? d->cursor - first + 1 : 0;
+        uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
+        d->qr_ok = qrcodegen_encodeText(text, tmp, d->qr, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 22,
+                                        qrcodegen_Mask_AUTO, true);
+        if (d->qr_ok) break;
+    }
+    free(text);
+}
+
+/* ---- update / draw ---------------------------------------------------------- */
+
+static void update(Screen *s, float dt)
+{
+    Diag *d = s->st;
+    if (!d->previous && log_version() != d->seen_version) {
+        int was_at_end = d->n_vis == 0 || d->cursor >= d->n_vis - 1;
+        load_current(d);
+        d->follow = was_at_end;
+        refilter(d);
+        app_redraw();
+    }
+    int first = d->cursor - (LIST_ROWS - 3);
+    if (first < 0) first = 0;
+    d->scroll = ui_ease(d->scroll, first * ROW_H, NULL, dt, 16);
+}
+
+static void draw_qr_overlay(Diag *d)
+{
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0xE8));
+    float w = 1500, h = 760, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
+    gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x20));
+    float qs = 680, qx = x + 40, qy = y + 40;
+    gfx_rrect(qx, qy, qs, qs, 24, RGBA(255, 255, 255, 255));
+    if (d->qr_ok) {
+        int n = qrcodegen_getSize(d->qr);
+        /* whole screen pixels per module (sharp edges), with a 4-module quiet zone */
+        float sc = gfx_scale(), cell = (float)(int)(qs * sc / (n + 8)) / sc;
+        if (cell <= 0) cell = qs / (n + 8);
+        float off = (qs - cell * n) / 2;
+        for (int ry = 0; ry < n; ry++)
+            for (int rx = 0; rx < n; rx++)
+                if (qrcodegen_getModule(d->qr, rx, ry))
+                    gfx_rect(qx + off + rx * cell, qy + off + ry * cell, cell, cell, RGBA(0, 0, 0, 255));
+    }
+    float tx = qx + qs + 60, tw = x + w - tx - 40;
+    font_draw("Scan to copy this log", tx, y + 60, FONT_L | FONT_B, THEME_TEXT);
+    char t[200];
+    snprintf(t, sizeof t, "The code holds your TV's details and the %d line%s up to the selected one.",
+             d->qr_lines, d->qr_lines == 1 ? "" : "s");
+    font_draw_wrapped(t, tx, y + 130, FONT_S, THEME_TEXT_DIM, tw, 3);
+    font_draw_wrapped("Open your phone's camera, tap the text it finds, copy it, and paste it into your bug report or chat.",
+                      tx, y + 240, FONT_S, THEME_TEXT_DIM, tw, 4);
+    font_draw_wrapped("Need more? Close this, move the cursor up to an earlier line with Up, and scan again.",
+                      tx, y + 380, FONT_S, THEME_TEXT_MUTED, tw, 3);
+    if (!d->qr_ok) font_draw("These lines didn't fit in a QR code.", tx, y + 500, FONT_S | FONT_B, THEME_DANGER);
+    ui_pill("Close", 0, ICON_BACK, tx, y + h - 120, 72, PILL_SECONDARY, 1);
+}
+
+static void draw(Screen *s)
+{
+    Diag *d = s->st;
+    ui_background(0);
+    float x = THEME_MARGIN, w = SNTV_UI_W - 2 * THEME_MARGIN;
+    font_draw("Diagnostics", x, 60, FONT_XL | FONT_B, THEME_TEXT);
+    char line[400];
+    snprintf(line, sizeof line, "Version %s  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name());
+    font_draw_fit(line, x, 136, FONT_S | FONT_B, THEME_TEXT_DIM, w);
+    font_draw_fit(d->system, x, 172, FONT_S, THEME_TEXT_MUTED, w);
+
+    /* tabs */
+    static const char *TABS[TAB_COUNT] = { "Playback", "Problems", "Everything" };
+    float tx = x;
+    for (int i = 0; i < TAB_COUNT; i++) {
+        int sel = d->tab == i;
+        float tw = font_measure(TABS[i], FONT_S | FONT_B) + 48;
+        if (sel) gfx_rrect(tx, 222, tw, 54, 27, THEME_TEXT);
+        font_draw(TABS[i], tx + 24, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, sel ? THEME_ON_LIGHT : THEME_TEXT_DIM);
+        tx += tw + 8;
+    }
+    const char *sess = d->previous ? "Previous session" : "This session";
+    float sw = font_measure(sess, FONT_S | FONT_B) + 48;
+    gfx_rrect(tx + 20, 222, sw, 54, 27, d->previous ? RGBA(0x3B, 0x82, 0xF6, 0xFF) : THEME_SURFACE);
+    font_draw(sess, tx + 44, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+    const char *hint = "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
+    font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
+
+    /* list */
+    float lh = ROW_H, list_h = LIST_ROWS * lh;
+    gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, 20, RGBA(0x00, 0x00, 0x00, 0x40));
+    if (!d->n_vis) {
+        const char *msg = d->previous ? "No log from a previous session." : d->tab == TAB_PROBLEMS ? "No warnings or errors so far." : "Nothing logged here yet.";
+        font_draw_center(msg, SNTV_UI_W / 2, LIST_Y + list_h / 2 - 20, FONT_M | FONT_B, THEME_TEXT_DIM);
+    }
+    gfx_clip_push(x - 16, LIST_Y - 6, w + 32, list_h + 12);
+    for (int k = 0; k < d->n_vis; k++) {
+        float ry = LIST_Y + k * lh - d->scroll;
+        if (ry + lh < LIST_Y - 6 || ry > LIST_Y + list_h) continue;
+        const LogLine *l = &d->lines[d->vis[k]];
+        int cur = k == d->cursor;
+        if (cur) gfx_rrect(x - 8, ry - 2, w + 16, lh, 10, RGBA(0xFF, 0xFF, 0xFF, 0x26));
+        Color dot = l->level == 'E' ? THEME_DANGER : l->level == 'W' ? THEME_GOLD : RGBA(0xFF, 0xFF, 0xFF, 0x40);
+        gfx_circle(x + 8, ry + lh / 2 - 1, 5, dot);
+        /* time, then message */
+        char tm[9];
+        snprintf(tm, sizeof tm, "%.8s", l->text);
+        font_draw(tm, x + 26, ry + 4, FONT_XS, THEME_TEXT_MUTED);
+        const char *msg = strlen(l->text) > 9 ? l->text + 9 : "";
+        Color c = l->level == 'E' ? THEME_DANGER : l->level == 'W' ? THEME_GOLD : (cur ? THEME_TEXT : THEME_TEXT_DIM);
+        font_draw_fit(msg, x + 130, ry + 4, FONT_XS | (cur ? FONT_B : 0), c, w - 140);
+    }
+    gfx_clip_pop();
+
+    /* selected line in full */
+    float py = LIST_Y + list_h + 30;
+    if (d->n_vis) {
+        const LogLine *l = &d->lines[d->vis[d->cursor]];
+        char pos[48];
+        snprintf(pos, sizeof pos, "Line %d of %d", d->cursor + 1, d->n_vis);
+        font_draw(pos, x, py, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        font_draw_wrapped(l->text, x, py + 30, FONT_S, THEME_TEXT, w, 4);
+    }
+    if (d->show_qr) draw_qr_overlay(d);
+}
+
+static int key(Screen *s, KeyAction a)
+{
+    Diag *d = s->st;
+    app_redraw();
+    if (d->show_qr) {
+        if (a == KEY_BACK || a == KEY_OK) { d->show_qr = 0; return 1; }
+        return 1;
+    }
+    switch (a) {
+    case KEY_UP: if (d->cursor > 0) d->cursor--; d->follow = 0; return 1;
+    case KEY_DOWN: if (d->cursor < d->n_vis - 1) d->cursor++; d->follow = d->cursor >= d->n_vis - 1; return 1;
+    case KEY_REWIND: d->cursor = d->cursor > LIST_ROWS ? d->cursor - LIST_ROWS : 0; d->follow = 0; return 1;
+    case KEY_FORWARD: d->cursor = d->cursor + LIST_ROWS < d->n_vis ? d->cursor + LIST_ROWS : (d->n_vis ? d->n_vis - 1 : 0); return 1;
+    case KEY_LEFT: d->tab = (d->tab + TAB_COUNT - 1) % TAB_COUNT; d->follow = 1; refilter(d); return 1;
+    case KEY_RIGHT: d->tab = (d->tab + 1) % TAB_COUNT; d->follow = 1; refilter(d); return 1;
+    case KEY_BLUE: case KEY_YELLOW: d->previous = !d->previous; d->follow = 1; reload(d); return 1;
+    case KEY_OK: if (d->n_vis) { build_qr(d); d->show_qr = 1; } return 1;
+    default: return 0;
+    }
+}
+
+static void destroy(Screen *s)
+{
+    Diag *d = s->st;
+    free(d->lines);
+    free(d->vis);
+    free(d);
+    free(s);
+}
+
+Screen *screen_diagnostics_create(int playback_only)
+{
+    Screen *s = calloc(1, sizeof *s);
+    Diag *d = calloc(1, sizeof *d);
+    d->tab = playback_only ? TAB_PLAYBACK : TAB_ALL;
+    d->follow = 1;
+    log_system_info(d->system, sizeof d->system);
+    LOGI("diagnostics: %s, %s, %s", SNTV_APP_VERSION, video_backend_name(), d->system);
+    reload(d);
+    s->name = "diagnostics"; s->st = d;
+    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    return s;
+}

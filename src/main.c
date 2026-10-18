@@ -85,7 +85,7 @@ static void dev_hooks(SDL_Window *win, int frame)
 {
     static const struct { const char *n; SDL_Keycode k; } keys[] = {
         { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "left", SDLK_LEFT }, { "right", SDLK_RIGHT },
-        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { NULL, 0 } };
+        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "blue", SDLK_F4 }, { NULL, 0 } };
     const char *script = getenv("SNTV_KEYS");
     if (script && frame % 20 == 10) {
         int idx = frame / 20;

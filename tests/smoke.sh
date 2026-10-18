@@ -39,6 +39,10 @@ run upnext_auto 380 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run settings 160 "right,ok,down,down,down,down,down"
+run diagnostics 220 "right,ok,down,down,down,down,down,down,down,down,ok"
+run diagnostics_filter 230 "right,ok,down,down,down,down,down,down,down,down,ok,left,left"
+run diagnostics_qr 240 "right,ok,down,down,down,down,down,down,down,down,ok,ok"
+run diagnostics_prev_qr 260 "right,ok,down,down,down,down,down,down,down,down,ok,blue,ok"
 run login_qr 160 "right,right,ok"
 run login_pw 180 "right,right,ok,ok"
 python3 -I - "$OUT" <<'PY'

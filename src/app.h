@@ -118,6 +118,7 @@ Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id
 Screen *screen_login_create(void);
 Screen *screen_search_create(void);
 Screen *screen_settings_create(void);
+Screen *screen_diagnostics_create(int playback_only);
 
 /* --- shared widgets --- */
 void ui_draw_poster(const char *url, float x, float y, float w, float h, int focused, const char *fallback_label);

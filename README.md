@@ -9,7 +9,7 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.4.0**. The desktop preview builds warning-free, passes its unit tests and
+> Status: **v0.4.1**. The desktop preview builds warning-free, passes its unit tests and
 > runs every screen headlessly against a fake addon (including subtitles, the track menu,
 > source fallback and Up Next). The webOS and Tizen video backends follow the platform
 > APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
@@ -30,6 +30,8 @@ backdrop.
 | ![Subtitles panel](docs/screenshots/player_subs.jpg) | ![Up Next](docs/screenshots/upnext_card.jpg) |
 | **Sign in with a QR code** | **Settings** |
 | ![QR](docs/screenshots/login_qr.jpg) | ![Settings](docs/screenshots/settings.jpg) |
+| **Diagnostics** | **Log as a QR code** |
+| ![Diagnostics](docs/screenshots/diagnostics.jpg) | ![Log QR](docs/screenshots/diagnostics_qr.jpg) |
 
 ## Design
 
@@ -181,7 +183,7 @@ in this build; `src/http.c` is still the curl implementation, so a `fetch()`-bas
 | Area | Status |
 |---|---|
 | Addon protocol + API parsing, link login, subtitles | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`) |
-| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, QR screen | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (14 scripted runs, screenshots in `tests/out/`) |
+| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, QR screen | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (21 scripted runs, screenshots in `tests/out/`) |
 | Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS playback (LS2 payloads, exported window, ACB binding) | Follows what the Nuvio native client documents from real TVs; **not yet run on a TV from this repo** |
@@ -194,6 +196,22 @@ is set before the window is created; logs go to a file; libcurl is `dlopen`ed tr
 `.so.5` then `.so.4`; the GL surface keeps an 8-bit alpha channel and the player punches a
 transparent hole so the video plane shows through; the UI is laid out on a 1920x1080
 canvas and scaled, so 720p webOS 3 panels work.
+
+## Diagnostics (reporting a problem)
+
+Settings > **Diagnostics** shows the app's own log on the TV; no root, SSH or
+developer mode is needed. It opens by itself (on the *Playback* tab) when you press OK on
+the "This source can't be played" card.
+
+- Left/Right switches between *Playback* (media service, ACB, player and subtitle lines plus
+  all errors), *Problems* (warnings and errors only) and *Everything*.
+- Up/Down moves the cursor (Rewind/Forward jump a page); the selected line is shown in full
+  at the bottom.
+- Blue (or Yellow) switches to the **previous session**'s log, which is what you want after
+  a crash or a black screen.
+- OK shows a QR code with the version, video backend, webOS release, whether the app runs
+  as root, and the lines up to the cursor. Scan it with your phone camera, copy the text and
+  paste it into an issue. For more history, move the cursor up and scan again.
 
 ## Player keys
 

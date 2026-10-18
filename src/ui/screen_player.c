@@ -359,6 +359,12 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
     font_draw_center("Play now", gx + 60, y + h - 64 + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ON_LIGHT);
 }
 
+/* every candidate has failed and the error card is up */
+static int error_final(const Player *p, const VideoInfo *vi)
+{
+    return vi->state == VIDEO_ERROR && p->error_handled && (p->cur + 1 >= p->n_cands || p->tries >= 3);
+}
+
 static void draw(Screen *s)
 {
     Player *p = s->st;
@@ -382,7 +388,7 @@ static void draw(Screen *s)
     draw_subtitle(p, &vi);
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
-    if (vi.state == VIDEO_ERROR && p->error_handled && (p->cur + 1 >= p->n_cands || p->tries >= 3)) {
+    if (error_final(p, &vi)) {
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0xD8));
         float w = 900, h = 360, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
         gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
@@ -392,7 +398,8 @@ static void draw(Screen *s)
         font_draw_center("This source can't be played", x + w / 2, y + 128, FONT_L | FONT_B, THEME_TEXT);
         font_draw_wrapped(vi.error, x + 60, y + 190, FONT_S, THEME_TEXT_DIM, w - 120, 2);
         font_draw_center(p->n_cands > 1 ? "Every candidate failed. Press Back to pick another source." : "Press Back to pick another source.",
-                         x + w / 2, y + h - 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+                         x + w / 2, y + h - 86, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        font_draw_center("Press OK to see what happened (Diagnostics)", x + w / 2, y + h - 46, FONT_XS, THEME_TEXT_MUTED);
         return;
     }
 
@@ -533,6 +540,7 @@ static int key(Screen *s, KeyAction a)
         default: return 1;
         }
     }
+    if (error_final(p, &vi) && a == KEY_OK) { app_push(screen_diagnostics_create(1)); return 1; }
     switch (a) {
     case KEY_OK: case KEY_PLAY_PAUSE:
         if (vi.state == VIDEO_PLAYING) video_pause(); else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }

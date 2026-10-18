@@ -13,7 +13,7 @@
 #include <string.h>
 
 enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_SIZE, IT_AUTOPLAY,
-       IT_UI_HEADER, IT_FX, IT_BLUR, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
+       IT_UI_HEADER, IT_FX, IT_BLUR, IT_DIAG, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
 #define ROW_H 88.0f
 #define COL_X 420.0f
@@ -145,6 +145,7 @@ static void draw(Screen *s)
             draw_row(y, ICON_STAR, "Visual effects", v, foc, KIND_CHOICE, 0);
             break;
         case IT_BLUR: draw_row(y, ICON_LIBRARY, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
+        case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log and device info", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         case IT_ADDONS_HEADER:
             snprintf(v, sizeof v, "ADDONS  \xC2\xB7  %d INSTALLED%s", g_app.n_addons, g_app.addons_loading ? "  \xC2\xB7  SYNCING" : "");
@@ -234,6 +235,7 @@ static int key(Screen *s, KeyAction a)
         if (st->focus == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Signed out"); } else app_push(screen_login_create()); }
         else if (st->focus == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (st->focus == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
+        else if (st->focus == IT_DIAG) app_push(screen_diagnostics_create(0));
         else if (st->focus == IT_AUTOPLAY || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
         else if (st->focus >= IT_FIXED_COUNT) {
             int idx = st->focus - IT_FIXED_COUNT;

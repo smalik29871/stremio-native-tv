@@ -2,10 +2,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/utsname.h>
 #include <SDL.h>
 
 static FILE *g_file;
 static SDL_mutex *g_lock;
+static LogLine g_ring[LOG_RING_LINES];
+static int g_head, g_count;
+static unsigned g_version;
+static char g_prev_path[1024];
 
 void log_init(const char *dir)
 {
@@ -14,9 +20,8 @@ void log_init(const char *dir)
     if (!dir) return;
     snprintf(path, sizeof path, "%s/app.log", dir);
     /* Rotate once so a crash log from the previous run survives. */
-    char prev[1024];
-    snprintf(prev, sizeof prev, "%s/app.prev.log", dir);
-    rename(path, prev);
+    snprintf(g_prev_path, sizeof g_prev_path, "%s/app.prev.log", dir);
+    rename(path, g_prev_path);
     g_file = fopen(path, "w");
 }
 
@@ -40,7 +45,50 @@ void log_msg(const char *level, const char *fmt, ...)
         fprintf(g_file, "%s %s %s\n", ts, level, line);
         fflush(g_file);
     }
+    LogLine *l = &g_ring[g_head];
+    l->level = level && level[0] ? level[0] : 'I';
+    snprintf(l->text, sizeof l->text, "%.8s %.*s", ts, LOG_LINE_MAX - 12, line);
+    g_head = (g_head + 1) % LOG_RING_LINES;
+    if (g_count < LOG_RING_LINES) g_count++;
+    g_version++;
     if (g_lock) SDL_UnlockMutex(g_lock);
+}
+
+int log_snapshot(LogLine *out, int max)
+{
+    if (g_lock) SDL_LockMutex(g_lock);
+    int n = g_count < max ? g_count : max;
+    int start = (g_head - n + LOG_RING_LINES) % LOG_RING_LINES;
+    for (int i = 0; i < n; i++) out[i] = g_ring[(start + i) % LOG_RING_LINES];
+    if (g_lock) SDL_UnlockMutex(g_lock);
+    return n;
+}
+
+unsigned log_version(void)
+{
+    if (g_lock) SDL_LockMutex(g_lock);
+    unsigned v = g_version;
+    if (g_lock) SDL_UnlockMutex(g_lock);
+    return v;
+}
+
+const char *log_previous_path(void) { return g_prev_path; }
+
+void log_system_info(char *out, size_t n)
+{
+    char rel[200] = "";
+    FILE *f = fopen("/etc/starfish-release", "r");
+    if (f) {
+        if (!fgets(rel, sizeof rel, f)) rel[0] = 0;
+        fclose(f);
+        rel[strcspn(rel, "\r\n")] = 0;
+    }
+    if (!rel[0]) {
+        struct utsname u;
+        if (uname(&u) == 0) snprintf(rel, sizeof rel, "%s %s %s", u.sysname, u.release, u.machine);
+    }
+    unsigned uid = (unsigned)getuid();
+    snprintf(out, n, "%s | uid %u%s", rel[0] ? rel : "unknown system", uid, uid == 0 ? " (root)" : " (not root)");
 }
 
 void log_shutdown(void)
