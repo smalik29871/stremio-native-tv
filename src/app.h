@@ -64,6 +64,7 @@ typedef struct App {
     int subs_always;           /* 0: subtitles only when the audio is in another language */
     int clock_mode;            /* player clock: 0 12-hour, 1 24-hour, 2 off */
     int oled;                  /* pure black background */
+    int theme, theme_accent;   /* THEME_* and its accent index (ui/theme.h) */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */
     int quality_mode;          /* QUAL_*: how sources are ranked */
     int res_cap;               /* 2160, 1080 or 720 */

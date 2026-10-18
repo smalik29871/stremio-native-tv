@@ -14,7 +14,7 @@ typedef struct {
 } Vtx;
 
 enum { MODE_SOLID = 0, MODE_TEX = 1, MODE_GLYPH = 2, MODE_TEX_BIAS = 3, MODE_RRECT = 4,
-       MODE_RRECT_TEX = 5, MODE_RING = 6, MODE_TRI = 7, MODE_RRECT_TEX_BIAS = 8 };
+       MODE_RRECT_TEX = 5, MODE_RING = 6, MODE_TRI = 7, MODE_RRECT_TEX_BIAS = 8, MODE_RRECT_TEX_DUO = 9 };
 enum { MAXQ = 4096 };
 
 static SDL_Window *g_win;
@@ -55,7 +55,11 @@ static const char *FS =
     "    vec2 n1=normalize(vec2(h*0.5,-w)); vec2 n2=normalize(vec2(h*0.5,w));\n"
     "    float d=max(-p.x, max(dot(p,n1), dot(p-vec2(0.0,h),n2)));\n"
     "    gl_FragColor=vec4(v_col.rgb,v_col.a*cover(d)); }\n"
-    "  else { vec4 t=texture2D(u_tex,v_uv,v_misc.y)*v_col; gl_FragColor=vec4(t.rgb,t.a*cover(sdbox(0.0))); }\n"
+    "  else if (m<8.5) { vec4 t=texture2D(u_tex,v_uv,v_misc.y)*v_col; gl_FragColor=vec4(t.rgb,t.a*cover(sdbox(0.0))); }\n"
+    /* duotone: luminance maps black -> v_col.rgb; v_misc.y blends back to the real colours */
+    "  else { vec4 t=texture2D(u_tex,v_uv); float l=dot(t.rgb,vec3(0.299,0.587,0.114));\n"
+    "    vec3 duo=mix(vec3(0.02),v_col.rgb,smoothstep(0.05,0.95,l));\n"
+    "    gl_FragColor=vec4(mix(duo,t.rgb,v_misc.y),t.a*v_col.a*cover(sdbox(0.0))); }\n"
     "}\n";
 
 Color color_mul_alpha(Color c, float k)
@@ -329,6 +333,11 @@ void gfx_rtex_uv(unsigned tex, float x, float y, float w, float h, float r, floa
 {
     aquad(x, y, w, h, u0, v0, u1, v1, tint, tint, tint, tint, clamp_r(r, w, h), g_aa,
           blur > 0 ? MODE_RRECT_TEX_BIAS : MODE_RRECT_TEX, blur, tex);
+}
+
+void gfx_rtex_duo(unsigned tex, float x, float y, float w, float h, float r, float u0, float v0, float u1, float v1, Color ink, float colour)
+{
+    aquad(x, y, w, h, u0, v0, u1, v1, ink, ink, ink, ink, clamp_r(r, w, h), g_aa, MODE_RRECT_TEX_DUO, colour, tex);
 }
 
 void gfx_video_hole(float x, float y, float w, float h)

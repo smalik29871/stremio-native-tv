@@ -153,7 +153,7 @@ static void draw(Screen *s)
         total++;
     }
     for (int i = 0; i < total; i++)
-        gfx_rrect(x + i * 34, 300, i == here ? 26 : 12, 12, 6, i == here ? THEME_ACCENT2 : RGBA(0xFF, 0xFF, 0xFF, 0x30));
+        gfx_rrect(x + i * 34, 300, i == here ? 26 : 12, 12, 6, i == here ? THEME_ACCENT2 : COLOR_ALPHA(THEME_TEXT, 0x30));
     char counter[32];
     snprintf(counter, sizeof counter, "Step %d of %d", here + 1, total);
     font_draw(counter, x, 340, FONT_XS | FONT_B, THEME_TEXT_MUTED);
@@ -170,14 +170,15 @@ static void draw(Screen *s)
         const char *hint, *label = option_label(w->step, i, &hint);
         int foc = i == w->focus;
         float h = ROW - 12;
-        if (foc && !g_app.fx_light) gfx_shadow(LIST_X, y + 6, lw, h, 22, 24, RGBA(0, 0, 0, 0x80));
-        gfx_rrect(LIST_X, y, lw, h, 22, foc ? THEME_TEXT : RGBA(0xFF, 0xFF, 0xFF, 0x10));
-        Color fg = foc ? THEME_ON_LIGHT : THEME_TEXT;
+        if (foc && !g_app.fx_light) gfx_shadow(LIST_X, y + 6, lw, h, R_PANEL, 24, RGBA(0, 0, 0, 0x80));
+        if (foc) ui_focus_under(LIST_X, y, lw, h, R_PANEL, 1);
+        gfx_rrect(LIST_X, y, lw, h, R_PANEL, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x10));
+        Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
         float ty = hint ? y + 9 : y + (h - font_height(FONT_S | FONT_B)) / 2;
         font_draw_fit(label, LIST_X + 32, ty, FONT_S | FONT_B, fg, lw - 130);
-        if (hint) font_draw_fit(hint, LIST_X + 32, y + 41, FONT_XS, foc ? RGBA(0x0B, 0x0A, 0x16, 0xA8) : THEME_TEXT_MUTED, lw - 130);
+        if (hint) font_draw_fit(hint, LIST_X + 32, y + 41, FONT_XS, foc ? COLOR_ALPHA(THEME_BG, 0xA8) : THEME_TEXT_MUTED, lw - 130);
         if (i == cur) {
-            gfx_circle(LIST_X + lw - 46, y + h / 2, 17, foc ? THEME_ON_LIGHT : THEME_ACCENT);
+            gfx_circle(LIST_X + lw - 46, y + h / 2, 17, foc ? THEME_ON_FOCUS : THEME_ACCENT);
             ui_icon(ICON_CHECK, LIST_X + lw - 46, y + h / 2, 20, THEME_TEXT);
         }
     }

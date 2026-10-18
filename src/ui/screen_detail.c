@@ -189,18 +189,14 @@ static void draw(Screen *s)
         gfx_tex(ltex, x, y + (180 - h), w, h, RGBA(255, 255, 255, a));
         y += 200;
     } else {
-        int fs = font_measure(d->preview.name, FONT_TITLE | FONT_B) > col_w ? (FONT_XL | FONT_B) : (FONT_TITLE | FONT_B);
-        int lines = font_draw_wrapped(d->preview.name, 0, 0, fs, 0, col_w, 2);
-        float ty = y + 180 - lines * font_height(fs);
-        font_draw_wrapped(d->preview.name, x + 3, ty + 3, fs, RGBA(0, 0, 0, a / 2), col_w, 2);
-        font_draw_wrapped(d->preview.name, x, ty, fs, COLOR_ALPHA(THEME_TEXT, a), col_w, 2);
+        ui_hero_title(d->preview.name, x, y + 180, col_w, COLOR_ALPHA(THEME_TEXT, a));
         y += 200;
     }
 
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
     float mx = x;
     if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
-    if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, RGBA(0xFF, 0xFF, 0xFF, 0x70), THEME_TEXT) + 8;
+    if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT) + 8;
     const char *parts[4]; int np = 0;
     char seasons_txt[32];
     if (d->preview.release_info) parts[np++] = d->preview.release_info;
@@ -215,7 +211,7 @@ static void draw(Screen *s)
     y += 52;
     if (d->preview.genres.n) {
         float gx = x;
-        for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, RGBA(0xFF, 0xFF, 0xFF, 0x50), THEME_TEXT_DIM) + 10;
+        for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, 0x50), THEME_TEXT_DIM) + 10;
         y += 54;
     }
     if (d->preview.description)
@@ -243,7 +239,7 @@ static void draw(Screen *s)
             const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : (i < d->preview.cast_photos.n && d->preview.cast_photos.v[i][0] ? d->preview.cast_photos.v[i] : NULL);
             float w = font_measure(name, FONT_XS | FONT_B) + 70;
             if (cx + w > x + col_w + 200) break;
-            gfx_rrect(cx, y, w, 46, 23, RGBA(0xFF, 0xFF, 0xFF, 0x16));
+            gfx_rrect(cx, y, w, 46, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x16));
             int pw = 0, ph = 0;
             unsigned ptex = photo ? image_get(photo, &pw, &ph) : 0;
             if (ptex && pw > 0) {
@@ -267,9 +263,9 @@ static void draw(Screen *s)
         int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel;
         float w = font_measure(lbl, FONT_S | FONT_B) + 44;
         if (sx + w > SNTV_UI_W - THEME_MARGIN) break;
-        if (foc) gfx_rrect(sx, sy, w, 52, 26, THEME_TEXT);
-        else if (sel) gfx_rrect(sx, sy, w, 52, 26, RGBA(0xFF, 0xFF, 0xFF, 0x2C));
-        font_draw(lbl, sx + 22, sy + (52 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? THEME_ON_LIGHT : sel ? THEME_TEXT : THEME_TEXT_MUTED);
+        if (foc) gfx_rrect(sx, sy, w, 52, theme_pill_r(52), THEME_FOCUS);
+        else if (sel) gfx_rrect(sx, sy, w, 52, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x2C));
+        font_draw(lbl, sx + 22, sy + (52 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : sel ? THEME_TEXT : THEME_TEXT_MUTED);
         sx += w + 8;
     }
 
@@ -290,10 +286,10 @@ static void draw(Screen *s)
             int watched = ep_watched(d, kk, li, cur_idx);
             int is_cur = kk == cur_idx;
             int blur = g_app.spoiler_blur && !watched && !is_cur && cur_idx >= 0 ? 1 : (g_app.spoiler_blur && cur_idx < 0 && kk > 0);
-            ui_card(v->thumbnail, px, RAIL_Y, EP_W, EP_H, f, d->area == AREA_EPISODES ? 0 : 0.3f, NULL, blur ? CARD_BLUR : CARD_MIP);
+            ui_card(v->thumbnail, px, RAIL_Y, EP_W, EP_H, f, d->area == AREA_EPISODES ? 0 : 0.3f, NULL, (blur ? CARD_BLUR : CARD_MIP) | CARD_TRUE_COLOUR);
             float sc = ui_focus_scale(f), w2 = EP_W * sc, h2 = EP_H * sc, x2 = px - (w2 - EP_W) / 2, y2 = RAIL_Y - (h2 - EP_H) / 2;
             if (!v->thumbnail) { char n[16]; snprintf(n, sizeof n, "%d", v->episode >= 0 ? v->episode : kk + 1);
-                font_draw_center(n, x2 + w2 / 2, y2 + h2 / 2 - 40, FONT_TITLE | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0x40)); }
+                font_draw_center(n, x2 + w2 / 2, y2 + h2 / 2 - 40, FONT_TITLE | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x40)); }
             if (watched) { gfx_circle(x2 + w2 - 30, y2 + 30, 18, THEME_OK); ui_icon(ICON_CHECK, x2 + w2 - 30, y2 + 30, 22, THEME_ON_LIGHT); }
             if (is_cur && li->duration && li->time_offset) ui_progress(x2 + 16, y2 + h2 - 18, w2 - 32, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
             if (foc) { gfx_circle(x2 + w2 / 2, y2 + h2 / 2, 34, RGBA(0, 0, 0, 0x80)); ui_icon(ICON_PLAY, x2 + w2 / 2 + 3, y2 + h2 / 2, 30, THEME_TEXT); }

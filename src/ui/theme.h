@@ -3,32 +3,77 @@
 #include "gfx.h"
 #include "../platform/platform.h"
 
-/* Deep night palette with a violet -> magenta accent. Surfaces are translucent
- * white so the ambient artwork glow shows through them like frosted glass. */
-#define THEME_BG          RGBA(0x08, 0x07, 0x12, 0xFF)
-#define THEME_BG2         RGBA(0x12, 0x0F, 0x26, 0xFF)
-#define THEME_SURFACE     RGBA(0xFF, 0xFF, 0xFF, 0x12)
-#define THEME_SURFACE_HI  RGBA(0xFF, 0xFF, 0xFF, 0x24)
-#define THEME_PANEL       RGBA(0x16, 0x13, 0x2E, 0xEE)
-#define THEME_ACCENT      RGBA(0x8B, 0x5C, 0xF6, 0xFF)
-#define THEME_ACCENT2     RGBA(0xD9, 0x46, 0xEF, 0xFF)
-#define THEME_ACCENT_DIM  RGBA(0x8B, 0x5C, 0xF6, 0x60)
-#define THEME_TEXT        RGBA(0xF7, 0xF7, 0xFB, 0xFF)
-#define THEME_TEXT_DIM    RGBA(0xE6, 0xE4, 0xF2, 0xB8)
-#define THEME_TEXT_MUTED  RGBA(0xE6, 0xE4, 0xF2, 0x78)
-#define THEME_ON_LIGHT    RGBA(0x0B, 0x0A, 0x16, 0xFF)
-#define THEME_DANGER      RGBA(0xFB, 0x5A, 0x78, 0xFF)
-#define THEME_OK          RGBA(0x34, 0xD3, 0x99, 0xFF)
+/* Three looks share every layout and component; a theme is a token set plus a few
+ * style switches the widgets read. All of them are flat on purpose: no blur and no
+ * full-screen translucent layers, so they cost nothing on old TV GPUs.
+ *   Signal  (default) broadcast / Swiss: graphite, one electric accent, sharp corners,
+ *           a solid frame with a hard offset block as focus, mono metadata.
+ *   Marquee cinema programme: warm ink, parchment text, projector amber, condensed
+ *           display titles, a light bar under the focused card.
+ *   Duotone artwork printed in two tones (accent + black); focus brings back colour. */
+enum { THEME_SIGNAL, THEME_MARQUEE, THEME_DUOTONE, THEME_COUNT };
+enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_BLOOM };
+enum { ROWHEAD_NUMBERED, ROWHEAD_KICKER, ROWHEAD_PLAIN };
+#define THEME_ACCENTS 6
+
+typedef struct Theme {
+    int id, accent_idx;
+    Color bg, bg2, surface, surface_hi, panel, line;
+    Color accent, accent2, accent_dim, on_accent;
+    Color focus, on_focus;  /* fill and text of a focused control */
+    Color text, text_dim, text_muted, on_light;
+    Color danger, ok, scrim, poster_ph, shadow;
+    float r_card, r_panel, r_key, r_pill;   /* r_pill: capsule when >= h/2 */
+    int focus_style;      /* FOCUS_* */
+    int row_header;       /* ROWHEAD_* */
+    int upper_titles;     /* titles and labels in capitals */
+    int mono_meta;        /* "2012 / 95 MIN" metadata in the mono face */
+    int duotone;          /* unfocused artwork printed in two tones */
+    int ticks;            /* timelines carry tick marks */
+    int glow;             /* soft ambient light behind screens */
+    float title_track;    /* extra letter spacing for capital titles, px per glyph at FONT_M */
+} Theme;
+
+extern Theme g_theme;
+extern const char *const THEME_NAMES[THEME_COUNT];
+extern const char *const THEME_ACCENT_NAMES[THEME_COUNT][THEME_ACCENTS];
+
+void  theme_apply(int id, int accent_idx);
+/* Loads the theme's typefaces (no-op when they are already loaded); -1 when no font works. */
+int   theme_load_fonts(int id);
+Color theme_accent_swatch(int id, int accent_idx);
+/* Corner radius for a control of height h (pills are capsules only in themes that want them). */
+float theme_pill_r(float h);
+
+/* The names screens have always used, now read from the active theme. */
+#define THEME_BG          (g_theme.bg)
+#define THEME_BG2         (g_theme.bg2)
+#define THEME_SURFACE     (g_theme.surface)
+#define THEME_SURFACE_HI  (g_theme.surface_hi)
+#define THEME_PANEL       (g_theme.panel)
+#define THEME_LINE        (g_theme.line)
+#define THEME_ACCENT      (g_theme.accent)
+#define THEME_ACCENT2     (g_theme.accent2)
+#define THEME_ACCENT_DIM  (g_theme.accent_dim)
+#define THEME_ON_ACCENT   (g_theme.on_accent)
+#define THEME_FOCUS       (g_theme.focus)
+#define THEME_ON_FOCUS    (g_theme.on_focus)
+#define THEME_TEXT        (g_theme.text)
+#define THEME_TEXT_DIM    (g_theme.text_dim)
+#define THEME_TEXT_MUTED  (g_theme.text_muted)
+#define THEME_ON_LIGHT    (g_theme.on_light)
+#define THEME_DANGER      (g_theme.danger)
+#define THEME_OK          (g_theme.ok)
+#define THEME_SCRIM       (g_theme.scrim)
+#define THEME_POSTER_PH   (g_theme.poster_ph)
+#define THEME_SHADOW      (g_theme.shadow)
 #define THEME_IMDB        RGBA(0xF5, 0xC5, 0x18, 0xFF)
 #define THEME_GOLD        RGBA(0xF5, 0x9E, 0x0B, 0xFF)
 #define THEME_BLUE        RGBA(0x38, 0xBD, 0xF8, 0xFF)
-#define THEME_SCRIM       RGBA(0x00, 0x00, 0x00, 0xB0)
-#define THEME_POSTER_PH   RGBA(0xFF, 0xFF, 0xFF, 0x10)
-#define THEME_SHADOW      RGBA(0x00, 0x00, 0x00, 0x90)
 
 #define THEME_MARGIN 96.0f
-#define R_CARD  16.0f
-#define R_PANEL 28.0f
-#define R_KEY   14.0f
+#define R_CARD  (g_theme.r_card)
+#define R_PANEL (g_theme.r_panel)
+#define R_KEY   (g_theme.r_key)
 
 #endif

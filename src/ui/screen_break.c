@@ -74,11 +74,11 @@ static void draw(Screen *s)
     Brk *b = s->st;
     float k = g_app.fx_light ? 1 : b->intro;
     ui_background(0);
-    gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x10, 0x0C, 0x2C, 0xFF), RGBA(0x05, 0x05, 0x0E, 0xFF));
+    gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_PANEL, 0xFF), RGBA(0x05, 0x05, 0x0E, 0xFF));
     float cx = SNTV_UI_W / 2, cy = 400;
     gfx_circle(cx, cy, 220 + 20 * k, COLOR_ALPHA(THEME_ACCENT, 0x18));
     gfx_circle(cx, cy, 150, COLOR_ALPHA(THEME_ACCENT2, 0x22));
-    gfx_rrect_ring(cx - 118, cy - 118, 236, 236, 118, 3, RGBA(0xFF, 0xFF, 0xFF, 0x40));
+    gfx_rrect_ring(cx - 118, cy - 118, 236, 236, 118, 3, COLOR_ALPHA(THEME_TEXT, 0x40));
     char now[24]; ui_clock_text(0, now, sizeof now);
     font_draw_center(now, cx, cy - font_height(FONT_TITLE | FONT_B) / 2, FONT_TITLE | FONT_B, THEME_TEXT);
     const char *label = b->kind == BRK_KIND_PRAYER ? "TIME FOR PRAYER" : b->kind == BRK_KIND_HEALTH ? "TAKE A BREAK" : b->kind == BRK_KIND_BEDTIME ? "BEDTIME" : "BREAK";

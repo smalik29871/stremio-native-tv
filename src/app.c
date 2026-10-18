@@ -184,7 +184,7 @@ void app_draw_toast(void)
     float x = (SNTV_UI_W - w) / 2, y = SNTV_UI_H - 150 + (1 - k) * 30;
     if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, h / 2, 30, RGBA(0, 0, 0, (int)(0x90 * k)));
     gfx_rrect(x, y, w, h, h / 2, RGBA(0x24, 0x20, 0x44, (int)(0xF4 * k)));
-    gfx_rrect_ring(x, y, w, h, h / 2, 1.5f, RGBA(0xFF, 0xFF, 0xFF, (int)(0x22 * k)));
+    gfx_rrect_ring(x, y, w, h, h / 2, 1.5f, COLOR_ALPHA(THEME_TEXT, (int)(0x22 * k)));
     gfx_circle(x + 40, y + h / 2, 7, COLOR_ALPHA(THEME_ACCENT2, (int)(255 * k)));
     font_draw(g_app.toast, x + 64, y + (h - font_height(fs)) / 2, fs, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)));
 }
@@ -861,6 +861,11 @@ static void load_prefs(void)
     g_app.clock_mode = store_get_int("clockMode", 0);
     if (g_app.clock_mode < 0 || g_app.clock_mode > 2) g_app.clock_mode = 0;
     g_app.oled = store_get_int("oled", 0);
+    g_app.theme = store_get_int("theme", THEME_SIGNAL);
+    if (g_app.theme < 0 || g_app.theme >= THEME_COUNT) g_app.theme = THEME_SIGNAL;
+    g_app.theme_accent = store_get_int("themeAccent", 0);
+    if (g_app.theme_accent < 0 || g_app.theme_accent >= THEME_ACCENTS) g_app.theme_accent = 0;
+    theme_apply(g_app.theme, g_app.theme_accent);
     g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
     g_app.quality_mode = store_get_int("qualityMode", QUAL_ADDON_ORDER);
     if (g_app.quality_mode < 0 || g_app.quality_mode >= QUAL_MODE_COUNT) g_app.quality_mode = QUAL_ADDON_ORDER;
@@ -919,6 +924,8 @@ void app_save_prefs(void)
     store_set_int("subsAlways", g_app.subs_always);
     store_set_int("clockMode", g_app.clock_mode);
     store_set_int("oled", g_app.oled);
+    store_set_int("theme", g_app.theme);
+    store_set_int("themeAccent", g_app.theme_accent);
     store_set_int("ambientMinutes", g_app.ambient_minutes);
     store_set_int("qualityMode", g_app.quality_mode);
     store_set_int("resCap", g_app.res_cap);
@@ -1150,12 +1157,13 @@ void ui_draw_spinner(float cx, float cy) { ui_spinner(cx, cy, 24); }
 void ui_draw_button(const char *label, float x, float y, float w, float h, int focused, int accent)
 {
     if (focused && !g_app.fx_light) gfx_shadow(x, y + 6, w, h, h / 2, 22, RGBA(0, 0, 0, 0x70));
-    gfx_rrect(x, y, w, h, h / 2, focused ? THEME_TEXT : accent ? RGBA(0xFF, 0xFF, 0xFF, 0x2C) : THEME_SURFACE);
+    if (focused) ui_focus_under(x, y, w, h, theme_pill_r(h), 1);
+    gfx_rrect(x, y, w, h, theme_pill_r(h), focused ? THEME_FOCUS : accent ? THEME_SURFACE_HI : THEME_SURFACE);
     int fs = FONT_S | FONT_B;
     float tw = font_measure(label, fs);
     float tx = x + (w - tw) / 2;
     if (tx < x + 24) tx = x + 24;
-    font_draw_fit(label, tx, y + (h - font_height(fs)) / 2, fs, focused ? THEME_ON_LIGHT : THEME_TEXT, w - 48);
+    font_draw_fit(label, tx, y + (h - font_height(fs)) / 2, fs, focused ? THEME_ON_FOCUS : THEME_TEXT, w - 48);
 }
 
 void ui_format_time(double s, char *out, size_t n)

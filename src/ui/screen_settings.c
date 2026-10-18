@@ -38,7 +38,7 @@ static const char *const CAT_DESC[CAT_COUNT] = {
 static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LINK, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
-       IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR,
+       IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
@@ -77,7 +77,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG: ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN; ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; break;
     case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; break;
-    case CAT_INTERFACE: ids[n++] = IT_HOME_STYLE; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
+    case CAT_INTERFACE: ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_HOME_STYLE; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
     case CAT_KEYS: ids[n++] = IT_TMDB; break;
     case CAT_BREAKS:
         ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
@@ -111,10 +111,11 @@ typedef enum { KIND_ACTION, KIND_TOGGLE, KIND_CHOICE, KIND_MOVABLE } RowKind;
 static void draw_row(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on)
 {
     float x = COL_X, w = SNTV_UI_W - THEME_MARGIN - COL_X, h = ROW_H - 12;
-    if (focused && !g_app.fx_light) gfx_shadow(x, y + 6, w, h, 20, 24, RGBA(0, 0, 0, 0x80));
-    gfx_rrect(x, y, w, h, 20, focused ? THEME_TEXT : RGBA(0xFF, 0xFF, 0xFF, 0x0F));
-    Color fg = focused ? THEME_ON_LIGHT : THEME_TEXT, dim = focused ? RGBA(0x0B, 0x0A, 0x16, 0xA8) : THEME_TEXT_MUTED;
-    gfx_circle(x + 46, y + h / 2, 24, focused ? RGBA(0x0B, 0x0A, 0x16, 0x14) : RGBA(0xFF, 0xFF, 0xFF, 0x10));
+    if (focused && !g_app.fx_light) gfx_shadow(x, y + 6, w, h, R_PANEL, 24, RGBA(0, 0, 0, 0x80));
+    if (focused) ui_focus_under(x, y, w, h, R_PANEL, 1);
+    gfx_rrect(x, y, w, h, R_PANEL, focused ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x0F));
+    Color fg = focused ? THEME_ON_FOCUS : THEME_TEXT, dim = focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xA8) : THEME_TEXT_MUTED;
+    gfx_circle(x + 46, y + h / 2, 24, focused ? COLOR_ALPHA(THEME_BG, 0x14) : COLOR_ALPHA(THEME_TEXT, 0x10));
     ui_icon(icon, x + 46, y + h / 2, 26, fg);
     font_draw_fit(title, x + 92, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg, w * 0.5f);
     float rx = x + w - 30;
@@ -159,12 +160,12 @@ static void draw_categories(const Settings *st)
     for (int i = 0; i < CAT_COUNT; i++) {
         float y = ROWS_TOP + i * 76, w = COL_X - THEME_MARGIN - 70, h = 64;
         int foc = st->zone == 0 && st->cat == i, act = st->cat == i;
-        if (foc) { if (!g_app.fx_light) gfx_shadow(THEME_MARGIN, y + 6, w, h, 32, 20, RGBA(0, 0, 0, 0x70)); gfx_rrect(THEME_MARGIN, y, w, h, 32, THEME_TEXT); }
-        else if (act) gfx_rrect(THEME_MARGIN, y, w, h, 32, RGBA(0xFF, 0xFF, 0xFF, 0x16));
-        Color fg = foc ? THEME_ON_LIGHT : act ? THEME_TEXT : THEME_TEXT_DIM;
+        if (foc) { ui_focus_under(THEME_MARGIN, y, w, h, theme_pill_r(h), 1); gfx_rrect(THEME_MARGIN, y, w, h, theme_pill_r(h), THEME_FOCUS); }
+        else if (act) gfx_rrect(THEME_MARGIN, y, w, h, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x16));
+        Color fg = foc ? THEME_ON_FOCUS : act ? THEME_TEXT : THEME_TEXT_DIM;
         ui_icon(CAT_ICONS[i], THEME_MARGIN + 36, y + h / 2, 26, fg);
         font_draw(CAT_NAMES[i], THEME_MARGIN + 70, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
-        if (i == CAT_ADDONS) { char c[16]; snprintf(c, sizeof c, "%d", g_app.n_addons); font_draw(c, THEME_MARGIN + w - 24 - font_measure(c, FONT_XS | FONT_B), y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, foc ? RGBA(0x0B, 0x0A, 0x16, 0xA8) : THEME_TEXT_MUTED); }
+        if (i == CAT_ADDONS) { char c[16]; snprintf(c, sizeof c, "%d", g_app.n_addons); font_draw(c, THEME_MARGIN + w - 24 - font_measure(c, FONT_XS | FONT_B), y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, foc ? COLOR_ALPHA(THEME_BG, 0xA8) : THEME_TEXT_MUTED); }
     }
 }
 
@@ -179,7 +180,7 @@ static void draw(Screen *s)
         float x = COL_X;
         font_draw(title, x, 100, FONT_L | FONT_B, THEME_TEXT);
         font_draw(hint, x, 156, FONT_S, THEME_TEXT_DIM);
-        gfx_rrect(x, 210, keyboard_width(), 76, 38, RGBA(0xFF, 0xFF, 0xFF, 0x18));
+        gfx_rrect(x, 210, keyboard_width(), 76, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x18));
         font_draw_fit(st->kb.text[0] ? st->kb.text : " ", x + 32, 210 + (76 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT, keyboard_width() - 64);
         keyboard_draw(&st->kb, x, 320, 1);
         font_draw("Done saves  \xC2\xB7  Back cancels", x, 320 + keyboard_height() + 30, FONT_S, THEME_TEXT_MUTED);
@@ -188,9 +189,9 @@ static void draw(Screen *s)
             if (qx + qs < SNTV_UI_W - 40) {
                 int n = qrcodegen_getSize(st->qr);
                 float cell = qs / (n + 4), off = (qs - cell * n) / 2;
-                gfx_rrect(qx, qy, qs, qs, 20, RGBA(255, 255, 255, 255));
+                gfx_rrect(qx, qy, qs, qs, R_PANEL, RGBA(255, 255, 255, 255));
                 for (int ry = 0; ry < n; ry++) for (int rx = 0; rx < n; rx++)
-                    if (qrcodegen_getModule(st->qr, rx, ry)) gfx_rect(qx + off + rx * cell, qy + off + ry * cell, cell + 0.6f, cell + 0.6f, RGBA(0x0B, 0x0A, 0x16, 255));
+                    if (qrcodegen_getModule(st->qr, rx, ry)) gfx_rect(qx + off + rx * cell, qy + off + ry * cell, cell + 0.6f, cell + 0.6f, COLOR_ALPHA(THEME_BG, 255));
                 font_draw("Or type it on your phone", qx, qy + qs + 22, FONT_S | FONT_B, THEME_TEXT);
                 font_draw_wrapped("Scan, paste the text, Send. It lands here and saves.", qx, qy + qs + 56, FONT_XS, THEME_TEXT_DIM, 380, 2);
                 font_draw(st->phone_url, qx, qy + qs + 112, FONT_XS, THEME_TEXT_MUTED);
@@ -298,6 +299,18 @@ static void draw(Screen *s)
         }
         case IT_BR_WHERE: draw_row(y, ICON_HOME, "Breaks apply", g_app.breaks_everywhere ? "Everywhere in the app" : "Only while a video plays", foc, KIND_CHOICE, 0); break;
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
+        case IT_THEME: draw_row(y, ICON_STAR, "Theme", THEME_NAMES[g_app.theme], foc, KIND_CHOICE, 0); break;
+        case IT_ACCENT: {
+            draw_row(y, ICON_STAR, "Accent colour", THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], foc, KIND_CHOICE, 0);
+            /* the six swatches, the current one framed */
+            float sx = SNTV_UI_W - THEME_MARGIN - 470, sy = y + 23;
+            for (int i = 0; i < THEME_ACCENTS; i++) {
+                float bx = sx + i * 34;
+                if (i == g_app.theme_accent) gfx_rrect_ring(bx - 3, sy - 3, 30, 30, theme_pill_r(30), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
+                gfx_rrect(bx, sy, 24, 24, theme_pill_r(24), theme_accent_swatch(g_app.theme, i));
+            }
+            break;
+        }
         case IT_HOME_STYLE: draw_row(y, ICON_HOME, "Home screen", HOME_STYLE_NAMES[g_app.home_style], foc, KIND_CHOICE, 0); break;
         case IT_HIDE_WATCHED: draw_row(y, ICON_CHECK, "Hide watched titles in catalogs", NULL, foc, KIND_TOGGLE, g_app.hide_watched); break;
         case IT_FX:
@@ -328,7 +341,7 @@ static void draw(Screen *s)
                     if (a->flag_protected) strncat(v, "  \xC2\xB7  built-in", sizeof v - strlen(v) - 1);
                 }
                 draw_row(y, ICON_LIBRARY, title, v, foc, KIND_ACTION, 0);
-                if (foc) { ui_icon(ICON_CHEVRON_LEFT, SNTV_UI_W - THEME_MARGIN - 90, y + (ROW_H - 12) / 2, 22, RGBA(0x0B, 0x0A, 0x16, 0xA8)); ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 56, y + (ROW_H - 12) / 2, 22, RGBA(0x0B, 0x0A, 0x16, 0xA8)); }
+                if (foc) { ui_icon(ICON_CHEVRON_LEFT, SNTV_UI_W - THEME_MARGIN - 90, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 56, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); }
             } else if (id >= IT_ROWS_BASE) {
                 const HomeRowDef *d = &st->rows[id - IT_ROWS_BASE];
                 char pos[32]; snprintf(pos, sizeof pos, "%d of %d", id - IT_ROWS_BASE + 1, st->n_rows);
@@ -343,8 +356,8 @@ static void draw(Screen *s)
     /* live preview of the subtitle look while those rows are focused */
     if (st->zone == 1 && n && (ids[st->focus] == IT_SUBS_SIZE || ids[st->focus] == IT_SUBS_STYLE)) {
         float band = 300;
-        gfx_gradient_v(0, SNTV_UI_H - band, SNTV_UI_W, band, RGBA(0x08, 0x07, 0x12, 0), RGBA(0x08, 0x07, 0x12, 0xF4));
-        gfx_rect(0, SNTV_UI_H - 200, SNTV_UI_W, 200, RGBA(0x08, 0x07, 0x12, 0xF4));
+        gfx_gradient_v(0, SNTV_UI_H - band, SNTV_UI_W, band, RGBA(0x08, 0x07, 0x12, 0), COLOR_ALPHA(THEME_BG, 0xF4));
+        gfx_rect(0, SNTV_UI_H - 200, SNTV_UI_W, 200, COLOR_ALPHA(THEME_BG, 0xF4));
         font_draw_center("PREVIEW  \xC2\xB7  applies to subtitles from addons; the TV draws embedded ones itself",
                          SNTV_UI_W / 2, SNTV_UI_H - 190, FONT_XS | FONT_B, THEME_TEXT_MUTED);
         ui_subtitle("Subtitles will look like this.\nTwo lines, the way films do it.", SNTV_UI_H - 40, g_app.subs_size, g_app.subs_style);
@@ -461,6 +474,16 @@ static int adjust(Settings *st, int id, int dir)
     case IT_AUTO_REC: g_app.auto_recommended = !g_app.auto_recommended; break;
     case IT_PREFLIGHT: g_app.preflight = !g_app.preflight; break;
     case IT_SCRUB: g_app.live_scrub = !g_app.live_scrub; break;
+    case IT_THEME:
+        g_app.theme = (g_app.theme + dir + THEME_COUNT) % THEME_COUNT;
+        g_app.theme_accent = 0;
+        theme_apply(g_app.theme, g_app.theme_accent);
+        theme_load_fonts(g_app.theme);
+        break;
+    case IT_ACCENT:
+        g_app.theme_accent = (g_app.theme_accent + dir + THEME_ACCENTS) % THEME_ACCENTS;
+        theme_apply(g_app.theme, g_app.theme_accent);
+        break;
     case IT_HOME_STYLE: g_app.home_style = (g_app.home_style + dir + HOME_STYLE_COUNT) % HOME_STYLE_COUNT; break;
     case IT_HIDE_WATCHED: g_app.hide_watched = !g_app.hide_watched; break;
     case IT_TRANSITIONS: g_app.transitions = !g_app.transitions; break;

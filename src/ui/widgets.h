@@ -62,8 +62,22 @@ void ui_brand(float x, float y, float size);
 /* Poster / landscape cards. focus 0..1 animates scale, ring and shadow; dim 0..1 darkens. */
 #define CARD_MIP  1   /* use the mipmapped texture variant */
 #define CARD_BLUR 2   /* sample a blurred mip (spoiler protection), implies CARD_MIP */
+#define CARD_TRUE_COLOUR 4   /* never printed in two tones (episode stills, people) */
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim,
              const char *fallback_title, int card_flags);
 float ui_focus_scale(float focus);
+float ui_focus_lift(float focus);   /* upward shift of a focused card, canvas units */
+
+/* The theme's language for focus, titles, metadata and row headings. */
+void  ui_focus_under(float x, float y, float w, float h, float r, float amount);
+void  ui_upper(const char *in, char *out, size_t n);
+/* A title in the theme's case, face and letter spacing; max_w > 0 cuts with an ellipsis.
+ * Returns the width drawn. */
+float ui_title(const char *text, float x, float y, int size, Color c, float max_w);
+float ui_title_width(const char *text, int size);
+int   ui_hero_title(const char *text, float x, float bottom, float maxw, Color c);
+float ui_meta_line(const char *const *parts, int n, float x, float y, Color c);
+void  ui_row_header(int index, const char *title, const char *source, int count, float x, float y, float right, float k);
+void  ui_mark(float x, float y, float size);   /* the Stremio logo tile, unchanged by themes */
 
 #endif

@@ -92,11 +92,11 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
             float kx = x + c * (KEY_W + GAP), ky = y + r * (KEY_H + GAP);
             int sel = focused && kb->row == r && kb->col == c;
             if (sel && !g_app.fx_light) gfx_shadow(kx, ky + 4, KEY_W, KEY_H, R_KEY, 16, RGBA(0, 0, 0, 0x80));
-            gfx_rrect(kx, ky, KEY_W, KEY_H, R_KEY, sel ? THEME_TEXT : THEME_SURFACE);
+            gfx_rrect(kx, ky, KEY_W, KEY_H, R_KEY, sel ? THEME_FOCUS : THEME_SURFACE);
             char ch[2] = { row[c], 0 };
             if (kb->shift && ch[0] >= 'a' && ch[0] <= 'z') ch[0] = (char)(ch[0] - 32);
             float tw = font_measure(ch, FONT_M | FONT_B);
-            font_draw(ch, kx + (KEY_W - tw) / 2, ky + (KEY_H - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, sel ? THEME_ON_LIGHT : THEME_TEXT);
+            font_draw(ch, kx + (KEY_W - tw) / 2, ky + (KEY_H - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, sel ? THEME_ON_FOCUS : THEME_TEXT);
         }
     }
     float kx = x, ky = y + 4 * (KEY_H + GAP);
@@ -106,10 +106,10 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
         int lit = (a == ACT_SHIFT && kb->shift) || (a == ACT_SYM && kb->symbols);
         if (sel && !g_app.fx_light) gfx_shadow(kx, ky + 4, w, KEY_H, R_KEY, 16, RGBA(0, 0, 0, 0x80));
         if (a == ACT_DONE && !sel) gfx_rrect_grad_h(kx, ky, w, KEY_H, R_KEY, THEME_ACCENT, THEME_ACCENT2);
-        else gfx_rrect(kx, ky, w, KEY_H, R_KEY, sel ? THEME_TEXT : lit ? THEME_SURFACE_HI : RGBA(0xFF, 0xFF, 0xFF, 0x1C));
+        else gfx_rrect(kx, ky, w, KEY_H, R_KEY, sel ? THEME_FOCUS : lit ? THEME_SURFACE_HI : COLOR_ALPHA(THEME_TEXT, 0x1C));
         int fs = FONT_S | FONT_B;
         float tw = font_measure(ACT_LABEL[a], fs);
-        font_draw(ACT_LABEL[a], kx + (w - tw) / 2, ky + (KEY_H - font_height(fs)) / 2, fs, sel ? THEME_ON_LIGHT : THEME_TEXT);
+        font_draw(ACT_LABEL[a], kx + (w - tw) / 2, ky + (KEY_H - font_height(fs)) / 2, fs, sel ? THEME_ON_FOCUS : THEME_TEXT);
         kx += w + GAP;
     }
 }

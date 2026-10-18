@@ -185,9 +185,9 @@ static void draw_field(const Login *l, int f, const char *label, float x, float 
 {
     int foc = l->focus == f || (l->focus == F_KEYBOARD && l->editing == f);
     font_draw(label, x + 4, y, FONT_XS | FONT_B, THEME_TEXT_MUTED);
-    gfx_rrect(x, y + 32, w, 72, 36, RGBA(0xFF, 0xFF, 0xFF, foc ? 0x22 : 0x12));
-    if (l->focus == f) gfx_rrect_ring(x, y + 32, w, 72, 36, 3, THEME_TEXT);
-    else if (foc) gfx_rrect_ring(x, y + 32, w, 72, 36, 2, COLOR_ALPHA(THEME_ACCENT2, 0xC0));
+    gfx_rrect(x, y + 32, w, 72, R_PANEL, COLOR_ALPHA(THEME_TEXT, foc ? 0x22 : 0x12));
+    if (l->focus == f) gfx_rrect_ring(x, y + 32, w, 72, R_PANEL, 3, THEME_TEXT);
+    else if (foc) gfx_rrect_ring(x, y + 32, w, 72, R_PANEL, 2, COLOR_ALPHA(THEME_ACCENT2, 0xC0));
     const char *t = l->kb[f].text;
     char masked[256];
     if (f == F_PASSWORD) {
@@ -205,12 +205,12 @@ static void draw_qr(const Login *l, float x, float y, float size)
     int n = qrcodegen_getSize(l->qr);
     float cell = size / (n + 6);
     float off = (size - cell * n) / 2;
-    if (!g_app.fx_light) gfx_shadow(x - 10, y - 10, size + 20, size + 20, 36, 70, COLOR_ALPHA(THEME_ACCENT, 0x70));
-    gfx_rrect(x, y, size, size, 32, RGBA(255, 255, 255, 255));
+    if (!g_app.fx_light) gfx_shadow(x - 10, y - 10, size + 20, size + 20, R_PANEL, 70, COLOR_ALPHA(THEME_ACCENT, 0x70));
+    gfx_rrect(x, y, size, size, R_PANEL, RGBA(255, 255, 255, 255));
     for (int ry = 0; ry < n; ry++)
         for (int rx = 0; rx < n; rx++)
             if (qrcodegen_getModule(l->qr, rx, ry))
-                gfx_rect(x + off + rx * cell, y + off + ry * cell, cell + 0.6f, cell + 0.6f, RGBA(0x0B, 0x0A, 0x16, 255));
+                gfx_rect(x + off + rx * cell, y + off + ry * cell, cell + 0.6f, cell + 0.6f, COLOR_ALPHA(THEME_BG, 255));
     /* brand mark in the centre (QR error correction covers it) */
     float m = size * 0.16f;
     gfx_rrect(x + (size - m) / 2 - 6, y + (size - m) / 2 - 6, m + 12, m + 12, m * 0.3f, RGBA(255, 255, 255, 255));
@@ -227,7 +227,7 @@ static void draw(Screen *s)
     if (l->mode == MODE_QR) {
         float qs = 460, qx = x + 40, qy = 210;
         if (l->qr_ready) draw_qr(l, qx, qy, qs);
-        else { gfx_rrect(qx, qy, qs, qs, 32, RGBA(0xFF, 0xFF, 0xFF, 0x12)); if (l->busy) ui_spinner(qx + qs / 2, qy + qs / 2, 30);
+        else { gfx_rrect(qx, qy, qs, qs, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x12)); if (l->busy) ui_spinner(qx + qs / 2, qy + qs / 2, 30);
                else ui_icon(ICON_LINK, qx + qs / 2, qy + qs / 2, 90, THEME_TEXT_MUTED); }
         float tx = qx + qs + 120, tw = SNTV_UI_W - tx - THEME_MARGIN;
         font_draw("Sign in with your phone", tx, 200, FONT_XL | FONT_B, THEME_TEXT);
@@ -238,7 +238,7 @@ static void draw(Screen *s)
         const char *steps[3] = { "Scan the code with your phone's camera", open_step, "Approve, and this TV signs in by itself" };
         for (int i = 0; i < 3; i++) {
             float sy = 380 + i * 64;
-            gfx_circle(tx + 22, sy + 22, 22, RGBA(0xFF, 0xFF, 0xFF, 0x16));
+            gfx_circle(tx + 22, sy + 22, 22, COLOR_ALPHA(THEME_TEXT, 0x16));
             char num[4]; snprintf(num, sizeof num, "%d", i + 1);
             font_draw_center(num, tx + 22, sy + (44 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_ACCENT2);
             font_draw_fit(steps[i], tx + 64, sy + (44 - font_height(FONT_S)) / 2, FONT_S, THEME_TEXT, SNTV_UI_W - THEME_MARGIN - tx - 64);
@@ -246,8 +246,8 @@ static void draw(Screen *s)
         if (l->code[0]) {
             float cx = tx, cy = 590;
             for (const char *c = l->code; *c && cx < SNTV_UI_W - THEME_MARGIN - 80; c++) {
-                gfx_rrect(cx, cy, 76, 96, 18, RGBA(0xFF, 0xFF, 0xFF, 0x18));
-                gfx_rrect_ring(cx, cy, 76, 96, 18, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x30));
+                gfx_rrect(cx, cy, 76, 96, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x18));
+                gfx_rrect_ring(cx, cy, 76, 96, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x30));
                 char ch[2] = { *c, 0 };
                 font_draw_center(ch, cx + 38, cy + (96 - font_height(FONT_XL | FONT_B)) / 2, FONT_XL | FONT_B, THEME_TEXT);
                 cx += 88;

@@ -60,11 +60,11 @@ secondary faces are baked only at the sizes they are used, into smaller atlases.
 
 Inter stays the fallback face and the one used before the theme loads.
 
-### Brand mark
+### Logo
 
-A new, theme-coloured mark instead of the purple play tile: Signal draws a
-broadcast bar, Marquee a four-point light, Duotone a half-filled circle. The
-app keeps its current name.
+The Stremio logo (purple gradient tile with the play triangle, and the wordmark) is
+kept exactly as it is in all three themes: it is drawn in its own colours and never
+takes the theme accent. The app keeps its current name and launcher icons.
 
 ## 2. Theme engine
 

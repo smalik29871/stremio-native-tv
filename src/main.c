@@ -60,29 +60,6 @@ static size_t image_budget(void)
 }
 
 /* Bundled Inter (regular + bold) next to the binary, else system fallbacks. */
-static int find_fonts(char *regular, char *bold, size_t n)
-{
-    char *base = SDL_GetBasePath();
-    const char *bases[3] = { base ? base : "", "", NULL };
-    for (int b = 0; bases[b]; b++) {
-        snprintf(regular, n, "%sassets/fonts/Inter-Medium.otf", bases[b]);
-        snprintf(bold, n, "%sassets/fonts/Inter-Bold.otf", bases[b]);
-        FILE *f = fopen(regular, "rb");
-        if (f) { fclose(f); if (base) SDL_free(base); return 0; }
-    }
-    if (base) SDL_free(base);
-    static const char *sys[][2] = {
-        { "/usr/share/fonts/opentype/inter/Inter-Medium.otf", "/usr/share/fonts/opentype/inter/Inter-Bold.otf" },
-        { "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" },
-        { "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" },
-    };
-    for (size_t i = 0; i < sizeof sys / sizeof sys[0]; i++) {
-        FILE *f = fopen(sys[i][0], "rb");
-        if (f) { fclose(f); snprintf(regular, n, "%s", sys[i][0]); snprintf(bold, n, "%s", sys[i][1]); return 0; }
-    }
-    return -1;
-}
-
 static int g_pip_focus;   /* the corner player is the focused element */
 
 static int ambient_due(const Screen *top)
@@ -198,8 +175,11 @@ int main(int argc, char **argv)
     SDL_GL_SetSwapInterval(1);
 
     if (gfx_init(win) != 0) return 1;
-    char font_regular[1200], font_bold[1200];
-    if (find_fonts(font_regular, font_bold, sizeof font_regular) != 0 || font_init(font_regular, font_bold) != 0) {
+    /* the saved theme picks the typefaces; app_init applies its colours */
+    int theme = store_get_int("theme", THEME_SIGNAL);
+    theme_apply(theme, store_get_int("themeAccent", 0));
+    font_set_cache_dir(dir);
+    if (theme_load_fonts(theme) != 0) {
         LOGE("no usable font found");
         return 1;
     }
@@ -285,7 +265,7 @@ int main(int argc, char **argv)
         int must_draw = g_app.need_redraw || frame < 60 || getenv("SNTV_SCREENSHOT");
         if (must_draw) {
             g_app.need_redraw = 0;
-            gfx_begin_frame(RGBA(0x08, 0x07, 0x12, 0xFF));
+            gfx_begin_frame(g_app.oled ? RGBA(0, 0, 0, 0xFF) : THEME_BG);
             app_draw_screen(top, dt);
             if (top && strcmp(top->name, "player") != 0 && strcmp(top->name, "ambient") != 0) ui_clock_pill();   /* the player shows it with its controls */
             if (!g_app.pip) g_pip_focus = 0;

@@ -197,18 +197,18 @@ static void draw(Screen *s)
         }
         if (y + ROW_H > LIST_Y - 10 && y < SNTV_UI_H) {
             int foc = c->rail_focus < 0 && c->focus == i;
-            if (foc) gfx_rrect(LX - 16, y, w + 32, ROW_H - 12, 18, THEME_TEXT);
-            else gfx_rrect(LX - 16, y, w + 32, ROW_H - 12, 18, RGBA(0xFF, 0xFF, 0xFF, 0x0C));
-            Color fg = foc ? THEME_ON_LIGHT : THEME_TEXT, dim = foc ? RGBA(0x0B, 0x0A, 0x16, 0xB0) : THEME_TEXT_MUTED;
+            if (foc) gfx_rrect(LX - 16, y, w + 32, ROW_H - 12, R_PANEL, THEME_FOCUS);
+            else gfx_rrect(LX - 16, y, w + 32, ROW_H - 12, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0C));
+            Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, dim = foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED;
             const char *art = it->thumb[0] ? it->thumb : it->poster;
-            ui_draw_thumb(art, LX, y + 10, 152, 86, 0, RGBA(0xFF, 0xFF, 0xFF, 0x14));
+            ui_draw_thumb(art, LX, y + 10, 152, 86, 0, COLOR_ALPHA(THEME_TEXT, 0x14));
             char ep[48];
             if (it->season >= 0 && it->episode >= 0) snprintf(ep, sizeof ep, "S%d E%d", it->season, it->episode); else ep[0] = 0;
             font_draw_fit(it->show_name, LX + 176, y + 18, FONT_S | FONT_B, fg, w - 420);
             char line[220];
             snprintf(line, sizeof line, "%s%s%s", ep, ep[0] && it->title[0] ? "  \xC2\xB7  " : "", it->title);
             font_draw_fit(line, LX + 176, y + 56, FONT_S, dim, w - 420);
-            if (it->day > c->today) ui_chip("Upcoming", LX + w - 150, y + 34, foc ? RGBA(0x0B, 0x0A, 0x16, 0x18) : RGBA(0xFF, 0xFF, 0xFF, 0x16), fg);
+            if (it->day > c->today) ui_chip("Upcoming", LX + w - 150, y + 34, foc ? COLOR_ALPHA(THEME_BG, 0x18) : COLOR_ALPHA(THEME_TEXT, 0x16), fg);
         }
         y += ROW_H;
     }

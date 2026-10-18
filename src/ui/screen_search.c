@@ -104,8 +104,8 @@ static void draw(Screen *sc)
 
     float x = THEME_MARGIN, y = 140, fw = keyboard_width();
     /* field */
-    gfx_rrect(x, y, fw, 76, 38, RGBA(0xFF, 0xFF, 0xFF, 0x18));
-    if (!s->focus_grid) gfx_rrect_ring(x, y, fw, 76, 38, 2, RGBA(0xFF, 0xFF, 0xFF, 0x50));
+    gfx_rrect(x, y, fw, 76, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x18));
+    if (!s->focus_grid) gfx_rrect_ring(x, y, fw, 76, R_PANEL, 2, COLOR_ALPHA(THEME_TEXT, 0x50));
     ui_icon(ICON_SEARCH, x + 42, y + 38, 30, THEME_TEXT_DIM);
     if (s->kb.text[0]) {
         font_draw_fit(s->kb.text, x + 78, y + (76 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT, fw - 120);
@@ -123,7 +123,7 @@ static void draw(Screen *sc)
         for (int i = 0; i < COLS * 2; i++) ui_skeleton(gx + (i % COLS) * (CELL_W + CELL_GAP), gy + 50 + (i / COLS) * (CELL_H + 80), CELL_W, CELL_H, R_CARD);
     } else if (!s->n) {
         float cx = gx + grid_w / 2, cy = gy + 280;
-        gfx_circle(cx, cy, 80, RGBA(0xFF, 0xFF, 0xFF, 0x10));
+        gfx_circle(cx, cy, 80, COLOR_ALPHA(THEME_TEXT, 0x10));
         ui_icon(ICON_SEARCH, cx, cy, 70, THEME_TEXT_MUTED);
         font_draw_center(strlen(s->last_query) >= 2 ? "Nothing found" : "Find something to watch", cx, cy + 120, FONT_L | FONT_B, THEME_TEXT);
         font_draw_center(strlen(s->last_query) >= 2 ? "Try another title, or check your catalog addons." : "Results come from every catalog addon that supports search.",

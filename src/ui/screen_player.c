@@ -617,10 +617,10 @@ static void draw_next_circle(const Player *p, float cx, float cy, float r)
 {
     float k = next_progress(p);
     int loading = k >= 0 && k < 1;
-    gfx_circle(cx, cy, r, RGBA(0xFF, 0xFF, 0xFF, loading ? 0x14 : 0x2C));
+    gfx_rrect(cx - r, cy - r, 2 * r, 2 * r, theme_pill_r(2 * r), COLOR_ALPHA(THEME_TEXT, loading ? 0x14 : 0x2C));
     ui_icon(ICON_NEXT, cx, cy, 26, loading ? THEME_TEXT_MUTED : THEME_TEXT);
     if (loading) {
-        ui_arc(cx, cy, r + 5, 3, 0, 1, RGBA(0xFF, 0xFF, 0xFF, 0x22));
+        ui_arc(cx, cy, r + 5, 3, 0, 1, COLOR_ALPHA(THEME_TEXT, 0x22));
         ui_arc(cx, cy, r + 5, 3, 0, k, THEME_ACCENT2);
     } else if (k >= 1 && p->next_ready_at > 0) {
         float t = (g_app.time - p->next_ready_at) / READY_PULSE_S;
@@ -636,15 +636,15 @@ static void draw_next_pill(const Player *p, const char *label, const char *loadi
 {
     float k = next_progress(p);
     if (k < 0 || k >= 1) {
-        gfx_rrect(x, y, w, h, h / 2, fill);
+        gfx_rrect(x, y, w, h, theme_pill_r(h), fill);
         if (k >= 1 && p->next_ready_at > 0) {
             float t = (g_app.time - p->next_ready_at) / READY_PULSE_S;
-            if (t < 1) gfx_rrect_ring(x - t * 10, y - t * 10, w + t * 20, h + t * 20, h / 2 + t * 10, 3, COLOR_ALPHA(fill, (int)(200 * (1 - t))));
+            if (t < 1) gfx_rrect_ring(x - t * 10, y - t * 10, w + t * 20, h + t * 20, theme_pill_r(h) + t * 10, 3, COLOR_ALPHA(fill, (int)(200 * (1 - t))));
         }
     } else {
-        gfx_rrect(x, y, w, h, h / 2, COLOR_ALPHA(fill, 0x66));
+        gfx_rrect(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(fill, 0x66));
         gfx_clip_push(x, y, w * k, h);
-        gfx_rrect(x, y, w, h, h / 2, fill);
+        gfx_rrect(x, y, w, h, theme_pill_r(h), fill);
         gfx_clip_pop();
         label = loading_label;
     }
@@ -802,8 +802,8 @@ static void draw_menu(Player *p)
     if (p->menu_t < 1) { p->menu_t += 0.09f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
     { float e = 1 - (1 - p->menu_t) * (1 - p->menu_t); gfx_set_translate((w + 60) * (1 - e), 0); }
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
-    gfx_rrect(x, y, w, h, R_PANEL, RGBA(0x14, 0x12, 0x2A, 0xF0));
-    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x1C));
+    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
     static const char *TITLES[] = { "", "Audio", "Subtitles", "Subtitle style", "Sources", "Episodes" };
     static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SUBS, ICON_SWAP, ICON_LIST };
     ui_icon(ICONS[p->menu], x + 56, y + 62, 40, THEME_TEXT);
@@ -841,13 +841,13 @@ static void draw_menu(Player *p)
     #define ROW(label, sub, on) do { \
         int foc_ = p->menu_focus == row; const char *sub_ = (sub); float lx_ = x + 50 + (row_thumb ? 118 : 0); \
         if (ry + 70 > y + 100 && ry < y + h - 16) { \
-        if (foc_) gfx_rrect(x + 24, ry, w - 48, 70, 18, THEME_TEXT); \
-        else if (on) gfx_rrect(x + 24, ry, w - 48, 70, 18, RGBA(0xFF, 0xFF, 0xFF, 0x14)); \
-        if (row_thumb) ui_draw_thumb(row_thumb, x + 40, ry + 6, 104, 58, 0, RGBA(0xFF, 0xFF, 0xFF, 0x14)); \
-        Color fg_ = foc_ ? THEME_ON_LIGHT : THEME_TEXT; \
+        if (foc_) gfx_rrect(x + 24, ry, w - 48, 70, R_KEY, THEME_FOCUS); \
+        else if (on) gfx_rrect(x + 24, ry, w - 48, 70, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); \
+        if (row_thumb) ui_draw_thumb(row_thumb, x + 40, ry + 6, 104, 58, 0, COLOR_ALPHA(THEME_TEXT, 0x14)); \
+        Color fg_ = foc_ ? THEME_ON_FOCUS : THEME_TEXT; \
         font_draw_fit(label, lx_, ry + (sub_[0] ? 10 : 20), FONT_S | FONT_B, fg_, w - 190 - (lx_ - x - 50)); \
-        if (sub_[0]) font_draw_fit(sub_, lx_, ry + 40, FONT_XS, foc_ ? RGBA(0x0B, 0x0A, 0x16, 0xB0) : THEME_TEXT_MUTED, w - 190 - (lx_ - x - 50)); \
-        if (on) { gfx_circle(x + w - 70, ry + 35, 17, foc_ ? THEME_ON_LIGHT : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 35, 20, foc_ ? THEME_TEXT : THEME_TEXT); } } \
+        if (sub_[0]) font_draw_fit(sub_, lx_, ry + 40, FONT_XS, foc_ ? COLOR_ALPHA(THEME_BG, 0xB0) : THEME_TEXT_MUTED, w - 190 - (lx_ - x - 50)); \
+        if (on) { gfx_circle(x + w - 70, ry + 35, 17, foc_ ? THEME_ON_FOCUS : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 35, 20, foc_ ? THEME_FOCUS : THEME_ON_ACCENT); } } \
         ry += 78; row++; } while (0)
     if (p->menu == MENU_STYLE) {
         static const char *SIZES[] = { "Small", "Medium", "Large" };
@@ -949,9 +949,9 @@ static void draw_menu(Player *p)
 static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
 {
     float w = 640, h = 176, x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240;
-    if (!g_app.fx_light) gfx_shadow(x, y, w, h, 24, 40, RGBA(0, 0, 0, 0xA0));
-    gfx_rrect(x, y, w, h, 24, RGBA(0x16, 0x13, 0x2E, 0xF2));
-    gfx_rrect_ring(x, y, w, h, 24, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x20));
+    if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0xA0));
+    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
     const char *thumb = app_video_thumbnail(p->meta.id, p->next_video_id);
     ui_card(thumb, x + 16, y + 16, 256, 144, 0, 0, NULL, CARD_MIP);
     if (!thumb) ui_icon(ICON_NEXT, x + 16 + 128, y + 16 + 72, 50, THEME_TEXT_MUTED);
@@ -967,15 +967,15 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
         ui_progress(tx, y + h - 22, w - 320, 6, (float)(1.0 - left / window), THEME_ACCENT);
     }
     float k = next_progress(p), gx = x + w - 140, gy = y + h - 64;
-    Color go = RGBA(0x22, 0xC5, 0x5E, 0xFF);
+    Color go = THEME_OK;
     const char *what = k >= 0 && k < 1 ? "Preparing" : "Play now";
     if (k >= 0 && k < 1) {   /* fills as the next episode's sources arrive */
-        gfx_rrect(gx, gy, 120, 40, 20, COLOR_ALPHA(go, 0x55));
+        gfx_rrect(gx, gy, 120, 40, R_PANEL, COLOR_ALPHA(go, 0x55));
         gfx_clip_push(gx, gy, 120 * k, 40);
-        gfx_rrect(gx, gy, 120, 40, 20, go);
+        gfx_rrect(gx, gy, 120, 40, R_PANEL, go);
         gfx_clip_pop();
     } else {
-        gfx_rrect(gx, gy, 120, 40, 20, go);
+        gfx_rrect(gx, gy, 120, 40, R_PANEL, go);
         float t = p->next_ready_at > 0 ? (g_app.time - p->next_ready_at) / READY_PULSE_S : 1;
         if (t < 1) gfx_rrect_ring(gx - t * 8, gy - t * 8, 120 + t * 16, 40 + t * 16, 20 + t * 8, 2.5f, COLOR_ALPHA(go, (int)(220 * (1 - t))));
     }
@@ -994,7 +994,7 @@ static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, i
     float k = (float)((vi->position - s->start) / (s->end - s->start));
     if (k < 0) k = 0;
     if (k > 1) k = 1;
-    gfx_rrect(x + h / 2, y + h + 10, (w - h) * (1 - k), 4, 2, RGBA(0xFF, 0xFF, 0xFF, 0x90));
+    gfx_rrect(x + h / 2, y + h + 10, (w - h) * (1 - k), 4, 2, COLOR_ALPHA(THEME_TEXT, 0x90));
     font_draw("OK", x - font_measure("OK", FONT_XS | FONT_B) - 16, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
 }
 
@@ -1034,8 +1034,8 @@ static void draw_stats(Player *p, const VideoInfo *vi)
     if (g_app.frames_measured) snprintf(l[n++], 160, "UI frame|%.1f ms average, %.0f ms worst", g_app.frame_ms_sum / g_app.frames_measured, g_app.frame_ms_worst);
 
     float w = 980, lh = 36, h = 70 + n * lh, x = THEME_MARGIN, y = 190;
-    gfx_rrect(x, y, w, h, 20, RGBA(0x08, 0x07, 0x12, 0xD8));
-    gfx_rrect_ring(x, y, w, h, 20, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x20));
+    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_BG, 0xD8));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
     font_draw("Stats for nerds", x + 28, y + 20, FONT_S | FONT_B, THEME_ACCENT2);
     font_draw("Red to close", x + w - 28 - font_measure("Red to close", FONT_XS), y + 24, FONT_XS, THEME_TEXT_MUTED);
     for (int i = 0; i < n; i++) {
@@ -1081,21 +1081,21 @@ static void draw_bar(Player *p, float x, float y)
         int primary = ids[i] == BTN_PLAY || ids[i] == BTN_NEXT;
         if (foc && ids[i] == BTN_NEXT) {
             float w = font_measure("Getting it ready", FONT_S | FONT_B) + d + 28;
-            if (!g_app.fx_light) gfx_shadow(x, y + 4, w, d, d / 2, 22, RGBA(0, 0, 0, 0x80));
-            draw_next_pill(p, labels[i], "Getting it ready", x, y, w, d, THEME_TEXT, THEME_ON_LIGHT);
+            ui_focus_under(x, y, w, d, theme_pill_r(d), 1);
+            draw_next_pill(p, labels[i], "Getting it ready", x, y, w, d, THEME_FOCUS, THEME_ON_FOCUS);
             x += w + gap;
         } else if (ids[i] == BTN_NEXT) {
             draw_next_circle(p, x + d / 2, y + d / 2, d / 2);
             x += d + gap;
         } else if (foc) {
             float w = font_measure(labels[i], FONT_S | FONT_B) + d + 28;
-            if (!g_app.fx_light) gfx_shadow(x, y + 4, w, d, d / 2, 22, RGBA(0, 0, 0, 0x80));
-            gfx_rrect(x, y, w, d, d / 2, THEME_TEXT);
-            ui_icon(icons[i], x + d / 2 + 2, y + d / 2, 26, THEME_ON_LIGHT);
-            font_draw(labels[i], x + d + 2, y + (d - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_ON_LIGHT);
+            ui_focus_under(x, y, w, d, theme_pill_r(d), 1);
+            gfx_rrect(x, y, w, d, theme_pill_r(d), THEME_FOCUS);
+            ui_icon(icons[i], x + d / 2 + 2, y + d / 2, 26, THEME_ON_FOCUS);
+            font_draw(labels[i], x + d + 2, y + (d - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_ON_FOCUS);
             x += w + gap;
         } else {
-            gfx_circle(x + d / 2, y + d / 2, d / 2, primary ? RGBA(0xFF, 0xFF, 0xFF, 0x2C) : RGBA(0xFF, 0xFF, 0xFF, 0x18));
+            gfx_rrect(x, y, d, d, theme_pill_r(d), COLOR_ALPHA(THEME_TEXT, primary ? 0x2C : 0x18));
             ui_icon(icons[i], x + d / 2 + (icons[i] == ICON_PLAY ? 2 : 0), y + d / 2, 26, THEME_TEXT);
             x += d + gap;
         }
@@ -1206,7 +1206,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     const TmdbInfo *tm = tmdb_get(p->meta.id, p->meta.type);
     float mx = x;
     if (p->meta.imdb_rating && *p->meta.imdb_rating) mx += ui_imdb(p->meta.imdb_rating, mx, y) + 6;
-    if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, RGBA(0xFF, 0xFF, 0xFF, (int)(0x70 * k)), COLOR_ALPHA(THEME_TEXT, a)) + 8;
+    if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, (int)(0x70 * k)), COLOR_ALPHA(THEME_TEXT, a)) + 8;
     const char *parts[3]; int np = 0;
     if (p->meta.release_info) parts[np++] = p->meta.release_info;
     if (p->meta.runtime) parts[np++] = p->meta.runtime;
@@ -1229,7 +1229,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             float w = (font_measure(name, FONT_XS | FONT_B) > font_measure(role, FONT_XS) ? font_measure(name, FONT_XS | FONT_B) : font_measure(role, FONT_XS)) + (photo ? 90 : 74);
             if (cx + w > SNTV_UI_W - 600) break;
             float hh = role[0] ? 64 : 48;
-            gfx_rrect(cx, y, w, hh, hh / 2, RGBA(0xFF, 0xFF, 0xFF, (int)(0x1C * k)));
+            gfx_rrect(cx, y, w, hh, hh / 2, COLOR_ALPHA(THEME_TEXT, (int)(0x1C * k)));
             int pw = 0, ph = 0;
             unsigned ptex = photo ? image_get(photo, &pw, &ph) : 0;
             float r = hh / 2 - 6;
@@ -1260,7 +1260,7 @@ static void draw(Screen *s)
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
     if (error_final(p, &vi)) {
-        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0xD8));
+        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
         float w = 900, h = 360, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
         gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
         gfx_circle(x + w / 2, y + 70, 36, COLOR_ALPHA(THEME_DANGER, 0x40));
@@ -1289,7 +1289,7 @@ static void draw(Screen *s)
         float a = vi.state == VIDEO_PAUSED ? 1.0f : flash / 0.6f;
         float r = 70 + (1 - a) * 20 * (vi.state != VIDEO_PAUSED);
         gfx_circle(SNTV_UI_W / 2, SNTV_UI_H / 2, r, RGBA(0, 0, 0, (int)(0x80 * a)));
-        gfx_rrect_ring(SNTV_UI_W / 2 - r, SNTV_UI_H / 2 - r, 2 * r, 2 * r, r, 2, RGBA(0xFF, 0xFF, 0xFF, (int)(0x40 * a)));
+        gfx_rrect_ring(SNTV_UI_W / 2 - r, SNTV_UI_H / 2 - r, 2 * r, 2 * r, r, 2, COLOR_ALPHA(THEME_TEXT, (int)(0x40 * a)));
         int icon = vi.state == VIDEO_PAUSED ? ICON_PLAY : p->flash_icon;
         ui_icon((Icon)icon, SNTV_UI_W / 2 + (icon == ICON_PLAY ? 6 : 0), SNTV_UI_H / 2, 64, RGBA(255, 255, 255, (int)(255 * a)));
         if (flash > 0) app_redraw();
@@ -1299,8 +1299,8 @@ static void draw(Screen *s)
         float k = (p->seek_flash - g_app.time) / 0.35f, cx = SNTV_UI_W / 2 + p->seek_flash_dir * 260, cy = SNTV_UI_H / 2;
         int a8 = (int)(255 * (k > 1 ? 1 : k));
         gfx_circle(cx, cy, 56, RGBA(0, 0, 0, (int)(0x80 * k)));
-        Color fg = RGBA(0xFF, 0xFF, 0xFF, a8);
-        gfx_rrect_ring(cx - 26, cy - 26, 52, 52, 26, 3, fg);
+        Color fg = COLOR_ALPHA(THEME_TEXT, a8);
+        gfx_rrect_ring(cx - 26, cy - 26, 52, 52, R_PANEL, 3, fg);
         float ax = cx + p->seek_flash_dir * 9, ay = cy - 28;
         gfx_line(ax, ay, ax - p->seek_flash_dir * 10, ay - 9, 3, fg);
         gfx_line(ax, ay, ax - p->seek_flash_dir * 10, ay + 9, 3, fg);
@@ -1322,9 +1322,9 @@ static void draw(Screen *s)
             if (p->cands[p->cur].label) { font_draw_fit(p->cands[p->cur].label, cx, 114, FONT_S, THEME_TEXT_DIM, 700); cx += font_measure(p->cands[p->cur].label, FONT_S) + 20; }
             char res[32], aud[48];
             media_badges(p, &vi, res, sizeof res, aud, sizeof aud);
-            if (res[0]) cx += ui_chip(res, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT) + 10;
-            if (aud[0]) cx += ui_chip(aud, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT) + 10;
-            if (!res[0] && !aud[0] && vi.codec[0] && cx < 1200) ui_chip(vi.codec, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT);
+            if (res[0]) cx += ui_chip(res, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT) + 10;
+            if (aud[0]) cx += ui_chip(aud, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT) + 10;
+            if (!res[0] && !aud[0] && vi.codec[0] && cx < 1200) ui_chip(vi.codec, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT);
         } else draw_paused_info(p, &vi, info_k);
         float chip_y = 62;
         if (g_app.clock_mode != 2) {   /* "2:52 PM  |  ends at 3:40" */
@@ -1333,37 +1333,37 @@ static void draw(Screen *s)
             if (vi.duration > 0 && vi.state != VIDEO_PAUSED) { ui_clock_text((vi.duration - shown_pos) / RATES[p->rate_idx], end, sizeof end); snprintf(text, sizeof text, "%s   |   ends at %s", now, end); }
             else snprintf(text, sizeof text, "%s", now);
             float tw = font_measure(text, FONT_S | FONT_B) + 44, th2 = 52, tx = SNTV_UI_W - THEME_MARGIN - tw;
-            gfx_rrect(tx, 47, tw, th2, th2 / 2, RGBA(0x0B, 0x0A, 0x16, 0x8C));
+            gfx_rrect(tx, 47, tw, th2, th2 / 2, COLOR_ALPHA(THEME_BG, 0x8C));
             font_draw(text, tx + 22, 47 + (th2 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
             chip_y = 112;
         }
         if (p->n_cands > 1) {
             char c[48]; snprintf(c, sizeof c, "Source %d of %d", p->cur + 1, p->n_cands);
-            ui_chip(c, SNTV_UI_W - THEME_MARGIN - font_measure(c, FONT_XS | FONT_B) - 24, chip_y, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT);
+            ui_chip(c, SNTV_UI_W - THEME_MARGIN - font_measure(c, FONT_XS | FONT_B) - 24, chip_y, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT);
         }
     } else if (bar_only) {
         gfx_gradient_v(0, SNTV_UI_H - 240, SNTV_UI_W, 240, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xB0));
     }
     if (overlay || bar_only) {
         float th = p->seek_commit > 0 ? 12 : 8, ty = by - th / 2;
-        gfx_rrect(bx, ty, bw, th, th / 2, RGBA(0xFF, 0xFF, 0xFF, 0x30));
+        gfx_rrect(bx, ty, bw, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
         if (vi.duration > 0) {
-            if (vi.buffer_percent > 0) gfx_rrect(bx, ty, bw * vi.buffer_percent / 100.0f, th, th / 2, RGBA(0xFF, 0xFF, 0xFF, 0x30));
+            if (vi.buffer_percent > 0) gfx_rrect(bx, ty, bw * vi.buffer_percent / 100.0f, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
             for (int i = 0; i < p->n_skip; i++) {   /* intro / credits ranges */
                 double e = p->skip[i].end > 0 ? p->skip[i].end : vi.duration;
                 if (p->skip[i].kind == SKIP_PREVIEW || e <= p->skip[i].start) continue;
                 gfx_rect(bx + bw * (float)(p->skip[i].start / vi.duration), ty + th + 6, bw * (float)((e - p->skip[i].start) / vi.duration), 3,
-                         p->skip[i].kind == SKIP_CREDITS ? RGBA(0xFF, 0xFF, 0xFF, 0x50) : COLOR_ALPHA(THEME_ACCENT2, 0xC0));
+                         p->skip[i].kind == SKIP_CREDITS ? COLOR_ALPHA(THEME_TEXT, 0x50) : COLOR_ALPHA(THEME_ACCENT2, 0xC0));
             }
             if (p->probe)   /* chapter marks */
                 for (int i = 1; i < p->probe->n_chapters; i++) {
                     float cxp = bx + bw * (float)(p->probe->chapters[i].start_s / vi.duration);
-                    gfx_rect(cxp - 1.5f, ty - 6, 3, th + 12, RGBA(0xFF, 0xFF, 0xFF, 0x70));
+                    gfx_rect(cxp - 1.5f, ty - 6, 3, th + 12, COLOR_ALPHA(THEME_TEXT, 0x70));
                 }
             float fw = bw * (float)(shown_pos / vi.duration);
             if (fw > th) gfx_rrect_grad_h(bx, ty, fw, th, th / 2, THEME_ACCENT, THEME_ACCENT2);
             float kx = bx + fw;
-            if (!g_app.fx_light) gfx_shadow(kx - 14, by - 14, 28, 28, 14, 14, COLOR_ALPHA(THEME_ACCENT2, 0xB0));
+            if (!g_app.fx_light) gfx_shadow(kx - 14, by - 14, 28, 28, R_PANEL, 14, COLOR_ALPHA(THEME_ACCENT2, 0xB0));
             gfx_circle(kx, by, p->seek_commit > 0 ? 16 : 12, THEME_TEXT);
             if (p->seek_commit > 0) {
                 char t[32]; ui_format_time(shown_pos, t, sizeof t);
@@ -1383,13 +1383,13 @@ static void draw(Screen *s)
                     if (fx < bx) fx = bx;
                     if (fx + fw2 > bx + bw) fx = bx + bw - fw2;
                     float fy = by - 30 - bh - 16 - fh2;
-                    if (!g_app.fx_light) gfx_shadow(fx, fy + 6, fw2, fh2, 16, 30, RGBA(0, 0, 0, 0xA0));
+                    if (!g_app.fx_light) gfx_shadow(fx, fy + 6, fw2, fh2, R_PANEL, 30, RGBA(0, 0, 0, 0xA0));
                     gfx_rtex_uv(ptex, fx, fy, fw2, fh2, 16, 0, 0, 1, 1, RGBA(255, 255, 255, 255), 0);
-                    gfx_rrect_ring(fx, fy, fw2, fh2, 16, 2, THEME_TEXT);
+                    gfx_rrect_ring(fx, fy, fw2, fh2, R_PANEL, 2, THEME_TEXT);
                 }
-                gfx_rrect(tx, by - 30 - bh, tw, bh, 26, THEME_TEXT);
-                font_draw(t, tx + (tw - font_measure(t, FONT_M | FONT_B)) / 2, by - 30 - bh + 10, FONT_M | FONT_B, THEME_ON_LIGHT);
-                if (cname) font_draw(cname, tx + (tw - font_measure(cname, FONT_XS | FONT_B)) / 2, by - 30 - bh + 48, FONT_XS | FONT_B, RGBA(0x0B, 0x0A, 0x16, 0xB0));
+                gfx_rrect(tx, by - 30 - bh, tw, bh, theme_pill_r(bh), THEME_FOCUS);
+                font_draw(t, tx + (tw - font_measure(t, FONT_M | FONT_B)) / 2, by - 30 - bh + 10, FONT_M | FONT_B, THEME_ON_FOCUS);
+                if (cname) font_draw(cname, tx + (tw - font_measure(cname, FONT_XS | FONT_B)) / 2, by - 30 - bh + 48, FONT_XS | FONT_B, COLOR_ALPHA(THEME_ON_FOCUS, 0xB0));
             }
         }
         char pos[32], rem[48], t2[32];
@@ -1691,7 +1691,7 @@ void player_pip_draw(Screen *s, int focused)
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, 4, 44, RGBA(0, 0, 0, 0xC0));
     draw_video_area(p, x, y, w, h);
     if (focused) { if (!g_app.fx_light) gfx_shadow(x - 4, y - 4, w + 8, h + 8, 6, 30, COLOR_ALPHA(THEME_ACCENT2, 0xA0)); gfx_rrect_ring(x, y, w, h, 2, 4, THEME_TEXT); }
-    else gfx_rrect_ring(x, y, w, h, 2, 2, RGBA(0xFF, 0xFF, 0xFF, 0x50));
+    else gfx_rrect_ring(x, y, w, h, 2, 2, COLOR_ALPHA(THEME_TEXT, 0x50));
     if (focused) {   /* two choices, for remotes without a Stop key */
         float bw1 = ui_pill_width("Full screen", 1, 52), bw2 = ui_pill_width("Close", 1, 52);
         float bx = x + (w - bw1 - bw2 - 16) / 2, by = y + h / 2 - 26;

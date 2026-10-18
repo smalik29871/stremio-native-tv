@@ -171,15 +171,11 @@ void ui_background(Color tint)
     if (fabsf(tr - g_tint[0]) + fabsf(tg - g_tint[1]) + fabsf(tb - g_tint[2]) > 3) app_redraw();
     Color t = RGBA((int)g_tint[0], (int)g_tint[1], (int)g_tint[2], 0xFF);
 
-    if (g_app.oled) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF)); return; }
-    gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG2, THEME_BG);
-    if (g_app.fx_light) {
-        gfx_gradient_h(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(t, 0x30), COLOR_ALPHA(t, 0));
-        return;
-    }
-    /* two large, very soft glows: tinted top-left, accent bottom-right */
-    gfx_shadow(-300, -420, 1300, 1000, 500, 420, COLOR_ALPHA(t, 0x46));
-    gfx_shadow(1250, 650, 1000, 800, 400, 380, COLOR_ALPHA(THEME_ACCENT2, 0x16));
+    /* The frame is cleared to the theme background (main.c), so a flat theme draws
+     * nothing here; the others add one plain gradient tinted by the artwork. Soft
+     * SDF glows used to shade more than a screen's worth of pixels every frame. */
+    if (g_app.oled || !g_theme.glow) return;
+    gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H * 0.6f, COLOR_ALPHA(t, g_app.fx_light ? 0x18 : 0x26), COLOR_ALPHA(t, 0));
 }
 
 static void cover_uv(int iw, int ih, float w, float h, float *u0, float *v0, float *u1, float *v1)
@@ -248,7 +244,193 @@ void ui_backdrop_blur(unsigned tex, int iw, int ih, float alpha)
     float u0, v0, u1, v1;
     cover_uv(iw, ih, SNTV_UI_W, SNTV_UI_H, &u0, &v0, &u1, &v1);
     gfx_tex_blur(tex, 0, 0, SNTV_UI_W, SNTV_UI_H, u0, v0, u1, v1, RGBA(150, 150, 165, (int)(255 * alpha)), 5.0f);
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0x90));
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0x90));
+}
+
+/* ---- theme language: focus, titles, rows ---- */
+
+/* Under a focused control: Signal's hard offset block, Marquee's light bar,
+ * Duotone's soft shadow. `a` is the focus amount 0..1. */
+void ui_focus_under(float x, float y, float w, float h, float r, float a)
+{
+    if (a <= 0.01f) return;
+    switch (g_theme.focus_style) {
+    case FOCUS_FRAME:
+        gfx_rrect(x + 10 * a, y + 10 * a, w, h, r, COLOR_ALPHA(THEME_ACCENT, (int)(0x66 * a)));
+        break;
+    case FOCUS_LIGHTBAR:
+        gfx_rrect(x + w * 0.08f, y + h + 8, w * 0.84f, 4, 2, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a)));
+        if (!g_app.fx_light) gfx_gradient_v(x + w * 0.08f, y + h + 12, w * 0.84f, 26, COLOR_ALPHA(THEME_ACCENT, (int)(0x38 * a)), COLOR_ALPHA(THEME_ACCENT, 0));
+        break;
+    default:
+        if (!g_app.fx_light) gfx_shadow(x, y + 10 * a, w, h, r, 26, RGBA(0, 0, 0, (int)(0x90 * a)));
+        break;
+    }
+}
+
+/* Over a focused card: the theme's outline. */
+static void focus_over(float x, float y, float w, float h, float r, float a)
+{
+    if (a <= 0.01f) return;
+    switch (g_theme.focus_style) {
+    case FOCUS_FRAME: gfx_rrect_ring(x, y, w, h, r, 5, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a))); break;
+    case FOCUS_LIGHTBAR: gfx_rrect_ring(x, y, w, h, r, 2, COLOR_ALPHA(THEME_TEXT, (int)(0xC0 * a))); break;
+    default: gfx_rrect_ring(x, y, w, h, r, 3, COLOR_ALPHA(THEME_TEXT, (int)(0xE0 * a))); break;
+    }
+}
+
+/* Capitals for the Latin-1 and Latin Extended-A letters the atlases carry. */
+static int upper_cp(int c)
+{
+    if (c >= 'a' && c <= 'z') return c - 32;
+    if (c >= 0xE0 && c <= 0xFE && c != 0xF7) return c - 32;
+    if (c == 0xFF) return 0x178;
+    if ((c >= 0x100 && c <= 0x137) || (c >= 0x14A && c <= 0x177)) return c & 1 ? c - 1 : c;
+    if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E)) return c & 1 ? c : c - 1;
+    return c;
+}
+
+void ui_upper(const char *in, char *out, size_t n)
+{
+    size_t o = 0;
+    const unsigned char *p = (const unsigned char *)in;
+    while (*p && o + 4 < n) {
+        int c, len;
+        if (p[0] < 0x80) { c = p[0]; len = 1; }
+        else if ((p[0] & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80) { c = ((p[0] & 0x1F) << 6) | (p[1] & 0x3F); len = 2; }
+        else { /* copy longer sequences unchanged */
+            len = (p[0] & 0xF0) == 0xE0 ? 3 : (p[0] & 0xF8) == 0xF0 ? 4 : 1;
+            for (int i = 0; i < len && p[i]; i++) out[o++] = (char)p[i];
+            p += len;
+            continue;
+        }
+        c = upper_cp(c);
+        if (c < 0x80) out[o++] = (char)c;
+        else { out[o++] = (char)(0xC0 | (c >> 6)); out[o++] = (char)(0x80 | (c & 0x3F)); }
+        p += len;
+    }
+    out[o] = 0;
+}
+
+/* The face, case and spacing a title takes in this theme. */
+static int title_font(int size)
+{
+    if (g_theme.id == THEME_MARQUEE && (size & 0xFFF) >= FONT_L) return (size & 0xFFF) | FONT_ALT;
+    return size;
+}
+
+static float title_track(int size) { return g_theme.upper_titles ? g_theme.title_track * (float)(size & 0xFFF) / FONT_M : 0; }
+
+float ui_title_width(const char *text, int size)
+{
+    if (!text) return 0;
+    if (!g_theme.upper_titles) return font_measure(text, size);
+    char up[512];
+    ui_upper(text, up, sizeof up);
+    return font_measure_tracked(up, title_font(size), title_track(size));
+}
+
+float ui_title(const char *text, float x, float y, int size, Color c, float max_w)
+{
+    if (!text) return 0;
+    if (!g_theme.upper_titles) {
+        if (max_w > 0) { font_draw_fit(text, x, y, size, c, max_w); return font_measure(text, size) < max_w ? font_measure(text, size) : max_w; }
+        font_draw(text, x, y, size, c);
+        return font_measure(text, size);
+    }
+    char up[512];
+    ui_upper(text, up, sizeof up);
+    int f = title_font(size);
+    float tr = title_track(size), w = font_measure_tracked(up, f, tr);
+    /* a display face is taller for its size: sit it on the same baseline */
+    float dy = (f & FONT_ALT) ? font_ascent(size) - font_ascent(f) : 0;
+    if (max_w > 0 && w > max_w) { font_draw_fit(up, x, y + dy, f, c, max_w); return max_w; }
+    font_draw_tracked(up, x, y + dy, f, c, tr);
+    return w;
+}
+
+/* A big title (hero, detail): the theme's case and face, up to two lines, the last
+ * one ending at `bottom`. Returns the number of lines. */
+int ui_hero_title(const char *text, float x, float bottom, float maxw, Color c)
+{
+    if (!text) return 0;
+    char up[512];
+    if (g_theme.upper_titles) ui_upper(text, up, sizeof up); else snprintf(up, sizeof up, "%s", text);
+    int big = title_font(FONT_TITLE | FONT_B), small = title_font(FONT_XL | FONT_B);
+    int fs = font_measure(up, big) > maxw ? small : big;
+    int lines = font_draw_wrapped(up, 0, 0, fs, 0, maxw, 2);
+    float y = bottom - lines * font_height(fs);
+    font_draw_wrapped(up, x + 3, y + 3, fs, RGBA(0, 0, 0, COLOR_A(c) / 2), maxw, 2);
+    font_draw_wrapped(up, x, y, fs, c, maxw, 2);
+    return lines;
+}
+
+/* "a / b / c" in mono capitals (Signal), "a · b · c" otherwise. Returns the x after it. */
+float ui_meta_line(const char *const *parts, int n, float x, float y, Color c)
+{
+    int mono = g_theme.mono_meta;
+    int fs = mono ? (FONT_S | FONT_ALT) : (FONT_S | FONT_B);
+    for (int i = 0, k = 0; i < n; i++) {
+        if (!parts[i] || !*parts[i]) continue;
+        if (k++) {
+            if (mono) { font_draw("/", x + 10, y, fs, THEME_TEXT_MUTED); x += 10 + font_measure("/", fs) + 10; }
+            else { gfx_circle(x + 12, y + font_height(fs) * 0.52f, 3, THEME_TEXT_MUTED); x += 24; }
+        }
+        char up[256];
+        if (mono) ui_upper(parts[i], up, sizeof up); else snprintf(up, sizeof up, "%s", parts[i]);
+        font_draw(up, x, y, fs, c);
+        x += font_measure(up, fs);
+    }
+    return x;
+}
+
+/* A row's heading: "01 ── TITLE ──── 24 ›" (Signal), an amber kicker over the title
+ * (Marquee) or the plain title with a count (Duotone). `k` is the row's emphasis 0..1. */
+void ui_row_header(int index, const char *title, const char *source, int count, float x, float y, float right, float k)
+{
+    Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * (0.55f + 0.45f * k)));
+    switch (g_theme.row_header) {
+    case ROWHEAD_NUMBERED: {
+        char num[12], cnt[16];
+        snprintf(num, sizeof num, "%02d", index + 1);
+        int mf = FONT_S | FONT_ALT;
+        float my = y + (font_height(FONT_M | FONT_B) - font_height(mf)) / 2;
+        font_draw(num, x, my, mf, k > 0.5f ? THEME_ACCENT : THEME_TEXT_MUTED);
+        float tx = x + font_measure(num, mf) + 18;
+        gfx_rect(tx, y + font_height(FONT_M | FONT_B) / 2, 28, 2, THEME_LINE);
+        tx += 44;
+        float tw = ui_title(title, tx, y, FONT_M | FONT_B, fg, right - tx - 200);
+        float lx = tx + tw + 18, rx = right;
+        if (count > 0) {
+            snprintf(cnt, sizeof cnt, "%d", count);
+            float cwid = font_measure(cnt, mf);
+            font_draw(cnt, right - cwid, my, mf, THEME_TEXT_MUTED);
+            rx = right - cwid - 18;
+        }
+        if (k > 0.5f && source && *source) {
+            char up[160];
+            ui_upper(source, up, sizeof up);
+            float sw = font_measure(up, FONT_XS | FONT_ALT);
+            if (lx + sw + 40 < rx) { font_draw(up, rx - sw, my + 2, FONT_XS | FONT_ALT, THEME_TEXT_MUTED); rx -= sw + 18; }
+        }
+        if (rx > lx) gfx_rect(lx, y + font_height(FONT_M | FONT_B) / 2, rx - lx, 2, THEME_LINE);
+        break;
+    }
+    case ROWHEAD_KICKER:
+        if (source && *source) {
+            char up[160];
+            ui_upper(source, up, sizeof up);
+            font_draw_tracked(up, x, y - 22, FONT_XS | FONT_B, COLOR_ALPHA(THEME_ACCENT, (int)(255 * (0.6f + 0.4f * k))), 2);
+        }
+        ui_title(title, x, y, FONT_M | FONT_B, fg, right - x);
+        break;
+    default: {
+        float tw = font_measure(title, FONT_M | FONT_B);
+        font_draw_fit(title, x, y, FONT_M | FONT_B, fg, right - x - 120);
+        if (k > 0.5f && source && *source) font_draw(source, x + tw + 18, y + 6, FONT_S, THEME_TEXT_MUTED);
+        break;
+    }
+    }
 }
 
 /* ---- pills, chips, toggles ---- */
@@ -267,12 +449,14 @@ float ui_pill(const char *label, int has_icon, Icon icon, float x, float y, floa
     int fs = h >= 72 ? (FONT_M | FONT_B) : (FONT_S | FONT_B);
     float w = ui_pill_width(label, has_icon, h);
     Color bg, fg;
-    if (focused) { bg = THEME_TEXT; fg = THEME_ON_LIGHT; }
-    else if (style == PILL_PRIMARY) { bg = RGBA(0xFF, 0xFF, 0xFF, 0x2C); fg = THEME_TEXT; }
+    float r = theme_pill_r(h);
+    if (focused) { bg = THEME_FOCUS; fg = THEME_ON_FOCUS; }
+    else if (style == PILL_PRIMARY) { bg = THEME_SURFACE_HI; fg = THEME_TEXT; }
     else if (style == PILL_SECONDARY) { bg = THEME_SURFACE; fg = THEME_TEXT; }
     else { bg = RGBA(0, 0, 0, 0); fg = THEME_TEXT_DIM; }
-    if (focused && !g_app.fx_light) gfx_shadow(x, y + 6, w, h, h / 2, 22, RGBA(0, 0, 0, 0x70));
-    if (style != PILL_GHOST || focused) gfx_rrect(x, y, w, h, h / 2, bg);
+    if (focused) ui_focus_under(x, y, w, h, r, 1);
+    if (!focused && style == PILL_SECONDARY && g_theme.focus_style == FOCUS_FRAME) gfx_rrect_ring(x + 1.5f, y + 1.5f, w - 3, h - 3, r, 1.5f, THEME_LINE);
+    else if (style != PILL_GHOST || focused) gfx_rrect(x, y, w, h, r, bg);
     float cx = (!label || !*label) ? x + w / 2 : x + h * 0.45f;
     if (has_icon) {
         float isz = h * 0.44f;
@@ -285,9 +469,10 @@ float ui_pill(const char *label, int has_icon, Icon icon, float x, float y, floa
 
 float ui_icon_button(Icon icon, float cx, float cy, float r, int focused)
 {
-    if (focused && !g_app.fx_light) gfx_shadow(cx - r, cy - r + 6, 2 * r, 2 * r, r, 20, RGBA(0, 0, 0, 0x70));
-    gfx_circle(cx, cy, r, focused ? THEME_TEXT : THEME_SURFACE);
-    ui_icon(icon, cx, cy, r * 0.95f, focused ? THEME_ON_LIGHT : THEME_TEXT);
+    float rr = theme_pill_r(2 * r);
+    if (focused) ui_focus_under(cx - r, cy - r, 2 * r, 2 * r, rr, 1);
+    gfx_rrect(cx - r, cy - r, 2 * r, 2 * r, rr, focused ? THEME_FOCUS : THEME_SURFACE);
+    ui_icon(icon, cx, cy, r * 0.95f, focused ? THEME_ON_FOCUS : THEME_TEXT);
     return 2 * r;
 }
 
@@ -314,8 +499,13 @@ float ui_clock_pill(void)
     char now[24];
     ui_clock_text(0, now, sizeof now);
     float w = font_measure(now, FONT_S | FONT_B) + 44, h = 52, x = SNTV_UI_W - THEME_MARGIN - w, y = 47;
-    gfx_rrect(x, y, w, h, h / 2, RGBA(0x0B, 0x0A, 0x16, 0x8C));
-    gfx_rrect_ring(x, y, w, h, h / 2, 1, RGBA(0xFF, 0xFF, 0xFF, 0x16));
+    if (g_theme.focus_style == FOCUS_FRAME) {
+        gfx_rect(x + 10, y + h / 2 - 5, 10, 10, THEME_ACCENT);
+        font_draw(now, x + 30, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+        return w;
+    }
+    gfx_rrect(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(THEME_BG, 0xB0));
+    gfx_rrect_ring(x, y, w, h, theme_pill_r(h), 1, THEME_LINE);
     font_draw(now, x + 22, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
     return w;
 }
@@ -324,7 +514,7 @@ float ui_chip(const char *text, float x, float y, Color bg, Color fg)
 {
     int fs = FONT_XS | FONT_B;
     float w = font_measure(text, fs) + 24, h = 36;
-    gfx_rrect(x, y, w, h, 9, bg);
+    gfx_rrect(x, y, w, h, g_theme.r_key < 9 ? g_theme.r_key / 2 : 9, bg);
     font_draw(text, x + 12, y + (h - font_height(fs)) / 2, fs, fg);
     return w;
 }
@@ -333,7 +523,7 @@ float ui_chip_outline(const char *text, float x, float y, Color line, Color fg)
 {
     int fs = FONT_XS;
     float w = font_measure(text, fs) + 28, h = 36;
-    gfx_rrect_ring(x + 1.5f, y + 1.5f, w - 3, h - 3, 18, 1.5f, line);
+    gfx_rrect_ring(x + 1.5f, y + 1.5f, w - 3, h - 3, theme_pill_r(h - 3), 1.5f, line);
     font_draw(text, x + 14, y + (h - font_height(fs)) / 2, fs, fg);
     return w;
 }
@@ -396,38 +586,38 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
 
 void ui_toggle(float x, float y, int on, int focused)
 {
-    float w = 76, h = 40;
-    Color track = on ? THEME_ACCENT : RGBA(0xFF, 0xFF, 0xFF, 0x30);
-    if (on) gfx_rrect_grad_h(x, y, w, h, h / 2, THEME_ACCENT, THEME_ACCENT2);
-    else gfx_rrect(x, y, w, h, h / 2, track);
-    if (focused) gfx_rrect_ring(x, y, w, h, h / 2, 3, THEME_TEXT);
-    float kx = on ? x + w - h / 2 : x + h / 2;
-    gfx_circle(kx, y + h / 2, h / 2 - 5, THEME_TEXT);
+    float w = 76, h = 40, r = theme_pill_r(h);
+    if (on) gfx_rrect_grad_h(x, y, w, h, r, THEME_ACCENT, THEME_ACCENT2);
+    else gfx_rrect(x, y, w, h, r, THEME_SURFACE_HI);
+    if (focused) gfx_rrect_ring(x, y, w, h, r, 3, THEME_TEXT);
+    float k = h / 2 - 5, kx = on ? x + w - h / 2 : x + h / 2;
+    gfx_rrect(kx - k, y + h / 2 - k, 2 * k, 2 * k, theme_pill_r(2 * k) * 0.8f, on ? THEME_ON_ACCENT : THEME_TEXT);
 }
 
 void ui_progress(float x, float y, float w, float h, float frac, Color fill)
 {
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
-    gfx_rrect(x, y, w, h, h / 2, RGBA(0xFF, 0xFF, 0xFF, 0x38));
+    float r = theme_pill_r(h);
+    gfx_rrect(x, y, w, h, r, COLOR_ALPHA(THEME_TEXT, 0x30));
     if (frac > 0) {
         float fw = w * frac;
         if (fw < h) fw = h;
-        if (fill == THEME_ACCENT) gfx_rrect_grad_h(x, y, fw, h, h / 2, THEME_ACCENT, THEME_ACCENT2);
-        else gfx_rrect(x, y, fw, h, h / 2, fill);
+        if (fill == THEME_ACCENT && THEME_ACCENT2 != THEME_ACCENT) gfx_rrect_grad_h(x, y, fw, h, r, THEME_ACCENT, THEME_ACCENT2);
+        else gfx_rrect(x, y, fw, h, r, fill);
     }
 }
 
 void ui_skeleton(float x, float y, float w, float h, float r)
 {
-    gfx_rrect(x, y, w, h, r, RGBA(0xFF, 0xFF, 0xFF, 0x10));
+    gfx_rrect(x, y, w, h, r, THEME_POSTER_PH);
     if (g_app.fx_light) return;
     /* a soft highlight sweeping left to right */
     float period = 1.6f, t = fmodf(g_app.time + x * 0.0006f, period) / period;
     float sw = w * 0.6f, sx = x - sw + (w + sw) * t;
     gfx_clip_push(x, y, w, h);
-    gfx_gradient_h(sx, y, sw / 2, h, RGBA(0xFF, 0xFF, 0xFF, 0), RGBA(0xFF, 0xFF, 0xFF, 0x14));
-    gfx_gradient_h(sx + sw / 2, y, sw / 2, h, RGBA(0xFF, 0xFF, 0xFF, 0x14), RGBA(0xFF, 0xFF, 0xFF, 0));
+    gfx_gradient_h(sx, y, sw / 2, h, COLOR_ALPHA(THEME_TEXT, 0), COLOR_ALPHA(THEME_TEXT, 0x14));
+    gfx_gradient_h(sx + sw / 2, y, sw / 2, h, COLOR_ALPHA(THEME_TEXT, 0x14), COLOR_ALPHA(THEME_TEXT, 0));
     gfx_clip_pop();
     app_redraw();
 }
@@ -460,23 +650,42 @@ void ui_spinner(float cx, float cy, float r)
     app_redraw();
 }
 
+/* The Stremio logo stays exactly as it was in every theme: its own purple gradient
+ * tile and play triangle, never recoloured by the accent. */
+#define LOGO_TOP    RGBA(0xD9, 0x46, 0xEF, 0xFF)
+#define LOGO_BOTTOM RGBA(0x8B, 0x5C, 0xF6, 0xFF)
+#define LOGO_GLYPH  RGBA(0xF7, 0xF7, 0xFB, 0xFF)
+
+void ui_mark(float x, float y, float s)
+{
+    gfx_rrect_grad_v(x, y, s, s, s * 0.28f, LOGO_TOP, LOGO_BOTTOM);
+    gfx_play_triangle(x + s * 0.36f, y + s * 0.28f, s * 0.38f, s * 0.44f, LOGO_GLYPH);
+}
+
 void ui_brand(float x, float y, float s)
 {
-    gfx_rrect_grad_v(x, y, s, s, s * 0.28f, THEME_ACCENT2, THEME_ACCENT);
-    gfx_play_triangle(x + s * 0.36f, y + s * 0.28f, s * 0.38f, s * 0.44f, THEME_TEXT);
+    ui_mark(x, y, s);
     font_draw("Stremio", x + s + 16, y + (s - font_height(FONT_L | FONT_B)) / 2, FONT_L | FONT_B, THEME_TEXT);
 }
 
 /* ---- cards ---- */
 
-float ui_focus_scale(float focus) { return 1.0f + 0.09f * focus; }
+/* How much a focused card grows and rises: Signal barely moves (the frame says it),
+ * Marquee lifts toward its light bar, Duotone blooms. */
+float ui_focus_scale(float focus)
+{
+    float k = g_theme.focus_style == FOCUS_FRAME ? 0.04f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.09f;
+    return 1.0f + k * focus;
+}
+
+float ui_focus_lift(float focus) { return g_theme.focus_style == FOCUS_LIGHTBAR ? 10 * focus : 0; }
 
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim, const char *title, int flags)
 {
     int mip = flags & (CARD_MIP | CARD_BLUR), blur = flags & CARD_BLUR;
     float sc = ui_focus_scale(focus);
-    float cw = w * sc, ch = h * sc, cx = x - (cw - w) / 2, cy = y - (ch - h) / 2;
-    if (focus > 0.01f && !g_app.fx_light) gfx_shadow(cx, cy + 14 * focus, cw, ch, R_CARD, 34, RGBA(0, 0, 0, (int)(0xB0 * focus)));
+    float cw = w * sc, ch = h * sc, cx = x - (cw - w) / 2, cy = y - (ch - h) / 2 - ui_focus_lift(focus);
+    ui_focus_under(cx, cy, cw, ch, R_CARD, focus);
     int iw = 0, ih = 0;
     unsigned age = 0;
     unsigned tex = url ? image_get_ex(url, mip ? IMAGE_MIPMAP : IMAGE_PLAIN, &iw, &ih, &age) : 0;
@@ -486,14 +695,16 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
         float a = g_app.fx_light ? 1.0f : (age >= 10 ? 1.0f : age / 10.0f);
         if (a < 1) { gfx_rrect(cx, cy, cw, ch, R_CARD, THEME_POSTER_PH); app_redraw(); }
         int shade = (int)(255 - dim * 90);
-        gfx_rtex_uv(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, RGBA(shade, shade, shade, (int)(255 * a)), blur ? 4.5f : 0);
+        if (g_theme.duotone && !blur && !(flags & CARD_TRUE_COLOUR))
+            gfx_rtex_duo(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, COLOR_ALPHA(color_lerp(THEME_ACCENT2, RGBA(0, 0, 0, 0xFF), dim * 0.35f), (int)(255 * a)), focus);
+        else gfx_rtex_uv(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, RGBA(shade, shade, shade, (int)(255 * a)), blur ? 4.5f : 0);
     } else {
-        gfx_rrect_grad_v(cx, cy, cw, ch, R_CARD, RGBA(0xFF, 0xFF, 0xFF, 0x18), RGBA(0xFF, 0xFF, 0xFF, 0x08));
+        gfx_rrect_grad_v(cx, cy, cw, ch, R_CARD, COLOR_ALPHA(THEME_TEXT, 0x18), COLOR_ALPHA(THEME_TEXT, 0x08));
         if (title) {
             gfx_clip_push(cx + 14, cy, cw - 28, ch);
             font_draw_wrapped(title, cx + 18, cy + ch * 0.36f, FONT_S | FONT_B, THEME_TEXT_DIM, cw - 36, 3);
             gfx_clip_pop();
         }
     }
-    if (focus > 0.01f) gfx_rrect_ring(cx, cy, cw, ch, R_CARD, 4.5f, COLOR_ALPHA(THEME_TEXT, (int)(255 * focus)));
+    focus_over(cx, cy, cw, ch, R_CARD, focus);
 }

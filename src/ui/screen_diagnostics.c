@@ -169,12 +169,12 @@ static void update(Screen *s, float dt)
 
 static void draw_qr_overlay(Diag *d)
 {
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0xE8));
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xE8));
     float w = 1500, h = 760, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
     gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
-    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x20));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
     float qs = 680, qx = x + 40, qy = y + 40;
-    gfx_rrect(qx, qy, qs, qs, 24, RGBA(255, 255, 255, 255));
+    gfx_rrect(qx, qy, qs, qs, R_PANEL, RGBA(255, 255, 255, 255));
     if (d->qr_ok) {
         int n = qrcodegen_getSize(d->qr);
         /* whole screen pixels per module (sharp edges), with a 4-module quiet zone */
@@ -217,20 +217,20 @@ static void draw(Screen *s)
     for (int i = 0; i < TAB_COUNT; i++) {
         int sel = d->tab == i;
         float tw = font_measure(TABS[i], FONT_S | FONT_B) + 48;
-        if (sel) gfx_rrect(tx, 222, tw, 54, 27, THEME_TEXT);
-        font_draw(TABS[i], tx + 24, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, sel ? THEME_ON_LIGHT : THEME_TEXT_DIM);
+        if (sel) gfx_rrect(tx, 222, tw, 54, theme_pill_r(54), THEME_FOCUS);
+        font_draw(TABS[i], tx + 24, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, sel ? THEME_ON_FOCUS : THEME_TEXT_DIM);
         tx += tw + 8;
     }
     const char *sess = d->previous ? "Previous session" : "This session";
     float sw = font_measure(sess, FONT_S | FONT_B) + 48;
-    gfx_rrect(tx + 20, 222, sw, 54, 27, d->previous ? RGBA(0x3B, 0x82, 0xF6, 0xFF) : THEME_SURFACE);
+    gfx_rrect(tx + 20, 222, sw, 54, R_PANEL, d->previous ? RGBA(0x3B, 0x82, 0xF6, 0xFF) : THEME_SURFACE);
     font_draw(sess, tx + 44, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
     const char *hint = "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
     font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
 
     /* list */
     float lh = ROW_H, list_h = LIST_ROWS * lh;
-    gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, 20, RGBA(0x00, 0x00, 0x00, 0x40));
+    gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, R_PANEL, RGBA(0x00, 0x00, 0x00, 0x40));
     if (!d->n_vis) {
         const char *msg = d->previous ? "No log from a previous session." : d->tab == TAB_PROBLEMS ? "No warnings or errors so far." : "Nothing logged here yet.";
         font_draw_center(msg, SNTV_UI_W / 2, LIST_Y + list_h / 2 - 20, FONT_M | FONT_B, THEME_TEXT_DIM);
@@ -241,8 +241,8 @@ static void draw(Screen *s)
         if (ry + lh < LIST_Y - 6 || ry > LIST_Y + list_h) continue;
         const LogLine *l = &d->lines[d->vis[k]];
         int cur = k == d->cursor;
-        if (cur) gfx_rrect(x - 8, ry - 2, w + 16, lh, 10, RGBA(0xFF, 0xFF, 0xFF, 0x26));
-        Color dot = l->level == 'E' ? THEME_DANGER : l->level == 'W' ? THEME_GOLD : RGBA(0xFF, 0xFF, 0xFF, 0x40);
+        if (cur) gfx_rrect(x - 8, ry - 2, w + 16, lh, R_KEY, COLOR_ALPHA(THEME_TEXT, 0x26));
+        Color dot = l->level == 'E' ? THEME_DANGER : l->level == 'W' ? THEME_GOLD : COLOR_ALPHA(THEME_TEXT, 0x40);
         gfx_circle(x + 8, ry + lh / 2 - 1, 5, dot);
         /* time, then message */
         char tm[9];

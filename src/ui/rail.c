@@ -20,14 +20,13 @@ void rail_draw(int active, int focus)
     int open = focus >= 0;
     float w = open ? 340 : RAIL_W;
     if (open) {
-        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0x9C));   /* the content steps back */
-        gfx_gradient_h(0, 0, w + 260, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0xF4), RGBA(0x08, 0x07, 0x12, 0));
+        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0x9C));   /* the content steps back */
+        gfx_gradient_h(0, 0, w + 260, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xF4), COLOR_ALPHA(THEME_BG, 0));
     }
-    else gfx_gradient_h(0, 0, RAIL_W + 60, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0xB8), RGBA(0x08, 0x07, 0x12, 0));
+    else gfx_gradient_h(0, 0, RAIL_W + 60, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xB8), COLOR_ALPHA(THEME_BG, 0));
     /* brand */
     float bs = 48, bx = (RAIL_W - bs) / 2;
-    gfx_rrect_grad_v(bx, 44, bs, bs, bs * 0.28f, THEME_ACCENT2, THEME_ACCENT);
-    gfx_play_triangle(bx + bs * 0.36f, 44 + bs * 0.28f, bs * 0.38f, bs * 0.44f, THEME_TEXT);
+    ui_mark(bx, 44, bs);
     if (open) font_draw("Stremio", RAIL_W, 44 + (bs - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT);
 
     const char *acc = g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Account") : "Sign in";
@@ -37,10 +36,10 @@ void rail_draw(int active, int focus)
         const char *label = i == RAIL_ACCOUNT ? acc : LABELS[i];
         if (foc) {
             float pw = open ? font_measure(label, FONT_S | FONT_B) + 96 + 28 : 64;
-            if (!g_app.fx_light) gfx_shadow(cx - 32, cy - 32 + 6, pw, 64, 32, 20, RGBA(0, 0, 0, 0x80));
-            gfx_rrect(cx - 32, cy - 32, pw, 64, 32, THEME_TEXT);
-        } else if (act) gfx_rrect(0, cy - 16, 5, 32, 2.5f, THEME_ACCENT2);
-        Color fg = foc ? THEME_ON_LIGHT : act ? THEME_TEXT : THEME_TEXT_DIM;
+            ui_focus_under(cx - 32, cy - 32, pw, 64, theme_pill_r(64), 1);
+            gfx_rrect(cx - 32, cy - 32, pw, 64, theme_pill_r(64), THEME_FOCUS);
+        } else if (act) gfx_rrect(0, cy - 16, 5, 32, 2.5f, THEME_ACCENT);
+        Color fg = foc ? THEME_ON_FOCUS : act ? THEME_TEXT : THEME_TEXT_DIM;
         ui_icon(ICONS[i], cx, cy, 28, fg);
         if (open) font_draw_fit(label, RAIL_W + 8, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, fg, 220);
     }

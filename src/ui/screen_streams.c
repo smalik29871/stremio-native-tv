@@ -387,12 +387,12 @@ static float draw_badges(const Stream *sm, float right_x, float y)
     if (!size[0] && sm->video_size) snprintf(size, sizeof size, "%.1f GB", sm->video_size / 1073741824.0);
 
     struct { const char *t; Color bg, fg; } b[8]; int n = 0;
-    if (res) { b[n].t = res; b[n].bg = strcmp(res, "4K") == 0 ? THEME_GOLD : RGBA(0xFF, 0xFF, 0xFF, 0xE8); b[n].fg = THEME_ON_LIGHT; n++; }
+    if (res) { b[n].t = res; b[n].bg = strcmp(res, "4K") == 0 ? THEME_GOLD : COLOR_ALPHA(THEME_TEXT, 0xE8); b[n].fg = THEME_ON_LIGHT; n++; }
     if (hdr) { b[n].t = hdr; b[n].bg = RGBA(0x8B, 0x5C, 0xF6, 0xFF); b[n].fg = THEME_TEXT; n++; }
-    if (codec) { b[n].t = codec; b[n].bg = RGBA(0xFF, 0xFF, 0xFF, 0x22); b[n].fg = THEME_TEXT; n++; }
-    if (audio) { b[n].t = audio; b[n].bg = RGBA(0xFF, 0xFF, 0xFF, 0x22); b[n].fg = THEME_TEXT; n++; }
+    if (codec) { b[n].t = codec; b[n].bg = COLOR_ALPHA(THEME_TEXT, 0x22); b[n].fg = THEME_TEXT; n++; }
+    if (audio) { b[n].t = audio; b[n].bg = COLOR_ALPHA(THEME_TEXT, 0x22); b[n].fg = THEME_TEXT; n++; }
     if (cached) { b[n].t = cached; b[n].bg = THEME_OK; b[n].fg = THEME_ON_LIGHT; n++; }
-    if (size[0]) { b[n].t = size; b[n].bg = RGBA(0xFF, 0xFF, 0xFF, 0x12); b[n].fg = THEME_TEXT_DIM; n++; }
+    if (size[0]) { b[n].t = size; b[n].bg = COLOR_ALPHA(THEME_TEXT, 0x12); b[n].fg = THEME_TEXT_DIM; n++; }
     float x = right_x;
     for (int i = n - 1; i >= 0; i--) {
         float w = font_measure(b[i].t, FONT_XS | FONT_B) + 24;
@@ -445,11 +445,11 @@ static void draw(Screen *s)
         const Stream *sm = &st->items[rec];
         int foc = st->focus == -1;
         float h = REC_H - 16;
-        if (foc && !g_app.fx_light) gfx_shadow(x, LIST_Y + 8, w, h, 20, 26, RGBA(0, 0, 0, 0x90));
-        gfx_rrect_grad_h(x, LIST_Y, w, h, 20, foc ? RGBA(0xFF, 0xFF, 0xFF, 0x2E) : COLOR_ALPHA(THEME_ACCENT, 0x38), foc ? RGBA(0xFF, 0xFF, 0xFF, 0x2E) : COLOR_ALPHA(THEME_ACCENT2, 0x30));
-        if (foc) gfx_rrect_ring(x, LIST_Y, w, h, 20, 3, THEME_TEXT);
-        gfx_circle(x + 44, LIST_Y + h / 2, 26, foc ? THEME_TEXT : THEME_ACCENT2);
-        ui_icon(ICON_STAR, x + 44, LIST_Y + h / 2, 26, foc ? THEME_ON_LIGHT : THEME_TEXT);
+        if (foc) ui_focus_under(x, LIST_Y, w, h, R_PANEL, 1);
+        gfx_rrect_grad_h(x, LIST_Y, w, h, R_PANEL, foc ? COLOR_ALPHA(THEME_TEXT, 0x2E) : COLOR_ALPHA(THEME_ACCENT, 0x38), foc ? COLOR_ALPHA(THEME_TEXT, 0x2E) : COLOR_ALPHA(THEME_ACCENT2, 0x30));
+        if (foc) gfx_rrect_ring(x, LIST_Y, w, h, R_PANEL, 3, g_theme.focus_style == FOCUS_FRAME ? THEME_ACCENT : THEME_TEXT);
+        gfx_circle(x + 44, LIST_Y + h / 2, 26, foc ? THEME_FOCUS : THEME_ACCENT2);
+        ui_icon(ICON_STAR, x + 44, LIST_Y + h / 2, 26, foc ? THEME_ON_FOCUS : THEME_ON_ACCENT);
         static const char *HEAD[QUAL_MODE_COUNT] = { "Recommended for this TV", "Recommended for this TV", "Highest quality", "Balanced pick", "Smallest download" };
         font_draw(HEAD[g_app.quality_mode], x + 90, LIST_Y + 18, FONT_XS | FONT_B, THEME_ACCENT2);
         char l1[200], summary[200];
@@ -483,9 +483,9 @@ static void draw(Screen *s)
         int foc = st->focus == i;
         int ok = playable(sm);
         float h = ROW_H - 14;
-        if (foc && !g_app.fx_light) gfx_shadow(x, ry + 8, w, h, 20, 26, RGBA(0, 0, 0, 0x90));
-        gfx_rrect(x, ry, w, h, 20, foc ? RGBA(0xFF, 0xFF, 0xFF, 0x2A) : RGBA(0xFF, 0xFF, 0xFF, 0x0E));
-        if (foc) gfx_rrect_ring(x, ry, w, h, 20, 3, THEME_TEXT);
+        if (foc) ui_focus_under(x, ry, w, h, R_PANEL, 1);
+        gfx_rrect(x, ry, w, h, R_PANEL, foc ? COLOR_ALPHA(THEME_TEXT, 0x2A) : COLOR_ALPHA(THEME_TEXT, 0x0E));
+        if (foc) gfx_rrect_ring(x, ry, w, h, R_PANEL, 3, g_theme.focus_style == FOCUS_FRAME ? THEME_ACCENT : THEME_TEXT);
         char line1[200], line2[600], sub[300], rest[300];
         first_line(sm->name, line1, sizeof line1);
         rest_lines(sm->name, sub, sizeof sub);
@@ -497,7 +497,7 @@ static void draw(Screen *s)
         float ax = x + 24, ay = ry + 18;
         float aw = font_measure(sm->addon_name, FONT_XS | FONT_B) + 24;
         if (aw > 220) aw = 220;
-        gfx_rrect_grad_h(ax, ay, aw, 32, 16, COLOR_ALPHA(THEME_ACCENT, 0x60), COLOR_ALPHA(THEME_ACCENT2, 0x60));
+        gfx_rrect_grad_h(ax, ay, aw, 32, theme_pill_r(32), COLOR_ALPHA(THEME_ACCENT, 0x60), COLOR_ALPHA(THEME_ACCENT2, 0x60));
         font_draw_fit(sm->addon_name, ax + 12, ay + (32 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT, aw - 24);
         if (sub[0]) font_draw_fit(sub, ax + aw + 12, ay + 4, FONT_XS | FONT_B, THEME_TEXT_DIM, 160);
         float bx = draw_badges(sm, x + w - 24, ry + 18);

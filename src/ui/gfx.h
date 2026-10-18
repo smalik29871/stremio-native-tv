@@ -56,6 +56,10 @@ void gfx_play_triangle(float x, float y, float w, float h, Color c);
 /* textured with rounded corners; blur > 0 samples lower mips (needs a mipmapped texture) */
 void gfx_rtex_uv(unsigned tex, float x, float y, float w, float h, float r,
                  float u0, float v0, float u1, float v1, Color tint, float blur);
+/* Two-tone print of a texture: dark -> `ink` by luminance (alpha of ink fades it);
+ * colour 0..1 blends back to the real colours (focus). */
+void gfx_rtex_duo(unsigned tex, float x, float y, float w, float h, float r,
+                  float u0, float v0, float u1, float v1, Color ink, float colour);
 void gfx_tex_blur(unsigned tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color tint, float blur);
 
 /* Everything drawn afterwards is shifted by (dx, dy) UI units (screen transitions). */

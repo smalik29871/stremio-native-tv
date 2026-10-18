@@ -407,14 +407,7 @@ static void draw_hero(Home *h, const MetaPreview *p)
         gfx_tex(ltex, x, y + (170 - hh), w, hh, RGBA(255, 255, 255, a));
         y += 190;
     } else {
-        int fs = font_measure(p->name, FONT_TITLE | FONT_B) > maxw ? (FONT_XL | FONT_B) : (FONT_TITLE | FONT_B);
-        int lines = font_draw_wrapped(p->name, 0, 0, fs, 0, maxw, 2);
-        float th = lines * font_height(fs);
-        float ty = y + 170 - th;
-        Color sh = RGBA(0, 0, 0, a / 2);
-        for (int i = 0; i < lines; i++) (void)i;
-        font_draw_wrapped(p->name, x + 3, ty + 3, fs, sh, maxw, 2);
-        font_draw_wrapped(p->name, x, ty, fs, COLOR_ALPHA(THEME_TEXT, a), maxw, 2);
+        ui_hero_title(p->name, x, y + 170, maxw, COLOR_ALPHA(THEME_TEXT, a));
         y += 190;
     }
     /* meta line */
@@ -424,14 +417,10 @@ static void draw_hero(Home *h, const MetaPreview *p)
     if (p->release_info) parts[np++] = p->release_info;
     if (p->runtime) parts[np++] = p->runtime;
     if (p->type) parts[np++] = strcmp(p->type, "series") == 0 ? "Series" : strcmp(p->type, "movie") == 0 ? "Movie" : p->type;
-    for (int i = 0; i < np; i++) {
-        if (mx > x) mx = ui_dot_sep(mx, y, COLOR_ALPHA(THEME_TEXT_MUTED, a));
-        font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
-        mx += font_measure(parts[i], FONT_S | FONT_B);
-    }
+    if (np) ui_meta_line(parts, np, mx > x ? mx + 8 : mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, COLOR_ALPHA(THEME_TEXT_DIM, a));
     y += 54;
     float gx = x;
-    for (int g = 0; g < p->genres.n && g < 4; g++) gx += ui_chip_outline(p->genres.v[g], gx, y, RGBA(0xFF, 0xFF, 0xFF, (int)(0x50 * k)), COLOR_ALPHA(THEME_TEXT_DIM, a)) + 10;
+    for (int g = 0; g < p->genres.n && g < 4; g++) gx += ui_chip_outline(p->genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, (int)(0x50 * k)), COLOR_ALPHA(THEME_TEXT_DIM, a)) + 10;
     if (p->genres.n) y += 54;
     if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4);
 }
@@ -450,7 +439,7 @@ static void draw_showcase_controls(const Home *h)
     for (int i = 0; i < n; i++) {
         int on = i == h->feat % n;
         float w = on ? cur_w : dw;
-        gfx_rrect(x, cy - 5, w, 10, 5, on ? THEME_TEXT : RGBA(0xFF, 0xFF, 0xFF, 0x60));
+        gfx_rrect(x, cy - 5, w, 10, theme_pill_r(10), on ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x60));
         x += w + gap;
     }
     ui_icon(ICON_CHEVRON_RIGHT, x + 14, cy, 16, foc ? THEME_TEXT : THEME_TEXT_MUTED);
@@ -461,12 +450,10 @@ static void draw_row(Home *h, int ri, float y)
 {
     Row *r = h->rows[ri];
     int focused_row = h->focus_row == ri;
-    float rowk = focused_row ? 1.0f : 0.55f;
-    font_draw(r->title, LX, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * rowk)));
-    if (r->kind == ROW_CATALOG && r->addon < g_app.n_addons && focused_row) {
-        float tw = font_measure(r->title, FONT_M | FONT_B);
-        font_draw(g_app.addons[r->addon].manifest.name, LX + tw + 18, y + 6, FONT_S, THEME_TEXT_MUTED);
-    }
+    int index = 0;
+    for (int i = 0; i < ri; i++) if (row_visible(h->rows[i])) index++;
+    const char *source = r->kind == ROW_CATALOG && r->addon < g_app.n_addons ? g_app.addons[r->addon].manifest.name : NULL;
+    ui_row_header(index, r->title, source, r->n, LX, y, SNTV_UI_W - THEME_MARGIN, focused_row ? 1.0f : 0.0f);
     float cy = y + TITLE_H, cw = card_w(r), ch = card_h(r);
     if (!r->n) {
         if (r->loading || !r->requested) for (int j = 0; j < 8; j++) ui_skeleton(LX + j * (cw + GAP), cy, cw, ch, R_CARD);

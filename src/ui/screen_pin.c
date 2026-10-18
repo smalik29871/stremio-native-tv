@@ -53,11 +53,11 @@ static void draw(Screen *s)
 {
     Pin *p = s->st;
     ui_background(0);
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, 0xB0));
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xB0));
     float w = 760, h = 720, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
     gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
-    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x1C));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
     ui_icon(ICON_LOCK, x + w / 2, y + 70, 44, THEME_ACCENT2);
     font_draw_center(p->title, x + w / 2, y + 112, FONT_L | FONT_B, THEME_TEXT);
     font_draw_center(p->subtitle, x + w / 2, y + 168, FONT_S, p->shake > 0 ? THEME_DANGER : THEME_TEXT_DIM);
@@ -65,7 +65,7 @@ static void draw(Screen *s)
     float dx = x + w / 2 - 3 * 36 + (p->shake > 0 ? (float)((int)(p->shake * 40) % 2 ? 8 : -8) : 0);
     for (int i = 0; i < 4; i++) {
         int on = (int)strlen(p->entry) > i;
-        if (on) gfx_circle(dx + i * 72 + 36, y + 240, 14, THEME_TEXT); else gfx_rrect_ring(dx + i * 72 + 22, y + 226, 28, 28, 14, 2, THEME_TEXT_MUTED);
+        if (on) gfx_circle(dx + i * 72 + 36, y + 240, 14, THEME_TEXT); else gfx_rrect_ring(dx + i * 72 + 22, y + 226, 28, 28, R_PANEL, 2, THEME_TEXT_MUTED);
     }
     float kx = x + w / 2 - (3 * 120 - 14) / 2, ky = y + 300;
     for (int r = 0; r < 4; r++)
@@ -74,9 +74,9 @@ static void draw(Screen *s)
             int foc = p->row == r && p->col == c;
             const char *k = KEYS[r][c];
             int special = k[0] == '<' || k[0] == 'O';
-            if (foc && !g_app.fx_light) gfx_shadow(bx, by + 4, 106, 78, 22, 18, RGBA(0, 0, 0, 0x70));
-            gfx_rrect(bx, by, 106, 78, 22, foc ? THEME_TEXT : special ? RGBA(0xFF, 0xFF, 0xFF, 0x0C) : RGBA(0xFF, 0xFF, 0xFF, 0x16));
-            Color fg = foc ? THEME_ON_LIGHT : THEME_TEXT;
+            if (foc && !g_app.fx_light) gfx_shadow(bx, by + 4, 106, 78, R_PANEL, 18, RGBA(0, 0, 0, 0x70));
+            gfx_rrect(bx, by, 106, 78, R_PANEL, foc ? THEME_FOCUS : special ? COLOR_ALPHA(THEME_TEXT, 0x0C) : COLOR_ALPHA(THEME_TEXT, 0x16));
+            Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
             if (k[0] == '<') ui_icon(ICON_BACK, bx + 53, by + 39, 26, fg);
             else font_draw_center(k, bx + 53, by + (78 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, fg);
         }
