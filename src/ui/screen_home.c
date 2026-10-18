@@ -56,6 +56,7 @@ typedef struct {
     int landed;               /* first focus went to the content */
     int feat;                 /* Showcase: which of the featured row's titles is up */
     float feat_timer;
+    Peek peek;                /* details beside the focused poster */
 } Home;
 
 static void move_focus(Home *h, int row, int col);
@@ -355,6 +356,14 @@ static void update(Screen *s, float dt)
     float y = 0;
     for (int i = 0; i < h->n_rows && i < h->focus_row; i++) if (row_visible(h->rows[i])) y += row_h(h->rows[i]);
     h->scroll_y = ui_ease(h->scroll_y, h->focus_row < 0 ? 0 : y, NULL, dt, 14);
+    {
+        const MetaPreview *pm = NULL;
+        if (h->focus_row >= 0 && h->focus_row < h->n_rows) {
+            const Row *r = h->rows[h->focus_row];
+            if (r->kind != ROW_CONTINUE && r->focus < r->n) pm = &r->metas[r->focus];
+        }
+        ui_peek_step(&h->peek, pm, dt);
+    }
     for (int i = 0; i < h->n_rows; i++) {
         Row *r = h->rows[i];
         int vis = visible_cards(r);
@@ -470,6 +479,8 @@ static void draw_row(Home *h, int ri, float y)
     int first = (int)(r->scroll_x / (cw + GAP)) - 1;
     if (first < 0) first = 0;
     char buf[512];
+    float px_peek = 0, f_peek = 0;
+    const MetaPreview *m_peek = NULL;
     /* draw unfocused first so the focused card's shadow and ring sit on top */
     for (int pass = 0; pass < 2; pass++)
         for (int j = first; j < r->n && j < first + visible_cards(r) + 3; j++) {
@@ -502,12 +513,17 @@ static void draw_row(Home *h, int ri, float y)
             } else {
                 ui_card(app_art_poster(m, buf, sizeof buf), px, cy, cw, ch, f, dim, m->name, 0);
             }
-            if (is_focus && r->kind != ROW_CONTINUE) {
+            if (is_focus && r->kind != ROW_CONTINUE) { m_peek = m; px_peek = px; f_peek = f; }
+            if (is_focus && r->kind != ROW_CONTINUE && h->peek.t < 0.05f) {
                 float sc = ui_focus_scale(f);
                 font_draw_fit(m->name, px - (cw * sc - cw) / 2, cy + ch * sc - (ch * sc - ch) / 2 + 14, FONT_XS | FONT_B,
                               COLOR_ALPHA(THEME_TEXT, (int)(255 * f)), cw * sc);
             }
         }
+    if (m_peek) {   /* over the neighbours, after both passes */
+        float sc = ui_focus_scale(f_peek), w2 = cw * sc, h2 = ch * sc;
+        ui_peek_draw(&h->peek, m_peek, px_peek - (w2 - cw) / 2, cy - (h2 - ch) / 2 - ui_focus_lift(f_peek), w2, h2, LX, SNTV_UI_W - 40);
+    }
 }
 
 static void draw(Screen *s)

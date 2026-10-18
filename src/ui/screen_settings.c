@@ -41,7 +41,7 @@ static const char *const CAT_DESC[CAT_COUNT] = {
 static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LINK, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
-       IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_AMBIENT, IT_BLUR,
+       IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
@@ -80,7 +80,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG: ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL; ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; break;
     case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT; break;
-    case CAT_INTERFACE: ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_HOME_STYLE; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
+    case CAT_INTERFACE: ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
     case CAT_KEYS: ids[n++] = IT_TMDB; ids[n++] = IT_AI_PROVIDER;
         if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
         break;
@@ -331,6 +331,7 @@ static void draw(Screen *s)
         case IT_BR_WHERE: draw_row(y, ICON_HOME, "Breaks apply", g_app.breaks_everywhere ? "Everywhere in the app" : "Only while a video plays", foc, KIND_CHOICE, 0); break;
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_THEME: draw_row(y, ICON_STAR, "Theme", THEME_NAMES[g_app.theme], foc, KIND_CHOICE, 0); break;
+        case IT_CARD_DETAILS: draw_row(y, ICON_INFO, "Show details when a card stays focused", NULL, foc, KIND_TOGGLE, g_app.card_details); break;
         case IT_ACCENT: {
             draw_row(y, ICON_STAR, "Accent colour", THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], foc, KIND_CHOICE, 0);
             /* the six swatches, the current one framed */
@@ -553,6 +554,7 @@ static int adjust(Settings *st, int id, int dir)
         theme_apply(g_app.theme, g_app.theme_accent);
         theme_load_fonts(g_app.theme);
         break;
+    case IT_CARD_DETAILS: g_app.card_details = !g_app.card_details; break;
     case IT_ACCENT:
         g_app.theme_accent = (g_app.theme_accent + dir + THEME_ACCENTS) % THEME_ACCENTS;
         theme_apply(g_app.theme, g_app.theme_accent);

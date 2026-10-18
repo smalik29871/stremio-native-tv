@@ -32,6 +32,7 @@ struct Explore {
     int zone, focus;          /* grid focus index */
     int cat_focus, genre_focus;
     float focus_t, scroll, genre_scroll, cat_scroll;
+    Peek peek;                /* details beside the focused poster */
     int rail_focus;           /* -1: content has the focus */
     int addons_seen;
     char url[1024];
@@ -194,6 +195,7 @@ static void update(Screen *s, float dt)
     Explore *e = s->st;
     if (e->addons_seen != g_app.addons_version) { build_types(e); build_cats(e); reset_items(e); }
     if (!e->requested && e->n_cats) fetch(e, 0);
+    ui_peek_step(&e->peek, e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n ? &e->items[e->focus] : NULL, dt);
     /* more when the focus nears the end */
     if (e->zone == Z_GRID && !e->done && !e->loading && e->n && e->focus >= e->n - COLS * 2 && !(g_app.low_memory && e->n >= 140)) fetch(e, 1);
     float row = e->zone == Z_GRID ? (float)(e->focus / COLS) : 0;
@@ -274,7 +276,7 @@ static void draw(Screen *s)
     } else if (!e->n) {
         font_draw(e->failed ? "This list could not be loaded. It will retry when you come back." : "Nothing in this list.", gx, gy + 40, FONT_S, THEME_TEXT_DIM);
     }
-    float row_h = CELL_H + 80;
+    float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < e->n; i++) {
             int r = i / COLS, c = i % COLS;
@@ -283,10 +285,15 @@ static void draw(Screen *s)
             int foc = e->zone == Z_GRID && e->rail_focus < 0 && e->focus == i;
             if ((pass == 1) != foc) continue;
             char pb[512];
+            if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&e->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : e->focus_t) : 0, e->zone == Z_GRID && !foc ? 0.25f : 0, e->items[i].name, 0);
             font_draw_fit(e->items[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (e->items[i].release_info) font_draw(e->items[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
+    if (e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
+        float f = g_app.fx_light ? 1 : e->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
+        ui_peek_draw(&e->peek, &e->items[e->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
+    }
     gfx_clip_pop();
     if (e->loading && e->n) ui_spinner(SNTV_UI_W - THEME_MARGIN - 30, GRID_Y - 40, 14);
     char cnt[48];

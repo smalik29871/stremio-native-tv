@@ -94,6 +94,11 @@ run home_showcase 200 "" HOME="$(home_with showcase '{"prefSubs":"eng","subsAlwa
 run home_showcase_rows 240 "down,right" HOME="$(home_with showcase2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":1}')"
 run rail_open 150 "left"
 run explore 320 "left,down,ok,right,down,down,down"
+# details beside a card that stays focused: on Home, in a grid, opening left at the last column, off in Settings
+run home_peek 200 "right,right"
+run home_peek_marquee 200 "right,right" HOME="$(home_with peek_marquee '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":1}')"
+run explore_peek_edge 800 "left,down,ok,right,down,down,down,right,right,right,right,right,right"
+run home_peek_off 200 "right,right" HOME="$(home_with peek_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"cardDetails":0}')"
 run explore_cats 300 "left,down,ok,right,down,right"
 run library 260 "left,down,down,down,ok"
 run calendar 300 "left,down,down,down,down,ok"

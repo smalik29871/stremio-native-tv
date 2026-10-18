@@ -67,6 +67,7 @@ typedef struct App {
     int clock_mode;            /* player clock: 0 12-hour, 1 24-hour, 2 off */
     int oled;                  /* pure black background */
     int theme, theme_accent;   /* THEME_* and its accent index (ui/theme.h) */
+    int card_details;          /* a focused card opens a details panel after a moment */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */
     int quality_mode;          /* QUAL_*: how sources are ranked */
     int res_cap;               /* 2160, 1080 or 720 */
@@ -203,7 +204,11 @@ void app_redraw(void);                  /* request a frame even when idle */
 void app_library_flush(int force);
 /* Raw meta JSON for a title, shared by Home (synopsis) and Detail; get returns a copy or NULL. */
 void  app_meta_put(const char *type, const char *id, const char *body, size_t len);
-char *app_meta_get(const char *type, const char *id);      /* write the library cache if it changed (deferred while playing) */
+char *app_meta_get(const char *type, const char *id);
+/* Full details for a card: _want (from update) loads them from the caches or the first
+ * meta addon; _cached (safe in draw) returns them once parsed, else NULL. */
+void app_details_want(const char *type, const char *id);
+const MetaPreview *app_details_cached(const char *type, const char *id);      /* write the library cache if it changed (deferred while playing) */
 
 /* --- screens --- */
 Screen *screen_home_create(void);

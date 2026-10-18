@@ -65,6 +65,16 @@ void ui_brand(float x, float y, float size);
 #define CARD_TRUE_COLOUR 4   /* never printed in two tones (episode stills, people) */
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim,
              const char *fallback_title, int card_flags);
+/* Details on a focused card: after the card has been focused for PEEK_DWELL seconds a
+ * panel slides open beside it. Step from update() (it asks for the full details then),
+ * draw from draw() (reads caches only). t is how far the panel is open, 0..1. */
+#define PEEK_DWELL 0.6f
+typedef struct Peek { char id[128]; float since, t; int asked; } Peek;
+struct MetaPreview;
+void  ui_peek_step(Peek *p, const struct MetaPreview *m, float dt);
+/* The card's rectangle as drawn (focus scale included); the panel opens right of it,
+ * or left when it would cross max_x. */
+void  ui_peek_draw(const Peek *p, const struct MetaPreview *m, float cx, float cy, float cw, float ch, float min_x, float max_x);
 float ui_focus_scale(float focus);
 float ui_focus_lift(float focus);   /* upward shift of a focused card, canvas units */
 

@@ -27,6 +27,7 @@ typedef struct {
     const LibraryItem **src;      /* parallel to items */
     int zone, focus, pill_focus;  /* pill_focus: 0..F_COUNT-1 filters, F_COUNT = sort */
     float focus_t, scroll;
+    Peek peek;                /* details beside the focused poster */
     int rail_focus;
     int seen_version, built_filter, built_sort;
 } Library;
@@ -77,6 +78,7 @@ static void update(Screen *s, float dt)
     float target = l->zone == Z_GRID ? (float)(l->focus / COLS) * (CELL_H + 80) : 0;
     l->scroll = ui_ease(l->scroll, target, NULL, dt, 14);
     l->focus_t = ui_ease(l->focus_t * 100, 100, NULL, dt, 16) / 100;
+    ui_peek_step(&l->peek, l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n ? &l->items[l->focus] : NULL, dt);
     char buf[512];
     for (int i = l->focus - COLS; i < l->focus + COLS * 3 && i < l->n; i++) if (i >= 0) image_prefetch(app_art_poster(&l->items[i], buf, sizeof buf));
 }
@@ -114,6 +116,7 @@ static void draw(Screen *s)
         font_draw_center(d, SNTV_UI_W / 2, cy + 70, FONT_S, THEME_TEXT_DIM);
     }
     gfx_clip_push(gx - 30, gy - 20, SNTV_UI_W - gx, SNTV_UI_H - gy + 20);
+    float peek_x = 0, peek_y = 0;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < l->n; i++) {
             int r = i / COLS, c = i % COLS;
@@ -123,6 +126,7 @@ static void draw(Screen *s)
             if ((pass == 1) != foc) continue;
             char pb[512];
             float f = foc ? (g_app.fx_light ? 1 : l->focus_t) : 0;
+            if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&l->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, f, l->zone == Z_GRID && !foc ? 0.25f : 0, l->items[i].name, 0);
             const LibraryItem *li = l->src[i];
             if (li->duration && li->time_offset) {
@@ -135,6 +139,10 @@ static void draw(Screen *s)
                 if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) { snprintf(sub, sizeof sub, "S%d E%d", se, ep); font_draw(sub, px, py + CELL_H + 50, FONT_XS, THEME_TEXT_MUTED); }
             }
         }
+    if (l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
+        float f = g_app.fx_light ? 1 : l->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
+        ui_peek_draw(&l->peek, &l->items[l->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
+    }
     gfx_clip_pop();
     rail_draw(RAIL_LIBRARY, l->rail_focus);
 }

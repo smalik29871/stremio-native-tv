@@ -29,6 +29,7 @@ struct Search {
     int dirty;
     unsigned generation;      /* increments per query; stale replies are dropped */
     float focus_t, grid_scroll;
+    Peek peek;                /* details beside the focused result */
     int pending;
     char last_query[256];
     unsigned ai_req; int ai_state;   /* 0 off, 1 asking, 2 answered, 3 failed */
@@ -213,6 +214,7 @@ static void update(Screen *sc, float dt)
     float target = (row > 1 ? row - 1 : 0) * (float)(CELL_H + 80);
     s->grid_scroll = ui_ease(s->grid_scroll, target, NULL, dt, 14);
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
+    ui_peek_step(&s->peek, s->focus_grid == 1 && s->grid_focus < s->n ? &s->results[s->grid_focus] : NULL, dt);
     if (s->dirty) { s->debounce -= dt; if (s->debounce <= 0) { s->dirty = 0; run_query(s); } }
     if (s->pending || s->dirty || s->ai_state == 1) app_redraw();
 }
@@ -270,7 +272,7 @@ static void draw(Screen *sc)
         if (s->pending || s->ai_state == 1) ui_spinner(gx + font_measure(hdr, FONT_S | FONT_B) + 40, gy + 18, 14);
     }
     gfx_clip_push(gx - 30, gy + 40, grid_w + 60, SNTV_UI_H - gy - 40);
-    float row_h = CELL_H + 80;
+    float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < s->n; i++) {
             int r = i / COLS, c = i % COLS;
@@ -279,12 +281,17 @@ static void draw(Screen *sc)
             int foc = s->focus_grid && s->grid_focus == i;
             if ((pass == 1) != foc) continue;
             char pb[512];
+            if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
                     s->focus_grid && !foc ? 0.3f : 0, s->results[i].name, 0);
             if (i < s->n_picks) { gfx_circle(px + CELL_W - 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_STAR, px + CELL_W - 22, py + 22, 18, THEME_ACCENT2); }
             font_draw_fit(s->results[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (s->results[i].release_info) font_draw(s->results[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
+    if (s->focus_grid == 1 && s->grid_focus < s->n) {
+        float f = g_app.fx_light ? 1 : s->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
+        ui_peek_draw(&s->peek, &s->results[s->grid_focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx - 30, gx + grid_w + 30);
+    }
     gfx_clip_pop();
 }
 

@@ -1024,6 +1024,80 @@ char *app_meta_get(const char *type, const char *id)
     return app_cache_get(key, 3600);
 }
 
+/* ---- details for a focused card ---------------------------------------------
+ * The card's catalog entry often lacks the synopsis, runtime or genres. A screen
+ * asks for them from update() once a card has been focused for a moment; drawing
+ * only reads what is already parsed here. */
+
+#define DETAILS_CACHE 24
+static struct { char key[200]; MetaPreview p; int have; } g_details[DETAILS_CACHE];
+static int g_details_next;
+static char g_details_pending[200];
+
+static void details_store(const char *key, const MetaPreview *p)
+{
+    int slot = -1;
+    for (int i = 0; i < DETAILS_CACHE; i++) if (g_details[i].have && strcmp(g_details[i].key, key) == 0) slot = i;
+    if (slot < 0) { slot = g_details_next; g_details_next = (g_details_next + 1) % DETAILS_CACHE; }
+    if (g_details[slot].have) meta_preview_free(&g_details[slot].p);
+    snprintf(g_details[slot].key, sizeof g_details[slot].key, "%s", key);
+    meta_preview_copy(&g_details[slot].p, p);
+    g_details[slot].have = 1;
+}
+
+static int details_parse(const char *key, const char *body)
+{
+    MetaItem item;
+    if (!body || addon_parse_meta(body, &item) != 0) return 0;
+    details_store(key, &item.p);
+    meta_item_free(&item);
+    return 1;
+}
+
+static void on_details(HttpResponse *r, void *user)
+{
+    char *key = user;
+    if (strcmp(g_details_pending, key) == 0) g_details_pending[0] = 0;
+    if (r->status == 200 && r->len && details_parse(key, r->body)) {
+        const char *type = key + 5, *colon = strchr(type, ':');   /* "meta:<type>:<id>" */
+        if (colon) {
+            char t[40];
+            snprintf(t, sizeof t, "%.*s", (int)(colon - type), type);
+            app_meta_put(t, colon + 1, r->body, r->len);
+        }
+        app_redraw();
+    }
+    free(key);
+}
+
+const MetaPreview *app_details_cached(const char *type, const char *id)
+{
+    char key[200];
+    meta_key(type, id, key, sizeof key);
+    for (int i = 0; i < DETAILS_CACHE; i++) if (g_details[i].have && strcmp(g_details[i].key, key) == 0) return &g_details[i].p;
+    return NULL;
+}
+
+void app_details_want(const char *type, const char *id)
+{
+    if (!type || !id || app_details_cached(type, id)) return;
+    char key[200];
+    meta_key(type, id, key, sizeof key);
+    if (strcmp(g_details_pending, key) == 0) return;
+    char *body = app_meta_get(type, id);   /* Home or Detail may have fetched it already */
+    int ok = details_parse(key, body);
+    free(body);
+    if (ok) { app_redraw(); return; }
+    for (int i = 0; i < g_app.n_addons; i++) {
+        if (!addon_supports(&g_app.addons[i], "meta", type, id)) continue;
+        char url[1024];
+        addon_url_meta(&g_app.addons[i], type, id, url, sizeof url);
+        snprintf(g_details_pending, sizeof g_details_pending, "%s", key);
+        http_request_async(url, NULL, on_details, strdup(key));
+        return;
+    }
+}
+
 /* ---- preferences & perf ----------------------------------------------------- */
 
 /* ---- TV profile ------------------------------------------------------------- */
@@ -1083,6 +1157,7 @@ static void load_prefs(void)
     g_app.theme_accent = store_get_int("themeAccent", 0);
     if (g_app.theme_accent < 0 || g_app.theme_accent >= THEME_ACCENTS) g_app.theme_accent = 0;
     theme_apply(g_app.theme, g_app.theme_accent);
+    g_app.card_details = store_get_int("cardDetails", 1);
     g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
     g_app.quality_mode = store_get_int("qualityMode", QUAL_ADDON_ORDER);
     if (g_app.quality_mode < 0 || g_app.quality_mode >= QUAL_MODE_COUNT) g_app.quality_mode = QUAL_ADDON_ORDER;
@@ -1149,6 +1224,7 @@ void app_save_prefs(void)
     store_set_int("oled", g_app.oled);
     store_set_int("theme", g_app.theme);
     store_set_int("themeAccent", g_app.theme_accent);
+    store_set_int("cardDetails", g_app.card_details);
     store_set_int("ambientMinutes", g_app.ambient_minutes);
     store_set_int("qualityMode", g_app.quality_mode);
     store_set_int("resCap", g_app.res_cap);

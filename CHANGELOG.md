@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.3
+
+- **Details on a card that stays focused.** Rest on a poster for a moment (on Home,
+  in Explore, Library and Search) and a panel slides open beside it: the title, IMDb
+  rating, year, runtime and type, genres, the synopsis, and whether it is in your
+  Library, watched or part-way through (with its progress). It opens to the left near
+  the right edge, follows the theme (Signal's accent edge, Marquee's amber rule,
+  Duotone's soft card), and fetches the full details only once you have paused, from
+  the same cache Home and the title page use. Settings > Interface > *Show details
+  when a card stays focused* turns it off.
+
 ## 0.7.2
 
 - **Opening a title from Search works again on the TV.** Search kept the TV's text

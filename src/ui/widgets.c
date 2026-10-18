@@ -434,6 +434,103 @@ void ui_row_header(int index, const char *title, const char *source, int count, 
     }
 }
 
+/* ---- details on a focused card ---- */
+
+void ui_peek_step(Peek *p, const MetaPreview *m, float dt)
+{
+    if (!g_app.card_details || !m || !m->id) { p->id[0] = 0; p->t = 0; return; }
+    if (strcmp(p->id, m->id) != 0) {
+        snprintf(p->id, sizeof p->id, "%s", m->id);
+        p->since = g_app.time;
+        p->t = 0;
+        p->asked = 0;
+    }
+    if (g_app.time - p->since < PEEK_DWELL) { app_redraw(); return; }   /* a frame lands at the dwell */
+    if (!p->asked) { app_details_want(m->type, m->id); p->asked = 1; }
+    if (p->t >= 1) return;
+    p->t = g_app.fx_light ? 1 : p->t + (1 - p->t) * (dt * 9 > 1 ? 1 : dt * 9);
+    if (p->t > 0.995f) p->t = 1;
+    app_redraw();
+}
+
+void ui_peek_draw(const Peek *p, const MetaPreview *m, float cx, float cy, float cw, float ch, float min_x, float max_x)
+{
+    if (p->t <= 0.01f || !m || strcmp(p->id, m->id ? m->id : "") != 0) return;
+    const MetaPreview *d = app_details_cached(m->type, m->id);
+    #define PICK(f) (d && d->f && *d->f ? d->f : m->f)
+    const char *name = PICK(name), *year = PICK(release_info), *runtime = PICK(runtime), *rating = PICK(imdb_rating), *desc = PICK(description);
+    #undef PICK
+    const MetaPreview *g = d && d->genres.n ? d : m;
+
+    float e = 1 - (1 - p->t) * (1 - p->t) * (1 - p->t);
+    float pw = ch * 1.7f, gap = g_theme.focus_style == FOCUS_FRAME ? 18 : 12;
+    if (pw < 440) pw = 440;
+    if (pw > 620) pw = 620;
+    int right = cx + cw + gap + pw <= max_x || cx - gap - pw < min_x;
+    float w = pw * e, x = right ? cx + cw + gap : cx - gap - w, y = cy, h = ch;
+
+    /* the panel, then its edge in the theme's language */
+    if (g_theme.focus_style == FOCUS_BLOOM && !g_app.fx_light) gfx_shadow(x, y + 8, w, h, R_PANEL, 24, RGBA(0, 0, 0, (int)(0x90 * e)));
+    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, (int)(0xFF * e)));
+    if (g_theme.focus_style == FOCUS_FRAME) gfx_rect(right ? x : x + w - 4, y, 4, h, COLOR_ALPHA(THEME_ACCENT, (int)(255 * e)));
+    else if (g_theme.focus_style == FOCUS_LIGHTBAR) gfx_rect(x + R_PANEL, y, w - 2 * R_PANEL > 0 ? w - 2 * R_PANEL : 0, 3, COLOR_ALPHA(THEME_ACCENT, (int)(255 * e)));
+    else gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_LINE, (int)(255 * e)));
+
+    /* text slides in with the panel and is cut at its edge */
+    int a = (int)(255 * (e < 0.4f ? 0 : (e - 0.4f) / 0.6f));
+    if (a <= 0) return;
+    float pad = 28, tx = (right ? x : x + w - pw) + pad, tw = pw - 2 * pad, ty = y + 26;
+    gfx_clip_push(x, y, w, h);
+    ui_title(name, tx, ty, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), tw);
+    ty += font_height(FONT_M | FONT_B) + 10;
+
+    float mx = tx;
+    if (rating && *rating) mx += ui_imdb(rating, mx, ty) + 14;
+    const char *type = m->type ? (strcmp(m->type, "series") == 0 ? "Series" : strcmp(m->type, "movie") == 0 ? "Movie" : m->type) : NULL;
+    const char *parts[3] = { year, runtime, type };
+    ui_meta_line(parts, 3, mx, ty + (36 - font_height(FONT_S | FONT_B)) / 2, COLOR_ALPHA(THEME_TEXT_DIM, a));
+    ty += 50;
+
+    if (g->genres.n) {
+        char gl[200] = "";
+        for (int i = 0; i < g->genres.n && i < 3; i++) {
+            if (i) strncat(gl, "  \xC2\xB7  ", sizeof gl - strlen(gl) - 1);
+            strncat(gl, g->genres.v[i], sizeof gl - strlen(gl) - 1);
+        }
+        if (g_theme.upper_titles) { char up[200]; ui_upper(gl, up, sizeof up); snprintf(gl, sizeof gl, "%s", up); }
+        font_draw_fit(gl, tx, ty, FONT_XS | FONT_B, COLOR_ALPHA(THEME_ACCENT, a), tw);
+        ty += 38;
+    }
+
+    /* the library line sits at the bottom; the synopsis fills what is left */
+    const LibraryItem *li = app_library_find(m->id);
+    float foot = y + h - 22 - font_height(FONT_XS | FONT_B);
+    if (desc && *desc) {
+        float lh = font_height(FONT_S);
+        int lines = (int)((foot - 16 - ty) / lh);
+        if (lines > 0) font_draw_wrapped(desc, tx, ty, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), tw, lines);
+    } else if (!d && p->asked) {
+        ui_skeleton(tx, ty + 6, tw, 18, 4);
+        ui_skeleton(tx, ty + 40, tw * 0.7f, 18, 4);
+    }
+    const char *state = NULL;
+    float frac = -1;
+    if (li && li->duration && li->time_offset > 0 && !li->flagged_watched) frac = (float)li->time_offset / (float)li->duration;
+    if (li && li->flagged_watched) state = "Watched";
+    else if (frac >= 0) state = "Continue watching";
+    else if (li && !li->removed) state = "In your Library";
+    if (state) {
+        font_draw(state, tx, foot, FONT_XS | FONT_B, COLOR_ALPHA(li->flagged_watched ? THEME_OK : THEME_TEXT, a));
+        if (frac >= 0) {
+            float sx = tx + font_measure(state, FONT_XS | FONT_B) + 16;
+            ui_progress(sx, foot + font_height(FONT_XS | FONT_B) / 2 - 3, tx + tw - sx - 110 > 40 ? tx + tw - sx - 110 : 40, 6, frac, THEME_ACCENT);
+        }
+    }
+    const char *hint = "OK  open";
+    font_draw(hint, tx + tw - font_measure(hint, FONT_XS), foot, FONT_XS, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+    gfx_clip_pop();
+}
+
 /* ---- pills, chips, toggles ---- */
 
 float ui_pill_width(const char *label, int has_icon, float h)
