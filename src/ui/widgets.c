@@ -142,6 +142,12 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         gfx_line(cx + s * 0.18f, cy - s * 0.18f, cx - s * 0.18f, cy + s * 0.18f, t * 1.4f, c);
         gfx_line(cx + s * 0.18f, cy - s * 0.18f, cx + s * 0.02f, cy + s * 0.02f, t * 2.2f, c);
         break;
+    case ICON_LOCK: case ICON_UNLOCK:   /* padlock; open when unlocked */
+        gfx_rrect(cx - s * 0.30f, cy - s * 0.04f, s * 0.60f, s * 0.46f, s * 0.08f, c);
+        if (icon == ICON_LOCK) gfx_rrect_ring(cx - s * 0.19f, cy - s * 0.42f, s * 0.38f, s * 0.46f, s * 0.19f, t, c);
+        else gfx_rrect_ring(cx - s * 0.02f, cy - s * 0.46f, s * 0.38f, s * 0.46f, s * 0.19f, t, c);
+        gfx_circle(cx, cy + s * 0.18f, t * 0.9f, THEME_BG);
+        break;
     case ICON_CALENDAR:
         gfx_rrect_ring(cx - s * 0.38f, cy - s * 0.30f, s * 0.76f, s * 0.70f, s * 0.10f, t, c);
         gfx_line(cx - s * 0.38f, cy - s * 0.08f, cx + s * 0.38f, cy - s * 0.08f, t, c);

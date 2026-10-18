@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.5
+
+Player extras from the best mobile players.
+
+- **Centre controls**: -10 s, play/pause and +10 s sit in the middle of the picture while
+  the controls show; the side one lights up as you seek with Left/Right.
+- **Second subtitles**: the Subtitles menu's first row chooses whether you are picking the
+  main subtitles or a second language; the second file draws above the first, a size
+  smaller. Any addon file can be the second track.
+- **Forced subtitles**: when subtitles would stay off because the audio is already your
+  language, a forced track in that language (signs, foreign lines) from the file header
+  is turned on by itself.
+- **Lock controls** (player bar): the remote is ignored until Back is pressed three times,
+  for curious children and sleeping cats.
+- **Sources menu** groups the links by addon; the **Episodes** panel shows thumbnails.
+
 ## 0.5.4
 
 Settings you can find your way around, and a Home that is yours.

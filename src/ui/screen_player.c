@@ -24,7 +24,7 @@
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
 enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_STYLE, MENU_SOURCES, MENU_EPISODES };
-enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_STATS, BTN_COUNT };
+enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_LOCK, BTN_STATS, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
 static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen", "Zoom" };
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
@@ -33,7 +33,7 @@ enum { N_RATES = 7, RATE_NORMAL = 2 };
 typedef struct AddonSub { char *url, *lang, *addon; } AddonSub;
 
 typedef struct Player Player;
-typedef struct { Player *owner; unsigned gen; int addon; } SubReq;
+typedef struct { Player *owner; unsigned gen; int addon; int slot; } SubReq;
 
 struct Player {
     MetaPreview meta;
@@ -62,6 +62,12 @@ struct Player {
     unsigned gen;
     SubTrack track; int track_loaded; int active_addon_sub;   /* -1 none */
     unsigned sub_req;
+    SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
+    int assign_second;        /* the subtitles menu picks for the second slot */
+    int forced_checked;       /* looked for a forced track in the audio language */
+    int locked;               /* remote ignored until Back is pressed three times */
+    int unlock_presses; float unlock_last, lock_hint_until;
+    float seek_flash; int seek_flash_dir;   /* the centre ±10 s button lights up */
     int embedded_text_sel;    /* -1 off */
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
@@ -99,6 +105,7 @@ static Player *g_live;
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
+static int pick_forced(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
 
 static void report(Player *p, int force)
@@ -152,7 +159,7 @@ static void query_addon_subs(Player *p)
         char url[1400];
         addon_url_subtitles(&g_app.addons[i], p->meta.type, p->video_id, extra[0] ? extra : NULL, url, sizeof url);
         SubReq *q = malloc(sizeof *q);
-        q->owner = p; q->gen = p->gen; q->addon = i;
+        q->owner = p; q->gen = p->gen; q->addon = i; q->slot = 0;
         p->subs_pending++;
         http_request_async(url, NULL, on_addon_subs, q);
     }
@@ -163,32 +170,40 @@ static void on_sub_file(HttpResponse *r, void *user)
     SubReq *q = user;
     Player *p = q->owner;
     if (p != g_live || q->gen != p->gen) { free(q); return; }
-    p->sub_req = 0;
-    subs_free(&p->track);
-    p->track_loaded = 0;
-    if (r->status == 200 && subs_parse(r->body, r->len, &p->track) > 0) {
-        p->track_loaded = 1;
-        LOGI("subs: loaded %d cues", p->track.n);
+    SubTrack *t = q->slot ? &p->track2 : &p->track;
+    int *loaded = q->slot ? &p->track2_loaded : &p->track_loaded;
+    if (!q->slot) p->sub_req = 0;
+    subs_free(t);
+    *loaded = 0;
+    if (r->status == 200 && subs_parse(r->body, r->len, t) > 0) {
+        *loaded = 1;
+        LOGI("subs: loaded %d cues%s", t->n, q->slot ? " (second subtitles)" : "");
     } else {
         app_toast("Could not load that subtitle file");
-        p->active_addon_sub = -1;
+        if (q->slot) p->active_addon_sub2 = -1; else p->active_addon_sub = -1;
     }
     app_redraw();
     free(q);
 }
 
-static void select_addon_sub(Player *p, int idx)
+static void select_addon_sub_slot(Player *p, int idx, int slot)
 {
-    p->active_addon_sub = idx;
-    p->embedded_text_sel = -1;
-    video_select_track(TRACK_TEXT, -1);   /* avoid double subtitles */
-    subs_free(&p->track);
-    p->track_loaded = 0;
+    if (slot) { p->active_addon_sub2 = idx; subs_free(&p->track2); p->track2_loaded = 0; }
+    else {
+        p->active_addon_sub = idx;
+        p->embedded_text_sel = -1;
+        video_select_track(TRACK_TEXT, -1);   /* avoid double subtitles */
+        subs_free(&p->track);
+        p->track_loaded = 0;
+    }
     if (idx < 0) return;
     SubReq *q = malloc(sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1;
-    p->sub_req = http_request_async(p->addon_subs[idx].url, NULL, on_sub_file, q);
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = slot;
+    unsigned req = http_request_async(p->addon_subs[idx].url, NULL, on_sub_file, q);
+    if (!slot) p->sub_req = req;
 }
+
+static void select_addon_sub(Player *p, int idx) { select_addon_sub_slot(p, idx, 0); }
 
 /* Series remember their own track choices; movies use the global preferences. */
 static const char *memory_key(const Player *p)
@@ -257,22 +272,49 @@ static void auto_select_tracks(Player *p)
         snprintf(p->audio_lang, sizeof p->audio_lang, "%s", audio ? audio : "");
     }
     if (p->subs_auto_done) return;
+    /* nothing chosen: a forced track in the audio language still goes on, once the header is read */
+    #define SUBS_OFF_DONE() do { \
+        if (!p->forced_checked) { if (!p->probe && g_app.time - p->load_started < 12) return; p->forced_checked = 1; pick_forced(p); } \
+        p->subs_auto_done = 1; return; } while (0)
     if (has_mem && mem.has_subs) {
         if (!mem.subs[0] || pick_subs(p, mem.subs, mem.subs_src)) {
             LOGI("player: subtitles %s (remembered for this series)", mem.subs[0] ? mem.subs : "off");
+            if (!mem.subs[0]) SUBS_OFF_DONE();
             p->subs_auto_done = 1;
             return;
         }
     } else {
-        if (!g_app.pref_subs[0]) { p->subs_auto_done = 1; return; }
+        if (!g_app.pref_subs[0]) SUBS_OFF_DONE();
         if (!g_app.subs_always && p->audio_lang_known && lang_same(p->audio_lang, g_app.pref_subs)) {
             LOGI("player: subtitles off, the audio is already %s", p->audio_lang);
-            p->subs_auto_done = 1;
-            return;
+            SUBS_OFF_DONE();
         }
         if (pick_subs(p, g_app.pref_subs, SUBS_SRC_EMBEDDED)) { LOGI("player: subtitles %s (preference)", g_app.pref_subs); p->subs_auto_done = 1; return; }
     }
     if (p->subs_pending == 0 || g_app.time - p->load_started > 15) p->subs_auto_done = 1;
+    #undef SUBS_OFF_DONE
+}
+
+/* A forced subtitle track (signs, foreign lines) in the audio's language, when
+ * the file header lists one: the k-th text track of the pipeline. 1 when picked. */
+static int pick_forced(Player *p)
+{
+    if (!p->probe || !p->audio_lang_known) return 0;
+    VideoTrack tt[MAX_TRACKS];
+    int nt = video_tracks(TRACK_TEXT, tt, MAX_TRACKS), k = 0;
+    for (int i = 0; i < p->probe->n_tracks; i++) {
+        const ProbeTrack *t = &p->probe->tracks[i];
+        if (t->kind != 3) continue;
+        if (t->forced && lang_same(t->lang, p->audio_lang) && k < nt) {
+            p->embedded_text_sel = tt[k].index;
+            video_select_track(TRACK_TEXT, tt[k].index);
+            LOGI("player: forced subtitles on (%s, track %d)", t->lang, k + 1);
+            app_toast("Forced subtitles on");
+            return 1;
+        }
+        k++;
+    }
+    return 0;
 }
 
 /* Remember what the viewer picked in the menu for the rest of the series. */
@@ -334,7 +376,7 @@ static void probe_current(Player *p)
     const char *url = p->cands[p->cur].url;
     if (strncmp(url, "http", 4) != 0) return;
     SubReq *q = malloc(sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1;
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0;
     HttpOptions opt = { 2u << 20, 8, 1 };
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
@@ -655,11 +697,15 @@ static void update(Screen *s, float dt)
 
 static void draw_subtitle(Player *p, const VideoInfo *vi)
 {
-    const char *text = NULL;
-    if (p->track_loaded) text = subs_at(&p->track, vi->position);
-    if (!text) return;
+    const char *text = p->track_loaded ? subs_at(&p->track, vi->position) : NULL;
+    const char *text2 = p->track2_loaded ? subs_at(&p->track2, vi->position) : NULL;
     float bottom = g_app.time < p->overlay_until ? SNTV_UI_H - 250 : SNTV_UI_H - 96;
-    ui_subtitle(text, bottom, g_app.subs_size, g_app.subs_style);
+    if (text) ui_subtitle(text, bottom, g_app.subs_size, g_app.subs_style);
+    if (text2) {   /* the second language sits above the first (or where it would be) */
+        int size = g_app.subs_size == 0 ? FONT_M : g_app.subs_size == 2 ? FONT_XL : FONT_L;
+        float lift = text ? font_height(size | FONT_B) * 1.04f * 2 + 24 : 0;
+        ui_subtitle(text2, bottom - lift, g_app.subs_size > 0 ? g_app.subs_size - 1 : 0, g_app.subs_style);
+    }
 }
 
 static void draw_menu(Player *p)
@@ -681,9 +727,19 @@ static void draw_menu(Player *p)
     const MetaVideo *eps = p->menu == MENU_EPISODES ? app_videos(p->meta.id, &n_eps) : NULL;
     int ep_sections = 0;
     for (int i = 0; i <= p->menu_focus && i < n_eps; i++) if (i == 0 || eps[i].season != eps[i - 1].season) ep_sections++;
+    int src_sections = 0;
+    if (p->menu == MENU_SOURCES) {
+        char last[80] = "";
+        for (int i = 0; i <= p->menu_focus && i < p->n_cands; i++) {
+            const char *lbl = p->cands[i].label ? p->cands[i].label : "", *sep = strstr(lbl, " - ");
+            char ad[80] = ""; if (sep) snprintf(ad, sizeof ad, "%.*s", (int)(sep - lbl) < 79 ? (int)(sep - lbl) : 79, lbl);
+            if (ad[0] && strcmp(ad, last) != 0) { src_sections++; snprintf(last, sizeof last, "%s", ad); }
+        }
+    }
     int sections_before = p->menu == MENU_AUDIO ? 1 + ((n && p->menu_focus >= 1) ? 1 : 0)
+                        : p->menu == MENU_SOURCES ? src_sections
                         : p->menu == MENU_EPISODES ? ep_sections
-                        : p->menu == MENU_SUBS ? ((p->menu_focus >= 1 && n) ? 1 : 0) + ((p->menu_focus >= 1 + n && (ng || p->subs_pending)) ? 1 : 0)
+                        : p->menu == MENU_SUBS ? ((p->menu_focus >= 2 && n) ? 1 : 0) + ((p->menu_focus >= 2 + n && (ng || p->subs_pending)) ? 1 : 0)
                         : p->menu == MENU_STYLE ? 1 + (p->menu_focus >= SUBS_STYLE_COUNT ? 1 : 0) : 0;
     float focus_y = 120 + sections_before * 40 + p->menu_focus * 78.0f;
     float scroll = focus_y + 78 > h - 60 ? focus_y + 78 - (h - 60) : 0;
@@ -691,14 +747,16 @@ static void draw_menu(Player *p)
     int row = 0;
     gfx_clip_push(x, y + 104, w, h - 120);
     #define SECTION(t) do { font_draw(t, x + 40, ry + 6, FONT_XS | FONT_B, THEME_TEXT_MUTED); ry += 40; } while (0)
+    const char *row_thumb = NULL;   /* set before a ROW to show a picture at its left */
     #define ROW(label, sub, on) do { \
-        int foc_ = p->menu_focus == row; const char *sub_ = (sub); \
+        int foc_ = p->menu_focus == row; const char *sub_ = (sub); float lx_ = x + 50 + (row_thumb ? 118 : 0); \
         if (ry + 70 > y + 100 && ry < y + h - 16) { \
         if (foc_) gfx_rrect(x + 24, ry, w - 48, 70, 18, THEME_TEXT); \
         else if (on) gfx_rrect(x + 24, ry, w - 48, 70, 18, RGBA(0xFF, 0xFF, 0xFF, 0x14)); \
+        if (row_thumb) ui_draw_thumb(row_thumb, x + 40, ry + 6, 104, 58, 0, RGBA(0xFF, 0xFF, 0xFF, 0x14)); \
         Color fg_ = foc_ ? THEME_ON_LIGHT : THEME_TEXT; \
-        font_draw_fit(label, x + 50, ry + (sub_[0] ? 10 : 20), FONT_S | FONT_B, fg_, w - 190); \
-        if (sub_[0]) font_draw_fit(sub_, x + 50, ry + 40, FONT_XS, foc_ ? RGBA(0x0B, 0x0A, 0x16, 0xB0) : THEME_TEXT_MUTED, w - 190); \
+        font_draw_fit(label, lx_, ry + (sub_[0] ? 10 : 20), FONT_S | FONT_B, fg_, w - 190 - (lx_ - x - 50)); \
+        if (sub_[0]) font_draw_fit(sub_, lx_, ry + 40, FONT_XS, foc_ ? RGBA(0x0B, 0x0A, 0x16, 0xB0) : THEME_TEXT_MUTED, w - 190 - (lx_ - x - 50)); \
         if (on) { gfx_circle(x + w - 70, ry + 35, 17, foc_ ? THEME_ON_LIGHT : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 35, 20, foc_ ? THEME_TEXT : THEME_TEXT); } } \
         ry += 78; row++; } while (0)
     if (p->menu == MENU_STYLE) {
@@ -722,16 +780,27 @@ static void draw_menu(Player *p)
             if (eps[i].released && strlen(eps[i].released) >= 10) snprintf(sub, sizeof sub, "%.10s", eps[i].released);
             int cur = strcmp(eps[i].id, p->video_id) == 0;
             if (cur) snprintf(sub, sizeof sub, "Now playing");
+            row_thumb = eps[i].thumbnail;
             ROW(label, sub, cur);
+            row_thumb = NULL;
         }
         gfx_clip_pop();
         return;
     }
     if (p->menu == MENU_SOURCES) {
+        char last_addon[80] = "";
         for (int i = 0; i < p->n_cands; i++) {
-            char host[80];
+            char host[80], addon[80] = "", name[160];
             url_host(p->cands[i].url, host, sizeof host);
-            ROW(p->cands[i].label ? p->cands[i].label : "Source", host, i == p->cur);
+            const char *lbl = p->cands[i].label ? p->cands[i].label : "Source", *sep = strstr(lbl, " - ");
+            if (sep) { snprintf(addon, sizeof addon, "%.*s", (int)(sep - lbl) < 79 ? (int)(sep - lbl) : 79, lbl); snprintf(name, sizeof name, "%s", sep + 3); }
+            else snprintf(name, sizeof name, "%s", lbl);
+            if (addon[0] && strcmp(addon, last_addon) != 0) {   /* one group per addon, in the order they answer */
+                char sec[96]; for (char *c = addon; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32;
+                snprintf(sec, sizeof sec, "%s", addon); SECTION(sec);
+                snprintf(last_addon, sizeof last_addon, "%s", addon);
+            }
+            ROW(name, host, i == p->cur);
         }
         ROW("Browse all sources", "Every addon again, with the recommendation for this TV", 0);
         gfx_clip_pop();
@@ -743,7 +812,10 @@ static void draw_menu(Player *p)
         SECTION("PLAYBACK");
         ROW("Speed", sp, 0);
     }
-    if (p->menu == MENU_SUBS) ROW("Off", "", p->embedded_text_sel < 0 && p->active_addon_sub < 0);
+    if (p->menu == MENU_SUBS) {
+        ROW("Choose for", p->assign_second ? "Second subtitles (above the main ones)  \xC2\xB7  Left/Right" : "Main subtitles  \xC2\xB7  Left/Right for a second language", 0);
+        ROW("Off", "", p->assign_second ? p->active_addon_sub2 < 0 : (p->embedded_text_sel < 0 && p->active_addon_sub < 0));
+    }
     if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "EMBEDDED");
     for (int i = 0; i < n; i++) {
         char sub[80];
@@ -761,7 +833,9 @@ static void draw_menu(Player *p)
             char label[80];
             if (dup) snprintf(label, sizeof label, "%s (%d)", lang_display(p->addon_subs[idx].lang), dup + 1);
             else snprintf(label, sizeof label, "%s", lang_display(p->addon_subs[idx].lang));
-            ROW(label, p->addon_subs[idx].addon, p->active_addon_sub == idx);
+            char who[120];
+            snprintf(who, sizeof who, "%s%s", p->addon_subs[idx].addon, p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
+            ROW(label, who, p->active_addon_sub == idx || p->active_addon_sub2 == idx);
         }
         if (p->track_loaded) {
             char off[80];
@@ -850,7 +924,7 @@ static void draw_stats(Player *p, const VideoInfo *vi)
     snprintf(l[n++], 160, "Audio|%s", p->audio_lang[0] ? p->audio_lang : "default track");
     snprintf(l[n++], 160, "Skip markers|%d%s", p->n_skip, p->skip_state == 1 ? " (asking)" : p->skip_state == 0 ? " (not asked yet)" : "");
     if (p->probe) { char d[160]; probe_describe(p->probe, d, sizeof d); snprintf(l[n++], 160, "File header|%.100s  \xC2\xB7  %d chapters", d, p->probe->n_chapters); }
-    snprintf(l[n++], 160, "Speed / aspect|%gx  \xC2\xB7  %s", RATES[p->rate_idx], ASPECT_NAMES[p->aspect]);
+    snprintf(l[n++], 160, "Speed / aspect|%gx  \xC2\xB7  %s%s", RATES[p->rate_idx], ASPECT_NAMES[p->aspect], p->track2_loaded ? "  \xC2\xB7  two subtitle languages" : "");
     snprintf(l[n++], 160, "App|%s  \xC2\xB7  %d draw calls  \xC2\xB7  %zu MB artwork", video_backend_name(), gfx_draw_calls(), image_cache_bytes() >> 20);
     if (g_app.frames_measured) snprintf(l[n++], 160, "UI frame|%.1f ms average, %.0f ms worst", g_app.frame_ms_sum / g_app.frames_measured, g_app.frame_ms_worst);
 
@@ -886,6 +960,7 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Sources", p->n_cands);
     ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP;
     if (n_eps > 1) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
+    ids[k] = BTN_LOCK; labels[k] = "Lock controls"; icons[k++] = ICON_LOCK;
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
     return k;
 }
@@ -942,6 +1017,7 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
     case BTN_SOURCES: p->menu = MENU_SOURCES; p->menu_focus = p->cur; break;
     case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;
+    case BTN_LOCK: p->locked = 1; p->bar_focus = 0; p->lock_hint_until = g_app.time + 3; p->overlay_until = 0; app_toast("Controls locked. Press Back three times to unlock."); return;
     case BTN_STATS: p->stats = !p->stats; break;
     }
     show_overlay(p);
@@ -1091,6 +1167,31 @@ static void draw(Screen *s)
         if (flash > 0) app_redraw();
     }
 
+    if (overlay && !p->menu && !p->bar_focus && vi.state != VIDEO_LOADING && !p->locked) {   /* centre: -10 s, play/pause, +10 s */
+        float cx = SNTV_UI_W / 2, cy = SNTV_UI_H / 2;
+        for (int d = -1; d <= 1; d += 2) {
+            float bx2 = cx + d * 210;
+            int lit = p->seek_flash > g_app.time && p->seek_flash_dir == d;
+            gfx_circle(bx2, cy, 46, lit ? THEME_TEXT : RGBA(0, 0, 0, 0x70));
+            Color fg = lit ? THEME_ON_LIGHT : THEME_TEXT;
+            gfx_rrect_ring(bx2 - 22, cy - 22, 44, 44, 22, 3, fg);
+            /* a small arrow head riding the top of the ring, pointing the way */
+            float ax = bx2 + d * 8, ay = cy - 24;
+            gfx_line(ax, ay, ax - d * 9, ay - 8, 3, fg);
+            gfx_line(ax, ay, ax - d * 9, ay + 8, 3, fg);
+            font_draw("10", bx2 - font_measure("10", FONT_XS | FONT_B) / 2, cy - font_height(FONT_XS | FONT_B) / 2 + 1, FONT_XS | FONT_B, fg);
+            if (lit) app_redraw();
+        }
+        if (vi.state == VIDEO_PLAYING && flash <= 0) { gfx_circle(cx, cy, 60, RGBA(0, 0, 0, 0x70)); ui_icon(ICON_PAUSE, cx, cy, 44, THEME_TEXT); }
+    }
+    if (p->locked && (g_app.time < p->lock_hint_until)) {
+        const char *t = "Controls locked  \xC2\xB7  press Back three times to unlock";
+        float tw = font_measure(t, FONT_S | FONT_B) + 90, tx = (SNTV_UI_W - tw) / 2;
+        gfx_rrect(tx, 60, tw, 60, 30, RGBA(0x0B, 0x0A, 0x16, 0xD0));
+        ui_icon(ICON_LOCK, tx + 36, 90, 26, THEME_TEXT);
+        font_draw(t, tx + 64, 60 + (60 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+        app_redraw();
+    } else if (p->locked) { gfx_circle(SNTV_UI_W - 70, 80, 26, RGBA(0x0B, 0x0A, 0x16, 0x90)); ui_icon(ICON_LOCK, SNTV_UI_W - 70, 80, 22, THEME_TEXT_DIM); }
     int bar_only = !overlay && p->seek_commit > 0;
     double shown_pos = p->seek_commit > 0 ? p->seek_target : vi.position;
     float bx = THEME_MARGIN, by = SNTV_UI_H - 150, bw = SNTV_UI_W - 2 * THEME_MARGIN;
@@ -1194,7 +1295,7 @@ static int menu_rows(Player *p)
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     if (p->menu == MENU_AUDIO) return n + 1;
-    return 1 + n + p->n_addon_subs + (p->track_loaded ? 1 : 0) + 1;
+    return 2 + n + p->n_addon_subs + (p->track_loaded ? 1 : 0) + 1;
 }
 
 static void menu_activate(Player *p)
@@ -1231,9 +1332,15 @@ static void menu_activate(Player *p)
         return;
     }
     p->subs_auto_done = 1;   /* the viewer decided; stop auto-selecting */
-    if (f == 0) { select_addon_sub(p, -1); p->embedded_text_sel = -1; video_select_track(TRACK_TEXT, -1); remember_subs(p, NULL, SUBS_SRC_ANY); return; }
+    if (f == 0) { p->assign_second = !p->assign_second; return; }
+    f--;
+    if (f == 0) {
+        if (p->assign_second) { select_addon_sub_slot(p, -1, 1); return; }
+        select_addon_sub(p, -1); p->embedded_text_sel = -1; video_select_track(TRACK_TEXT, -1); remember_subs(p, NULL, SUBS_SRC_ANY); return;
+    }
     f--;
     if (f < n) {
+        if (p->assign_second) { app_toast("Embedded tracks are drawn by the TV; pick an addon file as the second subtitles"); return; }
         select_addon_sub(p, -1); p->embedded_text_sel = tr[f].index; video_select_track(TRACK_TEXT, tr[f].index);
         remember_subs(p, tr[f].lang, SUBS_SRC_EMBEDDED);
         return;
@@ -1243,6 +1350,7 @@ static void menu_activate(Player *p)
     int ng = sorted_subs(p, order);
     if (f < ng) {
         int idx = order[f];
+        if (p->assign_second) { select_addon_sub_slot(p, p->active_addon_sub2 == idx ? -1 : idx, 1); return; }
         select_addon_sub(p, idx);
         remember_subs(p, p->addon_subs[idx].lang, SUBS_SRC_ADDON);
         return;
@@ -1264,6 +1372,7 @@ static void seek_by(Player *p, double base)
     if (vi.duration > 0 && target > vi.duration - 1) target = vi.duration - 1;
     p->seek_target = target;
     p->seek_commit = 0.35f;   /* coalesce rapid presses into one seek */
+    p->seek_flash = g_app.time + 0.35f; p->seek_flash_dir = base < 0 ? -1 : 1;
     if (g_app.live_scrub && g_app.time - p->last_live_seek > 0.33f) {   /* the picture follows while the key is held */
         p->last_live_seek = g_app.time;
         video_seek(target);
@@ -1287,17 +1396,29 @@ static int key(Screen *s, KeyAction a)
             if (p->menu != MENU_SUBS) return 1;
             VideoTrack tt[MAX_TRACKS];
             int nt = video_tracks(TRACK_TEXT, tt, MAX_TRACKS);
-            int g = p->menu_focus - 1 - nt;
+            if (p->menu_focus == 0) { p->assign_second = !p->assign_second; app_redraw(); return 1; }
+            int g = p->menu_focus - 2 - nt;
             if (g == p->n_addon_subs && p->track_loaded) p->track.offset += 0.5 * dir;   /* the timing row */
             app_redraw();
             return 1;
         }
         case KEY_OK:
             if (p->menu == MENU_SOURCES && p->menu_focus == p->n_cands) { browse_sources(p); return 1; }
-            { int was = p->menu; menu_activate(p); if (p->menu == was && !(was == MENU_AUDIO && p->menu_focus == 0)) p->menu = MENU_NONE; show_overlay(p); return 1; }
+            { int was = p->menu; int keep = (was == MENU_AUDIO && p->menu_focus == 0) || (was == MENU_SUBS && (p->menu_focus == 0 || p->assign_second));
+              menu_activate(p); if (p->menu == was && !keep) p->menu = MENU_NONE; show_overlay(p); return 1; }
         case KEY_BACK: p->menu = MENU_NONE; show_overlay(p); return 1;
         default: return 1;
         }
+    }
+    if (p->locked && !p->menu) {   /* three Backs within a few seconds unlock */
+        if (a == KEY_BACK) {
+            p->unlock_presses = g_app.time - p->unlock_last < 2.5f ? p->unlock_presses + 1 : 1;
+            p->unlock_last = g_app.time;
+            if (p->unlock_presses >= 3) { p->locked = 0; p->unlock_presses = 0; app_toast("Controls unlocked"); show_overlay(p); return 1; }
+        } else p->unlock_presses = 0;
+        p->lock_hint_until = g_app.time + 2.5f;
+        app_redraw();
+        return 1;
     }
     if (error_final(p, &vi) && a == KEY_OK) { app_push(screen_diagnostics_create(1)); return 1; }
     int overlay_on = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED;
@@ -1364,6 +1485,7 @@ static void destroy(Screen *s)
     p->gen++;
     video_stop();
     subs_free(&p->track);
+    subs_free(&p->track2);
     free(p->probe);
     for (int i = 0; i < p->n_addon_subs; i++) { free(p->addon_subs[i].url); free(p->addon_subs[i].lang); free(p->addon_subs[i].addon); }
     play_candidates_free(p->cands, p->n_cands);
@@ -1391,6 +1513,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     }
     p->rate_idx = RATE_NORMAL;
     p->active_addon_sub = -1;
+    p->active_addon_sub2 = -1;
     p->embedded_text_sel = -1;
     p->gen = 1;
     g_live = p;
