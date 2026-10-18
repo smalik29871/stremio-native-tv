@@ -254,7 +254,9 @@ void player_pip_update(Screen *s, float dt);
 void player_pip_draw(Screen *s, int focused);
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);
-void player_save_progress(void);   /* now, e.g. as the app goes to the background */
+void player_save_progress(void);
+/* Clear old caches and unused recordings from the data folder, on a thread (tidy.h). */
+void app_tidy(int delay_ms);   /* now, e.g. as the app goes to the background */
 void player_reload_at(Screen *s, double position_s);   /* the same source again from `position_s` (after a break) */
 
 /* Fetch an episode's streams ahead of time so Up Next starts without a spinner. */

@@ -48,6 +48,7 @@ add_library(sntv_core STATIC
   src/sysinfo.c
   src/youtube.c
   src/frames.c
+  src/tidy.c
   src/suntimes.c
   src/lang.c
   src/trackmem.c
@@ -158,6 +159,9 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_probe PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_probe PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME container_probe COMMAND test_probe)
+  add_executable(test_tidy tests/test_tidy.c)
+  target_link_libraries(test_tidy PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME data_folder_tidy COMMAND test_tidy)
   add_executable(test_frames tests/test_frames.c)
   target_link_libraries(test_frames PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_frames PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")

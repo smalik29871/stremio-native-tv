@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <utime.h>
 
 static const int SIZES[] = { FONT_XS, FONT_S, FONT_M, FONT_L, FONT_XL, FONT_TITLE };
 static const int SIZES_MONO[] = { FONT_XS, FONT_S, FONT_M };
@@ -217,7 +218,7 @@ static int load_file(FontFile *ff, const char *path, int role, const int *sizes,
 {
     char cpath[1200];
     cache_path(path, role, cpath, sizeof cpath);
-    if (g_cache_dir[0] && cache_load(ff, cpath)) return 0;
+    if (g_cache_dir[0] && cache_load(ff, cpath)) { utime(cpath, NULL); return 0; }   /* in use: tidy.c keeps it */
     unsigned char *ttf = read_all(path, NULL);
     if (!ttf) { LOGE("font: cannot open %s", path); return -1; }
     static const int DIMS[][2] = { { 1024, 1024 }, { 2048, 1024 }, { 2048, 2048 } };

@@ -551,6 +551,7 @@ static void finish_edit(Settings *st, int save)
             *slot = strlen(v) > 10 && strcmp(v, "https://") ? strdup(v) : NULL;
             app_save_prefs();
             if (g_app.break_sound != 1 && *slot) g_app.break_sound = 1;
+            app_tidy(0);   /* the recording it replaced goes */
             char yt[16];
             if (*slot && youtube_video_id(*slot, yt)) save_youtube(*slot);
             else if (*slot && is_page && !(g_app.thumb_server && *g_app.thumb_server))

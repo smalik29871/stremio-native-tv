@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.3
+
+- **Caches no longer pile up.** Twelve seconds after start (on a background thread) and
+  whenever a break recording changes, the app tidies its data folder:
+  - addon replies (catalogs, every search) older than a week go, and the rest is kept
+    under 16 MB, newest first;
+  - recordings no break uses any more (a replaced upload, the download of an old
+    YouTube link) are deleted;
+  - half-written files left by a crash or a lost connection (`.tmp`, `.part`) go;
+  - font atlases and YouTube player data from older versions go after 60 and 30 days.
+- The artwork cache (96 MB on disk) now trims itself during long sessions too, not only
+  at start, and artwork that is still being shown counts as recent, so the posters you
+  see every day are not the ones thrown out.
+- Seek-preview pictures stay out of the artwork disk cache: they would have pushed
+  posters out.
+- The log file starts again once it passes 4 MB, so days of uptime cannot fill the
+  TV's storage. Diagnostics keeps showing the recent lines.
+
 ## 0.8.2
 
 - **Seek previews without a computer.** The picture above the timeline while you seek

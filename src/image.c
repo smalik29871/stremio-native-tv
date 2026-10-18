@@ -17,6 +17,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <time.h>
+#include <utime.h>
 #include <SDL.h>
 
 typedef enum { IMG_LOADING, IMG_DECODING, IMG_READY, IMG_FAILED, IMG_EVICTED } ImgState;
@@ -154,6 +156,9 @@ static unsigned char *to_pot(unsigned char *px, int *w, int *h)
 
 static void trim_disk_cache(void);
 static int read_disk(Img *i);
+static size_t g_disk_written;   /* bytes added to the disk cache since it was last trimmed */
+/* Pictures this TV makes (seek previews): never on disk, they would push the posters out. */
+static int is_local(const char *url) { return !strncmp(url, "http://127.0.0.1", 16); }
 static const HttpOptions ARTWORK = { .no_json_accept = 1, .background = 1 };
 
 static int decoder_main(void *arg)
@@ -185,12 +190,18 @@ static int decoder_main(void *arg)
             px = stbi_load_from_memory(i->encoded, (int)i->encoded_len, &w, &h, &n, 4);
         }
         if (px) {
-            if (!i->from_disk && g_cache_dir[0] && i->encoded_len <= DISK_FILE_MAX) {
+            if (!i->from_disk && g_cache_dir[0] && i->encoded_len <= DISK_FILE_MAX && !is_local(i->url)) {
                 char path[1200], tmp[1210];
                 disk_path(i, path, sizeof path);
                 snprintf(tmp, sizeof tmp, "%s.tmp", path);
                 FILE *f = fopen(tmp, "wb");
                 if (f) { fwrite(i->encoded, 1, i->encoded_len, f); fclose(f); rename(tmp, path); }
+                SDL_LockMutex(g_lock);
+                g_disk_written += i->encoded_len;
+                int trim = g_disk_written > DISK_CACHE_MAX_BYTES / 6;   /* a long session trims as it goes */
+                if (trim) g_disk_written = 0;
+                SDL_UnlockMutex(g_lock);
+                if (trim) trim_disk_cache();
             }
             px = shrink(px, &w, &h, i->flags & IMAGE_MIPMAP ? 512 : SNTV_IMAGE_MAX_DIM);
             i->tint = average_tint(px, w, h);
@@ -261,6 +272,8 @@ static int read_disk(Img *i)
     i->encoded_len = fread(i->encoded, 1, (size_t)n, f);
     fclose(f);
     i->from_disk = 1;
+    struct stat st;   /* used again: the trim goes by age, so it counts as new (once a day at most) */
+    if (stat(path, &st) == 0 && time(NULL) - st.st_mtime > 24 * 3600) utime(path, NULL);
     return 1;
 }
 
@@ -269,7 +282,7 @@ static int read_disk(Img *i)
 static void request(Img *i)
 {
     i->state = IMG_LOADING;
-    if (!g_cache_dir[0]) { i->req = http_request_async_ex(i->url, &ARTWORK, on_http, i); return; }
+    if (!g_cache_dir[0] || is_local(i->url)) { i->req = http_request_async_ex(i->url, &ARTWORK, on_http, i); return; }
     enqueue_decode(i);
 }
 

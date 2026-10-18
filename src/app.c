@@ -1,6 +1,8 @@
 #include "app.h"
 #include "memwatch.h"
 #include "sysinfo.h"
+#include "tidy.h"
+#include "youtube.h"
 #include "http.h"
 #include "log.h"
 #include "store.h"
@@ -1200,6 +1202,46 @@ void app_details_want(const char *type, const char *id)
 
 /* ---- preferences & perf ----------------------------------------------------- */
 
+/* ---- tidying the data folder ------------------------------------------------- */
+
+static SDL_atomic_t g_tidying;
+typedef struct { char keep[TIDY_KEEP_MAX][64]; int n, delay_ms; } TidyJob;
+
+static int tidy_main(void *arg)
+{
+    TidyJob *j = arg;
+    SDL_Delay((Uint32)j->delay_ms);
+    const char *keep[TIDY_KEEP_MAX];
+    for (int i = 0; i < j->n; i++) keep[i] = j->keep[i];
+    TidyReport r;
+    tidy_run(store_dir(), keep, j->n, time(NULL), &r);
+    if (r.removed) LOGI("tidy: removed %d old file%s, %lld KB", r.removed, r.removed == 1 ? "" : "s", r.freed >> 10);
+    free(j);
+    SDL_AtomicSet(&g_tidying, 0);
+    return 0;
+}
+
+/* The recordings in use, named as they are stored in sounds/. */
+static void keep_recording(TidyJob *j, const char *stored)
+{
+    char id[16];
+    if (!stored || j->n >= TIDY_KEEP_MAX) return;
+    if (!strncmp(stored, "sntv-sound://", 13)) snprintf(j->keep[j->n++], sizeof j->keep[0], "%.60s", stored + 13);
+    else if (youtube_video_id(stored, id)) snprintf(j->keep[j->n++], sizeof j->keep[0], "yt-%s-", id);
+}
+
+void app_tidy(int delay_ms)
+{
+    if (!SDL_AtomicCAS(&g_tidying, 0, 1)) return;
+    TidyJob *j = calloc(1, sizeof *j);
+    j->delay_ms = delay_ms;
+    keep_recording(j, g_app.break_audio);
+    keep_recording(j, g_app.break_end);
+    SDL_Thread *t = SDL_CreateThread(tidy_main, "tidy", j);
+    if (t) SDL_DetachThread(t);
+    else { free(j); SDL_AtomicSet(&g_tidying, 0); }
+}
+
 /* ---- TV profile ------------------------------------------------------------- */
 
 /* Which video decoders the system lends to apps, for Diagnostics. Waits until start-up is over. */
@@ -1320,6 +1362,7 @@ static void load_prefs(void)
     g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && mem_small_tv());   /* main.c calls mem_apply_mode() once images exist */
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
+    app_tidy(12000);   /* after start-up, off the main thread */
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
 }

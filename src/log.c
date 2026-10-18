@@ -7,6 +7,9 @@
 #include <SDL.h>
 
 static FILE *g_file;
+static long g_written;
+static char g_path[1024];
+enum { LOG_FILE_MAX = 4 << 20 };
 static SDL_mutex *g_lock;
 static LogLine g_ring[LOG_RING_LINES];
 static int g_head, g_count;
@@ -19,6 +22,7 @@ void log_init(const char *dir)
     g_lock = SDL_CreateMutex();
     if (!dir) return;
     snprintf(path, sizeof path, "%s/app.log", dir);
+    snprintf(g_path, sizeof g_path, "%s", path);
     /* Rotate once so a crash log from the previous run survives. */
     snprintf(g_prev_path, sizeof g_prev_path, "%s/app.prev.log", dir);
     rename(path, g_prev_path);
@@ -42,8 +46,14 @@ void log_msg(const char *level, const char *fmt, ...)
     if (g_lock) SDL_LockMutex(g_lock);
     fprintf(stderr, "%s %s %s\n", ts, level, line);
     if (g_file) {
-        fprintf(g_file, "%s %s %s\n", ts, level, line);
+        int n = fprintf(g_file, "%s %s %s\n", ts, level, line);
         fflush(g_file);
+        if (n > 0) g_written += n;
+        if (g_written > LOG_FILE_MAX) {   /* days of uptime: start the file again rather than fill the flash */
+            g_file = freopen(g_path, "w", g_file);
+            g_written = 0;
+            if (g_file) fprintf(g_file, "%s I log: the file passed %d MB and was started again\n", ts, LOG_FILE_MAX >> 20);
+        }
     }
     LogLine *l = &g_ring[g_head];
     l->level = level && level[0] ? level[0] : 'I';
