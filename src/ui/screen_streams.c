@@ -31,7 +31,9 @@ struct Streams {
     float started;
     int from_prefetch;        /* answers still arriving belong to the prefetch */
     int check_autoplay;
+    int auto_rec_done;        /* the recommended source was started by itself */
 };
+#define REC_H 150.0f          /* the recommendation card above the list */
 
 /* Streams fetched ahead of time for the next episode (the player asks when the
  * credits start). A Streams screen opened for that episode adopts them and the
@@ -58,16 +60,28 @@ static int playable(const Stream *s)
  * and, while chaining episodes, the previous binge group on top so Up Next stays
  * on the same release. Answers arrive in any order, so this is applied on every
  * arrival. */
-static int rank(const Streams *st, const Stream *s)
+static long rank(const Streams *st, const Stream *s)
 {
-    int r = s->addon_order;
-    if (!playable(s)) r += 100000;
-    if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50000;
+    long r = g_app.quality_mode == QUAL_ADDON_ORDER ? s->addon_order * 10L : (200000L - s->score) * 10L + s->addon_order;
+    if (!playable(s)) r += 100000000L;
+    if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50000000L;
     return r;
+}
+
+/* Best-scoring playable source, or -1 when nothing looks safe for this TV. */
+static int recommended(const Streams *st)
+{
+    int best = -1;
+    for (int i = 0; i < st->n; i++)
+        if (playable(&st->items[i]) && (best < 0 || st->items[i].score > st->items[best].score)) best = i;
+    return best >= 0 && st->items[best].score > -500 ? best : -1;
 }
 
 static void sort_items(Streams *st)
 {
+    QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
+    double runtime = quality_runtime_minutes(st->meta.runtime);
+    for (int i = 0; i < st->n; i++) st->items[i].score = quality_score(&st->items[i].tags, &g_app.tv, &qp, runtime);
     for (int i = 1; i < st->n; i++)
         for (int j = i; j > 0 && rank(st, &st->items[j]) < rank(st, &st->items[j - 1]); j--) {
             Stream t = st->items[j]; st->items[j] = st->items[j - 1]; st->items[j - 1] = t;
@@ -89,6 +103,7 @@ static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
     for (int i = 0; i < n; i++) {
         got[i].addon_name = strdup(addon_name);
         got[i].addon_order = addon;
+        quality_parse(got[i].name, got[i].title, got[i].description, got[i].filename, got[i].video_size, &got[i].tags);
         (*items)[(*count)++] = got[i];
     }
     free(got);
@@ -212,7 +227,16 @@ static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
     if (st->check_autoplay) { st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return; }
-    int first = st->focus - (VISIBLE - 2);
+    if (g_app.auto_recommended && !st->autoplay_group && !st->auto_rec_done && st->n && (st->pending == 0 || g_app.time - st->started > 6)) {
+        int r = recommended(st);
+        if (r >= 0) {
+            st->auto_rec_done = 1;
+            app_toast("Playing the recommended source. Back returns to the list.");
+            play_from(st, r);
+            if (app_top() != s) return;
+        }
+    }
+    int first = st->focus - (VISIBLE - 3);
     st->scroll_target = (first < 0 ? 0 : first) * ROW_H;
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 14);
     if (st->pending) app_redraw();
@@ -261,7 +285,7 @@ static float draw_badges(const Stream *sm, float right_x, float y)
     const char *res = has_ci(text, "2160p") || has_ci(text, "4k") || has_ci(text, "uhd") ? "4K" :
                       has_ci(text, "1440p") ? "1440p" : has_ci(text, "1080p") ? "1080p" : has_ci(text, "720p") ? "720p" :
                       has_ci(text, "480p") ? "SD" : NULL;
-    const char *hdr = has_ci(text, "dolby vision") || has_ci(text, "dovi") || has_ci(text, "dv") ? "DOLBY VISION" :
+    const char *hdr = has_ci(text, "dolby vision") || has_ci(text, "dovi") || sm->tags.hdr == 2 ? "DOLBY VISION" :
                       has_ci(text, "hdr10+") ? "HDR10+" : has_ci(text, "hdr") ? "HDR" : NULL;
     const char *codec = has_ci(text, "av1") ? "AV1" : has_ci(text, "hevc") || has_ci(text, "x265") || has_ci(text, "h265") || has_ci(text, "h.265") ? "HEVC" : NULL;
     const char *audio = has_ci(text, "atmos") ? "ATMOS" : has_ci(text, "truehd") ? "TRUEHD" : has_ci(text, "dts") ? "DTS" :
@@ -322,8 +346,34 @@ static void draw(Screen *s)
         return;
     }
 
-    gfx_clip_push(0, LIST_Y - 20, SNTV_UI_W, SNTV_UI_H - LIST_Y + 20);
-    float ry = LIST_Y - st->scroll;
+    int rec = recommended(st);
+    QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
+    double runtime = quality_runtime_minutes(st->meta.runtime);
+    float list_y = LIST_Y;
+    if (rec >= 0) {   /* the recommendation card */
+        const Stream *sm = &st->items[rec];
+        int foc = st->focus == -1;
+        float h = REC_H - 16;
+        if (foc && !g_app.fx_light) gfx_shadow(x, LIST_Y + 8, w, h, 20, 26, RGBA(0, 0, 0, 0x90));
+        gfx_rrect_grad_h(x, LIST_Y, w, h, 20, foc ? RGBA(0xFF, 0xFF, 0xFF, 0x2E) : COLOR_ALPHA(THEME_ACCENT, 0x38), foc ? RGBA(0xFF, 0xFF, 0xFF, 0x2E) : COLOR_ALPHA(THEME_ACCENT2, 0x30));
+        if (foc) gfx_rrect_ring(x, LIST_Y, w, h, 20, 3, THEME_TEXT);
+        gfx_circle(x + 44, LIST_Y + h / 2, 26, foc ? THEME_TEXT : THEME_ACCENT2);
+        ui_icon(ICON_STAR, x + 44, LIST_Y + h / 2, 26, foc ? THEME_ON_LIGHT : THEME_TEXT);
+        static const char *HEAD[QUAL_MODE_COUNT] = { "Recommended for this TV", "Recommended for this TV", "Highest quality", "Balanced pick", "Smallest download" };
+        font_draw(HEAD[g_app.quality_mode], x + 90, LIST_Y + 18, FONT_XS | FONT_B, THEME_ACCENT2);
+        char l1[200], summary[200];
+        first_line(sm->name, l1, sizeof l1);
+        char head[300];
+        snprintf(head, sizeof head, "%s%s%s", sm->addon_name, l1[0] ? "  \xC2\xB7  " : "", l1);
+        font_draw_fit(head, x + 90, LIST_Y + 46, FONT_M | FONT_B, THEME_TEXT, w - 320);
+        quality_summary(&sm->tags, runtime, summary, sizeof summary);
+        font_draw_fit(summary[0] ? summary : "Playable on this TV", x + 90, LIST_Y + 88, FONT_XS, THEME_TEXT_DIM, w - 320);
+        ui_pill("Play", 1, ICON_PLAY, x + w - 170, LIST_Y + (h - 56) / 2, 56, foc ? PILL_PRIMARY : PILL_SECONDARY, foc);
+        list_y += REC_H;
+    }
+
+    gfx_clip_push(0, list_y - 20, SNTV_UI_W, SNTV_UI_H - list_y + 20);
+    float ry = list_y - st->scroll;
     for (int i = 0; i < st->n; i++, ry += ROW_H) {
         if (ry + ROW_H < LIST_Y - 20 || ry > SNTV_UI_H) continue;
         const Stream *sm = &st->items[i];
@@ -355,7 +405,19 @@ static void draw(Screen *s)
         if (flag) {
             Color fc = !ok ? THEME_DANGER : THEME_OK;
             float fw = font_measure(flag, FONT_XS | FONT_B) + 24;
-            ui_chip(flag, bx - fw - 8, ry + 18, COLOR_ALPHA(fc, 0x30), fc);
+            bx -= fw + 8;
+            ui_chip(flag, bx, ry + 18, COLOR_ALPHA(fc, 0x30), fc);
+        }
+        const char *warn[3];
+        int nw = ok ? quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 3) : 0;
+        if (nw) {
+            float fw = font_measure(warn[0], FONT_XS | FONT_B) + 24;
+            bx -= fw + 8;
+            ui_chip(warn[0], bx, ry + 18, COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+        } else if (i == rec) {
+            float fw = font_measure("Recommended", FONT_XS | FONT_B) + 24;
+            bx -= fw + 8;
+            ui_chip("Recommended", bx, ry + 18, COLOR_ALPHA(THEME_ACCENT2, 0x40), THEME_TEXT);
         }
     }
     gfx_clip_pop();
@@ -405,6 +467,7 @@ static void play_from(Streams *st, int index)
             c[n].binge_group = st->items[i].binge_group ? strdup(st->items[i].binge_group) : NULL;
             c[n].filename = st->items[i].filename ? strdup(st->items[i].filename) : NULL;
             c[n].video_size = st->items[i].video_size;
+            c[n].needs = quality_needs(&st->items[i].tags);
             n++;
         }
     LibraryItem *li = app_library_find(st->meta.id);
@@ -422,9 +485,16 @@ static int key(Screen *s, KeyAction a)
 {
     Streams *st = s->st;
     switch (a) {
-    case KEY_UP: if (st->focus > 0) st->focus--; app_redraw(); return 1;
+    case KEY_UP:
+        if (st->focus > 0) st->focus--;
+        else if (st->focus == 0 && recommended(st) >= 0) st->focus = -1;
+        app_redraw();
+        return 1;
     case KEY_DOWN: if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
-    case KEY_OK: if (st->focus < st->n) play_from(st, st->focus); return 1;
+    case KEY_OK:
+        if (st->focus == -1) { int r = recommended(st); if (r >= 0) play_from(st, r); return 1; }
+        if (st->focus < st->n) play_from(st, st->focus);
+        return 1;
     default: return 0;
     }
 }
@@ -434,6 +504,7 @@ static void resume(Screen *s)
     Streams *st = s->st;
     /* Coming back from an auto-played episode: the user pressed Back, don't re-trigger. */
     st->autoplayed = 1;
+    st->auto_rec_done = 1;
     app_redraw();
 }
 

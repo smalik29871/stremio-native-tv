@@ -61,6 +61,7 @@ struct Player {
     time_t clock_minute;
     int prefetched;           /* next episode's streams requested */
     int pip, pip_done;        /* parked in a corner; finished there */
+    int learned;              /* this candidate's outcome was recorded in the TV profile */
 
     /* stats for nerds (Red) */
     int stats;
@@ -396,6 +397,7 @@ static void start_candidate(Player *p, int idx, double start)
 {
     p->cur = idx;
     p->error_handled = 0;
+    p->learned = 0;
     p->auto_selected = 0;
     p->subs_auto_done = 0;
     p->load_started = g_app.time;
@@ -409,6 +411,7 @@ static void fail_over(Player *p, const char *why)
     VideoInfo vi;
     video_info(&vi);
     double resume = vi.position > 5 ? vi.position : 0;
+    if (!p->learned) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
     if (p->cur + 1 < p->n_cands && p->tries < 3) {
         p->tries++;
         app_toast("%s. Trying the next source...", why);
@@ -452,12 +455,20 @@ static void update(Screen *s, float dt)
     if (vi.warning_version != p->last_warning_version) {
         p->last_warning_version = vi.warning_version;
         if (vi.warning[0]) app_toast("%s", vi.warning);
+        if (vi.warning[0] && !p->learned) {   /* "can't play this audio": remember the audio codec */
+            app_tv_learn(p->cands[p->cur].needs & ((1u << TVCAP_DTS) | (1u << TVCAP_TRUEHD)), 0);
+            p->learned = 1;
+        }
     }
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) auto_select_tracks(p);
 
     if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
     if (vi.state == VIDEO_LOADING && g_app.time - p->load_started > 45.0f && !p->error_handled) { p->error_handled = 1; fail_over(p, "Source is not responding"); }
 
+    if (!p->learned && vi.state == VIDEO_PLAYING && vi.position > 0 && g_app.time - p->load_started > 90 && p->stalls == 0) {
+        app_tv_learn(p->cands[p->cur].needs, 1);
+        p->learned = 1;
+    }
     skip_fetch(p, &vi);
     if (g_app.skip_mode == 1) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
 

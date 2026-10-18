@@ -63,6 +63,35 @@ static void row_free(Row *r)
     free(r);
 }
 
+/* Library items arrive without a synopsis; the details fetched for the hero are
+ * kept here so rebuilt rows and later visits have them at once. */
+static Home *g_home_live;
+enum { DESC_CACHE = 64 };
+static struct { char id[64]; MetaPreview p; } g_desc[DESC_CACHE];
+static int g_n_desc, g_desc_next;
+static char g_desc_pending[64];
+
+static const MetaPreview *desc_cached(const char *id)
+{
+    for (int i = 0; i < g_n_desc; i++) if (strcmp(g_desc[i].id, id) == 0) return &g_desc[i].p;
+    return NULL;
+}
+
+static void fill_from(MetaPreview *m, const MetaPreview *src)
+{
+    if (!m->description && src->description) m->description = strdup(src->description);
+    if (!m->release_info && src->release_info) m->release_info = strdup(src->release_info);
+    if (!m->runtime && src->runtime) m->runtime = strdup(src->runtime);
+    if (!m->imdb_rating && src->imdb_rating) m->imdb_rating = strdup(src->imdb_rating);
+    if (!m->background && src->background) m->background = strdup(src->background);
+    if (!m->logo && src->logo) m->logo = strdup(src->logo);
+    if (!m->genres.n && src->genres.n) {
+        m->genres.v = calloc((size_t)src->genres.n, sizeof(char *));
+        for (int i = 0; i < src->genres.n; i++) m->genres.v[i] = strdup(src->genres.v[i]);
+        m->genres.n = src->genres.n;
+    }
+}
+
 static MetaPreview preview_from_item(const LibraryItem *li)
 {
     MetaPreview p;
@@ -72,6 +101,8 @@ static MetaPreview preview_from_item(const LibraryItem *li)
     p.name = strdup(li->name);
     p.poster = li->poster ? strdup(li->poster) : NULL;
     p.poster_shape = li->poster_shape ? strdup(li->poster_shape) : NULL;
+    const MetaPreview *c = desc_cached(li->id);
+    if (c) fill_from(&p, c);
     return p;
 }
 
@@ -211,6 +242,43 @@ static const MetaPreview *hero_item(const Home *h)
 
 /* ---- update ---- */
 
+static void on_desc(HttpResponse *r, void *user)
+{
+    char *id = user;
+    if (strcmp(g_desc_pending, id) == 0) g_desc_pending[0] = 0;
+    MetaItem item;
+    if (r->status == 200 && addon_parse_meta(r->body, &item) == 0) {
+        int slot = g_n_desc < DESC_CACHE ? g_n_desc++ : g_desc_next;
+        if (g_n_desc == DESC_CACHE) g_desc_next = (g_desc_next + 1) % DESC_CACHE;
+        if (g_desc[slot].id[0]) meta_preview_free(&g_desc[slot].p);
+        snprintf(g_desc[slot].id, sizeof g_desc[slot].id, "%s", id);
+        meta_preview_copy(&g_desc[slot].p, &item.p);
+        if (g_home_live) {   /* every row that shows this title */
+            for (int ri = 0; ri < g_home_live->n_rows; ri++) {
+                Row *row = g_home_live->rows[ri];
+                for (int i = 0; i < row->n; i++) if (strcmp(row->metas[i].id, id) == 0) fill_from(&row->metas[i], &item.p);
+            }
+            g_home_live->hero_text_t = 0;
+        }
+        meta_item_free(&item);
+        app_redraw();
+    }
+    free(id);
+}
+
+static void request_desc(Home *h, const MetaPreview *m)
+{
+    (void)h;
+    for (int i = 0; i < g_app.n_addons; i++) {
+        if (!addon_supports(&g_app.addons[i], "meta", m->type, m->id)) continue;
+        char url[1024];
+        addon_url_meta(&g_app.addons[i], m->type, m->id, url, sizeof url);
+        snprintf(g_desc_pending, sizeof g_desc_pending, "%s", m->id);
+        http_request_async(url, NULL, on_desc, strdup(m->id));
+        return;
+    }
+}
+
 static void update(Screen *s, float dt)
 {
     Home *h = s->st;
@@ -246,6 +314,7 @@ static void update(Screen *s, float dt)
     h->hero_text_t = ui_ease(h->hero_text_t * 100, 100, NULL, dt, 10) / 100;
 
     const MetaPreview *hero = hero_item(h);
+    if (hero && (!hero->description || !*hero->description) && strcmp(hero->id, g_desc_pending) != 0 && !desc_cached(hero->id)) request_desc(h, hero);
     if (hero && strcmp(hero->id, h->hero_id) != 0) {
         snprintf(h->hero_id, sizeof h->hero_id, "%s", hero->id);
         char buf[512];
@@ -333,7 +402,7 @@ static void draw_hero(Home *h, const MetaPreview *p)
     float gx = x;
     for (int g = 0; g < p->genres.n && g < 4; g++) gx += ui_chip_outline(p->genres.v[g], gx, y, RGBA(0xFF, 0xFF, 0xFF, (int)(0x50 * k)), COLOR_ALPHA(THEME_TEXT_DIM, a)) + 10;
     if (p->genres.n) y += 54;
-    if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 3);
+    if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4);
 }
 
 static void draw_row(Home *h, int ri, float y)
@@ -488,6 +557,7 @@ static void resume(Screen *s) { (void)s; app_redraw(); }
 static void destroy(Screen *s)
 {
     Home *h = s->st;
+    if (g_home_live == h) g_home_live = NULL;
     for (int i = 0; i < h->n_rows; i++) row_free(h->rows[i]);
     free(h->rows);
     free(h);
@@ -505,6 +575,7 @@ Screen *screen_home_create(void)
     h->hero_fade = 1;
     h->hero_text_t = 1;
     s->name = "home"; s->st = h;
+    g_home_live = h;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     rebuild_rows(h);
     return s;

@@ -4,6 +4,7 @@
 #ifndef SNTV_APP_H
 #define SNTV_APP_H
 #include "addon/addon.h"
+#include "quality.h"
 #include "addon/stremio_api.h"
 #include "ui/input.h"
 #include "ui/gfx.h"
@@ -27,6 +28,7 @@ typedef enum { FX_AUTO = 0, FX_FULL = 1, FX_LIGHT = 2 } FxLevel;
 typedef struct PlayCandidate {
     char *url, *label, *binge_group, *filename;
     uint64_t video_size;
+    unsigned needs;             /* TVCAP_* bits this source depends on (quality.h) */
 } PlayCandidate;
 
 typedef struct App {
@@ -60,6 +62,10 @@ typedef struct App {
     int clock_mode;            /* player clock: 0 12-hour, 1 24-hour, 2 off */
     int oled;                  /* pure black background */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */
+    int quality_mode;          /* QUAL_*: how sources are ranked */
+    int res_cap;               /* 2160, 1080 or 720 */
+    int auto_recommended;      /* play the recommended source without asking */
+    TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
 
     /* perf */
@@ -110,6 +116,8 @@ const char *app_art_logo(const MetaPreview *p, char *buf, size_t n);
 const char *app_art_poster(const MetaPreview *p, char *buf, size_t n);
 
 void app_save_prefs(void);
+/* A source with these needs played fine (worked=1) or failed; persists the TV profile. */
+void app_tv_learn(unsigned needs, int worked);
 void app_note_frame(float ms);          /* feeds the Auto effects level */
 void app_redraw(void);                  /* request a frame even when idle */
 

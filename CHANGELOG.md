@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+
+- **Recommended source.** Every source is read for its resolution, codec (H.264, HEVC, AV1),
+  HDR or Dolby Vision, audio (AAC, Dolby Digital(+), DTS, TrueHD, Atmos), size, bitrate,
+  cached/debrid state, seeders and release type, then scored against a profile of this TV:
+  what LG's own tables say for its webOS generation (no DTS or TrueHD on recent sets, AV1
+  from webOS 5), corrected by experience: a source that fails, or triggers the TV's
+  "can't play this audio" message, teaches the app to avoid those tags; one that plays for
+  90 seconds without a stall marks them fine. The best playable source appears as a card
+  above the list with a one-line summary; rows carry a *Recommended* chip or a concern
+  ("DTS audio: may be silent on this TV", "Not cached: needs a download first").
+- Settings > Playback: *Sort sources by* (Addon order, which stays the default; Best for
+  this TV; Highest quality; Balanced; Smallest size), *Resolution for recommendations*
+  (4K, 1080p, 720p) and *Play the recommended source automatically*.
+- **Synopsis for every title.** Continue Watching and Library items arrive from the account
+  without one, so the Home hero fetches the title's details on focus and keeps them; the
+  synopsis also grew from three to four lines.
+
 ## 0.4.8
 
 Fixes from the first evening on a real LG TV (QNED, webOS). The app installs from the

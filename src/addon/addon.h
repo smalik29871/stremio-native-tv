@@ -69,6 +69,8 @@ typedef struct MetaItem {
     int is_live;
 } MetaItem;
 
+#include "../quality.h"
+
 typedef struct Stream {
     char *url, *yt_id, *info_hash, *external_url;
     char *name, *title, *description;
@@ -78,6 +80,8 @@ typedef struct Stream {
     uint64_t video_size;
     char *addon_name;           /* filled by the aggregator, not the parser */
     int addon_order;            /* position of that addon in the user's list */
+    StreamTags tags;            /* parsed from name/title (quality.h) */
+    long score;                 /* quality_score for the current prefs */
 } Stream;
 
 typedef struct Subtitle { char *id, *url, *lang; } Subtitle;

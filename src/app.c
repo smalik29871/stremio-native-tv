@@ -534,6 +534,43 @@ void app_cache_put(const char *url, const char *body, size_t len)
 
 /* ---- preferences & perf ----------------------------------------------------- */
 
+/* ---- TV profile ------------------------------------------------------------- */
+
+static void tv_profile_load(void)
+{
+    char rel[200] = "";
+    FILE *f = fopen("/etc/starfish-release", "r");
+    if (f) { if (!fgets(rel, sizeof rel, f)) rel[0] = 0; fclose(f); }
+    quality_tv_init(&g_app.tv, rel);
+    const cJSON *caps = store_get_json("tvCaps");
+    for (int c = 0; c < TVCAP_COUNT; c++) {
+        const cJSON *e = cJSON_GetObjectItemCaseSensitive(caps, TVCAP_NAMES[c]);
+        const cJSON *ok = cJSON_GetArrayItem(e, 0), *fail = cJSON_GetArrayItem(e, 1);
+        if (cJSON_IsNumber(ok)) g_app.tv.ok[c] = ok->valueint;
+        if (cJSON_IsNumber(fail)) g_app.tv.fail[c] = fail->valueint;
+    }
+    LOGI("tv profile: webOS %d; dts %s, truehd %s, av1 %s, dv %s", g_app.tv.webos_major,
+         quality_cap_ok(&g_app.tv, TVCAP_DTS) ? "ok" : "avoid", quality_cap_ok(&g_app.tv, TVCAP_TRUEHD) ? "ok" : "avoid",
+         quality_cap_ok(&g_app.tv, TVCAP_AV1) ? "ok" : "avoid", quality_cap_ok(&g_app.tv, TVCAP_DV) ? "ok" : "avoid");
+}
+
+void app_tv_learn(unsigned needs, int worked)
+{
+    if (!needs) return;
+    quality_tv_learn(&g_app.tv, needs, worked);
+    cJSON *caps = cJSON_CreateObject();
+    for (int c = 0; c < TVCAP_COUNT; c++) {
+        cJSON *pair = cJSON_AddArrayToObject(caps, TVCAP_NAMES[c]);
+        cJSON_AddItemToArray(pair, cJSON_CreateNumber(g_app.tv.ok[c]));
+        cJSON_AddItemToArray(pair, cJSON_CreateNumber(g_app.tv.fail[c]));
+    }
+    store_set_json("tvCaps", caps);
+    store_save();
+    char what[128] = "";
+    for (int c = 0; c < TVCAP_COUNT; c++) if (needs & (1u << c)) snprintf(what + strlen(what), sizeof what - strlen(what), "%s%s", what[0] ? "," : "", TVCAP_NAMES[c]);
+    LOGI("tv profile: %s %s", what, worked ? "played fine" : "failed");
+}
+
 static void load_prefs(void)
 {
     g_app.fx_setting = (FxLevel)store_get_int("fx", FX_AUTO);
@@ -550,6 +587,11 @@ static void load_prefs(void)
     if (g_app.clock_mode < 0 || g_app.clock_mode > 2) g_app.clock_mode = 0;
     g_app.oled = store_get_int("oled", 0);
     g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
+    g_app.quality_mode = store_get_int("qualityMode", QUAL_ADDON_ORDER);
+    if (g_app.quality_mode < 0 || g_app.quality_mode >= QUAL_MODE_COUNT) g_app.quality_mode = QUAL_ADDON_ORDER;
+    g_app.res_cap = store_get_int("resCap", 2160);
+    g_app.auto_recommended = store_get_int("autoRecommended", 0);
+    tv_profile_load();
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
 }
@@ -566,6 +608,9 @@ void app_save_prefs(void)
     store_set_int("clockMode", g_app.clock_mode);
     store_set_int("oled", g_app.oled);
     store_set_int("ambientMinutes", g_app.ambient_minutes);
+    store_set_int("qualityMode", g_app.quality_mode);
+    store_set_int("resCap", g_app.res_cap);
+    store_set_int("autoRecommended", g_app.auto_recommended);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();

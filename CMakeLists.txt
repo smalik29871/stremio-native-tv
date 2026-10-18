@@ -24,6 +24,7 @@ add_library(sntv_core STATIC
   src/store.c
   src/subs.c
   src/skip.c
+  src/quality.c
   src/lang.c
   src/trackmem.c
   src/addon/addon.c
@@ -101,4 +102,7 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   add_executable(test_prefs tests/test_prefs.c)
   target_link_libraries(test_prefs PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME language_and_track_memory COMMAND test_prefs)
+  add_executable(test_quality tests/test_quality.c)
+  target_link_libraries(test_quality PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME source_quality COMMAND test_quality)
 endif()

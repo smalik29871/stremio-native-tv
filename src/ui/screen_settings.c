@@ -14,7 +14,7 @@
 #include <string.h>
 
 enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_AUTOPLAY, IT_SKIP,
-       IT_CLOCK, IT_UI_HEADER, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR, IT_DIAG, IT_SETUP, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
+       IT_CLOCK, IT_QUALITY, IT_RES_CAP, IT_AUTO_REC, IT_UI_HEADER, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR, IT_DIAG, IT_SETUP, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
 #define ROW_H 88.0f
 #define COL_X 420.0f
@@ -139,6 +139,13 @@ static void draw(Screen *s)
             draw_row(y, ICON_PLAY, "Clock and end time in the player", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0);
             break;
         }
+        case IT_QUALITY: draw_row(y, ICON_SWAP, "Sort sources by", QUAL_MODE_NAMES[g_app.quality_mode], foc, KIND_CHOICE, 0); break;
+        case IT_RES_CAP: {
+            const char *v = g_app.res_cap <= 720 ? "Up to 720p" : g_app.res_cap <= 1080 ? "Up to 1080p" : "Up to 4K";
+            draw_row(y, ICON_STAR, "Resolution for recommendations", v, foc, KIND_CHOICE, 0);
+            break;
+        }
+        case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_UI_HEADER: draw_row(y, ICON_HOME, "INTERFACE", NULL, 0, KIND_HEADER, 0); break;
         case IT_FX:
             snprintf(v, sizeof v, "%s%s", FX_NAMES[g_app.fx_setting], g_app.fx_setting == FX_AUTO ? (g_app.fx_light ? " (Light)" : g_app.frames_measured >= 240 ? " (Full)" : "") : "");
@@ -225,6 +232,14 @@ static void adjust(Settings *st, int dir)
     case IT_SKIP: g_app.skip_mode = (g_app.skip_mode + dir + 3) % 3; break;
     case IT_SUBS_WHEN: g_app.subs_always = !g_app.subs_always; break;
     case IT_CLOCK: g_app.clock_mode = (g_app.clock_mode + dir + 3) % 3; break;
+    case IT_QUALITY: g_app.quality_mode = (g_app.quality_mode + dir + QUAL_MODE_COUNT) % QUAL_MODE_COUNT; break;
+    case IT_RES_CAP: {
+        static const int CAPS[] = { 2160, 1080, 720 };
+        int k = g_app.res_cap <= 720 ? 2 : g_app.res_cap <= 1080 ? 1 : 0;
+        g_app.res_cap = CAPS[(k + dir + 3) % 3];
+        break;
+    }
+    case IT_AUTO_REC: g_app.auto_recommended = !g_app.auto_recommended; break;
     case IT_OLED: g_app.oled = !g_app.oled; break;
     case IT_AMBIENT: {
         static const int STEPS[] = { 0, 2, 5, 10, 20 };
@@ -268,7 +283,7 @@ static int key(Screen *s, KeyAction a)
         else if (st->focus == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (st->focus == IT_DIAG) app_push(screen_diagnostics_create(0));
         else if (st->focus == IT_SETUP) app_push(screen_welcome_create());
-        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_SUBS_WHEN || st->focus == IT_CLOCK || st->focus == IT_OLED || st->focus == IT_AMBIENT || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_SUBS_STYLE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
+        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_SUBS_WHEN || st->focus == IT_CLOCK || st->focus == IT_QUALITY || st->focus == IT_RES_CAP || st->focus == IT_AUTO_REC || st->focus == IT_OLED || st->focus == IT_AMBIENT || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_SUBS_STYLE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
         else if (st->focus >= IT_FIXED_COUNT) {
             int idx = st->focus - IT_FIXED_COUNT;
             if (st->confirm_remove == idx) { app_remove_addon(idx); st->confirm_remove = -1; if (st->focus >= item_count()) st->focus = item_count() - 1; }
