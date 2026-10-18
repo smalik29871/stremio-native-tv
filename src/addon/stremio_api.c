@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 const char *const STREMIO_DEFAULT_ADDON_URLS[] = {
     STREMIO_CINEMETA_URL,
@@ -14,7 +15,8 @@ const char *const STREMIO_DEFAULT_ADDON_URLS[] = {
 static const char *url_for(const char *path)
 {
     static char buf[256];
-    snprintf(buf, sizeof buf, "%s/api/%s", STREMIO_API_URL, path);
+    const char *base = getenv("SNTV_API_URL");   /* tests: the fake server */
+    snprintf(buf, sizeof buf, "%s/api/%s", base && *base ? base : STREMIO_API_URL, path);
     return buf;
 }
 const char *api_url_login(void)                { return url_for("login"); }
@@ -130,6 +132,20 @@ char *api_body_datastore_get(const char *auth_key, const char *collection)
     return finish(o);
 }
 
+/* "2024-05-02T20:30:00.000Z": stremio-core reads _ctime, _mtime and lastWatched only as
+ * ISO 8601 strings; an item with numbers there is unreadable to the other Stremio apps. */
+static void add_time(cJSON *o, const char *key, int64_t ms)
+{
+    if (ms <= 0) { cJSON_AddNullToObject(o, key); return; }
+    time_t sec = (time_t)(ms / 1000);
+    struct tm tm;
+    char buf[64];
+    gmtime_r(&sec, &tm);
+    snprintf(buf, sizeof buf, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+             tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(ms % 1000));
+    cJSON_AddStringToObject(o, key, buf);
+}
+
 cJSON *library_item_to_json(const LibraryItem *it)
 {
     cJSON *o = cJSON_CreateObject();
@@ -140,13 +156,10 @@ cJSON *library_item_to_json(const LibraryItem *it)
     cJSON_AddStringToObject(o, "posterShape", it->poster_shape ? it->poster_shape : "poster");
     cJSON_AddBoolToObject(o, "removed", it->removed);
     cJSON_AddBoolToObject(o, "temp", it->temp);
-    char ts[40];
-    if (it->ctime_ms) { snprintf(ts, sizeof ts, "%lld", (long long)it->ctime_ms); cJSON_AddRawToObject(o, "_ctime", ts); }
-    snprintf(ts, sizeof ts, "%lld", (long long)it->mtime_ms);
-    cJSON_AddRawToObject(o, "_mtime", ts);
+    add_time(o, "_ctime", it->ctime_ms);
+    add_time(o, "_mtime", it->mtime_ms > 0 ? it->mtime_ms : (int64_t)time(NULL) * 1000);
     cJSON *st = cJSON_AddObjectToObject(o, "state");
-    if (it->last_watched_ms) { snprintf(ts, sizeof ts, "%lld", (long long)it->last_watched_ms); cJSON_AddRawToObject(st, "lastWatched", ts); }
-    else cJSON_AddNullToObject(st, "lastWatched");
+    add_time(st, "lastWatched", it->last_watched_ms);
     cJSON_AddNumberToObject(st, "timeWatched", (double)it->time_watched);
     cJSON_AddNumberToObject(st, "timeOffset", (double)it->time_offset);
     cJSON_AddNumberToObject(st, "overallTimeWatched", (double)it->overall_time_watched);

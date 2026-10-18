@@ -29,6 +29,7 @@ typedef struct HttpOptions {
     long timeout_s;         /* whole-transfer timeout */
     int no_json_accept;     /* don't ask for application/json */
     int background;         /* artwork: waits behind API requests, newest first */
+    int deliver;            /* must reach the server: http_shutdown waits for it (watch progress) */
     const char *post_json;  /* POST this body (copied at enqueue time) */
     const char *bearer;     /* Authorization: Bearer <token> (copied) */
     const char *headers;    /* more request headers, "Name: value" lines joined by \n (copied);

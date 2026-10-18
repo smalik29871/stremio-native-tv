@@ -10,11 +10,11 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.8.0.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.8.1.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 105 scripted scenarios against a fake addon. See *What is verified* below.
+> 113 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -215,10 +215,11 @@ Play/Pause brings it back, Stop closes it).
   Streams that only carry an `infoHash` show a *needs server* badge until you set the
   **Streaming server** URL in Settings > Account (any computer on your LAN running Stremio
   or the service, usually port 11470). Debrid addons return plain HTTPS URLs and need nothing.
-- **YouTube links** for break recordings are handled on the TV: it asks YouTube for the
-  video as YouTube's own TV app does (that client needs no proof-of-origin token), solves
-  the player's URL challenges with yt-dlp's solver (`assets/yt`) in the bundled QuickJS
-  engine, and downloads the audio (or a 360p video) once. The first link takes up to a
+- **YouTube links** for break recordings are handled on the TV, the way yt-dlp does it:
+  with a visitor id from the video's page, it asks as YouTube's visionOS app (no player
+  script, no proof-of-origin token), then as YouTube's TV app or embedded player, whose
+  URL challenges are solved by yt-dlp's solver (`assets/yt`) in the bundled QuickJS
+  engine. It downloads the audio (or a 360p video) once. The first link takes up to a
   minute while the player script is prepared; later ones only download. When YouTube
   changes and the bundled solver stops working, the TV fetches the newest solver from
   yt-dlp's releases on GitHub and tries again; it runs sandboxed, with no file or network
@@ -289,7 +290,7 @@ from the channel.
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (105 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (113 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |

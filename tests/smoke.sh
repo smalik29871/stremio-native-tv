@@ -8,6 +8,8 @@ BUILD="${1:-$ROOT/build}"
 OUT="$ROOT/tests/out"
 mkdir -p "$OUT"
 PORT=8765
+export FAKE_PUT_LOG="$OUT/datastore_put.log" FAKE_LIBRARY="$ROOT/tests/fixtures/library.json"   # the fake Stremio account
+rm -f "$FAKE_PUT_LOG"
 python3 -I "$ROOT/tests/fake_addon.py" $PORT & SRV=$!
 trap 'kill $SRV 2>/dev/null || true' EXIT
 sleep 0.5
@@ -128,12 +130,30 @@ run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
+# progress reaches the account as the app closes mid-film, dated the way stremio-core reads it
+run progress_sync 400 "right,ok,down,down,ok,ok" HOME="$(home_with sync '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
+python3 -I - "$FAKE_PUT_LOG" <<'PY' || { echo "progress did not reach the account"; exit 1; }
+import json, re, sys
+puts = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+item = puts[-1]["changes"][0]
+iso = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+assert iso.match(item["_mtime"]) and iso.match(item["state"]["lastWatched"]), item
+print("account got", item["_id"], "at", item["state"]["timeOffset"], "ms")
+PY
+# a position the account never got (the TV went off) beats the account's older one, and is sent again
+H="$(home_with sync2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')"
+sed 's/"_mtime": 1714557600000/"_mtime": "2026-10-18T20:00:00.000Z"/; s/"timeOffset": 1500000/"timeOffset": 2000000/' "$ROOT/tests/fixtures/library.json" > "$H/.local/share/stremio/nativetv/library.json"
+run progress_merge 200 "right" HOME="$H" SNTV_API_URL="http://127.0.0.1:$PORT"
+grep -q '"_id":"tt0903747".*"timeOffset":2000000' "$FAKE_PUT_LOG" || { echo "newer local progress was not kept and resent"; exit 1; }
 run break_video 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:8765"}')" SNTV_NOW=12:00
 # a YouTube link typed into Settings is saved by the TV itself (QuickJS runs the solver), then plays at the break with no helper
 run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
-grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
+grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
 run break_yt_play 300 "right,ok,down,down,ok,ok" HOME="$OUT/home_brkyt" SNTV_NOW=12:00
 grep -q "break: playing http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_play.log" || { echo "saved YouTube recording not played"; grep break "$OUT/break_yt_play.log"; exit 1; }
+# YouTube's bot check on the visionOS client: the TV client, with the solver, takes over
+run break_yt_tv 400 "right,ok,down,down,ok,ok" HOME="$(home_with brkyt2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0,"breakAudio":"https://youtu.be/tvOnlyVid01"}')" SNTV_NOW=12:00
+grep -q "itag 140 from the TVHTML5 client" "$OUT/break_yt_tv.log" && grep -q "ready as yt-tvOnlyVid01-audio.m4a" "$OUT/break_yt_tv.log" || { echo "TV client fallback failed"; grep youtube "$OUT/break_yt_tv.log"; exit 1; }
 # hold OK: a short press still opens the title; the hint fills, then the release opens the sheet
 HOLD="wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait"
 run options_sheet 400 "right,right,hold,$HOLD,release"

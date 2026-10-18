@@ -452,6 +452,7 @@ static void on_youtube_saved(const char *name, const char *error, void *user)
     char *url = user;
     if (name) app_toast("Ready: saved on the TV, it plays at each break (offline too)");
     else if (g_app.thumb_server && *g_app.thumb_server) { app_toast("YouTube said no to the TV (%.80s). Trying the home helper\xE2\x80\xA6", error); warm_media(url); }
+    else if (strstr(error, "not a bot")) app_toast("YouTube wants a sign-in from this TV right now. Send the file from your phone (scan the code), or try again later");
     else app_toast("Could not save it from YouTube: %.120s", error);
     free(url);
 }

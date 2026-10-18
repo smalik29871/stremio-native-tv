@@ -158,7 +158,10 @@ static void test_api(void)
     CHECK(chg && STREQ(cJSON_GetObjectItem(chg, "_id")->valuestring, "tt0903747"));
     cJSON *st = cJSON_GetObjectItem(chg, "state");
     CHECK(st && cJSON_GetObjectItem(st, "timeOffset")->valuedouble == 1500000);
-    CHECK(cJSON_GetObjectItem(st, "lastWatched")->valuedouble == 1714681800000.0);
+    /* stremio-core reads these only as ISO 8601 strings */
+    CHECK(STREQ(cJSON_GetObjectItem(st, "lastWatched")->valuestring, "2024-05-02T20:30:00.000Z"));
+    CHECK(STREQ(cJSON_GetObjectItem(chg, "_mtime")->valuestring, "2024-05-01T10:00:00.000Z"));
+    CHECK(STREQ(cJSON_GetObjectItem(chg, "_ctime")->valuestring, "2024-05-01T10:00:00.000Z"));
     cJSON_Delete(o);
     free(body);
     library_items_free(items, n);

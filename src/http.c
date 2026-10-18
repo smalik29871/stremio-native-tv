@@ -394,9 +394,26 @@ int http_init(void)
     return 0;
 }
 
+/* A queued or running request marked `deliver` (watch progress written as the player
+ * closed) is still owed to the server. */
+static int deliveries_owed(void)
+{
+    for (Job *j = g_pending; j; j = j->next) if (j->opt.deliver && !j->cancelled) return 1;
+    for (Job *j = g_inflight; j; j = j->next) if (j->opt.deliver && !j->cancelled) return 1;
+    return 0;
+}
+
 void http_shutdown(void)
 {
     if (!g_qlock) return;
+    /* Artwork can go; progress must not: give it up to 4 s before the workers stop. */
+    SDL_LockMutex(g_qlock);
+    for (Job *j = g_artwork; j; j = j->next) j->cancelled = 1;
+    Uint32 t0 = SDL_GetTicks();
+    int owed;
+    while ((owed = deliveries_owed()) && SDL_GetTicks() - t0 < 4000) { SDL_UnlockMutex(g_qlock); SDL_Delay(20); SDL_LockMutex(g_qlock); }
+    SDL_UnlockMutex(g_qlock);
+    if (SDL_GetTicks() - t0 > 20) LOGI("http: waited %u ms for progress to reach the server%s", SDL_GetTicks() - t0, owed ? " (gave up)" : "");
     SDL_LockMutex(g_qlock);
     g_quit = 1;
     SDL_CondBroadcast(g_qcond);

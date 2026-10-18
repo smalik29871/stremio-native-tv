@@ -13,11 +13,23 @@
 #include <pthread.h>
 #include <dirent.h>
 
-/* YouTube's TV app (Cobalt): its player responses need no proof-of-origin token, only
- * the player's signature and "n" challenges solved. Values from yt-dlp 2026.08.19; the
- * live ones come from the /tv page when it can be read. */
-#define TV_CLIENT_VERSION "7.20260707.07.00"
-static const char *const UA_TV = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)";
+/* The YouTube apps the TV pretends to be, in order (values from yt-dlp 2026.08.19). The
+ * visionOS app is yt-dlp's default: its formats need neither the player script nor a
+ * proof-of-origin token. YouTube's TV app (Cobalt) is the fallback: no token either, but
+ * the player's signature and "n" challenges must be solved. */
+typedef struct {
+    const char *name, *version, *ua, *make, *model, *os, *os_version;
+    int id, needs_js;
+    int embedded;   /* asks as a player embedded on another site */
+} Client;
+static const Client CLIENTS[] = {
+    { "VISIONOS", "1.02", "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+      "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", 101, 0, 0 },
+    { "TVHTML5", "7.20260707.07.00", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
+      NULL, NULL, NULL, NULL, 7, 1, 0 },
+    { "WEB_EMBEDDED_PLAYER", "2.20260708.00.00", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+      NULL, NULL, NULL, NULL, 56, 1, 1 },
+};
 enum { CHUNK = 4 << 20, MAX_BYTES = 200 << 20, MAX_SECONDS = 3600 };
 
 static const char *base_url(void)
@@ -544,6 +556,56 @@ static int download(const char *url, const char *headers, const char *path, uint
     return 1;
 }
 
+/* The client's view of the video, or NULL with YouTube's reason (playability) in why. */
+static cJSON *player_request(const Client *c, const char *video_id, const char *visitor, int sts, char *why, size_t wn)
+{
+    cJSON *req = cJSON_CreateObject();
+    cJSON *cl = cJSON_AddObjectToObject(cJSON_AddObjectToObject(req, "context"), "client");
+    cJSON_AddStringToObject(cl, "clientName", c->name);
+    cJSON_AddStringToObject(cl, "clientVersion", c->version);
+    cJSON_AddStringToObject(cl, "userAgent", c->ua);
+    if (c->make) {
+        cJSON_AddStringToObject(cl, "deviceMake", c->make);
+        cJSON_AddStringToObject(cl, "deviceModel", c->model);
+        cJSON_AddStringToObject(cl, "osName", c->os);
+        cJSON_AddStringToObject(cl, "osVersion", c->os_version);
+    }
+    cJSON_AddStringToObject(cl, "hl", "en");
+    cJSON_AddStringToObject(cl, "timeZone", "UTC");
+    cJSON_AddNumberToObject(cl, "utcOffsetMinutes", 0);
+    if (visitor) cJSON_AddStringToObject(cl, "visitorData", visitor);
+    if (c->embedded) cJSON_AddStringToObject(cJSON_AddObjectToObject(cJSON_GetObjectItemCaseSensitive(req, "context"), "thirdParty"), "embedUrl", "https://www.reddit.com/");
+    cJSON_AddStringToObject(req, "videoId", video_id);
+    cJSON *cpc = cJSON_AddObjectToObject(cJSON_AddObjectToObject(req, "playbackContext"), "contentPlaybackContext");
+    cJSON_AddStringToObject(cpc, "html5Preference", "HTML5_PREF_WANTS");
+    if (sts) cJSON_AddNumberToObject(cpc, "signatureTimestamp", sts);
+    cJSON_AddTrueToObject(req, "contentCheckOk");
+    cJSON_AddTrueToObject(req, "racyCheckOk");
+    char *body = cJSON_PrintUnformatted(req);
+    cJSON_Delete(req);
+    char url[300], headers[800];
+    snprintf(url, sizeof url, "%s/youtubei/v1/player?prettyPrint=false", base_url());
+    snprintf(headers, sizeof headers, "User-Agent: %s\nX-YouTube-Client-Name: %d\nX-YouTube-Client-Version: %s\nOrigin: https://www.youtube.com%s%s",
+             c->ua, c->id, c->version, visitor ? "\nX-Goog-Visitor-Id: " : "", visitor ? visitor : "");
+    HttpResponse pr;
+    HttpOptions po = { .post_json = body, .timeout_s = 30, .headers = headers };
+    http_request_ex(url, &po, &pr);
+    free(body);
+    cJSON *resp = pr.status == 200 ? cJSON_Parse(pr.body) : NULL;
+    if (!resp) snprintf(why, wn, "YouTube did not answer (%.200s)", pr.status ? "HTTP error" : pr.error);
+    http_response_free(&pr);
+    const cJSON *play = cJSON_GetObjectItemCaseSensitive(resp, "playabilityStatus");
+    const cJSON *status = cJSON_GetObjectItemCaseSensitive(play, "status");
+    if (resp && (!cJSON_IsString(status) || strcmp(status->valuestring, "OK"))) {
+        const cJSON *reason = cJSON_GetObjectItemCaseSensitive(play, "reason");
+        snprintf(why, wn, "YouTube: %.200s", cJSON_IsString(reason) ? reason->valuestring : cJSON_IsString(status) ? status->valuestring : "not playable");
+        cJSON_Delete(resp);
+        resp = NULL;
+    }
+    LOGI("youtube: %s client: %s", c->name, resp ? "OK" : why);
+    return resp;
+}
+
 static void save_task(HttpResponse *r, void *arg)
 {
     Save *s = arg;
@@ -552,89 +614,63 @@ static void save_task(HttpResponse *r, void *arg)
     snprintf(dir, sizeof dir, "%s/yt", store_dir()); mkdir(dir, 0755);
     snprintf(dir, sizeof dir, "%s/sounds", store_dir()); mkdir(dir, 0755);
 
-    /* 1. the TV app's config: client version and visitor id */
+    /* 1. the watch page, as a browser opens it: a visitor id (YouTube distrusts requests
+     *    without one) and the current player version */
     HttpResponse page;
-    snprintf(url, sizeof url, "%s/tv", base);
-    snprintf(headers, sizeof headers, "User-Agent: %s", UA_TV);
-    if (!get(url, headers, 20, &page)) LOGW("youtube: the TV page answered %ld %s", page.status, page.status ? "" : page.error);
+    snprintf(url, sizeof url, "%s/watch?v=%s&bpctr=9999999999&has_verified=1", base, s->id);
+    snprintf(headers, sizeof headers, "User-Agent: %s\nAccept-Language: en-US,en;q=0.9\nCookie: SOCS=CAI; PREF=hl=en&tz=UTC", CLIENTS[2].ua);
+    if (!get(url, headers, 20, &page)) LOGW("youtube: the watch page answered %ld %s", page.status, page.status ? "" : page.error);
     cJSON *cfg = page.body ? page_config(page.body) : cJSON_CreateObject();
-    char player_id[32] = "";
+    char player_id[32] = "", visitor[256] = "";
     if (page.body) player_id_in(page.body, player_id, sizeof player_id);
     http_response_free(&page);
-    cJSON *context = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(cfg, "INNERTUBE_CONTEXT"), 1);
-    if (!cJSON_IsObject(context)) {
-        cJSON_Delete(context);
-        context = cJSON_CreateObject();
-        cJSON *c = cJSON_AddObjectToObject(context, "client");
-        cJSON_AddStringToObject(c, "clientName", "TVHTML5");
-        cJSON_AddStringToObject(c, "clientVersion", TV_CLIENT_VERSION);
-        cJSON_AddStringToObject(c, "userAgent", UA_TV);
-        cJSON_AddStringToObject(c, "hl", "en");
-    }
-    cJSON *client = cJSON_GetObjectItemCaseSensitive(context, "client");
-    cJSON_DeleteItemFromObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(client, "configInfo"), "appInstallData");
-    const cJSON *ver = cJSON_GetObjectItemCaseSensitive(client, "clientVersion");
-    const cJSON *visitor = cJSON_GetObjectItemCaseSensitive(cfg, "VISITOR_DATA");
-    if (!cJSON_IsString(visitor)) visitor = cJSON_GetObjectItemCaseSensitive(client, "visitorData");
-    snprintf(headers, sizeof headers, "User-Agent: %s\nX-YouTube-Client-Name: 7\nX-YouTube-Client-Version: %s\nOrigin: https://www.youtube.com%s%s",
-             UA_TV, cJSON_IsString(ver) ? ver->valuestring : TV_CLIENT_VERSION,
-             cJSON_IsString(visitor) ? "\nX-Goog-Visitor-Id: " : "", cJSON_IsString(visitor) ? visitor->valuestring : "");
+    const cJSON *vd = cJSON_GetObjectItemCaseSensitive(cfg, "VISITOR_DATA");
+    if (!cJSON_IsString(vd)) vd = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cfg, "INNERTUBE_CONTEXT"), "client"), "visitorData");
+    if (cJSON_IsString(vd)) snprintf(visitor, sizeof visitor, "%s", vd->valuestring);
     cJSON_Delete(cfg);
+    if (!visitor[0]) LOGW("youtube: no visitor id from the watch page");
 
-    /* 2. the player script: its signature timestamp, and the challenges later */
-    if (!player_id[0]) {
-        HttpResponse ifr;
-        snprintf(url, sizeof url, "%s/iframe_api", base);
-        if (get(url, NULL, 20, &ifr)) player_id_in(ifr.body, player_id, sizeof player_id);
-        else LOGW("youtube: the iframe API answered %ld %s", ifr.status, ifr.status ? "" : ifr.error);
-        http_response_free(&ifr);
+    /* 2. each client in turn until one may play it */
+    const Client *c = NULL;
+    cJSON *resp = NULL;
+    char *player_js = NULL, why[300] = "";
+    for (size_t i = 0; i < sizeof CLIENTS / sizeof *CLIENTS && !resp; i++) {
+        c = &CLIENTS[i];
+        int sts = 0;
+        if (c->needs_js) {   /* the signature timestamp, from the player script (kept per version) */
+            if (!player_id[0]) {
+                HttpResponse ifr;
+                snprintf(url, sizeof url, "%s/iframe_api", base);
+                if (get(url, NULL, 20, &ifr)) player_id_in(ifr.body, player_id, sizeof player_id);
+                http_response_free(&ifr);
+            }
+            if (!player_id[0]) { if (!why[0]) snprintf(why, sizeof why, "YouTube's player version was not found"); continue; }
+            char sts_path[600];
+            snprintf(sts_path, sizeof sts_path, "%s/yt/%s.sts", store_dir(), player_id);
+            char *sts_text = read_file(sts_path, NULL);
+            sts = sts_text ? atoi(sts_text) : 0;
+            free(sts_text);
+            if (!sts && (player_js || (player_js = get_player(player_id)))) {
+                sts = signature_timestamp(player_js);
+                char t[16]; snprintf(t, sizeof t, "%d", sts);
+                write_file(sts_path, t, strlen(t));
+            }
+        }
+        char this_why[300] = "";
+        resp = player_request(c, s->id, visitor[0] ? visitor : NULL, sts, this_why, sizeof this_why);
+        if (!why[0]) snprintf(why, sizeof why, "%s", this_why);   /* the first refusal says the most */
+        if (resp) {
+            const cJSON *len = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
+            if (cJSON_IsString(len) && atoi(len->valuestring) > MAX_SECONDS) { fail(r, "it is longer than an hour%s", ""); cJSON_Delete(resp); free(player_js); return; }
+            if (!pick_format(cJSON_GetObjectItemCaseSensitive(resp, "streamingData"), s->video).fmt) {
+                LOGW("youtube: %s client offered no playable format", c->name);
+                cJSON_Delete(resp); resp = NULL;
+            }
+        }
     }
-    if (!player_id[0]) { cJSON_Delete(context); fail(r, "YouTube's player version was not found%s", ""); return; }
-    char *player_js = NULL;
-    char sts_path[600];
-    snprintf(sts_path, sizeof sts_path, "%s/yt/%s.sts", store_dir(), player_id);
-    char *sts_text = read_file(sts_path, NULL);
-    int sts = sts_text ? atoi(sts_text) : 0;
-    free(sts_text);
-    if (!sts) {
-        if (!(player_js = get_player(player_id))) { cJSON_Delete(context); fail(r, "YouTube's player could not be loaded%s", ""); return; }
-        sts = signature_timestamp(player_js);
-        char t[16]; snprintf(t, sizeof t, "%d", sts);
-        write_file(sts_path, t, strlen(t));
-        LOGI("youtube: signature timestamp %d", sts);
-    }
-
-    /* 3. the video's formats, as the TV app asks for them */
-    cJSON *req = cJSON_CreateObject();
-    cJSON_AddItemToObject(req, "context", context);
-    cJSON_AddStringToObject(req, "videoId", s->id);
-    cJSON *cpc = cJSON_AddObjectToObject(cJSON_AddObjectToObject(req, "playbackContext"), "contentPlaybackContext");
-    cJSON_AddStringToObject(cpc, "html5Preference", "HTML5_PREF_WANTS");
-    if (sts) cJSON_AddNumberToObject(cpc, "signatureTimestamp", sts);
-    cJSON_AddTrueToObject(req, "contentCheckOk");
-    cJSON_AddTrueToObject(req, "racyCheckOk");
-    char *body = cJSON_PrintUnformatted(req);
-    cJSON_Delete(req);
-    HttpResponse pr;
-    snprintf(url, sizeof url, "%s/youtubei/v1/player?prettyPrint=false", base);
-    HttpOptions po = { .post_json = body, .timeout_s = 30, .headers = headers };
-    http_request_ex(url, &po, &pr);
-    free(body);
-    cJSON *resp = pr.status == 200 ? cJSON_Parse(pr.body) : NULL;
-    if (!resp) { fail(r, "YouTube did not answer (%.200s)", pr.status ? "HTTP error" : pr.error); LOGW("youtube: player request %ld", pr.status); http_response_free(&pr); free(player_js); return; }
-    http_response_free(&pr);
-    const cJSON *play = cJSON_GetObjectItemCaseSensitive(resp, "playabilityStatus");
-    const cJSON *status = cJSON_GetObjectItemCaseSensitive(play, "status");
-    if (!cJSON_IsString(status) || strcmp(status->valuestring, "OK")) {
-        const cJSON *why = cJSON_GetObjectItemCaseSensitive(play, "reason");
-        fail(r, "YouTube: %s", cJSON_IsString(why) ? why->valuestring : cJSON_IsString(status) ? status->valuestring : "not playable");
-        cJSON_Delete(resp); free(player_js); return;
-    }
+    if (!resp) { fail(r, "%.250s", why[0] ? why : "YouTube offered no playable format"); free(player_js); return; }
     const cJSON *details = cJSON_GetObjectItemCaseSensitive(resp, "videoDetails");
-    const cJSON *len = cJSON_GetObjectItemCaseSensitive(details, "lengthSeconds");
-    if (cJSON_IsString(len) && atoi(len->valuestring) > MAX_SECONDS) { fail(r, "it is longer than an hour%s", ""); cJSON_Delete(resp); free(player_js); return; }
     Pick p = pick_format(cJSON_GetObjectItemCaseSensitive(resp, "streamingData"), s->video);
-    if (!p.fmt) { fail(r, "YouTube offered no playable format%s", ""); cJSON_Delete(resp); free(player_js); return; }
 
     /* 4. the format's URL: a plain one, or a signature cipher; both carry the n challenge */
     const cJSON *plain = cJSON_GetObjectItemCaseSensitive(p.fmt, "url");
@@ -643,12 +679,12 @@ static void save_task(HttpResponse *r, void *arg)
     char *sig = cJSON_IsString(cipher) ? param(cipher->valuestring, "s") : NULL;
     char *sp = cJSON_IsString(cipher) ? param(cipher->valuestring, "sp") : NULL;
     const char *q = media ? strchr(media, '?') : NULL;
-    char *n = q ? param(q + 1, "n") : NULL;
+    char *n = q && c->needs_js ? param(q + 1, "n") : NULL;   /* other clients' URLs play as they are */
     const cJSON *clen = cJSON_GetObjectItemCaseSensitive(p.fmt, "contentLength");
     uint64_t expect = cJSON_IsString(clen) ? strtoull(clen->valuestring, NULL, 10) : 0;
     const cJSON *title = cJSON_GetObjectItemCaseSensitive(details, "title");
-    LOGI("youtube: %s \"%.80s\", itag %d%s%s", s->id, cJSON_IsString(title) ? title->valuestring : "",
-         itag(p.fmt),
+    LOGI("youtube: %s \"%.80s\", itag %d from the %s client%s%s", s->id, cJSON_IsString(title) ? title->valuestring : "",
+         itag(p.fmt), c->name,
          sig ? ", ciphered" : "", n ? ", n challenge" : "");
     cJSON_Delete(resp);
     int ok = media != NULL;
@@ -679,7 +715,7 @@ static void save_task(HttpResponse *r, void *arg)
         char name[80], path[700];
         file_name(name, sizeof name, s->id, p.video, p.ext);
         snprintf(path, sizeof path, "%s/sounds/%s", store_dir(), name);
-        snprintf(headers, sizeof headers, "User-Agent: %s\nOrigin: https://www.youtube.com", UA_TV);
+        snprintf(headers, sizeof headers, "User-Agent: %s\nOrigin: https://www.youtube.com", c->ua);
         if (download(media, headers, path, expect, r)) { r->status = 200; r->body = strdup(name); r->len = strlen(name); }
     }
     free(media);

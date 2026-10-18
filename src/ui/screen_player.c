@@ -1976,9 +1976,15 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+void player_save_progress(void)
+{
+    if (g_live) report(g_live, 1);
+}
+
 static void destroy(Screen *s)
 {
     Player *p = s->st;
+    report(p, 1);   /* the app closing with the film on: the last position still counts */
     if (g_live == p) g_live = NULL;
     p->gen++;
     video_stop();

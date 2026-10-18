@@ -250,13 +250,16 @@ int main(int argc, char **argv)
                 if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST || e.window.event == SDL_WINDOWEVENT_HIDDEN || e.window.event == SDL_WINDOWEVENT_MINIMIZED)) {
+                player_save_progress();   /* Home or another app: webOS may end us without notice later */
                 video_app_background();
+                app_library_flush(1);
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
                 video_app_foreground();
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
                 mem_emergency();
             } else if (e.type == SDL_APP_WILLENTERBACKGROUND) {
+                player_save_progress();
                 video_app_background();
                 app_library_flush(1);
                 store_save();

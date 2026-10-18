@@ -174,13 +174,28 @@ class H(BaseHTTPRequestHandler):
                                      "notes": "Violence and an assault are implied rather than shown; strong language throughout.",
                                      "similar": ["The Green Mile", "Cool Hand Luke", "Escape from Alcatraz"]})
             return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": answer}}]}).encode())
+        if p == "/api/addonCollectionGet":   # the account's addons: this fake one
+            return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": MANIFEST, "flags": {}}]}}).encode())
+        if p == "/api/datastoreGet":   # the account's library (FAKE_LIBRARY), as the Stremio API answers
+            path = os.environ.get("FAKE_LIBRARY")
+            return self.send(200, open(path, "rb").read() if path else b'{"result":[]}')
+        if p == "/api/datastorePut":   # progress written to the account: kept in FAKE_PUT_LOG for the test to read
+            if os.environ.get("FAKE_PUT_LOG"):
+                with open(os.environ["FAKE_PUT_LOG"], "ab") as f:
+                    f.write(body + b"\n")
+            return self.send(200, b'{"result":{"success":true}}')
         if p.startswith("/yt/youtubei/v1/player"):   # YouTube's TV app asking for a video
             req = json.loads(body.decode("utf-8"))
             client = req.get("context", {}).get("client", {})
-            if self.headers.get("X-YouTube-Client-Name") != "7" or client.get("clientName") != "TVHTML5" or "appInstallData" in json.dumps(client):
-                return self.send(400, b'{"error":"not the TV client"}')
-            if self.headers.get("X-Goog-Visitor-Id") != "vis123" or req["playbackContext"]["contentPlaybackContext"].get("signatureTimestamp") != 20250:
-                return self.send(400, b'{"error":"missing visitor id or signature timestamp"}')
+            known = {"VISIONOS": "101", "TVHTML5": "7", "WEB_EMBEDDED_PLAYER": "56"}
+            if known.get(client.get("clientName")) != self.headers.get("X-YouTube-Client-Name"):
+                return self.send(400, b'{"error":"unknown client"}')
+            if self.headers.get("X-Goog-Visitor-Id") != "vis123" or client.get("visitorData") != "vis123":
+                return self.send(400, b'{"error":"missing visitor id"}')
+            if client["clientName"] == "TVHTML5" and req["playbackContext"]["contentPlaybackContext"].get("signatureTimestamp") != 20250:
+                return self.send(400, b'{"error":"the TV client needs the signature timestamp"}')
+            if client["clientName"] == "VISIONOS" and req["videoId"].startswith("tv"):   # the bot check: the app falls back to the TV client
+                return self.send(200, json.dumps({"playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you\u2019re not a bot"}}).encode())
             media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
             return self.send(200, json.dumps({
                 "playabilityStatus": {"status": "OK"},
@@ -246,9 +261,11 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/media?"):   # the home helper: a page link as a playable file
             with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
                 return self.send(200, f.read(), "video/mp4")
-        if p == "/yt/tv":   # YouTube's TV app page: its config
-            cfg = {"INNERTUBE_CONTEXT": {"client": {"clientName": "TVHTML5", "clientVersion": "7.20990101.00.00", "configInfo": {"appInstallData": "drop-me"}}},
-                   "VISITOR_DATA": "vis123", "PLAYER_JS_URL": "/s/player/abcd1234/tv-player-ias.vflset/tv-player-ias.js"}
+        if p.startswith("/yt/watch?v="):   # the watch page: a visitor id and the player version
+            if "SOCS=CAI" not in (self.headers.get("Cookie") or ""):
+                return self.send(302, b"")   # the consent page, in real life
+            cfg = {"INNERTUBE_CONTEXT": {"client": {"clientName": "WEB", "visitorData": "vis123"}},
+                   "VISITOR_DATA": "vis123", "PLAYER_JS_URL": "/s/player/abcd1234/player_ias.vflset/en_US/base.js"}
             return self.send(200, ("<html><script>ytcfg.set(%s);</script></html>" % json.dumps(cfg)).encode(), "text/html")
         if p == "/yt/s/player/abcd1234/player_ias.vflset/en_US/base.js":
             return self.send(200, b"var yt={signatureTimestamp:20250};", "text/javascript")

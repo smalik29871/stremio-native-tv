@@ -694,6 +694,34 @@ static void free_library(void *parsed)
     free(pl);
 }
 
+static void push_library_item(const LibraryItem *it);
+
+/* The account's library replaces ours, except items changed here later than there:
+ * progress that never reached the server (the TV went off, the app was killed, no
+ * network) stays, and is sent again. */
+static void keep_newer_local(LibraryItem **items, int *n)
+{
+    int resent = 0;
+    for (int i = 0; i < g_app.n_library; i++) {
+        LibraryItem *mine = &g_app.library[i];
+        if (!mine->id || !mine->mtime_ms) continue;
+        LibraryItem *theirs = NULL;
+        for (int k = 0; k < *n; k++) if (!strcmp((*items)[k].id, mine->id)) { theirs = &(*items)[k]; break; }
+        if (theirs && theirs->mtime_ms >= mine->mtime_ms) continue;
+        if (!theirs && !mine->last_watched_ms) continue;   /* only progress is worth bringing back */
+        if (theirs) { LibraryItem t = *theirs; *theirs = *mine; *mine = t; }
+        else {
+            *items = realloc(*items, sizeof **items * (size_t)(*n + 1));
+            theirs = &(*items)[(*n)++];
+            *theirs = *mine;
+            memset(mine, 0, sizeof *mine);
+        }
+        push_library_item(theirs);
+        resent++;
+    }
+    if (resent) LOGI("library: %d item%s newer on this TV than on the account; sent again", resent, resent == 1 ? "" : "s");
+}
+
 static void on_library(HttpResponse *r, void *user)
 {
     (void)user;
@@ -701,6 +729,7 @@ static void on_library(HttpResponse *r, void *user)
     ParsedLibrary *pl = r->parsed;
     if (!pl) return;
     r->parsed = NULL;
+    keep_newer_local(&pl->items, &pl->n);
     set_library(pl->items, pl->n, 0);
     free(pl);
 }
@@ -775,11 +804,19 @@ static LibraryItem *library_upsert(const MetaPreview *meta)
     return it;
 }
 
+static void on_pushed(HttpResponse *r, void *user)
+{
+    (void)user;
+    if (r->status != 200) LOGW("library: the account did not take the change (%ld %s)", r->status, r->status ? "" : r->error);
+}
+
+/* The account's copy: sent at once, and still sent if the app is closing (http_shutdown waits). */
 static void push_library_item(const LibraryItem *it)
 {
     if (!g_app.auth_key) return;
     char *body = api_body_datastore_put(g_app.auth_key, STREMIO_LIBRARY_COLLECTION, it, 1);
-    http_request_async(api_url_datastore_put(), body, NULL, NULL);
+    HttpOptions o = { .post_json = body, .deliver = 1 };
+    http_request_async_ex(api_url_datastore_put(), &o, on_pushed, NULL);
     free(body);
 }
 
@@ -1580,8 +1617,8 @@ void app_init(void)
 void app_shutdown(void)
 {
     app_pip_close();
-    app_library_flush(1);
     while (g_app.depth) { Screen *s = g_app.stack[--g_app.depth]; if (s->destroy) s->destroy(s); }
+    app_library_flush(1);   /* after the player had its last say */
     free_addons();
     library_items_free(g_app.library, g_app.n_library);
     free(g_app.auth_key); free(g_app.user_email); free(g_app.streaming_server);

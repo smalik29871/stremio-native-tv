@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.1
+
+- **Watch progress reaches your account, including when the app closes.** Three
+  problems made other devices (and this TV, after a restart) show an older position:
+  - Closing the app with a film playing never saved the last position, and progress
+    still waiting to be sent was dropped as the app shut down. Now the player saves on
+    the way out, saves again the moment you press Home or switch apps, and the app
+    waits up to 4 s for the account to take it.
+  - The dates were sent as numbers, but the official Stremio apps read `_mtime`,
+    `_ctime` and `lastWatched` only as ISO dates, so they could not use what this TV
+    wrote. They are ISO dates now.
+  - At start the account's library replaced ours wholesale. Now a title changed on
+    this TV later than on the account (the TV was switched off before it could send)
+    keeps this TV's position, which is sent again.
+- **YouTube's "Sign in to confirm you're not a bot".** The TV now asks YouTube the way
+  yt-dlp does today: it first opens the video's page like a browser to get a visitor
+  id (YouTube distrusts requests without one), then asks as YouTube's visionOS app,
+  which needs no player script and no proof-of-origin token. YouTube's TV app and its
+  embedded player follow if that is refused. Diagnostics shows which one answered.
+  When every one of them gets the bot check, the message says so and suggests sending
+  the file from your phone instead.
+
 ## 0.8.0
 
 - **Hold OK on an episode for its own options.** Holding OK on an episode used to open
