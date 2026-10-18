@@ -19,8 +19,7 @@
   card's button reads *Preparing* until then. Opening the control bar starts the fetch.
 - **Snappier**:
   - Baked glyph atlases are cached on disk, so later starts skip the font bake.
-  - A key press wakes the idle loop at once, and no extra sleep follows a swap that
-    already waited for the display.
+  - No extra sleep follows a swap that already waited for the display.
   - Detail opens with the meta Home already fetched (memory, and on disk for an hour).
   - API requests no longer wait behind poster downloads; artwork goes newest first.
   - Posters are read from disk on two decoder threads instead of inside drawing, and
@@ -30,6 +29,85 @@
   - Screen transitions clip the page underneath, and text fitting/wrapping walks
     each string once.
 - See `docs/OVERHAUL.md` for the plan, the performance audit and what comes next.
+
+## 0.6.5
+
+- Cleanup of the 0.6.3 and 0.6.4 code: no behaviour depends on a draw call any more
+  (the *Back online* notice moved to the main loop), memory-saver reasons are named,
+  one flag tracks subtitles picked by hand, and a few stale or misplaced comments are
+  fixed. Matching sources to your audio language no longer uses two-letter codes
+  (" it " and " de " are English words) and is safe for languages outside the alias
+  table. The home helper fetches a page link and its title in one yt-dlp call.
+
+## 0.6.4
+
+- **Your own adhan, dua or bell from your phone.** Settings > Take breaks > Recording at
+  the start (or at the end) shows the phone QR code as before, and the phone page now
+  has *Send a recording from this phone*: pick an MP3, M4A, OGG or WAV and it is stored
+  on the TV (under 40 MB), served to the TV's own player from the TV, and plays at each
+  break even without internet. Direct links still work. YouTube links are refused
+  with an explanation: a native TV app cannot play YouTube pages, and resolving them
+  from the TV is blocked or breaks weekly (the Nuvio developers found the same).
+- **YouTube and other page links for the adhan or a dua.** Paste a YouTube (or
+  SoundCloud, archive.org, Facebook...) link and the home helper (`tools/thumbs`, the
+  same small server as seek previews) fetches it once with yt-dlp, the tool that does on
+  a computer what NewPipe's extractor does on Android: audio as AAC, video as H.264 + AAC
+  up to 720p, which every TV decodes. It is fetched the moment you save it, so the break
+  starts instantly. *Show the video* plays it full screen with the break's countdown in a
+  band below. The Docker image refreshes yt-dlp at every start.
+- **Subtitles when nobody has your language.** When no addon or embedded track offers
+  your preferred language, the player says so once and points to *Translate with AI*;
+  with the new switch in Settings > Audio & subtitles it translates by itself.
+- **Subtitles that will not sync are swapped.** When a file cannot be lined up with a
+  file-matched one, the player tries up to three other files in that language before
+  going back to the first and saying so. Files you pick by hand are never swapped.
+  UTF-16 subtitle files are read correctly.
+- **Smoother everywhere.** Catalog and source replies are parsed and cached on the
+  network threads instead of in a frame, so a 300-source answer or ten rows arriving
+  together no longer stall the picture; replies are handed to the screen within an 8 ms
+  budget per frame, and anything slower is logged with its host for Diagnostics. When
+  idle, the app now wakes the instant a key arrives instead of polling.
+- **Hold OK for more, like Nuvio:** holding OK on any title (Home rows, Explore, Library,
+  Search results, a title page) opens *Mark as watched / not watched*, *Remove from
+  Continue Watching* and Library; Yellow, Menu or Info do the same. A short press still
+  opens the title. Only those screens wait for the release; everywhere else OK acts the
+  instant it is pressed, and a remote that never reports releases keeps instant OK.
+- **From the Nuvio port, made ours:** *From the start*
+  next to Resume; recent searches; sources in your audio language (or MULTI / DUAL)
+  first, with a switch in Settings > Sources; *Autoplay waits for slow addons* (3 s to
+  every addon, 8 s by default); addon notice rows ("Join our Discord") never autoplay;
+  links that failed are sorted last for six hours; in your language, an audio track the
+  TV surely plays (not DTS or TrueHD) is chosen first; a *No internet* pill when nothing
+  gets through; a notice after a crash pointing to that session's log; and a once-a-day
+  check that tells you when a newer version is in the Homebrew Channel.
+
+## 0.6.3
+
+- **Subtitles that fit the file.** The player fingerprints the video the way
+  OpenSubtitles does (its size plus the first and last 64 KB) and asks the subtitle
+  addons for files matched to that exact file; they are listed first and marked
+  *matched to this file*. When you pick any other subtitle, its cue timings are
+  compared with a matched one (same language if there is one, any language otherwise)
+  and the offset is applied by itself: "Subtitles synced to the file (+1.3 s)". The
+  Subtitles menu has an *Auto-sync* row with the status, and Settings > Audio &
+  subtitles has the switch.
+- **AI assistant (optional, your own free key).** Settings > API keys > AI assistant
+  takes a Groq, OpenRouter or Google Gemini key (all have free tiers), or any
+  OpenAI-compatible endpoint such as an Ollama box on your network. It unlocks:
+  *Ask AI* on a title page (a spoiler-free nutshell, who it is for, what a parent
+  should know, three similar titles, cached for a month); describing what you feel
+  like watching in Search ("something funny with robots": the model names titles,
+  your addons find them, marked with a star and listed first); and *Translate to
+  <your language>* in the player's Subtitles menu when nobody offers it, translated
+  in batches around the playhead so it starts within seconds. Nothing is sent
+  anywhere until you turn it on, and the key goes in from your phone like the others.
+- **Memory saver that watches the TV.** Automatic mode no longer just looks at the
+  RAM size at start: the app samples free memory and its own footprint every few
+  seconds, turns the saver on after ten seconds of tight memory (fewer rows and
+  posters, artwork budget cut to 32 MB, then 16 MB if it stays tight), answers the
+  system's low-memory warning at once, and turns it off again after two minutes of
+  room. Settings > Interface says why it is on; About shows the TV's memory.
+- README rewritten around what the app does today, with fresh screenshots.
 
 ## 0.6.2
 

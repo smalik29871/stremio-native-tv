@@ -1,4 +1,5 @@
 #include "breaks.h"
+#include "phone.h"
 #include "app.h"
 #include "audio.h"
 #include "http.h"
@@ -12,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 const char *const BRK_SCHED_NAMES[BRK_SCHED_COUNT] = {
@@ -231,8 +233,8 @@ void breaks_draw_banner(void)
     float tw = font_measure(text, FONT_S | FONT_B), sw = font_measure(sub, FONT_XS);
     float w = (tw > sw ? tw : sw) + 120, h = 84, x = (SNTV_UI_W - w) / 2, y = 28;
     if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, 24, 30, RGBA(0, 0, 0, 0x90));
-    gfx_rrect(x, y, w, h, 24, RGBA(0x14, 0x12, 0x2A, 0xF2));
-    gfx_rrect_ring(x, y, w, h, 24, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x22));
+    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, THEME_LINE);
     gfx_circle(x + 44, y + h / 2, 22, COLOR_ALPHA(THEME_ACCENT2, 0x40));
     ui_icon(ICON_CLOCK, x + 44, y + h / 2, 24, THEME_TEXT);
     font_draw(text, x + 84, y + 14, FONT_S | FONT_B, THEME_TEXT);
@@ -240,4 +242,51 @@ void breaks_draw_banner(void)
     float frac = g_app.break_lead_min > 0 ? 1 - (float)secs / (g_app.break_lead_min * 60) : 1;
     ui_progress(x + 84, y + h - 8, w - 108, 3, frac, THEME_ACCENT);
     app_redraw();
+}
+
+/* ---- break recordings ---- */
+
+static int ends_with_ci(const char *s, size_t n, const char *suf)
+{
+    size_t l = strlen(suf);
+    return n >= l && strncasecmp(s + n - l, suf, l) == 0;
+}
+
+int breaks_is_page_link(const char *url)
+{
+    if (!url || strncmp(url, "http", 4) != 0) return 0;
+    size_t n = strcspn(url, "?#");
+    static const char *const MEDIA[] = { ".mp3", ".m4a", ".aac", ".mp4", ".m4v", ".ogg", ".oga", ".opus", ".wav", ".flac", ".webm", ".mkv", ".m3u8", ".mov", NULL };
+    for (int i = 0; MEDIA[i]; i++) if (ends_with_ci(url, n, MEDIA[i])) return 0;
+    return 1;
+}
+
+static int is_video_name(const char *url)
+{
+    size_t n = strcspn(url, "?#");
+    return ends_with_ci(url, n, ".mp4") || ends_with_ci(url, n, ".m4v") || ends_with_ci(url, n, ".mkv") || ends_with_ci(url, n, ".webm") || ends_with_ci(url, n, ".mov") || ends_with_ci(url, n, ".m3u8");
+}
+
+const char *breaks_media_url(const char *stored, char *out, size_t n, int *is_video)
+{
+    if (is_video) *is_video = 0;
+    if (!stored || !*stored) return NULL;
+    if (strncmp(stored, "sntv-sound://", 13) == 0) {
+        if (is_video) *is_video = g_app.break_video && is_video_name(stored);
+        return phone_resolve_sound(stored, out, n);
+    }
+    if (breaks_is_page_link(stored)) {
+        if (!g_app.thumb_server || !*g_app.thumb_server) return NULL;
+        char enc[1400]; size_t o = 0;
+        for (const unsigned char *p = (const unsigned char *)stored; *p && o + 4 < sizeof enc; p++) {
+            if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || strchr("-_.~", *p)) enc[o++] = (char)*p;
+            else o += (size_t)snprintf(enc + o, sizeof enc - o, "%%%02X", *p);
+        }
+        enc[o] = 0;
+        snprintf(out, n, "%s/media?kind=%s&url=%s", g_app.thumb_server, g_app.break_video ? "video" : "audio", enc);
+        if (is_video) *is_video = g_app.break_video;
+        return out;
+    }
+    if (is_video) *is_video = g_app.break_video && is_video_name(stored);
+    return stored;
 }

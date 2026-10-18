@@ -6,6 +6,7 @@
 #include "rail.h"
 #include "theme.h"
 #include "widgets.h"
+#include "screen_options.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -143,6 +144,7 @@ static int key(Screen *s, KeyAction a)
     Library *l = s->st;
     app_redraw();
     if (a == KEY_SEARCH) { app_push(screen_search_create()); return 1; }
+    if (a == KEY_LONG_OK && (l->rail_focus >= 0 || l->zone != Z_GRID)) return 0;
     if (l->rail_focus >= 0) {
         int r = rail_key(a, &l->rail_focus, RAIL_LIBRARY);
         if (r == 2) { l->rail_focus = -1; return 1; }
@@ -171,6 +173,7 @@ static int key(Screen *s, KeyAction a)
         if (l->zone == Z_FILTERS) { if (l->pill_focus == F_COUNT) l->sort = (l->sort + 1) % S_COUNT; else { l->filter = l->pill_focus; l->focus = 0; } }
         else if (l->focus < l->n) app_push(screen_detail_create(&l->items[l->focus]));
         return 1;
+    case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (l->zone == Z_GRID && l->focus < l->n) { screen_options_for_title(&l->items[l->focus]); return 1; } return a != KEY_LONG_OK;
     case KEY_BACK:
         if (l->zone == Z_GRID) { l->zone = Z_FILTERS; l->pill_focus = l->filter; return 1; }
         app_pop();
@@ -194,7 +197,7 @@ Screen *screen_library_create(void)
     Library *l = calloc(1, sizeof *l);
     l->rail_focus = -1; l->focus_t = 1; l->seen_version = -1;
     l->zone = Z_GRID;
-    s->name = "library"; s->st = l;
+    s->name = "library"; s->st = l; s->long_ok = 1;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     build(l);
     if (!l->n) l->zone = Z_FILTERS;

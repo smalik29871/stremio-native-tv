@@ -1,4 +1,5 @@
 #include "widgets.h"
+#include "../http.h"
 #include "font.h"
 #include "../app.h"
 #include "../image.h"
@@ -495,6 +496,13 @@ float ui_clock_width(void)
 
 float ui_clock_pill(void)
 {
+    if (!http_online()) {
+        const char *t = "No internet";
+        float w = font_measure(t, FONT_S | FONT_B) + 74, h = 52, x = SNTV_UI_W - THEME_MARGIN - w - (g_app.clock_mode == 2 ? 0 : ui_clock_width() + 14), y = 47;
+        gfx_rrect(x, y, w, h, h / 2, RGBA(0x5A, 0x14, 0x1E, 0xE0));
+        gfx_circle(x + 30, y + h / 2, 7, THEME_DANGER);
+        font_draw(t, x + 48, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+    }
     if (g_app.clock_mode == 2) return 0;
     char now[24];
     ui_clock_text(0, now, sizeof now);

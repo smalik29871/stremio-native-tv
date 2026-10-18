@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 static int parse_time(const char *s, double *out)
 {
@@ -75,10 +76,40 @@ static char *clean_text(const char *raw, int is_utf8)
     return out;
 }
 
+/* UTF-16 files (some Windows tools save SRTs that way) to UTF-8. */
+static char *utf16_to_utf8(const unsigned char *d, size_t len, int big_endian, size_t *out_len)
+{
+    char *out = malloc(len * 2 + 1);
+    size_t o = 0;
+    for (size_t i = 0; i + 1 < len; i += 2) {
+        unsigned cp = big_endian ? (unsigned)(d[i] << 8 | d[i + 1]) : (unsigned)(d[i + 1] << 8 | d[i]);
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 3 < len) {   /* surrogate pair */
+            unsigned lo = big_endian ? (unsigned)(d[i + 2] << 8 | d[i + 3]) : (unsigned)(d[i + 3] << 8 | d[i + 2]);
+            if (lo >= 0xDC00 && lo <= 0xDFFF) { cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); i += 2; }
+        }
+        if (cp == 0) continue;
+        if (cp < 0x80) out[o++] = (char)cp;
+        else if (cp < 0x800) { out[o++] = (char)(0xC0 | cp >> 6); out[o++] = (char)(0x80 | (cp & 0x3F)); }
+        else if (cp < 0x10000) { out[o++] = (char)(0xE0 | cp >> 12); out[o++] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[o++] = (char)(0x80 | (cp & 0x3F)); }
+        else { out[o++] = (char)(0xF0 | cp >> 18); out[o++] = (char)(0x80 | ((cp >> 12) & 0x3F)); out[o++] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[o++] = (char)(0x80 | (cp & 0x3F)); }
+    }
+    out[o] = 0;
+    *out_len = o;
+    return out;
+}
+
 int subs_parse(const char *data, size_t len, SubTrack *out)
 {
     memset(out, 0, sizeof *out);
     if (!data || !len) return -1;
+    const unsigned char *u = (const unsigned char *)data;
+    if (len >= 4 && ((u[0] == 0xFF && u[1] == 0xFE) || (u[0] == 0xFE && u[1] == 0xFF))) {
+        size_t n8;
+        char *conv = utf16_to_utf8(u + 2, len - 2, u[0] == 0xFE, &n8);
+        int rc = subs_parse(conv, n8, out);
+        free(conv);
+        return rc;
+    }
     char *buf = malloc(len + 1);
     memcpy(buf, data, len);
     buf[len] = 0;
@@ -135,6 +166,40 @@ void subs_free(SubTrack *t)
     for (int i = 0; i < t->n; i++) free(t->cues[i].text);
     free(t->cues);
     memset(t, 0, sizeof *t);
+}
+
+int subs_align(const SubTrack *ref, const SubTrack *t, double *offset_out)
+{
+    if (!ref || !t || ref->n < 3 || t->n < 3) return 0;
+    enum { HALF = 300, BINS = 2 * HALF + 1 };   /* ±30 s in 0.1 s steps */
+    static int hist[BINS];
+    memset(hist, 0, sizeof hist);
+    int step = t->n > 400 ? t->n / 400 : 1, samples = 0, j = 0;
+    for (int i = 0; i < t->n; i += step) {
+        double s = t->cues[i].start;
+        samples++;
+        while (j < ref->n && ref->cues[j].start < s - 30) j++;
+        for (int k = j; k < ref->n && ref->cues[k].start <= s + 30; k++) {
+            int bin = (int)floor((ref->cues[k].start - s) * 10 + 0.5) + HALF;
+            if (bin >= 0 && bin < BINS) hist[bin]++;
+        }
+    }
+    int best = 0;
+    for (int b = 1; b < BINS; b++) if (hist[b] > hist[best]) best = b;
+    int support = hist[best] + (best > 0 ? hist[best - 1] : 0) + (best + 1 < BINS ? hist[best + 1] : 0);
+    int second = 0;
+    for (int b = 0; b < BINS; b++) if (abs(b - best) > 3 && hist[b] > second) second = hist[b];
+    if (support < 3 || support < samples * 0.35 || hist[best] * 2 < second * 3) return 0;
+    /* refine: the mean of the differences near the winning bin */
+    double centre = (best - HALF) / 10.0, sum = 0; int n = 0; j = 0;
+    for (int i = 0; i < t->n; i += step) {
+        double s = t->cues[i].start;
+        while (j < ref->n && ref->cues[j].start < s + centre - 0.35) j++;
+        for (int k = j; k < ref->n && ref->cues[k].start <= s + centre + 0.35; k++) { sum += ref->cues[k].start - s; n++; }
+    }
+    *offset_out = n ? sum / n : centre;
+    if (fabs(*offset_out) < 0.15) *offset_out = 0;
+    return 1;
 }
 
 const char *subs_at(const SubTrack *t, double s)

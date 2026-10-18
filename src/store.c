@@ -1,4 +1,5 @@
 #include "store.h"
+#include <SDL.h>
 #include "log.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +35,7 @@ int store_write_file(const char *name, const char *data, size_t len)
 {
     char path[1200], tmp[1210];
     path_for(name, path, sizeof path);
-    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    snprintf(tmp, sizeof tmp, "%s.%lu.tmp", path, (unsigned long)SDL_ThreadID());   /* workers write caches too */
     FILE *f = fopen(tmp, "wb");
     if (!f) return -1;
     size_t wrote = fwrite(data, 1, len, f);

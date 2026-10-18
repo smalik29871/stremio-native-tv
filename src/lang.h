@@ -12,6 +12,8 @@ const char *lang_display(const char *code); /* native name, or the code itself *
 
 /* Canonical 3-letter code, or NULL when the code is empty, "und" or unknown. */
 const char *lang_canonical(const char *code);
+/* Lowercase English name ("german") for matching release names; the code when unknown. */
+const char *lang_display_english(const char *code);
 /* Same language? Unknown codes only match themselves (case-insensitive). */
 int lang_same(const char *a, const char *b);
 /* A real language (not empty, "und", "mis", "zxx", "mul"). */

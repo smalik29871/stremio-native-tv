@@ -67,6 +67,8 @@ META["meta"]["logo"] = None
 for i, v in enumerate(META["meta"]["videos"]):
     v["thumbnail"] = f"{BASE}/thumb/{i}.png"
 SRT = "1\n00:00:00,500 --> 00:00:09,000\nHello from the <i>fake</i> subtitle addon\n\n2\n00:00:09,500 --> 00:00:20,000\nSecond cue\n"
+for _i, _t in enumerate((30.2, 47.9, 61.0, 83.4, 99.1, 120.7, 141.3)):   # later cues so timing alignment has something to vote on
+    SRT += "\n%d\n00:%02d:%02d,%03d --> 00:%02d:%02d,000\nCue %d\n" % (_i + 3, _t // 60, _t % 60, round((_t % 1) * 1000), (_t + 2) // 60, (_t + 2) % 60, _i + 3)
 STREAMS = load("streams.json")
 MEDIA_DIR = os.path.join(FIX, "media")
 for _s in STREAMS["streams"]:
@@ -145,6 +147,33 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_POST(self):
+        p = self.path
+        n = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(n) if n else b""
+        if p.endswith("/chat/completions"):   # a stand-in for any OpenAI-compatible model
+            try:
+                req = json.loads(body.decode("utf-8"))
+            except Exception:
+                return self.send(400, b'{"error":{"message":"bad json"}}')
+            if "Bearer" not in (self.headers.get("Authorization") or "") and "SNTV_AI_NOAUTH" not in os.environ:
+                pass   # keys are the user's business; the fake answers anyway
+            system = " ".join(m.get("content", "") for m in req.get("messages", []) if m.get("role") == "system")
+            user = " ".join(m.get("content", "") for m in req.get("messages", []) if m.get("role") == "user")
+            if "translate subtitle lines" in system:
+                lines = json.loads(user).get("lines", [])
+                lang = system.split("into ")[1].split(" for")[0]
+                answer = json.dumps({"lines": ["[%s] %s" % (lang[:2].lower(), l) for l in lines]})
+            elif "recommend films" in system:
+                answer = json.dumps({"titles": [{"name": "The Shawshank Redemption", "year": 1994}, {"name": "Breaking Bad", "year": 2008}, {"name": "No Such Title", "year": 2001}]})
+            else:
+                answer = json.dumps({"nutshell": "A quietly devastating prison drama about hope, patience and friendship that keeps rewarding rewatches.",
+                                     "good_for": "A slow evening when you want something moving rather than loud.",
+                                     "notes": "Violence and an assault are implied rather than shown; strong language throughout.",
+                                     "similar": ["The Green Mile", "Cool Hand Luke", "Escape from Alcatraz"]})
+            return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": answer}}]}).encode())
+        return self.send(404, b"{}")
+
     def do_GET(self):
         p = self.path
         # /slow/...: a second, stream-only addon that answers after FAKE_SLOW_S seconds for
@@ -193,7 +222,22 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"result": {"code": "QW7RT2", "link": "https://www.stremio.com/link?code=QW7RT2", "qrcode": ""}}).encode())
         if p.startswith("/link/read"):
             return self.send(200, json.dumps({"result": {}}).encode())
+        if p.startswith("/media?"):   # the home helper: a page link as a playable file
+            with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
+                return self.send(200, f.read(), "video/mp4")
+        if p == "/repo.json":   # an update notice
+            return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {"version": "9.9.9"}}]}).encode())
+        if p.startswith("/sub_matched.srt"):   # the file-matched subtitle: the same cues, 2 s later
+            src = SRT
+            import re as _re
+            def shift(m):
+                h, mi, s, ms = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+                t = h * 3600 + mi * 60 + s + ms / 1000 + 2.0
+                return "%02d:%02d:%02d,%03d" % (t // 3600, (t % 3600) // 60, t % 60, round((t - int(t)) * 1000))
+            return self.send(200, _re.sub(r"(\d\d):(\d\d):(\d\d),(\d\d\d)", shift, src).encode("latin-1"), "text/plain")
         if p.startswith("/subtitles/"):
+            if "videoHash=" in p:
+                return self.send(200, json.dumps({"subtitles": [{"id": "eng-matched", "url": f"{BASE}/sub_matched.srt", "lang": "eng"}]}).encode())
             subs = [{"id": "fake-eng", "url": f"{BASE}/sub.srt", "lang": "eng"}, {"id": "pob1", "url": f"{BASE}/sub.srt", "lang": "pob"},
                     {"id": "pob2", "url": f"{BASE}/sub.srt", "lang": "pob"}, {"id": "spa1", "url": f"{BASE}/sub.srt", "lang": "spa"},
                     {"id": "eng2", "url": f"{BASE}/sub.srt", "lang": "eng"}, {"id": "por1", "url": f"{BASE}/sub.srt", "lang": "por"}]
@@ -205,6 +249,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(404, b"")
             with open(path, "rb") as f:
                 data = f.read()
+            if len(data) < 262144:   # the real files are tiny: pad so the file hash (first + last 64 KB) applies
+                data += b"\0" * (262144 - len(data))
             rng = self.headers.get("Range")
             if rng and rng.startswith("bytes="):
                 a, _, b = rng[6:].partition("-")

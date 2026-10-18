@@ -14,14 +14,25 @@ typedef struct HttpResponse {
     double seconds;     /* wall time of the transfer, connection included */
     uint64_t total_size; /* from Content-Range (range requests) or Content-Length; 0 unknown */
     char content_type[64];
+    void *parsed;       /* set by HttpOptions.work on the worker; the callback may take it (set NULL) */
 } HttpResponse;
+
+/* Runs on the network thread after the transfer, before the main-thread callback:
+ * parse JSON, write a cache file. Must not touch UI or g_app state. */
+typedef void (*HttpWorkFn)(HttpResponse *r, const char *url);
+typedef void (*HttpFreeFn)(void *parsed);
 
 /* Extra knobs for http_request_async_ex; zero means the default. */
 typedef struct HttpOptions {
-    uint64_t range_bytes;   /* fetch only the first N bytes (Range: bytes=0-(N-1)) */
+    uint64_t range_bytes;   /* fetch only N bytes (Range: bytes=start-(start+N-1)) */
+    uint64_t range_start;   /* from this offset (0 = the start of the file) */
     long timeout_s;         /* whole-transfer timeout */
     int no_json_accept;     /* don't ask for application/json */
     int background;         /* artwork: waits behind API requests, newest first */
+    const char *post_json;  /* POST this body (copied at enqueue time) */
+    const char *bearer;     /* Authorization: Bearer <token> (copied) */
+    HttpWorkFn work;        /* off the main thread: see above */
+    HttpFreeFn free_parsed; /* frees r->parsed when the callback left it (or was cancelled) */
 } HttpOptions;
 
 int  http_init(void);          /* 0 on success */
@@ -38,6 +49,8 @@ unsigned http_request_async(const char *url, const char *post_json, HttpCallback
 unsigned http_request_async_ex(const char *url, const HttpOptions *opt, HttpCallback cb, void *user);
 void http_cancel(unsigned id);   /* the callback will not fire */
 void http_pump(void);
+int  http_pending_replies(void);   /* replies held for the next frame (keep drawing) */
+int  http_online(void);            /* 0 when transport failures repeat and nothing got through for 15 s */
 
 /* Convenience: percent-encode into dst, returns dst. */
 char *http_url_encode(const char *src, char *dst, size_t dst_len);

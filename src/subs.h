@@ -13,5 +13,8 @@ int  subs_parse(const char *data, size_t len, SubTrack *out);
 void subs_free(SubTrack *t);
 /* Cue text active at `t` seconds (with offset applied) or NULL. */
 const char *subs_at(const SubTrack *t, double seconds);
+/* The constant shift that lines `t` up with `ref` (seconds to add to t's times), found
+ * by voting over cue start differences. 1 when enough cues agree, 0 when not. */
+int  subs_align(const SubTrack *ref, const SubTrack *t, double *offset_out);
 
 #endif

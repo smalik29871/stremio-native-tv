@@ -52,6 +52,7 @@ KeyAction input_map(const SDL_Event *e)
     case SDLK_F1: return KEY_RED;
     case SDLK_F2: return KEY_GREEN;
     case SDLK_F4: return KEY_BLUE;
+    case SDLK_F5: return KEY_YELLOW;
     case SDLK_p:  return KEY_PLAY_PAUSE;  /* desktop convenience */
     default: return KEY_NONE;
     }

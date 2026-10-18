@@ -12,4 +12,9 @@ int  phone_url(char *out, size_t n);             /* "http://192.168.1.20:11471/"
 void phone_prompt(const char *title, const char *hint, const char *current);
 /* 1 when the phone sent text for the open field (copied into out). */
 int  phone_take(char *out, size_t n);
+/* Also accept an uploaded recording for `slot` ("start" or "end") on the open field's page.
+ * The upload lands in <data>/sounds/<slot>.<ext> and phone_take() returns "sntv-sound://<slot>.<ext>". */
+void phone_accept_file(const char *slot);
+/* "sntv-sound://x.mp3" -> a URL the media pipeline can open; other URLs are copied unchanged. */
+const char *phone_resolve_sound(const char *url, char *out, size_t n);
 #endif

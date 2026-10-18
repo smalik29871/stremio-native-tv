@@ -1,234 +1,234 @@
 # Stremio Native TV (unofficial)
 
-A native Stremio client for TVs that the official web app cannot run on well:
-LG webOS 3+, Samsung Tizen 4+ (native `.tpk`) and Tizen 5.5+ (WebAssembly `.wgt`).
-Written in C99 on SDL2 + OpenGL ES 2, with the TV's own video pipeline doing playback.
+A native Stremio client for LG webOS TVs (3.0 and newer), installed from the
+[Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) without root.
+Samsung Tizen builds (native `.tpk`, WebAssembly `.wgt`) are in the tree but have not been
+run on a Samsung set yet.
 
-It is modelled on [nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy),
-which proved the approach for Nuvio. This project does the same for the
-**Stremio addon protocol** and the **Stremio account API**, so it uses the same
-account, addons, Library and Continue Watching as the official apps.
+It is written in C99 on SDL2 + OpenGL ES 2 and hands playback to the TV's own video
+pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware and plays
+whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
+account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.7.0**. The desktop preview builds warning-free, passes its unit tests and
-> runs every screen headlessly against a fake addon (including subtitles, the track menu,
-> source fallback and Up Next). The webOS and Tizen video backends follow the platform
-> APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
-> toolchains or run on a TV**. See *What is verified* below before trusting anything.
-
-## Screenshots
-
-Captured headlessly from the desktop build against the test addon (generated
-artwork, not real titles). On a TV the player shows video where these show the
-backdrop.
-
-| Home (Signal, the default theme) | Detail + episodes |
-|---|---|
-| ![Home](docs/screenshots/home.jpg) | ![Episodes](docs/screenshots/episodes.jpg) |
-| **Marquee theme** | **Duotone theme** |
-| ![Marquee](docs/screenshots/home_marquee.jpg) | ![Duotone](docs/screenshots/home_duotone.jpg) |
-| **Sources** | **Player + subtitles** |
-| ![Streams](docs/screenshots/streams.jpg) | ![Player](docs/screenshots/player_cue.jpg) |
-| **Track panel** | **Up Next** |
-| ![Subtitles panel](docs/screenshots/player_subs.jpg) | ![Up Next](docs/screenshots/upnext_card.jpg) |
-| **Sign in with a QR code** | **Settings** |
-| ![QR](docs/screenshots/login_qr.jpg) | ![Settings](docs/screenshots/settings.jpg) |
-| **Skip intro** | **Up Next at the credits** |
-| ![Skip intro](docs/screenshots/player_skip.jpg) | ![Up Next at the credits](docs/screenshots/upnext_credits.jpg) |
-| **First-run setup** | **OLED background** |
-| ![Setup](docs/screenshots/welcome.jpg) | ![OLED](docs/screenshots/home_oled.jpg) |
-| **Picture-in-picture over the episode list** | **...and over Home** |
-| ![PiP detail](docs/screenshots/pip_detail.jpg) | ![PiP home](docs/screenshots/pip_home.jpg) |
-| **Subtitle styles** | **Classic yellow in the player** |
-| ![Subtitle styles](docs/screenshots/settings_subs_style.jpg) | ![Yellow subtitles](docs/screenshots/player_cue_yellow.jpg) |
-| **Screensaver** | **Stats for nerds** |
-| ![Screensaver](docs/screenshots/ambient.jpg) | ![Stats](docs/screenshots/player_stats.jpg) |
-| **Diagnostics** | **Log as a QR code** |
-| ![Diagnostics](docs/screenshots/diagnostics.jpg) | ![Log QR](docs/screenshots/diagnostics_qr.jpg) |
-
-## Design
-
-- **Renderer**: a single batched GLES2 stream. Rounded rects, rings, soft shadows,
-  capsule lines and the play triangle are signed-distance shapes whose parameters
-  ride in the vertex format, so they batch with text and textures. Only a texture
-  or clip change splits a draw call.
-- **Ambient light**: the dominant colour of the focused artwork tints large soft
-  glows behind every screen and eases as focus moves.
-- **Motion**: half-life easing for scrolling, focus growth, hero cross-fades and
-  toasts; all of it switches off in *Light* effects, which *Automatic* picks on
-  slow TVs.
-- **Type**: Inter Medium and Bold, packed into two 2048² alpha atlases at start-up.
-
-## What it does
-
-- **Three themes** (Settings > Interface): **Signal** (default; graphite, lime, sharp
-  corners, mono metadata), **Marquee** (warm ink, amber, condensed display titles) and
-  **Duotone** (two-tone artwork that turns to colour on focus), six accents each. All
-  flat, no blur. See `docs/OVERHAUL.md`.
-
-- **Addon protocol**: manifests (string and object resources, `idPrefixes`, modern `extra`
-  and legacy `extraSupported`), catalogs with extras (`search`, `skip`, `genre`), meta,
-  streams, subtitles. URL building and response parsing are unit-tested.
-- **Account**: `login`, `logout`, `addonCollectionGet/Set`, `datastoreGet/Put` for
-  `libraryItem`. Progress is written with the same `state` fields as stremio-core, so
-  Continue Watching stays in sync with phones and desktops.
-- **Logged out**: Cinemeta + OpenSubtitles defaults, plus addons installed from a URL.
-- **Screens**: Home (hero, Continue Watching, one row per catalog), Detail (seasons and
-  episodes, resume, add to Library), Streams (all stream addons, badges for torrent /
-  YouTube / external), Player overlay, Search (debounced, every catalog with a `search`
-  extra), Settings (account, streaming server, install/remove addons), Sign in with an
-  on-screen keyboard.
-- **Playback**: audio / subtitle track menu, addon subtitles (SRT, VTT) with timing
-  offset, preferred languages, automatic fallback to the next source when the pipeline
-  fails or stalls, Up Next with autoplay on the same release, coalesced seeking,
-  buffering readout, background/foreground handling.
-- **Smarter tracks**: audio and subtitle choices made in the player are remembered per
-  series and applied to the next episodes; subtitles can turn on only when the audio is in
-  another language; language codes are matched across 639-1/639-2/names (`en`, `eng`,
-  `English`). Track names and forced/SDH flags are not reported by LG's media service, so
-  keyword rules like Stremio-Kai's need a container parser and are left out for now.
-- **Picture-in-picture**: Back parks the video in a corner and keeps it playing while
-  you browse; Play/Pause restores it, Stop closes it. The TV's video plane is resized
-  live, which web apps cannot do.
-- **Pre-flight check**: the first 2 MB of the best candidates are fetched and their real
-  container header read (Matroska tracks/chapters/colour, MP4 moov), the link speed is
-  measured, and the recommendation says what was verified; dead links and files faster
-  than the link are dropped.
-- **Cast photos** from the meta addon when it has them, and a TMDB key (yours, or one
-  baked into the build from the `TMDB_API_KEY` repository secret) for age ratings.
-- **Type it on your phone**: text fields show a QR code; the TV serves a page on the
-  LAN where you paste the key or URL, and it lands in the field.
-- **Take breaks**: prayer times for several traditions computed on the TV from your
-  location (and Angelus, Nitnem, Sandhya, zmanim, Baha'i windows), stretch reminders,
-  bedtime and your own times; a banner first, then a calm pause with a chime or your own
-  recording, then playback continues.
-- **Your own API keys**: a TMDB key adds cast photos and age ratings. **Animated** page
-  changes and a **memory saver** for older TVs.
-- **Seek previews** from a self-hosted ffmpeg server (`tools/thumbs`), **saved sign-ins**
-  you can switch between, and a **parental PIN** for Settings and adult addons.
-- **Player extras**: -10 s / +10 s feedback as you seek, a second subtitle language
-  drawn above the first, forced subtitles in the audio's language picked from the file
-  header, sources grouped by addon, episode thumbnails in the player.
-- **Settings with categories**, Home rows you can reorder and hide, addon order synced to
-  the account, and a hide-watched switch for catalogs.
-- **Side navigation**: Home, Explore (catalogs by type, list and genre, endless grid),
-  Search, Library (filters and sort), Calendar (upcoming and recent episodes of library
-  series by day), Settings and the account, in a rail that opens on Left.
-- **Player controls like the TV apps people know**: Previous/Next episode, Play/Pause,
-  Reload, Subtitles, Audio and speed (0.5x–2x), Aspect ratio (Fit / Fill / Zoom, resizing
-  the TV's video plane), Sources, an Episodes panel by season, Stats; paused for a moment,
-  the player shows what you're watching with synopsis and cast; resolution/HDR/audio
-  badges come from the file's header.
-- **Three Home styles**: Cinematic (focused title as the backdrop), Showcase (featured
-  carousel with dots and View title) and Compact (rows from the top). A clock sits in the
-  corner of every screen and hides during playback.
-- **Chapters and live scrub**: chapter marks on the timeline from the file header,
-  Rewind/Forward jump between them; while seeking, the video itself follows the key.
-- **Recommended source**: sources are scored from their names (resolution, codec, HDR/DV,
-  audio, size, cached, seeders, release type) against a profile of this TV that learns from
-  failures and successes; the best one is offered as a card, rows carry concerns like "DTS
-  audio: may be silent on this TV". Addon order stays the default list order.
-- **Instant Up Next**: the next episode's sources are fetched while the credits roll.
-- **Screensaver**: drifting backdrops from your library with a clock after a quiet spell;
-  OLED-safe (pixel shift, never static), never over a playing video.
-- **Stats for nerds** (Red in the player): codec, resolution, fps, bitrate, buffer, stalls.
-- **Subtitle styles**: soft shadow, bold outline, classic yellow or black box, previewed
-  live in Settings (addon subtitles; the TV draws embedded tracks itself).
-- **Player clock** with "Ends at" next to the remaining time (12-hour, 24-hour or off).
-- **First-run setup**: audio and subtitle language, when subtitles turn on, intro
-  skipping, autoplay, background and QR sign-in, one question per screen.
-- **Pure black (OLED) background** option.
-- **Skip intro / recap, Up Next at the credits**: markers from TheIntroDB (IMDb ids,
-  movies and episodes) and AniSkip (Kitsu/MAL anime ids, Kitsu id mapped to MAL), both
-  free and keyless. A *Skip intro* button (or automatic skipping, or off, in Settings),
-  the marked ranges drawn under the seek bar, and the Up Next card at the start of the
-  credits with the next episode 20 s later instead of 45 s before the end.
-- **Sign-in by QR** or short code via link.stremio.com; e-mail + password as fallback.
-- **Snappy on old hardware**: keep-alive HTTP, disk caches for artwork and catalogs
-  (Home opens from cache instantly), poster prefetch and fade-in, eased scrolling,
-  cross-faded backdrops, idle frame skipping, and an Automatic effects level that
-  measures the TV and drops to Light when it cannot keep up. Artwork budget follows RAM.
-- **Spoiler blur** on unwatched episode thumbnails (mipmap bias, no extra shader pass).
-- **libcurl via `dlopen`**: never linked, because LG ships `libcurl.so.5` and the SDK
-  ships `.so.4`.
-
-Taken from Stremio-Kai: per-series track memory and "subtitles only for other languages"
-(its smart track selector, minus the keyword rules), the player clock and end time, the
-first-run setup and the OLED theme. Its Anime4K, frame interpolation, HDR profiles and
-mpv thumbnails need a desktop GPU or a second decoder and do not apply to TVs.
-
-Taken from the Nuvio port on purpose: cache-first Home, Automatic/Full/Light effects,
-spoiler blur, QR sign-in, skip intro/recap and credits-based Up Next (TheIntroDB,
-AniSkip), seek-shows-only-the-bar, RAM-based texture budget, the
-exported-window / ACB split, dlopen'd curl, the log file. Left out on purpose because
-they would make the client less stable right now: the in-app updater, the DTS-to-AAC
-FFmpeg transcoder, libass for embedded ASS, YouTube/Apple trailers in the hero, the
-Samsung .NET host for 2018-2020 sets, Trakt/Simkl/debrid integrations (those live in
-Stremio addons anyway), and the JavaScript plugin engine. See `docs/ROADMAP.md`.
-
-## Layout
-
-```
-src/
-  main.c               SDL/GL setup, main loop, dev hooks (SNTV_SCREENSHOT, SNTV_KEYS)
-  app.c/.h             app state: addons, library, auth, screen stack, progress sync
-  http.c/.h            libcurl over dlopen + worker pool; callbacks on the main thread
-  store.c/.h           settings.json + cached JSON in the app's writable dir
-  image.c/.h           async artwork loader with LRU byte budget
-  log.c/.h             log file (stdout is /dev/null under SAM on webOS)
-  subs.c/.h            SRT / WebVTT parser and cue lookup
-  addon/addon.c        Stremio addon protocol: manifest, catalog/meta/stream/subtitles
-  addon/stremio_api.c  api.strem.io requests/responses, LibraryItem (de)serialisation
-  ui/theme.c           runtime themes (Signal, Marquee, Duotone): tokens, accents, fonts per theme
-  ui/gfx.c             batched GLES2 renderer: SDF rounded rects, rings, shadows, lines, video hole
-  ui/font.c            two-face stb_truetype atlases (Inter), UTF-8, ellipsis, wrap, shadowed text
-  ui/widgets.c         design kit: icons, pills, chips, toggles, cards, skeletons, backdrops, ambient light
-  ui/input.c           keyboard + LG/Samsung remote mapping
-  ui/keyboard.c        d-pad on-screen keyboard
-  ui/screen_*.c        home, detail, streams, player, login, search, settings
-  video/video.h        backend interface
-  video/video_null.c   desktop preview (simulated clock)
-  video/video_webos.c  com.webos.media over LS2; exported window (webOS 5+) or ACB (2-4)
-  video/video_tizen.c  capi-media-player, overlay display
-  video/video_wasm.c   HTML5 <video> behind a transparent canvas (Tizen .wgt)
-deploy/webos           appinfo.json, icons (type: native)
-deploy/tizen-native    tizen-manifest.xml
-deploy/tizen-wasm      config.xml + index.html
-tools/                 linux.sh, webos.sh (+ --ipk/--install), package-ipk.sh,
-                       tizen-native.sh, tizen-wasm.sh, env.sh
-tests/                 test_addon.c (protocol/API unit tests), fake_addon.py, smoke.sh
-vendor/                cJSON (MIT), qrcodegen (MIT), stb_truetype, stb_image (public domain)
-assets/fonts/          Inter, Space Grotesk, JetBrains Mono, Sora, Bebas Neue (SIL OFL, licences alongside)
-```
+> **v0.7.0.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
+> the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
+> package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
+> 92 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
-You need the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel)
-on the TV (it works without root). Then, on the TV:
-
-1. Open **Homebrew Channel**, then **Settings**.
+1. Open **Homebrew Channel** on the TV, then **Settings**.
 2. Add this repository URL:
 
    ```
    https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json
    ```
-3. Go back to the app list and install **Stremio (native)**. Updates show up there too.
+3. Back in the app list, install **Stremio (native)**. Updates appear there too.
 
 Or download the `.ipk` from the [latest release](https://github.com/smalik29871/stremio-native-tv/releases/latest)
 and install it with Developer Mode (`ares-install`) or Dev Manager.
 
-**The one open question is video on TVs without root.** The app talks to the
-TV's media service directly. That is confirmed for native apps on rooted TVs,
-but whether a Homebrew Channel install on a non-rooted TV gets the same bus
-permission has not been measured (the Nuvio project documents the same caveat).
-If the interface works but video is black, send `app.log` from the app's data
-folder; it records every reply from the media service.
+First start asks six questions (languages, when subtitles turn on, intro skipping,
+autoplay, background, sign-in by QR code). Everything can be changed later in Settings.
 
-## Releasing
+## Screenshots
 
-Bump `version` in `deploy/webos/appinfo.json` (and `SNTV_APP_VERSION` in
-`src/platform/platform.h`), add a `## x.y.z` section to `CHANGELOG.md`, and push to
-`main`. CI builds and checks the package and, because that version has no release
-yet, publishes it with the Homebrew Channel files. TVs pick it up from the channel.
+Captured from the desktop build against the test addon, so the artwork is generated and
+the titles are placeholders. On a TV the player shows video where these show a backdrop.
+They show the default Signal theme.
+
+| | |
+|---|---|
+| ![Marquee](docs/screenshots/home_marquee.jpg) **Marquee theme** | ![Duotone](docs/screenshots/home_duotone.jpg) **Duotone theme** |
+| ![Home](docs/screenshots/home.jpg) **Home, Cinematic style** | ![Showcase](docs/screenshots/home_showcase.jpg) **Home, Showcase style** |
+| ![Explore](docs/screenshots/explore.jpg) **Explore: catalogs, genres, endless grid** | ![Library](docs/screenshots/library.jpg) **Library with filters and sort** |
+| ![Detail](docs/screenshots/detail_tmdb.jpg) **Title page with cast and age rating** | ![Episodes](docs/screenshots/episodes.jpg) **Seasons and episodes** |
+| ![Ask AI](docs/screenshots/detail_ai.jpg) **Ask AI: spoiler-free, with a parents' note** | ![AI search](docs/screenshots/search_ai.jpg) **Search by describing what you want** |
+| ![Sources](docs/screenshots/streams_best.jpg) **Sources, with a recommended card** | ![Player](docs/screenshots/player_bar.jpg) **Player controls** |
+| ![Paused](docs/screenshots/player_paused_tmdb.jpg) **Paused: what you are watching** | ![Subtitles](docs/screenshots/player_autosync.jpg) **Subtitles: matched files first, auto-synced** |
+| ![Translate](docs/screenshots/player_translate.jpg) **Subtitles translated by AI** | ![Stats](docs/screenshots/player_stats.jpg) **Stats for nerds** |
+| ![Break](docs/screenshots/break_screen.jpg) **Take breaks: a calm pause** | ![Calendar](docs/screenshots/calendar.jpg) **Calendar of your series** |
+| ![Settings](docs/screenshots/settings.jpg) **Settings** | ![Phone](docs/screenshots/settings_phone.jpg) **Type keys and URLs from your phone** |
+| ![PIN](docs/screenshots/pin_pad.jpg) **Parental PIN** | ![QR sign-in](docs/screenshots/login_qr.jpg) **Sign in with a QR code** |
+| ![Screensaver](docs/screenshots/ambient.jpg) **Screensaver** | ![Diagnostics](docs/screenshots/diagnostics_qr.jpg) **Diagnostics: the log as a QR code** |
+
+## What it does
+
+### Look
+- **Three themes**, switched in Settings > Interface, six accent colours each:
+  **Signal** (default: graphite, lime, sharp corners, a solid accent frame for focus,
+  capital titles, mono metadata, numbered rows), **Marquee** (warm ink and parchment,
+  amber, condensed display titles, a light bar under the focused card) and **Duotone**
+  (artwork in two tones that turns to colour when focused). All flat, no blur, so they
+  cost less to draw. The Stremio logo keeps its own colours in every theme. See
+  `docs/OVERHAUL.md` for the plan behind them.
+
+### Browse
+- **Side rail** (press Left): Home, Explore, Search, Library, Calendar, Settings, account.
+- **Three Home styles**: Cinematic (the focused title becomes the backdrop), Showcase
+  (featured carousel) and Compact (rows from the top). Rows can be reordered and hidden,
+  watched titles can be hidden, and the addon order syncs with the account.
+- **Explore** any catalog by type, list and genre with an endless grid; **Library** with
+  filters and sort; **Calendar** of upcoming and recent episodes of the series you follow.
+- **Search** across every catalog addon that supports it, debounced as you type.
+- **Title pages** with logo, IMDb rating, genres, synopsis, cast (photos from the meta
+  addon or TMDB), age rating, resume with progress, seasons and episode thumbnails, and
+  spoiler blur on episodes you have not seen.
+- **Cache-first**: Home opens instantly from the last visit while rows refresh.
+
+### Play
+- **The TV's own decoder** (`com.webos.media`), with the video plane resized live for
+  **picture-in-picture** (off by default; Settings > Playback) and **aspect ratio** (Fit,
+  Fill, Zoom).
+- **Control bar**: Previous/Next episode, Play/Pause, Reload, Subtitles, Audio and speed
+  (0.5x to 2x), Aspect, Sources, Episodes by season, Stats. Paused for a moment, the
+  player shows the synopsis and cast of what is playing.
+- **Sources** from every stream addon, scored by name (resolution, codec, HDR/DV, audio,
+  size, seeders, cached) against a profile of this TV that learns from what played and
+  what failed. The first 2 MB of the best candidates are fetched and their container
+  header read, so the recommendation says what was verified ("HEVC 2160p, DD+ 5.1,
+  chapters") and dead links or files faster than your line are dropped.
+- **Automatic fallback** to the next source when playback fails or stalls; **Up Next**
+  with autoplay, fetched while the credits roll; **chapters** on the timeline from the
+  file header; -10 s / +10 s feedback while seeking; optional **seek previews** from
+  a self-hosted ffmpeg server (`tools/thumbs`).
+- **Skip intro / recap** and credits-based Up Next from TheIntroDB and AniSkip (free,
+  keyless): a button, automatic, or off.
+- **Track memory**: audio and subtitle choices are remembered per series; subtitles can
+  turn on only when the audio is in another language; forced subtitles in the audio's
+  language are picked from the file header.
+- **Stats for nerds** (Red): codec, resolution, fps, bitrate, buffer, stalls, file hash.
+- **Screensaver** with drifting backdrops and a clock after a quiet spell, OLED-safe.
+
+### Subtitles
+- Addon subtitles (SRT, VTT) drawn by the app with four **styles** and three sizes,
+  previewed live in Settings; embedded tracks drawn by the TV.
+- **Every file per language** is listed, grouped by addon, with a **second subtitle
+  language** drawn above the first for learners.
+- **Matched to the file**: the player fingerprints the video the way OpenSubtitles does
+  (size plus the first and last 64 KB) and asks the addons for files made for that exact
+  release. They come first, marked *matched to this file*.
+- **Auto-sync**: pick any other file and its cue timings are compared with a matched one;
+  the offset is applied by itself ("Subtitles synced to the file, +1.3 s"). Manual
+  timing by 0.5 s steps is still there.
+- **Translate** (with the AI assistant, below) when nobody offers your language: the
+  English file is translated in batches around the playhead, so it starts in seconds and
+  keeps going as you watch.
+
+### AI assistant (optional, your own free key)
+Settings > API keys > **AI assistant** takes a key from **Groq**, **OpenRouter** or
+**Google Gemini** (all have free tiers; the screen says where to get one), or any
+OpenAI-compatible endpoint such as an **Ollama** box on your network (no key). Nothing is
+sent anywhere until you turn it on. It adds:
+- **Ask AI** on a title page: what it is in a nutshell, who will enjoy it, what a parent
+  or sensitive viewer should know, three similar titles. Spoiler-free, cached for a month.
+- **Describe what you want** in Search ("something funny with robots"): the model names
+  titles, your addons find them, and they are listed first with a star.
+- **Subtitle translation** into your preferred language, as above.
+
+### Take breaks
+Settings > **Take breaks** schedules pauses: **prayer times** computed on the TV from
+your location (MWL, ISNA, Egypt, Umm al-Qura, Karachi, Tehran, Jafari methods, Hanafi
+Asr; Angelus, Nitnem, Sandhya, zmanim and Baha'i windows as well), **stretch** reminders,
+**bedtime**, or **your own times**. A banner warns a few minutes ahead, then the video
+pauses on a calm page with a chime or your own recording (an adhan, a dua, a bell: sent
+from your phone to the TV, a direct link, or a YouTube page fetched by the home helper,
+shown full screen if it is a video), and playback continues where it stopped. Research and sources are in `docs/BREAKS.md`.
+
+### Everyday conveniences
+- **Hold OK** (or press Yellow, Menu or Info) on any title: mark watched or not watched,
+  remove from Continue Watching, add to or remove from the Library.
+- **From the start** next to Resume, **recent searches**, a **No internet** pill, a notice
+  after a crash, and a note when a newer version is in the Homebrew Channel.
+- **Sources** in your audio language first, a cap on how long autoplay waits for slow
+  addons, failed links sorted last for six hours, and addon notice rows never autoplayed.
+
+### Keys, phones and safety
+- **Type it on your phone**: every text field shows a QR code; the TV serves a small page
+  on your network where you paste the key, URL or password, and it lands in the field.
+- **API keys**: TMDB (cast photos and age ratings; a key baked into CI builds from the
+  `TMDB_API_KEY` repository secret is used when you have none) and the AI assistant.
+- **Saved sign-ins** you can switch between, and a **parental PIN** that can guard
+  Settings and adult addons.
+- **Sign in by QR** or short code via link.stremio.com; e-mail and password as fallback.
+
+### Built for old TVs
+- Idle frame skipping, a batched GLES2 renderer (one draw call for most screens), disk
+  caches for artwork and catalogs, poster prefetch, eased scrolling and cross-fades.
+- **Nothing heavy in a frame**: catalog and source replies are parsed and cached on the
+  network threads, handed to the screen within an 8 ms budget per frame, and anything
+  slower is logged with its host. Idle, the app wakes the instant a key arrives.
+- An **Automatic effects level** measures the TV and drops to Light when it cannot keep up.
+- A **memory saver** that watches the TV: on a small set (under 2 GB) it is on from the
+  start; on any set it turns itself on when free memory gets tight (fewer rows and
+  posters kept, artwork budget cut), and off again once there is room. It also answers
+  the system's low-memory warning. Settings > Interface shows why it is on.
+- **libcurl via `dlopen`**, because LG ships `libcurl.so.5` and the SDK ships `.so.4`.
+- **Diagnostics** on the TV itself: the app's log by tab, the previous session's log
+  after a crash, and a QR code that carries the lines to your phone.
+
+### Where ideas came from
+Stremio-Kai: per-series track memory, "subtitles only for other languages", the player
+clock and end time, the first-run setup, the OLED theme. The Nuvio port
+([nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy)): cache-first
+Home, Automatic/Full/Light effects, spoiler blur, QR sign-in, skip intro and credits
+Up Next, the exported-window / ACB split, dlopen'd curl, the log file. Left out on
+purpose for stability: an in-app updater (the Homebrew Channel updates it), FFmpeg
+transcoding, libass, trailers, the Samsung .NET host, Trakt/Simkl/debrid integrations
+(those are Stremio addons) and a plugin engine. See `docs/ROADMAP.md`.
+
+## Settings at a glance
+
+| Category | What is there |
+|---|---|
+| Account | Sign in/out, saved accounts, streaming server URL |
+| Playback | Autoplay, skip intro, picture-in-picture, player clock, scrubbing, seek preview server |
+| Take breaks | Schedules, location, method, lead time, length, sound, stretch, bedtime, custom times |
+| Audio & subtitles | Preferred languages, when subtitles turn on, auto-sync, size, style |
+| Sources | Quality preference, resolution cap, pre-flight check, automatic recommendation |
+| Interface | Home style, hide watched, effects, page transitions, OLED background, screensaver, blur, memory use |
+| Home rows | Order and visibility of rows |
+| Addons | Install from URL, remove, reorder (synced to the account) |
+| API keys | TMDB, AI assistant (provider, key, endpoint, model) |
+| Parental | PIN, PIN for Settings, hide adult addons |
+| About | Version, backend, memory, Diagnostics, run setup again |
+
+## Player keys
+
+On Home, Explore, Library, Search and title pages, **hold OK** for the options of the
+focused title. In the player, Down opens the control bar (Left/Right to move, OK to open, Up back to the timeline).
+OK play/pause (while *Skip intro* is on screen, OK skips). Left/Right seek 10 s and
+accelerate while held; the video follows live. Rewind/Forward jump between chapters.
+Up audio menu, Down subtitle menu (Left/Right inside it shifts timing by 0.5 s). Red stats
+for nerds, Green play Up Next now, Yellow next source. Back hides the Up Next card, else
+stops and saves progress (or parks the video in a corner when picture-in-picture is on;
+Play/Pause brings it back, Stop closes it).
+
+## Torrents, servers and previews
+
+- **Torrent streams** need Stremio's streaming server (`server.js`), which TVs cannot run.
+  Streams that only carry an `infoHash` show a *needs server* badge until you set the
+  **Streaming server** URL in Settings > Account (any computer on your LAN running Stremio
+  or the service, usually port 11470). Debrid addons return plain HTTPS URLs and need nothing.
+- **The home helper** (`tools/thumbs/server.py`, ffmpeg and yt-dlp, Dockerfile included)
+  runs next to the streaming server on the same machine. It gives seek previews (the TV's
+  video plane cannot be read and the streaming server has no frame endpoint) and turns
+  YouTube or other page links into files the TV plays, for break recordings. NewPipe
+  does the same job on Android with its own extractor; it cannot run inside a TV app, and
+  yt-dlp on the helper is the equivalent. Set its URL in Settings > Playback.
+
+## Diagnostics (reporting a problem)
+
+Settings > About > **Diagnostics** shows the app's own log on the TV; no root, SSH or
+developer mode is needed. It opens by itself when you press OK on the "This source can't
+be played" card. Left/Right switches *Playback*, *Problems* and *Everything*; Up/Down moves
+the cursor; Blue switches to the **previous session**'s log (after a crash or a black
+screen); OK shows a QR code with the version, backend, webOS release and the lines up to
+the cursor, to scan with a phone and paste into an issue.
+
+If the interface works but video is black, the app's data folder has `app.log` with every
+reply from the media service.
 
 ## Building
 
@@ -236,96 +236,104 @@ yet, publishes it with the Homebrew Channel files. TVs pick it up from the chann
 ```
 sudo apt install cmake build-essential libsdl2-dev libgles-dev
 tools/linux.sh            # builds, runs unit tests
-./build/stremio-tv        # arrows / Enter / Esc, F3 = search, F1/F2/F4 = colour keys
+./build/stremio-tv        # arrows / Enter / Esc, F3 = search, F1/F2/F5/F4 = red/green/yellow/blue
 ```
 Headless UI check (needs Xvfb + Pillow): `bash tests/smoke.sh` writes screenshots to `tests/out/`.
+Useful hooks: `SNTV_KEYS`, `SNTV_SCREENSHOT`, `SNTV_FAKE_DURATION/START`, `SNTV_NOW`,
+`SNTV_FAKE_MEM`, `SNTV_TMDB_API`, `SNTV_AI_API`, `SNTV_NO_TRANSITIONS`.
 
 ### LG webOS (.ipk)
-1. Get the toolchain: `arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz` from
+1. Get `arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz` from
    [openlgtv/buildroot-nc4 releases](https://github.com/openlgtv/buildroot-nc4/releases)
-   (macOS builds: [webosbrew/native-toolchain](https://github.com/webosbrew/native-toolchain)).
-   Extract it and run `relocate-sdk.sh`. It ships SDL2 (the webOS fork), GLES2, luna-service2.
+   (macOS: [webosbrew/native-toolchain](https://github.com/webosbrew/native-toolchain)),
+   extract it and run `relocate-sdk.sh`. It ships SDL2 (the webOS fork), GLES2, luna-service2.
 2. `WEBOS_TOOLCHAIN=/path/to/arm-webos-linux-gnueabi_sdk-buildroot tools/webos.sh --ipk`
-3. Install with the Homebrew Channel / Dev Manager, or `TV_IP=... tools/webos.sh --install` on a rooted TV.
+3. `tools/check-ipk.sh build-webos/*.ipk $WEBOS_TOOLCHAIN` verifies the package the way CI does.
+4. Install with the Homebrew Channel / Dev Manager, or `TV_IP=... tools/webos.sh --install` on a rooted TV.
 
 `tools/package-ipk.sh` uses `ares-package` when present and otherwise writes the
 `ar` + tar layout itself, and refuses to package anything that looks like a credential file.
+`TMDB_API_KEY` in the environment bakes a built-in TMDB key into the binary.
 
 ### Samsung Tizen native (.tpk, Tizen 4.0-9)
-Tizen Studio with the TV native rootstrap: `tools/tizen-native.sh`. The package is left
-unsigned on purpose; sign with your certificate profile (`TIZEN_SIGN_PROFILE=...`) or let
-Apps2Samsung sign it for the TV's DUID. 2018-2020 sets block native code in the app
-folder; the Nuvio project works around that with a .NET host that loads the library from
-memory. That shim is **not** part of this repository yet.
+Tizen Studio with the TV native rootstrap: `tools/tizen-native.sh`. Left unsigned on
+purpose; sign with your certificate profile (`TIZEN_SIGN_PROFILE=...`). 2018-2020 sets
+block native code in the app folder; the .NET host that works around it is not in this
+repository yet.
 
 ### Samsung Tizen WebAssembly (.wgt, Tizen 5.5+)
-Emscripten: `EMSDK=~/emsdk tools/tizen-wasm.sh`. Networking must go through the browser
-in this build; `src/http.c` is still the curl implementation, so a `fetch()`-based
-`http_wasm.c` is the first thing to add before the `.wgt` is useful (see roadmap).
+Emscripten: `EMSDK=~/emsdk tools/tizen-wasm.sh`. Networking must go through the browser in
+this build; a `fetch()`-based `http_wasm.c` is the first thing to add before the `.wgt` is useful.
+
+## Releasing
+
+Bump the version in `deploy/webos/appinfo.json`, `deploy/webos/packageinfo.json`,
+`src/platform/platform.h` and the Tizen manifests, add a `## x.y.z` section to
+`CHANGELOG.md`, and push to `main`. CI builds and checks the package and, because that
+version has no release yet, publishes it with the Homebrew Channel files. TVs pick it up
+from the channel.
 
 ## What is verified, and what is not
 
 | Area | Status |
 |---|---|
-| Addon protocol + API parsing, link login, subtitles, skip markers, language matching, track memory, source scoring, container headers | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`, `tests/test_skip.c`, `tests/test_prefs.c`, `tests/test_quality.c`, `tests/test_probe.c` on ffmpeg-made MKV/MP4 fixtures) |
-| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, track memory, first-run setup, OLED, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (80 scripted runs, screenshots in `tests/out/`) |
-| Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
+| Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (92 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
-| webOS on a real TV | **Confirmed on an LG QNED (webOS)**: installs from the Homebrew Channel, signs in, browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes the video plane |
-| Tizen native player | Written against capi-media-player; **needs Tizen Studio + TV** |
-| Remote scancodes | Match LG's `SDL_webOS.h` in the webOS SDK (Back 482, Exit 505, colours 486-489) |
-| Live `link.stremio.com` QR flow | Endpoint shapes from stremio-core; unreachable from the sandbox, untested live |
+| webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
+| Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
+| Tizen native and WebAssembly | Written against the platform APIs; not compiled with Tizen Studio or run on a Samsung TV |
+| Remote scancodes | Match LG's `SDL_webOS.h` (Back 482, Exit 505, colours 486-489) |
 
-Things known from the Nuvio port that are already handled: `SDL_WEBOS_ACCESS_POLICY_KEYS_BACK`
-is set before the window is created; logs go to a file; libcurl is `dlopen`ed trying
-`.so.5` then `.so.4`; the GL surface keeps an 8-bit alpha channel and the player punches a
-transparent hole so the video plane shows through; the UI is laid out on a 1920x1080
-canvas and scaled, so 720p webOS 3 panels work.
+## Layout
 
-## Diagnostics (reporting a problem)
-
-Settings > **Diagnostics** shows the app's own log on the TV; no root, SSH or
-developer mode is needed. It opens by itself (on the *Playback* tab) when you press OK on
-the "This source can't be played" card.
-
-- Left/Right switches between *Playback* (media service, ACB, player and subtitle lines plus
-  all errors), *Problems* (warnings and errors only) and *Everything*.
-- Up/Down moves the cursor (Rewind/Forward jump a page); the selected line is shown in full
-  at the bottom.
-- Blue (or Yellow) switches to the **previous session**'s log, which is what you want after
-  a crash or a black screen.
-- OK shows a QR code with the version, video backend, webOS release, whether the app runs
-  as root, and the lines up to the cursor. Scan it with your phone camera, copy the text and
-  paste it into an issue. For more history, move the cursor up and scan again.
-
-## Player keys
-
-Down opens the control bar (Audio, Subtitles, Subtitle style, Sources, Next episode, Stats;
-Left/Right to move, OK to open, Up back to the timeline). Back parks the video in a corner
-(picture-in-picture): Play/Pause brings it back, or press Down past the bottom of any screen
-to select the corner and OK. Stop stops, Red stats for nerds, OK play/pause (while *Skip intro* / *Skip recap* is on screen, OK skips), Left/Right
-seek 10 s (accelerates while held), Up audio menu, Down subtitle menu (Left/Right inside
-it shifts timing by 0.5 s), Green play Up Next now, Yellow switch to the next source,
-Back hides the Up Next card (and cancels its countdown) or stops and saves progress.
-
-## Torrent streams
-
-Stremio's torrent engine (`server.js`) is not available on TVs. Streams that only carry an
-`infoHash` are shown with a *needs server* badge until you set a **Streaming server** URL
-in Settings (any machine on your LAN running the Stremio service, usually port 11470).
-Debrid addons return plain HTTPS URLs and work without it.
+```
+src/
+  main.c               SDL/GL setup, main loop, dev hooks
+  app.c/.h             app state: addons, library, auth, screen stack, progress sync, prefs, transitions
+  http.c/.h            libcurl over dlopen + worker pool; callbacks on the main thread
+  store.c/.h           settings.json + cached JSON in the app's writable dir
+  image.c/.h           async artwork loader with an LRU byte budget
+  memwatch.c/.h        runtime memory watch (saver on/off, low-memory warning)
+  subs.c/.h            SRT / WebVTT parser, cue lookup, timing alignment
+  probe.c/.h           Matroska / MP4 header reader (tracks, chapters, HDR, fps)
+  quality.c/.h         source scoring from names and headers, TV profile
+  tmdb.c/.h            TMDB details (cast, ratings) with cache
+  ai.c/.h              OpenAI-compatible chat client (Groq, OpenRouter, Gemini, custom)
+  suntimes.c/.h        solar/prayer time computation (PrayTimes methods)
+  breaks.c/.h          break schedules, banner, location
+  phone.c/.h           LAN page for typing from a phone
+  skip.c/.h            TheIntroDB / AniSkip markers
+  trackmem.c/.h        per-series track memory
+  audio.c/.h           SDL chime
+  addon/               Stremio addon protocol and account API
+  ui/theme.c           runtime themes (Signal, Marquee, Duotone): tokens, accents, fonts per theme
+  ui/gfx.c             batched GLES2 renderer: SDF rounded rects, rings, shadows, lines, duotone, video hole
+  ui/font.c            stb_truetype atlases cached on disk, alternate face, UTF-8, ellipsis, wrap
+  ui/widgets.c         icons, pills, chips, toggles, cards, skeletons, backdrops, ambient light, clock
+  ui/rail.c            side navigation
+  ui/screen_*.c        home, explore, library, calendar, detail, streams, player, search,
+                       settings, login, welcome, pin, break, ambient, diagnostics
+  video/               backend interface; null (desktop), webOS (com.webos.media), Tizen, wasm
+deploy/                webOS appinfo + icons, Tizen manifests
+tools/                 linux.sh, webos.sh, check-ipk.sh, package-ipk.sh, tizen-*.sh, thumbs/ (ffmpeg preview server)
+tests/                 unit tests, fake_addon.py, smoke.sh, fixtures
+docs/                  BREAKS.md (break schedules research), ROADMAP.md, PORTING-NOTES.md, screenshots/
+vendor/                cJSON, qrcodegen, stb_truetype, stb_image, libwebp decoder
+```
 
 ## Configuration and data
 
 Everything lives in the app's writable directory (`SDL_GetPrefPath`, falling back to
-`$HOME/.org.stremio.nativetv`): `settings.json` (auth key, streaming server, local addon
-list, resume points), `addons.json` and `library.json` caches, `app.log` and `app.prev.log`.
-No credentials are compiled into the binary.
+`$HOME/.org.stremio.nativetv`): `settings.json` (auth key, preferences, keys you entered,
+resume points), cached JSON and artwork, `app.log` and `app.prev.log`. No credentials are
+compiled into the binary except the optional TMDB key a CI secret provides.
 
 ## Third-party code
 
-Theme fonts in `assets/fonts` are under the SIL Open Font License 1.1, each with its
-licence file: Space Grotesk, JetBrains Mono, Sora and Bebas Neue (plus Inter).
 `vendor/libwebp` is libwebp 1.4.0's decoder (BSD-3-Clause, see `vendor/libwebp/COPYING`);
-`vendor/cJSON`, `vendor/qrcodegen` and `stb_image` keep their own licences in place.
-
+`vendor/cJSON` (MIT), `vendor/qrcodegen` (MIT), `stb_truetype` and `stb_image` (public
+domain) keep their own licences in place. The fonts in `assets/fonts` (Inter, Space
+Grotesk, JetBrains Mono, Sora, Bebas Neue) are under the SIL Open Font License 1.1, each
+with its licence file next to it. Prayer times use the published PrayTimes.org method
+parameters, reimplemented in `src/suntimes.c` (see `docs/BREAKS.md`).

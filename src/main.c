@@ -5,6 +5,7 @@
 #include "ui/widgets.h"
 #include "http.h"
 #include "image.h"
+#include "memwatch.h"
 #include "log.h"
 #include "store.h"
 #include "platform/platform.h"
@@ -47,17 +48,7 @@ static const char *data_dir(void)
 }
 
 /* Artwork budget follows the TV's RAM, like Nuvio's normal/highcache packages. */
-static size_t image_budget(void)
-{
-    FILE *f = fopen("/proc/meminfo", "r");
-    long kb = 0;
-    if (f) { char line[128]; while (fgets(line, sizeof line, f)) if (sscanf(line, "MemTotal: %ld kB", &kb) == 1) break; fclose(f); }
-    size_t mb = kb / 1024;
-    if (mb == 0) return 0;                       /* unknown: keep the platform default */
-    if (mb < 1024) return 40u << 20;
-    if (mb < 2048) return 96u << 20;
-    return 192u << 20;
-}
+static size_t image_budget(void) { return mem_normal_budget(); }   /* 0 = unknown: keep the platform default */
 
 /* Bundled Inter (regular + bold) next to the binary, else system fallbacks. */
 static int g_pip_focus;   /* the corner player is the focused element */
@@ -83,7 +74,7 @@ static void dev_hooks(SDL_Window *win, int frame)
 {
     static const struct { const char *n; SDL_Keycode k; } keys[] = {
         { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "left", SDLK_LEFT }, { "right", SDLK_RIGHT },
-        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 },
+        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 }, { "yellow", SDLK_F5 },
         { "play", SDLK_p }, { "stop", SDLK_AUDIOSTOP }, { NULL, 0 } };
     const char *script = getenv("SNTV_KEYS");
     if (script && frame % 20 == 10) {
@@ -99,10 +90,12 @@ static void dev_hooks(SDL_Window *win, int frame)
                 SDL_PushEvent(&e);
                 continue;
             }
-            for (int k = 0; keys[k].n; k++) if (strcmp(keys[k].n, tok) == 0) {
+            int hold = strcmp(tok, "hold") == 0;   /* OK held down (long press) */
+            for (int k = 0; keys[k].n; k++) if (strcmp(keys[k].n, hold ? "ok" : tok) == 0) {
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_KEYDOWN; e.key.keysym.sym = keys[k].k; e.key.keysym.scancode = SDL_SCANCODE_UNKNOWN;
                 SDL_PushEvent(&e);
+                if (!hold) { e.type = SDL_KEYUP; SDL_PushEvent(&e); }
             }
         }
         free(copy);
@@ -129,6 +122,29 @@ static void dev_hooks(SDL_Window *win, int frame)
     g_app.quit = 1;
 }
 
+static int g_seen_keyup, g_ok_down, g_ok_long;
+static Uint32 g_ok_t0;
+
+/* One key to the top screen, with the corner player's keys first. */
+static void dispatch_key(KeyAction a)
+{
+    Screen *top = app_top();
+    if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); return; }
+    if (g_app.pip && a == KEY_STOP) { app_pip_close(); return; }
+    if (g_app.pip && g_pip_focus) {   /* the corner player has the focus: 1 = Full screen, 2 = Close */
+        if (a == KEY_OK || a == KEY_LONG_OK) { if (g_pip_focus == 2) app_pip_close(); else app_pip_restore(); }
+        else if (a == KEY_LEFT) g_pip_focus = 1;
+        else if (a == KEY_RIGHT) g_pip_focus = 2;
+        else if (a == KEY_UP || a == KEY_BACK) g_pip_focus = 0;
+        app_redraw();
+        return;
+    }
+    if (top && top->key && top->key(top, a)) return;
+    if (a == KEY_LONG_OK) { dispatch_key(KEY_OK); return; }
+    if (g_app.pip && a == KEY_DOWN) { g_pip_focus = 1; app_redraw(); return; }   /* past the bottom of the screen: the corner */
+    if (a == KEY_BACK) app_pop();
+}
+
 int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -149,6 +165,11 @@ int main(int argc, char **argv)
     log_init(dir);
     LOGI("%s %s starting, data dir %s", SNTV_APP_NAME, SNTV_APP_VERSION, dir);
     store_init(dir);
+    /* a marker that only a clean exit removes: present at start = the last session crashed */
+    char alive[1200]; snprintf(alive, sizeof alive, "%s/session.alive", dir);
+    int crashed = 0;
+    { FILE *f = fopen(alive, "r"); if (f) { crashed = 1; fclose(f); } f = fopen(alive, "w"); if (f) fclose(f); }
+    if (crashed) LOGW("the previous session did not exit cleanly");
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -190,7 +211,8 @@ int main(int argc, char **argv)
     if (video_init(win) != 0) LOGW("video backend failed to initialise");
     LOGI("video backend: %s", video_backend_name());
     app_init();
-    if (g_app.low_memory) { image_set_budget(48u << 20); LOGI("memory saver on: 48 MB of artwork, shorter rows"); }
+    mem_apply_mode();
+    if (crashed && !getenv("SNTV_SCREENSHOT")) app_toast("The app closed unexpectedly last time. Settings > About > Diagnostics, Blue: that session's log");
 
     Uint32 prev = SDL_GetTicks();
     while (!g_app.quit) {
@@ -199,25 +221,28 @@ int main(int argc, char **argv)
             Screen *top = app_top();
             if (e.type == SDL_QUIT) g_app.quit = 1;
             else if (e.type == SDL_TEXTINPUT && top && top->text) top->text(top, e.text.text);
+            else if (e.type == SDL_KEYUP) {
+                g_seen_keyup = 1;
+                SDL_Event d = e; d.type = SDL_KEYDOWN;
+                if (input_map(&d) == KEY_OK && g_ok_down) {   /* a short press: OK now */
+                    g_ok_down = 0;
+                    if (!g_ok_long) dispatch_key(KEY_OK);
+                }
+            }
             else if (e.type == SDL_KEYDOWN) {
                 KeyAction a = input_map(&e);
                 g_app.last_input = g_app.time;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) continue;
-                if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); continue; }
-                if (g_app.pip && a == KEY_STOP) { app_pip_close(); continue; }
-                if (g_app.pip && g_pip_focus) {   /* the corner player has the focus: 1 = Full screen, 2 = Close */
-                    if (a == KEY_OK) { if (g_pip_focus == 2) app_pip_close(); else app_pip_restore(); }
-                    else if (a == KEY_LEFT) g_pip_focus = 1;
-                    else if (a == KEY_RIGHT) g_pip_focus = 2;
-                    else if (a == KEY_UP || a == KEY_BACK) g_pip_focus = 0;
-                    app_redraw();
+                /* On screens that offer a long press, OK waits for the release (or the hold).
+                 * Remotes that never send releases keep the old instant OK. */
+                if (a == KEY_OK && g_seen_keyup && top && top->long_ok && !(g_app.pip && g_pip_focus)) {
+                    if (!e.key.repeat) { g_ok_down = 1; g_ok_long = 0; g_ok_t0 = SDL_GetTicks(); }
                     continue;
                 }
-                if (top && top->key && top->key(top, a)) continue;
-                if (g_app.pip && a == KEY_DOWN) { g_pip_focus = 1; app_redraw(); continue; }   /* past the bottom of the screen: the corner */
-                if (a == KEY_BACK) app_pop();
-            } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                dispatch_key(a);
+            }
+            else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
                 if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
@@ -226,6 +251,8 @@ int main(int argc, char **argv)
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
                 video_app_foreground();
                 app_redraw();
+            } else if (e.type == SDL_APP_LOWMEMORY) {
+                mem_emergency();
             } else if (e.type == SDL_APP_WILLENTERBACKGROUND) {
                 video_app_background();
                 app_library_flush(1);
@@ -242,12 +269,14 @@ int main(int argc, char **argv)
         prev = now;
         g_app.time += dt;
 
+        if (g_ok_down && !g_ok_long && SDL_GetTicks() - g_ok_t0 >= 500) { g_ok_long = 1; dispatch_key(KEY_LONG_OK); }
         http_pump();
+        { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
         image_pump();
         image_frame_tick();
         video_update();
 
-        if (image_busy() || g_app.time < g_app.toast_until) app_redraw();
+        if (image_busy() || http_pending_replies() || g_app.time < g_app.toast_until) app_redraw();
         { static time_t minute; time_t m = time(NULL) / 60; if (m != minute) { minute = m; app_redraw(); } }   /* the clock moves */
 
         Screen *top = app_top();
@@ -257,6 +286,8 @@ int main(int argc, char **argv)
 
         breaks_tick(dt);
         app_library_flush(0);
+        mem_tick(dt);
+        app_update_check(dt);
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }
@@ -284,9 +315,7 @@ int main(int argc, char **argv)
              * it only delays the next key. Cap the rate only when the swap returned at once. */
             if (end - swap_at < 2 && spent < 16) SDL_Delay(16 - spent);
         } else {
-            /* idle: sleep until an event arrives (a key wakes us at once, it stays queued)
-             * or 25 ms pass for the network and image threads */
-            SDL_WaitEventTimeout(NULL, 25);
+            SDL_WaitEventTimeout(NULL, 25);   /* idle: wake the moment a key arrives, else poll the network at 40 Hz */
         }
     }
 
@@ -300,6 +329,7 @@ int main(int argc, char **argv)
     gfx_shutdown();
     store_save();
     store_shutdown();
+    remove(alive);
     SDL_GL_DeleteContext(ctx);
     SDL_DestroyWindow(win);
     SDL_Quit();
