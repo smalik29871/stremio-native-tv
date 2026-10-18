@@ -17,6 +17,9 @@
 typedef struct {
     char name[48], detail[64]; int kind;
     float elapsed; int len_s;
+    int until_media;       /* the break lasts as long as the recording */
+    int media_started;
+    float closing_at;      /* elapsed when the closing recording started */
     Screen *player; int paused_video, took_media, show_video; double resume_pos;
     int stage;             /* 0 opening sound, 1 the break, 2 closing sound, 3 done */
     int focus;             /* 0 continue, 1 skip today */
@@ -63,15 +66,41 @@ static void update(Screen *s, float dt)
     if (b->stage == 0) {
         b->stage = 1;
     } else if (b->stage == 1) {
-        int opening_done = !b->took_media || vi.state == VIDEO_ENDED || vi.state == VIDEO_ERROR || vi.state == VIDEO_IDLE;
-        if (b->len_s > 0 && b->elapsed >= b->len_s && opening_done) {
-            if (b->took_media && g_app.break_end && *g_app.break_end) { b->stage = 2; int v = 0; if (!play_url(g_app.break_end, "Break", &v)) finish(s); else b->show_video = v; }
-            else finish(s);
+        if (vi.state == VIDEO_LOADING || vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) b->media_started = 1;
+        int stopped = vi.state == VIDEO_ENDED || vi.state == VIDEO_ERROR || vi.state == VIDEO_IDLE;
+        int opening_done = !b->took_media || (b->media_started ? stopped : b->elapsed > 20);   /* never started: give up */
+        int time_up = b->until_media || (b->len_s > 0 && b->elapsed >= b->len_s);
+        if (time_up && opening_done) {
+            if (b->took_media && g_app.break_end && *g_app.break_end) {
+                b->stage = 2; b->closing_at = b->elapsed;
+                int v = 0;
+                if (!play_url(g_app.break_end, "Break", &v)) finish(s); else b->show_video = v;
+            } else finish(s);
         }
     } else if (b->stage == 2) {
-        if (vi.state == VIDEO_ENDED || vi.state == VIDEO_ERROR || vi.state == VIDEO_IDLE || b->elapsed > b->len_s + 600) finish(s);
+        if (vi.state == VIDEO_ENDED || vi.state == VIDEO_ERROR || vi.state == VIDEO_IDLE || b->elapsed - b->closing_at > 600) finish(s);
     }
     app_redraw();
+}
+
+/* The countdown under the break's name; returns how far along it is (0..1), or -1. */
+static float status_line(const Brk *b, const VideoInfo *vi, char *line, size_t n)
+{
+    if (b->stage == 2) { snprintf(line, n, "Closing"); return -1; }
+    if (b->took_media && vi->state == VIDEO_LOADING) { snprintf(line, n, "Loading the recording\xE2\x80\xA6"); return -1; }
+    if (b->until_media) {
+        if (vi->duration <= 0) { snprintf(line, n, "Playback continues when the recording ends"); return -1; }
+        int left = (int)(vi->duration - vi->position + 0.5); if (left < 0) left = 0;
+        snprintf(line, n, "Playback continues in %d:%02d", left / 60, left % 60);
+        return (float)(vi->position / vi->duration);
+    }
+    if (b->len_s > 0) {
+        int left = b->len_s - (int)b->elapsed; if (left < 0) left = 0;
+        snprintf(line, n, "Playback continues in %d:%02d", left / 60, left % 60);
+        return b->elapsed / b->len_s > 1 ? 1 : b->elapsed / b->len_s;
+    }
+    snprintf(line, n, "Press OK when you are ready");
+    return -1;
 }
 
 static void draw(Screen *s)
@@ -88,9 +117,7 @@ static void draw(Screen *s)
         font_draw(label, THEME_MARGIN, by0 + 10, FONT_XS | FONT_B, THEME_ACCENT2);
         font_draw(b->name, THEME_MARGIN, by0 + 44, FONT_L | FONT_B, THEME_TEXT);
         char line[120];
-        if (vi.state == VIDEO_LOADING) snprintf(line, sizeof line, "Loading the recording\xE2\x80\xA6");
-        else if (b->len_s > 0) { int left = b->len_s - (int)b->elapsed; if (left < 0) left = 0; snprintf(line, sizeof line, "Playback continues in %d:%02d", left / 60, left % 60); }
-        else snprintf(line, sizeof line, "Press OK when you are ready");
+        status_line(b, &vi, line, sizeof line);
         font_draw(line, THEME_MARGIN, by0 + 110, FONT_S, THEME_TEXT_DIM);
         float w1 = ui_pill_width("Continue now", 1, 60), w2 = ui_pill_width("Skip breaks today", 0, 60);
         float bx = SNTV_UI_W - THEME_MARGIN - w1 - w2 - 20;
@@ -111,11 +138,10 @@ static void draw(Screen *s)
     font_draw_center(b->name, cx, cy + 204, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)));
     if (b->detail[0]) font_draw_center(b->detail, cx, cy + 280, FONT_S, THEME_TEXT_DIM);
     char line[120];
-    if (b->stage == 2) snprintf(line, sizeof line, "Closing");
-    else if (b->len_s > 0) { int left = b->len_s - (int)b->elapsed; if (left < 0) left = 0; snprintf(line, sizeof line, "Playback continues in %d:%02d", left / 60, left % 60); }
-    else snprintf(line, sizeof line, "Press OK when you are ready");
+    VideoInfo vi; video_info(&vi);
+    float done = status_line(b, &vi, line, sizeof line);
     font_draw_center(line, cx, cy + 340, FONT_S | FONT_B, THEME_TEXT_DIM);
-    if (b->len_s > 0) ui_progress(cx - 200, cy + 384, 400, 5, b->elapsed / b->len_s > 1 ? 1 : b->elapsed / b->len_s, THEME_ACCENT);
+    if (done >= 0) ui_progress(cx - 200, cy + 384, 400, 5, done, THEME_ACCENT);
     /* buttons */
     float w1 = ui_pill_width("Continue now", 1, 64), w2 = ui_pill_width("Skip breaks today", 0, 64);
     float bx = cx - (w1 + w2 + 20) / 2, by = SNTV_UI_H - 190;
@@ -150,7 +176,8 @@ Screen *screen_break_create(const char *name, const char *detail, int kind)
     snprintf(b->name, sizeof b->name, "%s", name ? name : "Break");
     snprintf(b->detail, sizeof b->detail, "%s", detail ? detail : "");
     b->kind = kind;
-    b->len_s = (kind == BRK_KIND_HEALTH ? g_app.break_health_len : g_app.break_len_min) * 60;
+    b->until_media = g_app.break_len_min < 0 && kind != BRK_KIND_HEALTH && kind != BRK_KIND_BEDTIME;
+    b->len_s = kind == BRK_KIND_HEALTH ? g_app.break_health_len * 60 : b->until_media ? 0 : g_app.break_len_min * 60;
     if (kind == BRK_KIND_BEDTIME) b->len_s = 0;
     b->player = find_player();
     VideoInfo vi; video_info(&vi);
@@ -158,6 +185,7 @@ Screen *screen_break_create(const char *name, const char *detail, int kind)
     int custom = g_app.break_sound == 1 && g_app.break_audio && *g_app.break_audio && kind != BRK_KIND_HEALTH && !g_app.pip;
     if (custom && play_url(g_app.break_audio, name, &b->show_video)) b->took_media = 1;
     else if (g_app.break_sound != 2) audio_chime();
+    if (b->until_media && !b->took_media) { b->until_media = 0; b->len_s = 60; }   /* no recording to follow: a minute */
     LOGI("break: %s (%s), %d s", b->name, b->detail, b->len_s);
     s->name = "break"; s->st = b;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
