@@ -432,6 +432,20 @@ void ui_skeleton(float x, float y, float w, float h, float r)
     app_redraw();
 }
 
+void ui_arc(float cx, float cy, float r, float thickness, float from, float frac, Color c)
+{
+    if (frac <= 0) return;
+    if (frac > 1) frac = 1;
+    int n = (int)(48 * frac) + 1;
+    float a0 = (from - 0.25f) * 6.2832f, span = frac * 6.2832f;
+    float px = cx + cosf(a0) * r, py = cy + sinf(a0) * r;
+    for (int i = 1; i <= n; i++) {
+        float a = a0 + span * i / n, x = cx + cosf(a) * r, y = cy + sinf(a) * r;
+        gfx_line(px, py, x, y, thickness, c);
+        px = x; py = y;
+    }
+}
+
 void ui_spinner(float cx, float cy, float r)
 {
     int n = 12;

@@ -211,6 +211,9 @@ void player_reload_at(Screen *s, double position_s);   /* the same source again 
 
 /* Fetch an episode's streams ahead of time so Up Next starts without a spinner. */
 void streams_prefetch(const MetaPreview *meta, const char *video_id);
+/* Share of addons that have answered that prefetch, 0..1 (1 = ready to start at once);
+ * -1 when none is running or it went stale. */
+float streams_prefetch_progress(const char *video_id);
 
 /* Titles with artwork worth showing in the screensaver (library + catalog rows). */
 typedef struct AmbientItem { char id[64], name[128], background[512]; } AmbientItem;

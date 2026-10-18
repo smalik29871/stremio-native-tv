@@ -76,6 +76,9 @@ struct Player {
     char audio_lang[16]; int audio_lang_known;
     time_t clock_minute;
     int prefetched;           /* next episode's streams requested */
+    float prefetch_tried;     /* when; a stale or empty prefetch is retried after a while */
+    float next_prog;          /* shown share of the prefetch (eases toward the real one) */
+    float next_ready_at;      /* when it reached 1, for the ready pulse */
     int pip, pip_done;        /* parked in a corner; finished there */
     int learned;              /* this candidate's outcome was recorded in the TV profile */
     ProbeInfo *probe;         /* the file's header: chapters, real codecs */
@@ -588,6 +591,67 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
 
 static void go_up_next(Player *p) { go_to_video(p, p->next_video_id, p->next_title); }
 
+/* ---- next episode readiness ------------------------------------------------------- */
+
+#define READY_PULSE_S 0.6f
+
+/* -1 while nothing is being fetched, else the eased share of addons that answered. */
+static float next_progress(const Player *p)
+{
+    return p->next_video_id && streams_prefetch_progress(p->next_video_id) >= 0 ? p->next_prog : -1;
+}
+
+static void next_progress_update(Player *p, float dt)
+{
+    float target = p->next_video_id ? streams_prefetch_progress(p->next_video_id) : -1;
+    if (target < 0) { p->next_prog = 0; p->next_ready_at = 0; return; }
+    float before = p->next_prog;
+    p->next_prog += (target - p->next_prog) * (dt * 10 > 1 ? 1 : dt * 10);
+    if (target - p->next_prog < 0.004f) p->next_prog = target;
+    if (before < 1 && p->next_prog >= 1) p->next_ready_at = g_app.time;
+    if (p->next_prog != before || (p->next_ready_at > 0 && g_app.time - p->next_ready_at < READY_PULSE_S)) app_redraw();
+}
+
+/* The Next button as a circle: a ring fills while the sources arrive, then pulses once. */
+static void draw_next_circle(const Player *p, float cx, float cy, float r)
+{
+    float k = next_progress(p);
+    int loading = k >= 0 && k < 1;
+    gfx_circle(cx, cy, r, RGBA(0xFF, 0xFF, 0xFF, loading ? 0x14 : 0x2C));
+    ui_icon(ICON_NEXT, cx, cy, 26, loading ? THEME_TEXT_MUTED : THEME_TEXT);
+    if (loading) {
+        ui_arc(cx, cy, r + 5, 3, 0, 1, RGBA(0xFF, 0xFF, 0xFF, 0x22));
+        ui_arc(cx, cy, r + 5, 3, 0, k, THEME_ACCENT2);
+    } else if (k >= 1 && p->next_ready_at > 0) {
+        float t = (g_app.time - p->next_ready_at) / READY_PULSE_S;
+        if (t < 1) gfx_rrect_ring(cx - r - t * 14, cy - r - t * 14, 2 * (r + t * 14), 2 * (r + t * 14), r + t * 14, 3,
+                                  COLOR_ALPHA(THEME_ACCENT2, (int)(255 * (1 - t))));
+    }
+}
+
+/* A focused or primary pill for the next episode: it fills left to right while the
+ * sources arrive and reads fully lit once the episode can start at once. */
+static void draw_next_pill(const Player *p, const char *label, const char *loading_label, float x, float y, float w, float h,
+                           Color fill, Color fg)
+{
+    float k = next_progress(p);
+    if (k < 0 || k >= 1) {
+        gfx_rrect(x, y, w, h, h / 2, fill);
+        if (k >= 1 && p->next_ready_at > 0) {
+            float t = (g_app.time - p->next_ready_at) / READY_PULSE_S;
+            if (t < 1) gfx_rrect_ring(x - t * 10, y - t * 10, w + t * 20, h + t * 20, h / 2 + t * 10, 3, COLOR_ALPHA(fill, (int)(200 * (1 - t))));
+        }
+    } else {
+        gfx_rrect(x, y, w, h, h / 2, COLOR_ALPHA(fill, 0x66));
+        gfx_clip_push(x, y, w * k, h);
+        gfx_rrect(x, y, w, h, h / 2, fill);
+        gfx_clip_pop();
+        label = loading_label;
+    }
+    ui_icon(ICON_NEXT, x + h / 2 + 2, y + h / 2, h * 0.46f, fg);
+    font_draw_fit(label, x + h + 2, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg, w - h - 16);
+}
+
 /* ---- aspect ratio and speed ----------------------------------------------------- */
 
 /* How much larger than the screen the video plane is drawn for the chosen aspect mode. */
@@ -691,11 +755,16 @@ static void update(Screen *s, float dt)
         LOGI("player: Up Next at %.0fs (%s), plays at %.0fs", vi.position, at_credits ? "credits" : "end", p->next_at);
         show_overlay(p);
     }
-    /* fetch the next episode's sources now, so Up Next starts without a wait */
-    if (p->next_video_id && !p->prefetched && (p->up_next_shown || (vi.duration > 120 && vi.position > vi.duration - 90))) {
+    /* fetch the next episode's sources now, so Up Next starts without a wait; the
+     * control bar asks too, so its Next button can show them arriving */
+    int want_next = p->up_next_shown || p->bar_focus || (vi.duration > 120 && vi.position > vi.duration - 90);
+    if (p->next_video_id && want_next && vi.state != VIDEO_LOADING && streams_prefetch_progress(p->next_video_id) < 0
+        && (!p->prefetched || g_app.time - p->prefetch_tried > 30)) {
         p->prefetched = 1;
+        p->prefetch_tried = g_app.time;
         streams_prefetch(&p->meta, p->next_video_id);
     }
+    next_progress_update(p, dt);
     if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; p->stall_since = g_app.time; }
     if (!vi.buffering && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
     p->was_buffering = vi.buffering;
@@ -897,9 +966,20 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
         font_draw(t, tx, y + h - 54, FONT_XS, THEME_TEXT_DIM);
         ui_progress(tx, y + h - 22, w - 320, 6, (float)(1.0 - left / window), THEME_ACCENT);
     }
-    float gx = x + w - 140;
-    gfx_rrect(gx, y + h - 64, 120, 40, 20, RGBA(0x22, 0xC5, 0x5E, 0xFF));
-    font_draw_center("Play now", gx + 60, y + h - 64 + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ON_LIGHT);
+    float k = next_progress(p), gx = x + w - 140, gy = y + h - 64;
+    Color go = RGBA(0x22, 0xC5, 0x5E, 0xFF);
+    const char *what = k >= 0 && k < 1 ? "Preparing" : "Play now";
+    if (k >= 0 && k < 1) {   /* fills as the next episode's sources arrive */
+        gfx_rrect(gx, gy, 120, 40, 20, COLOR_ALPHA(go, 0x55));
+        gfx_clip_push(gx, gy, 120 * k, 40);
+        gfx_rrect(gx, gy, 120, 40, 20, go);
+        gfx_clip_pop();
+    } else {
+        gfx_rrect(gx, gy, 120, 40, 20, go);
+        float t = p->next_ready_at > 0 ? (g_app.time - p->next_ready_at) / READY_PULSE_S : 1;
+        if (t < 1) gfx_rrect_ring(gx - t * 8, gy - t * 8, 120 + t * 16, 40 + t * 16, 20 + t * 8, 2.5f, COLOR_ALPHA(go, (int)(220 * (1 - t))));
+    }
+    font_draw_center(what, gx + 60, gy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ON_LIGHT);
 }
 
 static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay)
@@ -999,7 +1079,15 @@ static void draw_bar(Player *p, float x, float y)
     for (int i = 0; i < n; i++) {
         int foc = p->bar_focus && i == p->bar_index;
         int primary = ids[i] == BTN_PLAY || ids[i] == BTN_NEXT;
-        if (foc) {
+        if (foc && ids[i] == BTN_NEXT) {
+            float w = font_measure("Getting it ready", FONT_S | FONT_B) + d + 28;
+            if (!g_app.fx_light) gfx_shadow(x, y + 4, w, d, d / 2, 22, RGBA(0, 0, 0, 0x80));
+            draw_next_pill(p, labels[i], "Getting it ready", x, y, w, d, THEME_TEXT, THEME_ON_LIGHT);
+            x += w + gap;
+        } else if (ids[i] == BTN_NEXT) {
+            draw_next_circle(p, x + d / 2, y + d / 2, d / 2);
+            x += d + gap;
+        } else if (foc) {
             float w = font_measure(labels[i], FONT_S | FONT_B) + d + 28;
             if (!g_app.fx_light) gfx_shadow(x, y + 4, w, d, d / 2, 22, RGBA(0, 0, 0, 0x80));
             gfx_rrect(x, y, w, d, d / 2, THEME_TEXT);

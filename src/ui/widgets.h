@@ -55,6 +55,8 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style);
 void ui_progress(float x, float y, float w, float h, float frac, Color fill);
 void ui_skeleton(float x, float y, float w, float h, float r);
 void ui_spinner(float cx, float cy, float radius);
+/* Clockwise arc of `frac` of a circle, starting `from` turns past 12 o'clock (capsule segments). */
+void ui_arc(float cx, float cy, float r, float thickness, float from, float frac, Color c);
 void ui_brand(float x, float y, float size);
 
 /* Poster / landscape cards. focus 0..1 animates scale, ring and shadow; dim 0..1 darkens. */

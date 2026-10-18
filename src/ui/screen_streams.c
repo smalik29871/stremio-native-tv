@@ -47,7 +47,7 @@ typedef struct ProbeReq { Streams *owner; unsigned gen; char *url; } ProbeReq;
 static struct {
     char *video_id;
     Stream *items; int n;
-    int pending;
+    int pending, total;
     unsigned generation;
     float started;
 } g_pre;
@@ -260,8 +260,16 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id)
     g_pre.video_id = strdup(video_id);
     g_pre.started = g_app.time;
     query_addons(meta->type, video_id, NULL, g_pre.generation, on_prefetch, &g_pre.pending, NULL);
+    g_pre.total = g_pre.pending;
     LOGI("streams: prefetching %s from %d addon%s", video_id, g_pre.pending, g_pre.pending == 1 ? "" : "s");
     if (!g_pre.pending) prefetch_clear();
+}
+
+float streams_prefetch_progress(const char *video_id)
+{
+    if (!video_id || !g_pre.video_id || strcmp(g_pre.video_id, video_id) != 0 || g_pre.total <= 0) return -1;
+    if (g_app.time - g_pre.started > PREFETCH_FRESH_S) return -1;
+    return (float)(g_pre.total - g_pre.pending) / (float)g_pre.total;
 }
 
 /* Take over a prefetch for this episode. 1 when there was one. */

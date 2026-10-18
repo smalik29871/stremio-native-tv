@@ -44,6 +44,12 @@ run player_cue 300 "right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "right,ok,down,down,ok,ok,right,right,right" SNTV_FAKE_DURATION=1
 run upnext_card 300 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run upnext_auto 380 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+# next episode's sources still arriving (the /slow addon answers 6 s late): the Up Next
+# button and the control bar's Next button fill as a loader
+SLOW="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/slow/manifest.json"
+run upnext_loading 420 "right,ok,down,down,ok,ok" "$SLOW" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_loading '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player_next_loading 300 "right,ok,down,down,ok,ok,down,right" "$SLOW" SNTV_FAKE_START=300
+run player_next_ring 300 "right,ok,down,down,ok,ok,down,right,right" "$SLOW" SNTV_FAKE_START=300
 run player_skipped 300 "right,ok,down,down,ok,ok,ok"
 run upnext_credits 300 "right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run search 210 "search,t:ar"

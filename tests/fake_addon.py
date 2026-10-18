@@ -147,6 +147,20 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path
+        # /slow/...: a second, stream-only addon that answers after FAKE_SLOW_S seconds for
+        # ids containing FAKE_SLOW_ID (the next episode, so the loader has something to show)
+        if p.startswith("/slow/"):
+            p = p[5:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.slow", name="Slow Addon",
+                                                      resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                import time
+                from urllib.parse import unquote
+                if os.environ.get("FAKE_SLOW_ID", ":1:2") in unquote(p):
+                    time.sleep(float(os.environ.get("FAKE_SLOW_S", "6")))
+                return self.send(200, json.dumps(STREAMS).encode())
+            return self.send(404, b"{}")
         if p == "/manifest.json":
             return self.send(200, json.dumps(MANIFEST).encode())
         if p.startswith("/catalog/"):
