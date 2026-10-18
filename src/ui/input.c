@@ -57,3 +57,12 @@ KeyAction input_map(const SDL_Event *e)
     default: return KEY_NONE;
     }
 }
+
+void input_text(int on)
+{
+#if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN)
+    (void)on;
+#else
+    if (on) SDL_StartTextInput(); else SDL_StopTextInput();
+#endif
+}

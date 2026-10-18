@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2
+
+- **Opening a title from Search works again on the TV.** Search kept the TV's text
+  input switched on, and on webOS pressing OK then opened LG's own keyboard, which took
+  the remote's focus: OK on a result showed that keyboard instead of the title. The
+  TV builds no longer ask webOS for its keyboard (the app's keyboard and the phone page
+  do the typing); the desktop preview still takes typing from a real keyboard.
+
 ## 0.7.1
 
 - **Prayer settings take effect at once.** Changing the calculation method, the Asr

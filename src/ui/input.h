@@ -12,5 +12,8 @@ typedef enum {
 } KeyAction;
 
 KeyAction input_map(const SDL_Event *e);
+/* Text input from a real keyboard (desktop). On TVs it would open the system keyboard,
+ * which takes the remote's focus; the app's own keyboard and the phone page are used there. */
+void input_text(int on);
 
 #endif

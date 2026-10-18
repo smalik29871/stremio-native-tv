@@ -344,7 +344,7 @@ static void destroy(Screen *sc)
     s->generation++;   /* orphan in-flight replies */
     if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
-    SDL_StopTextInput();
+    input_text(0);
     free(s);
     free(sc);
 }
@@ -357,6 +357,6 @@ Screen *screen_search_create(void)
     recent_load(s);
     sc->name = "search"; sc->st = s; sc->long_ok = 1;
     sc->update = update; sc->draw = draw; sc->key = key; sc->text = text; sc->destroy = destroy;
-    SDL_StartTextInput();
+    input_text(1);
     return sc;
 }

@@ -452,7 +452,7 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "http://")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "https://") : "https://");
-    SDL_StartTextInput();
+    input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
     if (which == EDIT_BR_AUDIO || which == EDIT_BR_END) phone_accept_file(which == EDIT_BR_AUDIO ? "start" : "end");
     phone_qr_make(st);
@@ -520,7 +520,7 @@ static void finish_edit(Settings *st, int save)
         }
     }
     st->edit = EDIT_NONE;
-    SDL_StopTextInput();
+    input_text(0);
     phone_prompt(NULL, NULL, NULL);
 }
 
@@ -706,7 +706,7 @@ static void text(Screen *s, const char *utf8)
 static void destroy(Screen *s)
 {
     Settings *st = s->st;
-    if (st->edit != EDIT_NONE) SDL_StopTextInput();
+    if (st->edit != EDIT_NONE) input_text(0);
     free(st);
     free(s);
 }

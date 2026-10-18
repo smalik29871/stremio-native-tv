@@ -279,8 +279,8 @@ static void switch_mode(Login *l)
 {
     l->mode = l->mode == MODE_QR ? MODE_PASSWORD : MODE_QR;
     l->message[0] = 0;
-    if (l->mode == MODE_QR) { l->focus = F_SWITCH; if (!l->code[0]) start_link(l); SDL_StopTextInput(); }
-    else { l->focus = F_EMAIL; SDL_StartTextInput(); }
+    if (l->mode == MODE_QR) { l->focus = F_SWITCH; if (!l->code[0]) start_link(l); input_text(0); }
+    else { l->focus = F_EMAIL; input_text(1); }
 }
 
 static int key(Screen *s, KeyAction a)
@@ -351,7 +351,7 @@ static void destroy(Screen *s)
     if (g_active == l) g_active = NULL;
     l->gen++;
     free(l->pending_key);
-    SDL_StopTextInput();
+    input_text(0);
     free(l);
     free(s);
 }
