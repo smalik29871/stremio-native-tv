@@ -4,6 +4,7 @@
  * the Stremio library. */
 #include "../app.h"
 #include "../http.h"
+#include "../image.h"
 #include "../lang.h"
 #include "../log.h"
 #include "../skip.h"
@@ -57,6 +58,11 @@ struct Player {
     int last_warning_version;
     char audio_lang[16]; int audio_lang_known;
     time_t clock_minute;
+    int prefetched;           /* next episode's streams requested */
+
+    /* stats for nerds (Red) */
+    int stats;
+    int stalls; float stall_s, stall_since; int was_buffering;
 
     /* skip markers (TheIntroDB / AniSkip) */
     SkipId skip_id;
@@ -460,6 +466,15 @@ static void update(Screen *s, float dt)
         LOGI("player: Up Next at %.0fs (%s), plays at %.0fs", vi.position, at_credits ? "credits" : "end", p->next_at);
         show_overlay(p);
     }
+    /* fetch the next episode's sources now, so Up Next starts without a wait */
+    if (p->next_video_id && !p->prefetched && (p->up_next_shown || (vi.duration > 120 && vi.position > vi.duration - 90))) {
+        p->prefetched = 1;
+        streams_prefetch(&p->meta, p->next_video_id);
+    }
+    if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; p->stall_since = g_app.time; }
+    if (!vi.buffering && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
+    p->was_buffering = vi.buffering;
+    if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
     if (p->up_next_shown && p->next_video_id && g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at
         && vi.state == VIDEO_PLAYING) { go_up_next(p); return; }
     if (p->up_next_shown && vi.position < credits - 5 && credits > 60 && !near_end) p->up_next_shown = 0;   /* seeked back */
@@ -586,6 +601,54 @@ static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, i
     if (k > 1) k = 1;
     gfx_rrect(x + h / 2, y + h + 10, (w - h) * (1 - k), 4, 2, RGBA(0xFF, 0xFF, 0xFF, 0x90));
     font_draw("OK", x - font_measure("OK", FONT_XS | FONT_B) - 16, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
+}
+
+static void url_host(const char *url, char *out, size_t n)
+{
+    const char *s = strstr(url, "://");
+    s = s ? s + 3 : url;
+    size_t i = 0;
+    while (s[i] && s[i] != '/' && s[i] != ':' && s[i] != '?' && i + 1 < n) { out[i] = s[i]; i++; }
+    out[i] = 0;
+}
+
+static void draw_stats(Player *p, const VideoInfo *vi)
+{
+    char host[128], l[12][160];
+    int n = 0;
+    url_host(p->cands[p->cur].url, host, sizeof host);
+    snprintf(l[n++], 160, "Source|%s", p->cands[p->cur].label ? p->cands[p->cur].label : "");
+    snprintf(l[n++], 160, "Host|%.80s  \xC2\xB7  candidate %d of %d, %d retr%s", host, p->cur + 1, p->n_cands, p->tries, p->tries == 1 ? "y" : "ies");
+    if (vi->width) snprintf(l[n++], 160, "Video|%s  \xC2\xB7  %dx%d @ %d fps", vi->codec, vi->width, vi->height, vi->fps);
+    else snprintf(l[n++], 160, "Video|%s", vi->codec[0] ? vi->codec : "not reported yet");
+    if (vi->bitrate > 0) snprintf(l[n++], 160, "Bitrate|%.1f Mbit/s", vi->bitrate / 1e6);
+    snprintf(l[n++], 160, "Buffer|%d%%%s  \xC2\xB7  %d stall%s, %.1f s total", vi->buffer_percent, vi->buffering ? " (buffering now)" : "",
+             p->stalls, p->stalls == 1 ? "" : "s", p->stall_s + (p->stall_since > 0 ? g_app.time - p->stall_since : 0));
+    char a[32], b[32];
+    ui_format_time(vi->position, a, sizeof a);
+    ui_format_time(vi->duration, b, sizeof b);
+    snprintf(l[n++], 160, "Position|%s / %s", a, vi->duration > 0 ? b : "unknown");
+    if (p->active_addon_sub >= 0) snprintf(l[n++], 160, "Subtitles|%s from %s, %d cues, offset %+.1f s", p->addon_subs[p->active_addon_sub].lang, p->addon_subs[p->active_addon_sub].addon, p->track.n, p->track.offset);
+    else if (p->embedded_text_sel >= 0) snprintf(l[n++], 160, "Subtitles|embedded track %d", p->embedded_text_sel);
+    else snprintf(l[n++], 160, "Subtitles|off");
+    snprintf(l[n++], 160, "Audio|%s", p->audio_lang[0] ? p->audio_lang : "default track");
+    snprintf(l[n++], 160, "Skip markers|%d%s", p->n_skip, p->skip_state == 1 ? " (asking)" : p->skip_state == 0 ? " (not asked yet)" : "");
+    snprintf(l[n++], 160, "App|%s  \xC2\xB7  %d draw calls  \xC2\xB7  %zu MB artwork", video_backend_name(), gfx_draw_calls(), image_cache_bytes() >> 20);
+    if (g_app.frames_measured) snprintf(l[n++], 160, "UI frame|%.1f ms average, %.0f ms worst", g_app.frame_ms_sum / g_app.frames_measured, g_app.frame_ms_worst);
+
+    float w = 980, lh = 36, h = 70 + n * lh, x = THEME_MARGIN, y = 190;
+    gfx_rrect(x, y, w, h, 20, RGBA(0x08, 0x07, 0x12, 0xD8));
+    gfx_rrect_ring(x, y, w, h, 20, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x20));
+    font_draw("Stats for nerds", x + 28, y + 20, FONT_S | FONT_B, THEME_ACCENT2);
+    font_draw("Red to close", x + w - 28 - font_measure("Red to close", FONT_XS), y + 24, FONT_XS, THEME_TEXT_MUTED);
+    for (int i = 0; i < n; i++) {
+        char *bar = strchr(l[i], '|');
+        if (!bar) continue;
+        *bar = 0;
+        float ly = y + 62 + i * lh;
+        font_draw(l[i], x + 28, ly, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        font_draw_fit(bar + 1, x + 190, ly, FONT_XS, THEME_TEXT, w - 220);
+    }
 }
 
 /* Wall-clock time `from_now` seconds ahead, in the chosen 12/24-hour format. */
@@ -743,6 +806,7 @@ static void draw(Screen *s)
             hx += w + 12;
         }
     }
+    if (p->stats && !p->menu) draw_stats(p, &vi);
     if (p->up_next_shown && p->next_video_id && !p->menu) draw_up_next(p, &vi, overlay);
     const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu ? skippable(p, &vi) : NULL;
     if (sk) draw_skip_button(p, sk, &vi, overlay);
@@ -825,6 +889,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_DOWN: p->menu = MENU_SUBS; p->menu_focus = 0; app_redraw(); return 1;
     case KEY_INFO: case KEY_MENU: show_overlay(p); return 1;
     case KEY_GREEN: if (p->next_video_id) go_up_next(p); return 1;
+    case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
     case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->cur + 1, vi.position); } return 1;
     case KEY_STOP: case KEY_BACK:
         report(p, 1);

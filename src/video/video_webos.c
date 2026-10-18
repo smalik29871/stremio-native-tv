@@ -365,6 +365,7 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
         if (h > 0) g_vid_h = h;
         if (fps > 0) g_vid_fps = (int)(fps + 0.5);
         if (br > 0) g_vid_bitrate = (long)br;
+        g_info.width = g_vid_w; g_info.height = g_vid_h; g_info.fps = g_vid_fps; g_info.bitrate = g_vid_bitrate;
         if (cJSON_IsString(sc)) snprintf(g_vid_scan, sizeof g_vid_scan, "%s", sc->valuestring);
         int has_hdr = cJSON_IsString(hdr) && strcmp(hdr->valuestring, "none") != 0;
         snprintf(g_info.codec, sizeof g_info.codec, "%s%s%dx%d%s%s", cJSON_IsString(codec) ? codec->valuestring : "",

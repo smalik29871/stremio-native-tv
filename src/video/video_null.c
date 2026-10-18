@@ -27,6 +27,7 @@ int video_load(const char *url, const char *title, double start)
     if (fd) g.duration = atof(fd);
     if (fs && start <= 0) g.position = atof(fs);
     snprintf(g.codec, sizeof g.codec, "H264 1920x1080 / AAC 5.1");
+    g.width = 1920; g.height = 1080; g.fps = 24; g.bitrate = 8200000;
     g_last = SDL_GetTicks();
     g_audio_sel = 0; g_text_sel = -1; g_rate = 1.0;
     g.tracks_version = 1;

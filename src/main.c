@@ -78,6 +78,20 @@ static int find_fonts(char *regular, char *bold, size_t n)
     return -1;
 }
 
+static int ambient_due(const Screen *top)
+{
+    static float idle_after = -1;
+    if (idle_after < 0) { const char *s = getenv("SNTV_AMBIENT_SECONDS"); idle_after = s ? (float)atof(s) : 0; }   /* test hook */
+    float limit = idle_after > 0 ? idle_after : g_app.ambient_minutes * 60.0f;
+    if (!g_app.ambient_minutes && idle_after <= 0) return 0;
+    if (g_app.time - g_app.last_input < limit) return 0;
+    if (strcmp(top->name, "ambient") == 0 || strcmp(top->name, "login") == 0) return 0;
+    VideoInfo vi;
+    video_info(&vi);
+    if (strcmp(top->name, "player") == 0 && vi.state != VIDEO_PAUSED) return 0;
+    return 1;
+}
+
 /* Dev aid: SNTV_SCREENSHOT=/path/out.ppm dumps the framebuffer after
  * SNTV_SCREENSHOT_FRAMES frames (default 120) and exits. Keys can be scripted with
  * SNTV_KEYS="down,right,ok,..." (one key every 20 frames) for headless UI checks. */
@@ -85,7 +99,7 @@ static void dev_hooks(SDL_Window *win, int frame)
 {
     static const struct { const char *n; SDL_Keycode k; } keys[] = {
         { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "left", SDLK_LEFT }, { "right", SDLK_RIGHT },
-        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "blue", SDLK_F4 }, { NULL, 0 } };
+        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 }, { NULL, 0 } };
     const char *script = getenv("SNTV_KEYS");
     if (script && frame % 20 == 10) {
         int idx = frame / 20;
@@ -196,6 +210,7 @@ int main(int argc, char **argv)
             else if (e.type == SDL_TEXTINPUT && top && top->text) top->text(top, e.text.text);
             else if (e.type == SDL_KEYDOWN) {
                 KeyAction a = input_map(&e);
+                g_app.last_input = g_app.time;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) continue;
                 if (top && top->key && top->key(top, a)) continue;
@@ -233,6 +248,9 @@ int main(int argc, char **argv)
         Screen *top = app_top();
         if (top && top->update) top->update(top, dt);
         top = app_top();   /* update() may have popped or replaced the screen */
+
+        /* Screensaver after a quiet spell, never over a playing video. */
+        if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }
 
         /* Idle frame skipping: when nothing animates or arrives, don't redraw at all.
          * Keeps old TVs cool and leaves the CPU to the network threads. Dev hooks and

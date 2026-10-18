@@ -501,6 +501,7 @@ static void load_prefs(void)
     g_app.clock_mode = store_get_int("clockMode", 0);
     if (g_app.clock_mode < 0 || g_app.clock_mode > 2) g_app.clock_mode = 0;
     g_app.oled = store_get_int("oled", 0);
+    g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
 }
@@ -515,6 +516,7 @@ void app_save_prefs(void)
     store_set_int("subsAlways", g_app.subs_always);
     store_set_int("clockMode", g_app.clock_mode);
     store_set_int("oled", g_app.oled);
+    store_set_int("ambientMinutes", g_app.ambient_minutes);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();
@@ -590,6 +592,32 @@ int app_next_video(const char *meta_id, const char *video_id, char *next_id, siz
 }
 
 static int imdb_id(const char *id) { return id && id[0] == 't' && id[1] == 't' && id[2] >= '0' && id[2] <= '9'; }
+
+/* ---- screensaver pool ------------------------------------------------------- */
+
+enum { AMBIENT_MAX = 48 };
+static AmbientItem g_ambient[AMBIENT_MAX];
+static int g_n_ambient, g_ambient_next;
+
+void app_ambient_offer(const MetaPreview *m)
+{
+    char buf[512];
+    const char *bg = app_art_background(m, buf, sizeof buf);
+    if (!bg || !m->id || !m->name) return;
+    for (int i = 0; i < g_n_ambient; i++) if (strcmp(g_ambient[i].id, m->id) == 0) return;
+    AmbientItem *a;
+    if (g_n_ambient < AMBIENT_MAX) a = &g_ambient[g_n_ambient++];
+    else { a = &g_ambient[g_ambient_next]; g_ambient_next = (g_ambient_next + 1) % AMBIENT_MAX; }   /* rotate the pool */
+    snprintf(a->id, sizeof a->id, "%s", m->id);
+    snprintf(a->name, sizeof a->name, "%s", m->name);
+    snprintf(a->background, sizeof a->background, "%s", bg);
+}
+
+int app_ambient_pool(const AmbientItem **out)
+{
+    *out = g_ambient;
+    return g_n_ambient;
+}
 
 const char *app_art_background(const MetaPreview *p, char *buf, size_t n)
 {

@@ -29,7 +29,21 @@ struct Streams {
     float scroll, scroll_target;
     int autoplayed;
     float started;
+    int from_prefetch;        /* answers still arriving belong to the prefetch */
+    int check_autoplay;
 };
+
+/* Streams fetched ahead of time for the next episode (the player asks when the
+ * credits start). A Streams screen opened for that episode adopts them and the
+ * requests still in flight, so Up Next starts without the usual wait. */
+static struct {
+    char *video_id;
+    Stream *items; int n;
+    int pending;
+    unsigned generation;
+    float started;
+} g_pre;
+#define PREFETCH_FRESH_S 600.0f
 
 static int playable(const Stream *s)
 {
@@ -59,46 +73,113 @@ static void sort_items(Streams *st)
 
 static void play_from(Streams *st, int index);
 
+/* Parse one addon's answer into `items`; returns how many were added. */
+static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
+{
+    const char *addon_name = addon < g_app.n_addons ? g_app.addons[addon].manifest.name : "addon";
+    Stream *got; int n;
+    if (r->status != 200 || addon_parse_streams(r->body, &got, &n) != 0) {
+        LOGW("streams: %s failed (%ld %s)", addon_name, r->status, r->error);
+        return 0;
+    }
+    *items = realloc(*items, sizeof(Stream) * (size_t)(*count + n));
+    for (int i = 0; i < n; i++) {
+        got[i].addon_name = strdup(addon_name);
+        (*items)[(*count)++] = got[i];
+    }
+    free(got);
+    return n;
+}
+
+/* Autoplay: as soon as a same-group stream shows up, or when everyone answered. */
+static void autoplay_check(Streams *st)
+{
+    if (!st->autoplay_group || st->autoplayed || !st->n) return;
+    int match = st->items[0].binge_group && strcmp(st->items[0].binge_group, st->autoplay_group) == 0;
+    if ((match || st->pending == 0) && playable(&st->items[0])) { st->autoplayed = 1; play_from(st, 0); }
+}
+
 static void on_streams(HttpResponse *r, void *user)
 {
     Pending *p = user;
     Streams *st = p->owner;
     if (st != g_live || p->generation != g_generation) { free(p); return; }
     st->pending--;
-    Stream *got; int n;
-    const char *addon_name = p->addon < g_app.n_addons ? g_app.addons[p->addon].manifest.name : "addon";
-    if (r->status == 200 && addon_parse_streams(r->body, &got, &n) == 0) {
-        st->items = realloc(st->items, sizeof(Stream) * (size_t)(st->n + n));
-        for (int i = 0; i < n; i++) {
-            got[i].addon_name = strdup(addon_name);
-            st->items[st->n++] = got[i];
-        }
-        free(got);
-        sort_items(st);
-        app_redraw();
-    } else {
-        LOGW("streams: %s failed (%ld %s)", addon_name, r->status, r->error);
-    }
+    if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
     free(p);
-    /* Autoplay: as soon as a same-group stream shows up, or when everyone answered. */
-    if (st->autoplay_group && !st->autoplayed && st->n) {
-        int match = st->items[0].binge_group && strcmp(st->items[0].binge_group, st->autoplay_group) == 0;
-        if ((match || st->pending == 0) && playable(&st->items[0])) { st->autoplayed = 1; play_from(st, 0); }
+    autoplay_check(st);
+}
+
+static void query_addons(const char *type, const char *video_id, Streams *owner, unsigned generation, HttpCallback cb, int *pending, int *n_reqs)
+{
+    for (int i = 0; i < g_app.n_addons; i++) {
+        if (!addon_supports(&g_app.addons[i], "stream", type, video_id)) continue;
+        char url[1024];
+        addon_url_stream(&g_app.addons[i], type, video_id, url, sizeof url);
+        Pending *p = malloc(sizeof *p);
+        p->owner = owner; p->addon = i; p->generation = generation;
+        (*pending)++;
+        if (n_reqs) (*n_reqs)++;
+        http_request_async(url, NULL, cb, p);
     }
 }
 
-static void query(Streams *st)
+static void query(Streams *st) { query_addons(st->meta.type, st->video_id, st, g_generation, on_streams, &st->pending, &st->n_reqs); }
+
+static void prefetch_clear(void)
 {
-    for (int i = 0; i < g_app.n_addons; i++) {
-        if (!addon_supports(&g_app.addons[i], "stream", st->meta.type, st->video_id)) continue;
-        char url[1024];
-        addon_url_stream(&g_app.addons[i], st->meta.type, st->video_id, url, sizeof url);
-        Pending *p = malloc(sizeof *p);
-        p->owner = st; p->addon = i; p->generation = g_generation;
-        st->pending++;
-        st->n_reqs++;
-        http_request_async(url, NULL, on_streams, p);
+    g_pre.generation++;   /* answers still in flight are dropped */
+    streams_free(g_pre.items, g_pre.n);
+    free(g_pre.video_id);
+    memset(&g_pre, 0, sizeof g_pre);
+    g_pre.generation = g_generation + 1000;
+}
+
+static void on_prefetch(HttpResponse *r, void *user)
+{
+    Pending *p = user;
+    if (p->generation != g_pre.generation) { free(p); return; }
+    g_pre.pending--;
+    Streams *st = g_live && g_live->from_prefetch && g_live->video_id && g_pre.video_id && strcmp(g_live->video_id, g_pre.video_id) == 0 ? g_live : NULL;
+    if (st) {   /* the screen for this episode is already open: feed it directly */
+        st->pending--;
+        if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
+        free(p);
+        autoplay_check(st);
+        return;
     }
+    absorb(&g_pre.items, &g_pre.n, r, p->addon);
+    free(p);
+    if (g_pre.pending == 0) LOGI("streams: prefetched %d sources for %s", g_pre.n, g_pre.video_id);
+}
+
+void streams_prefetch(const MetaPreview *meta, const char *video_id)
+{
+    if (!video_id || !meta->type) return;
+    if (g_pre.video_id && strcmp(g_pre.video_id, video_id) == 0 && g_app.time - g_pre.started < PREFETCH_FRESH_S) return;
+    prefetch_clear();
+    g_pre.video_id = strdup(video_id);
+    g_pre.started = g_app.time;
+    query_addons(meta->type, video_id, NULL, g_pre.generation, on_prefetch, &g_pre.pending, NULL);
+    LOGI("streams: prefetching %s from %d addon%s", video_id, g_pre.pending, g_pre.pending == 1 ? "" : "s");
+    if (!g_pre.pending) prefetch_clear();
+}
+
+/* Take over a prefetch for this episode. 1 when there was one. */
+static int adopt_prefetch(Streams *st)
+{
+    if (!g_pre.video_id || strcmp(g_pre.video_id, st->video_id) != 0) return 0;
+    if (g_app.time - g_pre.started > PREFETCH_FRESH_S) { prefetch_clear(); return 0; }
+    st->items = g_pre.items; st->n = g_pre.n;
+    g_pre.items = NULL; g_pre.n = 0;
+    st->pending = g_pre.pending;
+    st->n_reqs = g_pre.pending + st->n;
+    st->from_prefetch = 1;
+    st->check_autoplay = 1;
+    sort_items(st);
+    LOGI("streams: using %d prefetched sources for %s (%d answer%s still coming)", st->n, st->video_id, st->pending, st->pending == 1 ? "" : "s");
+    if (!st->pending) prefetch_clear();
+    return 1;
 }
 
 static void first_line(const char *s, char *out, size_t n)
@@ -126,6 +207,7 @@ static void rest_lines(const char *s, char *out, size_t n)
 static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
+    if (st->check_autoplay) { st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return; }
     int first = st->focus - (VISIBLE - 2);
     st->scroll_target = (first < 0 ? 0 : first) * ROW_H;
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 14);
@@ -354,6 +436,7 @@ static void destroy(Screen *s)
 {
     Streams *st = s->st;
     if (g_live == st) { g_live = NULL; g_generation++; }
+    if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */
     streams_free(st->items, st->n);
     meta_preview_free(&st->meta);
     free(st->video_id); free(st->video_title); free(st->autoplay_group);
@@ -375,7 +458,7 @@ Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     g_live = st;
     g_generation++;
-    query(st);
+    if (!adopt_prefetch(st)) query(st);
     return s;
 }
 

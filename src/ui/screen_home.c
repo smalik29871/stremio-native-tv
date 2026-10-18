@@ -155,6 +155,7 @@ static void apply_catalog(Row *row, const char *json)
     char *focused = row->n && row->focus < row->n ? strdup(row->metas[row->focus].id) : NULL;
     meta_previews_free(row->metas, row->n);
     row->metas = m; row->n = n;
+    for (int i = 0; i < n && i < 6; i++) app_ambient_offer(&m[i]);
     if (focused) { for (int i = 0; i < n; i++) if (strcmp(m[i].id, focused) == 0) row->focus = i; free(focused); }
     if (row->focus >= n) row->focus = n ? n - 1 : 0;
     app_redraw();

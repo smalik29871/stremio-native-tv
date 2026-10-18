@@ -14,7 +14,7 @@
 #include <string.h>
 
 enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_AUTOPLAY, IT_SKIP,
-       IT_CLOCK, IT_UI_HEADER, IT_FX, IT_OLED, IT_BLUR, IT_DIAG, IT_SETUP, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
+       IT_CLOCK, IT_UI_HEADER, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR, IT_DIAG, IT_SETUP, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
 #define ROW_H 88.0f
 #define COL_X 420.0f
@@ -144,6 +144,12 @@ static void draw(Screen *s)
             draw_row(y, ICON_STAR, "Visual effects", v, foc, KIND_CHOICE, 0);
             break;
         case IT_OLED: draw_row(y, ICON_STAR, "Pure black background (OLED)", NULL, foc, KIND_TOGGLE, g_app.oled); break;
+        case IT_AMBIENT: {
+            char v[32];
+            if (g_app.ambient_minutes) snprintf(v, sizeof v, "After %d min", g_app.ambient_minutes); else snprintf(v, sizeof v, "Off");
+            draw_row(y, ICON_STAR, "Screensaver", v, foc, KIND_CHOICE, 0);
+            break;
+        }
         case IT_BLUR: draw_row(y, ICON_LIBRARY, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
         case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log and device info", foc, KIND_ACTION, 0); break;
         case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
@@ -208,6 +214,13 @@ static void adjust(Settings *st, int dir)
     case IT_SUBS_WHEN: g_app.subs_always = !g_app.subs_always; break;
     case IT_CLOCK: g_app.clock_mode = (g_app.clock_mode + dir + 3) % 3; break;
     case IT_OLED: g_app.oled = !g_app.oled; break;
+    case IT_AMBIENT: {
+        static const int STEPS[] = { 0, 2, 5, 10, 20 };
+        int k = 0;
+        for (int i = 0; i < 5; i++) if (STEPS[i] == g_app.ambient_minutes) k = i;
+        g_app.ambient_minutes = STEPS[(k + dir + 5) % 5];
+        break;
+    }
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     default: return;
     }
@@ -242,7 +255,7 @@ static int key(Screen *s, KeyAction a)
         else if (st->focus == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (st->focus == IT_DIAG) app_push(screen_diagnostics_create(0));
         else if (st->focus == IT_SETUP) app_push(screen_welcome_create());
-        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_SUBS_WHEN || st->focus == IT_CLOCK || st->focus == IT_OLED || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
+        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_SUBS_WHEN || st->focus == IT_CLOCK || st->focus == IT_OLED || st->focus == IT_AMBIENT || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
         else if (st->focus >= IT_FIXED_COUNT) {
             int idx = st->focus - IT_FIXED_COUNT;
             if (st->confirm_remove == idx) { app_remove_addon(idx); st->confirm_remove = -1; if (st->focus >= item_count()) st->focus = item_count() - 1; }

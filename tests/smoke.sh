@@ -40,10 +40,10 @@ run player_subs 300 "down,right,ok,down,down,ok,ok,down"
 run player_audio 300 "down,right,ok,down,down,ok,ok,up"
 run player_cue 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "down,right,ok,down,down,ok,ok,right,right,right"
-run upnext_card 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100
-run upnext_auto 380 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5
+run upnext_card 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_auto 380 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_skipped 300 "down,right,ok,down,down,ok,ok,ok"
-run upnext_credits 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_START=2999
+run upnext_credits 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run settings 160 "right,ok,down,down,down,down,down"
@@ -62,6 +62,10 @@ MEM="$(home_with memory '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_pick_tracks 340 "down,right,ok,down,down,ok,ok,up,down,ok,down,down,down,ok" HOME="$MEM"
 run player_remembered 300 "down,right,ok,down,down,ok,ok" HOME="$MEM"
 run home_oled 150 "down,right,right" HOME="$(home_with oled '{"oled":1,"setupDone":1}')"
+run player_stats 300 "down,right,ok,down,down,ok,ok,red"
+# screensaver after one quiet second (no keys at all)
+run ambient 200 "" SNTV_AMBIENT_SECONDS=1
+run ambient_paused 300 "down,right,ok,down,down,ok,ok,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run login_qr 160 "right,right,ok"
 run login_pw 180 "right,right,ok,ok"
 python3 -I - "$OUT" <<'PY'

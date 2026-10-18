@@ -14,6 +14,8 @@ typedef struct VideoInfo {
     int buffer_percent;
     char error[160];
     char codec[48];    /* informational, e.g. "H264 1920x1080 / AAC" */
+    int width, height, fps;   /* 0 when the pipeline has not said */
+    long bitrate;             /* bits per second, 0 unknown */
     int tracks_version; /* bumps when the track lists change */
     char warning[160];  /* non-fatal problem worth telling the viewer (e.g. unsupported audio) */
     int warning_version;

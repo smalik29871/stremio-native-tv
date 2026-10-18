@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.4
+
+- **Instant Up Next.** When the credits start (or 90 s before the end), the next
+  episode's sources are fetched in the background, so the Up Next card and *Play now*
+  start it straight away instead of showing the spinner first.
+- **Screensaver.** After a quiet spell (5 minutes by default; 2/5/10/20 or off in
+  Settings > Interface) backdrops from your library and the Home catalogs drift slowly
+  with a large clock. It never covers a playing video, only a paused one, and shifts
+  everything a few pixels every minute so OLED panels keep no static image. Any key
+  closes it.
+- **Stats for nerds.** Red in the player: source and host, codec, resolution, frame rate
+  and bitrate as the TV reports them, buffer level with stall count and time, subtitle
+  and audio state, skip markers, and the app's own frame time.
+
 ## 0.4.3
 
 Ideas taken from Stremio-Kai that work on a TV.
