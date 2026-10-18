@@ -31,6 +31,8 @@ typedef struct HttpOptions {
     int background;         /* artwork: waits behind API requests, newest first */
     const char *post_json;  /* POST this body (copied at enqueue time) */
     const char *bearer;     /* Authorization: Bearer <token> (copied) */
+    const char *headers;    /* more request headers, "Name: value" lines joined by \n (copied);
+                               a User-Agent line replaces the app's */
     HttpWorkFn work;        /* off the main thread: see above */
     HttpFreeFn free_parsed; /* frees r->parsed when the callback left it (or was cancelled) */
 } HttpOptions;
@@ -40,6 +42,7 @@ void http_shutdown(void);
 
 /* Blocking. Pass post_json == NULL for GET. Caller frees with http_response_free. */
 int  http_request(const char *url, const char *post_json, HttpResponse *out);
+int  http_request_ex(const char *url, const HttpOptions *opt, HttpResponse *out);
 void http_response_free(HttpResponse *r);
 
 /* Async: the request runs on a worker thread and `cb` is invoked on the main
@@ -48,6 +51,11 @@ typedef void (*HttpCallback)(HttpResponse *resp, void *user);
 unsigned http_request_async(const char *url, const char *post_json, HttpCallback cb, void *user);
 unsigned http_request_async_ex(const char *url, const HttpOptions *opt, HttpCallback cb, void *user);
 void http_cancel(unsigned id);   /* the callback will not fire */
+/* Long work on a network worker (several blocking requests, a file download): `task`
+ * fills the response (status, body, error, parsed) and `cb` gets it on the main thread.
+ * `label` names it in the perf log. */
+typedef void (*HttpTaskFn)(HttpResponse *r, void *arg);
+unsigned http_task_async(const char *label, HttpTaskFn task, void *arg, HttpCallback cb, void *user);
 void http_pump(void);
 int  http_pending_replies(void);   /* replies held for the next frame (keep drawing) */
 int  http_online(void);            /* 0 when transport failures repeat and nothing got through for 15 s */

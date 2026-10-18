@@ -8,6 +8,7 @@
 #include "../http.h"
 #include "../memwatch.h"
 #include "../phone.h"
+#include "../youtube.h"
 #include "qrcodegen.h"
 #include "../suntimes.h"
 #include "../image.h"
@@ -260,7 +261,7 @@ static void draw(Screen *s)
         }
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
         case IT_SCRUB: draw_row(y, ICON_PLAY, "Show the picture while seeking", NULL, foc, KIND_TOGGLE, g_app.live_scrub); break;
-        case IT_THUMBS: draw_row(y, ICON_ASPECT, "Home helper (seek previews, YouTube links)", g_app.thumb_server ? g_app.thumb_server : "Not set  \xC2\xB7  tools/thumbs on a computer or NAS: frames while seeking, YouTube for breaks", foc, KIND_ACTION, 0); break;
+        case IT_THUMBS: draw_row(y, ICON_ASPECT, "Home helper (seek previews)", g_app.thumb_server ? g_app.thumb_server : "Not set  \xC2\xB7  tools/thumbs on a computer or NAS: frames while seeking, a fallback for YouTube", foc, KIND_ACTION, 0); break;
         case IT_PIN: draw_row(y, ICON_LOCK, g_app.parental_pin[0] ? "Parental PIN" : "Set a parental PIN", g_app.parental_pin[0] ? "Set  \xC2\xB7  OK to remove it (asks for the PIN)" : "Four digits; needed for the switches below", foc, KIND_ACTION, 0); break;
         case IT_PIN_SETTINGS: draw_row(y, ICON_SETTINGS, "Ask for the PIN to open Settings", NULL, foc, KIND_TOGGLE, g_app.pin_settings); break;
         case IT_HIDE_ADULT: draw_row(y, ICON_LIBRARY, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
@@ -413,7 +414,7 @@ static const char *edit_hint(int which)
          : which == EDIT_AI_BASE ? "The base URL that ends before /chat/completions, e.g. http://192.168.1.10:11434/v1 for Ollama."
          : which == EDIT_AI_MODEL ? "A model name the provider accepts. Empty goes back to the preset."
          : which == EDIT_LOCATION ? "Latitude, longitude  (e.g. 51.5074, -0.1278). Maps apps show them when you long-press a spot."
-         : which == EDIT_BR_AUDIO ? "Scan the code to send an audio or video file from your phone, or paste a link: a direct MP3/M4A/MP4, or a YouTube page (needs the home helper). Empty for none"
+         : which == EDIT_BR_AUDIO ? "Scan the code to send an audio or video file from your phone, or paste a link: a direct MP3/M4A/MP4, or a YouTube link (the TV saves it once and plays it offline). Empty for none"
          : which == EDIT_BR_END ? "Played when the break ends, before playback continues (a dua, a closing bell). Send a file from your phone or paste a direct link. Empty for none"
          : "Paste or type the addon's manifest.json address";
 }
@@ -443,6 +444,22 @@ static void warm_media(const char *stored)
     HttpOptions o = { .range_bytes = 1, .timeout_s = 320, .no_json_accept = 1 };
     http_request_async_ex(u, &o, on_warm, NULL);
     app_toast("The helper is fetching it\xE2\x80\xA6");
+}
+
+/* A YouTube link is downloaded by the TV itself; the home helper, when set, is the fallback. */
+static void on_youtube_saved(const char *name, const char *error, void *user)
+{
+    char *url = user;
+    if (name) app_toast("Ready: saved on the TV, it plays at each break (offline too)");
+    else if (g_app.thumb_server && *g_app.thumb_server) { app_toast("YouTube said no to the TV (%.80s). Trying the home helper\xE2\x80\xA6", error); warm_media(url); }
+    else app_toast("Could not save it from YouTube: %.120s", error);
+    free(url);
+}
+
+static void save_youtube(const char *url)
+{
+    app_toast("Saving it from YouTube on the TV\xE2\x80\xA6 the first link takes up to a minute");
+    youtube_save(url, g_app.break_video, on_youtube_saved, strdup(url));
 }
 
 static void begin_edit(Settings *st, int which);
@@ -533,7 +550,9 @@ static void finish_edit(Settings *st, int save)
             *slot = strlen(v) > 10 && strcmp(v, "https://") ? strdup(v) : NULL;
             app_save_prefs();
             if (g_app.break_sound != 1 && *slot) g_app.break_sound = 1;
-            if (*slot && is_page && !(g_app.thumb_server && *g_app.thumb_server))
+            char yt[16];
+            if (*slot && youtube_video_id(*slot, yt)) save_youtube(*slot);
+            else if (*slot && is_page && !(g_app.thumb_server && *g_app.thumb_server))
                 app_toast("Saved. A page link like YouTube needs the home helper: Settings > Playback > Home helper");
             else if (*slot && is_page) warm_media(*slot);
             else app_toast(is_file ? "Recording saved on the TV" : *slot ? "Link saved" : "No recording set");
@@ -594,7 +613,14 @@ static int adjust(Settings *st, int id, int dir)
     case IT_PIP: g_app.pip_enabled = !g_app.pip_enabled; break;
     case IT_SUBS_SYNC: g_app.subs_autosync = !g_app.subs_autosync; break;
     case IT_SUBS_XL: g_app.subs_autotranslate = !g_app.subs_autotranslate; break;
-    case IT_BR_VIDEO: g_app.break_video = !g_app.break_video; break;
+    case IT_BR_VIDEO:
+        g_app.break_video = !g_app.break_video;
+        for (int i = 0; i < 2; i++) {   /* a YouTube recording saved as sound only: fetch the video too */
+            const char *u = i ? g_app.break_end : g_app.break_audio;
+            char name[80]; int vid = 0;
+            if (g_app.break_video && youtube_saved(u, 1, name, sizeof name, &vid) && !vid) youtube_save(u, 1, NULL, NULL);
+        }
+        break;
     case IT_SRC_AUDIO: g_app.src_audio_lang = !g_app.src_audio_lang; break;
     case IT_ADDON_WAIT: { static const int L[] = { 3, 5, 8, 15, 30, 99 }; int k = 2; for (int i = 0; i < 6; i++) if (L[i] == g_app.addon_wait) k = i; g_app.addon_wait = L[(k + dir + 6) % 6]; break; }
     case IT_AI_PROVIDER: g_app.ai_provider = (g_app.ai_provider + dir + AI_PROVIDER_COUNT) % AI_PROVIDER_COUNT; break;

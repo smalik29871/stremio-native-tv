@@ -25,10 +25,10 @@ void breaks_draw_banner(void);       /* the reminder, over whatever screen is up
 void breaks_fire_now(const char *name, const char *detail, int kind);   /* "Try a break now" */
 void breaks_skip_today(void);
 int  breaks_minute_now(void);        /* local minute of day (SNTV_NOW=HH:MM overrides) */
-/* A break recording as the TV can play it: a file sent from the phone, a direct link,
- * or a page link (YouTube...) fetched by the home helper. NULL when it cannot play
- * (a page link without a helper). *is_video says whether it has a picture to show. */
 void breaks_settings_changed(void);   /* recompute today's times before the next check */
+/* A break recording as the TV can play it: a file sent from the phone, a direct link,
+ * a YouTube link saved on the TV (youtube.h), or another page link fetched by the home
+ * helper. NULL when it cannot play yet. *is_video says whether it has a picture to show. */
 const char *breaks_media_url(const char *stored, char *out, size_t n, int *is_video);
 int breaks_is_page_link(const char *url);
 #endif

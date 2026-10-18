@@ -79,7 +79,8 @@ void log_system_info(char *out, size_t n)
     char rel[200]; const char *src;
     sysinfo_webos_release(rel, sizeof rel, &src);
     unsigned uid = (unsigned)getuid();
-    snprintf(out, n, "%s | uid %u%s", rel[0] ? rel : "unknown system", uid, uid == 0 ? " (root)" : " (not root)");
+    const char *dec = sysinfo_decoders();
+    snprintf(out, n, "%s | uid %u%s | decoders: %s", rel[0] ? rel : "unknown system", uid, uid == 0 ? " (root)" : " (not root)", dec ? dec : "checking");
 }
 
 void log_shutdown(void)

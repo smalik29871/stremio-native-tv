@@ -1133,12 +1133,24 @@ void app_details_want(const char *type, const char *id)
 
 /* ---- TV profile ------------------------------------------------------------- */
 
+/* Which video decoders the system lends to apps, for Diagnostics. Waits until start-up is over. */
+static int probe_decoders(void *unused)
+{
+    (void)unused;
+    SDL_Delay(8000);
+    sysinfo_probe_decoders();
+    LOGI("decoders: %s", sysinfo_decoders());
+    return 0;
+}
+
 static void tv_profile_load(void)
 {
     char rel[200]; const char *src;
     sysinfo_webos_release(rel, sizeof rel, &src);
     quality_tv_init(&g_app.tv, src[0] ? rel : NULL);
     LOGI("system: %s%s%s", rel, src[0] ? " from " : " (no webOS release found)", src);
+    SDL_Thread *t = SDL_CreateThread(probe_decoders, "probe", NULL);
+    if (t) SDL_DetachThread(t);
     const cJSON *caps = store_get_json("tvCaps");
     for (int c = 0; c < TVCAP_COUNT; c++) {
         const cJSON *e = cJSON_GetObjectItemCaseSensitive(caps, TVCAP_NAMES[c]);

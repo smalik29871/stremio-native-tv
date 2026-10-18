@@ -5,6 +5,7 @@
 #include "http.h"
 #include "log.h"
 #include "suntimes.h"
+#include "youtube.h"
 #include "ui/font.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
@@ -289,6 +290,12 @@ const char *breaks_media_url(const char *stored, char *out, size_t n, int *is_vi
         return phone_resolve_sound(stored, out, n);
     }
     if (breaks_is_page_link(stored)) {
+        char name[80], sound[120]; int saved_video = 0;
+        if (youtube_saved(stored, g_app.break_video, name, sizeof name, &saved_video)) {   /* downloaded on the TV */
+            if (is_video) *is_video = g_app.break_video && saved_video;
+            snprintf(sound, sizeof sound, "sntv-sound://%s", name);
+            return phone_resolve_sound(sound, out, n);
+        }
         if (!g_app.thumb_server || !*g_app.thumb_server) return NULL;
         char enc[1400]; size_t o = 0;
         for (const unsigned char *p = (const unsigned char *)stored; *p && o + 4 < sizeof enc; p++) {

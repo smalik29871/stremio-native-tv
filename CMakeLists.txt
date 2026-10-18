@@ -22,6 +22,15 @@ target_include_directories(webpdecoder PUBLIC vendor/libwebp)
 target_compile_options(webpdecoder PRIVATE -w)   # third-party code: keep our own warnings readable
 set_target_properties(webpdecoder PROPERTIES C_STANDARD 99)
 
+# ---- QuickJS-ng (vendor/quickjs, MIT): runs YouTube's challenge solver on the TV
+add_library(quickjs STATIC vendor/quickjs/quickjs.c vendor/quickjs/libregexp.c vendor/quickjs/libunicode.c vendor/quickjs/dtoa.c)
+target_compile_definitions(quickjs PRIVATE _GNU_SOURCE __STDC_NO_ATOMICS__=1)
+target_compile_options(quickjs PRIVATE -w)
+set_target_properties(quickjs PROPERTIES C_STANDARD 11)
+if(NOT SNTV_PLATFORM STREQUAL "wasm")
+  target_link_libraries(quickjs PUBLIC m)
+endif()
+
 # ---- core: no SDL video dependency, testable on the host --------------------
 add_library(sntv_core STATIC
   vendor/cJSON.c
@@ -37,12 +46,14 @@ add_library(sntv_core STATIC
   src/ai.c
   src/memlevel.c
   src/sysinfo.c
+  src/youtube.c
   src/suntimes.c
   src/lang.c
   src/trackmem.c
   src/addon/addon.c
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
+target_link_libraries(sntv_core PUBLIC quickjs)
 # Optional: a TMDB key baked into the build (CI takes it from a repository secret), so
 # cast photos and age ratings work without the viewer entering one.
 set(SNTV_TMDB_BUILTIN_KEY "" CACHE STRING "TMDB v3 API key compiled into the app")
@@ -138,4 +149,8 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_probe PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_probe PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME container_probe COMMAND test_probe)
+  add_executable(test_youtube tests/test_youtube.c)
+  target_link_libraries(test_youtube PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME youtube COMMAND test_youtube)
+  set_tests_properties(youtube PROPERTIES ENVIRONMENT "SNTV_YT_SOLVER_DIR=${CMAKE_SOURCE_DIR}/assets/yt")
 endif()

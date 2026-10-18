@@ -174,6 +174,23 @@ class H(BaseHTTPRequestHandler):
                                      "notes": "Violence and an assault are implied rather than shown; strong language throughout.",
                                      "similar": ["The Green Mile", "Cool Hand Luke", "Escape from Alcatraz"]})
             return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": answer}}]}).encode())
+        if p.startswith("/yt/youtubei/v1/player"):   # YouTube's TV app asking for a video
+            req = json.loads(body.decode("utf-8"))
+            client = req.get("context", {}).get("client", {})
+            if self.headers.get("X-YouTube-Client-Name") != "7" or client.get("clientName") != "TVHTML5" or "appInstallData" in json.dumps(client):
+                return self.send(400, b'{"error":"not the TV client"}')
+            if self.headers.get("X-Goog-Visitor-Id") != "vis123" or req["playbackContext"]["contentPlaybackContext"].get("signatureTimestamp") != 20250:
+                return self.send(400, b'{"error":"missing visitor id or signature timestamp"}')
+            media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
+            return self.send(200, json.dumps({
+                "playabilityStatus": {"status": "OK"},
+                "videoDetails": {"videoId": req["videoId"], "title": "Adhan (fixture)", "lengthSeconds": "185"},
+                "streamingData": {
+                    "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123"}],
+                    "adaptiveFormats": [
+                        {"itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150000, "url": f"{BASE}/yt/media/opus.webm?n=abc123"},
+                        {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "contentLength": str(media), "url": f"{BASE}/yt/media/audio.m4a?n=abc123"},
+                        {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 135000, "isDrc": True, "url": f"{BASE}/yt/media/drc.m4a?n=abc123"}]}}).encode())
         return self.send(404, b"{}")
 
     def do_GET(self):
@@ -229,6 +246,28 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/media?"):   # the home helper: a page link as a playable file
             with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
                 return self.send(200, f.read(), "video/mp4")
+        if p == "/yt/tv":   # YouTube's TV app page: its config
+            cfg = {"INNERTUBE_CONTEXT": {"client": {"clientName": "TVHTML5", "clientVersion": "7.20990101.00.00", "configInfo": {"appInstallData": "drop-me"}}},
+                   "VISITOR_DATA": "vis123", "PLAYER_JS_URL": "/s/player/abcd1234/tv-player-ias.vflset/tv-player-ias.js"}
+            return self.send(200, ("<html><script>ytcfg.set(%s);</script></html>" % json.dumps(cfg)).encode(), "text/html")
+        if p == "/yt/s/player/abcd1234/player_ias.vflset/en_US/base.js":
+            return self.send(200, b"var yt={signatureTimestamp:20250};", "text/javascript")
+        if p.startswith("/yt/media/"):   # googlevideo: only the AAC (or muxed MP4) the app should pick, in ranges
+            name = p.split("?")[0].rsplit("/", 1)[1]
+            if name not in ("audio.m4a", "video.mp4"):
+                return self.send(403, b"")
+            with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
+                data = f.read()
+            rng = self.headers.get("Range", "bytes=0-")
+            a, _, b = rng[6:].partition("-")
+            a = int(a or 0); b = min(int(b) if b else len(data) - 1, len(data) - 1)
+            self.send_response(206)
+            self.send_header("Content-Type", "video/mp4" if name.endswith("mp4") else "audio/mp4")
+            self.send_header("Content-Range", f"bytes {a}-{b}/{len(data)}")
+            self.send_header("Content-Length", str(b - a + 1))
+            self.end_headers()
+            self.wfile.write(data[a:b + 1])
+            return
         if p == "/repo.json":   # an update notice
             return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {"version": "9.9.9"}}]}).encode())
         if p.startswith("/sub_matched.srt"):   # the file-matched subtitle: the same cues, 2 s later
