@@ -24,6 +24,8 @@ add_library(sntv_core STATIC
   src/store.c
   src/subs.c
   src/skip.c
+  src/lang.c
+  src/trackmem.c
   src/addon/addon.c
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
@@ -96,4 +98,7 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_skip PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_skip PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME skip_markers COMMAND test_skip)
+  add_executable(test_prefs tests/test_prefs.c)
+  target_link_libraries(test_prefs PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME language_and_track_memory COMMAND test_prefs)
 endif()

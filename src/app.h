@@ -54,6 +54,9 @@ typedef struct App {
     int subs_size;             /* 0 small, 1 medium, 2 large */
     int autoplay_next;         /* Up Next at the credits */
     int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
+    int subs_always;           /* 0: subtitles only when the audio is in another language */
+    int clock_mode;            /* player clock: 0 12-hour, 1 24-hour, 2 off */
+    int oled;                  /* pure black background */
 
     /* perf */
     int frames_measured; float frame_ms_sum, frame_ms_worst;
@@ -120,6 +123,7 @@ Screen *screen_login_create(void);
 Screen *screen_search_create(void);
 Screen *screen_settings_create(void);
 Screen *screen_diagnostics_create(int playback_only);
+Screen *screen_welcome_create(void);   /* first-run setup */
 
 /* --- shared widgets --- */
 void ui_draw_poster(const char *url, float x, float y, float w, float h, int focused, const char *fallback_label);

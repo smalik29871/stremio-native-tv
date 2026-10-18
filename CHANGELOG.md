@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.3
+
+Ideas taken from Stremio-Kai that work on a TV.
+
+- **Track memory per series.** Pick an audio language or subtitles in the player and the
+  next episodes of that series start with the same choice (including subtitles off).
+- **Subtitles only for other languages** (new default, Settings > *Turn subtitles on*):
+  something already in your subtitle language plays without subtitles; anime and foreign
+  films still get them. *Always* keeps the old behaviour.
+- Language codes match across forms (`en`, `eng`, `English`, `ger`/`deu`), and the track
+  menu shows language names. Urdu added to the language list.
+- **Clock and "Ends at"** in the player overlay; 12-hour, 24-hour or off in Settings.
+- **First-run setup**: one question per screen for languages, subtitles, intro skipping,
+  autoplay, background and sign-in. Back on the first step skips it; Settings > *Run quick
+  setup again* brings it back.
+- **Pure black (OLED) background** option.
+
 ## 0.4.2
 
 - **Skip intro and recap.** Markers come from TheIntroDB (movies and episodes with IMDb

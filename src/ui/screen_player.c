@@ -4,10 +4,12 @@
  * the Stremio library. */
 #include "../app.h"
 #include "../http.h"
+#include "../lang.h"
 #include "../log.h"
 #include "../skip.h"
 #include "../store.h"
 #include "../subs.h"
+#include "../trackmem.h"
 #include "../video/video.h"
 #include "../platform/platform.h"
 #include "font.h"
@@ -16,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
 enum { MENU_NONE, MENU_AUDIO, MENU_SUBS };
@@ -52,6 +55,8 @@ struct Player {
     int subs_auto_done;       /* subtitle preference applied (or given up) */
     int last_tracks_version;
     int last_warning_version;
+    char audio_lang[16]; int audio_lang_known;
+    time_t clock_minute;
 
     /* skip markers (TheIntroDB / AniSkip) */
     SkipId skip_id;
@@ -159,40 +164,104 @@ static void select_addon_sub(Player *p, int idx)
     p->sub_req = http_request_async(p->addon_subs[idx].url, NULL, on_sub_file, q);
 }
 
-static int lang_match(const char *a, const char *b)
+/* Series remember their own track choices; movies use the global preferences. */
+static const char *memory_key(const Player *p)
 {
-    if (!a || !b || !*a || !*b) return 0;
-    return strncmp(a, b, 2) == 0 || strcmp(a, b) == 0;
+    return p->meta.type && strcmp(p->meta.type, "movie") ? p->meta.id : NULL;
 }
 
-/* Preferred languages, applied once per stream. Audio as soon as the pipeline
- * reports tracks; subtitles prefer an embedded match, else wait (up to 15 s) for
- * subtitle addons to answer and take the first matching one. */
+/* The selected audio track's language, or NULL while unknown. */
+static const char *current_audio_lang(VideoTrack *tr, int n)
+{
+    for (int i = 0; i < n; i++) if (tr[i].selected) return lang_known(tr[i].lang) ? tr[i].lang : NULL;
+    return n > 0 && lang_known(tr[0].lang) ? tr[0].lang : NULL;
+}
+
+/* Turn on subtitles in `lang`: embedded first unless the remembered choice was
+ * an addon file (or the other way round). 1 when something was picked. */
+static int pick_subs(Player *p, const char *lang, SubsSource prefer)
+{
+    VideoTrack tr[MAX_TRACKS];
+    int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+    /* a remembered addon file: give the addons their 15 s before settling for an embedded track */
+    int passes = prefer == SUBS_SRC_ADDON && p->subs_pending > 0 && g_app.time - p->load_started <= 15 ? 1 : 2;
+    for (int pass = 0; pass < passes; pass++) {
+        int embedded = (pass == 0) != (prefer == SUBS_SRC_ADDON);
+        if (embedded) {
+            for (int i = 0; i < nt; i++)
+                if (lang_same(tr[i].lang, lang)) {
+                    select_addon_sub(p, -1);
+                    video_select_track(TRACK_TEXT, tr[i].index);
+                    p->embedded_text_sel = tr[i].index;
+                    return 1;
+                }
+        } else {
+            for (int i = 0; i < p->n_addon_subs; i++)
+                if (lang_same(p->addon_subs[i].lang, lang)) { select_addon_sub(p, i); return 1; }
+        }
+    }
+    return 0;
+}
+
+/* Applied once per stream, as soon as the pipeline reports tracks:
+ *   audio      remembered for this series, else the preferred language
+ *   subtitles  remembered for this series (including "off"); else the preferred
+ *              language, unless the audio already is that language and subtitles
+ *              are set to "only for other languages". Addon subtitles can arrive
+ *              late, so a missing language is retried for up to 15 s. */
 static void auto_select_tracks(Player *p)
 {
     VideoTrack tr[MAX_TRACKS];
+    TrackMem mem;
+    int has_mem = trackmem_get(memory_key(p), &mem);
+    int n = video_tracks(TRACK_AUDIO, tr, MAX_TRACKS);
     if (!p->auto_selected) {
-        int n = video_tracks(TRACK_AUDIO, tr, MAX_TRACKS);
-        if (n > 0 || g_app.time - p->load_started > 10) {
-            p->auto_selected = 1;
-            if (g_app.pref_audio[0])
-                for (int i = 0; i < n; i++)
-                    if (lang_match(tr[i].lang, g_app.pref_audio)) { if (!tr[i].selected) video_select_track(TRACK_AUDIO, tr[i].index); break; }
-        }
+        if (n == 0 && g_app.time - p->load_started <= 10) return;   /* wait for the track list */
+        p->auto_selected = 1;
+        const char *want = has_mem && mem.audio[0] ? mem.audio : g_app.pref_audio;
+        if (want[0])
+            for (int i = 0; i < n; i++)
+                if (lang_same(tr[i].lang, want)) {
+                    if (!tr[i].selected) { video_select_track(TRACK_AUDIO, tr[i].index); for (int k = 0; k < n; k++) tr[k].selected = k == i; }
+                    break;
+                }
+        const char *audio = current_audio_lang(tr, n);
+        LOGI("player: audio %s (%s)", audio ? audio : "unknown", has_mem && mem.audio[0] ? "remembered for this series" : "preference");
+        p->audio_lang_known = audio != NULL;
+        snprintf(p->audio_lang, sizeof p->audio_lang, "%s", audio ? audio : "");
     }
     if (p->subs_auto_done) return;
-    if (!g_app.pref_subs[0]) { p->subs_auto_done = 1; return; }
-    int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
-    for (int i = 0; i < nt; i++)
-        if (lang_match(tr[i].lang, g_app.pref_subs)) {
-            video_select_track(TRACK_TEXT, tr[i].index);
-            p->embedded_text_sel = tr[i].index;
+    if (has_mem && mem.has_subs) {
+        if (!mem.subs[0] || pick_subs(p, mem.subs, mem.subs_src)) {
+            LOGI("player: subtitles %s (remembered for this series)", mem.subs[0] ? mem.subs : "off");
             p->subs_auto_done = 1;
             return;
         }
-    for (int i = 0; i < p->n_addon_subs; i++)
-        if (lang_match(p->addon_subs[i].lang, g_app.pref_subs)) { select_addon_sub(p, i); p->subs_auto_done = 1; return; }
+    } else {
+        if (!g_app.pref_subs[0]) { p->subs_auto_done = 1; return; }
+        if (!g_app.subs_always && p->audio_lang_known && lang_same(p->audio_lang, g_app.pref_subs)) {
+            LOGI("player: subtitles off, the audio is already %s", p->audio_lang);
+            p->subs_auto_done = 1;
+            return;
+        }
+        if (pick_subs(p, g_app.pref_subs, SUBS_SRC_EMBEDDED)) { LOGI("player: subtitles %s (preference)", g_app.pref_subs); p->subs_auto_done = 1; return; }
+    }
     if (p->subs_pending == 0 || g_app.time - p->load_started > 15) p->subs_auto_done = 1;
+}
+
+/* Remember what the viewer picked in the menu for the rest of the series. */
+static void remember_audio(Player *p, const VideoTrack *t)
+{
+    if (!memory_key(p) || !lang_known(t->lang)) return;
+    trackmem_set(memory_key(p), t->lang, NULL, SUBS_SRC_ANY);
+    snprintf(p->audio_lang, sizeof p->audio_lang, "%s", t->lang);
+    p->audio_lang_known = 1;
+}
+
+static void remember_subs(Player *p, const char *lang, SubsSource src)
+{
+    if (!memory_key(p) || (lang && !lang_known(lang))) return;
+    trackmem_set(memory_key(p), NULL, lang ? lang : "", src);
 }
 
 /* ---- skip markers ------------------------------------------------------------- */
@@ -359,6 +428,7 @@ static void update(Screen *s, float dt)
     VideoInfo vi;
     video_info(&vi);
     if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
+    else if (g_app.clock_mode != 2 && time(NULL) / 60 != p->clock_minute) { p->clock_minute = time(NULL) / 60; app_redraw(); }
     p->since_report += dt;
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
     p->seek_decay -= dt;
@@ -455,14 +525,15 @@ static void draw_menu(Player *p)
     if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "EMBEDDED");
     for (int i = 0; i < n; i++) {
         char sub[80];
-        snprintf(sub, sizeof sub, "%s%s%s", tr[i].codec, tr[i].codec[0] && tr[i].lang[0] ? "  \xC2\xB7  " : "", tr[i].lang);
+        const char *ln = lang_known(tr[i].lang) ? lang_display(tr[i].lang) : "";
+        snprintf(sub, sizeof sub, "%s%s%s", tr[i].codec, tr[i].codec[0] && ln[0] ? "  \xC2\xB7  " : "", ln);
         int on = p->menu == MENU_AUDIO ? tr[i].selected : p->embedded_text_sel == tr[i].index;
         ROW(tr[i].label, sub, on);
     }
     if (p->menu == MENU_AUDIO && !n) font_draw_wrapped("The stream reports a single audio track.", x + 40, ry, FONT_S, THEME_TEXT_MUTED, w - 80, 2);
     if (p->menu == MENU_SUBS) {
         if (p->n_addon_subs || p->subs_pending) SECTION(p->subs_pending ? "FROM ADDONS  (SEARCHING)" : "FROM ADDONS");
-        for (int i = 0; i < p->n_addon_subs; i++) ROW(p->addon_subs[i].lang, p->addon_subs[i].addon, p->active_addon_sub == i);
+        for (int i = 0; i < p->n_addon_subs; i++) ROW(lang_display(p->addon_subs[i].lang), p->addon_subs[i].addon, p->active_addon_sub == i);
         if (p->track_loaded) {
             char off[64];
             snprintf(off, sizeof off, "Sync  %+.1fs", p->track.offset);
@@ -515,6 +586,16 @@ static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, i
     if (k > 1) k = 1;
     gfx_rrect(x + h / 2, y + h + 10, (w - h) * (1 - k), 4, 2, RGBA(0xFF, 0xFF, 0xFF, 0x90));
     font_draw("OK", x - font_measure("OK", FONT_XS | FONT_B) - 16, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
+}
+
+/* Wall-clock time `from_now` seconds ahead, in the chosen 12/24-hour format. */
+static void clock_text(double from_now, char *out, size_t n)
+{
+    time_t t = time(NULL) + (time_t)(from_now > 0 ? from_now : 0);
+    struct tm tmv;
+    if (!localtime_r(&t, &tmv)) { snprintf(out, n, "--:--"); return; }
+    if (g_app.clock_mode == 1) snprintf(out, n, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    else snprintf(out, n, "%d:%02d %s", tmv.tm_hour % 12 ? tmv.tm_hour % 12 : 12, tmv.tm_min, tmv.tm_hour < 12 ? "AM" : "PM");
 }
 
 /* every candidate has failed and the error card is up */
@@ -592,9 +673,15 @@ static void draw(Screen *s)
         float cx = THEME_MARGIN;
         if (p->cands[p->cur].label) { font_draw_fit(p->cands[p->cur].label, cx, 114, FONT_S, THEME_TEXT_DIM, 900); cx += font_measure(p->cands[p->cur].label, FONT_S) + 20; }
         if (vi.codec[0] && cx < 1200) ui_chip(vi.codec, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT);
+        float chip_y = 62;
+        if (g_app.clock_mode != 2) {
+            char now[24]; clock_text(0, now, sizeof now);
+            font_draw_shadow(now, SNTV_UI_W - THEME_MARGIN - font_measure(now, FONT_L | FONT_B), 50, FONT_L | FONT_B, THEME_TEXT, RGBA(0, 0, 0, 0x80));
+            chip_y = 122;
+        }
         if (p->n_cands > 1) {
             char c[48]; snprintf(c, sizeof c, "Source %d of %d", p->cur + 1, p->n_cands);
-            ui_chip(c, SNTV_UI_W - THEME_MARGIN - font_measure(c, FONT_XS | FONT_B) - 24, 62, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT);
+            ui_chip(c, SNTV_UI_W - THEME_MARGIN - font_measure(c, FONT_XS | FONT_B) - 24, chip_y, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT);
         }
     } else if (bar_only) {
         gfx_gradient_v(0, SNTV_UI_H - 240, SNTV_UI_W, 240, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xB0));
@@ -630,7 +717,16 @@ static void draw(Screen *s)
         ui_format_time(vi.duration - shown_pos, t2, sizeof t2);
         snprintf(rem, sizeof rem, vi.duration > 0 ? "-%s" : "--:--", t2);
         font_draw(pos, bx, by + 24, FONT_S | FONT_B, THEME_TEXT);
-        font_draw(rem, bx + bw - font_measure(rem, FONT_S | FONT_B), by + 24, FONT_S | FONT_B, THEME_TEXT_DIM);
+        float rw = font_measure(rem, FONT_S | FONT_B);
+        font_draw(rem, bx + bw - rw, by + 24, FONT_S | FONT_B, THEME_TEXT_DIM);
+        if (g_app.clock_mode != 2 && vi.duration > 0 && overlay) {
+            char end[24], ends[40];
+            clock_text(vi.duration - shown_pos, end, sizeof end);
+            snprintf(ends, sizeof ends, "Ends at %s", end);
+            float ew = font_measure(ends, FONT_S | FONT_B);
+            font_draw(ends, bx + bw - rw - 28 - ew, by + 24, FONT_S | FONT_B, THEME_TEXT);
+            gfx_circle(bx + bw - rw - 14, by + 24 + font_height(FONT_S | FONT_B) / 2, 3, THEME_TEXT_MUTED);
+        }
     }
     if (overlay) {
         /* hint row */
@@ -665,12 +761,17 @@ static void menu_activate(Player *p)
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     int f = p->menu_focus;
-    if (p->menu == MENU_AUDIO) { if (f < n) video_select_track(TRACK_AUDIO, tr[f].index); return; }
-    if (f == 0) { select_addon_sub(p, -1); p->embedded_text_sel = -1; video_select_track(TRACK_TEXT, -1); return; }
+    if (p->menu == MENU_AUDIO) { if (f < n) { video_select_track(TRACK_AUDIO, tr[f].index); remember_audio(p, &tr[f]); } return; }
+    p->subs_auto_done = 1;   /* the viewer decided; stop auto-selecting */
+    if (f == 0) { select_addon_sub(p, -1); p->embedded_text_sel = -1; video_select_track(TRACK_TEXT, -1); remember_subs(p, NULL, SUBS_SRC_ANY); return; }
     f--;
-    if (f < n) { select_addon_sub(p, -1); p->embedded_text_sel = tr[f].index; video_select_track(TRACK_TEXT, tr[f].index); return; }
+    if (f < n) {
+        select_addon_sub(p, -1); p->embedded_text_sel = tr[f].index; video_select_track(TRACK_TEXT, tr[f].index);
+        remember_subs(p, tr[f].lang, SUBS_SRC_EMBEDDED);
+        return;
+    }
     f -= n;
-    if (f < p->n_addon_subs) select_addon_sub(p, f);
+    if (f < p->n_addon_subs) { select_addon_sub(p, f); remember_subs(p, p->addon_subs[f].lang, SUBS_SRC_ADDON); }
 }
 
 static void seek_by(Player *p, double base)

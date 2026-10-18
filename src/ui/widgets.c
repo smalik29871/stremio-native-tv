@@ -114,6 +114,7 @@ void ui_background(Color tint)
     if (fabsf(tr - g_tint[0]) + fabsf(tg - g_tint[1]) + fabsf(tb - g_tint[2]) > 3) app_redraw();
     Color t = RGBA((int)g_tint[0], (int)g_tint[1], (int)g_tint[2], 0xFF);
 
+    if (g_app.oled) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF)); return; }
     gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG2, THEME_BG);
     if (g_app.fx_light) {
         gfx_gradient_h(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(t, 0x30), COLOR_ALPHA(t, 0));

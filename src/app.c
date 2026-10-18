@@ -497,6 +497,10 @@ static void load_prefs(void)
     g_app.autoplay_next = store_get_int("autoplayNext", 1);
     g_app.skip_mode = store_get_int("skipMode", 0);
     if (g_app.skip_mode < 0 || g_app.skip_mode > 2) g_app.skip_mode = 0;
+    g_app.subs_always = store_get_int("subsAlways", 0);
+    g_app.clock_mode = store_get_int("clockMode", 0);
+    if (g_app.clock_mode < 0 || g_app.clock_mode > 2) g_app.clock_mode = 0;
+    g_app.oled = store_get_int("oled", 0);
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
 }
@@ -508,6 +512,9 @@ void app_save_prefs(void)
     store_set_int("subsSize", g_app.subs_size);
     store_set_int("autoplayNext", g_app.autoplay_next);
     store_set_int("skipMode", g_app.skip_mode);
+    store_set_int("subsAlways", g_app.subs_always);
+    store_set_int("clockMode", g_app.clock_mode);
+    store_set_int("oled", g_app.oled);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();
@@ -680,6 +687,7 @@ void app_init(void)
     app_load_addons();
     app_load_library();
     app_push(screen_home_create());
+    if (!store_get_int("setupDone", 0) && !getenv("SNTV_SKIP_SETUP")) app_push(screen_welcome_create());
 }
 
 void app_shutdown(void)

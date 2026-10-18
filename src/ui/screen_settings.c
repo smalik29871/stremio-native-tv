@@ -1,5 +1,6 @@
 #include "../app.h"
 #include "../image.h"
+#include "../lang.h"
 #include "../log.h"
 #include "../store.h"
 #include "../platform/platform.h"
@@ -12,14 +13,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_SIZE, IT_AUTOPLAY, IT_SKIP,
-       IT_UI_HEADER, IT_FX, IT_BLUR, IT_DIAG, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
+enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_AUTOPLAY, IT_SKIP,
+       IT_CLOCK, IT_UI_HEADER, IT_FX, IT_OLED, IT_BLUR, IT_DIAG, IT_SETUP, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
 #define ROW_H 88.0f
 #define COL_X 420.0f
-
-static const char *LANGS[] = { "", "eng", "spa", "por", "fra", "deu", "ita", "rus", "tur", "ara", "hin", "jpn", "kor", "zho", "pol", "nld", NULL };
-static const char *LANG_NAMES[] = { "Off", "English", "Español", "Português", "Français", "Deutsch", "Italiano", "Русский", "Türkçe", "العربية", "हिन्दी", "日本語", "한국어", "中文", "Polski", "Nederlands", NULL };
 
 typedef struct {
     int focus;
@@ -32,24 +30,12 @@ typedef struct {
 static int item_count(void) { return IT_FIXED_COUNT + g_app.n_addons; }
 static int is_header(int i) { return i == IT_PLAYBACK_HEADER || i == IT_UI_HEADER || i == IT_ADDONS_HEADER; }
 
-static int lang_index(const char *code)
-{
-    for (int i = 0; LANGS[i]; i++) if (strcmp(LANGS[i], code) == 0) return i;
-    return 0;
-}
-
-static const char *lang_name(const char *code)
-{
-    int i = lang_index(code);
-    return LANG_NAMES[i];
-}
+static const char *lang_name(const char *code) { return code[0] ? lang_display(code) : "Off"; }
 
 static void cycle_lang(char *code, size_t n, int dir)
 {
-    int i = lang_index(code), count = 0;
-    while (LANGS[count]) count++;
-    i = (i + dir + count) % count;
-    snprintf(code, n, "%s", LANGS[i]);
+    int count = lang_count(), i = (lang_index(code) + dir + count) % count;
+    snprintf(code, n, "%s", LANG_CODES[i]);
 }
 
 typedef enum { KIND_ACTION, KIND_TOGGLE, KIND_CHOICE, KIND_HEADER } RowKind;
@@ -144,13 +130,23 @@ static void draw(Screen *s)
             draw_row(y, ICON_NEXT, "Skip intros and recaps", SKIP_NAMES[g_app.skip_mode], foc, KIND_CHOICE, 0);
             break;
         }
+        case IT_SUBS_WHEN:
+            draw_row(y, ICON_SUBS, "Turn subtitles on", g_app.subs_always ? "Always" : "Only for other languages", foc, KIND_CHOICE, 0);
+            break;
+        case IT_CLOCK: {
+            static const char *CLOCK_NAMES[] = { "12-hour", "24-hour", "Off" };
+            draw_row(y, ICON_PLAY, "Clock and end time in the player", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0);
+            break;
+        }
         case IT_UI_HEADER: draw_row(y, ICON_HOME, "INTERFACE", NULL, 0, KIND_HEADER, 0); break;
         case IT_FX:
             snprintf(v, sizeof v, "%s%s", FX_NAMES[g_app.fx_setting], g_app.fx_setting == FX_AUTO ? (g_app.fx_light ? " (Light)" : g_app.frames_measured >= 240 ? " (Full)" : "") : "");
             draw_row(y, ICON_STAR, "Visual effects", v, foc, KIND_CHOICE, 0);
             break;
+        case IT_OLED: draw_row(y, ICON_STAR, "Pure black background (OLED)", NULL, foc, KIND_TOGGLE, g_app.oled); break;
         case IT_BLUR: draw_row(y, ICON_LIBRARY, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
         case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log and device info", foc, KIND_ACTION, 0); break;
+        case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         case IT_ADDONS_HEADER:
             snprintf(v, sizeof v, "ADDONS  \xC2\xB7  %d INSTALLED%s", g_app.n_addons, g_app.addons_loading ? "  \xC2\xB7  SYNCING" : "");
@@ -209,6 +205,9 @@ static void adjust(Settings *st, int dir)
     case IT_FX: g_app.fx_setting = (FxLevel)(((int)g_app.fx_setting + dir + 3) % 3); break;
     case IT_AUTOPLAY: g_app.autoplay_next = !g_app.autoplay_next; break;
     case IT_SKIP: g_app.skip_mode = (g_app.skip_mode + dir + 3) % 3; break;
+    case IT_SUBS_WHEN: g_app.subs_always = !g_app.subs_always; break;
+    case IT_CLOCK: g_app.clock_mode = (g_app.clock_mode + dir + 3) % 3; break;
+    case IT_OLED: g_app.oled = !g_app.oled; break;
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     default: return;
     }
@@ -242,7 +241,8 @@ static int key(Screen *s, KeyAction a)
         else if (st->focus == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (st->focus == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (st->focus == IT_DIAG) app_push(screen_diagnostics_create(0));
-        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
+        else if (st->focus == IT_SETUP) app_push(screen_welcome_create());
+        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_SUBS_WHEN || st->focus == IT_CLOCK || st->focus == IT_OLED || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
         else if (st->focus >= IT_FIXED_COUNT) {
             int idx = st->focus - IT_FIXED_COUNT;
             if (st->confirm_remove == idx) { app_remove_addon(idx); st->confirm_remove = -1; if (st->focus >= item_count()) st->focus = item_count() - 1; }
