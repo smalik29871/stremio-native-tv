@@ -83,3 +83,10 @@ const char *lang_display(const char *code)
     int i = lang_index(code);
     return i ? LANG_NAMES[i] : code;
 }
+
+const char *lang_display_english(const char *code)
+{
+    const char *c = lang_canonical(code);
+    for (size_t i = 0; i < sizeof ALIASES / sizeof ALIASES[0]; i++) if (c && strcmp(ALIASES[i][0], c) == 0) return ALIASES[i][3];
+    return code ? code : "";
+}

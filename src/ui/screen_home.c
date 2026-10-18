@@ -8,6 +8,7 @@
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
+#include "screen_options.h"
 #include "rail.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -193,10 +194,8 @@ static void drop_watched(MetaPreview **m, int *n)
     *n = k;
 }
 
-static void apply_catalog(Row *row, const char *json)
+static void apply_metas(Row *row, MetaPreview *m, int n)
 {
-    MetaPreview *m; int n;
-    if (addon_parse_metas(json, &m, &n) != 0) return;
     drop_watched(&m, &n);
     if (g_app.low_memory && n > 40) { for (int i = 40; i < n; i++) meta_preview_free(&m[i]); n = 40; }   /* memory saver: shorter rows */
     char *focused = row->n && row->focus < row->n ? strdup(row->metas[row->focus].id) : NULL;
@@ -206,6 +205,13 @@ static void apply_catalog(Row *row, const char *json)
     if (focused) { for (int i = 0; i < n; i++) if (strcmp(m[i].id, focused) == 0) row->focus = i; free(focused); }
     if (row->focus >= n) row->focus = n ? n - 1 : 0;
     app_redraw();
+}
+
+static void apply_catalog(Row *row, const char *json)
+{
+    MetaPreview *m; int n;
+    if (addon_parse_metas(json, &m, &n) != 0) return;
+    apply_metas(row, m, n);
 }
 
 static void on_catalog(HttpResponse *r, void *user)
@@ -219,8 +225,8 @@ static void on_catalog(HttpResponse *r, void *user)
         app_redraw();
         return;
     }
-    apply_catalog(row, r->body);
-    if (row->n) app_cache_put(row->url, r->body, r->len);
+    ParsedMetas *pm = r->parsed;   /* parsed and cached on the network thread */
+    if (pm) { r->parsed = NULL; apply_metas(row, pm->m, pm->n); free(pm); }
 }
 
 static void fetch_row(Row *r)
@@ -233,7 +239,7 @@ static void fetch_row(Row *r)
     char *cached = app_cache_get(r->url, 7 * 24 * 3600);
     if (cached) { apply_catalog(r, cached); free(cached); }
     r->loading = r->n == 0;
-    r->req = http_request_async(r->url, NULL, on_catalog, r);
+    r->req = app_fetch_metas(r->url, 1, on_catalog, r);
 }
 
 static int row_visible(const Row *r)
@@ -582,6 +588,7 @@ static int key(Screen *s, KeyAction a)
     Home *h = s->st;
     app_redraw();
     if (a == KEY_SEARCH) { app_push(screen_search_create()); return 1; }
+    if (a == KEY_LONG_OK && (h->focus_row < 0 || h->focus_row >= h->n_rows)) return 0;   /* the rail or the carousel: a plain OK */
     if (h->focus_row == FOCUS_SHOWCASE) {   /* the carousel View button */
         int n = featured_count(h);
         switch (a) {
@@ -619,6 +626,7 @@ static int key(Screen *s, KeyAction a)
         return 1;
     case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
     case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
+    case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (r->focus < r->n) screen_options_for_title(&r->metas[r->focus]); return 1;
     case KEY_BACK:
         if (h->focus_row != next_visible(h, -1, 1) || r->focus > 0) { r->focus = 0; move_focus(h, next_visible(h, -1, 1), 0); return 1; }
         h->focus_nav = RAIL_HOME; move_focus(h, -1, -1);   /* then the rail; Back there leaves the app */
@@ -650,7 +658,7 @@ Screen *screen_home_create(void)
     h->hero_fade = 1;
     h->hero_text_t = 1;
     h->watched_seen = g_app.hide_watched;
-    s->name = "home"; s->st = h;
+    s->name = "home"; s->st = h; s->long_ok = 1;
     g_home_live = h;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     rebuild_rows(h);

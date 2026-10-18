@@ -208,6 +208,11 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"result": {"code": "QW7RT2", "link": "https://www.stremio.com/link?code=QW7RT2", "qrcode": ""}}).encode())
         if p.startswith("/link/read"):
             return self.send(200, json.dumps({"result": {}}).encode())
+        if p.startswith("/media?"):   # the home helper: a page link as a playable file
+            with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
+                return self.send(200, f.read(), "video/mp4")
+        if p == "/repo.json":   # an update notice
+            return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {"version": "9.9.9"}}]}).encode())
         if p.startswith("/sub_matched.srt"):   # the file-matched subtitle: the same cues, 2 s later
             src = SRT
             import re as _re

@@ -8,6 +8,7 @@
 #include "rail.h"
 #include "theme.h"
 #include "widgets.h"
+#include "screen_options.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,19 +124,19 @@ static void on_page(HttpResponse *r, void *user)
 {
     Req *q = user;
     Explore *e = q->owner;
-    int append = q->append;
     if (q->gen != e->gen) { free(q); return; }
     free(q);
     e->loading = 0;
-    MetaPreview *m; int n;
-    if (r->status != 200 || addon_parse_metas(r->body, &m, &n) != 0) {
+    ParsedMetas *pm = r->parsed;
+    MetaPreview *m = pm ? pm->m : NULL; int n = pm ? pm->n : 0;
+    if (pm) { r->parsed = NULL; free(pm); }
+    if (r->status != 200 || !m) {
         if (!e->n) e->failed = 1;
         e->done = 1;
         LOGW("explore: %s -> %ld %s", e->url, r->status, r->error);
         app_redraw();
         return;
     }
-    if (!append) app_cache_put(e->url, r->body, r->len);
     if (g_app.hide_watched) {
         int k = 0;
         for (int i = 0; i < n; i++) { if (app_title_watched(m[i].id)) meta_preview_free(&m[i]); else m[k++] = m[i]; }
@@ -185,7 +186,7 @@ static void fetch(Explore *e, int append)
     e->loading = 1;
     Req *q = malloc(sizeof *q);
     q->owner = e; q->gen = e->gen; q->append = append;
-    http_request_async(url, NULL, on_page, q);
+    app_fetch_metas(url, !append, on_page, q);
 }
 
 static void update(Screen *s, float dt)
@@ -298,6 +299,10 @@ static int key(Screen *s, KeyAction a)
     Explore *e = s->st;
     app_redraw();
     if (a == KEY_SEARCH) { app_push(screen_search_create()); return 1; }
+    if (a == KEY_LONG_OK || a == KEY_YELLOW || a == KEY_MENU || a == KEY_INFO) {
+        if (e->rail_focus < 0 && e->zone == Z_GRID && e->focus < e->n) { screen_options_for_title(&e->items[e->focus]); return 1; }
+        if (a == KEY_LONG_OK) return 0;
+    }
     if (e->rail_focus >= 0) {
         int r = rail_key(a, &e->rail_focus, RAIL_EXPLORE);
         if (r == 2) { e->rail_focus = -1; return 1; }
@@ -367,7 +372,7 @@ Screen *screen_explore_create(void)
     e->zone = Z_TYPES;
     e->focus_t = 1;
     e->addons_seen = -1;
-    s->name = "explore"; s->st = e;
+    s->name = "explore"; s->st = e; s->long_ok = 1;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     return s;
 }

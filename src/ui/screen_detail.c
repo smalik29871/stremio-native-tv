@@ -13,13 +13,13 @@
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
+#include "screen_options.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES };
-enum { BTN_PLAY, BTN_LIBRARY, BTN_ASK, BTN_COUNT };
-static int n_buttons(void) { return ai_enabled() ? BTN_COUNT : BTN_COUNT - 1; }
+enum { BTN_PLAY, BTN_RESTART, BTN_LIBRARY, BTN_ASK, BTN_COUNT };
 #define EP_W 384.0f
 #define EP_H 216.0f
 #define EP_GAP 28.0f
@@ -41,6 +41,15 @@ typedef struct {
     int ask_open; unsigned ask_req; float ask_t;
     char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
 } Detail;
+
+/* the visible buttons in order: Play/Resume, [From the start], Library, [Ask AI] */
+static int btn_at(const Detail *d, int pos)
+{
+    if (pos == 0) return BTN_PLAY;
+    if (d->resume_label[0]) { if (pos == 1) return BTN_RESTART; pos--; }
+    return pos == 1 ? BTN_LIBRARY : BTN_ASK;
+}
+static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + (ai_enabled() ? 1 : 0); }
 
 static void ask_clear(Detail *d)
 {
@@ -317,11 +326,13 @@ static void draw(Screen *s)
     float by = y > 500 ? y : 500;
     if (series && by > 520) by = 520;
     float bw = ui_pill(play_label, 1, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
-                       d->area == AREA_ACTIONS && d->btn == BTN_PLAY);
+                       d->area == AREA_ACTIONS && d->btn == 0);
     if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
-    float lw = ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, x + bw + 18, by, 72, PILL_SECONDARY,
-            d->area == AREA_ACTIONS && d->btn == BTN_LIBRARY);
-    if (ai_enabled()) ui_pill("Ask AI", 1, ICON_STAR, x + bw + 18 + lw + 18, by, 72, PILL_SECONDARY, d->area == AREA_ACTIONS && d->btn == BTN_ASK);
+    float bx2 = x + bw + 18;
+    int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
+    if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
+    bx2 += ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY) + 18;
+    if (ai_enabled()) ui_pill("Ask AI", 1, ICON_STAR, bx2, by, 72, PILL_SECONDARY, cur == BTN_ASK);
     /* cast: TMDB photos when a key is set, else the names the addon gave */
     int n_cast = tm && tm->n_cast ? tm->n_cast : d->preview.cast.n;
     if (n_cast && !series) {
@@ -424,19 +435,26 @@ static int key(Screen *s, KeyAction a)
     app_redraw();
     int series = d->meta.n_videos > 0;
     if (d->ask_open) {
-        if (a == KEY_BACK || a == KEY_OK) d->ask_open = 0;
+        if (a == KEY_BACK || a == KEY_OK || a == KEY_LONG_OK) d->ask_open = 0;
         return 1;
     }
-    if (d->btn >= n_buttons()) d->btn = n_buttons() - 1;
+    if (a == KEY_LONG_OK || a == KEY_YELLOW || a == KEY_MENU || a == KEY_INFO) { screen_options_for_title(&d->preview); return 1; }
+    if (d->btn >= n_buttons_d(d)) d->btn = n_buttons_d(d) - 1;
     switch (d->area) {
     case AREA_ACTIONS:
         switch (a) {
         case KEY_LEFT: if (d->btn > 0) d->btn--; return 1;
-        case KEY_RIGHT: if (d->btn < n_buttons() - 1) d->btn++; return 1;
+        case KEY_RIGHT: if (d->btn < n_buttons_d(d) - 1) d->btn++; return 1;
         case KEY_DOWN: if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; return 1; } return 0;
         case KEY_OK:
-            if (d->btn == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
-            if (d->btn == BTN_ASK) { ask_open(d); return 1; }
+            if (btn_at(d, d->btn) == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
+            if (btn_at(d, d->btn) == BTN_ASK) { ask_open(d); return 1; }
+            if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
+                const char *vid = d->resume_video[0] ? d->resume_video : d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
+                if (app_pip_claim(vid)) return 1;
+                app_push(screen_streams_create(&d->preview, vid, NULL));
+                return 1;
+            }
             if (d->resume_label[0]) {
                 if (app_pip_claim(d->resume_video)) return 1;
                 PlayCandidate *c = calloc(1, sizeof *c);
@@ -497,7 +515,7 @@ Screen *screen_detail_create(const MetaPreview *p)
     Detail *d = calloc(1, sizeof *d);
     meta_preview_copy(&d->preview, p);
     d->focus_t = 1;
-    s->name = "detail"; s->st = d;
+    s->name = "detail"; s->st = d; s->long_ok = 1;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     fetch_meta(d);
     load_resume(d);

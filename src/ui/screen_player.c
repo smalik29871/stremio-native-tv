@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
@@ -33,7 +34,7 @@ static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen"
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
 enum { N_RATES = 7, RATE_NORMAL = 2 };
 
-typedef struct AddonSub { char *url, *lang, *addon; int matched; } AddonSub;
+typedef struct AddonSub { char *url, *lang, *addon; int matched, sync_failed; } AddonSub;
 
 typedef struct Player Player;
 typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; } SubReq;
@@ -81,6 +82,8 @@ struct Player {
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
     int subs_user;            /* the viewer chose subtitles by hand this session */
+    int subs_user_pick;       /* the current file was picked by hand: never swapped by auto-sync */
+    int sync_retries, sync_first;
     int last_tracks_version;
     int last_warning_version;
     char audio_lang[16]; int audio_lang_known;
@@ -119,6 +122,7 @@ static int pick_forced(Player *p);
 static void autosync_tick(Player *p);
 static void xl_stop(Player *p);
 static int xl_available(Player *p);
+static void xl_start(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
 
 static void report(Player *p, int force)
@@ -225,7 +229,7 @@ static void on_hash_part(HttpResponse *r, void *user)
         p->hash_state = 2;
         SubReq *q2 = malloc(sizeof *q2);
         q2->owner = p; q2->gen = p->gen; q2->addon = -1; q2->slot = 1; q2->hashed = 0;
-        HttpOptions opt = { 65536, p->os_size - 65536, 8, 1, NULL, NULL };
+        HttpOptions opt = { .range_bytes = 65536, .range_start = p->os_size - 65536, .timeout_s = 8, .no_json_accept = 1 };
         http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q2);
         return;
     }
@@ -242,7 +246,7 @@ static void hash_start(Player *p)
     if (strncmp(p->cands[p->cur].url, "http", 4) != 0) { p->hash_state = 4; return; }
     SubReq *q = malloc(sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0;
-    HttpOptions opt = { 65536, 0, 8, 1, NULL, NULL };
+    HttpOptions opt = { .range_bytes = 65536, .range_start = 0, .timeout_s = 8, .no_json_accept = 1 };
     http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q);
 }
 
@@ -305,6 +309,14 @@ static const char *current_audio_lang(VideoTrack *tr, int n)
 
 /* Turn on subtitles in `lang`: embedded first unless the remembered choice was
  * an addon file (or the other way round). 1 when something was picked. */
+static int strcasestr_ci(const char *hay, const char *needle)
+{
+    if (!hay || !needle) return 0;
+    size_t n = strlen(needle);
+    for (; *hay; hay++) if (strncasecmp(hay, needle, n) == 0) return 1;
+    return 0;
+}
+
 static int pick_subs(Player *p, const char *lang, SubsSource prefer)
 {
     VideoTrack tr[MAX_TRACKS];
@@ -346,12 +358,18 @@ static void auto_select_tracks(Player *p)
         if (n == 0 && g_app.time - p->load_started <= 10) return;   /* wait for the track list */
         p->auto_selected = 1;
         const char *want = has_mem && mem.audio[0] ? mem.audio : g_app.pref_audio;
-        if (want[0])
-            for (int i = 0; i < n; i++)
-                if (lang_same(tr[i].lang, want)) {
-                    if (!tr[i].selected) { video_select_track(TRACK_AUDIO, tr[i].index); for (int k = 0; k < n; k++) tr[k].selected = k == i; }
-                    break;
+        if (want[0]) {
+            /* in that language, a track this TV surely plays (not DTS / TrueHD) first */
+            int pick = -1;
+            for (int pass = 0; pass < 2 && pick < 0; pass++)
+                for (int i = 0; i < n; i++) {
+                    if (!lang_same(tr[i].lang, want)) continue;
+                    int risky = strcasestr_ci(tr[i].codec, "dts") || strcasestr_ci(tr[i].codec, "truehd") || strcasestr_ci(tr[i].label, "dts") || strcasestr_ci(tr[i].label, "truehd");
+                    if (pass == 0 && risky) continue;
+                    pick = i; break;
                 }
+            if (pick >= 0 && !tr[pick].selected) { video_select_track(TRACK_AUDIO, tr[pick].index); for (int k = 0; k < n; k++) tr[k].selected = k == pick; }
+        }
         const char *audio = current_audio_lang(tr, n);
         LOGI("player: audio %s (%s)", audio ? audio : "unknown", has_mem && mem.audio[0] ? "remembered for this series" : "preference");
         p->audio_lang_known = audio != NULL;
@@ -377,7 +395,13 @@ static void auto_select_tracks(Player *p)
         }
         if (pick_subs(p, g_app.pref_subs, SUBS_SRC_EMBEDDED)) { LOGI("player: subtitles %s (preference)", g_app.pref_subs); p->subs_auto_done = 1; return; }
     }
-    if (p->subs_pending == 0 || g_app.time - p->load_started > 15) p->subs_auto_done = 1;
+    if (p->subs_pending == 0 || g_app.time - p->load_started > 15) {
+        p->subs_auto_done = 1;
+        if (!has_mem && g_app.pref_subs[0] && xl_available(p)) {   /* nobody offers the language: translate, or say how */
+            if (g_app.subs_autotranslate) xl_start(p);
+            else app_toast("No %s subtitles from your addons. Subtitles menu: Translate with AI", lang_display(g_app.pref_subs));
+        }
+    }
     #undef SUBS_OFF_DONE
 }
 
@@ -578,7 +602,25 @@ static void autosync_tick(Player *p)
         p->track.offset = off; p->sync_offset = off; p->sync_state = 2;
         LOGI("subs: auto-synced %+.2f s against %s (%s)", off, p->addon_subs[ref].addon, p->addon_subs[ref].lang);
         if (fabs(off) >= 0.15) app_toast("Subtitles synced to the file (%+.1f s)", off); else app_toast("Subtitles already in sync with the file");
-    } else { p->sync_state = 3; LOGI("subs: could not align with the matched file"); }
+    } else {
+        p->sync_state = 3;
+        AddonSub *cur = &p->addon_subs[p->active_addon_sub];
+        cur->sync_failed = 1;
+        LOGI("subs: could not align %s with the matched file", cur->lang);
+        /* another file in the same language, up to three tries, then back to the first */
+        if (!p->subs_user_pick && p->sync_retries < 3) {
+            for (int i = 0; i < p->n_addon_subs; i++)
+                if (i != p->active_addon_sub && !p->addon_subs[i].matched && !p->addon_subs[i].sync_failed && lang_same(p->addon_subs[i].lang, cur->lang)) {
+                    if (p->sync_first < 0) p->sync_first = p->active_addon_sub;
+                    p->sync_retries++;
+                    LOGI("subs: trying another %s file (%d)", cur->lang, p->sync_retries);
+                    select_addon_sub(p, i);
+                    return;
+                }
+        }
+        if (p->sync_first >= 0 && p->sync_first != p->active_addon_sub && !p->subs_user_pick) { int f = p->sync_first; p->sync_first = -2; select_addon_sub(p, f); }
+        if (p->sync_retries) app_toast("Could not sync these subtitles automatically. Subtitle timing adjusts them by hand");
+    }
 }
 
 /* ---- file header: chapters and what the file really contains ------------------ */
@@ -608,7 +650,7 @@ static void probe_current(Player *p)
     if (strncmp(url, "http", 4) != 0) return;
     SubReq *q = malloc(sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0;
-    HttpOptions opt = { 2u << 20, 0, 8, 1, NULL, NULL };
+    HttpOptions opt = { .range_bytes = 2u << 20, .range_start = 0, .timeout_s = 8, .no_json_accept = 1 };
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
 
@@ -794,6 +836,7 @@ static void fail_over(Player *p, const char *why)
     video_info(&vi);
     double resume = vi.position > 5 ? vi.position : 0;
     if (!p->learned) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
+    if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
     if (p->cur + 1 < p->n_cands && p->tries < 3) {
         p->tries++;
         app_toast("%s. Trying the next source...", why);
@@ -1646,6 +1689,7 @@ static void menu_activate(Player *p)
         int idx = order[f];
         if (p->assign_second) { select_addon_sub_slot(p, p->active_addon_sub2 == idx ? -1 : idx, 1); return; }
         select_addon_sub(p, idx);
+        p->subs_user_pick = 1;
         remember_subs(p, p->addon_subs[idx].lang, SUBS_SRC_ADDON);
         return;
     }
@@ -1813,7 +1857,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->active_addon_sub = -1;
     p->active_addon_sub2 = -1;
     p->embedded_text_sel = -1;
-    p->sync_for = -1; p->ref_idx = -1;
+    p->sync_for = -1; p->ref_idx = -1; p->sync_first = -1;
     p->gen = 1;
     g_live = p;
     s->name = "player"; s->st = p;

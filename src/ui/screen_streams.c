@@ -1,4 +1,5 @@
 #include "../app.h"
+#include "../lang.h"
 #include "../http.h"
 #include "../log.h"
 #include "../probe.h"
@@ -66,10 +67,40 @@ static int playable(const Stream *s)
  * and, while chaining episodes, the previous binge group on top so Up Next stays
  * on the same release. Answers arrive in any order, so this is applied on every
  * arrival. */
+/* Rows some addons add that are notices, not videos ("Support the project", "Join our Discord"). */
+static int is_notice(const Stream *s)
+{
+    static const char *const W[] = { "discord", "patreon", "donate", "support us", "support the", "join our", "telegram", "buy me a coffee", "ko-fi", "not available", "unavailable", "no streams", "sign up", "upgrade to", NULL };
+    char text[400];
+    snprintf(text, sizeof text, "%s %s", s->name ? s->name : "", s->title ? s->title : (s->description ? s->description : ""));
+    for (char *c = text; *c; c++) if (*c >= 'A' && *c <= 'Z') *c += 32;
+    for (int i = 0; W[i]; i++) if (strstr(text, W[i]) && !s->tags.res && !s->video_size) return 1;
+    return 0;
+}
+
+/* The source's name mentions the preferred audio language (or MULTI / DUAL). */
+static int has_audio_lang(const Stream *s)
+{
+    if (!g_app.src_audio_lang || !lang_known(g_app.pref_audio)) return 0;
+    char text[600];
+    snprintf(text, sizeof text, " %s %s %s ", s->name ? s->name : "", s->title ? s->title : "", s->description ? s->description : "");
+    for (char *c = text; *c; c++) { if (*c >= 'A' && *c <= 'Z') *c += 32; if (strchr(".-_[]()|/,", *c)) *c = ' '; }
+    const char *name = lang_display_english(g_app.pref_audio);
+    char a[48], b[16], c3[16];
+    snprintf(a, sizeof a, " %s ", name); for (char *p = a; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+    snprintf(b, sizeof b, " %s ", lang_canonical(g_app.pref_audio));
+    snprintf(c3, sizeof c3, " %.2s ", lang_canonical(g_app.pref_audio));
+    if (strstr(text, a) || strstr(text, b) || (strlen(lang_canonical(g_app.pref_audio)) >= 2 && strcmp(c3, " en ") && strstr(text, c3))) return 2;
+    if (strstr(text, " multi ") || strstr(text, " dual ") || strstr(text, " dual audio ")) return 1;
+    return 0;
+}
+
 static long rank(const Streams *st, const Stream *s)
 {
     long r = g_app.quality_mode == QUAL_ADDON_ORDER ? s->addon_order * 10L : (200000L - s->score) * 10L + s->addon_order;
     if (!playable(s)) r += 100000000L;
+    if (is_notice(s)) r += 200000000L;
+    if (s->url && app_link_dead(s->url)) r += 20000000L;   /* failed here in the last six hours */
     if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50000000L;
     return r;
 }
@@ -135,7 +166,7 @@ static void probe_next(Streams *st)
     st->probe_inflight = 1;
     ProbeReq *q = malloc(sizeof *q);
     q->owner = st; q->gen = st->probe_gen; q->url = strdup(s->url);
-    HttpOptions opt = { PROBE_BYTES, 0, 5, 1, NULL, NULL };
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1 };
     http_request_async_ex(s->url, &opt, on_probe, q);
 }
 
@@ -155,6 +186,7 @@ static void sort_items(Streams *st)
     for (int i = 0; i < st->n; i++) {
         Stream *s = &st->items[i];
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
+        { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; }   /* your audio language first at the same quality */
         if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */
         else if (s->probe_state == 2) {
             s->score += 60;                                              /* alive and understood */
@@ -174,16 +206,18 @@ static void play_from(Streams *st, int index);
 static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
 {
     const char *addon_name = addon < g_app.n_addons ? g_app.addons[addon].manifest.name : "addon";
-    Stream *got; int n;
-    if (r->status != 200 || addon_parse_streams(r->body, &got, &n) != 0) {
+    ParsedStreams *ps = r->parsed;   /* parsed and tagged on the network thread */
+    if (r->status != 200 || !ps) {
         LOGW("streams: %s failed (%ld %s)", addon_name, r->status, r->error);
         return 0;
     }
-    *items = realloc(*items, sizeof(Stream) * (size_t)(*count + n));
+    r->parsed = NULL;
+    Stream *got = ps->s; int n = ps->n;
+    free(ps);
+    *items = realloc(*items, sizeof(Stream) * (size_t)(*count + n + 1));
     for (int i = 0; i < n; i++) {
         got[i].addon_name = strdup(addon_name);
         got[i].addon_order = addon;
-        quality_parse(got[i].name, got[i].title, got[i].description, got[i].filename, got[i].video_size, &got[i].tags);
         (*items)[(*count)++] = got[i];
     }
     free(got);
@@ -195,7 +229,8 @@ static void autoplay_check(Streams *st)
 {
     if (!st->autoplay_group || st->autoplayed || !st->n) return;
     int match = st->items[0].binge_group && strcmp(st->items[0].binge_group, st->autoplay_group) == 0;
-    if ((match || st->pending == 0) && playable(&st->items[0])) { st->autoplayed = 1; play_from(st, 0); }
+    int waited = g_app.addon_wait < 99 && g_app.time - st->started > g_app.addon_wait;
+    if ((match || st->pending == 0 || waited) && playable(&st->items[0]) && !is_notice(&st->items[0])) { st->autoplayed = 1; play_from(st, 0); }
 }
 
 static void on_streams(HttpResponse *r, void *user)
@@ -219,7 +254,7 @@ static void query_addons(const char *type, const char *video_id, Streams *owner,
         p->owner = owner; p->addon = i; p->generation = generation;
         (*pending)++;
         if (n_reqs) (*n_reqs)++;
-        http_request_async(url, NULL, cb, p);
+        app_fetch_streams(url, cb, p);
     }
 }
 
@@ -310,7 +345,7 @@ static void update(Screen *s, float dt)
     if (st->n && !st->autoplay_group && (st->pending == 0 || g_app.time - st->started > 3)) probe_next(st);
     if (st->probe_inflight) app_redraw();
     int checks_done = !g_app.preflight || (!st->probe_inflight && (st->probes_started >= PROBE_MAX || g_app.time - st->started > 12));
-    if (g_app.auto_recommended && !st->autoplay_group && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > 6)) {
+    if (g_app.auto_recommended && !st->autoplay_group && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6))) {
         int r = recommended(st);
         if (r >= 0) {
             st->auto_rec_done = 1;

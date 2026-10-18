@@ -113,6 +113,12 @@ static size_t on_header(char *ptr, size_t size, size_t nmemb, void *user)
     return size * nmemb;
 }
 
+/* Offline only when requests keep failing at the transport level AND nothing at all got
+ * through for 15 s: one dead addon host while others answer is not "no internet". */
+static volatile int g_net_fail;            /* transport failures since the last success */
+static volatile Uint32 g_last_ok;          /* ticks of the last request that got any answer */
+int http_online(void) { return g_net_fail < 3 || SDL_GetTicks() - g_last_ok < 15000; }
+
 static int request_with(CURL *h, const char *url, const char *post_json, const HttpOptions *opt, HttpResponse *out)
 {
     memset(out, 0, sizeof *out);
@@ -153,6 +159,9 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
 
     Uint32 t0 = SDL_GetTicks();
     CURLcode rc = C.easy_perform(h);
+    /* resolve / connect / timeout / TLS / empty reply / send / receive: the network, not the server */
+    if (rc == 6 || rc == 7 || rc == 28 || rc == 35 || rc == 52 || rc == 55 || rc == 56) { if (g_net_fail < 1000) g_net_fail++; }
+    else if (rc == 0) { g_net_fail = 0; g_last_ok = SDL_GetTicks(); }
     out->seconds = (SDL_GetTicks() - t0) / 1000.0;
     if (rc == 0) {
         C.easy_getinfo(h, INFO_RESPONSE_CODE, &out->status);
@@ -222,6 +231,7 @@ static int worker_main(void *arg)
         if (!j->cancelled) {
             if (h) request_with(h, j->url, j->post, &j->opt, &j->resp);
             else http_request(j->url, j->post, &j->resp);
+            if (j->opt.work && !j->cancelled) j->opt.work(&j->resp, j->url);   /* parse here, not in a frame */
         }
 
         SDL_LockMutex(g_qlock);
@@ -276,11 +286,18 @@ void http_cancel(unsigned id)
 static void job_free(Job *j)
 {
     http_response_free(&j->resp);
+    if (j->resp.parsed && j->opt.free_parsed) j->opt.free_parsed(j->resp.parsed);
+    j->resp.parsed = NULL;
     free(j->url);
     free(j->post);
     free((char *)j->opt.bearer);
     free(j);
 }
+
+/* Replies are handed to the UI with a time budget per frame: a burst of answers
+ * spreads over a few frames instead of stalling one. Slow callbacks are logged with
+ * their host so a TV's Diagnostics shows what was heavy. */
+static Job *g_carry;   /* ordered, left over from the last frame */
 
 void http_pump(void)
 {
@@ -289,17 +306,30 @@ void http_pump(void)
     g_done = NULL;
     SDL_UnlockMutex(g_qlock);
 
-    /* g_done is LIFO; reverse so callbacks fire in completion order. */
+    /* g_done is LIFO; reverse so callbacks fire in completion order, after the carry-over. */
     Job *ordered = NULL;
     while (done) { Job *n = done->next; done->next = ordered; ordered = done; done = n; }
+    if (g_carry) { Job *t = g_carry; while (t->next) t = t->next; t->next = ordered; ordered = g_carry; g_carry = NULL; }
 
+    Uint32 start = SDL_GetTicks();
     while (ordered) {
         Job *j = ordered;
         ordered = j->next;
-        if (!j->cancelled && j->cb) j->cb(&j->resp, j->user);
+        if (!j->cancelled && j->cb) {
+            Uint32 t0 = SDL_GetTicks();
+            j->cb(&j->resp, j->user);
+            Uint32 took = SDL_GetTicks() - t0;
+            if (took > 12) {
+                const char *hs = strstr(j->url, "://"); hs = hs ? hs + 3 : j->url;
+                LOGW("perf: %u ms handling the reply from %.*s (%zu bytes)", took, (int)strcspn(hs, "/:?"), hs, j->resp.len);
+            }
+        }
         job_free(j);
+        if (ordered && SDL_GetTicks() - start > 8) { g_carry = ordered; break; }   /* the rest next frame */
     }
 }
+
+int http_pending_replies(void) { return g_carry != NULL; }
 
 int http_init(void)
 {

@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.6.4
+
+- **Your own adhan, dua or bell from your phone.** Settings > Take breaks > Recording at
+  the start (or at the end) shows the phone QR code as before, and the phone page now
+  has *Send a recording from this phone*: pick an MP3, M4A, OGG or WAV and it is stored
+  on the TV (under 40 MB), served to the TV's own player from the TV, and plays at each
+  break even without internet. Direct links still work. YouTube links are refused
+  with an explanation: a native TV app cannot play YouTube pages, and resolving them
+  from the TV is blocked or breaks weekly (the Nuvio developers found the same).
+- **YouTube and other page links for the adhan or a dua.** Paste a YouTube (or
+  SoundCloud, archive.org, Facebook...) link and the home helper (`tools/thumbs`, the
+  same small server as seek previews) fetches it once with yt-dlp, the tool that does on
+  a computer what NewPipe's extractor does on Android: audio as AAC, video as H.264 + AAC
+  up to 720p, which every TV decodes. It is fetched the moment you save it, so the break
+  starts instantly. *Show the video* plays it full screen with the break's countdown in a
+  band below. The Docker image refreshes yt-dlp at every start.
+- **Subtitles when nobody has your language.** When no addon or embedded track offers
+  your preferred language, the player says so once and points to *Translate with AI*;
+  with the new switch in Settings > Audio & subtitles it translates by itself.
+- **Subtitles that will not sync are swapped.** When a file cannot be lined up with a
+  file-matched one, the player tries up to three other files in that language before
+  going back to the first and saying so. Files you pick by hand are never swapped.
+  UTF-16 subtitle files are read correctly.
+- **Smoother everywhere.** Catalog and source replies are parsed and cached on the
+  network threads instead of in a frame, so a 300-source answer or ten rows arriving
+  together no longer stall the picture; replies are handed to the screen within an 8 ms
+  budget per frame, and anything slower is logged with its host for Diagnostics. When
+  idle, the app now wakes the instant a key arrives instead of polling.
+- **Hold OK for more, like Nuvio:** holding OK on any title (Home rows, Explore, Library,
+  Search results, a title page) opens *Mark as watched / not watched*, *Remove from
+  Continue Watching* and Library; Yellow, Menu or Info do the same. A short press still
+  opens the title. Only those screens wait for the release; everywhere else OK acts the
+  instant it is pressed, and a remote that never reports releases keeps instant OK.
+- **From the Nuvio port, made ours:** *From the start*
+  next to Resume; recent searches; sources in your audio language (or MULTI / DUAL)
+  first, with a switch in Settings > Sources; *Autoplay waits for slow addons* (3 s to
+  every addon, 8 s by default); addon notice rows ("Join our Discord") never autoplay;
+  links that failed are sorted last for six hours; in your language, an audio track the
+  TV surely plays (not DTS or TrueHD) is chosen first; a *No internet* pill when nothing
+  gets through; a notice after a crash pointing to that session's log; and a once-a-day
+  check that tells you when a newer version is in the Homebrew Channel.
+
 ## 0.6.3
 
 - **Subtitles that fit the file.** The player fingerprints the video the way

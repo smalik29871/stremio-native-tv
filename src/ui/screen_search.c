@@ -1,13 +1,16 @@
 #include "../app.h"
 #include "../http.h"
 #include "../ai.h"
+#include "../store.h"
 #include "../../vendor/cJSON.h"
 #include "../log.h"
 #include "font.h"
 #include "keyboard.h"
 #include "theme.h"
 #include "widgets.h"
+#include "screen_options.h"
 #include <stdio.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -32,7 +35,36 @@ struct Search {
     int n_picks;                     /* results at the front that the assistant suggested */
     int pick_rank[16];               /* the assistant's order for those, so they stay in it */
     char ai_note[160];
+    char recent[10][96]; int n_recent, recent_focus;   /* shown while the field is empty */
 };
+
+static void recent_load(Search *s)
+{
+    s->n_recent = 0;
+    const cJSON *arr = store_get_json("recentSearches"), *it;
+    cJSON_ArrayForEach(it, arr) if (cJSON_IsString(it) && s->n_recent < 10) snprintf(s->recent[s->n_recent++], 96, "%s", it->valuestring);
+}
+
+static void recent_save(Search *s)
+{
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < s->n_recent; i++) cJSON_AddItemToArray(arr, cJSON_CreateString(s->recent[i]));
+    store_set_json("recentSearches", arr);
+    store_save();
+}
+
+/* A search that found something goes to the top of the list (a repeat moves up). */
+static void recent_add(Search *s, const char *q)
+{
+    if (strlen(q) < 2) return;
+    int at = -1;
+    for (int i = 0; i < s->n_recent; i++) if (strcasecmp(s->recent[i], q) == 0) at = i;
+    if (at == 0) return;
+    if (at < 0) at = s->n_recent < 10 ? s->n_recent++ : 9;
+    memmove(s->recent[1], s->recent[0], (size_t)at * 96);
+    snprintf(s->recent[0], 96, "%s", q);
+    recent_save(s);
+}
 
 static void clear_results(Search *s)
 {
@@ -60,7 +92,7 @@ static void on_result(HttpResponse *r, void *user)
     s->pending--;
     MetaPreview *metas; int n;
     if (p->pick) {   /* a title the assistant suggested: keep the one result that is that title, at the front, in the assistant's order */
-        if (r->status == 200 && addon_parse_metas(r->body, &metas, &n) == 0) {
+        if (r->parsed) { ParsedMetas *pm = r->parsed; r->parsed = NULL; metas = pm->m; n = pm->n; free(pm);
             int took = 0;
             for (int i = 0; i < n; i++) {
                 int dup = -1;
@@ -83,7 +115,7 @@ static void on_result(HttpResponse *r, void *user)
         free(p);
         return;
     }
-    if (r->status == 200 && addon_parse_metas(r->body, &metas, &n) == 0) {
+    if (r->parsed) { ParsedMetas *pm = r->parsed; r->parsed = NULL; metas = pm->m; n = pm->n; free(pm);
         s->results = realloc(s->results, sizeof(MetaPreview) * (size_t)(s->n + n));
         for (int i = 0; i < n; i++) {
             int dup = 0;
@@ -113,7 +145,7 @@ static void search_addons(Search *s, const char *q, int pick, int rank)
             p->owner = s; p->generation = s->generation; p->pick = pick; p->rank = rank;
             snprintf(p->want, sizeof p->want, "%s", q);
             s->pending++;
-            http_request_async(url, NULL, on_result, p);
+            app_fetch_metas(url, 0, on_result, p);
         }
     }
 }
@@ -213,6 +245,16 @@ static void draw(Screen *sc)
     float grid_w = SNTV_UI_W - THEME_MARGIN - gx;
     if ((s->pending || s->ai_state == 1) && !s->n) {
         for (int i = 0; i < COLS * 2; i++) ui_skeleton(gx + (i % COLS) * (CELL_W + CELL_GAP), gy + 50 + (i / COLS) * (CELL_H + 80), CELL_W, CELL_H, R_CARD);
+    } else if (!s->n && !s->kb.text[0] && s->n_recent) {
+        font_draw("Recent searches", gx, gy + 4, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        float ry = gy + 56;
+        for (int i = 0; i <= s->n_recent; i++, ry += 66) {
+            int foc = s->focus_grid == 2 && s->recent_focus == i;
+            if (foc) gfx_rrect(gx - 16, ry - 6, 640, 58, 18, THEME_TEXT);
+            if (i < s->n_recent) { ui_icon(ICON_CLOCK, gx + 14, ry + 23, 24, foc ? THEME_ON_LIGHT : THEME_TEXT_MUTED); font_draw_fit(s->recent[i], gx + 46, ry + (46 - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_LIGHT : THEME_TEXT, 560); }
+            else font_draw("Clear recent searches", gx + 46, ry + (46 - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_LIGHT : THEME_TEXT_DIM);
+        }
+        if (s->focus_grid != 2) font_draw("Right from the keyboard picks one", gx, ry + 10, FONT_XS, THEME_TEXT_MUTED);
     } else if (!s->n) {
         float cx = gx + grid_w / 2, cy = gy + 280;
         gfx_circle(cx, cy, 80, RGBA(0xFF, 0xFF, 0xFF, 0x10));
@@ -250,21 +292,39 @@ static int key(Screen *sc, KeyAction a)
 {
     Search *s = sc->st;
     app_redraw();
+    if (a == KEY_LONG_OK || a == KEY_YELLOW) {
+        if (s->focus_grid == 1 && s->grid_focus < s->n) { screen_options_for_title(&s->results[s->grid_focus]); return 1; }
+        if (a == KEY_LONG_OK) return 0;
+    }
     if (!s->focus_grid) {
-        if (a == KEY_RIGHT && s->kb.col == 10 && s->n) { s->focus_grid = 1; return 1; }
+        if (a == KEY_RIGHT && s->kb.col == 10 && s->n) { s->focus_grid = 1; recent_add(s, s->kb.text); return 1; }
+        if (a == KEY_RIGHT && s->kb.col == 10 && !s->kb.text[0] && s->n_recent) { s->focus_grid = 2; s->recent_focus = 0; return 1; }
         if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; return 1; }
         KeyboardResult r = keyboard_key(&s->kb, a);
         if (r == KB_CHANGED) { s->dirty = 1; s->debounce = 0.6f; }
-        else if (r == KB_DONE) { s->dirty = 0; run_query(s); if (s->n) s->focus_grid = 1; }
+        else if (r == KB_DONE) { s->dirty = 0; run_query(s); if (s->n) { s->focus_grid = 1; recent_add(s, s->kb.text); } }
         return a != KEY_BACK;
     }
     s->focus_t = 0;
+    if (s->focus_grid == 2) {   /* the recent searches list */
+        switch (a) {
+        case KEY_UP: if (s->recent_focus > 0) s->recent_focus--; return 1;
+        case KEY_DOWN: if (s->recent_focus < s->n_recent) s->recent_focus++; return 1;   /* the last row clears */
+        case KEY_LEFT: case KEY_BACK: s->focus_grid = 0; return 1;
+        case KEY_OK:
+            if (s->recent_focus == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return 1; }
+            keyboard_init(&s->kb, 0, s->recent[s->recent_focus]);
+            s->dirty = 0; s->focus_grid = 0; run_query(s);
+            return 1;
+        default: return 1;
+        }
+    }
     switch (a) {
     case KEY_LEFT: if (s->grid_focus % COLS == 0) s->focus_grid = 0; else s->grid_focus--; return 1;
     case KEY_RIGHT: if (s->grid_focus % COLS < COLS - 1 && s->grid_focus + 1 < s->n) s->grid_focus++; return 1;
     case KEY_UP: if (s->grid_focus >= COLS) s->grid_focus -= COLS; return 1;
     case KEY_DOWN: if (s->grid_focus + COLS < s->n) { s->grid_focus += COLS; return 1; } return 0;
-    case KEY_OK: if (s->grid_focus < s->n) app_push(screen_detail_create(&s->results[s->grid_focus])); return 1;
+    case KEY_OK: if (s->grid_focus < s->n) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[s->grid_focus])); } return 1;
     case KEY_BACK: s->focus_grid = 0; return 1;
     default: return 0;
     }
@@ -294,7 +354,8 @@ Screen *screen_search_create(void)
     Screen *sc = calloc(1, sizeof *sc);
     Search *s = calloc(1, sizeof *s);
     keyboard_init(&s->kb, 0, NULL);
-    sc->name = "search"; sc->st = s;
+    recent_load(s);
+    sc->name = "search"; sc->st = s; sc->long_ok = 1;
     sc->update = update; sc->draw = draw; sc->key = key; sc->text = text; sc->destroy = destroy;
     SDL_StartTextInput();
     return sc;

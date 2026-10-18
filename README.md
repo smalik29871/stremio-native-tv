@@ -10,11 +10,11 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.6.3.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.6.4.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 86 scripted scenarios against a fake addon. See *What is verified* below.
+> 92 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -121,8 +121,17 @@ Settings > **Take breaks** schedules pauses: **prayer times** computed on the TV
 your location (MWL, ISNA, Egypt, Umm al-Qura, Karachi, Tehran, Jafari methods, Hanafi
 Asr; Angelus, Nitnem, Sandhya, zmanim and Baha'i windows as well), **stretch** reminders,
 **bedtime**, or **your own times**. A banner warns a few minutes ahead, then the video
-pauses on a calm page with a chime or your own recording (an adhan, a bell), and playback
-continues where it stopped. Research and sources are in `docs/BREAKS.md`.
+pauses on a calm page with a chime or your own recording (an adhan, a dua, a bell: sent
+from your phone to the TV, a direct link, or a YouTube page fetched by the home helper,
+shown full screen if it is a video), and playback continues where it stopped. Research and sources are in `docs/BREAKS.md`.
+
+### Everyday conveniences
+- **Hold OK** (or press Yellow, Menu or Info) on any title: mark watched or not watched,
+  remove from Continue Watching, add to or remove from the Library.
+- **From the start** next to Resume, **recent searches**, a **No internet** pill, a notice
+  after a crash, and a note when a newer version is in the Homebrew Channel.
+- **Sources** in your audio language first, a cap on how long autoplay waits for slow
+  addons, failed links sorted last for six hours, and addon notice rows never autoplayed.
 
 ### Keys, phones and safety
 - **Type it on your phone**: every text field shows a QR code; the TV serves a small page
@@ -136,6 +145,9 @@ continues where it stopped. Research and sources are in `docs/BREAKS.md`.
 ### Built for old TVs
 - Idle frame skipping, a batched GLES2 renderer (one draw call for most screens), disk
   caches for artwork and catalogs, poster prefetch, eased scrolling and cross-fades.
+- **Nothing heavy in a frame**: catalog and source replies are parsed and cached on the
+  network threads, handed to the screen within an 8 ms budget per frame, and anything
+  slower is logged with its host. Idle, the app wakes the instant a key arrives.
 - An **Automatic effects level** measures the TV and drops to Light when it cannot keep up.
 - A **memory saver** that watches the TV: on a small set (under 2 GB) it is on from the
   start; on any set it turns itself on when free memory gets tight (fewer rows and
@@ -173,7 +185,8 @@ transcoding, libass, trailers, the Samsung .NET host, Trakt/Simkl/debrid integra
 
 ## Player keys
 
-Down opens the control bar (Left/Right to move, OK to open, Up back to the timeline).
+On Home, Explore, Library, Search and title pages, **hold OK** for the options of the
+focused title. In the player, Down opens the control bar (Left/Right to move, OK to open, Up back to the timeline).
 OK play/pause (while *Skip intro* is on screen, OK skips). Left/Right seek 10 s and
 accelerate while held; the video follows live. Rewind/Forward jump between chapters.
 Up audio menu, Down subtitle menu (Left/Right inside it shifts timing by 0.5 s). Red stats
@@ -187,10 +200,12 @@ Play/Pause brings it back, Stop closes it).
   Streams that only carry an `infoHash` show a *needs server* badge until you set the
   **Streaming server** URL in Settings > Account (any computer on your LAN running Stremio
   or the service, usually port 11470). Debrid addons return plain HTTPS URLs and need nothing.
-- **Seek previews** need frames decoded from the file, which the TV's video plane does not
-  expose and the streaming server does not offer. `tools/thumbs/server.py` (ffmpeg, a few
-  lines, Dockerfile included) runs next to the streaming server on the same machine and
-  returns one small JPEG per request. Set its URL in Settings > Playback.
+- **The home helper** (`tools/thumbs/server.py`, ffmpeg and yt-dlp, Dockerfile included)
+  runs next to the streaming server on the same machine. It gives seek previews (the TV's
+  video plane cannot be read and the streaming server has no frame endpoint) and turns
+  YouTube or other page links into files the TV plays, for break recordings. NewPipe
+  does the same job on Android with its own extractor; it cannot run inside a TV app, and
+  yt-dlp on the helper is the equivalent. Set its URL in Settings > Playback.
 
 ## Diagnostics (reporting a problem)
 
@@ -210,7 +225,7 @@ reply from the media service.
 ```
 sudo apt install cmake build-essential libsdl2-dev libgles-dev
 tools/linux.sh            # builds, runs unit tests
-./build/stremio-tv        # arrows / Enter / Esc, F3 = search, F1/F2/F4 = colour keys
+./build/stremio-tv        # arrows / Enter / Esc, F3 = search, F1/F2/F5/F4 = red/green/yellow/blue
 ```
 Headless UI check (needs Xvfb + Pillow): `bash tests/smoke.sh` writes screenshots to `tests/out/`.
 Useful hooks: `SNTV_KEYS`, `SNTV_SCREENSHOT`, `SNTV_FAKE_DURATION/START`, `SNTV_NOW`,
@@ -252,7 +267,7 @@ from the channel.
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (86 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (92 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |

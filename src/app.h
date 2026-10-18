@@ -4,6 +4,7 @@
 #ifndef SNTV_APP_H
 #define SNTV_APP_H
 #include "addon/addon.h"
+#include "http.h"
 #include "quality.h"
 #include "addon/stremio_api.h"
 #include "ui/input.h"
@@ -19,6 +20,7 @@ typedef struct Screen {
     void (*text)(struct Screen *s, const char *utf8);  /* optional */
     void (*resume)(struct Screen *s);                  /* becomes top again */
     void (*destroy)(struct Screen *s);
+    int long_ok;   /* OK acts on release here, and holding it sends KEY_LONG_OK (0 from key() = treat as OK) */
 } Screen;
 
 typedef enum { FX_AUTO = 0, FX_FULL = 1, FX_LIGHT = 2 } FxLevel;
@@ -84,6 +86,11 @@ typedef struct App {
     int transitions;           /* animated screen changes */
     int pip_enabled;           /* Back in the player parks it in a corner instead of stopping */
     int subs_autosync;         /* shift addon subtitles to match a file-matched subtitle */
+    int subs_autotranslate;    /* AI: translate when nobody offers the preferred language */
+    int addon_wait;            /* seconds auto-play waits for slow addons; 99 = all of them */
+    int src_audio_lang;        /* rank sources that mention the preferred audio language higher */
+    int prev_crashed;          /* the previous session did not close properly */
+    int break_video;           /* show the video of a break recording full screen */
     /* take breaks (breaks.h) */
     int breaks_on, break_sched, break_method, break_asr_hanafi;
     int break_lead_min, break_len_min, break_sound;   /* sound: 0 chime, 1 custom audio, 2 silent */
@@ -146,6 +153,14 @@ LibraryItem *app_library_find(const char *id);
 /* Records playback progress locally and (when logged in) pushes it to the account. */
 void app_library_progress(const MetaPreview *meta, const char *video_id, double position_s, double duration_s);
 void app_library_toggle(const MetaPreview *meta);  /* add / remove from library */
+void app_library_mark_watched(const MetaPreview *meta, int watched);
+void app_library_dismiss_continue(const MetaPreview *meta);   /* drop from Continue Watching, keep in Library */
+/* Links that failed to play are remembered for six hours and sorted last. */
+void app_link_failed(const char *url);
+/* Once a day, 20 s after start: is there a newer release in the Homebrew Channel repo? */
+void app_update_check(float dt);
+extern char g_update_version[16];   /* "" or the newer version */
+int  app_link_dead(const char *url);
 
 /* Resolve a stream to a playable URL. Returns malloc'd string or NULL (with reason). */
 char *app_stream_playable_url(const Stream *s, char *reason, size_t reason_len);
@@ -153,6 +168,17 @@ void play_candidates_free(PlayCandidate *c, int n);
 
 /* Catalog JSON disk cache (keyed by URL) for instant Home on launch. */
 char *app_cache_get(const char *url, long max_age_seconds);
+/* Worker-side parsers for http_request_async_ex: r->parsed becomes a ParsedMetas /
+ * ParsedStreams. The _cached variant also writes the reply to the disk cache. */
+typedef struct ParsedMetas { MetaPreview *m; int n; } ParsedMetas;
+typedef struct ParsedStreams { Stream *s; int n; } ParsedStreams;
+void app_work_metas(HttpResponse *r, const char *url);
+void app_work_metas_cached(HttpResponse *r, const char *url);
+void app_free_metas(void *parsed);
+void app_work_streams(HttpResponse *r, const char *url);
+void app_free_streams(void *parsed);
+unsigned app_fetch_metas(const char *url, int cache, HttpCallback cb, void *user);
+unsigned app_fetch_streams(const char *url, HttpCallback cb, void *user);
 void  app_cache_put(const char *url, const char *body, size_t len);
 
 /* The detail screen registers the episode list it shows; the player uses it for Up Next. */

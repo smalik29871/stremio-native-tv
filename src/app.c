@@ -37,7 +37,7 @@ static struct { Screen *from; int owned, dir; float t; int active; } g_trans;
 
 static int transitional(const Screen *s)
 {
-    return s && strcmp(s->name, "player") != 0 && strcmp(s->name, "ambient") != 0 && strcmp(s->name, "pin") != 0;
+    return s && strcmp(s->name, "player") != 0 && strcmp(s->name, "ambient") != 0 && strcmp(s->name, "pin") != 0 && strcmp(s->name, "options") != 0;
 }
 
 static void trans_finish(void)
@@ -743,6 +743,114 @@ void app_library_progress(const MetaPreview *meta, const char *video_id, double 
     push_library_item(it);
 }
 
+void app_library_mark_watched(const MetaPreview *meta, int watched)
+{
+    LibraryItem *it = library_upsert(meta);
+    if (it->removed) it->temp = 1;   /* not in the Library, but its state is tracked (as the Stremio apps do) */
+    it->flagged_watched = watched;
+    if (watched && it->times_watched == 0) it->times_watched = 1;
+    if (!watched) it->times_watched = 0;
+    it->time_offset = 0;
+    it->mtime_ms = now_ms();
+    save_library_cache();
+    push_library_item(it);
+    app_toast(watched ? "Marked as watched" : "Marked as not watched");
+}
+
+void app_library_dismiss_continue(const MetaPreview *meta)
+{
+    LibraryItem *it = library_upsert(meta);
+    it->time_offset = 0;
+    it->mtime_ms = now_ms();
+    save_library_cache();
+    push_library_item(it);
+    app_toast("Removed from Continue Watching");
+}
+
+/* ---- update notice ---- */
+char g_update_version[16];
+static int version_newer(const char *a, const char *b)   /* a > b, dotted numbers */
+{
+    int x[3] = { 0 }, y[3] = { 0 };
+    sscanf(a, "%d.%d.%d", &x[0], &x[1], &x[2]); sscanf(b, "%d.%d.%d", &y[0], &y[1], &y[2]);
+    for (int i = 0; i < 3; i++) if (x[i] != y[i]) return x[i] > y[i];
+    return 0;
+}
+static void on_repo(HttpResponse *r, void *user)
+{
+    (void)user;
+    if (r->status != 200) return;
+    cJSON *root = cJSON_Parse(r->body);
+    const cJSON *pk = root ? cJSON_GetObjectItemCaseSensitive(root, "packages") : NULL;
+    const cJSON *p0 = cJSON_IsArray(pk) ? cJSON_GetArrayItem(pk, 0) : NULL;
+    const cJSON *mf = p0 ? cJSON_GetObjectItemCaseSensitive(p0, "manifest") : NULL;
+    const cJSON *v = mf ? cJSON_GetObjectItemCaseSensitive(mf, "version") : NULL;
+    if (cJSON_IsString(v) && version_newer(v->valuestring, SNTV_APP_VERSION)) {
+        snprintf(g_update_version, sizeof g_update_version, "%s", v->valuestring);
+        if (strcmp(store_get_str("updateToldFor", ""), v->valuestring) != 0) {
+            app_toast("Version %s is ready: Homebrew Channel > Stremio (native) > Update", v->valuestring);
+            store_set_str("updateToldFor", v->valuestring); store_save();
+        }
+        LOGI("update: %s available (running %s)", v->valuestring, SNTV_APP_VERSION);
+    }
+    if (root) cJSON_Delete(root);
+}
+void app_update_check(float dt)
+{
+    static float t; static int done;
+    if (done) return;
+    t += dt;
+    if (t < (getenv("SNTV_UPDATE_URL") ? 1 : 20)) return;
+    done = 1;
+    const char *url = getenv("SNTV_UPDATE_URL");
+    if (getenv("SNTV_SCREENSHOT") && !url) return;   /* headless test runs stay offline */
+    long last = atol(store_get_str("updateCheckedAt", "0"));
+    if (!url && time(NULL) - last < 20 * 3600) return;
+    char now[24]; snprintf(now, sizeof now, "%ld", (long)time(NULL)); store_set_str("updateCheckedAt", now);
+    http_request_async(url ? url : "https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json", NULL, on_repo, NULL);
+}
+
+/* ---- links that failed: six hours in the doghouse ---- */
+#define DEAD_MAX 64
+static struct { char *url; time_t when; } g_dead[DEAD_MAX];
+static int g_n_dead;
+
+static void dead_save(void)
+{
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < g_n_dead; i++) { cJSON *o = cJSON_CreateObject(); cJSON_AddStringToObject(o, "u", g_dead[i].url); cJSON_AddNumberToObject(o, "t", (double)g_dead[i].when); cJSON_AddItemToArray(arr, o); }
+    store_set_json("deadLinks", arr);
+}
+
+static void dead_load(void)
+{
+    const cJSON *arr = store_get_json("deadLinks"), *it;
+    time_t now = time(NULL);
+    cJSON_ArrayForEach(it, arr) {
+        const cJSON *u = cJSON_GetObjectItemCaseSensitive(it, "u"), *t = cJSON_GetObjectItemCaseSensitive(it, "t");
+        if (!cJSON_IsString(u) || !cJSON_IsNumber(t) || now - (time_t)t->valuedouble > 6 * 3600 || g_n_dead >= DEAD_MAX) continue;
+        g_dead[g_n_dead].url = strdup(u->valuestring); g_dead[g_n_dead].when = (time_t)t->valuedouble; g_n_dead++;
+    }
+}
+
+void app_link_failed(const char *url)
+{
+    if (!url || strncmp(url, "http", 4) != 0) return;
+    time_t now = time(NULL);
+    for (int i = 0; i < g_n_dead; i++) if (strcmp(g_dead[i].url, url) == 0) { g_dead[i].when = now; dead_save(); return; }
+    if (g_n_dead == DEAD_MAX) { free(g_dead[0].url); memmove(&g_dead[0], &g_dead[1], sizeof g_dead[0] * (DEAD_MAX - 1)); g_n_dead--; }
+    g_dead[g_n_dead].url = strdup(url); g_dead[g_n_dead].when = now; g_n_dead++;
+    dead_save();
+}
+
+int app_link_dead(const char *url)
+{
+    if (!url) return 0;
+    time_t now = time(NULL);
+    for (int i = 0; i < g_n_dead; i++) if (strcmp(g_dead[i].url, url) == 0) return now - g_dead[i].when <= 6 * 3600;
+    return 0;
+}
+
 void app_library_toggle(const MetaPreview *meta)
 {
     LibraryItem *it = library_upsert(meta);
@@ -797,6 +905,49 @@ char *app_cache_get(const char *url, long max_age)
     if (stat(path, &st) != 0) return NULL;
     if (max_age > 0 && time(NULL) - st.st_mtime > max_age) return NULL;
     return store_read_file(name);
+}
+
+void app_work_metas(HttpResponse *r, const char *url)
+{
+    (void)url;
+    if (r->status != 200) return;
+    ParsedMetas *pm = calloc(1, sizeof *pm);
+    if (addon_parse_metas(r->body, &pm->m, &pm->n) != 0) { free(pm); return; }
+    r->parsed = pm;
+}
+void app_work_metas_cached(HttpResponse *r, const char *url)
+{
+    app_work_metas(r, url);
+    ParsedMetas *pm = r->parsed;
+    if (pm && pm->n) app_cache_put(url, r->body, r->len);
+}
+void app_free_metas(void *parsed) { ParsedMetas *pm = parsed; if (!pm) return; meta_previews_free(pm->m, pm->n); free(pm); }
+
+void app_work_streams(HttpResponse *r, const char *url)
+{
+    (void)url;
+    if (r->status != 200) return;
+    ParsedStreams *ps = calloc(1, sizeof *ps);
+    if (addon_parse_streams(r->body, &ps->s, &ps->n) != 0) { free(ps); return; }
+    for (int i = 0; i < ps->n; i++)
+        quality_parse(ps->s[i].name, ps->s[i].title, ps->s[i].description, ps->s[i].filename, ps->s[i].video_size, &ps->s[i].tags);
+    r->parsed = ps;
+}
+void app_free_streams(void *parsed) { ParsedStreams *ps = parsed; if (!ps) return; streams_free(ps->s, ps->n); free(ps); }
+
+unsigned app_fetch_metas(const char *url, int cache, HttpCallback cb, void *user)
+{
+    HttpOptions o = { 0 };
+    o.work = cache ? app_work_metas_cached : app_work_metas;
+    o.free_parsed = app_free_metas;
+    return http_request_async_ex(url, &o, cb, user);
+}
+unsigned app_fetch_streams(const char *url, HttpCallback cb, void *user)
+{
+    HttpOptions o = { 0 };
+    o.work = app_work_streams;
+    o.free_parsed = app_free_streams;
+    return http_request_async_ex(url, &o, cb, user);
 }
 
 void app_cache_put(const char *url, const char *body, size_t len)
@@ -903,6 +1054,11 @@ static void load_prefs(void)
     g_app.transitions = store_get_int("transitions", 1);
     g_app.pip_enabled = store_get_int("pipEnabled", 0);
     g_app.subs_autosync = store_get_int("subsAutosync", 1);
+    g_app.subs_autotranslate = store_get_int("subsAutotranslate", 0);
+    g_app.addon_wait = store_get_int("addonWait", 8);
+    g_app.break_video = store_get_int("breakVideo", 1);
+    g_app.src_audio_lang = store_get_int("srcAudioLang", 1);
+    dead_load();
     g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && mem_small_tv());   /* main.c calls mem_apply_mode() once images exist */
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
@@ -959,6 +1115,10 @@ void app_save_prefs(void)
     store_set_int("transitions", g_app.transitions);
     store_set_int("pipEnabled", g_app.pip_enabled);
     store_set_int("subsAutosync", g_app.subs_autosync);
+    store_set_int("subsAutotranslate", g_app.subs_autotranslate);
+    store_set_int("addonWait", g_app.addon_wait);
+    store_set_int("breakVideo", g_app.break_video);
+    store_set_int("srcAudioLang", g_app.src_audio_lang);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();

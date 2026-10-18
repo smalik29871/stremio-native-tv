@@ -76,10 +76,40 @@ static char *clean_text(const char *raw, int is_utf8)
     return out;
 }
 
+/* UTF-16 files (some Windows tools save SRTs that way) to UTF-8. */
+static char *utf16_to_utf8(const unsigned char *d, size_t len, int big_endian, size_t *out_len)
+{
+    char *out = malloc(len * 2 + 1);
+    size_t o = 0;
+    for (size_t i = 0; i + 1 < len; i += 2) {
+        unsigned cp = big_endian ? (unsigned)(d[i] << 8 | d[i + 1]) : (unsigned)(d[i + 1] << 8 | d[i]);
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 3 < len) {   /* surrogate pair */
+            unsigned lo = big_endian ? (unsigned)(d[i + 2] << 8 | d[i + 3]) : (unsigned)(d[i + 3] << 8 | d[i + 2]);
+            if (lo >= 0xDC00 && lo <= 0xDFFF) { cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00); i += 2; }
+        }
+        if (cp == 0) continue;
+        if (cp < 0x80) out[o++] = (char)cp;
+        else if (cp < 0x800) { out[o++] = (char)(0xC0 | cp >> 6); out[o++] = (char)(0x80 | (cp & 0x3F)); }
+        else if (cp < 0x10000) { out[o++] = (char)(0xE0 | cp >> 12); out[o++] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[o++] = (char)(0x80 | (cp & 0x3F)); }
+        else { out[o++] = (char)(0xF0 | cp >> 18); out[o++] = (char)(0x80 | ((cp >> 12) & 0x3F)); out[o++] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[o++] = (char)(0x80 | (cp & 0x3F)); }
+    }
+    out[o] = 0;
+    *out_len = o;
+    return out;
+}
+
 int subs_parse(const char *data, size_t len, SubTrack *out)
 {
     memset(out, 0, sizeof *out);
     if (!data || !len) return -1;
+    const unsigned char *u = (const unsigned char *)data;
+    if (len >= 4 && ((u[0] == 0xFF && u[1] == 0xFE) || (u[0] == 0xFE && u[1] == 0xFF))) {
+        size_t n8;
+        char *conv = utf16_to_utf8(u + 2, len - 2, u[0] == 0xFE, &n8);
+        int rc = subs_parse(conv, n8, out);
+        free(conv);
+        return rc;
+    }
     char *buf = malloc(len + 1);
     memcpy(buf, data, len);
     buf[len] = 0;

@@ -8,6 +8,7 @@ typedef enum {
     KEY_PLAY_PAUSE, KEY_PLAY, KEY_PAUSE, KEY_STOP, KEY_REWIND, KEY_FORWARD,
     KEY_MENU, KEY_INFO, KEY_RED, KEY_GREEN, KEY_YELLOW, KEY_BLUE, KEY_SEARCH,
     KEY_BACKSPACE, KEY_EXIT,
+    KEY_LONG_OK,   /* OK held for half a second (screens with Screen.long_ok only) */
 } KeyAction;
 
 KeyAction input_map(const SDL_Event *e);

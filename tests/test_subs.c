@@ -38,6 +38,21 @@ int main(void)
         CHECK(subs_align(&a, &c, &off) == 0);   /* nothing in common: no guess */
         subs_free(&a); subs_free(&b); subs_free(&c);
     }
+    /* UTF-16 LE with a BOM */
+    {
+        const char *src = "1\r\n00:00:01,000 --> 00:00:02,000\r\nCaf\xC3\xA9 \xE2\x82\xAC\r\n";
+        unsigned char w[400]; size_t k = 0; w[k++] = 0xFF; w[k++] = 0xFE;
+        for (const unsigned char *p = (const unsigned char *)src; *p;) {
+            unsigned cp = *p;
+            if (cp >= 0xE0) { cp = (p[0] & 0x0F) << 12 | (p[1] & 0x3F) << 6 | (p[2] & 0x3F); p += 3; }
+            else if (cp >= 0xC0) { cp = (p[0] & 0x1F) << 6 | (p[1] & 0x3F); p += 2; }
+            else p++;
+            w[k++] = (unsigned char)(cp & 0xFF); w[k++] = (unsigned char)(cp >> 8);
+        }
+        SubTrack u16;
+        CHECK(subs_parse((const char *)w, k, &u16) == 1 && strcmp(u16.cues[0].text, "Caf\xC3\xA9 \xE2\x82\xAC") == 0);
+        subs_free(&u16);
+    }
     size_t len;
     char *d = read_fixture("sample.srt", &len);
     SubTrack t;
