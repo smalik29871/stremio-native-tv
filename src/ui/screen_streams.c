@@ -110,14 +110,14 @@ static void draw(Screen *s)
         int foc = st->focus == i;
         gfx_rect(x, y, w, ROW_H - 10, foc ? THEME_SURFACE_HI : THEME_SURFACE);
         if (foc) gfx_rect(x, y, 6, ROW_H - 10, THEME_ACCENT);
-        char line1[200], line2[300], sub[300];
+        char line1[200], line2[600], sub[300];
         first_line(sm->name, line1, sizeof line1);
         rest_lines(sm->name, sub, sizeof sub);
         const char *desc = sm->description ? sm->description : sm->title;
         first_line(desc, line2, sizeof line2);
-        char rest[300];
+        char rest[300], joined[600];
         rest_lines(desc, rest, sizeof rest);
-        if (rest[0]) { strncat(line2, "  ", sizeof line2 - strlen(line2) - 1); strncat(line2, rest, sizeof line2 - strlen(line2) - 1); }
+        if (rest[0]) { snprintf(joined, sizeof joined, "%s  %s", line2, rest); snprintf(line2, sizeof line2, "%s", joined); }
         font_draw_fit(sm->addon_name, x + 24, y + 12, FONT_S, THEME_TEXT_MUTED, 260);
         if (sub[0]) font_draw_fit(sub, x + 24, y + 48, FONT_S, THEME_TEXT_DIM, 260);
         font_draw_fit(line1[0] ? line1 : "Stream", x + 300, y + 12, FONT_M, THEME_TEXT, w - 520);
