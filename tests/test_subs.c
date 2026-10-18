@@ -22,6 +22,22 @@ static char *read_fixture(const char *name, size_t *len)
 
 int main(void)
 {
+    /* alignment: the same cues shifted by 2.3 s, with a few extra and missing ones */
+    {
+        SubTrack a = { 0 }, b = { 0 };
+        a.cues = calloc(40, sizeof(SubCue)); b.cues = calloc(40, sizeof(SubCue));
+        unsigned seed = 7; double t0 = 5;
+        for (int i = 0; i < 30; i++) { seed = seed * 1103515245u + 12345u; t0 += 2 + (seed >> 16) % 900 / 100.0; a.cues[a.n].start = t0; a.cues[a.n].end = t0 + 2; a.cues[a.n].text = strdup("x"); a.n++; }
+        for (int i = 0; i < 30; i++) { if (i % 7 == 0) continue; b.cues[b.n].start = a.cues[i].start - 2.3; b.cues[b.n].end = b.cues[b.n].start + 2; b.cues[b.n].text = strdup("y"); b.n++; }
+        b.cues[b.n].start = 3.1; b.cues[b.n].end = 4; b.cues[b.n].text = strdup("extra"); b.n++;
+        double off = 0;
+        CHECK(subs_align(&a, &b, &off) == 1);
+        CHECK(off > 2.2 && off < 2.4);
+        SubTrack c = { 0 }; c.cues = calloc(10, sizeof(SubCue));
+        for (int i = 0; i < 8; i++) { c.cues[c.n].start = 1000 + i * 13.1; c.cues[c.n].end = c.cues[c.n].start + 1; c.cues[c.n].text = strdup("z"); c.n++; }
+        CHECK(subs_align(&a, &c, &off) == 0);   /* nothing in common: no guess */
+        subs_free(&a); subs_free(&b); subs_free(&c);
+    }
     size_t len;
     char *d = read_fixture("sample.srt", &len);
     SubTrack t;

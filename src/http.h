@@ -18,9 +18,12 @@ typedef struct HttpResponse {
 
 /* Extra knobs for http_request_async_ex; zero means the default. */
 typedef struct HttpOptions {
-    uint64_t range_bytes;   /* fetch only the first N bytes (Range: bytes=0-(N-1)) */
+    uint64_t range_bytes;   /* fetch only N bytes (Range: bytes=start-(start+N-1)) */
+    uint64_t range_start;   /* from this offset (0 = the start of the file) */
     long timeout_s;         /* whole-transfer timeout */
     int no_json_accept;     /* don't ask for application/json */
+    const char *post_json;  /* POST this body (copied at enqueue time) */
+    const char *bearer;     /* Authorization: Bearer <token> (copied) */
 } HttpOptions;
 
 int  http_init(void);          /* 0 on success */

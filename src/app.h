@@ -77,10 +77,13 @@ typedef struct App {
     int pin_settings;          /* ask for the PIN before Settings */
     int hide_adult;            /* catalogs of addons flagged adult are skipped */
     char *tmdb_key;            /* Settings > API keys: cast photos and age ratings */
+    int   ai_provider;         /* AI_* in ai.h */
+    char *ai_key, *ai_base, *ai_model;
     int memory_mode;           /* 0 automatic, 1 low, 2 normal */
     int low_memory;            /* effective: fewer rows and posters kept */
     int transitions;           /* animated screen changes */
     int pip_enabled;           /* Back in the player parks it in a corner instead of stopping */
+    int subs_autosync;         /* shift addon subtitles to match a file-matched subtitle */
     /* take breaks (breaks.h) */
     int breaks_on, break_sched, break_method, break_asr_hanafi;
     int break_lead_min, break_len_min, break_sound;   /* sound: 0 chime, 1 custom audio, 2 silent */

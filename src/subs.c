@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 static int parse_time(const char *s, double *out)
 {
@@ -135,6 +136,40 @@ void subs_free(SubTrack *t)
     for (int i = 0; i < t->n; i++) free(t->cues[i].text);
     free(t->cues);
     memset(t, 0, sizeof *t);
+}
+
+int subs_align(const SubTrack *ref, const SubTrack *t, double *offset_out)
+{
+    if (!ref || !t || ref->n < 3 || t->n < 3) return 0;
+    enum { HALF = 300, BINS = 2 * HALF + 1 };   /* ±30 s in 0.1 s steps */
+    static int hist[BINS];
+    memset(hist, 0, sizeof hist);
+    int step = t->n > 400 ? t->n / 400 : 1, samples = 0, j = 0;
+    for (int i = 0; i < t->n; i += step) {
+        double s = t->cues[i].start;
+        samples++;
+        while (j < ref->n && ref->cues[j].start < s - 30) j++;
+        for (int k = j; k < ref->n && ref->cues[k].start <= s + 30; k++) {
+            int bin = (int)floor((ref->cues[k].start - s) * 10 + 0.5) + HALF;
+            if (bin >= 0 && bin < BINS) hist[bin]++;
+        }
+    }
+    int best = 0;
+    for (int b = 1; b < BINS; b++) if (hist[b] > hist[best]) best = b;
+    int support = hist[best] + (best > 0 ? hist[best - 1] : 0) + (best + 1 < BINS ? hist[best + 1] : 0);
+    int second = 0;
+    for (int b = 0; b < BINS; b++) if (abs(b - best) > 3 && hist[b] > second) second = hist[b];
+    if (support < 3 || support < samples * 0.35 || hist[best] * 2 < second * 3) return 0;
+    /* refine: the mean of the differences near the winning bin */
+    double centre = (best - HALF) / 10.0, sum = 0; int n = 0; j = 0;
+    for (int i = 0; i < t->n; i += step) {
+        double s = t->cues[i].start;
+        while (j < ref->n && ref->cues[j].start < s + centre - 0.35) j++;
+        for (int k = j; k < ref->n && ref->cues[k].start <= s + centre + 0.35; k++) { sum += ref->cues[k].start - s; n++; }
+    }
+    *offset_out = n ? sum / n : centre;
+    if (fabs(*offset_out) < 0.15) *offset_out = 0;
+    return 1;
 }
 
 const char *subs_at(const SubTrack *t, double s)

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.6.3
+
+- **Subtitles that fit the file.** The player fingerprints the video the way
+  OpenSubtitles does (its size plus the first and last 64 KB) and asks the subtitle
+  addons for files matched to that exact file; they are listed first and marked
+  *matched to this file*. When you pick any other subtitle, its cue timings are
+  compared with a matched one (same language if there is one, any language otherwise)
+  and the offset is applied by itself: "Subtitles synced to the file (+1.3 s)". The
+  Subtitles menu has an *Auto-sync* row with the status, and Settings > Audio &
+  subtitles has the switch.
+- **AI assistant (optional, your own free key).** Settings > API keys > AI assistant
+  takes a Groq, OpenRouter or Google Gemini key (all have free tiers), or any
+  OpenAI-compatible endpoint such as an Ollama box on your network. It unlocks:
+  *Ask AI* on a title page (a spoiler-free nutshell, who it is for, what a parent
+  should know, three similar titles, cached for a month); describing what you feel
+  like watching in Search ("something funny with robots": the model names titles,
+  your addons find them, marked with a star and listed first); and *Translate to
+  <your language>* in the player's Subtitles menu when nobody offers it, translated
+  in batches around the playhead so it starts within seconds. Nothing is sent
+  anywhere until you turn it on, and the key goes in from your phone like the others.
+- **Memory saver that watches the TV.** Automatic mode no longer just looks at the
+  RAM size at start: the app samples free memory and its own footprint every few
+  seconds, turns the saver on after ten seconds of tight memory (fewer rows and
+  posters, artwork budget cut to 32 MB, then 16 MB if it stays tight), answers the
+  system's low-memory warning at once, and turns it off again after two minutes of
+  room. Settings > Interface says why it is on; About shows the TV's memory.
+- README rewritten around what the app does today, with fresh screenshots.
+
 ## 0.6.2
 
 - **Picture-in-picture is off by default.** Back in the player stops playback and

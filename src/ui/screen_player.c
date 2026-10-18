@@ -9,6 +9,8 @@
 #include "../log.h"
 #include "../probe.h"
 #include "../tmdb.h"
+#include "../ai.h"
+#include "../../vendor/cJSON.h"
 #include "../skip.h"
 #include "../store.h"
 #include "../subs.h"
@@ -31,10 +33,10 @@ static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen"
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
 enum { N_RATES = 7, RATE_NORMAL = 2 };
 
-typedef struct AddonSub { char *url, *lang, *addon; } AddonSub;
+typedef struct AddonSub { char *url, *lang, *addon; int matched; } AddonSub;
 
 typedef struct Player Player;
-typedef struct { Player *owner; unsigned gen; int addon; int slot; } SubReq;
+typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; } SubReq;
 
 struct Player {
     MetaPreview meta;
@@ -66,11 +68,19 @@ struct Player {
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
     int assign_second;        /* the subtitles menu picks for the second slot */
     int forced_checked;       /* looked for a forced track in the audio language */
+    /* OpenSubtitles-style file hash -> subtitles matched to this exact file -> auto-sync */
+    int hash_state;           /* 0 not started, 1 head, 2 tail, 3 known, 4 unavailable */
+    uint64_t os_sum, os_size; char os_hash[24];
+    SubTrack ref; int ref_loaded, ref_idx;   /* a matched subtitle used as the timing reference */
+    int sync_for, sync_state; double sync_offset;   /* sync_state: 0 idle, 1 aligning, 2 synced, 3 no match */
+    /* AI translation of the active addon file into the preferred language, a batch at a time, playhead first */
+    int xl_on; char xl_lang[8]; unsigned char *xl_done; int xl_n_done, xl_fails; unsigned xl_req; unsigned xl_gen; int xl_from, xl_count; float xl_wait;
     float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
     float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
+    int subs_user;            /* the viewer chose subtitles by hand this session */
     int last_tracks_version;
     int last_warning_version;
     char audio_lang[16]; int audio_lang_known;
@@ -106,6 +116,9 @@ static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
 static int pick_forced(Player *p);
+static void autosync_tick(Player *p);
+static void xl_stop(Player *p);
+static int xl_available(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
 
 static void report(Player *p, int force)
@@ -129,11 +142,29 @@ static void on_addon_subs(HttpResponse *r, void *user)
     Subtitle *subs; int n;
     if (r->status == 200 && addon_parse_subtitles(r->body, &subs, &n) == 0) {
         const char *addon_name = q->addon < g_app.n_addons ? g_app.addons[q->addon].manifest.name : "addon";
+        if (q->hashed) {
+            /* the answer to the file-hash query: files the plain query did not know are
+             * matched to this exact file; an addon that ignores the hash answers the same */
+            int fresh = 0;
+            for (int i = 0; i < n; i++) { int seen = 0; for (int k = 0; k < p->n_addon_subs; k++) if (strcmp(p->addon_subs[k].url, subs[i].url) == 0) seen = 1; if (!seen) fresh++; }
+            if (fresh) {
+                for (int i = 0; i < n; i++) {
+                    int k; for (k = 0; k < p->n_addon_subs; k++) if (strcmp(p->addon_subs[k].url, subs[i].url) == 0) break;
+                    if (k < p->n_addon_subs) { p->addon_subs[k].matched = 1; continue; }
+                    if (p->n_addon_subs >= MAX_ADDON_SUBS) break;
+                    AddonSub *as = &p->addon_subs[p->n_addon_subs++];
+                    as->url = strdup(subs[i].url); as->lang = strdup(subs[i].lang ? subs[i].lang : "und"); as->addon = strdup(addon_name); as->matched = 1;
+                }
+                LOGI("subs: %d file-matched subtitle(s) from %s", fresh, addon_name);
+                if (!p->subs_user) p->subs_auto_done = 0;   /* a matched file in the preferred language beats the earlier pick */
+            }
+        } else
         for (int i = 0; i < n && p->n_addon_subs < MAX_ADDON_SUBS; i++) {
             AddonSub *as = &p->addon_subs[p->n_addon_subs++];
             as->url = strdup(subs[i].url);
             as->lang = strdup(subs[i].lang ? subs[i].lang : "und");
             as->addon = strdup(addon_name);
+            as->matched = 0;
         }
         subtitles_free(subs, n);
         app_redraw();
@@ -141,28 +172,78 @@ static void on_addon_subs(HttpResponse *r, void *user)
     free(q);
 }
 
-static void query_addon_subs(Player *p)
+static void query_addon_subs_ex(Player *p, int hashed)
 {
     const PlayCandidate *c = &p->cands[p->cur];
     char extra[700] = "";
-    if (c->filename || c->video_size) {
-        char size[32];
-        snprintf(size, sizeof size, "%llu", (unsigned long long)c->video_size);
-        const char *kv[6]; int k = 0;
-        if (c->filename) { kv[k++] = "filename"; kv[k++] = c->filename; }
-        if (c->video_size) { kv[k++] = "videoSize"; kv[k++] = size; }
-        kv[k] = NULL;
-        addon_extra_query(extra, sizeof extra, kv);
-    }
+    char size[32];
+    uint64_t vsize = hashed && p->os_size ? p->os_size : c->video_size;
+    snprintf(size, sizeof size, "%llu", (unsigned long long)vsize);
+    const char *kv[8]; int k = 0;
+    if (c->filename) { kv[k++] = "filename"; kv[k++] = c->filename; }
+    if (vsize) { kv[k++] = "videoSize"; kv[k++] = size; }
+    if (hashed) { kv[k++] = "videoHash"; kv[k++] = p->os_hash; }
+    kv[k] = NULL;
+    if (k) addon_extra_query(extra, sizeof extra, kv);
     for (int i = 0; i < g_app.n_addons; i++) {
         if (!addon_supports(&g_app.addons[i], "subtitles", p->meta.type, p->video_id)) continue;
         char url[1400];
         addon_url_subtitles(&g_app.addons[i], p->meta.type, p->video_id, extra[0] ? extra : NULL, url, sizeof url);
         SubReq *q = malloc(sizeof *q);
-        q->owner = p; q->gen = p->gen; q->addon = i; q->slot = 0;
+        q->owner = p; q->gen = p->gen; q->addon = i; q->slot = 0; q->hashed = hashed;
         p->subs_pending++;
         http_request_async(url, NULL, on_addon_subs, q);
     }
+}
+static void query_addon_subs(Player *p) { query_addon_subs_ex(p, 0); }
+
+/* ---- the file's OpenSubtitles hash: size + the first and last 64 KB summed as little-endian
+ * 64-bit words. Subtitle addons answer a videoHash query with files timed for this exact file. */
+static uint64_t sum64(const uint8_t *d, size_t n)
+{
+    uint64_t s = 0;
+    for (size_t i = 0; i + 8 <= n; i += 8) {
+        uint64_t w = 0;
+        for (int b = 7; b >= 0; b--) w = (w << 8) | d[i + b];
+        s += w;
+    }
+    return s;
+}
+
+static void on_hash_part(HttpResponse *r, void *user)
+{
+    SubReq *q = user;
+    Player *p = q->owner;
+    int tail = q->slot;
+    free(q);
+    if (p != g_live) return;
+    if ((r->status != 200 && r->status != 206) || r->len < 8) { p->hash_state = 4; LOGI("subs: file hash unavailable (%ld)", r->status); return; }
+    p->os_sum += sum64((const uint8_t *)r->body, r->len);
+    if (!tail) {
+        p->os_size = r->total_size ? r->total_size : (uint64_t)r->len;
+        if (p->os_size < 131072) { p->hash_state = 4; return; }
+        p->hash_state = 2;
+        SubReq *q2 = malloc(sizeof *q2);
+        q2->owner = p; q2->gen = p->gen; q2->addon = -1; q2->slot = 1; q2->hashed = 0;
+        HttpOptions opt = { 65536, p->os_size - 65536, 8, 1, NULL, NULL };
+        http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q2);
+        return;
+    }
+    uint64_t h = p->os_size + p->os_sum;
+    snprintf(p->os_hash, sizeof p->os_hash, "%016llx", (unsigned long long)h);
+    p->hash_state = 3;
+    LOGI("subs: file hash %s (%llu bytes), asking for matched subtitles", p->os_hash, (unsigned long long)p->os_size);
+    query_addon_subs_ex(p, 1);
+}
+
+static void hash_start(Player *p)
+{
+    p->hash_state = 1; p->os_sum = 0; p->os_size = 0;
+    if (strncmp(p->cands[p->cur].url, "http", 4) != 0) { p->hash_state = 4; return; }
+    SubReq *q = malloc(sizeof *q);
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0;
+    HttpOptions opt = { 65536, 0, 8, 1, NULL, NULL };
+    http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q);
 }
 
 static void on_sub_file(HttpResponse *r, void *user)
@@ -170,14 +251,16 @@ static void on_sub_file(HttpResponse *r, void *user)
     SubReq *q = user;
     Player *p = q->owner;
     if (p != g_live || q->gen != p->gen) { free(q); return; }
-    SubTrack *t = q->slot ? &p->track2 : &p->track;
-    int *loaded = q->slot ? &p->track2_loaded : &p->track_loaded;
+    SubTrack *t = q->slot == 2 ? &p->ref : q->slot ? &p->track2 : &p->track;
+    int *loaded = q->slot == 2 ? &p->ref_loaded : q->slot ? &p->track2_loaded : &p->track_loaded;
     if (!q->slot) p->sub_req = 0;
     subs_free(t);
     *loaded = 0;
     if (r->status == 200 && subs_parse(r->body, r->len, t) > 0) {
         *loaded = 1;
-        LOGI("subs: loaded %d cues%s", t->n, q->slot ? " (second subtitles)" : "");
+        LOGI("subs: loaded %d cues%s", t->n, q->slot == 2 ? " (timing reference)" : q->slot ? " (second subtitles)" : "");
+    } else if (q->slot == 2) {
+        p->sync_state = 3;
     } else {
         app_toast("Could not load that subtitle file");
         if (q->slot) p->active_addon_sub2 = -1; else p->active_addon_sub = -1;
@@ -195,6 +278,8 @@ static void select_addon_sub_slot(Player *p, int idx, int slot)
         video_select_track(TRACK_TEXT, -1);   /* avoid double subtitles */
         subs_free(&p->track);
         p->track_loaded = 0;
+        p->sync_for = -1; p->sync_state = 0;
+        xl_stop(p);
     }
     if (idx < 0) return;
     SubReq *q = malloc(sizeof *q);
@@ -237,8 +322,9 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
                     return 1;
                 }
         } else {
-            for (int i = 0; i < p->n_addon_subs; i++)
-                if (lang_same(p->addon_subs[i].lang, lang)) { select_addon_sub(p, i); return 1; }
+            for (int pass = 0; pass < 2; pass++)   /* a file matched to this video first */
+                for (int i = 0; i < p->n_addon_subs; i++)
+                    if (lang_same(p->addon_subs[i].lang, lang) && (pass || p->addon_subs[i].matched)) { select_addon_sub(p, i); return 1; }
         }
     }
     return 0;
@@ -344,10 +430,155 @@ static int sorted_subs(const Player *p, int *order)
         for (int j = i; j > 0; j--) {
             const char *la = p->addon_subs[order[j]].lang, *lb = p->addon_subs[order[j - 1]].lang;
             int a = lang_same(la, g_app.pref_subs), b = lang_same(lb, g_app.pref_subs);
-            int c = a > b || (a == b && strcasecmp(lang_display(la), lang_display(lb)) < 0);
+            int ma = p->addon_subs[order[j]].matched, mb = p->addon_subs[order[j - 1]].matched;
+            int cmp = strcasecmp(lang_display(la), lang_display(lb));
+            int c = a > b || (a == b && (cmp < 0 || (cmp == 0 && ma > mb)));
             if (c) { int t = order[j]; order[j] = order[j - 1]; order[j - 1] = t; } else break;
         }
     return n;
+}
+
+/* ---- AI translation: the chosen file, cue by cue, into the language nobody offered -- */
+
+static int xl_source(Player *p)
+{
+    int any = -1;
+    for (int i = 0; i < p->n_addon_subs; i++) {
+        if (lang_same(p->addon_subs[i].lang, "eng")) return i;
+        if (any < 0) any = i;
+    }
+    return any;
+}
+
+/* 1 when the Subtitles menu should offer "Translate to X": AI on, a preferred language,
+ * subtitle files to translate from, and nothing already in that language. */
+static int xl_available(Player *p)
+{
+    if (!ai_enabled() || !lang_known(g_app.pref_subs) || p->n_addon_subs == 0) return 0;
+    for (int i = 0; i < p->n_addon_subs; i++) if (lang_same(p->addon_subs[i].lang, g_app.pref_subs)) return 0;
+    VideoTrack tr[MAX_TRACKS];
+    int n = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+    for (int i = 0; i < n; i++) if (lang_same(tr[i].lang, g_app.pref_subs)) return 0;
+    return 1;
+}
+
+static void xl_stop(Player *p)
+{
+    if (p->xl_req) ai_cancel(p->xl_req);
+    p->xl_req = 0; p->xl_on = 0; p->xl_gen++;
+    free(p->xl_done); p->xl_done = NULL; p->xl_n_done = 0; p->xl_fails = 0;
+}
+
+typedef struct { Player *owner; unsigned gen; int from, count; } XlReq;
+
+static void on_xl_batch(const char *text, const char *error, void *user)
+{
+    XlReq *q = user;
+    Player *p = q->owner;
+    int from = q->from, count = q->count; unsigned gen = q->gen;
+    free(q);
+    if (p != g_live || p->xl_on != 1 || gen != p->xl_gen) return;
+    if (!p->xl_done || from + count > p->track.n) return;
+    p->xl_req = 0;
+    cJSON *root = text ? cJSON_Parse(text) : NULL;
+    const cJSON *lines = root ? (cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "lines")) : NULL;
+    int got = cJSON_IsArray(lines) ? cJSON_GetArraySize(lines) : 0;
+    if (got) {
+        int k = 0;
+        for (int i = from; i < from + count && k < got; i++) {
+            if (p->xl_done[i]) continue;
+            const cJSON *it = cJSON_GetArrayItem(lines, k++);
+            if (cJSON_IsString(it) && it->valuestring[0]) { free(p->track.cues[i].text); p->track.cues[i].text = strdup(it->valuestring); }
+            p->xl_done[i] = 1; p->xl_n_done++;
+        }
+        p->xl_fails = 0;
+        p->xl_wait = 0.4f;   /* a breath between batches: free tiers count requests per minute */
+        if (p->xl_n_done >= p->track.n) { app_toast("Subtitles translated to %s", lang_display(p->xl_lang)); p->xl_on = 2; }
+    } else {
+        p->xl_fails++;
+        p->xl_wait = p->xl_fails < 3 ? 6.0f : 30.0f;
+        if (p->xl_fails == 3) app_toast("%s", error ? error : "The translation stalled; retrying in a while");
+        LOGI("subs: translation batch failed (%s)", error ? error : "unreadable answer");
+    }
+    if (root) cJSON_Delete(root);
+    app_redraw();
+}
+
+static void xl_tick(Player *p, float dt, double position)
+{
+    if (p->xl_on != 1 || !p->track_loaded || p->xl_req) return;
+    if (!p->xl_done) { p->xl_done = calloc((size_t)p->track.n + 1, 1); p->xl_n_done = 0; }
+    if (p->xl_wait > 0) { p->xl_wait -= dt; app_redraw(); return; }
+    /* the first untranslated cue at or after the playhead, else the first anywhere */
+    int from = -1;
+    for (int i = 0; i < p->track.n; i++) if (!p->xl_done[i] && p->track.cues[i].end + p->track.offset >= position - 2) { from = i; break; }
+    if (from < 0) for (int i = 0; i < p->track.n; i++) if (!p->xl_done[i]) { from = i; break; }
+    if (from < 0) { p->xl_on = 2; return; }
+    cJSON *arr = cJSON_CreateArray();
+    int count = 0, i = from;
+    for (; i < p->track.n && count < 40; i++) { if (p->xl_done[i]) continue; cJSON_AddItemToArray(arr, cJSON_CreateString(p->track.cues[i].text ? p->track.cues[i].text : "")); count++; }
+    count = i - from;
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddItemToObject(body, "lines", arr);
+    char *msg = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    char sys[400];
+    snprintf(sys, sizeof sys, "You translate subtitle lines into %s for a TV viewer. Reply with JSON only, no markdown: {\"lines\": [...]} with exactly the same number of strings in the same order. "
+             "Keep line breaks as \\n, keep names, numbers and songs, use a natural spoken register, and never merge or drop lines.", lang_display(g_app.pref_subs));
+    XlReq *q = malloc(sizeof *q);
+    q->owner = p; q->gen = p->xl_gen; q->from = from; q->count = count;
+    p->xl_req = ai_ask(sys, msg, 2400, 1, on_xl_batch, q);
+    free(msg);
+    if (!p->xl_req) { free(q); p->xl_on = 0; }
+}
+
+static void xl_start(Player *p)
+{
+    int src = xl_source(p);
+    if (src < 0) return;
+    select_addon_sub(p, src);   /* loads the file; xl_tick translates it once it is here */
+    p->xl_on = 1; snprintf(p->xl_lang, sizeof p->xl_lang, "%s", g_app.pref_subs);
+    free(p->xl_done); p->xl_done = NULL; p->xl_n_done = 0; p->xl_fails = 0; p->xl_wait = 0;
+    app_toast("Translating %s subtitles to %s\xE2\x80\xA6", lang_display(p->addon_subs[src].lang), lang_display(g_app.pref_subs));
+}
+
+/* ---- auto-sync: shift the chosen file onto a file-matched one's timing ---------- */
+
+static int matched_reference(const Player *p)
+{
+    int best = -1;
+    const char *lang = p->active_addon_sub >= 0 ? p->addon_subs[p->active_addon_sub].lang : NULL;
+    for (int i = 0; i < p->n_addon_subs; i++) {
+        if (!p->addon_subs[i].matched) continue;
+        if (best < 0) best = i;
+        if (lang && lang_same(p->addon_subs[i].lang, lang)) return i;   /* same language: best reference */
+    }
+    return best;
+}
+
+static void autosync_tick(Player *p)
+{
+    if (!g_app.subs_autosync || !p->track_loaded || p->active_addon_sub < 0) return;
+    if (p->sync_for == p->active_addon_sub) return;   /* done or decided for this file */
+    if (p->addon_subs[p->active_addon_sub].matched) { p->sync_for = p->active_addon_sub; p->sync_state = 2; p->sync_offset = 0; return; }
+    int ref = matched_reference(p);
+    if (ref < 0) { if (p->hash_state >= 3 && p->subs_pending == 0) { p->sync_for = p->active_addon_sub; p->sync_state = 3; } return; }
+    if (p->ref_idx != ref || (!p->ref_loaded && p->sync_state != 1)) {   /* fetch the reference */
+        p->ref_idx = ref; p->sync_state = 1; p->ref_loaded = 0;
+        subs_free(&p->ref);
+        SubReq *q = malloc(sizeof *q);
+        q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 2; q->hashed = 0;
+        http_request_async(p->addon_subs[ref].url, NULL, on_sub_file, q);
+        return;
+    }
+    if (!p->ref_loaded) return;
+    double off = 0;
+    p->sync_for = p->active_addon_sub;
+    if (subs_align(&p->ref, &p->track, &off)) {
+        p->track.offset = off; p->sync_offset = off; p->sync_state = 2;
+        LOGI("subs: auto-synced %+.2f s against %s (%s)", off, p->addon_subs[ref].addon, p->addon_subs[ref].lang);
+        if (fabs(off) >= 0.15) app_toast("Subtitles synced to the file (%+.1f s)", off); else app_toast("Subtitles already in sync with the file");
+    } else { p->sync_state = 3; LOGI("subs: could not align with the matched file"); }
 }
 
 /* ---- file header: chapters and what the file really contains ------------------ */
@@ -377,7 +608,7 @@ static void probe_current(Player *p)
     if (strncmp(url, "http", 4) != 0) return;
     SubReq *q = malloc(sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0;
-    HttpOptions opt = { 2u << 20, 8, 1 };
+    HttpOptions opt = { 2u << 20, 0, 8, 1, NULL, NULL };
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
 
@@ -548,6 +779,7 @@ static void start_candidate(Player *p, int idx, double start)
     free(p->probe);
     p->probe = NULL;
     p->rate_applied = 0;
+    p->hash_state = 0; p->sync_for = -1; p->sync_state = 0; p->ref_idx = -1; p->ref_loaded = 0; subs_free(&p->ref);
     p->auto_selected = 0;
     p->subs_auto_done = 0;
     p->load_started = g_app.time;
@@ -666,6 +898,9 @@ static void update(Screen *s, float dt)
         p->learned = 1;
     }
     if (!p->probe_asked && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) probe_current(p);
+    if (!p->hash_state && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) hash_start(p);
+    autosync_tick(p);
+    xl_tick(p, dt, vi.position);
     skip_fetch(p, &vi);
     if (g_app.skip_mode == 1) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
 
@@ -858,13 +1093,31 @@ static void draw_menu(Player *p)
             if (dup) snprintf(label, sizeof label, "%s (%d)", lang_display(p->addon_subs[idx].lang), dup + 1);
             else snprintf(label, sizeof label, "%s", lang_display(p->addon_subs[idx].lang));
             char who[120];
-            snprintf(who, sizeof who, "%s%s", p->addon_subs[idx].addon, p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
+            snprintf(who, sizeof who, "%s%s%s", p->addon_subs[idx].addon, p->addon_subs[idx].matched ? "  \xC2\xB7  matched to this file" : "", p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
             ROW(label, who, p->active_addon_sub == idx || p->active_addon_sub2 == idx);
+        }
+        if (xl_available(p)) {
+            char tl[100], ts[120];
+            snprintf(tl, sizeof tl, "Translate to %s", lang_display(g_app.pref_subs));
+            if (p->xl_on == 1) snprintf(ts, sizeof ts, "AI translating\xE2\x80\xA6  %d of %d lines%s", p->xl_n_done, p->track.n, p->xl_fails ? "  \xC2\xB7  waiting for the service" : "");
+            else if (p->xl_on == 2) snprintf(ts, sizeof ts, "Translated by AI  \xC2\xB7  %d lines", p->track.n);
+            else snprintf(ts, sizeof ts, "AI, from the %s file  \xC2\xB7  nobody offers %s for this title", lang_display(p->addon_subs[xl_source(p)].lang), lang_display(g_app.pref_subs));
+            ROW(tl, ts, p->xl_on != 0);
         }
         if (p->track_loaded) {
             char off[80];
             snprintf(off, sizeof off, "Left/Right shifts by 0.5 s  \xC2\xB7  now %+.1f s", p->track.offset);
             ROW("Subtitle timing", off, 0);
+        }
+        {
+            char sy[120];
+            if (!g_app.subs_autosync) snprintf(sy, sizeof sy, "Off  \xC2\xB7  OK turns it on");
+            else if (p->sync_state == 2 && p->active_addon_sub >= 0 && p->addon_subs[p->active_addon_sub].matched) snprintf(sy, sizeof sy, "This file is matched to the video");
+            else if (p->sync_state == 2) snprintf(sy, sizeof sy, "Synced %+.1f s to a file-matched subtitle", p->sync_offset);
+            else if (p->sync_state == 1) snprintf(sy, sizeof sy, "Aligning\xE2\x80\xA6");
+            else if (p->sync_state == 3) snprintf(sy, sizeof sy, "No file-matched subtitle to align with");
+            else snprintf(sy, sizeof sy, p->hash_state < 3 ? "Reading the file's fingerprint\xE2\x80\xA6" : "On  \xC2\xB7  waits for a matched subtitle");
+            ROW("Auto-sync", sy, 0);
         }
         char st[80];
         static const char *SIZES[] = { "Small", "Medium", "Large" };
@@ -929,7 +1182,7 @@ static void url_host(const char *url, char *out, size_t n)
 
 static void draw_stats(Player *p, const VideoInfo *vi)
 {
-    char host[128], l[16][160];
+    char host[128], l[18][160];
     int n = 0;
     url_host(p->cands[p->cur].url, host, sizeof host);
     snprintf(l[n++], 160, "Source|%s", p->cands[p->cur].label ? p->cands[p->cur].label : "");
@@ -949,6 +1202,8 @@ static void draw_stats(Player *p, const VideoInfo *vi)
     snprintf(l[n++], 160, "Audio|%s", p->audio_lang[0] ? p->audio_lang : "default track");
     snprintf(l[n++], 160, "Skip markers|%d%s", p->n_skip, p->skip_state == 1 ? " (asking)" : p->skip_state == 0 ? " (not asked yet)" : "");
     if (p->probe) { char d[160]; probe_describe(p->probe, d, sizeof d); snprintf(l[n++], 160, "File header|%.100s  \xC2\xB7  %d chapters", d, p->probe->n_chapters); }
+    if (p->hash_state == 3) snprintf(l[n++], 160, "File hash|%s%s", p->os_hash, p->sync_state == 2 ? "  \xC2\xB7  subtitles synced" : "");
+    if (p->xl_on) snprintf(l[n++], 160, "AI translation|%d of %d lines  \xC2\xB7  %s", p->xl_n_done, p->track.n, ai_model());
     snprintf(l[n++], 160, "Speed / aspect|%gx  \xC2\xB7  %s%s", RATES[p->rate_idx], ASPECT_NAMES[p->aspect], p->track2_loaded ? "  \xC2\xB7  two subtitle languages" : "");
     snprintf(l[n++], 160, "App|%s  \xC2\xB7  %d draw calls  \xC2\xB7  %zu MB artwork", video_backend_name(), gfx_draw_calls(), image_cache_bytes() >> 20);
     if (g_app.frames_measured) snprintf(l[n++], 160, "UI frame|%.1f ms average, %.0f ms worst", g_app.frame_ms_sum / g_app.frames_measured, g_app.frame_ms_worst);
@@ -1334,7 +1589,7 @@ static int menu_rows(Player *p)
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     if (p->menu == MENU_AUDIO) return n + 1;
-    return 2 + n + p->n_addon_subs + (p->track_loaded ? 1 : 0) + 1;
+    return 2 + n + p->n_addon_subs + (xl_available(p) ? 1 : 0) + (p->track_loaded ? 1 : 0) + 2;
 }
 
 static void menu_activate(Player *p)
@@ -1370,7 +1625,7 @@ static void menu_activate(Player *p)
         if (f < n) { video_select_track(TRACK_AUDIO, tr[f].index); remember_audio(p, &tr[f]); }
         return;
     }
-    p->subs_auto_done = 1;   /* the viewer decided; stop auto-selecting */
+    p->subs_auto_done = 1; p->subs_user = 1;   /* the viewer decided; stop auto-selecting */
     if (f == 0) { p->assign_second = !p->assign_second; return; }
     f--;
     if (f == 0) {
@@ -1394,8 +1649,19 @@ static void menu_activate(Player *p)
         remember_subs(p, p->addon_subs[idx].lang, SUBS_SRC_ADDON);
         return;
     }
-    f -= ng + (p->track_loaded ? 1 : 0);
-    if (f == 0) { p->menu = MENU_STYLE; p->menu_focus = g_app.subs_style; }   /* "Style and size" */
+    f -= ng;
+    if (xl_available(p)) {
+        if (f == 0) { if (p->xl_on) { int src = p->active_addon_sub; xl_stop(p); if (src >= 0) select_addon_sub(p, src); app_toast("Translation stopped"); } else xl_start(p); return; }
+        f--;
+    }
+    f -= p->track_loaded ? 1 : 0;
+    if (f == 0) {   /* "Auto-sync" */
+        g_app.subs_autosync = !g_app.subs_autosync; app_save_prefs();
+        if (!g_app.subs_autosync && p->track_loaded) { p->track.offset = 0; p->sync_state = 0; }
+        p->sync_for = -1;
+        return;
+    }
+    if (f == 1) { p->menu = MENU_STYLE; p->menu_focus = g_app.subs_style; }   /* "Style and size" */
 }
 
 static void seek_by(Player *p, double base)
@@ -1443,7 +1709,8 @@ static int key(Screen *s, KeyAction a)
         }
         case KEY_OK:
             if (p->menu == MENU_SOURCES && p->menu_focus == p->n_cands) { browse_sources(p); return 1; }
-            { int was = p->menu; int keep = (was == MENU_AUDIO && p->menu_focus == 0) || (was == MENU_SUBS && (p->menu_focus == 0 || p->assign_second));
+            { int was = p->menu; int keep = (was == MENU_AUDIO && p->menu_focus == 0) || (was == MENU_SUBS && (p->menu_focus == 0 || p->assign_second || p->menu_focus == menu_rows(p) - 2
+                                             || (xl_available(p) && p->menu_focus == menu_rows(p) - 3 - (p->track_loaded ? 1 : 0))));
               menu_activate(p); if (p->menu == was && !keep) p->menu = MENU_NONE; show_overlay(p); return 1; }
         case KEY_BACK: p->menu = MENU_NONE; show_overlay(p); return 1;
         default: return 1;
@@ -1515,6 +1782,8 @@ static void destroy(Screen *s)
     video_stop();
     subs_free(&p->track);
     subs_free(&p->track2);
+    subs_free(&p->ref);
+    xl_stop(p);
     free(p->probe);
     for (int i = 0; i < p->n_addon_subs; i++) { free(p->addon_subs[i].url); free(p->addon_subs[i].lang); free(p->addon_subs[i].addon); }
     play_candidates_free(p->cands, p->n_cands);
@@ -1544,6 +1813,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->active_addon_sub = -1;
     p->active_addon_sub2 = -1;
     p->embedded_text_sel = -1;
+    p->sync_for = -1; p->ref_idx = -1;
     p->gen = 1;
     g_live = p;
     s->name = "player"; s->st = p;

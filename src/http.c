@@ -122,9 +122,10 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     struct curl_slist *hdrs = NULL;
     if (!opt || !opt->no_json_accept) hdrs = C.slist_append(hdrs, "Accept: application/json");
     if (post_json) hdrs = C.slist_append(hdrs, "Content-Type: application/json");
+    if (opt && opt->bearer && opt->bearer[0]) { char *auth = malloc(strlen(opt->bearer) + 32); sprintf(auth, "Authorization: Bearer %s", opt->bearer); hdrs = C.slist_append(hdrs, auth); free(auth); }
     char range[64];
     if (opt && opt->range_bytes) {
-        snprintf(range, sizeof range, "0-%llu", (unsigned long long)(opt->range_bytes - 1));
+        snprintf(range, sizeof range, "%llu-%llu", (unsigned long long)opt->range_start, (unsigned long long)(opt->range_start + opt->range_bytes - 1));
         C.easy_setopt(h, OPT_RANGE, range);
     }
     C.easy_setopt(h, OPT_HEADERFUNCTION, on_header);
@@ -237,8 +238,11 @@ static unsigned enqueue(const char *url, const char *post_json, const HttpOption
 {
     Job *j = calloc(1, sizeof *j);
     j->url = strdup(url);
+    if (!post_json && opt && opt->post_json) post_json = opt->post_json;
     j->post = post_json ? strdup(post_json) : NULL;
     if (opt) j->opt = *opt;
+    j->opt.post_json = NULL;
+    j->opt.bearer = opt && opt->bearer ? strdup(opt->bearer) : NULL;
     j->cb = cb;
     j->user = user;
     SDL_LockMutex(g_qlock);
@@ -274,6 +278,7 @@ static void job_free(Job *j)
     http_response_free(&j->resp);
     free(j->url);
     free(j->post);
+    free((char *)j->opt.bearer);
     free(j);
 }
 

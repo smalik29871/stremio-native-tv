@@ -4,7 +4,9 @@
  * badges, resume progress and spoiler blur for what you haven't seen yet. */
 #include "../app.h"
 #include "../tmdb.h"
+#include "../ai.h"
 #include "../image.h"
+#include "../../vendor/cJSON.h"
 #include "../http.h"
 #include "../log.h"
 #include "../store.h"
@@ -16,7 +18,8 @@
 #include <string.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES };
-enum { BTN_PLAY, BTN_LIBRARY, BTN_COUNT };
+enum { BTN_PLAY, BTN_LIBRARY, BTN_ASK, BTN_COUNT };
+static int n_buttons(void) { return ai_enabled() ? BTN_COUNT : BTN_COUNT - 1; }
 #define EP_W 384.0f
 #define EP_H 216.0f
 #define EP_GAP 28.0f
@@ -34,7 +37,91 @@ typedef struct {
     char resume_label[96];
     char resume_url[1024], resume_video[128];
     double resume_pos, resume_frac;
+    /* "Ask AI": a spoiler-free card about the title */
+    int ask_open; unsigned ask_req; float ask_t;
+    char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
 } Detail;
+
+static void ask_clear(Detail *d)
+{
+    free(d->ask_nutshell); free(d->ask_good_for); free(d->ask_notes); free(d->ask_similar);
+    d->ask_nutshell = d->ask_good_for = d->ask_notes = d->ask_similar = NULL;
+}
+
+static int ask_parse(Detail *d, const char *json)
+{
+    cJSON *root = cJSON_Parse(json);
+    if (!root) return 0;
+    const cJSON *v;
+    #define TAKE(field, key) do { v = cJSON_GetObjectItemCaseSensitive(root, key); if (cJSON_IsString(v) && v->valuestring[0]) d->field = strdup(v->valuestring); } while (0)
+    TAKE(ask_nutshell, "nutshell"); TAKE(ask_good_for, "good_for"); TAKE(ask_notes, "notes");
+    #undef TAKE
+    v = cJSON_GetObjectItemCaseSensitive(root, "similar");
+    if (cJSON_IsArray(v)) {
+        char buf[400] = ""; const cJSON *it;
+        cJSON_ArrayForEach(it, v) if (cJSON_IsString(it)) { size_t l = strlen(buf); snprintf(buf + l, sizeof buf - l, "%s%s", l ? "  \xC2\xB7  " : "", it->valuestring); }
+        if (buf[0]) d->ask_similar = strdup(buf);
+    } else if (cJSON_IsString(v)) d->ask_similar = strdup(v->valuestring);
+    cJSON_Delete(root);
+    return d->ask_nutshell != NULL;
+}
+
+static void on_ask(const char *text, const char *error, void *user)
+{
+    Detail *d = user;
+    d->ask_req = 0;
+    if (text && ask_parse(d, text)) {
+        char key[200]; snprintf(key, sizeof key, "ai://about/%s", d->preview.id);
+        app_cache_put(key, text, strlen(text));
+    } else snprintf(d->ask_err, sizeof d->ask_err, "%s", error ? error : "The answer could not be read. Try again.");
+    app_redraw();
+}
+
+static void ask_open(Detail *d)
+{
+    d->ask_open = 1; d->ask_t = 0; d->ask_err[0] = 0;
+    if (d->ask_nutshell || d->ask_req) return;
+    char key[200]; snprintf(key, sizeof key, "ai://about/%s", d->preview.id);
+    char *cached = app_cache_get(key, 30L * 24 * 3600);
+    if (cached) { int ok = ask_parse(d, cached); free(cached); if (ok) return; }
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
+    char genres[300] = ""; for (int i = 0; i < d->preview.genres.n && i < 6; i++) { size_t l = strlen(genres); snprintf(genres + l, sizeof genres - l, "%s%s", l ? ", " : "", d->preview.genres.v[i]); }
+    char msg[2200];
+    snprintf(msg, sizeof msg, "Title: %s%s%s\nType: %s\nGenres: %s\nIMDb: %s\nAge rating: %s\nSynopsis: %.1200s",
+             d->preview.name, d->preview.release_info ? " " : "", d->preview.release_info ? d->preview.release_info : "",
+             d->preview.type ? d->preview.type : "movie", genres[0] ? genres : "unknown", d->preview.imdb_rating ? d->preview.imdb_rating : "n/a",
+             tm && tm->cert[0] ? tm->cert : "unknown", d->preview.description ? d->preview.description : "(none)");
+    static const char *SYS = "You are a concise, warm film and TV guide shown on a television. Never reveal plot twists or endings. "
+        "Reply with JSON only, no markdown: {\"nutshell\": \"what it is and why people love it, at most two short sentences\", "
+        "\"good_for\": \"the mood and who will enjoy it, one sentence\", "
+        "\"notes\": \"what a parent or a sensitive viewer should know (violence, language, sex, scares, heavy themes), one spoiler-free sentence\", "
+        "\"similar\": [\"three well-known titles people who like this also like\"]}";
+    d->ask_req = ai_ask(SYS, msg, 420, 1, on_ask, d);
+    if (!d->ask_req) snprintf(d->ask_err, sizeof d->ask_err, "The AI assistant is off. Settings > API keys.");
+}
+
+static void draw_ask(Detail *d)
+{
+    float k = g_app.fx_light ? 1 : d->ask_t;
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(150 * k)));
+    float w = 640, x = SNTV_UI_W - w * k, y = 0, pad = 44;
+    gfx_rrect(x, y, w, SNTV_UI_H, 0, RGBA(0x14, 0x12, 0x22, 0xF4));
+    gfx_rect(x, y, 4, SNTV_UI_H, THEME_ACCENT);
+    ui_icon(ICON_STAR, x + pad + 18, 128, 34, THEME_ACCENT2);   /* below the clock pill */
+    font_draw("Ask AI", x + pad + 50, 110, FONT_L | FONT_B, THEME_TEXT);
+    font_draw_fit(d->preview.name, x + pad, 164, FONT_S | FONT_B, THEME_TEXT_DIM, w - 2 * pad);
+    float ty = 226, cw = w - 2 * pad;
+    if (d->ask_req) { ui_spinner(x + pad + 20, ty + 20, 18); font_draw("Thinking\xE2\x80\xA6", x + pad + 56, ty + 4, FONT_S, THEME_TEXT_DIM); ty += 60; }
+    if (d->ask_err[0]) { ty += font_draw_wrapped(d->ask_err, x + pad, ty, FONT_S, THEME_DANGER, cw, 3) * font_height(FONT_S) + 20; }
+    struct { const char *h; const char *t; } S[] = { { "IN A NUTSHELL", d->ask_nutshell }, { "YOU'LL LIKE IT IF", d->ask_good_for }, { "BEFORE YOU WATCH  \xC2\xB7  SPOILER-FREE", d->ask_notes }, { "IF YOU LIKE THIS", d->ask_similar } };
+    for (size_t i = 0; i < sizeof S / sizeof S[0]; i++) {
+        if (!S[i].t) continue;
+        font_draw(S[i].h, x + pad, ty, FONT_XS | FONT_B, THEME_TEXT_MUTED); ty += 34;
+        ty += font_draw_wrapped(S[i].t, x + pad, ty, FONT_S, THEME_TEXT, cw, 6) * font_height(FONT_S) + 30;
+    }
+    if (d->ask_nutshell) font_draw("Written by an AI model from the synopsis: a guide, not gospel.", x + pad, SNTV_UI_H - 96, FONT_XS, THEME_TEXT_MUTED);
+    font_draw("Back: close", x + pad, SNTV_UI_H - 60, FONT_XS, THEME_TEXT_MUTED);
+}
 
 static void select_season(Detail *d, int idx)
 {
@@ -154,6 +241,7 @@ static void update(Screen *s, float dt)
     d->rail_x = ui_ease(d->rail_x, first * (EP_W + EP_GAP), NULL, dt, 14);
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
+    if (d->ask_open) { d->ask_t = ui_ease(d->ask_t * 100, 100, NULL, dt, 14) / 100; if (d->ask_t < 0.999f || d->ask_req) app_redraw(); }
     if (d->loading) app_redraw();
     /* prefetch upcoming thumbnails */
     for (int k = d->ep_focus; k < d->n_eps && k < d->ep_focus + 6; k++) {
@@ -231,8 +319,9 @@ static void draw(Screen *s)
     float bw = ui_pill(play_label, 1, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
                        d->area == AREA_ACTIONS && d->btn == BTN_PLAY);
     if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
-    ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, x + bw + 18, by, 72, PILL_SECONDARY,
+    float lw = ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, x + bw + 18, by, 72, PILL_SECONDARY,
             d->area == AREA_ACTIONS && d->btn == BTN_LIBRARY);
+    if (ai_enabled()) ui_pill("Ask AI", 1, ICON_STAR, x + bw + 18 + lw + 18, by, 72, PILL_SECONDARY, d->area == AREA_ACTIONS && d->btn == BTN_ASK);
     /* cast: TMDB photos when a key is set, else the names the addon gave */
     int n_cast = tm && tm->n_cast ? tm->n_cast : d->preview.cast.n;
     if (n_cast && !series) {
@@ -257,7 +346,7 @@ static void draw(Screen *s)
     }
 
 
-    if (!series) return;
+    if (!series) { if (d->ask_open) draw_ask(d); return; }
 
     /* season tabs */
     float sy = RAIL_Y - 84, sx = x;
@@ -314,6 +403,7 @@ static void draw(Screen *s)
         snprintf(pos, sizeof pos, "%d / %d", d->ep_focus + 1, d->n_eps);
         font_draw(pos, SNTV_UI_W - THEME_MARGIN - font_measure(pos, FONT_S | FONT_B), SNTV_UI_H - 64, FONT_S | FONT_B, THEME_TEXT_MUTED);
     }
+    if (d->ask_open) draw_ask(d);
 }
 
 static void open_streams_for_video(Detail *d, int video_idx)
@@ -333,14 +423,20 @@ static int key(Screen *s, KeyAction a)
     Detail *d = s->st;
     app_redraw();
     int series = d->meta.n_videos > 0;
+    if (d->ask_open) {
+        if (a == KEY_BACK || a == KEY_OK) d->ask_open = 0;
+        return 1;
+    }
+    if (d->btn >= n_buttons()) d->btn = n_buttons() - 1;
     switch (d->area) {
     case AREA_ACTIONS:
         switch (a) {
         case KEY_LEFT: if (d->btn > 0) d->btn--; return 1;
-        case KEY_RIGHT: if (d->btn < BTN_COUNT - 1) d->btn++; return 1;
+        case KEY_RIGHT: if (d->btn < n_buttons() - 1) d->btn++; return 1;
         case KEY_DOWN: if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; return 1; } return 0;
         case KEY_OK:
             if (d->btn == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
+            if (d->btn == BTN_ASK) { ask_open(d); return 1; }
             if (d->resume_label[0]) {
                 if (app_pip_claim(d->resume_video)) return 1;
                 PlayCandidate *c = calloc(1, sizeof *c);
@@ -386,6 +482,8 @@ static void destroy(Screen *s)
 {
     Detail *d = s->st;
     if (d->req) http_cancel(d->req);
+    if (d->ask_req) ai_cancel(d->ask_req);
+    ask_clear(d);
     meta_preview_free(&d->preview);
     if (d->has_meta) meta_item_free(&d->meta);
     free(d->seasons); free(d->ep_index);

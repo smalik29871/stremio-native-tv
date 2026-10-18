@@ -1,5 +1,7 @@
 #include "../app.h"
 #include "../http.h"
+#include "../ai.h"
+#include "../../vendor/cJSON.h"
 #include "../log.h"
 #include "font.h"
 #include "keyboard.h"
@@ -13,7 +15,7 @@
 enum { COLS = 5, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, GRID_ROWS_VISIBLE = 3 };
 
 typedef struct Search Search;
-typedef struct { Search *owner; unsigned generation; } Pending;
+typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; } Pending;
 
 struct Search {
     Keyboard kb;
@@ -26,12 +28,28 @@ struct Search {
     float focus_t, grid_scroll;
     int pending;
     char last_query[256];
+    unsigned ai_req; int ai_state;   /* 0 off, 1 asking, 2 answered, 3 failed */
+    int n_picks;                     /* results at the front that the assistant suggested */
+    int pick_rank[16];               /* the assistant's order for those, so they stay in it */
+    char ai_note[160];
 };
 
 static void clear_results(Search *s)
 {
     meta_previews_free(s->results, s->n);
-    s->results = NULL; s->n = 0; s->grid_focus = 0;
+    s->results = NULL; s->n = 0; s->grid_focus = 0; s->n_picks = 0;
+}
+
+static int same_title(const char *a, const char *b)
+{
+    while (*a && *b) {
+        unsigned ca = (unsigned char)*a, cb = (unsigned char)*b;
+        if (ca >= 'A' && ca <= 'Z') ca += 32;
+        if (cb >= 'A' && cb <= 'Z') cb += 32;
+        if (ca != cb) return 0;
+        a++; b++;
+    }
+    return !*b && (!*a || *a == ' ' || *a == ':' || *a == '(');
 }
 
 static void on_result(HttpResponse *r, void *user)
@@ -41,6 +59,30 @@ static void on_result(HttpResponse *r, void *user)
     if (p->generation != s->generation) { free(p); return; }
     s->pending--;
     MetaPreview *metas; int n;
+    if (p->pick) {   /* a title the assistant suggested: keep the one result that is that title, at the front, in the assistant's order */
+        if (r->status == 200 && addon_parse_metas(r->body, &metas, &n) == 0) {
+            int took = 0;
+            for (int i = 0; i < n; i++) {
+                int dup = -1;
+                for (int j = 0; j < s->n; j++) if (strcmp(s->results[j].id, metas[i].id) == 0) { dup = j; break; }
+                int want = dup < 0 && !took && s->n_picks < 16 && same_title(metas[i].name, p->want);
+                int promote = dup >= s->n_picks && s->n_picks < 16 && same_title(metas[i].name, p->want);
+                if (want || promote) {
+                    MetaPreview item = want ? metas[i] : s->results[dup];
+                    if (promote) memmove(&s->results[s->n_picks + 1], &s->results[s->n_picks], sizeof item * (size_t)(dup - s->n_picks));
+                    else { s->results = realloc(s->results, sizeof item * (size_t)(s->n + 1)); memmove(&s->results[s->n_picks + 1], &s->results[s->n_picks], sizeof item * (size_t)(s->n - s->n_picks)); s->n++; took = 1; }
+                    int pos = s->n_picks;
+                    while (pos > 0 && s->pick_rank[pos - 1] > p->rank) { s->results[pos] = s->results[pos - 1]; s->pick_rank[pos] = s->pick_rank[pos - 1]; pos--; }
+                    s->results[pos] = item; s->pick_rank[pos] = p->rank; s->n_picks++;
+                    if (s->focus_grid && want) s->grid_focus++;
+                } else if (dup < 0) meta_preview_free(&metas[i]);
+            }
+            free(metas);
+        }
+        app_redraw();
+        free(p);
+        return;
+    }
     if (r->status == 200 && addon_parse_metas(r->body, &metas, &n) == 0) {
         s->results = realloc(s->results, sizeof(MetaPreview) * (size_t)(s->n + n));
         for (int i = 0; i < n; i++) {
@@ -54,15 +96,8 @@ static void on_result(HttpResponse *r, void *user)
     free(p);
 }
 
-static void run_query(Search *s)
+static void search_addons(Search *s, const char *q, int pick, int rank)
 {
-    const char *q = s->kb.text;
-    if (strcmp(q, s->last_query) == 0) return;
-    snprintf(s->last_query, sizeof s->last_query, "%s", q);
-    s->generation++;
-    s->pending = 0;
-    clear_results(s);
-    if (strlen(q) < 2) return;
     char extra[600];
     const char *kv[] = { "search", q, NULL };
     addon_extra_query(extra, sizeof extra, kv);
@@ -74,12 +109,69 @@ static void run_query(Search *s)
             if (!addon_catalog_extra(cat, "search")) continue;
             char url[1200];
             addon_url_catalog(ad, cat->type, cat->id, extra, url, sizeof url);
-            Pending *p = malloc(sizeof *p);
-            p->owner = s; p->generation = s->generation;
+            Pending *p = calloc(1, sizeof *p);
+            p->owner = s; p->generation = s->generation; p->pick = pick; p->rank = rank;
+            snprintf(p->want, sizeof p->want, "%s", q);
             s->pending++;
             http_request_async(url, NULL, on_result, p);
         }
     }
+}
+
+/* "something funny with robots": the assistant names titles, the addons find them */
+static void on_ai_titles(const char *text, const char *error, void *user)
+{
+    Pending *p = user;
+    Search *s = p->owner;
+    if (p->generation != s->generation) { free(p); return; }
+    s->ai_req = 0;
+    cJSON *root = text ? cJSON_Parse(text) : NULL;
+    const cJSON *titles = root ? cJSON_GetObjectItemCaseSensitive(root, "titles") : NULL;
+    int n = 0;
+    if (cJSON_IsArray(titles)) {
+        const cJSON *it;
+        cJSON_ArrayForEach(it, titles) {
+            const cJSON *name = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "name") : it;
+            if (!cJSON_IsString(name) || !name->valuestring[0] || n >= 8) continue;
+            search_addons(s, name->valuestring, 1, n);
+            n++;
+        }
+    }
+    s->ai_state = n ? 2 : 3;
+    if (!n) snprintf(s->ai_note, sizeof s->ai_note, "%s", error ? error : "The assistant had no suggestions");
+    if (root) cJSON_Delete(root);
+    app_redraw();
+    free(p);
+}
+
+static int looks_like_a_request(const char *q)
+{
+    int words = 1, len = 0;
+    for (; *q; q++, len++) if (*q == ' ') words++;
+    return words >= 3 && len >= 12;
+}
+
+static void run_query(Search *s)
+{
+    const char *q = s->kb.text;
+    if (strcmp(q, s->last_query) == 0) return;
+    snprintf(s->last_query, sizeof s->last_query, "%s", q);
+    s->generation++;
+    s->pending = 0;
+    s->ai_state = 0; s->ai_req = 0; s->ai_note[0] = 0;
+    clear_results(s);
+    if (strlen(q) < 2) return;
+    if (ai_enabled() && looks_like_a_request(q)) {
+        Pending *p = calloc(1, sizeof *p);
+        p->owner = s; p->generation = s->generation;
+        static const char *SYS = "You recommend films and series to a viewer who describes what they feel like watching. "
+            "Reply with JSON only, no markdown: {\"titles\": [{\"name\": \"exact title\", \"year\": 2010}]} with up to 8 well-known titles, best match first. "
+            "If the text is just a title or a person's name, return titles that match it.";
+        s->ai_req = ai_ask(SYS, q, 300, 1, on_ai_titles, p);
+        s->ai_state = s->ai_req ? 1 : 0;
+        if (!s->ai_req) free(p);
+    }
+    search_addons(s, q, 0, 0);
 }
 
 static void update(Screen *sc, float dt)
@@ -90,7 +182,7 @@ static void update(Screen *sc, float dt)
     s->grid_scroll = ui_ease(s->grid_scroll, target, NULL, dt, 14);
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
     if (s->dirty) { s->debounce -= dt; if (s->debounce <= 0) { s->dirty = 0; run_query(s); } }
-    if (s->pending || s->dirty) app_redraw();
+    if (s->pending || s->dirty || s->ai_state == 1) app_redraw();
 }
 
 static void draw(Screen *sc)
@@ -119,20 +211,21 @@ static void draw(Screen *sc)
 
     float gx = x + fw + 80, gy = y;
     float grid_w = SNTV_UI_W - THEME_MARGIN - gx;
-    if (s->pending && !s->n) {
+    if ((s->pending || s->ai_state == 1) && !s->n) {
         for (int i = 0; i < COLS * 2; i++) ui_skeleton(gx + (i % COLS) * (CELL_W + CELL_GAP), gy + 50 + (i / COLS) * (CELL_H + 80), CELL_W, CELL_H, R_CARD);
     } else if (!s->n) {
         float cx = gx + grid_w / 2, cy = gy + 280;
         gfx_circle(cx, cy, 80, RGBA(0xFF, 0xFF, 0xFF, 0x10));
         ui_icon(ICON_SEARCH, cx, cy, 70, THEME_TEXT_MUTED);
         font_draw_center(strlen(s->last_query) >= 2 ? "Nothing found" : "Find something to watch", cx, cy + 120, FONT_L | FONT_B, THEME_TEXT);
-        font_draw_center(strlen(s->last_query) >= 2 ? "Try another title, or check your catalog addons." : "Results come from every catalog addon that supports search.",
+        font_draw_center(s->ai_note[0] ? s->ai_note : strlen(s->last_query) >= 2 ? "Try another title, or check your catalog addons." : ai_enabled() ? "Type a title, or describe it: \"something funny with robots\"." : "Results come from every catalog addon that supports search.",
                          cx, cy + 178, FONT_S, THEME_TEXT_DIM);
     } else {
-        char hdr[96];
-        snprintf(hdr, sizeof hdr, "%d result%s", s->n, s->n == 1 ? "" : "s");
+        char hdr[160];
+        if (s->n_picks) snprintf(hdr, sizeof hdr, "%d AI pick%s first  \xC2\xB7  %d result%s", s->n_picks, s->n_picks == 1 ? "" : "s", s->n, s->n == 1 ? "" : "s");
+        else snprintf(hdr, sizeof hdr, "%d result%s%s", s->n, s->n == 1 ? "" : "s", s->ai_state == 1 ? "  \xC2\xB7  asking the assistant" : "");
         font_draw(hdr, gx, gy + 4, FONT_S | FONT_B, THEME_TEXT_MUTED);
-        if (s->pending) ui_spinner(gx + font_measure(hdr, FONT_S | FONT_B) + 40, gy + 18, 14);
+        if (s->pending || s->ai_state == 1) ui_spinner(gx + font_measure(hdr, FONT_S | FONT_B) + 40, gy + 18, 14);
     }
     gfx_clip_push(gx - 30, gy + 40, grid_w + 60, SNTV_UI_H - gy - 40);
     float row_h = CELL_H + 80;
@@ -146,6 +239,7 @@ static void draw(Screen *sc)
             char pb[512];
             ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
                     s->focus_grid && !foc ? 0.3f : 0, s->results[i].name, 0);
+            if (i < s->n_picks) { gfx_circle(px + CELL_W - 22, py + 22, 16, RGBA(0x14, 0x12, 0x22, 0xD0)); ui_icon(ICON_STAR, px + CELL_W - 22, py + 22, 18, THEME_ACCENT2); }
             font_draw_fit(s->results[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (s->results[i].release_info) font_draw(s->results[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
@@ -188,6 +282,7 @@ static void destroy(Screen *sc)
 {
     Search *s = sc->st;
     s->generation++;   /* orphan in-flight replies */
+    if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
     SDL_StopTextInput();
     free(s);

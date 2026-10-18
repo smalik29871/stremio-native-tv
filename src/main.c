@@ -5,6 +5,7 @@
 #include "ui/widgets.h"
 #include "http.h"
 #include "image.h"
+#include "memwatch.h"
 #include "log.h"
 #include "store.h"
 #include "platform/platform.h"
@@ -47,17 +48,7 @@ static const char *data_dir(void)
 }
 
 /* Artwork budget follows the TV's RAM, like Nuvio's normal/highcache packages. */
-static size_t image_budget(void)
-{
-    FILE *f = fopen("/proc/meminfo", "r");
-    long kb = 0;
-    if (f) { char line[128]; while (fgets(line, sizeof line, f)) if (sscanf(line, "MemTotal: %ld kB", &kb) == 1) break; fclose(f); }
-    size_t mb = kb / 1024;
-    if (mb == 0) return 0;                       /* unknown: keep the platform default */
-    if (mb < 1024) return 40u << 20;
-    if (mb < 2048) return 96u << 20;
-    return 192u << 20;
-}
+static size_t image_budget(void) { return mem_normal_budget(); }   /* 0 = unknown: keep the platform default */
 
 /* Bundled Inter (regular + bold) next to the binary, else system fallbacks. */
 static int find_fonts(char *regular, char *bold, size_t n)
@@ -210,7 +201,7 @@ int main(int argc, char **argv)
     if (video_init(win) != 0) LOGW("video backend failed to initialise");
     LOGI("video backend: %s", video_backend_name());
     app_init();
-    if (g_app.low_memory) { image_set_budget(48u << 20); LOGI("memory saver on: 48 MB of artwork, shorter rows"); }
+    mem_apply_mode();   /* memory saver: chosen, a small TV, or (later, mem_tick) memory getting tight */
 
     Uint32 prev = SDL_GetTicks();
     while (!g_app.quit) {
@@ -246,6 +237,8 @@ int main(int argc, char **argv)
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
                 video_app_foreground();
                 app_redraw();
+            } else if (e.type == SDL_APP_LOWMEMORY) {
+                mem_emergency();
             } else if (e.type == SDL_APP_WILLENTERBACKGROUND) {
                 video_app_background();
                 store_save();
@@ -275,6 +268,7 @@ int main(int argc, char **argv)
         top = app_top();   /* update() may have popped or replaced the screen */
 
         breaks_tick(dt);
+        mem_tick(dt);
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }

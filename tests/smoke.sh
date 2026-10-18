@@ -75,7 +75,7 @@ run pip_claim 340 "$P,ok"
 run pip_stop 340 "$P,back,stop"
 run player_stats 300 "right,ok,down,down,ok,ok,red"
 run player_bar 300 "right,ok,down,down,ok,ok,down"
-run player_bar_style 500 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,ok"
+run player_bar_style 520 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,down,ok"
 run player_bar_sources 380 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok"
 run pip_focus 420 "$P,back,back,down,down,down,down,down,down,down"
 run pip_focus_close 460 "$P,back,back,down,down,down,down,down,down,down,right,ok"
@@ -104,6 +104,7 @@ run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_AP
 run player_paused_tmdb 320 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
+run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000
 run home_lowmem 150 "right,right" HOME="$(home_with lowmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"memoryMode":1}')"
 BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":723,"breakLead":5,"breaksEverywhere":1}'
 run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
@@ -112,6 +113,12 @@ run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSu
 run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
 run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player_autosync 480 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,down,down,down,down,ok,ok" SNTV_FAKE_START=200
+AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}'
+run detail_ai 300 "right,right,ok,right,right,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+run player_translate 560 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,down,ok" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+run settings_ai 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,down" HOME="$(home_with ai4 "$AI")"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)

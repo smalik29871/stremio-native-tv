@@ -1,4 +1,5 @@
 #include "app.h"
+#include "memwatch.h"
 #include "http.h"
 #include "log.h"
 #include "store.h"
@@ -875,6 +876,10 @@ static void load_prefs(void)
     g_app.hide_adult = store_get_int("hideAdult", 0);
     { const char *t = store_get_str("thumbServer", NULL); free(g_app.thumb_server); g_app.thumb_server = t && *t ? strdup(t) : NULL; }
     { const char *t = store_get_str("tmdbKey", NULL); free(g_app.tmdb_key); g_app.tmdb_key = t && *t ? strdup(t) : NULL; }
+    g_app.ai_provider = store_get_int("aiProvider", 0);
+    { const char *t = store_get_str("aiKey", NULL); free(g_app.ai_key); g_app.ai_key = t && *t ? strdup(t) : NULL; }
+    { const char *t = store_get_str("aiBase", NULL); free(g_app.ai_base); g_app.ai_base = t && *t ? strdup(t) : NULL; }
+    { const char *t = store_get_str("aiModel", NULL); free(g_app.ai_model); g_app.ai_model = t && *t ? strdup(t) : NULL; }
     g_app.memory_mode = store_get_int("memoryMode", 0);
     g_app.breaks_on = store_get_int("breaksOn", 0);
     g_app.break_sched = store_get_int("breakSched", 0);
@@ -897,11 +902,8 @@ static void load_prefs(void)
     { const char *t = store_get_str("breakEnd", NULL); free(g_app.break_end); g_app.break_end = t && *t ? strdup(t) : NULL; }
     g_app.transitions = store_get_int("transitions", 1);
     g_app.pip_enabled = store_get_int("pipEnabled", 0);
-    {
-        FILE *f = fopen("/proc/meminfo", "r"); long kb = 0;
-        if (f) { char line[128]; while (fgets(line, sizeof line, f)) if (sscanf(line, "MemTotal: %ld kB", &kb) == 1) break; fclose(f); }
-        g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && kb > 0 && kb < 2000 * 1024);
-    }
+    g_app.subs_autosync = store_get_int("subsAutosync", 1);
+    g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && mem_small_tv());   /* main.c calls mem_apply_mode() once images exist */
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
@@ -931,6 +933,10 @@ void app_save_prefs(void)
     store_set_int("hideAdult", g_app.hide_adult);
     store_set_str("thumbServer", g_app.thumb_server && *g_app.thumb_server ? g_app.thumb_server : NULL);
     store_set_str("tmdbKey", g_app.tmdb_key && *g_app.tmdb_key ? g_app.tmdb_key : NULL);
+    store_set_int("aiProvider", g_app.ai_provider);
+    store_set_str("aiKey", g_app.ai_key && *g_app.ai_key ? g_app.ai_key : NULL);
+    store_set_str("aiBase", g_app.ai_base && *g_app.ai_base ? g_app.ai_base : NULL);
+    store_set_str("aiModel", g_app.ai_model && *g_app.ai_model ? g_app.ai_model : NULL);
     store_set_int("memoryMode", g_app.memory_mode);
     store_set_int("breaksOn", g_app.breaks_on);
     store_set_int("breakSched", g_app.break_sched);
@@ -952,6 +958,7 @@ void app_save_prefs(void)
     store_set_str("breakEnd", g_app.break_end && *g_app.break_end ? g_app.break_end : NULL);
     store_set_int("transitions", g_app.transitions);
     store_set_int("pipEnabled", g_app.pip_enabled);
+    store_set_int("subsAutosync", g_app.subs_autosync);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();
