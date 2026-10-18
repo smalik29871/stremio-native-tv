@@ -23,8 +23,12 @@
 #include <time.h>
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
-enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_STYLE, MENU_SOURCES };
-enum { BTN_AUDIO, BTN_SUBS, BTN_STYLE, BTN_SOURCES, BTN_NEXT, BTN_STATS, BTN_COUNT };
+enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_STYLE, MENU_SOURCES, MENU_EPISODES };
+enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_STATS, BTN_COUNT };
+enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
+static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen", "Zoom" };
+static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
+enum { N_RATES = 7, RATE_NORMAL = 2 };
 
 typedef struct AddonSub { char *url, *lang, *addon; } AddonSub;
 
@@ -37,8 +41,13 @@ struct Player {
     PlayCandidate *cands; int n_cands, cur;
     int tries;
     char *next_video_id, *next_title;
+    char *prev_video_id, *prev_title;
 
     float overlay_until;
+    float paused_since;       /* the paused info panel comes after a moment */
+    int rate_idx;             /* index into RATES */
+    int rate_applied;         /* the pipeline got the rate for this load */
+    int aspect;               /* ASPECT_* */
     float since_report;
     double last_reported;
     int finished, up_next_shown, up_next_accepted;
@@ -500,6 +509,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->probe_asked = 0;
     free(p->probe);
     p->probe = NULL;
+    p->rate_applied = 0;
     p->auto_selected = 0;
     p->subs_auto_done = 0;
     p->load_started = g_app.time;
@@ -523,19 +533,61 @@ static void fail_over(Player *p, const char *why)
     }
 }
 
-static void go_up_next(Player *p)
+static void go_to_video(Player *p, const char *video_id, const char *video_title)
 {
     report(p, 1);
     video_stop();
     MetaPreview meta;
     meta_preview_copy(&meta, &p->meta);
-    char *vid = strdup(p->next_video_id), *title = p->next_title ? strdup(p->next_title) : NULL;
+    char *vid = strdup(video_id), *title = video_title ? strdup(video_title) : NULL;
     char *group = p->cands[p->cur].binge_group ? strdup(p->cands[p->cur].binge_group) : NULL;
     p->finished = 1;
     app_pop();   /* destroys this screen */
     app_replace(screen_streams_create_auto(&meta, vid, title, group));
     meta_preview_free(&meta);
     free(vid); free(title); free(group);
+}
+
+static void go_up_next(Player *p) { go_to_video(p, p->next_video_id, p->next_title); }
+
+/* ---- aspect ratio and speed ----------------------------------------------------- */
+
+/* How much larger than the screen the video plane is drawn for the chosen aspect mode. */
+static float aspect_scale(const Player *p, const VideoInfo *vi)
+{
+    if (p->aspect == ASPECT_FIT || p->pip) return 1;
+    if (p->aspect == ASPECT_ZOOM) return 1.15f;
+    float ar = 0;
+    if (vi->width > 0 && vi->height > 0) ar = (float)vi->width / vi->height;
+    else if (p->probe && p->probe->width > 0 && p->probe->height > 0) ar = (float)p->probe->width / p->probe->height;
+    const float screen = 16.0f / 9.0f;
+    if (ar <= 0) return 1.33f;                  /* unknown: assume a scope film in a 16:9 frame */
+    if (ar > screen + 0.04f) return ar / screen; /* wider than the screen: bars above and below */
+    if (ar < screen - 0.04f) return screen / ar; /* narrower (4:3): bars at the sides */
+    return 1.33f;                                /* 16:9 already: the bars are inside the picture */
+}
+
+static void apply_aspect(Player *p)
+{
+    if (p->pip) return;
+    VideoInfo vi;
+    video_info(&vi);
+    int w, h;
+    gfx_drawable_size(&w, &h);
+    float k = aspect_scale(p, &vi);
+    int zw = (int)(w * k), zh = (int)(h * k);
+    video_set_display_rect((w - zw) / 2, (h - zh) / 2, zw, zh);
+    LOGI("player: aspect %s (scale %.2f)", ASPECT_NAMES[p->aspect], k);
+}
+
+static void set_rate(Player *p, int idx)
+{
+    if (idx < 0) idx = 0;
+    if (idx >= N_RATES) idx = N_RATES - 1;
+    p->rate_idx = idx;
+    video_set_rate(RATES[idx]);
+    p->rate_applied = 1;
+    app_toast(idx == RATE_NORMAL ? "Normal speed" : "Speed %gx", RATES[idx]);
 }
 
 static void update(Screen *s, float dt)
@@ -545,6 +597,10 @@ static void update(Screen *s, float dt)
     VideoInfo vi;
     video_info(&vi);
     if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
+    if (vi.state == VIDEO_PAUSED && p->paused_since == 0) { p->paused_since = g_app.time; app_redraw(); }
+    if (vi.state != VIDEO_PAUSED && p->paused_since != 0) p->paused_since = 0;
+    if (vi.state == VIDEO_PAUSED && g_app.time - p->paused_since < 1.3f) app_redraw();   /* the info panel fades in */
+    if (vi.state == VIDEO_PLAYING && !p->rate_applied && p->rate_idx != RATE_NORMAL) { video_set_rate(RATES[p->rate_idx]); p->rate_applied = 1; }
     if (p->bar_focus && g_app.time >= p->overlay_until && vi.state != VIDEO_PAUSED) p->bar_focus = 0;
     else if (g_app.clock_mode != 2 && time(NULL) / 60 != p->clock_minute) { p->clock_minute = time(NULL) / 60; app_redraw(); }
     p->since_report += dt;
@@ -634,8 +690,8 @@ static void draw_menu(Player *p)
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
     gfx_rrect(x, y, w, h, R_PANEL, RGBA(0x14, 0x12, 0x2A, 0xF0));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x1C));
-    static const char *TITLES[] = { "", "Audio", "Subtitles", "Subtitle style", "Sources" };
-    static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SUBS, ICON_SWAP };
+    static const char *TITLES[] = { "", "Audio", "Subtitles", "Subtitle style", "Sources", "Episodes" };
+    static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SUBS, ICON_SWAP, ICON_LIST };
     ui_icon(ICONS[p->menu], x + 56, y + 62, 40, THEME_TEXT);
     font_draw(TITLES[p->menu], x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
     VideoTrack tr[MAX_TRACKS];
@@ -643,7 +699,12 @@ static void draw_menu(Player *p)
     SubGroup groups[MAX_SUB_GROUPS];
     int ng = p->menu == MENU_SUBS ? sub_groups(p, groups, MAX_SUB_GROUPS) : 0;
     /* keep the focused row inside the panel: rows are 78 px, section labels 40 px */
-    int sections_before = p->menu == MENU_AUDIO ? (n ? 1 : 0)
+    int n_eps = 0;
+    const MetaVideo *eps = p->menu == MENU_EPISODES ? app_videos(p->meta.id, &n_eps) : NULL;
+    int ep_sections = 0;
+    for (int i = 0; i <= p->menu_focus && i < n_eps; i++) if (i == 0 || eps[i].season != eps[i - 1].season) ep_sections++;
+    int sections_before = p->menu == MENU_AUDIO ? 1 + ((n && p->menu_focus >= 1) ? 1 : 0)
+                        : p->menu == MENU_EPISODES ? ep_sections
                         : p->menu == MENU_SUBS ? ((p->menu_focus >= 1 && n) ? 1 : 0) + ((p->menu_focus >= 1 + n && (ng || p->subs_pending)) ? 1 : 0)
                         : p->menu == MENU_STYLE ? 1 + (p->menu_focus >= SUBS_STYLE_COUNT ? 1 : 0) : 0;
     float focus_y = 120 + sections_before * 40 + p->menu_focus * 78.0f;
@@ -671,6 +732,23 @@ static void draw_menu(Player *p)
         gfx_clip_pop();
         return;
     }
+    if (p->menu == MENU_EPISODES) {
+        for (int i = 0; i < n_eps; i++) {
+            if (i == 0 || eps[i].season != eps[i - 1].season) {
+                char sec[32];
+                if (eps[i].season > 0) snprintf(sec, sizeof sec, "SEASON %d", eps[i].season); else snprintf(sec, sizeof sec, eps[i].season == 0 ? "SPECIALS" : "EPISODES");
+                SECTION(sec);
+            }
+            char label[160], sub[64] = "";
+            if (eps[i].episode >= 0) snprintf(label, sizeof label, "E%d  %s", eps[i].episode, eps[i].title ? eps[i].title : ""); else snprintf(label, sizeof label, "%s", eps[i].title ? eps[i].title : "Episode");
+            if (eps[i].released && strlen(eps[i].released) >= 10) snprintf(sub, sizeof sub, "%.10s", eps[i].released);
+            int cur = strcmp(eps[i].id, p->video_id) == 0;
+            if (cur) snprintf(sub, sizeof sub, "Now playing");
+            ROW(label, sub, cur);
+        }
+        gfx_clip_pop();
+        return;
+    }
     if (p->menu == MENU_SOURCES) {
         for (int i = 0; i < p->n_cands; i++) {
             char host[80];
@@ -680,6 +758,12 @@ static void draw_menu(Player *p)
         ROW("Browse all sources", "Every addon again, with the recommendation for this TV", 0);
         gfx_clip_pop();
         return;
+    }
+    if (p->menu == MENU_AUDIO) {
+        char sp[80];
+        snprintf(sp, sizeof sp, p->rate_idx == RATE_NORMAL ? "Normal  \xC2\xB7  Left/Right to change" : "%gx  \xC2\xB7  Left/Right to change", RATES[p->rate_idx]);
+        SECTION("PLAYBACK");
+        ROW("Speed", sp, 0);
     }
     if (p->menu == MENU_SUBS) ROW("Off", "", p->embedded_text_sel < 0 && p->active_addon_sub < 0);
     if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "EMBEDDED");
@@ -706,6 +790,10 @@ static void draw_menu(Player *p)
             snprintf(off, sizeof off, "Left/Right shifts by 0.5 s  \xC2\xB7  now %+.1f s", p->track.offset);
             ROW("Subtitle timing", off, 0);
         }
+        char st[80];
+        static const char *SIZES[] = { "Small", "Medium", "Large" };
+        snprintf(st, sizeof st, "%s  \xC2\xB7  %s", SUBS_STYLE_NAMES[g_app.subs_style], SIZES[g_app.subs_size]);
+        ROW("Style and size", st, 0);
     }
     gfx_clip_pop();
     #undef ROW
@@ -764,7 +852,7 @@ static void url_host(const char *url, char *out, size_t n)
 
 static void draw_stats(Player *p, const VideoInfo *vi)
 {
-    char host[128], l[14][160];
+    char host[128], l[16][160];
     int n = 0;
     url_host(p->cands[p->cur].url, host, sizeof host);
     snprintf(l[n++], 160, "Source|%s", p->cands[p->cur].label ? p->cands[p->cur].label : "");
@@ -784,6 +872,7 @@ static void draw_stats(Player *p, const VideoInfo *vi)
     snprintf(l[n++], 160, "Audio|%s", p->audio_lang[0] ? p->audio_lang : "default track");
     snprintf(l[n++], 160, "Skip markers|%d%s", p->n_skip, p->skip_state == 1 ? " (asking)" : p->skip_state == 0 ? " (not asked yet)" : "");
     if (p->probe) { char d[160]; probe_describe(p->probe, d, sizeof d); snprintf(l[n++], 160, "File header|%.100s  \xC2\xB7  %d chapters", d, p->probe->n_chapters); }
+    snprintf(l[n++], 160, "Speed / aspect|%gx  \xC2\xB7  %s", RATES[p->rate_idx], ASPECT_NAMES[p->aspect]);
     snprintf(l[n++], 160, "App|%s  \xC2\xB7  %d draw calls  \xC2\xB7  %zu MB artwork", video_backend_name(), gfx_draw_calls(), image_cache_bytes() >> 20);
     if (g_app.frames_measured) snprintf(l[n++], 160, "UI frame|%.1f ms average, %.0f ms worst", g_app.frame_ms_sum / g_app.frames_measured, g_app.frame_ms_worst);
 
@@ -805,34 +894,57 @@ static void draw_stats(Player *p, const VideoInfo *vi)
 /* The button row under the seek bar. Returns the count; ids map to BTN_*. */
 static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *icons, char *src_label, size_t n)
 {
-    int k = 0;
-    ids[k] = BTN_AUDIO; labels[k] = "Audio"; icons[k++] = ICON_AUDIO;
-    ids[k] = BTN_SUBS; labels[k] = "Subtitles"; icons[k++] = ICON_SUBS;
-    ids[k] = BTN_STYLE; labels[k] = "Subtitle style"; icons[k++] = ICON_SUBS;
-    snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Source", p->n_cands);
-    ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP;
+    VideoInfo vi;
+    video_info(&vi);
+    int k = 0, n_eps = 0;
+    app_videos(p->meta.id, &n_eps);
+    if (p->prev_video_id) { ids[k] = BTN_PREV; labels[k] = "Previous episode"; icons[k++] = ICON_PREV; }
+    ids[k] = BTN_PLAY; labels[k] = vi.state == VIDEO_PLAYING ? "Pause" : "Play"; icons[k++] = vi.state == VIDEO_PLAYING ? ICON_PAUSE : ICON_PLAY;
     if (p->next_video_id) { ids[k] = BTN_NEXT; labels[k] = "Next episode"; icons[k++] = ICON_NEXT; }
-    ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_SETTINGS;
+    ids[k] = BTN_RELOAD; labels[k] = "Reload"; icons[k++] = ICON_RELOAD;
+    ids[k] = BTN_SUBS; labels[k] = "Subtitles"; icons[k++] = ICON_SUBS;
+    ids[k] = BTN_AUDIO; labels[k] = "Audio and speed"; icons[k++] = ICON_AUDIO;
+    ids[k] = BTN_ASPECT; labels[k] = "Aspect ratio"; icons[k++] = ICON_ASPECT;
+    snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Sources", p->n_cands);
+    ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP;
+    if (n_eps > 1) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
+    ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
     return k;
 }
 
+/* Round icon buttons; the focused one opens into a labelled pill (like the TV apps people know). */
 static void draw_bar(Player *p, float x, float y)
 {
     int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
     int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
     if (p->bar_index >= n) p->bar_index = n - 1;
+    const float d = 56, gap = 14;
     for (int i = 0; i < n; i++) {
         int foc = p->bar_focus && i == p->bar_index;
-        float w = font_measure(labels[i], FONT_XS | FONT_B) + 70;
-        if (foc && !g_app.fx_light) gfx_shadow(x, y, w, 44, 22, 18, RGBA(0, 0, 0, 0x80));
-        gfx_rrect(x, y, w, 44, 22, foc ? THEME_TEXT : RGBA(0xFF, 0xFF, 0xFF, 0x18));
-        Color fg = foc ? THEME_ON_LIGHT : THEME_TEXT;
-        ui_icon(icons[i], x + 26, y + 22, 22, fg);
-        font_draw(labels[i], x + 48, y + (44 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, fg);
-        x += w + 12;
+        int primary = ids[i] == BTN_PLAY || ids[i] == BTN_NEXT;
+        if (foc) {
+            float w = font_measure(labels[i], FONT_S | FONT_B) + d + 28;
+            if (!g_app.fx_light) gfx_shadow(x, y + 4, w, d, d / 2, 22, RGBA(0, 0, 0, 0x80));
+            gfx_rrect(x, y, w, d, d / 2, THEME_TEXT);
+            ui_icon(icons[i], x + d / 2 + 2, y + d / 2, 26, THEME_ON_LIGHT);
+            font_draw(labels[i], x + d + 2, y + (d - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_ON_LIGHT);
+            x += w + gap;
+        } else {
+            gfx_circle(x + d / 2, y + d / 2, d / 2, primary ? RGBA(0xFF, 0xFF, 0xFF, 0x2C) : RGBA(0xFF, 0xFF, 0xFF, 0x18));
+            ui_icon(icons[i], x + d / 2 + (icons[i] == ICON_PLAY ? 2 : 0), y + d / 2, 26, THEME_TEXT);
+            x += d + gap;
+        }
     }
     const char *hint = p->bar_focus ? "OK: open  \xC2\xB7  Up: back to the timeline" : "Down: options";
-    font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (44 - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
+    font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (d - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
+}
+
+static int episodes_focus(const Player *p)
+{
+    int n = 0;
+    const MetaVideo *v = app_videos(p->meta.id, &n);
+    for (int i = 0; i < n; i++) if (strcmp(v[i].id, p->video_id) == 0) return i;
+    return 0;
 }
 
 static void bar_activate(Player *p, const VideoInfo *vi)
@@ -841,25 +953,34 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
     if (p->bar_index >= n) return;
     switch (ids[p->bar_index]) {
-    case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = 0; break;
-    case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = 0; break;
-    case BTN_STYLE: p->menu = MENU_STYLE; p->menu_focus = g_app.subs_style; break;
-    case BTN_SOURCES: p->menu = MENU_SOURCES; p->menu_focus = p->cur; break;
+    case BTN_PREV: if (p->prev_video_id) go_to_video(p, p->prev_video_id, p->prev_title); return;
+    case BTN_PLAY:
+        if (vi->state == VIDEO_PLAYING) video_pause(); else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
+        break;
     case BTN_NEXT: go_up_next(p); return;
+    case BTN_RELOAD: app_toast("Reloading"); start_candidate(p, p->cur, vi->position); break;
+    case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = 0; break;
+    case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = 0; break;
+    case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
+    case BTN_SOURCES: p->menu = MENU_SOURCES; p->menu_focus = p->cur; break;
+    case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;
     case BTN_STATS: p->stats = !p->stats; break;
     }
-    (void)vi;
     show_overlay(p);
 }
 
-/* Wall-clock time `from_now` seconds ahead, in the chosen 12/24-hour format. */
-static void clock_text(double from_now, char *out, size_t n)
+/* "1080p" and "Dolby Digital+ 5.1" from what the file (or the pipeline) says. */
+static void media_badges(const Player *p, const VideoInfo *vi, char *res, size_t rn, char *aud, size_t an)
 {
-    time_t t = time(NULL) + (time_t)(from_now > 0 ? from_now : 0);
-    struct tm tmv;
-    if (!localtime_r(&t, &tmv)) { snprintf(out, n, "--:--"); return; }
-    if (g_app.clock_mode == 1) snprintf(out, n, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
-    else snprintf(out, n, "%d:%02d %s", tmv.tm_hour % 12 ? tmv.tm_hour % 12 : 12, tmv.tm_min, tmv.tm_hour < 12 ? "AM" : "PM");
+    res[0] = aud[0] = 0;
+    int h = vi->height > 0 ? vi->height : p->probe ? p->probe->height : 0;
+    if (h >= 2000) snprintf(res, rn, "4K"); else if (h > 0) snprintf(res, rn, "%dp", h >= 1000 ? 1080 : h >= 700 ? 720 : h);
+    if (p->probe && p->probe->hdr) snprintf(res + strlen(res), rn - strlen(res), "%s%s", res[0] ? "  " : "", p->probe->hdr == 2 ? "Dolby Vision" : "HDR");
+    if (p->probe && p->probe->acodec != AUDIO_UNKNOWN) {
+        static const char *A[] = { "", "AAC", "Dolby Digital", "Dolby Digital+", "DTS", "TrueHD", "Audio" };
+        int ch = p->probe->audio_channels;
+        snprintf(aud, an, "%s%s", A[p->probe->acodec], ch >= 8 ? " 7.1" : ch >= 6 ? " 5.1" : ch == 2 ? " stereo" : ch == 1 ? " mono" : "");
+    }
 }
 
 /* Where the video shows: a hole for the hardware plane on TVs; on the desktop
@@ -875,6 +996,9 @@ static void draw_video_area(Player *p, float x, float y, float w, float h)
     if (bgt) {
         float ia = (float)iw / ih, sa = w / h, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
         if (ia > sa) { float k = sa / ia; u0 = (1 - k) / 2; u1 = 1 - u0; } else { float k = ia / sa; v0 = (1 - k) / 2; v1 = 1 - v0; }
+        VideoInfo vi; video_info(&vi);
+        float z = aspect_scale(p, &vi);   /* the zoom the TV's video plane would get */
+        if (z > 1) { float cu = (u0 + u1) / 2, cv = (v0 + v1) / 2; u0 = cu - (cu - u0) / z; u1 = cu + (u1 - cu) / z; v0 = cv - (cv - v0) / z; v1 = cv + (v1 - cv) / z; }
         gfx_tex_uv(bgt, x, y, w, h, u0, v0, u1, v1, RGBA(255, 255, 255, 255));
     }
 #else
@@ -887,6 +1011,61 @@ static void draw_video_area(Player *p, float x, float y, float w, float h)
 static int error_final(const Player *p, const VideoInfo *vi)
 {
     return vi->state == VIDEO_ERROR && p->error_handled && (p->cur + 1 >= p->n_cands || p->tries >= 3);
+}
+
+/* What is on: title, episode, year and runtime, synopsis, cast. Shown once playback has
+ * been paused for a moment, in the top-left where the title normally sits. */
+static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
+{
+    (void)vi;
+    int a = (int)(255 * k);
+    float x = THEME_MARGIN, y = 150 - (1 - k) * 16, maxw = 1000;
+    gfx_gradient_h(0, 0, 1300, SNTV_UI_H, RGBA(0, 0, 0, (int)(0xB8 * k)), RGBA(0, 0, 0, 0));
+    font_draw("YOU'RE WATCHING", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+    y += 44;
+    char buf[512];
+    const char *logo = app_art_logo(&p->meta, buf, sizeof buf);
+    int lw = 0, lh = 0;
+    unsigned ltex = logo ? image_get(logo, &lw, &lh) : 0;
+    if (ltex && lh > 0) {
+        float w = 520, hh = w * lh / lw;
+        if (hh > 150) { hh = 150; w = hh * lw / lh; }
+        gfx_tex(ltex, x, y, w, hh, RGBA(255, 255, 255, a));
+        y += hh + 22;
+    } else {
+        int fs = font_measure(p->meta.name, FONT_XL | FONT_B) > maxw ? (FONT_L | FONT_B) : (FONT_XL | FONT_B);
+        y += font_draw_wrapped(p->meta.name, x, y, fs, COLOR_ALPHA(THEME_TEXT, a), maxw, 2) * font_height(fs) + 14;
+    }
+    const char *ep = strstr(p->title, "  -  ");
+    if (ep) { font_draw_fit(ep + 5, x, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), maxw); y += font_height(FONT_M | FONT_B) + 12; }
+    float mx = x;
+    if (p->meta.imdb_rating && *p->meta.imdb_rating) mx += ui_imdb(p->meta.imdb_rating, mx, y) + 6;
+    const char *parts[3]; int np = 0;
+    if (p->meta.release_info) parts[np++] = p->meta.release_info;
+    if (p->meta.runtime) parts[np++] = p->meta.runtime;
+    for (int i = 0; i < np; i++) {
+        if (mx > x) mx = ui_dot_sep(mx, y, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+        font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
+        mx += font_measure(parts[i], FONT_S | FONT_B);
+    }
+    if (np || mx > x) y += 50;
+    if (p->meta.description) y += font_draw_wrapped(p->meta.description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
+    if (p->meta.cast.n && y < SNTV_UI_H - 330) {
+        font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+        y += 36;
+        float cx = x;
+        for (int i = 0; i < p->meta.cast.n && i < 6; i++) {
+            const char *name = p->meta.cast.v[i];
+            float w = font_measure(name, FONT_XS | FONT_B) + 74;
+            if (cx + w > SNTV_UI_W - 600) break;
+            gfx_rrect(cx, y, w, 48, 24, RGBA(0xFF, 0xFF, 0xFF, (int)(0x1C * k)));
+            gfx_circle(cx + 24, y + 24, 17, COLOR_ALPHA(THEME_ACCENT, a));
+            char ini[2] = { name[0], 0 };
+            font_draw(ini, cx + 24 - font_measure(ini, FONT_XS | FONT_B) / 2, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+            font_draw(name, cx + 52, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+            cx += w + 12;
+        }
+    }
 }
 
 static void draw(Screen *s)
@@ -940,15 +1119,29 @@ static void draw(Screen *s)
     if (overlay) {
         gfx_gradient_v(0, SNTV_UI_H - 420, SNTV_UI_W, 420, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
         gfx_gradient_v(0, 0, SNTV_UI_W, 220, RGBA(0, 0, 0, 0xB0), RGBA(0, 0, 0, 0));
-        font_draw_fit(p->title, THEME_MARGIN, 56, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 300);
-        float cx = THEME_MARGIN;
-        if (p->cands[p->cur].label) { font_draw_fit(p->cands[p->cur].label, cx, 114, FONT_S, THEME_TEXT_DIM, 900); cx += font_measure(p->cands[p->cur].label, FONT_S) + 20; }
-        if (vi.codec[0] && cx < 1200) ui_chip(vi.codec, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT);
+        int info = vi.state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time - p->paused_since > 0.4f && !p->menu;
+        float info_k = info ? (g_app.time - p->paused_since - 0.4f) / 0.5f : 0;
+        if (info_k > 1) info_k = 1;
+        if (!info) {
+            font_draw_fit(p->title, THEME_MARGIN, 56, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
+            float cx = THEME_MARGIN;
+            if (p->cands[p->cur].label) { font_draw_fit(p->cands[p->cur].label, cx, 114, FONT_S, THEME_TEXT_DIM, 700); cx += font_measure(p->cands[p->cur].label, FONT_S) + 20; }
+            char res[32], aud[48];
+            media_badges(p, &vi, res, sizeof res, aud, sizeof aud);
+            if (res[0]) cx += ui_chip(res, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT) + 10;
+            if (aud[0]) cx += ui_chip(aud, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT) + 10;
+            if (!res[0] && !aud[0] && vi.codec[0] && cx < 1200) ui_chip(vi.codec, cx, 110, RGBA(0xFF, 0xFF, 0xFF, 0x22), THEME_TEXT);
+        } else draw_paused_info(p, &vi, info_k);
         float chip_y = 62;
-        if (g_app.clock_mode != 2) {
-            char now[24]; clock_text(0, now, sizeof now);
-            font_draw_shadow(now, SNTV_UI_W - THEME_MARGIN - font_measure(now, FONT_L | FONT_B), 50, FONT_L | FONT_B, THEME_TEXT, RGBA(0, 0, 0, 0x80));
-            chip_y = 122;
+        if (g_app.clock_mode != 2) {   /* "2:52 PM  |  ends at 3:40" */
+            char now[24], end[24], text[80];
+            ui_clock_text(0, now, sizeof now);
+            if (vi.duration > 0 && vi.state != VIDEO_PAUSED) { ui_clock_text((vi.duration - shown_pos) / RATES[p->rate_idx], end, sizeof end); snprintf(text, sizeof text, "%s   |   ends at %s", now, end); }
+            else snprintf(text, sizeof text, "%s", now);
+            float tw = font_measure(text, FONT_S | FONT_B) + 44, th2 = 52, tx = SNTV_UI_W - THEME_MARGIN - tw;
+            gfx_rrect(tx, 47, tw, th2, th2 / 2, RGBA(0x0B, 0x0A, 0x16, 0x8C));
+            font_draw(text, tx + 22, 47 + (th2 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+            chip_y = 112;
         }
         if (p->n_cands > 1) {
             char c[48]; snprintf(c, sizeof c, "Source %d of %d", p->cur + 1, p->n_cands);
@@ -1000,13 +1193,9 @@ static void draw(Screen *s)
         font_draw(pos, bx, by + 24, FONT_S | FONT_B, THEME_TEXT);
         float rw = font_measure(rem, FONT_S | FONT_B);
         font_draw(rem, bx + bw - rw, by + 24, FONT_S | FONT_B, THEME_TEXT_DIM);
-        if (g_app.clock_mode != 2 && vi.duration > 0 && overlay) {
-            char end[24], ends[40];
-            clock_text(vi.duration - shown_pos, end, sizeof end);
-            snprintf(ends, sizeof ends, "Ends at %s", end);
-            float ew = font_measure(ends, FONT_S | FONT_B);
-            font_draw(ends, bx + bw - rw - 28 - ew, by + 24, FONT_S | FONT_B, THEME_TEXT);
-            gfx_circle(bx + bw - rw - 14, by + 24 + font_height(FONT_S | FONT_B) / 2, 3, THEME_TEXT_MUTED);
+        if (p->rate_idx != RATE_NORMAL && overlay) {
+            char sp[16]; snprintf(sp, sizeof sp, "%gx", RATES[p->rate_idx]);
+            ui_chip(sp, bx + bw - rw - 28 - font_measure(sp, FONT_XS | FONT_B) - 24, by + 20, COLOR_ALPHA(THEME_ACCENT2, 0xC0), THEME_TEXT);
         }
     }
     if (overlay) {
@@ -1023,11 +1212,12 @@ static int menu_rows(Player *p)
 {
     if (p->menu == MENU_STYLE) return SUBS_STYLE_COUNT + 3;
     if (p->menu == MENU_SOURCES) return p->n_cands + 1;
+    if (p->menu == MENU_EPISODES) { int n_eps = 0; app_videos(p->meta.id, &n_eps); return n_eps; }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
-    if (p->menu == MENU_AUDIO) return n;
+    if (p->menu == MENU_AUDIO) return n + 1;
     SubGroup groups[MAX_SUB_GROUPS];
-    return 1 + n + sub_groups(p, groups, MAX_SUB_GROUPS) + (p->track_loaded ? 1 : 0);
+    return 1 + n + sub_groups(p, groups, MAX_SUB_GROUPS) + (p->track_loaded ? 1 : 0) + 1;
 }
 
 static void menu_activate(Player *p)
@@ -1043,10 +1233,26 @@ static void menu_activate(Player *p)
         if (p->menu_focus != p->cur && p->menu_focus < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->menu_focus, vi.position); }
         return;
     }
+    if (p->menu == MENU_EPISODES) {
+        int n_eps = 0;
+        const MetaVideo *eps = app_videos(p->meta.id, &n_eps);
+        if (p->menu_focus < n_eps && strcmp(eps[p->menu_focus].id, p->video_id) != 0) {
+            char t[200];
+            if (eps[p->menu_focus].season >= 0 && eps[p->menu_focus].episode >= 0) snprintf(t, sizeof t, "S%d E%d - %s", eps[p->menu_focus].season, eps[p->menu_focus].episode, eps[p->menu_focus].title ? eps[p->menu_focus].title : "");
+            else snprintf(t, sizeof t, "%s", eps[p->menu_focus].title ? eps[p->menu_focus].title : "");
+            go_to_video(p, eps[p->menu_focus].id, t);
+        }
+        return;
+    }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     int f = p->menu_focus;
-    if (p->menu == MENU_AUDIO) { if (f < n) { video_select_track(TRACK_AUDIO, tr[f].index); remember_audio(p, &tr[f]); } return; }
+    if (p->menu == MENU_AUDIO) {
+        if (f == 0) { set_rate(p, p->rate_idx + 1 < N_RATES ? p->rate_idx + 1 : 0); return; }
+        f--;
+        if (f < n) { video_select_track(TRACK_AUDIO, tr[f].index); remember_audio(p, &tr[f]); }
+        return;
+    }
     p->subs_auto_done = 1;   /* the viewer decided; stop auto-selecting */
     if (f == 0) { select_addon_sub(p, -1); p->embedded_text_sel = -1; video_select_track(TRACK_TEXT, -1); remember_subs(p, NULL, SUBS_SRC_ANY); return; }
     f--;
@@ -1062,7 +1268,10 @@ static void menu_activate(Player *p)
         int idx = group_member(p, &groups[f], p->sub_variant[f] % groups[f].count);
         select_addon_sub(p, idx);
         remember_subs(p, p->addon_subs[idx].lang, SUBS_SRC_ADDON);
+        return;
     }
+    f -= ng + (p->track_loaded ? 1 : 0);
+    if (f == 0) { p->menu = MENU_STYLE; p->menu_focus = g_app.subs_style; }   /* "Style and size" */
 }
 
 static void seek_by(Player *p, double base)
@@ -1096,8 +1305,9 @@ static int key(Screen *s, KeyAction a)
         case KEY_UP: if (p->menu_focus > 0) p->menu_focus--; app_redraw(); return 1;
         case KEY_DOWN: if (p->menu_focus < rows - 1) p->menu_focus++; app_redraw(); return 1;
         case KEY_LEFT: case KEY_RIGHT: {
-            if (p->menu != MENU_SUBS) return 1;
             int dir = a == KEY_RIGHT ? 1 : -1;
+            if (p->menu == MENU_AUDIO && p->menu_focus == 0) { set_rate(p, p->rate_idx + dir); app_redraw(); return 1; }
+            if (p->menu != MENU_SUBS) return 1;
             VideoTrack tt[MAX_TRACKS];
             int nt = video_tracks(TRACK_TEXT, tt, MAX_TRACKS);
             SubGroup groups[MAX_SUB_GROUPS];
@@ -1116,7 +1326,7 @@ static int key(Screen *s, KeyAction a)
         }
         case KEY_OK:
             if (p->menu == MENU_SOURCES && p->menu_focus == p->n_cands) { browse_sources(p); return 1; }
-            menu_activate(p); if (p->menu != MENU_STYLE) p->menu = MENU_NONE; show_overlay(p); return 1;
+            { int was = p->menu; menu_activate(p); if (p->menu == was && !(was == MENU_AUDIO && p->menu_focus == 0)) p->menu = MENU_NONE; show_overlay(p); return 1; }
         case KEY_BACK: p->menu = MENU_NONE; show_overlay(p); return 1;
         default: return 1;
         }
@@ -1190,7 +1400,7 @@ static void destroy(Screen *s)
     for (int i = 0; i < p->n_addon_subs; i++) { free(p->addon_subs[i].url); free(p->addon_subs[i].lang); free(p->addon_subs[i].addon); }
     play_candidates_free(p->cands, p->n_cands);
     meta_preview_free(&p->meta);
-    free(p->video_id); free(p->title); free(p->next_video_id); free(p->next_title);
+    free(p->video_id); free(p->title); free(p->next_video_id); free(p->next_title); free(p->prev_video_id); free(p->prev_title);
     free(p);
     free(s);
 }
@@ -1207,6 +1417,11 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->cands = cands; p->n_cands = n_cands;
     p->next_video_id = next_video_id ? strdup(next_video_id) : NULL;
     p->next_title = next_title ? strdup(next_title) : NULL;
+    {
+        char pid[128], pt[200];
+        if (app_adjacent_video(meta->id, video_id, -1, pid, sizeof pid, pt, sizeof pt)) { p->prev_video_id = strdup(pid); p->prev_title = strdup(pt); }
+    }
+    p->rate_idx = RATE_NORMAL;
     p->active_addon_sub = -1;
     p->embedded_text_sel = -1;
     p->gen = 1;
@@ -1247,6 +1462,7 @@ void player_set_pip(Screen *s, int on)
         int w, h;
         gfx_drawable_size(&w, &h);
         video_set_display_rect(0, 0, w, h);
+        if (p->aspect != ASPECT_FIT) apply_aspect(p);
         show_overlay(p);
         LOGI("player: back to full screen");
     }

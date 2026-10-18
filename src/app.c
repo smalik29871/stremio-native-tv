@@ -593,6 +593,8 @@ static void load_prefs(void)
     g_app.auto_recommended = store_get_int("autoRecommended", 0);
     g_app.preflight = store_get_int("preflight", 1);
     g_app.live_scrub = store_get_int("liveScrub", 1);
+    g_app.home_style = store_get_int("homeStyle", HOME_CINEMATIC);
+    if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
@@ -615,6 +617,7 @@ void app_save_prefs(void)
     store_set_int("autoRecommended", g_app.auto_recommended);
     store_set_int("preflight", g_app.preflight);
     store_set_int("liveScrub", g_app.live_scrub);
+    store_set_int("homeStyle", g_app.home_style);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();
@@ -666,9 +669,17 @@ const char *app_video_thumbnail(const char *meta_id, const char *video_id)
 }
 
 /* Next = the following entry in release order within regular seasons (specials skipped). */
-int app_next_video(const char *meta_id, const char *video_id, char *next_id, size_t id_n, char *next_title, size_t title_n)
+const MetaVideo *app_videos(const char *meta_id, int *n)
 {
-    if (!g_videos.meta_id || strcmp(g_videos.meta_id, meta_id) != 0) return 0;
+    *n = 0;
+    if (!g_videos.meta_id || !meta_id || strcmp(g_videos.meta_id, meta_id) != 0) return NULL;
+    *n = g_videos.n;
+    return g_videos.videos;
+}
+
+int app_adjacent_video(const char *meta_id, const char *video_id, int dir, char *out_id, size_t id_n, char *out_title, size_t title_n)
+{
+    if (!g_videos.meta_id || !video_id || strcmp(g_videos.meta_id, meta_id) != 0) return 0;
     int cur = -1;
     for (int i = 0; i < g_videos.n; i++) if (strcmp(g_videos.videos[i].id, video_id) == 0) { cur = i; break; }
     if (cur < 0) return 0;
@@ -676,17 +687,25 @@ int app_next_video(const char *meta_id, const char *video_id, char *next_id, siz
     const MetaVideo *best = NULL;
     for (int i = 0; i < g_videos.n; i++) {
         const MetaVideo *v = &g_videos.videos[i];
-        if (v == c || v->season == 0) continue;
+        if (v == c || v->season == 0) continue;   /* specials never count */
         int after = v->season > c->season || (v->season == c->season && v->episode > c->episode);
-        if (c->season < 0) after = i > cur;   /* no season info: list order */
-        if (!after) continue;
-        if (!best || v->season < best->season || (v->season == best->season && v->episode < best->episode)) best = v;
+        int before = v->season < c->season || (v->season == c->season && v->episode < c->episode);
+        if (c->season < 0) { after = i > cur; before = i < cur; }   /* no season info: list order */
+        if (dir > 0 ? !after : !before) continue;
+        int closer = !best || (dir > 0 ? (v->season < best->season || (v->season == best->season && v->episode < best->episode))
+                                       : (v->season > best->season || (v->season == best->season && v->episode > best->episode)));
+        if (closer) best = v;
     }
     if (!best) return 0;
-    snprintf(next_id, id_n, "%s", best->id);
-    if (best->season >= 0 && best->episode >= 0) snprintf(next_title, title_n, "S%d E%d - %s", best->season, best->episode, best->title ? best->title : "");
-    else snprintf(next_title, title_n, "%s", best->title ? best->title : "Next");
+    snprintf(out_id, id_n, "%s", best->id);
+    if (best->season >= 0 && best->episode >= 0) snprintf(out_title, title_n, "S%d E%d - %s", best->season, best->episode, best->title ? best->title : "");
+    else snprintf(out_title, title_n, "%s", best->title ? best->title : (dir > 0 ? "Next" : "Previous"));
     return 1;
+}
+
+int app_next_video(const char *meta_id, const char *video_id, char *next_id, size_t id_n, char *next_title, size_t title_n)
+{
+    return app_adjacent_video(meta_id, video_id, 1, next_id, id_n, next_title, title_n);
 }
 
 static int imdb_id(const char *id) { return id && id[0] == 't' && id[1] == 't' && id[2] >= '0' && id[2] <= '9'; }
@@ -747,6 +766,8 @@ void play_candidates_free(PlayCandidate *c, int n)
 
 /* ---- shared widgets -------------------------------------------------------- */
 
+const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
+
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
 {
     memset(dst, 0, sizeof *dst);
@@ -757,6 +778,10 @@ void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
     if (src->genres.n) {
         dst->genres.v = calloc((size_t)src->genres.n + 1, sizeof(char *));
         for (int i = 0; i < src->genres.n; i++) dst->genres.v[dst->genres.n++] = strdup(src->genres.v[i]);
+    }
+    if (src->cast.n) {
+        dst->cast.v = calloc((size_t)src->cast.n + 1, sizeof(char *));
+        for (int i = 0; i < src->cast.n; i++) dst->cast.v[dst->cast.n++] = strdup(src->cast.v[i]);
     }
 }
 

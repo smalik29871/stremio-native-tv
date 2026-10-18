@@ -355,6 +355,18 @@ static void parse_preview(const cJSON *o, MetaPreview *p)
     p->imdb_rating = jstr(o, "imdbRating");
     p->runtime = jstr(o, "runtime");
     jstrlist(o, "genres", &p->genres);
+    jstrlist(o, "cast", &p->cast);
+    if (!p->cast.n) {   /* newer Cinemeta: credits_cast [{name, character, photo}] */
+        const cJSON *cc = cJSON_GetObjectItemCaseSensitive(o, "credits_cast");
+        if (cJSON_IsArray(cc)) {
+            int n = cJSON_GetArraySize(cc);
+            p->cast.v = calloc((size_t)n + 1, sizeof(char *));
+            for (int i = 0; i < n && p->cast.n < 12; i++) {
+                const cJSON *nm = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(cc, i), "name");
+                if (cJSON_IsString(nm) && nm->valuestring[0]) p->cast.v[p->cast.n++] = strdup(nm->valuestring);
+            }
+        }
+    }
     if (!p->genres.n) {
         /* Newer addons move genres into links[category=Genres]. */
         const cJSON *links = cJSON_GetObjectItemCaseSensitive(o, "links");
@@ -378,6 +390,7 @@ void meta_preview_free(MetaPreview *p)
     free(p->background); free(p->logo); free(p->description); free(p->release_info);
     free(p->imdb_rating); free(p->runtime);
     strlist_free(&p->genres);
+    strlist_free(&p->cast);
     memset(p, 0, sizeof *p);
 }
 

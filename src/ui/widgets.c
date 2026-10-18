@@ -4,6 +4,7 @@
 #include "../image.h"
 #include <math.h>
 #include <string.h>
+#include <time.h>
 
 /* ---- icons: built from capsules, rings and the SDF triangle so they stay crisp at any size ---- */
 
@@ -97,6 +98,44 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
     case ICON_LINK:
         gfx_rrect_ring(cx - s * 0.40f, cy - s * 0.14f, s * 0.42f, s * 0.28f, s * 0.14f, t, c);
         gfx_rrect_ring(cx - s * 0.02f, cy - s * 0.14f, s * 0.42f, s * 0.28f, s * 0.14f, t, c);
+        break;
+    case ICON_PREV:   /* |<  (a bar and a left-pointing wedge) */
+        gfx_rrect(cx - s * 0.36f, cy - s * 0.32f, s * 0.14f, s * 0.64f, s * 0.04f, c);
+        gfx_line(cx + s * 0.30f, cy - s * 0.30f, cx - s * 0.10f, cy, t * 1.3f, c);
+        gfx_line(cx - s * 0.10f, cy, cx + s * 0.30f, cy + s * 0.30f, t * 1.3f, c);
+        gfx_line(cx + s * 0.30f, cy - s * 0.30f, cx + s * 0.30f, cy + s * 0.30f, t * 1.3f, c);
+        break;
+    case ICON_RELOAD:   /* open ring with an arrow head */
+        gfx_rrect_ring(cx - s * 0.34f, cy - s * 0.34f, s * 0.68f, s * 0.68f, s * 0.34f, t, c);
+        gfx_line(cx + s * 0.02f, cy - s * 0.52f, cx + s * 0.30f, cy - s * 0.36f, t * 1.2f, c);
+        gfx_line(cx + s * 0.30f, cy - s * 0.36f, cx + s * 0.06f, cy - s * 0.16f, t * 1.2f, c);
+        gfx_circle(cx + s * 0.10f, cy - s * 0.36f, t * 1.3f, c);
+        break;
+    case ICON_ASPECT:   /* a frame with a smaller frame inside */
+        gfx_rrect_ring(cx - s * 0.42f, cy - s * 0.30f, s * 0.84f, s * 0.60f, s * 0.08f, t, c);
+        gfx_rrect(cx + s * 0.04f, cy + s * 0.02f, s * 0.26f, s * 0.18f, s * 0.03f, c);
+        break;
+    case ICON_LIST:   /* three lines, the last with a play mark */
+        gfx_line(cx - s * 0.38f, cy - s * 0.28f, cx + s * 0.38f, cy - s * 0.28f, t, c);
+        gfx_line(cx - s * 0.38f, cy, cx + s * 0.38f, cy, t, c);
+        gfx_line(cx - s * 0.38f, cy + s * 0.28f, cx + s * 0.02f, cy + s * 0.28f, t, c);
+        gfx_play_triangle(cx + s * 0.16f, cy + s * 0.14f, s * 0.26f, s * 0.28f, c);
+        break;
+    case ICON_CLOCK:
+        gfx_rrect_ring(cx - s * 0.40f, cy - s * 0.40f, s * 0.80f, s * 0.80f, s * 0.40f, t, c);
+        gfx_line(cx, cy, cx, cy - s * 0.26f, t, c);
+        gfx_line(cx, cy, cx + s * 0.20f, cy + s * 0.12f, t, c);
+        break;
+    case ICON_SPEED:   /* a gauge: arc and needle */
+        gfx_rrect_ring(cx - s * 0.40f, cy - s * 0.30f, s * 0.80f, s * 0.80f, s * 0.40f, t, c);
+        gfx_rect(cx - s * 0.50f, cy + s * 0.12f, s, s * 0.5f, RGBA(0, 0, 0, 0));
+        gfx_line(cx, cy + s * 0.10f, cx + s * 0.24f, cy - s * 0.16f, t * 1.2f, c);
+        gfx_circle(cx, cy + s * 0.10f, t * 1.4f, c);
+        break;
+    case ICON_INFO:
+        gfx_rrect_ring(cx - s * 0.40f, cy - s * 0.40f, s * 0.80f, s * 0.80f, s * 0.40f, t, c);
+        gfx_circle(cx, cy - s * 0.20f, t * 0.9f, c);
+        gfx_line(cx, cy - s * 0.04f, cx, cy + s * 0.24f, t, c);
         break;
     }
 }
@@ -232,6 +271,35 @@ float ui_icon_button(Icon icon, float cx, float cy, float r, int focused)
     gfx_circle(cx, cy, r, focused ? THEME_TEXT : THEME_SURFACE);
     ui_icon(icon, cx, cy, r * 0.95f, focused ? THEME_ON_LIGHT : THEME_TEXT);
     return 2 * r;
+}
+
+void ui_clock_text(double from_now, char *out, size_t n)
+{
+    time_t t = time(NULL) + (time_t)(from_now > 0 ? from_now : 0);
+    struct tm tmv;
+    if (!localtime_r(&t, &tmv)) { snprintf(out, n, "--:--"); return; }
+    if (g_app.clock_mode == 1) snprintf(out, n, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
+    else snprintf(out, n, "%d:%02d %s", tmv.tm_hour % 12 ? tmv.tm_hour % 12 : 12, tmv.tm_min, tmv.tm_hour < 12 ? "AM" : "PM");
+}
+
+float ui_clock_width(void)
+{
+    if (g_app.clock_mode == 2) return 0;
+    char now[24];
+    ui_clock_text(0, now, sizeof now);
+    return font_measure(now, FONT_S | FONT_B) + 44;
+}
+
+float ui_clock_pill(void)
+{
+    if (g_app.clock_mode == 2) return 0;
+    char now[24];
+    ui_clock_text(0, now, sizeof now);
+    float w = font_measure(now, FONT_S | FONT_B) + 44, h = 52, x = SNTV_UI_W - THEME_MARGIN - w, y = 47;
+    gfx_rrect(x, y, w, h, h / 2, RGBA(0x0B, 0x0A, 0x16, 0x8C));
+    gfx_rrect_ring(x, y, w, h, h / 2, 1, RGBA(0xFF, 0xFF, 0xFF, 0x16));
+    font_draw(now, x + 22, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+    return w;
 }
 
 float ui_chip(const char *text, float x, float y, Color bg, Color fg)

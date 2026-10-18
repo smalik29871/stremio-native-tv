@@ -7,7 +7,8 @@
 typedef enum {
     ICON_PLAY, ICON_PAUSE, ICON_SEARCH, ICON_SETTINGS, ICON_USER, ICON_PLUS, ICON_CHECK,
     ICON_AUDIO, ICON_SUBS, ICON_NEXT, ICON_BACK, ICON_CHEVRON_LEFT, ICON_CHEVRON_RIGHT,
-    ICON_HOME, ICON_LIBRARY, ICON_STAR, ICON_SWAP, ICON_LINK
+    ICON_HOME, ICON_LIBRARY, ICON_STAR, ICON_SWAP, ICON_LINK,
+    ICON_PREV, ICON_RELOAD, ICON_ASPECT, ICON_LIST, ICON_CLOCK, ICON_SPEED, ICON_INFO
 } Icon;
 
 void ui_icon(Icon icon, float cx, float cy, float size, Color c);
@@ -35,6 +36,12 @@ float ui_icon_button(Icon icon, float cx, float cy, float radius, int focused);
 float ui_chip(const char *text, float x, float y, Color bg, Color fg);
 float ui_chip_outline(const char *text, float x, float y, Color line, Color fg);
 float ui_imdb(const char *rating, float x, float y);
+/* Wall-clock time `from_now` seconds ahead in the viewer's 12/24-hour format (settings). */
+void  ui_clock_text(double from_now, char *out, size_t n);
+/* The clock pill in the top-right corner of every screen (nothing when the clock is off).
+ * Returns the width it took, so screens can keep their own corner buttons clear of it. */
+float ui_clock_pill(void);
+float ui_clock_width(void);
 /* "a  •  b  •  c" meta line; returns the x after it. */
 float ui_dot_sep(float x, float y, Color c);
 

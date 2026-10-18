@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.2
+
+The player grows the controls people expect from a TV app, and Home gets three looks.
+
+- **Player bar**: Previous episode, Play/Pause, Next episode, Reload, Subtitles, Audio and
+  speed, Aspect ratio, Sources, Episodes, Stats. Buttons are round icons; the focused one
+  opens into a labelled pill. *Reload* restarts the same link where you are; *Aspect ratio*
+  cycles Fit, Fill the screen (crops the letterbox, from the file's real picture size) and
+  Zoom; *Episodes* lists every season with the one playing marked, OK jumps to another.
+- **Speed** 0.5x to 2x in the Audio menu (Left/Right); the end time follows it.
+- **Paused info**: a moment after pausing, the top-left shows *You're watching*, the logo
+  or title, the episode, IMDb rating, year and runtime, the synopsis and the cast.
+- **Badges**: *1080p*, *HDR*, *Dolby Digital+ 5.1* next to the title, from the file's header.
+- **Clock everywhere**: the time sits in the top-right of every screen and hides during
+  playback (it comes back with the controls, together with *ends at*). Settings > Playback
+  > Clock chooses 12-hour, 24-hour or off.
+- **Home screen styles** (Settings > Interface > Home screen): *Cinematic* (the focused
+  title fills the backdrop, as before), *Showcase* (a featured carousel from the first
+  catalog with page dots and a *View title* button, turning every 8 s; the rows sit below)
+  and *Compact* (no hero, rows from the top, one line about the focused title).
+- *Subtitle style* moved into the Subtitles menu as *Style and size*.
+
 ## 0.5.1
 
 The TV checks the file, not just its name.

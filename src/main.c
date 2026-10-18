@@ -1,4 +1,5 @@
 #include "app.h"
+#include "ui/widgets.h"
 #include "http.h"
 #include "image.h"
 #include "log.h"
@@ -11,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <SDL.h>
 #include <GLES2/gl2.h>
@@ -259,6 +261,7 @@ int main(int argc, char **argv)
         video_update();
 
         if (image_busy() || g_app.time < g_app.toast_until) app_redraw();
+        { static time_t minute; time_t m = time(NULL) / 60; if (m != minute) { minute = m; app_redraw(); } }   /* the clock moves */
 
         Screen *top = app_top();
         if (top && top->update) top->update(top, dt);
@@ -276,6 +279,7 @@ int main(int argc, char **argv)
             g_app.need_redraw = 0;
             gfx_begin_frame(RGBA(0x08, 0x07, 0x12, 0xFF));
             if (top && top->draw) top->draw(top);
+            if (top && strcmp(top->name, "player") != 0 && strcmp(top->name, "ambient") != 0) ui_clock_pill();   /* the player shows it with its controls */
             if (!g_app.pip) g_pip_focus = 0;
             if (g_app.pip) player_pip_draw(g_app.pip, g_pip_focus);
             app_draw_toast();

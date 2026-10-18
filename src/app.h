@@ -31,6 +31,9 @@ typedef struct PlayCandidate {
     unsigned needs;             /* TVCAP_* bits this source depends on (quality.h) */
 } PlayCandidate;
 
+enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
+extern const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT];
+
 typedef struct App {
     Addon *addons; int n_addons;
     int addons_loading;
@@ -67,6 +70,7 @@ typedef struct App {
     int auto_recommended;      /* play the recommended source without asking */
     int preflight;             /* read the top candidates' headers before recommending */
     int live_scrub;            /* the video follows the seek bar while the key is held */
+    int home_style;            /* HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
 
@@ -110,6 +114,10 @@ void  app_cache_put(const char *url, const char *body, size_t len);
 /* The detail screen registers the episode list it shows; the player uses it for Up Next. */
 void app_remember_videos(const char *meta_id, const MetaVideo *videos, int n);
 int  app_next_video(const char *meta_id, const char *video_id, char *next_id, size_t id_n, char *next_title, size_t title_n);
+/* dir +1 the following episode, -1 the one before. */
+int  app_adjacent_video(const char *meta_id, const char *video_id, int dir, char *out_id, size_t id_n, char *out_title, size_t title_n);
+/* The remembered episode list for this title (NULL when another title's list is held). */
+const MetaVideo *app_videos(const char *meta_id, int *n);
 const char *app_video_thumbnail(const char *meta_id, const char *video_id);
 
 /* Artwork with metahub fallbacks for IMDb ids (what the official apps use). */

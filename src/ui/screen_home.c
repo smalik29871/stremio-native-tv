@@ -15,7 +15,10 @@
 enum { ROW_CATALOG, ROW_CONTINUE, ROW_LIBRARY };
 enum { NAV_SEARCH, NAV_SETTINGS, NAV_ACCOUNT, NAV_COUNT };
 
-#define ROWS_Y 610.0f
+#define ROWS_Y 610.0f          /* Cinematic; the other styles move it (rows_y) */
+#define SHOWCASE_N 10         /* titles in the Showcase carousel */
+#define SHOWCASE_EVERY 8.0f   /* seconds before the carousel moves by itself */
+#define FOCUS_SHOWCASE (-2)   /* focus_row: the carousel View button */
 #define POSTER_W 196.0f
 #define POSTER_H 294.0f
 #define LAND_W 384.0f
@@ -46,7 +49,11 @@ typedef struct {
     char hero_id[256];
     char hero_bg[1024], hero_prev_bg[1024]; float hero_fade;
     float hero_text_t;        /* fade/slide of the hero text on change */
+    int feat;                 /* Showcase: which of the featured row's titles is up */
+    float feat_timer;
 } Home;
+
+static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : g_app.home_style == HOME_SHOWCASE ? 660.0f : ROWS_Y; }
 
 /* ---- row geometry ---- */
 
@@ -232,8 +239,22 @@ static int next_visible(const Home *h, int from, int dir)
     return -2;
 }
 
+/* Showcase: the first catalog row with titles feeds the carousel. */
+static const Row *featured_row(const Home *h)
+{
+    for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CATALOG && h->rows[i]->n) return h->rows[i];
+    return NULL;
+}
+static int featured_count(const Home *h) { const Row *r = featured_row(h); return r ? (r->n < SHOWCASE_N ? r->n : SHOWCASE_N) : 0; }
+
 static const MetaPreview *hero_item(const Home *h)
 {
+    if (g_app.home_style == HOME_SHOWCASE) {
+        const Row *r = featured_row(h);
+        if (!r) return NULL;
+        int n = featured_count(h);
+        return &r->metas[h->feat % n];
+    }
     int ri = h->focus_row >= 0 ? h->focus_row : next_visible(h, -1, 1);
     if (ri < 0) return NULL;
     const Row *r = h->rows[ri];
@@ -298,6 +319,12 @@ static void update(Screen *s, float dt)
         h->focus_row = n < 0 ? -1 : n;
     }
 
+    if (g_app.home_style == HOME_SHOWCASE && featured_count(h) > 1) {
+        h->feat_timer += dt;
+        if (h->feat_timer > SHOWCASE_EVERY && h->focus_row != FOCUS_SHOWCASE) { h->feat_timer = 0; h->feat = (h->feat + 1) % featured_count(h); app_redraw(); }
+        if (h->focus_row == FOCUS_SHOWCASE) h->feat_timer = 0;
+    } else if (h->focus_row == FOCUS_SHOWCASE) h->focus_row = -1;
+
     float y = 0;
     for (int i = 0; i < h->n_rows && i < h->focus_row; i++) if (row_visible(h->rows[i])) y += row_h(h->rows[i]);
     h->scroll_y = ui_ease(h->scroll_y, h->focus_row < 0 ? 0 : y, NULL, dt, 14);
@@ -342,6 +369,8 @@ static void update(Screen *s, float dt)
 
 /* ---- drawing ---- */
 
+static void draw_showcase_controls(const Home *h);
+
 static void draw_nav(const Home *h)
 {
     ui_brand(THEME_MARGIN, 44, 58);
@@ -350,7 +379,7 @@ static void draw_nav(const Home *h)
     snprintf(short_acc, sizeof short_acc, "%.18s%s", account, strlen(account) > 18 ? "\xE2\x80\xA6" : "");
     const char *labels[NAV_COUNT] = { "Search", "Settings", short_acc };
     Icon icons[NAV_COUNT] = { ICON_SEARCH, ICON_SETTINGS, ICON_USER };
-    float x = SNTV_UI_W - THEME_MARGIN;
+    float x = SNTV_UI_W - THEME_MARGIN - (ui_clock_width() > 0 ? ui_clock_width() + 18 : 0);
     for (int i = NAV_COUNT - 1; i >= 0; i--) {
         int foc = h->focus_row == -1 && h->focus_nav == i;
         float w = ui_pill_width(labels[i], 1, 60);
@@ -403,6 +432,27 @@ static void draw_hero(Home *h, const MetaPreview *p)
     for (int g = 0; g < p->genres.n && g < 4; g++) gx += ui_chip_outline(p->genres.v[g], gx, y, RGBA(0xFF, 0xFF, 0xFF, (int)(0x50 * k)), COLOR_ALPHA(THEME_TEXT_DIM, a)) + 10;
     if (p->genres.n) y += 54;
     if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4);
+}
+
+static void draw_showcase_controls(const Home *h)
+{
+    int n = featured_count(h);
+    if (!n) return;
+    int foc = h->focus_row == FOCUS_SHOWCASE;
+    float y = rows_y() - 108;
+    ui_pill("View title", 1, ICON_CHEVRON_RIGHT, THEME_MARGIN, y, 60, PILL_PRIMARY, foc);
+    /* page dots at the right, the current one stretched */
+    float dw = 10, gap = 10, cur_w = 34, total = (n - 1) * (dw + gap) + cur_w;
+    float x = SNTV_UI_W - THEME_MARGIN - total - 44, cy = y + 30;
+    ui_icon(ICON_CHEVRON_LEFT, x - 26, cy, 16, foc ? THEME_TEXT : THEME_TEXT_MUTED);
+    for (int i = 0; i < n; i++) {
+        int on = i == h->feat % n;
+        float w = on ? cur_w : dw;
+        gfx_rrect(x, cy - 5, w, 10, 5, on ? THEME_TEXT : RGBA(0xFF, 0xFF, 0xFF, 0x60));
+        x += w + gap;
+    }
+    ui_icon(ICON_CHEVRON_RIGHT, x + 14, cy, 16, foc ? THEME_TEXT : THEME_TEXT_MUTED);
+    if (foc) font_draw("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", SNTV_UI_W - THEME_MARGIN - font_measure("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", FONT_XS), cy + 22, FONT_XS, THEME_TEXT_MUTED);
 }
 
 static void draw_row(Home *h, int ri, float y)
@@ -470,26 +520,33 @@ static void draw(Screen *s)
     const MetaPreview *hero = hero_item(h);
     ui_background(hero ? image_tint(h->hero_bg) : 0);
 
-    if (hero) {
+    if (hero && g_app.home_style != HOME_COMPACT) {
         int iw, ih, pw, ph;
         float fade = g_app.fx_light ? 1.0f : h->hero_fade;
         unsigned prev = h->hero_prev_bg[0] && fade < 1 ? image_get(h->hero_prev_bg, &pw, &ph) : 0;
         unsigned cur = h->hero_bg[0] ? image_get(h->hero_bg, &iw, &ih) : 0;
-        float bh = SNTV_UI_H * 0.86f;
+        float bh = SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f);
         ui_backdrop_fades(1180, 360, bh);
         if (prev) ui_backdrop_image(prev, pw, ph, 1 - fade, bh);
         if (cur) ui_backdrop_image(cur, iw, ih, fade, bh);
         ui_text_scrim(1250, bh);
         draw_hero(h, hero);
+        if (g_app.home_style == HOME_SHOWCASE) draw_showcase_controls(h);
+    } else if (hero) {   /* Compact: one line about the focused title, the rows take the screen */
+        char line[300];
+        const char *type = hero->type ? (strcmp(hero->type, "series") == 0 ? "Series" : strcmp(hero->type, "movie") == 0 ? "Movie" : hero->type) : "";
+        snprintf(line, sizeof line, "%s%s%s%s%s%s%s", hero->name ? hero->name : "", hero->release_info ? "   \xC2\xB7   " : "", hero->release_info ? hero->release_info : "",
+                 type[0] ? "   \xC2\xB7   " : "", type, hero->genres.n ? "   \xC2\xB7   " : "", hero->genres.n ? hero->genres.v[0] : "");
+        font_draw_fit(line, THEME_MARGIN, 108, FONT_S | FONT_B, THEME_TEXT_DIM, SNTV_UI_W - 2 * THEME_MARGIN - 640);
     }
 
-    gfx_clip_push(0, ROWS_Y - 24, SNTV_UI_W, SNTV_UI_H - ROWS_Y + 24);
-    float y = ROWS_Y - h->scroll_y;
+    gfx_clip_push(0, rows_y() - 24, SNTV_UI_W, SNTV_UI_H - rows_y() + 24);
+    float y = rows_y() - h->scroll_y;
     for (int i = 0; i < h->n_rows; i++) {
         Row *r = h->rows[i];
         if (!row_visible(r)) continue;
         float rh = row_h(r);
-        if (y + rh > ROWS_Y - 40 && y < SNTV_UI_H) draw_row(h, i, y);
+        if (y + rh > rows_y() - 40 && y < SNTV_UI_H) draw_row(h, i, y);
         y += rh;
     }
     gfx_clip_pop();
@@ -523,11 +580,26 @@ static int key(Screen *s, KeyAction a)
     Home *h = s->st;
     app_redraw();
     if (a == KEY_SEARCH) { app_push(screen_search_create()); return 1; }
+    if (h->focus_row == FOCUS_SHOWCASE) {   /* the carousel View button */
+        int n = featured_count(h);
+        switch (a) {
+        case KEY_LEFT: if (n) { h->feat = (h->feat + n - 1) % n; h->feat_timer = 0; } return 1;
+        case KEY_RIGHT: if (n) { h->feat = (h->feat + 1) % n; h->feat_timer = 0; } return 1;
+        case KEY_UP: h->focus_row = -1; return 1;
+        case KEY_DOWN: { int r = next_visible(h, -1, 1); if (r >= 0) move_focus(h, r, -1); return 1; }
+        case KEY_OK: { const MetaPreview *m = hero_item(h); if (m) app_push(screen_detail_create(m)); return 1; }
+        case KEY_BACK: g_app.quit = 1; return 1;
+        default: return 1;
+        }
+    }
     if (h->focus_row == -1) {
         switch (a) {
         case KEY_LEFT: if (h->focus_nav > 0) h->focus_nav--; return 1;
         case KEY_RIGHT: if (h->focus_nav < NAV_COUNT - 1) h->focus_nav++; return 1;
-        case KEY_DOWN: { int n = next_visible(h, -1, 1); if (n >= 0) move_focus(h, n, -1); return 1; }
+        case KEY_DOWN: {
+            if (g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->focus_row = FOCUS_SHOWCASE; return 1; }
+            int n = next_visible(h, -1, 1); if (n >= 0) move_focus(h, n, -1); return 1;
+        }
         case KEY_OK:
             if (h->focus_nav == NAV_SEARCH) app_push(screen_search_create());
             else if (h->focus_nav == NAV_SETTINGS) app_push(screen_settings_create());
@@ -539,7 +611,11 @@ static int key(Screen *s, KeyAction a)
     }
     Row *r = h->rows[h->focus_row];
     switch (a) {
-    case KEY_UP: { int n = next_visible(h, h->focus_row, -1); move_focus(h, n >= 0 ? n : -1, -1); return 1; }
+    case KEY_UP: {
+        int n = next_visible(h, h->focus_row, -1);
+        if (n < 0 && g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->prev_row = h->focus_row; h->prev_col = r->focus; h->prev_t = h->focus_t; h->focus_row = FOCUS_SHOWCASE; return 1; }
+        move_focus(h, n >= 0 ? n : -1, -1); return 1;
+    }
     case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) { move_focus(h, n, -1); return 1; } return 0; }
     case KEY_LEFT: if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1); return 1;
     case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;

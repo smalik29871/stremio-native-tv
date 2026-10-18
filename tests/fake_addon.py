@@ -45,6 +45,7 @@ for i, m in enumerate(CATALOG["metas"]):
     m["poster"] = f"{BASE}/poster/{i}.png"
     m["background"] = f"{BASE}/bg/{i}.png"
     m.setdefault("description", "A chemistry teacher diagnosed with a terminal illness turns to making methamphetamine to secure his family's future.")
+    m.setdefault("cast", ["Ada Lovelace", "Alan Turing", "Grace Hopper"])
 # pad the catalog so rows scroll
 extra = []
 NAMES = ["Midnight Harbor", "The Glass Orchard", "Northern Lights", "Paper Kingdoms", "Echoes of Mars", "Silent Tides",
@@ -58,6 +59,7 @@ for i in range(12):
                                  "three cities and one long night to the people who never wanted it found."})
 CATALOG["metas"].extend(extra)
 META = load("meta_series.json")
+META["meta"].setdefault("cast", ["Bryan Cranston", "Aaron Paul", "Anna Gunn", "Dean Norris", "Betsy Brandt"])
 META["meta"]["poster"] = f"{BASE}/poster/1.png"
 META["meta"]["background"] = f"{BASE}/bg/1.png"
 META["meta"]["logo"] = None
