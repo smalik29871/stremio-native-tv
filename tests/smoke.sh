@@ -14,6 +14,7 @@ sleep 0.5
 export NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
 export SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json"
 export SNTV_LINK_API="http://127.0.0.1:$PORT/link"
+export SNTV_INTRODB_API="http://127.0.0.1:$PORT/introdb"
 export HOME="$OUT/home"; mkdir -p "$HOME"
 # preferred subtitles = English so the player auto-loads the fake addon's SRT
 mkdir -p "$HOME/.local/share/stremio/nativetv"
@@ -36,13 +37,15 @@ run player_cue 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "down,right,ok,down,down,ok,ok,right,right,right"
 run upnext_card 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100
 run upnext_auto 380 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5
+run player_skipped 300 "down,right,ok,down,down,ok,ok,ok"
+run upnext_credits 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_START=2999
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run settings 160 "right,ok,down,down,down,down,down"
-run diagnostics 220 "right,ok,down,down,down,down,down,down,down,down,ok"
-run diagnostics_filter 230 "right,ok,down,down,down,down,down,down,down,down,ok,left,left"
-run diagnostics_qr 240 "right,ok,down,down,down,down,down,down,down,down,ok,ok"
-run diagnostics_prev_qr 260 "right,ok,down,down,down,down,down,down,down,down,ok,blue,ok"
+run diagnostics 240 "right,ok,down,down,down,down,down,down,down,down,down,ok"
+run diagnostics_filter 260 "right,ok,down,down,down,down,down,down,down,down,down,ok,left,left"
+run diagnostics_qr 260 "right,ok,down,down,down,down,down,down,down,down,down,ok,ok"
+run diagnostics_prev_qr 280 "right,ok,down,down,down,down,down,down,down,down,down,ok,blue,ok"
 run login_qr 160 "right,right,ok"
 run login_pw 180 "right,right,ok,ok"
 python3 -I - "$OUT" <<'PY'

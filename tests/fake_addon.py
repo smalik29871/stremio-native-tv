@@ -158,6 +158,16 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"meta": dict(m, description="A fixture movie used by the smoke test.", runtime="101 min")}).encode())
         if p.startswith("/stream/"):
             return self.send(200, json.dumps(STREAMS).encode())
+        if p.startswith("/introdb/media"):
+            # TheIntroDB v4 shape: intro from the start to 60 s, credits at 50 min
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(p).query)
+            body = {"type": "tv" if "season" in q else "movie",
+                    "intro": [{"start_ms": None, "end_ms": 60000}],
+                    "credits": [{"start_ms": 3000000, "end_ms": None}]}
+            if "season" in q:
+                body.update(season=int(q["season"][0]), episode=int(q["episode"][0]))
+            return self.send(200, json.dumps(body).encode())
         if p.startswith("/link/create"):
             return self.send(200, json.dumps({"result": {"code": "QW7RT2", "link": "https://www.stremio.com/link?code=QW7RT2", "qrcode": ""}}).encode())
         if p.startswith("/link/read"):

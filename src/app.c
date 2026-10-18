@@ -495,6 +495,8 @@ static void load_prefs(void)
     g_app.spoiler_blur = store_get_int("spoilerBlur", 1);
     g_app.subs_size = store_get_int("subsSize", 1);
     g_app.autoplay_next = store_get_int("autoplayNext", 1);
+    g_app.skip_mode = store_get_int("skipMode", 0);
+    if (g_app.skip_mode < 0 || g_app.skip_mode > 2) g_app.skip_mode = 0;
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
 }
@@ -505,6 +507,7 @@ void app_save_prefs(void)
     store_set_int("spoilerBlur", g_app.spoiler_blur);
     store_set_int("subsSize", g_app.subs_size);
     store_set_int("autoplayNext", g_app.autoplay_next);
+    store_set_int("skipMode", g_app.skip_mode);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();

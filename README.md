@@ -9,7 +9,7 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.4.1**. The desktop preview builds warning-free, passes its unit tests and
+> Status: **v0.4.2**. The desktop preview builds warning-free, passes its unit tests and
 > runs every screen headlessly against a fake addon (including subtitles, the track menu,
 > source fallback and Up Next). The webOS and Tizen video backends follow the platform
 > APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
@@ -30,6 +30,8 @@ backdrop.
 | ![Subtitles panel](docs/screenshots/player_subs.jpg) | ![Up Next](docs/screenshots/upnext_card.jpg) |
 | **Sign in with a QR code** | **Settings** |
 | ![QR](docs/screenshots/login_qr.jpg) | ![Settings](docs/screenshots/settings.jpg) |
+| **Skip intro** | **Up Next at the credits** |
+| ![Skip intro](docs/screenshots/player_skip.jpg) | ![Up Next at the credits](docs/screenshots/upnext_credits.jpg) |
 | **Diagnostics** | **Log as a QR code** |
 | ![Diagnostics](docs/screenshots/diagnostics.jpg) | ![Log QR](docs/screenshots/diagnostics_qr.jpg) |
 
@@ -64,6 +66,11 @@ backdrop.
   offset, preferred languages, automatic fallback to the next source when the pipeline
   fails or stalls, Up Next with autoplay on the same release, coalesced seeking,
   buffering readout, background/foreground handling.
+- **Skip intro / recap, Up Next at the credits**: markers from TheIntroDB (IMDb ids,
+  movies and episodes) and AniSkip (Kitsu/MAL anime ids, Kitsu id mapped to MAL), both
+  free and keyless. A *Skip intro* button (or automatic skipping, or off, in Settings),
+  the marked ranges drawn under the seek bar, and the Up Next card at the start of the
+  credits with the next episode 20 s later instead of 45 s before the end.
 - **Sign-in by QR** or short code via link.stremio.com; e-mail + password as fallback.
 - **Snappy on old hardware**: keep-alive HTTP, disk caches for artwork and catalogs
   (Home opens from cache instantly), poster prefetch and fade-in, eased scrolling,
@@ -74,7 +81,8 @@ backdrop.
   ships `.so.4`.
 
 Taken from the Nuvio port on purpose: cache-first Home, Automatic/Full/Light effects,
-spoiler blur, QR sign-in, seek-shows-only-the-bar, RAM-based texture budget, the
+spoiler blur, QR sign-in, skip intro/recap and credits-based Up Next (TheIntroDB,
+AniSkip), seek-shows-only-the-bar, RAM-based texture budget, the
 exported-window / ACB split, dlopen'd curl, the log file. Left out on purpose because
 they would make the client less stable right now: the in-app updater, the DTS-to-AAC
 FFmpeg transcoder, libass for embedded ASS, YouTube/Apple trailers in the hero, the
@@ -182,8 +190,8 @@ in this build; `src/http.c` is still the curl implementation, so a `fetch()`-bas
 
 | Area | Status |
 |---|---|
-| Addon protocol + API parsing, link login, subtitles | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`) |
-| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, QR screen | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (21 scripted runs, screenshots in `tests/out/`) |
+| Addon protocol + API parsing, link login, subtitles, skip markers | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`, `tests/test_skip.c`) |
+| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (23 scripted runs, screenshots in `tests/out/`) |
 | Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS playback (LS2 payloads, exported window, ACB binding) | Follows what the Nuvio native client documents from real TVs; **not yet run on a TV from this repo** |
@@ -215,9 +223,10 @@ the "This source can't be played" card.
 
 ## Player keys
 
-OK play/pause, Left/Right seek 10 s (accelerates while held), Up audio menu, Down
-subtitle menu (Left/Right inside it shifts timing by 0.5 s), Green play Up Next now,
-Yellow switch to the next source, Back stop and save progress.
+OK play/pause (while *Skip intro* / *Skip recap* is on screen, OK skips), Left/Right
+seek 10 s (accelerates while held), Up audio menu, Down subtitle menu (Left/Right inside
+it shifts timing by 0.5 s), Green play Up Next now, Yellow switch to the next source,
+Back hides the Up Next card (and cancels its countdown) or stops and saves progress.
 
 ## Torrent streams
 

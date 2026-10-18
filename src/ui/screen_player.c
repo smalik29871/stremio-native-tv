@@ -1,9 +1,11 @@
 /* Player: transparent hole for the platform video plane, overlay controls,
  * addon + embedded subtitles, audio/subtitle menu, auto-fallback across stream
- * candidates, Up Next at the credits, and progress sync to the Stremio library. */
+ * candidates, intro/recap skipping, Up Next at the credits, and progress sync to
+ * the Stremio library. */
 #include "../app.h"
 #include "../http.h"
 #include "../log.h"
+#include "../skip.h"
 #include "../store.h"
 #include "../subs.h"
 #include "../video/video.h"
@@ -50,6 +52,14 @@ struct Player {
     int subs_auto_done;       /* subtitle preference applied (or given up) */
     int last_tracks_version;
     int last_warning_version;
+
+    /* skip markers (TheIntroDB / AniSkip) */
+    SkipId skip_id;
+    SkipSeg skip[SKIP_MAX]; int n_skip;
+    int skip_state;           /* 0 not asked, 1 asking, 2 answered (or gave up) */
+    unsigned skip_used;       /* bit per segment: skipped or played through */
+    double next_at;           /* position where Up Next starts by itself */
+    int up_next_dismissed;
 
     int menu, menu_focus;
     float play_flash;          /* big centre icon after play/pause */
@@ -185,6 +195,120 @@ static void auto_select_tracks(Player *p)
     if (p->subs_pending == 0 || g_app.time - p->load_started > 15) p->subs_auto_done = 1;
 }
 
+/* ---- skip markers ------------------------------------------------------------- */
+
+static void skip_done(Player *p, int n, const char *from)
+{
+    p->n_skip = n > 0 ? n : 0;
+    p->skip_state = 2;
+    LOGI("player: %d skip marker%s from %s for %s", p->n_skip, p->n_skip == 1 ? "" : "s", from, p->video_id);
+    for (int i = 0; i < p->n_skip; i++)
+        LOGI("player: marker %d %.0f-%.0fs", (int)p->skip[i].kind, p->skip[i].start, p->skip[i].end);
+    app_redraw();
+}
+
+static void on_introdb(HttpResponse *r, void *user)
+{
+    SubReq *q = user;
+    Player *p = q->owner;
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    free(q);
+    int n = 0;
+    if (r->status == 200 && r->body) {
+        n = skip_parse_introdb(r->body, p->skip_id.season, p->skip_id.episode, p->skip, SKIP_MAX);
+        if (n < 0) LOGW("player: TheIntroDB answered for another episode, markers ignored");
+    } else if (r->status != 204 && r->status != 404) {
+        LOGW("player: TheIntroDB status %ld %s", r->status, r->error);
+    }
+    skip_done(p, n, "TheIntroDB");
+}
+
+static void on_aniskip(HttpResponse *r, void *user)
+{
+    SubReq *q = user;
+    Player *p = q->owner;
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    free(q);
+    VideoInfo vi;
+    video_info(&vi);
+    int n = 0;
+    if (r->status == 200 && r->body) n = skip_parse_aniskip(r->body, vi.duration, p->skip, SKIP_MAX);
+    else if (r->status != 404) LOGW("player: AniSkip status %ld %s", r->status, r->error);
+    skip_done(p, n, "AniSkip");
+}
+
+static void ask_aniskip(Player *p, long mal)
+{
+    VideoInfo vi;
+    video_info(&vi);
+    char url[400];
+    skip_url_aniskip(mal, p->skip_id.episode, vi.duration, url, sizeof url);
+    SubReq *q = malloc(sizeof *q);
+    q->owner = p; q->gen = p->gen; q->addon = -1;
+    http_request_async(url, NULL, on_aniskip, q);
+}
+
+static void on_kitsu(HttpResponse *r, void *user)
+{
+    SubReq *q = user;
+    Player *p = q->owner;
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    free(q);
+    long mal = r->status == 200 && r->body ? skip_parse_kitsu_mal(r->body) : 0;
+    if (mal > 0) ask_aniskip(p, mal);
+    else skip_done(p, 0, "Kitsu (no MyAnimeList id)");
+}
+
+/* Once per episode, when the duration is known (the services match markers to
+ * the cut by its length) or after 10 s without one. */
+static void skip_fetch(Player *p, const VideoInfo *vi)
+{
+    if (p->skip_state || (g_app.skip_mode == 2 && !p->next_video_id)) return;
+    if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED) return;
+    if (vi->duration <= 0 && g_app.time - p->load_started < 10) return;
+    p->skip_state = 1;
+    if (skip_parse_video_id(p->video_id, &p->skip_id) != 0) { p->skip_state = 2; return; }
+    char url[400];
+    SubReq *q = malloc(sizeof *q);
+    q->owner = p; q->gen = p->gen; q->addon = -1;
+    switch (p->skip_id.src) {
+    case SKIP_SRC_IMDB:
+        skip_url_introdb(&p->skip_id, vi->duration, url, sizeof url);
+        http_request_async(url, NULL, on_introdb, q);
+        break;
+    case SKIP_SRC_KITSU:
+        skip_url_kitsu_mappings(p->skip_id.id, url, sizeof url);
+        http_request_async(url, NULL, on_kitsu, q);
+        break;
+    default:
+        free(q);
+        ask_aniskip(p, atol(p->skip_id.id));
+        break;
+    }
+}
+
+/* The intro or recap the playhead is in, if it can still be skipped. */
+static const SkipSeg *skippable(Player *p, const VideoInfo *vi)
+{
+    if (g_app.skip_mode == 2 || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return NULL;
+    for (int i = 0; i < p->n_skip; i++) {
+        const SkipSeg *s = &p->skip[i];
+        if ((s->kind != SKIP_INTRO && s->kind != SKIP_RECAP) || s->end <= 0 || (p->skip_used & (1u << i))) continue;
+        if (vi->position >= s->start && vi->position < s->end - 1.5) return s;
+        if (vi->position >= s->end) p->skip_used |= 1u << i;   /* played through it */
+    }
+    return NULL;
+}
+
+static void do_skip(Player *p, const SkipSeg *s)
+{
+    p->skip_used |= 1u << (int)(s - p->skip);
+    LOGI("player: skipping %s %.0f-%.0fs", s->kind == SKIP_RECAP ? "recap" : "intro", s->start, s->end);
+    video_seek(s->end);
+    if (g_app.skip_mode == 1) app_toast(s->kind == SKIP_RECAP ? "Skipped the recap" : "Skipped the intro");
+    app_redraw();
+}
+
 /* ---- playback / fallback ------------------------------------------------------ */
 
 static void start_candidate(Player *p, int idx, double start)
@@ -251,8 +375,24 @@ static void update(Screen *s, float dt)
     if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
     if (vi.state == VIDEO_LOADING && g_app.time - p->load_started > 45.0f && !p->error_handled) { p->error_handled = 1; fail_over(p, "Source is not responding"); }
 
+    skip_fetch(p, &vi);
+    if (g_app.skip_mode == 1) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
+
+    /* Up Next: at the credits when the markers say where they start (and the
+     * next episode begins 20 s later), else 45 s before the end */
+    double credits = skip_credits_start(p->skip, p->n_skip);
+    int at_credits = credits > 60 && vi.duration > 0 && credits < vi.duration - 10 && vi.position >= credits && vi.position < vi.duration - 1;
     int near_end = vi.duration > 120 && vi.position > vi.duration - 45;
-    if (p->next_video_id && near_end && !p->up_next_shown) { p->up_next_shown = 1; show_overlay(p); }
+    if (p->next_video_id && (at_credits || near_end) && !p->up_next_shown && !p->up_next_dismissed) {
+        p->up_next_shown = 1;
+        p->next_at = at_credits && !near_end ? credits + 20 : vi.duration;
+        if (p->next_at > vi.duration) p->next_at = vi.duration;
+        LOGI("player: Up Next at %.0fs (%s), plays at %.0fs", vi.position, at_credits ? "credits" : "end", p->next_at);
+        show_overlay(p);
+    }
+    if (p->up_next_shown && p->next_video_id && g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at
+        && vi.state == VIDEO_PLAYING) { go_up_next(p); return; }
+    if (p->up_next_shown && vi.position < credits - 5 && credits > 60 && !near_end) p->up_next_shown = 0;   /* seeked back */
     if (vi.state == VIDEO_ENDED) {
         if (p->next_video_id && g_app.autoplay_next) { go_up_next(p); return; }
         p->finished = 1;
@@ -349,14 +489,32 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
     font_draw("UP NEXT", tx, y + 24, FONT_XS | FONT_B, THEME_ACCENT2);
     font_draw_wrapped(p->next_title ? p->next_title : "Next episode", tx, y + 54, FONT_S | FONT_B, THEME_TEXT, w - 320, 2);
     if (g_app.autoplay_next && vi->duration > 0) {
-        double left = vi->duration - vi->position;
+        double at = p->next_at > 0 ? p->next_at : vi->duration;
+        double window = at < vi->duration ? 20.0 : 45.0;
+        double left = at - vi->position;
         char t[48]; snprintf(t, sizeof t, "Starts in %ds", (int)(left < 0 ? 0 : left));
         font_draw(t, tx, y + h - 54, FONT_XS, THEME_TEXT_DIM);
-        ui_progress(tx, y + h - 22, w - 320, 6, (float)(1.0 - left / 45.0), THEME_ACCENT);
+        ui_progress(tx, y + h - 22, w - 320, 6, (float)(1.0 - left / window), THEME_ACCENT);
     }
     float gx = x + w - 140;
     gfx_rrect(gx, y + h - 64, 120, 40, 20, RGBA(0x22, 0xC5, 0x5E, 0xFF));
     font_draw_center("Play now", gx + 60, y + h - 64 + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ON_LIGHT);
+}
+
+static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay)
+{
+    (void)p;
+    const char *label = s->kind == SKIP_RECAP ? "Skip recap" : "Skip intro";
+    float h = 72, w = ui_pill_width(label, 1, h);
+    float x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 330 : SNTV_UI_H - 200;
+    if (!g_app.fx_light) gfx_shadow(x, y, w, h, h / 2, 30, RGBA(0, 0, 0, 0x90));
+    ui_pill(label, 1, ICON_NEXT, x, y, h, PILL_PRIMARY, 1);
+    /* time left in the segment, as a thin line under the button */
+    float k = (float)((vi->position - s->start) / (s->end - s->start));
+    if (k < 0) k = 0;
+    if (k > 1) k = 1;
+    gfx_rrect(x + h / 2, y + h + 10, (w - h) * (1 - k), 4, 2, RGBA(0xFF, 0xFF, 0xFF, 0x90));
+    font_draw("OK", x - font_measure("OK", FONT_XS | FONT_B) - 16, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
 }
 
 /* every candidate has failed and the error card is up */
@@ -446,6 +604,12 @@ static void draw(Screen *s)
         gfx_rrect(bx, ty, bw, th, th / 2, RGBA(0xFF, 0xFF, 0xFF, 0x30));
         if (vi.duration > 0) {
             if (vi.buffer_percent > 0) gfx_rrect(bx, ty, bw * vi.buffer_percent / 100.0f, th, th / 2, RGBA(0xFF, 0xFF, 0xFF, 0x30));
+            for (int i = 0; i < p->n_skip; i++) {   /* intro / credits ranges */
+                double e = p->skip[i].end > 0 ? p->skip[i].end : vi.duration;
+                if (p->skip[i].kind == SKIP_PREVIEW || e <= p->skip[i].start) continue;
+                gfx_rect(bx + bw * (float)(p->skip[i].start / vi.duration), ty + th + 6, bw * (float)((e - p->skip[i].start) / vi.duration), 3,
+                         p->skip[i].kind == SKIP_CREDITS ? RGBA(0xFF, 0xFF, 0xFF, 0x50) : COLOR_ALPHA(THEME_ACCENT2, 0xC0));
+            }
             float fw = bw * (float)(shown_pos / vi.duration);
             if (fw > th) gfx_rrect_grad_h(bx, ty, fw, th, th / 2, THEME_ACCENT, THEME_ACCENT2);
             float kx = bx + fw;
@@ -484,6 +648,8 @@ static void draw(Screen *s)
         }
     }
     if (p->up_next_shown && p->next_video_id && !p->menu) draw_up_next(p, &vi, overlay);
+    const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu ? skippable(p, &vi) : NULL;
+    if (sk) draw_skip_button(p, sk, &vi, overlay);
     if (p->menu) draw_menu(p);
 }
 
@@ -541,6 +707,10 @@ static int key(Screen *s, KeyAction a)
         }
     }
     if (error_final(p, &vi) && a == KEY_OK) { app_push(screen_diagnostics_create(1)); return 1; }
+    if (a == KEY_OK && g_app.skip_mode == 0) { const SkipSeg *sk = skippable(p, &vi); if (sk) { do_skip(p, sk); show_overlay(p); return 1; } }
+    if (a == KEY_BACK && p->up_next_shown && p->next_video_id) {   /* dismiss the card, keep watching */
+        p->up_next_shown = 0; p->up_next_dismissed = 1; app_redraw(); return 1;
+    }
     switch (a) {
     case KEY_OK: case KEY_PLAY_PAUSE:
         if (vi.state == VIDEO_PLAYING) video_pause(); else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.2
+
+- **Skip intro and recap.** Markers come from TheIntroDB (movies and episodes with IMDb
+  ids) and AniSkip (anime with Kitsu or MyAnimeList ids). Both are free and need no key.
+  While an intro or recap plays, a *Skip intro* button appears; OK jumps past it.
+  Settings > *Skip intros and recaps* chooses the button, automatic skipping, or off.
+- **Up Next at the credits.** When the credits start time is known, the Up Next card
+  appears there and the next episode starts 20 s later (with *Play next episode
+  automatically* on). Without markers it still appears 45 s before the end. Back now
+  hides the card and cancels the countdown.
+- The intro and credits ranges are drawn under the seek bar.
+- Answers for a different episode than the one playing are ignored, and AniSkip
+  timings marked on a cut more than 10% longer or shorter are dropped.
+
 ## 0.4.1
 
 - New **Diagnostics** screen (Settings > Diagnostics, or OK on the playback error card):

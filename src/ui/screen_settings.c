@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_SIZE, IT_AUTOPLAY,
+enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_SIZE, IT_AUTOPLAY, IT_SKIP,
        IT_UI_HEADER, IT_FX, IT_BLUR, IT_DIAG, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
 #define ROW_H 88.0f
@@ -139,6 +139,11 @@ static void draw(Screen *s)
         case IT_PREF_SUBS: draw_row(y, ICON_SUBS, "Preferred subtitles", lang_name(g_app.pref_subs), foc, KIND_CHOICE, 0); break;
         case IT_SUBS_SIZE: draw_row(y, ICON_SUBS, "Subtitle size", SIZE_NAMES[g_app.subs_size], foc, KIND_CHOICE, 0); break;
         case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
+        case IT_SKIP: {
+            static const char *SKIP_NAMES[] = { "Show a Skip button", "Skip automatically", "Off" };
+            draw_row(y, ICON_NEXT, "Skip intros and recaps", SKIP_NAMES[g_app.skip_mode], foc, KIND_CHOICE, 0);
+            break;
+        }
         case IT_UI_HEADER: draw_row(y, ICON_HOME, "INTERFACE", NULL, 0, KIND_HEADER, 0); break;
         case IT_FX:
             snprintf(v, sizeof v, "%s%s", FX_NAMES[g_app.fx_setting], g_app.fx_setting == FX_AUTO ? (g_app.fx_light ? " (Light)" : g_app.frames_measured >= 240 ? " (Full)" : "") : "");
@@ -203,6 +208,7 @@ static void adjust(Settings *st, int dir)
     case IT_SUBS_SIZE: g_app.subs_size = (g_app.subs_size + dir + 3) % 3; break;
     case IT_FX: g_app.fx_setting = (FxLevel)(((int)g_app.fx_setting + dir + 3) % 3); break;
     case IT_AUTOPLAY: g_app.autoplay_next = !g_app.autoplay_next; break;
+    case IT_SKIP: g_app.skip_mode = (g_app.skip_mode + dir + 3) % 3; break;
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     default: return;
     }
@@ -236,7 +242,7 @@ static int key(Screen *s, KeyAction a)
         else if (st->focus == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (st->focus == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (st->focus == IT_DIAG) app_push(screen_diagnostics_create(0));
-        else if (st->focus == IT_AUTOPLAY || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
+        else if (st->focus == IT_AUTOPLAY || st->focus == IT_SKIP || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
         else if (st->focus >= IT_FIXED_COUNT) {
             int idx = st->focus - IT_FIXED_COUNT;
             if (st->confirm_remove == idx) { app_remove_addon(idx); st->confirm_remove = -1; if (st->focus >= item_count()) st->focus = item_count() - 1; }

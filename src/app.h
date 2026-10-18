@@ -53,6 +53,7 @@ typedef struct App {
     char pref_audio[8], pref_subs[8];   /* ISO 639-2/3 like "eng", or "" */
     int subs_size;             /* 0 small, 1 medium, 2 large */
     int autoplay_next;         /* Up Next at the credits */
+    int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
 
     /* perf */
     int frames_measured; float frame_ms_sum, frame_ms_worst;
