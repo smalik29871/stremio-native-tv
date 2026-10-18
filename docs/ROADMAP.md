@@ -20,7 +20,9 @@ Ordered by what unblocks real use on a TV.
 9. **Trakt / debrid / profiles** are account-side features in Stremio; expose what the
    addon collection already carries, nothing more.
 10. **Samsung .NET host** for 2018-2020 Tizen sets, mirroring `tizen-tpk/` in the reference project.
-11. **Seek preview thumbnails (not planned yet).** On LG and Samsung the video is a
+11. **Seek preview thumbnails** — done as an opt-in in 0.5.6 via a self-hosted ffmpeg
+    server (`tools/thumbs`), one small JPEG per request, nothing held in texture memory
+    beyond the frames near the seek point. The original note, for the record: On LG and Samsung the video is a
     hardware plane the app cannot read, so frames cannot be grabbed locally the way
     desktop players (mpv's thumbfast in Stremio-Kai) do it. Nuvio's experimental version
     uses seekr.tv: each viewer needs their own Seekr key, and one sprite sheet decodes to

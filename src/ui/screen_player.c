@@ -381,6 +381,24 @@ static void probe_current(Player *p)
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
 
+/* Seek preview from the viewer's own ffmpeg server (tools/thumbs): the frame at `t`
+ * rounded to 10 s. Returns the texture when it has arrived, 0 meanwhile. */
+static unsigned seek_thumb(const Player *p, double t, int *w, int *h, int prefetch_neighbours)
+{
+    if (!g_app.thumb_server || p->cur >= p->n_cands || strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
+    char enc[1600], url[2048];
+    http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
+    long sec = (long)(t / 10) * 10;
+    if (prefetch_neighbours)
+        for (int d = -2; d <= 2; d++) {
+            if (!d || sec + d * 10 < 0) continue;
+            snprintf(url, sizeof url, "%s/frame?url=%s&t=%ld", g_app.thumb_server, enc, sec + d * 10);
+            image_prefetch(url);
+        }
+    snprintf(url, sizeof url, "%s/frame?url=%s&t=%ld", g_app.thumb_server, enc, sec);
+    return image_get(url, w, h);
+}
+
 /* Chapter containing `pos` (-1 none) */
 static int chapter_at(const Player *p, double pos)
 {
@@ -1260,6 +1278,18 @@ static void draw(Screen *s)
                 float tx = kx - tw / 2;
                 if (tx < bx) tx = bx;
                 if (tx + tw > bx + bw) tx = bx + bw - tw;
+                int pw = 0, ph = 0;
+                unsigned ptex = seek_thumb(p, shown_pos, &pw, &ph, 1);
+                if (ptex && pw > 0) {   /* the frame sits above the bubble */
+                    float fw2 = 360, fh2 = fw2 * ph / pw, fx = kx - fw2 / 2;
+                    if (fh2 > 240) { fh2 = 240; fw2 = fh2 * pw / ph; fx = kx - fw2 / 2; }
+                    if (fx < bx) fx = bx;
+                    if (fx + fw2 > bx + bw) fx = bx + bw - fw2;
+                    float fy = by - 30 - bh - 16 - fh2;
+                    if (!g_app.fx_light) gfx_shadow(fx, fy + 6, fw2, fh2, 16, 30, RGBA(0, 0, 0, 0xA0));
+                    gfx_rtex_uv(ptex, fx, fy, fw2, fh2, 16, 0, 0, 1, 1, RGBA(255, 255, 255, 255), 0);
+                    gfx_rrect_ring(fx, fy, fw2, fh2, 16, 2, THEME_TEXT);
+                }
                 gfx_rrect(tx, by - 30 - bh, tw, bh, 26, THEME_TEXT);
                 font_draw(t, tx + (tw - font_measure(t, FONT_M | FONT_B)) / 2, by - 30 - bh + 10, FONT_M | FONT_B, THEME_ON_LIGHT);
                 if (cname) font_draw(cname, tx + (tw - font_measure(cname, FONT_XS | FONT_B)) / 2, by - 30 - bh + 48, FONT_XS | FONT_B, RGBA(0x0B, 0x0A, 0x16, 0xB0));

@@ -335,6 +335,106 @@ int app_title_watched(const char *id)
     return li && !li->removed && (li->flagged_watched || li->times_watched > 0) && li->time_offset == 0;
 }
 
+/* ---- saved accounts, parental PIN -------------------------------------------- */
+
+static void accounts_remember(const char *email, const char *key)
+{
+    if (!email || !key) return;
+    cJSON *arr = store_get_json("accounts");
+    cJSON *copy = cJSON_CreateArray();
+    if (cJSON_IsArray(arr)) {
+        cJSON *it;
+        cJSON_ArrayForEach(it, arr) {
+            const cJSON *e = cJSON_GetObjectItemCaseSensitive(it, "email");
+            if (cJSON_IsString(e) && strcmp(e->valuestring, email) == 0) continue;   /* replaced below */
+            cJSON_AddItemToArray(copy, cJSON_Duplicate(it, 1));
+        }
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "email", email);
+    cJSON_AddStringToObject(o, "key", key);
+    cJSON_AddItemToArray(copy, o);
+    store_set_json("accounts", copy);
+    store_save();
+}
+
+int app_saved_accounts(char emails[][128], int max)
+{
+    cJSON *arr = store_get_json("accounts");
+    int n = 0;
+    if (!cJSON_IsArray(arr)) return 0;
+    cJSON *it;
+    cJSON_ArrayForEach(it, arr) {
+        const cJSON *e = cJSON_GetObjectItemCaseSensitive(it, "email");
+        if (!cJSON_IsString(e) || n >= max) continue;
+        if (g_app.user_email && strcmp(e->valuestring, g_app.user_email) == 0) continue;
+        snprintf(emails[n++], 128, "%s", e->valuestring);
+    }
+    return n;
+}
+
+static cJSON *saved_account_at(int index)
+{
+    cJSON *arr = store_get_json("accounts");
+    if (!cJSON_IsArray(arr)) return NULL;
+    int n = 0;
+    cJSON *it;
+    cJSON_ArrayForEach(it, arr) {
+        const cJSON *e = cJSON_GetObjectItemCaseSensitive(it, "email");
+        if (!cJSON_IsString(e)) continue;
+        if (g_app.user_email && strcmp(e->valuestring, g_app.user_email) == 0) continue;
+        if (n++ == index) return it;
+    }
+    return NULL;
+}
+
+void app_switch_account(int index)
+{
+    cJSON *it = saved_account_at(index);
+    if (!it) return;
+    const cJSON *e = cJSON_GetObjectItemCaseSensitive(it, "email"), *k = cJSON_GetObjectItemCaseSensitive(it, "key");
+    if (!cJSON_IsString(e) || !cJSON_IsString(k)) return;
+    free(g_app.auth_key); free(g_app.user_email);
+    g_app.auth_key = strdup(k->valuestring);
+    g_app.user_email = strdup(e->valuestring);
+    store_set_str("authKey", g_app.auth_key);
+    store_set_str("email", g_app.user_email);
+    store_save();
+    library_items_free(g_app.library, g_app.n_library);
+    g_app.library = NULL; g_app.n_library = 0;
+    g_app.library_version++;
+    store_write_file("library.json", "{\"result\":[]}", 13);
+    app_load_addons();
+    app_load_library();
+    app_toast("Switched to %s", g_app.user_email);
+}
+
+void app_forget_account(int index)
+{
+    cJSON *it = saved_account_at(index);
+    if (!it) return;
+    cJSON *arr = store_get_json("accounts");
+    cJSON_DetachItemViaPointer(arr, it);
+    cJSON_Delete(it);
+    store_save();
+}
+
+void app_set_parental_pin(const char *pin)
+{
+    snprintf(g_app.parental_pin, sizeof g_app.parental_pin, "%.7s", pin ? pin : "");
+    store_set_str("parentalPin", g_app.parental_pin[0] ? g_app.parental_pin : NULL);
+    if (!g_app.parental_pin[0]) { g_app.pin_settings = 0; store_set_int("pinSettings", 0); }
+    store_save();
+}
+
+static void settings_after_pin(int ok, void *user) { (void)user; if (ok) app_push(screen_settings_create()); }
+
+void app_open_settings(void)
+{
+    if (g_app.parental_pin[0] && g_app.pin_settings) app_push(screen_pin_create("Settings are locked", 0, settings_after_pin, NULL));
+    else app_push(screen_settings_create());
+}
+
 /* ---- home rows --------------------------------------------------------------- */
 
 enum { HR_MAX = 160 };
@@ -380,6 +480,7 @@ int app_home_rows(HomeRowDef *out, int max)
     if (n < max) { snprintf(all[n].key, sizeof all[n].key, "library"); snprintf(all[n].title, sizeof all[n].title, "My Library"); all[n].kind = 1; n++; }
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];
+        if (g_app.hide_adult && ad->manifest.bh_adult) continue;
         for (int c = 0; c < ad->manifest.n_catalogs && n < max; c++) {
             const AddonCatalog *cat = &ad->manifest.catalogs[c];
             if (addon_catalog_has_required_extra(cat)) continue;
@@ -448,6 +549,7 @@ static void on_login(HttpResponse *r, void *user)
     store_set_str("authKey", key);
     store_set_str("email", email);
     store_save();
+    accounts_remember(email, key);
     app_load_addons();
     app_load_library();
     if (g_login_done) g_login_done(1, email ? email : "");
@@ -706,6 +808,10 @@ static void load_prefs(void)
     g_app.live_scrub = store_get_int("liveScrub", 1);
     g_app.home_style = store_get_int("homeStyle", HOME_CINEMATIC);
     g_app.hide_watched = store_get_int("hideWatched", 0);
+    snprintf(g_app.parental_pin, sizeof g_app.parental_pin, "%.7s", store_get_str("parentalPin", ""));
+    g_app.pin_settings = store_get_int("pinSettings", 0);
+    g_app.hide_adult = store_get_int("hideAdult", 0);
+    { const char *t = store_get_str("thumbServer", NULL); free(g_app.thumb_server); g_app.thumb_server = t && *t ? strdup(t) : NULL; }
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
@@ -731,6 +837,9 @@ void app_save_prefs(void)
     store_set_int("liveScrub", g_app.live_scrub);
     store_set_int("homeStyle", g_app.home_style);
     store_set_int("hideWatched", g_app.hide_watched);
+    store_set_int("pinSettings", g_app.pin_settings);
+    store_set_int("hideAdult", g_app.hide_adult);
+    store_set_str("thumbServer", g_app.thumb_server && *g_app.thumb_server ? g_app.thumb_server : NULL);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();

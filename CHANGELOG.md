@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.6
+
+- **Seek previews, your own way**: `tools/thumbs/server.py` (ffmpeg, one file, or the
+  Dockerfile beside it) serves a frame for any time in the stream; point Settings >
+  Playback > *Seek preview server* at it and the player shows the picture above the
+  time bubble while you seek, fetching neighbours ahead. Nothing leaves your network
+  and no key is needed; without a server the player behaves as before.
+- **Saved sign-ins**: every account you sign into is kept; Settings > Account lists the
+  others as *Switch to …* (OK switches without a password, Left forgets one).
+- **Parental PIN** (Settings > Parental): a four-digit PIN set on a keypad; it can lock
+  Settings and hide catalogs of addons flagged adult. Number keys on the remote work.
+
 ## 0.5.5
 
 Player extras from the best mobile players.

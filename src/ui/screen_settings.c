@@ -16,8 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_ABOUT, CAT_COUNT };
-static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "About" };
+enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
+static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "Parental", "About" };
 static const char *const CAT_DESC[CAT_COUNT] = {
     "Your Stremio account and the streaming server for torrents.",
     "What happens while a video plays.",
@@ -26,13 +26,15 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "The look of the app.",
     "Which rows Home shows, and in what order. OK shows or hides a row, Left/Right moves it.",
     "Installed addons, in the order they answer. Left/Right moves an addon; the order is kept in your account.",
+    "A PIN that keeps Settings closed and adult addons out of the catalogs.",
     "Logs, device information and setup." };
-static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_INFO };
+static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000 };
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT,
+       IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS };
 enum { MAX_ROWS = 160 };
 #define ROW_H 88.0f
 #define COL_X 560.0f
@@ -47,14 +49,21 @@ typedef struct {
     Keyboard kb;
     float scroll, scroll_target;
     HomeRowDef rows[MAX_ROWS]; int n_rows; int rows_seen;
+    char accounts[8][128]; int n_accounts;
 } Settings;
 
 static int rows_for(Settings *st, int cat, int *ids, int max)
 {
     int n = 0;
     switch (cat) {
-    case CAT_ACCOUNT: ids[n++] = IT_ACCOUNT; ids[n++] = IT_SERVER; break;
-    case CAT_PLAYBACK: ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; break;
+    case CAT_ACCOUNT:
+        ids[n++] = IT_ACCOUNT;
+        st->n_accounts = app_saved_accounts(st->accounts, 8);
+        for (int i = 0; i < st->n_accounts && n < max; i++) ids[n++] = IT_ACCT_BASE + i;
+        ids[n++] = IT_SERVER;
+        break;
+    case CAT_PLAYBACK: ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; break;
+    case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG: ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN; ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; break;
     case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; break;
     case CAT_INTERFACE: ids[n++] = IT_HOME_STYLE; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; break;
@@ -136,8 +145,10 @@ static void draw(Screen *s)
     draw_categories(st);
 
     if (st->edit != EDIT_NONE) {
-        const char *title = st->edit == EDIT_SERVER ? "Streaming server URL" : "Addon manifest URL";
-        const char *hint = st->edit == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470" : "Paste or type the addon's manifest.json address";
+        const char *title = st->edit == EDIT_SERVER ? "Streaming server URL" : st->edit == EDIT_THUMBS ? "Seek preview server" : "Addon manifest URL";
+        const char *hint = st->edit == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
+                         : st->edit == EDIT_THUMBS ? "tools/thumbs/server.py on a computer or NAS with ffmpeg, e.g. http://192.168.1.10:11480. Empty turns previews off."
+                         : "Paste or type the addon's manifest.json address";
         float x = COL_X;
         font_draw(title, x, 100, FONT_L | FONT_B, THEME_TEXT);
         font_draw(hint, x, 156, FONT_S, THEME_TEXT_DIM);
@@ -198,6 +209,10 @@ static void draw(Screen *s)
         }
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
         case IT_SCRUB: draw_row(y, ICON_PLAY, "Show the picture while seeking", NULL, foc, KIND_TOGGLE, g_app.live_scrub); break;
+        case IT_THUMBS: draw_row(y, ICON_ASPECT, "Seek preview server", g_app.thumb_server ? g_app.thumb_server : "Not set  \xC2\xB7  frames while seeking, from your own ffmpeg server", foc, KIND_ACTION, 0); break;
+        case IT_PIN: draw_row(y, ICON_LOCK, g_app.parental_pin[0] ? "Parental PIN" : "Set a parental PIN", g_app.parental_pin[0] ? "Set  \xC2\xB7  OK to remove it (asks for the PIN)" : "Four digits; needed for the switches below", foc, KIND_ACTION, 0); break;
+        case IT_PIN_SETTINGS: draw_row(y, ICON_SETTINGS, "Ask for the PIN to open Settings", NULL, foc, KIND_TOGGLE, g_app.pin_settings); break;
+        case IT_HIDE_ADULT: draw_row(y, ICON_LIBRARY, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_HOME_STYLE: draw_row(y, ICON_HOME, "Home screen", HOME_STYLE_NAMES[g_app.home_style], foc, KIND_CHOICE, 0); break;
         case IT_HIDE_WATCHED: draw_row(y, ICON_CHECK, "Hide watched titles in catalogs", NULL, foc, KIND_TOGGLE, g_app.hide_watched); break;
@@ -215,7 +230,10 @@ static void draw(Screen *s)
         case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         default:
-            if (id >= IT_ADDON_BASE) {
+            if (id >= IT_ACCT_BASE) {
+                char t[160]; snprintf(t, sizeof t, "Switch to %s", st->accounts[id - IT_ACCT_BASE]);
+                draw_row(y, ICON_USER, t, "Saved sign-in  \xC2\xB7  OK switches  \xC2\xB7  Left forgets it", foc, KIND_ACTION, 0);
+            } else if (id >= IT_ADDON_BASE) {
                 const Addon *a = &g_app.addons[id - IT_ADDON_BASE];
                 char title[200];
                 snprintf(title, sizeof title, "%d.  %s", id - IT_ADDON_BASE + 1, a->manifest.name);
@@ -251,7 +269,7 @@ static void draw(Screen *s)
 static void begin_edit(Settings *st, int which)
 {
     st->edit = which;
-    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : "https://");
+    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : which == EDIT_THUMBS ? (g_app.thumb_server ? g_app.thumb_server : "http://") : "https://");
     SDL_StartTextInput();
 }
 
@@ -267,6 +285,14 @@ static void finish_edit(Settings *st, int save)
             store_set_str("streamingServer", g_app.streaming_server);
             store_save();
             app_toast(n ? "Streaming server saved" : "Streaming server cleared");
+        } else if (st->edit == EDIT_THUMBS) {
+            char *v = st->kb.text;
+            size_t n = strlen(v);
+            while (n && v[n - 1] == '/') v[--n] = 0;
+            free(g_app.thumb_server);
+            g_app.thumb_server = n > 8 ? strdup(v) : NULL;
+            app_save_prefs();
+            app_toast(g_app.thumb_server ? "Seek previews on" : "Seek previews off");
         } else if (strlen(st->kb.text) > 10) {
             app_install_addon(st->kb.text);
         }
@@ -300,6 +326,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_SCRUB: g_app.live_scrub = !g_app.live_scrub; break;
     case IT_HOME_STYLE: g_app.home_style = (g_app.home_style + dir + HOME_STYLE_COUNT) % HOME_STYLE_COUNT; break;
     case IT_HIDE_WATCHED: g_app.hide_watched = !g_app.hide_watched; break;
+    case IT_PIN_SETTINGS: case IT_HIDE_ADULT: case IT_PIN: case IT_THUMBS: return 1;   /* OK (with the PIN) changes these */
     case IT_OLED: g_app.oled = !g_app.oled; break;
     case IT_AMBIENT: {
         static const int STEPS[] = { 0, 2, 5, 10, 20 };
@@ -310,6 +337,10 @@ static int adjust(Settings *st, int id, int dir)
     }
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     default:
+        if (id >= IT_ACCT_BASE) {
+            if (dir < 0) { app_forget_account(id - IT_ACCT_BASE); app_toast("Saved sign-in forgotten"); }
+            return 1;
+        }
         if (id >= IT_ADDON_BASE) {
             int i = id - IT_ADDON_BASE;
             if (app_move_addon(i, dir)) st->focus += dir;
@@ -327,6 +358,9 @@ static int adjust(Settings *st, int id, int dir)
     app_save_prefs();
     return 1;
 }
+
+static void after_pin_clear(int ok, void *user) { (void)user; if (ok) { app_set_parental_pin(NULL); app_toast("PIN removed"); } }
+static void after_pin_toggle(int ok, void *user) { if (!ok) return; int *flag = user; *flag = !*flag; app_save_prefs(); }
 
 static int key(Screen *s, KeyAction a)
 {
@@ -362,6 +396,11 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));
+        else if (id == IT_THUMBS) begin_edit(st, EDIT_THUMBS);
+        else if (id == IT_PIN) { if (g_app.parental_pin[0]) app_push(screen_pin_create("Remove the parental PIN", 0, after_pin_clear, NULL)); else app_push(screen_pin_create("Parental PIN", 1, NULL, NULL)); }
+        else if (id == IT_PIN_SETTINGS) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.pin_settings));
+        else if (id == IT_HIDE_ADULT) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.hide_adult));
+        else if (id >= IT_ACCT_BASE) app_switch_account(id - IT_ACCT_BASE);
         else if (id == IT_SETUP) app_push(screen_welcome_create());
         else if (id >= IT_ADDON_BASE) {
             int idx = id - IT_ADDON_BASE;

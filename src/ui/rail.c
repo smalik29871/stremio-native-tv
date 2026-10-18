@@ -68,8 +68,8 @@ void rail_go(int active, int target)
     case RAIL_LIBRARY: if (active == RAIL_LIBRARY) return; s = screen_library_create(); break;
     case RAIL_CALENDAR: if (active == RAIL_CALENDAR) return; s = screen_calendar_create(); break;
     case RAIL_SEARCH: app_push(screen_search_create()); return;
-    case RAIL_SETTINGS: app_push(screen_settings_create()); return;
-    case RAIL_ACCOUNT: app_push(g_app.auth_key ? screen_settings_create() : screen_login_create()); return;
+    case RAIL_SETTINGS: app_open_settings(); return;
+    case RAIL_ACCOUNT: if (g_app.auth_key) app_open_settings(); else app_push(screen_login_create()); return;
     default: return;
     }
     if (active == RAIL_HOME) app_push(s); else app_replace(s);

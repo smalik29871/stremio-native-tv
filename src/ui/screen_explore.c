@@ -81,7 +81,7 @@ static void build_types(Explore *e)
     for (int a = 0; a < g_app.n_addons; a++)
         for (int c = 0; c < g_app.addons[a].manifest.n_catalogs; c++) {
             const AddonCatalog *cat = &g_app.addons[a].manifest.catalogs[c];
-            if (!usable(cat)) continue;
+            if (!usable(cat) || (g_app.hide_adult && g_app.addons[a].manifest.bh_adult)) continue;
             int k; for (k = 0; k < e->n_types; k++) if (!strcmp(e->types[k], cat->type)) break;
             if (k == e->n_types && e->n_types < MAX_TYPES) snprintf(e->types[e->n_types++], 24, "%s", cat->type);
         }
@@ -103,7 +103,7 @@ static void build_cats(Explore *e)
     for (int a = 0; a < g_app.n_addons; a++)
         for (int c = 0; c < g_app.addons[a].manifest.n_catalogs && e->n_cats < MAX_CATS; c++) {
             const AddonCatalog *cat = &g_app.addons[a].manifest.catalogs[c];
-            if (strcmp(cat->type, e->types[e->type_i]) != 0 || !usable(cat)) continue;
+            if (strcmp(cat->type, e->types[e->type_i]) != 0 || !usable(cat) || (g_app.hide_adult && g_app.addons[a].manifest.bh_adult)) continue;
             e->cats[e->n_cats].addon = a; e->cats[e->n_cats].catalog = c; e->n_cats++;
         }
     if (e->cat_i >= e->n_cats) e->cat_i = 0;

@@ -48,10 +48,10 @@ run upnext_credits 300 "right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME="$(h
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run settings 260 "left,down,down,down,down,down,ok,down,down,right,down,down,down"
-run diagnostics 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,ok"
-run diagnostics_filter 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,ok,left,left"
-run diagnostics_qr 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,ok,ok"
-run diagnostics_prev_qr 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,ok,blue,ok"
+run diagnostics 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok"
+run diagnostics_filter 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,left,left"
+run diagnostics_qr 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,ok"
+run diagnostics_prev_qr 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,blue,ok"
 run settings_more 320 "left,down,down,down,down,down,ok,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
 run welcome 90 "" HOME="$(home_with fresh '{}')"
@@ -94,6 +94,11 @@ run settings_rows 360 "left,down,down,down,down,down,ok,down,down,down,down,down
 run settings_addons 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,down"
 run player_lock 420 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,right,right,ok,left,ok,back"
 run player_subs_second 480 "right,ok,down,down,ok,ok,down,right,right,right,ok,ok,down,down,down,down,ok" SNTV_FAKE_START=200
+run player_seek_thumb 238 "right,ok,down,down,ok,ok,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
+run settings_parental 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right"
+run pin_pad 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,ok,ok,right,ok"
+run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"parentalPin":"1234","pinSettings":1}')"
+run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_with accts '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"accounts":[{"email":"other@example.com","key":"k"}]}')"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)

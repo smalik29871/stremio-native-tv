@@ -68,6 +68,7 @@ static void run_query(Search *s)
     addon_extra_query(extra, sizeof extra, kv);
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];
+        if (g_app.hide_adult && ad->manifest.bh_adult) continue;
         for (int c = 0; c < ad->manifest.n_catalogs; c++) {
             const AddonCatalog *cat = &ad->manifest.catalogs[c];
             if (!addon_catalog_extra(cat, "search")) continue;

@@ -210,6 +210,9 @@ class H(BaseHTTPRequestHandler):
             if HAVE_PIL:
                 return self.send(200, art("thumb", i + 4), "image/jpeg")
             return self.send(200, png(320, 180, PALETTE[i % len(PALETTE)], pattern=True), "image/png")
+        if p.startswith("/thumbs/frame"):   # the seek preview server (tools/thumbs) stands in
+            t = int(float(p.split("t=")[1].split("&")[0])) if "t=" in p else 0
+            return self.send(200, art("bg", (t // 10) % 6, f"{t // 60}:{t % 60:02d}"), "image/png")
         if p.startswith("/poster/") or p.startswith("/bg/"):
             i = int(p.rsplit("/", 1)[1].split(".")[0])
             if HAVE_PIL and p.startswith("/poster/") and i % 4 == 2:   # metahub serves WebP for newer titles

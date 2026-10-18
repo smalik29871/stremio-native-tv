@@ -72,6 +72,10 @@ typedef struct App {
     int live_scrub;            /* the video follows the seek bar while the key is held */
     int home_style;            /* HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT */
     int hide_watched;          /* catalogs skip titles the library marks watched */
+    char *thumb_server;        /* optional seek preview server (tools/thumbs) */
+    char parental_pin[8];      /* "" when none */
+    int pin_settings;          /* ask for the PIN before Settings */
+    int hide_adult;            /* catalogs of addons flagged adult are skipped */
     int home_rows_version;     /* bumped when rows are reordered or hidden */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
@@ -97,7 +101,14 @@ void app_draw_toast(void);
 void app_load_addons(void);                    /* from account or defaults; caches to disk */
 void app_install_addon(const char *transport_url); /* fetches manifest, adds, pushes to account */
 void app_remove_addon(int index);
-int  app_move_addon(int index, int dir);       /* swaps with its neighbour; 1 when moved; synced to the account */
+int  app_move_addon(int index, int dir);
+/* Saved accounts (every successful sign-in is kept, so switching needs no password). */
+int  app_saved_accounts(char emails[][128], int max);   /* excludes the one signed in */
+void app_switch_account(int index);
+void app_forget_account(int index);
+void app_set_parental_pin(const char *pin);              /* NULL or "" clears */
+/* Opens Settings, asking for the parental PIN first when one guards it. */
+void app_open_settings(void);       /* swaps with its neighbour; 1 when moved; synced to the account */
 int  app_title_watched(const char *id);        /* the library says this title was watched */
 
 /* Home rows: the order and visibility the viewer chose (Settings > Home rows). */
@@ -165,6 +176,7 @@ Screen *screen_search_create(void);
 Screen *screen_settings_create(void);
 Screen *screen_diagnostics_create(int playback_only);
 Screen *screen_welcome_create(void);   /* first-run setup */
+Screen *screen_pin_create(const char *title, int setting, void (*done)(int ok, void *user), void *user);
 Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + clock */
 
 /* Picture-in-picture: Back in the player parks the video in a corner and keeps it
