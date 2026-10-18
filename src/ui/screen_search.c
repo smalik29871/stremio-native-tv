@@ -4,6 +4,8 @@
 #include "../store.h"
 #include "../../vendor/cJSON.h"
 #include "../log.h"
+#include "../phone.h"
+#include "qrcodegen.h"
 #include "font.h"
 #include "keyboard.h"
 #include "theme.h"
@@ -15,14 +17,17 @@
 #include <string.h>
 #include <math.h>
 
-enum { COLS = 5, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, GRID_ROWS_VISIBLE = 3 };
+/* Results sit beside the keyboard while typing and use the full width once it closes. */
+enum { COLS_TYPING = 3, COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, FIELD_Y = 140, FIELD_H = 76 };
 
 typedef struct Search Search;
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; } Pending;
 
 struct Search {
     Keyboard kb;
-    int focus_grid;
+    int typing;               /* the keyboard is open; OK on the search bar opens it */
+    int focus_grid;           /* 0 the search bar (or the keyboard), 1 results, 2 recent searches */
+    uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* or type on the phone */
     MetaPreview *results; int n;
     int grid_focus;
     float debounce;
@@ -207,16 +212,75 @@ static void run_query(Search *s)
     search_addons(s, q, 0, 0);
 }
 
+static void open_keyboard(Search *s)
+{
+    s->typing = 1; s->focus_grid = 0;
+    input_text(1);
+    phone_prompt("Search", "Type a title, a person, or what you feel like watching", s->kb.text);
+    char url[96]; uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
+    s->qr_ready = phone_url(url, sizeof url) && qrcodegen_encodeText(url, tmp, s->qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
+    snprintf(s->phone_url, sizeof s->phone_url, "%s", s->qr_ready ? url : "");
+}
+
+static void close_keyboard(Search *s)
+{
+    if (!s->typing) return;
+    s->typing = 0;
+    input_text(0);
+    phone_prompt(NULL, NULL, NULL);
+}
+
+static int cols(const Search *s) { return s->typing ? COLS_TYPING : COLS; }
+
 static void update(Screen *sc, float dt)
 {
     Search *s = sc->st;
-    int row = s->grid_focus / COLS;
+    char got[256];
+    if (s->typing && phone_take(got, sizeof got)) {   /* sent from the phone: search it right away */
+        keyboard_init(&s->kb, 0, got);
+        close_keyboard(s);
+        s->dirty = 0; run_query(s);
+        app_toast("Received from your phone");
+        app_redraw();
+    }
+    int row = s->grid_focus / cols(s);
     float target = (row > 1 ? row - 1 : 0) * (float)(CELL_H + 80);
     s->grid_scroll = ui_ease(s->grid_scroll, target, NULL, dt, 14);
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
     ui_peek_step(&s->peek, s->focus_grid == 1 && s->grid_focus < s->n ? &s->results[s->grid_focus] : NULL, dt);
     if (s->dirty) { s->debounce -= dt; if (s->debounce <= 0) { s->dirty = 0; run_query(s); } }
     if (s->pending || s->dirty || s->ai_state == 1) app_redraw();
+}
+
+static void draw_field(const Search *s, float x, float y, float fw)
+{
+    int foc = !s->focus_grid;
+    gfx_rrect(x, y, fw, FIELD_H, R_PANEL, COLOR_ALPHA(THEME_TEXT, foc ? 0x22 : 0x18));
+    if (foc) gfx_rrect_ring(x, y, fw, FIELD_H, R_PANEL, 2, s->typing ? COLOR_ALPHA(THEME_TEXT, 0x50) : THEME_ACCENT2);
+    ui_icon(ICON_SEARCH, x + 42, y + FIELD_H / 2, 30, THEME_TEXT_DIM);
+    const char *tip = foc && !s->typing ? "OK to type" : NULL;
+    float tip_w = tip ? font_measure(tip, FONT_XS | FONT_B) + 40 : 0;
+    if (tip) font_draw(tip, x + fw - tip_w, y + (FIELD_H - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    if (s->kb.text[0]) {
+        font_draw_fit(s->kb.text, x + 78, y + (FIELD_H - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT, fw - 120 - tip_w);
+        if (s->typing && fmodf(g_app.time, 1.0f) < 0.55f) {
+            float cx = x + 78 + font_measure(s->kb.text, FONT_M | FONT_B) + 4;
+            if (cx < x + fw - 30) gfx_rrect(cx, y + 20, 3, 36, 1.5f, THEME_ACCENT2);
+        }
+        if (s->typing) app_redraw();
+    } else font_draw("Movies, series, people\xE2\x80\xA6", x + 78, y + (FIELD_H - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT_MUTED);
+}
+
+/* Under the keyboard: scan to type on the phone instead. */
+static void draw_phone(const Search *s, float x, float y)
+{
+    if (!s->qr_ready) return;
+    float qs = 190;
+    if (y + qs > SNTV_UI_H - 30) return;
+    ui_qr(s->qr, x, y, qs);
+    font_draw("Or type on your phone", x + qs + 30, y + 30, FONT_S | FONT_B, THEME_TEXT);
+    font_draw_wrapped("Scan the code, type or paste, then Send. It searches straight away.", x + qs + 30, y + 72, FONT_XS, THEME_TEXT_DIM, keyboard_width() - qs - 30, 3);
+    font_draw(s->phone_url, x + qs + 30, y + qs - 30, FONT_XS, THEME_TEXT_MUTED);
 }
 
 static void draw(Screen *sc)
@@ -228,25 +292,19 @@ static void draw(Screen *sc)
     ui_background(bg ? image_tint(bg) : 0);
     font_draw("Search", THEME_MARGIN, 52, FONT_L | FONT_B, THEME_TEXT);
 
-    float x = THEME_MARGIN, y = 140, fw = keyboard_width();
-    /* field */
-    gfx_rrect(x, y, fw, 76, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x18));
-    if (!s->focus_grid) gfx_rrect_ring(x, y, fw, 76, R_PANEL, 2, COLOR_ALPHA(THEME_TEXT, 0x50));
-    ui_icon(ICON_SEARCH, x + 42, y + 38, 30, THEME_TEXT_DIM);
-    if (s->kb.text[0]) {
-        font_draw_fit(s->kb.text, x + 78, y + (76 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT, fw - 120);
-        if (!s->focus_grid && fmodf(g_app.time, 1.0f) < 0.55f) {
-            float cx = x + 78 + font_measure(s->kb.text, FONT_M | FONT_B) + 4;
-            if (cx < x + fw - 30) gfx_rrect(cx, y + 20, 3, 36, 1.5f, THEME_ACCENT2);
-        }
-        if (!s->focus_grid) app_redraw();
-    } else font_draw("Movies, series, people\xE2\x80\xA6", x + 78, y + (76 - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT_MUTED);
-    keyboard_draw(&s->kb, x, y + 108, !s->focus_grid);
-
-    float gx = x + fw + 80, gy = y;
+    float x = THEME_MARGIN, y = FIELD_Y; int nc = cols(s);
+    float fw = s->typing ? keyboard_width() : nc * (CELL_W + CELL_GAP) - CELL_GAP;
+    draw_field(s, x, y, fw);
+    float gx = x, gy = y + FIELD_H + 40;
+    if (s->typing) {
+        keyboard_draw(&s->kb, x, y + 108, 1);
+        font_draw("Done searches  \xC2\xB7  Back closes the keyboard", x, y + 108 + keyboard_height() + 20, FONT_XS, THEME_TEXT_MUTED);
+        draw_phone(s, x, y + 108 + keyboard_height() + 70);
+        gx = x + fw + 80; gy = y;
+    }
     float grid_w = SNTV_UI_W - THEME_MARGIN - gx;
     if ((s->pending || s->ai_state == 1) && !s->n) {
-        for (int i = 0; i < COLS * 2; i++) ui_skeleton(gx + (i % COLS) * (CELL_W + CELL_GAP), gy + 50 + (i / COLS) * (CELL_H + 80), CELL_W, CELL_H, R_CARD);
+        for (int i = 0; i < nc * 2; i++) ui_skeleton(gx + (i % nc) * (CELL_W + CELL_GAP), gy + 50 + (i / nc) * (CELL_H + 80), CELL_W, CELL_H, R_CARD);
     } else if (!s->n && !s->kb.text[0] && s->n_recent) {
         font_draw("Recent searches", gx, gy + 4, FONT_S | FONT_B, THEME_TEXT_MUTED);
         float ry = gy + 56;
@@ -256,9 +314,9 @@ static void draw(Screen *sc)
             if (i < s->n_recent) { ui_icon(ICON_CLOCK, gx + 14, ry + 23, 24, foc ? THEME_ON_FOCUS : THEME_TEXT_MUTED); font_draw_fit(s->recent[i], gx + 46, ry + (46 - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_FOCUS : THEME_TEXT, 560); }
             else font_draw("Clear recent searches", gx + 46, ry + (46 - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_FOCUS : THEME_TEXT_DIM);
         }
-        if (s->focus_grid != 2) font_draw("Right from the keyboard picks one", gx, ry + 10, FONT_XS, THEME_TEXT_MUTED);
+        if (s->focus_grid != 2) font_draw(s->typing ? "Right from the keyboard picks one" : "Down picks one", gx, ry + 10, FONT_XS, THEME_TEXT_MUTED);
     } else if (!s->n) {
-        float cx = gx + grid_w / 2, cy = gy + 280;
+        float cx = gx + grid_w / 2, cy = gy + (s->typing ? 280 : 220);
         gfx_circle(cx, cy, 80, COLOR_ALPHA(THEME_TEXT, 0x10));
         ui_icon(ICON_SEARCH, cx, cy, 70, THEME_TEXT_MUTED);
         font_draw_center(strlen(s->last_query) >= 2 ? "Nothing found" : "Find something to watch", cx, cy + 120, FONT_L | FONT_B, THEME_TEXT);
@@ -275,15 +333,15 @@ static void draw(Screen *sc)
     float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < s->n; i++) {
-            int r = i / COLS, c = i % COLS;
+            int r = i / nc, c = i % nc;
             float px = gx + c * (CELL_W + CELL_GAP), py = gy + 60 + r * row_h - s->grid_scroll;
             if (py > SNTV_UI_H || py + row_h < gy) continue;
-            int foc = s->focus_grid && s->grid_focus == i;
+            int foc = s->focus_grid == 1 && s->grid_focus == i;
             if ((pass == 1) != foc) continue;
             char pb[512];
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
-                    s->focus_grid && !foc ? 0.3f : 0, s->results[i].name, 0);
+                    s->focus_grid == 1 && !foc ? 0.3f : 0, s->results[i].name, 0);
             if (i < s->n_picks) { gfx_circle(px + CELL_W - 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_STAR, px + CELL_W - 22, py + 22, 18, THEME_ACCENT2); }
             font_draw_fit(s->results[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
@@ -296,6 +354,23 @@ static void draw(Screen *sc)
     gfx_clip_pop();
 }
 
+/* The keyboard is open: type, Done searches, Back or Right off the edge closes it. */
+static int key_typing(Search *s, KeyAction a)
+{
+    if (a == KEY_BACK) { close_keyboard(s); return 1; }
+    if (a == KEY_RIGHT && s->kb.col == 10 && s->n) { close_keyboard(s); s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); return 1; }
+    if (a == KEY_RIGHT && s->kb.col == 10 && !s->kb.text[0] && s->n_recent) { close_keyboard(s); s->focus_grid = 2; s->recent_focus = 0; return 1; }
+    if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; return 1; }
+    KeyboardResult r = keyboard_key(&s->kb, a);
+    if (r == KB_CHANGED) { s->dirty = 1; s->debounce = 0.6f; }
+    else if (r == KB_DONE) {
+        close_keyboard(s);
+        s->dirty = 0; run_query(s);
+        if (s->n) { s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
+    }
+    return 1;
+}
+
 static int key(Screen *sc, KeyAction a)
 {
     Search *s = sc->st;
@@ -304,21 +379,25 @@ static int key(Screen *sc, KeyAction a)
         if (s->focus_grid == 1 && s->grid_focus < s->n) { screen_options_for_title(&s->results[s->grid_focus]); return 1; }
         if (a == KEY_LONG_OK) return 0;
     }
-    if (!s->focus_grid) {
-        if (a == KEY_RIGHT && s->kb.col == 10 && s->n) { s->focus_grid = 1; recent_add(s, s->kb.text); return 1; }
-        if (a == KEY_RIGHT && s->kb.col == 10 && !s->kb.text[0] && s->n_recent) { s->focus_grid = 2; s->recent_focus = 0; return 1; }
-        if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; return 1; }
-        KeyboardResult r = keyboard_key(&s->kb, a);
-        if (r == KB_CHANGED) { s->dirty = 1; s->debounce = 0.6f; }
-        else if (r == KB_DONE) { s->dirty = 0; run_query(s); if (s->n) { s->focus_grid = 1; recent_add(s, s->kb.text); } }
-        return a != KEY_BACK;
+    if (s->typing) return key_typing(s, a);
+    if (!s->focus_grid) {   /* the search bar */
+        switch (a) {
+        case KEY_OK: open_keyboard(s); return 1;
+        case KEY_DOWN:
+            if (s->n) { s->focus_grid = 1; s->grid_focus = 0; s->focus_t = 0; }
+            else if (!s->kb.text[0] && s->n_recent) { s->focus_grid = 2; s->recent_focus = 0; }
+            return 1;
+        case KEY_BACKSPACE: open_keyboard(s); return key_typing(s, a);
+        case KEY_BACK: return 0;
+        default: return 1;
+        }
     }
     s->focus_t = 0;
     if (s->focus_grid == 2) {   /* the recent searches list */
         switch (a) {
-        case KEY_UP: if (s->recent_focus > 0) s->recent_focus--; return 1;
+        case KEY_UP: if (s->recent_focus > 0) s->recent_focus--; else s->focus_grid = 0; return 1;
         case KEY_DOWN: if (s->recent_focus < s->n_recent) s->recent_focus++; return 1;   /* the last row clears */
-        case KEY_LEFT: case KEY_BACK: s->focus_grid = 0; return 1;
+        case KEY_BACK: s->focus_grid = 0; return 1;
         case KEY_OK:
             if (s->recent_focus == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return 1; }
             keyboard_init(&s->kb, 0, s->recent[s->recent_focus]);
@@ -328,9 +407,9 @@ static int key(Screen *sc, KeyAction a)
         }
     }
     switch (a) {
-    case KEY_LEFT: if (s->grid_focus % COLS == 0) s->focus_grid = 0; else s->grid_focus--; return 1;
+    case KEY_LEFT: if (s->grid_focus % COLS) s->grid_focus--; return 1;
     case KEY_RIGHT: if (s->grid_focus % COLS < COLS - 1 && s->grid_focus + 1 < s->n) s->grid_focus++; return 1;
-    case KEY_UP: if (s->grid_focus >= COLS) s->grid_focus -= COLS; return 1;
+    case KEY_UP: if (s->grid_focus >= COLS) s->grid_focus -= COLS; else s->focus_grid = 0; return 1;
     case KEY_DOWN: if (s->grid_focus + COLS < s->n) { s->grid_focus += COLS; return 1; } return 0;
     case KEY_OK: if (s->grid_focus < s->n) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[s->grid_focus])); } return 1;
     case KEY_BACK: s->focus_grid = 0; return 1;
@@ -338,9 +417,11 @@ static int key(Screen *sc, KeyAction a)
     }
 }
 
+/* Typing on a real keyboard (or text from the test driver) opens the on-screen one too. */
 static void text(Screen *sc, const char *utf8)
 {
     Search *s = sc->st;
+    if (!s->typing) open_keyboard(s);
     keyboard_text_input(&s->kb, utf8);
     s->dirty = 1; s->debounce = 0.6f;
     app_redraw();
@@ -352,7 +433,7 @@ static void destroy(Screen *sc)
     s->generation++;   /* orphan in-flight replies */
     if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
-    input_text(0);
+    close_keyboard(s);
     free(s);
     free(sc);
 }
@@ -365,6 +446,5 @@ Screen *screen_search_create(void)
     recent_load(s);
     sc->name = "search"; sc->st = s; sc->long_ok = 1;
     sc->update = update; sc->draw = draw; sc->key = key; sc->text = text; sc->destroy = destroy;
-    input_text(1);
     return sc;
 }

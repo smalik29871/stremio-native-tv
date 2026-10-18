@@ -27,7 +27,9 @@
 #include <time.h>
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
-enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_STYLE, MENU_SOURCES, MENU_EPISODES };
+enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_SOURCES, MENU_EPISODES };
+/* Subtitles menu rows: the controls first, then Off and the tracks */
+enum { SUB_CHOOSE, SUB_TIMING, SUB_SIZE, SUB_STYLE, SUB_POS, SUB_SYNC, SUB_OFF, SUB_TRACKS };
 enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_STATS, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
 static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen", "Zoom" };
@@ -75,7 +77,7 @@ struct Player {
     SubTrack ref; int ref_loaded, ref_idx;   /* a matched subtitle used as the timing reference */
     int sync_for, sync_state; double sync_offset;   /* sync_state: 0 idle, 1 aligning, 2 synced, 3 no match */
     /* AI translation of the active addon file into the preferred language, a batch at a time, playhead first */
-    int xl_on; char xl_lang[8]; unsigned char *xl_done; int xl_n_done, xl_fails; unsigned xl_req; unsigned xl_gen; int xl_from, xl_count; float xl_wait;
+    int xl_on, xl_hinted; char xl_lang[8]; unsigned char *xl_done; int xl_n_done, xl_fails; unsigned xl_req; unsigned xl_gen; int xl_from, xl_count; float xl_wait;
     float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
     float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
@@ -402,7 +404,8 @@ static void auto_select_tracks(Player *p)
     }
     if (p->subs_pending == 0 || g_app.time - p->load_started > 15) {
         p->subs_auto_done = 1;
-        if (!has_mem && g_app.pref_subs[0] && xl_available(p)) {   /* nobody offers the language: translate, or say how */
+        if (!has_mem && g_app.pref_subs[0] && xl_available(p) && !p->xl_hinted) {   /* nobody offers the language: translate, or say how */
+            p->xl_hinted = 1;
             if (g_app.subs_autotranslate) xl_start(p);
             else app_toast("No %s subtitles from your addons. Subtitles menu: Translate with AI", lang_display(g_app.pref_subs));
         }
@@ -1066,11 +1069,11 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
 {
     const char *text = p->track_loaded ? subs_at(&p->track, vi->position) : NULL;
     const char *text2 = p->track2_loaded ? subs_at(&p->track2, vi->position) : NULL;
-    float bottom = g_app.time < p->overlay_until ? SNTV_UI_H - 250 : SNTV_UI_H - 96;
+    float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
+    if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
     if (text) ui_subtitle(text, bottom, g_app.subs_size, g_app.subs_style);
     if (text2) {   /* the second language sits above the first (or where it would be) */
-        int size = g_app.subs_size == 0 ? FONT_M : g_app.subs_size == 2 ? FONT_XL : FONT_L;
-        float lift = text ? font_height(size | FONT_B) * 1.04f * 2 + 24 : 0;
+        float lift = text ? font_height(ui_subtitle_font(g_app.subs_size)) * 1.04f * 2 + 24 : 0;
         ui_subtitle(text2, bottom - lift, g_app.subs_size > 0 ? g_app.subs_size - 1 : 0, g_app.subs_style);
     }
 }
@@ -1109,8 +1112,9 @@ static void draw_menu(Player *p)
     int sections_before = p->menu == MENU_AUDIO ? 1 + ((n && p->menu_focus >= 1) ? 1 : 0)
                         : p->menu == MENU_SOURCES ? src_sections
                         : p->menu == MENU_EPISODES ? ep_sections
-                        : p->menu == MENU_SUBS ? ((p->menu_focus >= 2 && n) ? 1 : 0) + ((p->menu_focus >= 2 + n && (ng || p->subs_pending)) ? 1 : 0)
-                        : p->menu == MENU_STYLE ? 1 + (p->menu_focus >= SUBS_STYLE_COUNT ? 1 : 0) : 0;
+                        : p->menu == MENU_SUBS ? (p->menu_focus >= SUB_TIMING) + (p->menu_focus >= SUB_OFF) + ((p->menu_focus >= SUB_TRACKS && n) ? 1 : 0)
+                                                 + ((p->menu_focus >= SUB_TRACKS + n && (ng || p->subs_pending)) ? 1 : 0)
+                        : 0;
     float focus_y = 120 + sections_before * 40 + p->menu_focus * 78.0f;
     float scroll = focus_y + 78 > h - 60 ? focus_y + 78 - (h - 60) : 0;
     float ry = y + 120 - scroll;
@@ -1129,16 +1133,6 @@ static void draw_menu(Player *p)
         if (sub_[0]) font_draw_fit(sub_, lx_, ry + 40, FONT_XS, foc_ ? COLOR_ALPHA(THEME_BG, 0xB0) : THEME_TEXT_MUTED, w - 190 - (lx_ - x - 50)); \
         if (on) { gfx_circle(x + w - 70, ry + 35, 17, foc_ ? THEME_ON_FOCUS : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 35, 20, foc_ ? THEME_FOCUS : THEME_ON_ACCENT); } } \
         ry += 78; row++; } while (0)
-    if (p->menu == MENU_STYLE) {
-        static const char *SIZES[] = { "Small", "Medium", "Large" };
-        SECTION("STYLE  (addon subtitles)");
-        for (int i = 0; i < SUBS_STYLE_COUNT; i++) ROW(SUBS_STYLE_NAMES[i], "", g_app.subs_style == i);
-        SECTION("SIZE");
-        for (int i = 0; i < 3; i++) ROW(SIZES[i], "", g_app.subs_size == i);
-        gfx_clip_pop();
-        gfx_set_translate(0, 0);
-        return;
-    }
     if (p->menu == MENU_EPISODES) {
         for (int i = 0; i < n_eps; i++) {
             if (i == 0 || eps[i].season != eps[i - 1].season) {
@@ -1187,7 +1181,25 @@ static void draw_menu(Player *p)
         ROW("Speed", sp, 0);
     }
     if (p->menu == MENU_SUBS) {
+        static const char *SIZES[] = { "Small", "Medium", "Large", "Extra large" };
+        static const char *POS[] = { "Bottom", "Raised", "Top" };
+        char v[120];
         ROW("Choose for", p->assign_second ? "Second subtitles (above the main ones)  \xC2\xB7  Left/Right" : "Main subtitles  \xC2\xB7  Left/Right for a second language", 0);
+        SECTION("LOOK AND TIMING  \xC2\xB7  LEFT/RIGHT CHANGES");
+        if (p->track_loaded) snprintf(v, sizeof v, "%+.1f s  \xC2\xB7  earlier \xE2\x86\x90  \xE2\x86\x92 later  \xC2\xB7  OK resets", p->track.offset);
+        else snprintf(v, sizeof v, "For subtitles from your addons (the TV times the ones in the file)");
+        ROW("Timing", v, 0);
+        snprintf(v, sizeof v, "%s", SIZES[g_app.subs_size]); ROW("Size", v, 0);
+        snprintf(v, sizeof v, "%s", SUBS_STYLE_NAMES[g_app.subs_style]); ROW("Style", v, 0);
+        snprintf(v, sizeof v, "%s", POS[g_app.subs_pos]); ROW("Position", v, 0);
+        if (!g_app.subs_autosync) snprintf(v, sizeof v, "Off  \xC2\xB7  OK turns it on");
+        else if (p->sync_state == 2 && p->active_addon_sub >= 0 && p->addon_subs[p->active_addon_sub].matched) snprintf(v, sizeof v, "On  \xC2\xB7  this file is matched to the video");
+        else if (p->sync_state == 2) snprintf(v, sizeof v, "On  \xC2\xB7  synced %+.1f s to a file-matched subtitle", p->sync_offset);
+        else if (p->sync_state == 1) snprintf(v, sizeof v, "On  \xC2\xB7  aligning\xE2\x80\xA6");
+        else if (p->sync_state == 3) snprintf(v, sizeof v, "On  \xC2\xB7  no file-matched subtitle to align with");
+        else snprintf(v, sizeof v, p->hash_state < 3 ? "On  \xC2\xB7  reading the file's fingerprint\xE2\x80\xA6" : "On  \xC2\xB7  waits for a matched subtitle");
+        ROW("Auto-sync", v, 0);
+        SECTION("SUBTITLES");
         ROW("Off", "", p->assign_second ? p->active_addon_sub2 < 0 : (p->embedded_text_sel < 0 && p->active_addon_sub < 0));
     }
     if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "IN THE VIDEO FILE");
@@ -1219,25 +1231,6 @@ static void draw_menu(Player *p)
             else snprintf(ts, sizeof ts, "AI, from the %s file  \xC2\xB7  nobody offers %s for this title", lang_display(p->addon_subs[xl_source(p)].lang), lang_display(g_app.pref_subs));
             ROW(tl, ts, p->xl_on != 0);
         }
-        if (p->track_loaded) {
-            char off[80];
-            snprintf(off, sizeof off, "Left/Right shifts by 0.5 s  \xC2\xB7  now %+.1f s", p->track.offset);
-            ROW("Subtitle timing", off, 0);
-        }
-        {
-            char sy[120];
-            if (!g_app.subs_autosync) snprintf(sy, sizeof sy, "Off  \xC2\xB7  OK turns it on");
-            else if (p->sync_state == 2 && p->active_addon_sub >= 0 && p->addon_subs[p->active_addon_sub].matched) snprintf(sy, sizeof sy, "This file is matched to the video");
-            else if (p->sync_state == 2) snprintf(sy, sizeof sy, "Synced %+.1f s to a file-matched subtitle", p->sync_offset);
-            else if (p->sync_state == 1) snprintf(sy, sizeof sy, "Aligning\xE2\x80\xA6");
-            else if (p->sync_state == 3) snprintf(sy, sizeof sy, "No file-matched subtitle to align with");
-            else snprintf(sy, sizeof sy, p->hash_state < 3 ? "Reading the file's fingerprint\xE2\x80\xA6" : "On  \xC2\xB7  waits for a matched subtitle");
-            ROW("Auto-sync", sy, 0);
-        }
-        char st[80];
-        static const char *SIZES[] = { "Small", "Medium", "Large" };
-        snprintf(st, sizeof st, "%s  \xC2\xB7  %s", SUBS_STYLE_NAMES[g_app.subs_style], SIZES[g_app.subs_size]);
-        ROW("Style and size", st, 0);
     }
     gfx_clip_pop();
     gfx_set_translate(0, 0);
@@ -1791,24 +1784,27 @@ static void cand_addon(const PlayCandidate *c, char *out, size_t n)
     snprintf(out, n, "%.*s", sep ? (int)(sep - lbl) : 0, lbl);
 }
 
+static void adjust_subs(Player *p, int row, int dir)
+{
+    (void)p;
+    if (row == SUB_SIZE) g_app.subs_size = (g_app.subs_size + dir + 4) % 4;
+    else if (row == SUB_STYLE) g_app.subs_style = (g_app.subs_style + dir + SUBS_STYLE_COUNT) % SUBS_STYLE_COUNT;
+    else if (row == SUB_POS) g_app.subs_pos = (g_app.subs_pos + dir + 3) % 3;
+    app_save_prefs();
+}
+
 static int menu_rows(Player *p)
 {
-    if (p->menu == MENU_STYLE) return SUBS_STYLE_COUNT + 3;
     if (p->menu == MENU_SOURCES) return p->n_cands + 1;
     if (p->menu == MENU_EPISODES) { int n_eps = 0; app_videos(p->meta.id, &n_eps); return n_eps; }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     if (p->menu == MENU_AUDIO) return n + 1;
-    return 2 + n + p->n_addon_subs + (xl_available(p) ? 1 : 0) + (p->track_loaded ? 1 : 0) + 2;
+    return SUB_TRACKS + n + p->n_addon_subs + (xl_available(p) ? 1 : 0);
 }
 
 static void menu_activate(Player *p)
 {
-    if (p->menu == MENU_STYLE) {
-        if (p->menu_focus < SUBS_STYLE_COUNT) g_app.subs_style = p->menu_focus; else g_app.subs_size = p->menu_focus - SUBS_STYLE_COUNT;
-        app_save_prefs();
-        return;
-    }
     if (p->menu == MENU_SOURCES) {
         VideoInfo vi;
         video_info(&vi);
@@ -1836,9 +1832,17 @@ static void menu_activate(Player *p)
         if (f < n) { video_select_track(TRACK_AUDIO, tr[f].index); remember_audio(p, &tr[f]); }
         return;
     }
+    if (f == SUB_CHOOSE) { p->assign_second = !p->assign_second; return; }
+    if (f == SUB_TIMING) { if (p->track_loaded) { p->track.offset = 0; app_toast("Subtitle timing reset"); } return; }
+    if (f >= SUB_SIZE && f <= SUB_POS) { adjust_subs(p, f, 1); return; }
+    if (f == SUB_SYNC) {
+        g_app.subs_autosync = !g_app.subs_autosync; app_save_prefs();
+        if (!g_app.subs_autosync && p->track_loaded) { p->track.offset = 0; p->sync_state = 0; }
+        p->sync_for = -1;
+        return;
+    }
     p->subs_auto_done = 1; p->subs_user = 1;   /* the viewer decided; stop auto-selecting */
-    if (f == 0) { p->assign_second = !p->assign_second; return; }
-    f--;
+    f -= SUB_OFF;
     if (f == 0) {
         if (p->assign_second) { select_addon_sub_slot(p, -1, 1); return; }
         select_addon_sub(p, -1); p->embedded_text_sel = -1; video_select_track(TRACK_TEXT, -1); remember_subs(p, NULL, SUBS_SRC_ANY); return;
@@ -1861,18 +1865,7 @@ static void menu_activate(Player *p)
         return;
     }
     f -= ng;
-    if (xl_available(p)) {
-        if (f == 0) { if (p->xl_on) { int src = p->active_addon_sub; xl_stop(p); if (src >= 0) select_addon_sub(p, src); app_toast("Translation stopped"); } else xl_start(p); return; }
-        f--;
-    }
-    f -= p->track_loaded ? 1 : 0;
-    if (f == 0) {   /* "Auto-sync" */
-        g_app.subs_autosync = !g_app.subs_autosync; app_save_prefs();
-        if (!g_app.subs_autosync && p->track_loaded) { p->track.offset = 0; p->sync_state = 0; }
-        p->sync_for = -1;
-        return;
-    }
-    if (f == 1) { p->menu = MENU_STYLE; p->menu_focus = g_app.subs_style; }   /* "Style and size" */
+    if (xl_available(p) && f == 0) { if (p->xl_on) { int src = p->active_addon_sub; xl_stop(p); if (src >= 0) select_addon_sub(p, src); app_toast("Translation stopped"); } else xl_start(p); }
 }
 
 static void seek_by(Player *p, double base)
@@ -1910,18 +1903,16 @@ static int key(Screen *s, KeyAction a)
             int dir = a == KEY_RIGHT ? 1 : -1;
             if (p->menu == MENU_AUDIO && p->menu_focus == 0) { set_rate(p, p->rate_idx + dir); app_redraw(); return 1; }
             if (p->menu != MENU_SUBS) return 1;
-            VideoTrack tt[MAX_TRACKS];
-            int nt = video_tracks(TRACK_TEXT, tt, MAX_TRACKS);
-            if (p->menu_focus == 0) { p->assign_second = !p->assign_second; app_redraw(); return 1; }
-            int g = p->menu_focus - 2 - nt;
-            if (g == p->n_addon_subs && p->track_loaded) p->track.offset += 0.5 * dir;   /* the timing row */
+            if (p->menu_focus == SUB_CHOOSE) p->assign_second = !p->assign_second;
+            else if (p->menu_focus == SUB_TIMING && p->track_loaded) p->track.offset += 0.1 * dir;
+            else if (p->menu_focus >= SUB_SIZE && p->menu_focus <= SUB_POS) adjust_subs(p, p->menu_focus, dir);
             app_redraw();
             return 1;
         }
         case KEY_OK:
             if (p->menu == MENU_SOURCES && p->menu_focus == p->n_cands) { browse_sources(p); return 1; }
-            { int was = p->menu; int keep = (was == MENU_AUDIO && p->menu_focus == 0) || (was == MENU_SUBS && (p->menu_focus == 0 || p->assign_second || p->menu_focus == menu_rows(p) - 2
-                                             || (xl_available(p) && p->menu_focus == menu_rows(p) - 3 - (p->track_loaded ? 1 : 0))));
+            { int was = p->menu; int keep = (was == MENU_AUDIO && p->menu_focus == 0) || (was == MENU_SUBS && (p->menu_focus < SUB_OFF || p->assign_second
+                                             || (xl_available(p) && p->menu_focus == menu_rows(p) - 1)));
               menu_activate(p); if (p->menu == was && !keep) p->menu = MENU_NONE; show_overlay(p); return 1; }
         case KEY_BACK: p->menu = MENU_NONE; show_overlay(p); return 1;
         default: return 1;

@@ -3,6 +3,7 @@
 #define SNTV_WIDGETS_H
 #include "gfx.h"
 #include "theme.h"
+#include <stdint.h>
 
 typedef enum {
     ICON_PLAY, ICON_PAUSE, ICON_SEARCH, ICON_SETTINGS, ICON_USER, ICON_PLUS, ICON_CHECK,
@@ -52,6 +53,7 @@ void ui_toggle(float x, float y, int on, int focused);
 enum { SUBS_STYLE_SHADOW, SUBS_STYLE_OUTLINE, SUBS_STYLE_YELLOW, SUBS_STYLE_BOXED, SUBS_STYLE_COUNT };
 extern const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT];
 void ui_subtitle(const char *text, float bottom, int size_setting, int style);
+int  ui_subtitle_font(int size_setting);   /* 0 small .. 3 extra large */
 void ui_progress(float x, float y, float w, float h, float frac, Color fill);
 void ui_skeleton(float x, float y, float w, float h, float r);
 void ui_spinner(float cx, float cy, float radius);
@@ -93,5 +95,8 @@ int   ui_hero_title(const char *text, float x, float bottom, float maxw, Color c
 float ui_meta_line(const char *const *parts, int n, float x, float y, Color c);
 void  ui_row_header(int index, const char *title, const char *source, int count, float x, float y, float right, float k);
 void  ui_mark(float x, float y, float size);   /* the Stremio logo tile, unchanged by themes */
+
+/* A QR code made by qrcodegen, dark modules on a white rounded square. */
+void ui_qr(const uint8_t *qr, float x, float y, float size);
 
 #endif

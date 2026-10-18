@@ -10,11 +10,11 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.7.8.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.7.9.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 102 scripted scenarios against a fake addon. See *What is verified* below.
+> 103 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -73,7 +73,8 @@ They show the default Signal theme.
   watched titles can be hidden, and the addon order syncs with the account.
 - **Explore** any catalog by type, list and genre with an endless grid; **Library** with
   filters and sort; **Calendar** of upcoming and recent episodes of the series you follow.
-- **Search** across every catalog addon that supports it, debounced as you type.
+- **Search** across every catalog addon that supports it, debounced as you type. The
+  keyboard opens when you press OK on the search bar, with a QR code to type on your phone.
 - **Title pages** with logo, IMDb rating, genres, synopsis, cast (photos from the meta
   addon or TMDB), age rating, resume with progress, seasons and episode thumbnails, and
   spoiler blur on episodes you have not seen.
@@ -104,8 +105,9 @@ They show the default Signal theme.
 - **Screensaver** with drifting backdrops and a clock after a quiet spell, OLED-safe.
 
 ### Subtitles
-- Addon subtitles (SRT, VTT) drawn by the app with four **styles** and three sizes,
-  previewed live in Settings; embedded tracks drawn by the TV.
+- Addon subtitles (SRT, VTT) drawn by the app with four **styles**, four sizes and three
+  positions, changed live from the player's Subtitles menu or Settings; embedded tracks
+  drawn by the TV.
 - **Every file per language** is listed, grouped by addon, with a **second subtitle
   language** drawn above the first for learners.
 - **Matched to the file**: the player fingerprints the video the way OpenSubtitles does
@@ -113,7 +115,7 @@ They show the default Signal theme.
   release. They come first, marked *matched to this file*.
 - **Auto-sync**: pick any other file and its cue timings are compared with a matched one;
   the offset is applied by itself ("Subtitles synced to the file, +1.3 s"). Manual
-  timing by 0.5 s steps is still there.
+  timing in 0.1 s steps sits at the top of the Subtitles menu.
 - **Translate** (with the AI assistant, below) when nobody offers your language: the
   English file is translated in batches around the playhead, so it starts in seconds and
   keeps going as you watch.
@@ -280,7 +282,7 @@ from the channel.
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (102 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (103 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |

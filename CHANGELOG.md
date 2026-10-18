@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.8
+## 0.7.9
 
 - **Hold OK on an episode for its own options.** Holding OK on an episode used to open
   the series' options, so "Mark as watched" marked the whole show and nothing could be
@@ -17,7 +17,7 @@
   another, and the theme's colours (Signal's accent edge, Marquee's amber rule).
   Notifications take the theme's panel colour too.
 
-## 0.7.7
+## 0.7.8
 
 - **No more stray strips while scrolling Home.** A row sliding off the top was cut
   hard at the edge, and the last strip of a Continue Watching card (its dark shade,
@@ -26,6 +26,21 @@
   Continue card also follows the card's rounded corners (a square one showed past
   them, most in Duotone), and in Marquee its text and progress rise with the focused
   card.
+
+## 0.7.7
+
+- **Subtitle settings where you need them.** The player's Subtitles menu now opens
+  with the controls: timing (Left/Right moves the subtitles 0.1 s earlier or later,
+  OK resets), size (now with *Extra large*), style, position (bottom, raised or top)
+  and auto-sync, then Off and the tracks. Changes show on the video straight away and
+  are remembered. The separate Style menu is gone.
+- **Search opens clean.** The keyboard stays closed until you press OK on the search
+  bar, so recent searches and results get the whole screen. With the keyboard open, a
+  QR code beside it lets you type or paste on your phone; what you send is searched
+  straight away. Done or Back closes the keyboard, Up from the results returns to the
+  bar.
+- The "No French subtitles, translate?" notice shows once per video instead of again
+  each time the list refreshes.
 
 ## 0.7.6
 
