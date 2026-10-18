@@ -1,5 +1,6 @@
 #include "stremio_api.h"
 #include "../../vendor/cJSON.h"
+#include "../http.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,28 @@ const char *api_url_addon_collection_get(void) { return url_for("addonCollection
 const char *api_url_addon_collection_set(void) { return url_for("addonCollectionSet"); }
 const char *api_url_datastore_get(void)        { return url_for("datastoreGet"); }
 const char *api_url_datastore_put(void)        { return url_for("datastorePut"); }
+const char *api_url_get_user(void)             { return url_for("getUser"); }
+/* SNTV_LINK_API overrides the link service base (tests point it at the fake addon). */
+static const char *link_base(void)
+{
+    const char *e = getenv("SNTV_LINK_API");
+    return e && *e ? e : STREMIO_LINK_API_URL;
+}
+
+const char *api_url_link_create(void)
+{
+    static char buf[300];
+    snprintf(buf, sizeof buf, "%s/create?type=Create", link_base());
+    return buf;
+}
+
+const char *api_url_link_read(const char *code, char *buf, size_t n)
+{
+    char enc[128];
+    http_url_encode(code, enc, sizeof enc);
+    snprintf(buf, n, "%s/read?code=%s", link_base(), enc);
+    return buf;
+}
 
 static char *finish(cJSON *o)
 {
@@ -85,6 +108,14 @@ char *api_body_addon_collection_set(const char *auth_key, const Addon *addons, i
         cJSON_AddBoolToObject(f, "protected", addons[i].flag_protected);
         cJSON_AddItemToArray(arr, d);
     }
+    return finish(o);
+}
+
+char *api_body_get_user(const char *auth_key)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "type", "GetUser");
+    cJSON_AddStringToObject(o, "authKey", auth_key);
     return finish(o);
 }
 
@@ -295,4 +326,70 @@ void library_items_free(LibraryItem *items, int n)
 {
     for (int i = 0; i < n; i++) library_item_free(&items[i]);
     free(items);
+}
+
+/* ---- link (QR) login -------------------------------------------------------- */
+
+static const cJSON *unwrap(const cJSON *root)
+{
+    const cJSON *r = cJSON_GetObjectItemCaseSensitive(root, "result");
+    return r ? r : root;
+}
+
+int api_parse_link_create(const char *json, char *code, size_t code_n, char *link, size_t link_n, char *qrcode, size_t qr_n, ApiError *err)
+{
+    memset(err, 0, sizeof *err);
+    cJSON *root = cJSON_Parse(json);
+    if (!root) { snprintf(err->message, sizeof err->message, "invalid JSON"); return -1; }
+    const cJSON *r = unwrap(root);
+    const cJSON *c = cJSON_GetObjectItemCaseSensitive(r, "code");
+    const cJSON *l = cJSON_GetObjectItemCaseSensitive(r, "link");
+    const cJSON *q = cJSON_GetObjectItemCaseSensitive(r, "qrcode");
+    if (!cJSON_IsString(c)) {
+        const cJSON *e = cJSON_GetObjectItemCaseSensitive(root, "error");
+        const cJSON *m = cJSON_IsObject(e) ? cJSON_GetObjectItemCaseSensitive(e, "message") : NULL;
+        snprintf(err->message, sizeof err->message, "%s", cJSON_IsString(m) ? m->valuestring : "no code in response");
+        cJSON_Delete(root);
+        return -1;
+    }
+    snprintf(code, code_n, "%s", c->valuestring);
+    snprintf(link, link_n, "%s", cJSON_IsString(l) ? l->valuestring : "");
+    snprintf(qrcode, qr_n, "%s", cJSON_IsString(q) ? q->valuestring : "");
+    cJSON_Delete(root);
+    return 0;
+}
+
+int api_parse_link_read(const char *json, char **auth_key, ApiError *err)
+{
+    memset(err, 0, sizeof *err);
+    *auth_key = NULL;
+    cJSON *root = cJSON_Parse(json);
+    if (!root) { snprintf(err->message, sizeof err->message, "invalid JSON"); return -1; }
+    const cJSON *r = unwrap(root);
+    const cJSON *k = cJSON_GetObjectItemCaseSensitive(r, "authKey");
+    if (cJSON_IsString(k) && k->valuestring[0]) { *auth_key = strdup(k->valuestring); cJSON_Delete(root); return 0; }
+    const cJSON *e = cJSON_GetObjectItemCaseSensitive(root, "error");
+    if (cJSON_IsObject(e)) {
+        const cJSON *m = cJSON_GetObjectItemCaseSensitive(e, "message");
+        const cJSON *c = cJSON_GetObjectItemCaseSensitive(e, "code");
+        /* "not found"/pending codes mean keep polling; anything else is fatal */
+        err->code = cJSON_IsNumber(c) ? c->valueint : 0;
+        snprintf(err->message, sizeof err->message, "%s", cJSON_IsString(m) ? m->valuestring : "error");
+        cJSON_Delete(root);
+        return err->code == 0 || err->code == 102 || err->code == 404 ? 1 : -1;
+    }
+    cJSON_Delete(root);
+    return 1;
+}
+
+int api_parse_user(const char *json, char **email, ApiError *err)
+{
+    cJSON *root, *res;
+    *email = NULL;
+    int rc = parse_envelope(json, &root, &res, err);
+    if (rc != 0) return rc;
+    const cJSON *em = cJSON_GetObjectItemCaseSensitive(res, "email");
+    if (cJSON_IsString(em)) *email = strdup(em->valuestring);
+    cJSON_Delete(root);
+    return 0;
 }

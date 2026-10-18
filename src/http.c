@@ -29,6 +29,7 @@ static struct {
     void (*global_cleanup)(void);
     CURL *(*easy_init)(void);
     CURLcode (*easy_setopt)(CURL *, int, ...);
+    void (*easy_reset)(CURL *);
     CURLcode (*easy_perform)(CURL *);
     void (*easy_cleanup)(CURL *);
     CURLcode (*easy_getinfo)(CURL *, int, ...);
@@ -54,6 +55,7 @@ static int load_curl(void)
     SYM(global_cleanup, "curl_global_cleanup");
     SYM(easy_init, "curl_easy_init");
     SYM(easy_setopt, "curl_easy_setopt");
+    SYM(easy_reset, "curl_easy_reset");
     SYM(easy_perform, "curl_easy_perform");
     SYM(easy_cleanup, "curl_easy_cleanup");
     SYM(easy_getinfo, "curl_easy_getinfo");
@@ -86,13 +88,12 @@ static size_t on_write(char *ptr, size_t size, size_t nmemb, void *user)
     return n;
 }
 
-int http_request(const char *url, const char *post_json, HttpResponse *out)
+/* A handle per worker keeps TCP/TLS sessions alive between requests, which on
+ * the TV's old libcurl is the difference between 80 ms and 600 ms per poster. */
+static int request_with(CURL *h, const char *url, const char *post_json, HttpResponse *out)
 {
     memset(out, 0, sizeof *out);
-    if (!C.lib) { snprintf(out->error, sizeof out->error, "libcurl unavailable"); return -1; }
-
-    CURL *h = C.easy_init();
-    if (!h) { snprintf(out->error, sizeof out->error, "curl_easy_init failed"); return -1; }
+    C.easy_reset(h);
 
     Buf b = {0};
     struct curl_slist *hdrs = NULL;
@@ -126,11 +127,20 @@ int http_request(const char *url, const char *post_json, HttpResponse *out)
         snprintf(out->error, sizeof out->error, "%s", C.easy_strerror(rc));
     }
     C.slist_free_all(hdrs);
-    C.easy_cleanup(h);
 
     out->body = b.buf ? b.buf : calloc(1, 1);
     out->len = b.len;
     return rc == 0 ? 0 : -1;
+}
+
+int http_request(const char *url, const char *post_json, HttpResponse *out)
+{
+    if (!C.lib) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "libcurl unavailable"); return -1; }
+    CURL *h = C.easy_init();
+    if (!h) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "curl_easy_init failed"); return -1; }
+    int rc = request_with(h, url, post_json, out);
+    C.easy_cleanup(h);
+    return rc;
 }
 
 void http_response_free(HttpResponse *r)
@@ -152,7 +162,7 @@ typedef struct Job {
     struct Job *next;
 } Job;
 
-enum { WORKERS = 4 };
+enum { WORKERS = 6 };
 static SDL_Thread *g_workers[WORKERS];
 static SDL_mutex *g_qlock;
 static SDL_cond *g_qcond;
@@ -163,10 +173,11 @@ static unsigned g_next_id = 1;
 static int worker_main(void *arg)
 {
     (void)arg;
+    CURL *h = C.easy_init();
     for (;;) {
         SDL_LockMutex(g_qlock);
         while (!g_pending && !g_quit) SDL_CondWait(g_qcond, g_qlock);
-        if (g_quit) { SDL_UnlockMutex(g_qlock); return 0; }
+        if (g_quit) { SDL_UnlockMutex(g_qlock); if (h) C.easy_cleanup(h); return 0; }
         Job *j = g_pending;
         g_pending = j->next;
         if (!g_pending) g_pending_tail = NULL;
@@ -174,7 +185,10 @@ static int worker_main(void *arg)
         g_inflight = j;
         SDL_UnlockMutex(g_qlock);
 
-        if (!j->cancelled) http_request(j->url, j->post, &j->resp);
+        if (!j->cancelled) {
+            if (h) request_with(h, j->url, j->post, &j->resp);
+            else http_request(j->url, j->post, &j->resp);
+        }
 
         SDL_LockMutex(g_qlock);
         Job **pp = &g_inflight;

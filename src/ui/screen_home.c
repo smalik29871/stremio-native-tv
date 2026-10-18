@@ -1,32 +1,59 @@
+/* Home: cinematic hero for the focused title over its backdrop, ambient light
+ * tinted by the artwork, then rows: Continue Watching (landscape cards with
+ * progress), My Library, and one row per addon catalog. Everything eases;
+ * rows are served from the disk cache first and refreshed in the background. */
 #include "../app.h"
 #include "../http.h"
 #include "../log.h"
 #include "font.h"
 #include "theme.h"
+#include "widgets.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-enum { POSTER_W = 200, POSTER_H = 300, POSTER_GAP = 24, ROW_H = 400, ROWS_TOP = 250, VISIBLE = 8 };
-enum { TOP_SEARCH, TOP_SETTINGS, TOP_ACCOUNT, TOP_COUNT };
+enum { ROW_CATALOG, ROW_CONTINUE, ROW_LIBRARY };
+enum { NAV_SEARCH, NAV_SETTINGS, NAV_ACCOUNT, NAV_COUNT };
+
+#define ROWS_Y 610.0f
+#define POSTER_W 196.0f
+#define POSTER_H 294.0f
+#define LAND_W 384.0f
+#define LAND_H 216.0f
+#define GAP 30.0f
+#define TITLE_H 58.0f
 
 typedef struct Row {
     char title[128];
-    int is_continue;
-    int addon, catalog;            /* indexes into g_app.addons */
+    int kind;
+    int addon, catalog;
     MetaPreview *metas; int n;
     int loading, failed, requested;
     unsigned req;
     int focus;
+    float scroll_x;
+    char url[1024];
 } Row;
 
 typedef struct {
     Row **rows; int n_rows;
-    int focus_row;                 /* -1 = top bar */
-    int focus_top;
-    float scroll_y, scroll_target;
+    int focus_row;            /* -1 = nav bar */
+    int focus_nav;
+    float scroll_y;
     int addons_seen, library_seen;
+    float focus_t;            /* 0..1 grow-in of the focused card */
+    int prev_row, prev_col; float prev_t;
+    char hero_id[256];
+    char hero_bg[1024], hero_prev_bg[1024]; float hero_fade;
+    float hero_text_t;        /* fade/slide of the hero text on change */
 } Home;
+
+/* ---- row geometry ---- */
+
+static float card_w(const Row *r) { return r->kind == ROW_CONTINUE ? LAND_W : POSTER_W; }
+static float card_h(const Row *r) { return r->kind == ROW_CONTINUE ? LAND_H : POSTER_H; }
+static float row_h(const Row *r) { return TITLE_H + card_h(r) + 64; }
+static int visible_cards(const Row *r) { return (int)((SNTV_UI_W - THEME_MARGIN) / (card_w(r) + GAP)); }
 
 static void row_free(Row *r)
 {
@@ -36,66 +63,80 @@ static void row_free(Row *r)
     free(r);
 }
 
-static void build_continue_row(Row *r)
+static MetaPreview preview_from_item(const LibraryItem *li)
 {
-    /* Continue Watching = library entries with an in-progress offset, newest first. */
+    MetaPreview p;
+    memset(&p, 0, sizeof p);
+    p.id = strdup(li->id);
+    p.type = strdup(li->type);
+    p.name = strdup(li->name);
+    p.poster = li->poster ? strdup(li->poster) : NULL;
+    p.poster_shape = li->poster_shape ? strdup(li->poster_shape) : NULL;
+    return p;
+}
+
+static void build_library_row(Row *r)
+{
     meta_previews_free(r->metas, r->n);
     r->metas = NULL; r->n = 0;
-    int cap = g_app.n_library;
-    if (!cap) return;
-    LibraryItem **sorted = malloc(sizeof *sorted * (size_t)cap);
+    if (!g_app.n_library) return;
+    LibraryItem **sorted = malloc(sizeof *sorted * (size_t)g_app.n_library);
     int n = 0;
     for (int i = 0; i < g_app.n_library; i++) {
         LibraryItem *li = &g_app.library[i];
-        if (li->time_offset > 0 && (!li->removed || li->temp)) sorted[n++] = li;
+        int take = r->kind == ROW_CONTINUE ? (li->time_offset > 0 && (!li->removed || li->temp)) : (!li->removed && !li->temp);
+        if (take) sorted[n++] = li;
     }
-    for (int i = 1; i < n; i++)       /* insertion sort by lastWatched desc */
-        for (int j = i; j > 0 && sorted[j]->last_watched_ms > sorted[j - 1]->last_watched_ms; j--) {
+    for (int i = 1; i < n; i++)
+        for (int j = i; j > 0; j--) {
+            int64_t a = r->kind == ROW_CONTINUE ? sorted[j]->last_watched_ms : sorted[j]->mtime_ms;
+            int64_t b = r->kind == ROW_CONTINUE ? sorted[j - 1]->last_watched_ms : sorted[j - 1]->mtime_ms;
+            if (a <= b) break;
             LibraryItem *t = sorted[j]; sorted[j] = sorted[j - 1]; sorted[j - 1] = t;
         }
-    if (n > 20) n = 20;
+    if (n > 30) n = 30;
     r->metas = calloc((size_t)n + 1, sizeof(MetaPreview));
-    for (int i = 0; i < n; i++) {
-        MetaPreview *p = &r->metas[i];
-        p->id = strdup(sorted[i]->id);
-        p->type = strdup(sorted[i]->type);
-        p->name = strdup(sorted[i]->name);
-        p->poster = sorted[i]->poster ? strdup(sorted[i]->poster) : NULL;
-        p->poster_shape = sorted[i]->poster_shape ? strdup(sorted[i]->poster_shape) : NULL;
-    }
+    for (int i = 0; i < n; i++) r->metas[i] = preview_from_item(sorted[i]);
     r->n = n;
+    if (r->focus >= n) r->focus = n ? n - 1 : 0;
     free(sorted);
-    r->loading = 0;
+}
+
+static Row *new_row(int kind, const char *title)
+{
+    Row *r = calloc(1, sizeof *r);
+    r->kind = kind;
+    snprintf(r->title, sizeof r->title, "%s", title);
+    return r;
 }
 
 static void rebuild_rows(Home *h)
 {
-    /* Preserve fetched data for catalogs that still exist. */
     Row **old = h->rows; int n_old = h->n_rows;
-    int cap = 1;
+    int cap = 2;
     for (int a = 0; a < g_app.n_addons; a++) cap += g_app.addons[a].manifest.n_catalogs;
     h->rows = calloc((size_t)cap, sizeof(Row *));
     h->n_rows = 0;
 
-    Row *cw = NULL;
-    if (n_old && old[0]->is_continue) { cw = old[0]; old[0] = NULL; }
-    else { cw = calloc(1, sizeof *cw); snprintf(cw->title, sizeof cw->title, "Continue Watching"); cw->is_continue = 1; }
-    h->rows[h->n_rows++] = cw;
-    build_continue_row(cw);
-
+    for (int kind = ROW_CONTINUE; kind <= ROW_LIBRARY; kind++) {
+        Row *r = NULL;
+        for (int i = 0; i < n_old; i++) if (old[i] && old[i]->kind == kind) { r = old[i]; old[i] = NULL; break; }
+        if (!r) r = new_row(kind, kind == ROW_CONTINUE ? "Continue Watching" : "My Library");
+        build_library_row(r);
+        h->rows[h->n_rows++] = r;
+    }
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];
         for (int c = 0; c < ad->manifest.n_catalogs; c++) {
             const AddonCatalog *cat = &ad->manifest.catalogs[c];
-            if (addon_catalog_has_required_extra(cat)) continue;   /* search-only etc. */
+            if (addon_catalog_has_required_extra(cat)) continue;
             char title[128];
-            snprintf(title, sizeof title, "%s - %s", cat->name, ad->manifest.name);
+            const char *type = strcmp(cat->type, "movie") == 0 ? "Movies" : strcmp(cat->type, "series") == 0 ? "Series" : cat->type;
+            snprintf(title, sizeof title, "%s %s", cat->name, type);
             Row *r = NULL;
-            for (int i = 0; i < n_old; i++) {
-                if (!old[i] || old[i]->is_continue) continue;
-                if (strcmp(old[i]->title, title) == 0) { r = old[i]; old[i] = NULL; break; }
-            }
-            if (!r) { r = calloc(1, sizeof *r); snprintf(r->title, sizeof r->title, "%s", title); }
+            for (int i = 0; i < n_old; i++)
+                if (old[i] && old[i]->kind == ROW_CATALOG && old[i]->addon < 1000 && strcmp(old[i]->title, title) == 0) { r = old[i]; old[i] = NULL; break; }
+            if (!r) r = new_row(ROW_CATALOG, title);
             r->addon = a; r->catalog = c;
             h->rows[h->n_rows++] = r;
         }
@@ -107,37 +148,50 @@ static void rebuild_rows(Home *h)
     h->library_seen = g_app.library_version;
 }
 
+static void apply_catalog(Row *row, const char *json)
+{
+    MetaPreview *m; int n;
+    if (addon_parse_metas(json, &m, &n) != 0) return;
+    char *focused = row->n && row->focus < row->n ? strdup(row->metas[row->focus].id) : NULL;
+    meta_previews_free(row->metas, row->n);
+    row->metas = m; row->n = n;
+    if (focused) { for (int i = 0; i < n; i++) if (strcmp(m[i].id, focused) == 0) row->focus = i; free(focused); }
+    if (row->focus >= n) row->focus = n ? n - 1 : 0;
+    app_redraw();
+}
+
 static void on_catalog(HttpResponse *r, void *user)
 {
     Row *row = user;
     row->req = 0;
     row->loading = 0;
-    if (r->status != 200 || addon_parse_metas(r->body, &row->metas, &row->n) != 0) {
-        row->failed = 1;
+    if (r->status != 200) {
+        if (!row->n) row->failed = 1;
         LOGW("catalog %s failed: %ld %s", row->title, r->status, r->error);
+        app_redraw();
+        return;
     }
+    apply_catalog(row, r->body);
+    if (row->n) app_cache_put(row->url, r->body, r->len);
 }
 
 static void fetch_row(Row *r)
 {
-    if (r->is_continue || r->requested) return;
-    if (r->addon >= g_app.n_addons) return;
+    if (r->kind != ROW_CATALOG || r->requested || r->addon >= g_app.n_addons) return;
     const Addon *ad = &g_app.addons[r->addon];
     const AddonCatalog *cat = &ad->manifest.catalogs[r->catalog];
-    char url[1024];
-    addon_url_catalog(ad, cat->type, cat->id, NULL, url, sizeof url);
+    addon_url_catalog(ad, cat->type, cat->id, NULL, r->url, sizeof r->url);
     r->requested = 1;
-    r->loading = 1;
-    r->req = http_request_async(url, NULL, on_catalog, r);
+    char *cached = app_cache_get(r->url, 7 * 24 * 3600);
+    if (cached) { apply_catalog(r, cached); free(cached); }
+    r->loading = r->n == 0;
+    r->req = http_request_async(r->url, NULL, on_catalog, r);
 }
 
-static int row_has_content(const Row *r) { return r->n > 0 || r->loading || (!r->is_continue && !r->failed && !r->requested); }
-
-/* Rows that are empty (and finished) are skipped by navigation and collapsed in layout. */
 static int row_visible(const Row *r)
 {
-    if (r->is_continue) return r->n > 0;
-    return row_has_content(r);
+    if (r->kind != ROW_CATALOG) return r->n > 0;
+    return r->n > 0 || r->loading || (!r->failed && !r->requested);
 }
 
 static int next_visible(const Home *h, int from, int dir)
@@ -146,124 +200,267 @@ static int next_visible(const Home *h, int from, int dir)
     return -2;
 }
 
-static void ensure_focus_valid(Home *h)
+static const MetaPreview *hero_item(const Home *h)
 {
-    if (h->focus_row >= 0 && (h->focus_row >= h->n_rows || !row_visible(h->rows[h->focus_row]))) {
-        int n = next_visible(h, h->focus_row, 1);
-        if (n < 0) n = next_visible(h, h->focus_row, -1);
-        h->focus_row = n < 0 ? -1 : n;
-    }
+    int ri = h->focus_row >= 0 ? h->focus_row : next_visible(h, -1, 1);
+    if (ri < 0) return NULL;
+    const Row *r = h->rows[ri];
+    return r->n ? &r->metas[r->focus < r->n ? r->focus : 0] : NULL;
 }
+
+/* ---- update ---- */
 
 static void update(Screen *s, float dt)
 {
     Home *h = s->st;
     if (h->addons_seen != g_app.addons_version) rebuild_rows(h);
-    if (h->library_seen != g_app.library_version) { build_continue_row(h->rows[0]); h->library_seen = g_app.library_version; }
-
-    /* Fetch rows near the focus; the first few always. */
-    int fetched = 0;
-    for (int i = 0; i < h->n_rows; i++) {
-        int near = h->focus_row < 0 ? i < 4 : (i >= h->focus_row - 1 && i <= h->focus_row + 3);
-        if (near && !h->rows[i]->requested && !h->rows[i]->is_continue) { fetch_row(h->rows[i]); if (++fetched >= 4) break; }
+    if (h->library_seen != g_app.library_version) {
+        for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind != ROW_CATALOG) build_library_row(h->rows[i]);
+        h->library_seen = g_app.library_version;
     }
-    ensure_focus_valid(h);
+    int fetched = 0;
+    for (int i = 0; i < h->n_rows && fetched < 4; i++) {
+        int near = h->focus_row < 0 ? i < 5 : (i >= h->focus_row - 1 && i <= h->focus_row + 3);
+        if (near && !h->rows[i]->requested && h->rows[i]->kind == ROW_CATALOG) { fetch_row(h->rows[i]); fetched++; }
+    }
+    if (h->focus_row >= 0 && (h->focus_row >= h->n_rows || !row_visible(h->rows[h->focus_row]))) {
+        int n = next_visible(h, h->focus_row, 1);
+        if (n < 0) n = next_visible(h, h->focus_row, -1);
+        h->focus_row = n < 0 ? -1 : n;
+    }
 
-    /* layout target: focused row sits at ROWS_TOP */
     float y = 0;
-    for (int i = 0; i < h->n_rows && i < h->focus_row; i++) if (row_visible(h->rows[i])) y += ROW_H;
-    h->scroll_target = h->focus_row < 0 ? 0 : y;
-    float k = 1 - SDL_powf(0.001f, dt);
-    h->scroll_y += (h->scroll_target - h->scroll_y) * k;
+    for (int i = 0; i < h->n_rows && i < h->focus_row; i++) if (row_visible(h->rows[i])) y += row_h(h->rows[i]);
+    h->scroll_y = ui_ease(h->scroll_y, h->focus_row < 0 ? 0 : y, NULL, dt, 14);
+    for (int i = 0; i < h->n_rows; i++) {
+        Row *r = h->rows[i];
+        int vis = visible_cards(r);
+        int first = r->focus - (vis - 2);
+        if (first < 0) first = 0;
+        r->scroll_x = ui_ease(r->scroll_x, first * (card_w(r) + GAP), NULL, dt, 16);
+    }
+    h->focus_t = ui_ease(h->focus_t * 100, 100, NULL, dt, 16) / 100;
+    h->prev_t = ui_ease(h->prev_t * 100, 0, NULL, dt, 16) / 100;
+    h->hero_fade = ui_ease(h->hero_fade * 100, 100, NULL, dt, 7) / 100;
+    h->hero_text_t = ui_ease(h->hero_text_t * 100, 100, NULL, dt, 10) / 100;
+
+    const MetaPreview *hero = hero_item(h);
+    if (hero && strcmp(hero->id, h->hero_id) != 0) {
+        snprintf(h->hero_id, sizeof h->hero_id, "%s", hero->id);
+        char buf[512];
+        const char *bg = app_art_background(hero, buf, sizeof buf);
+        snprintf(h->hero_prev_bg, sizeof h->hero_prev_bg, "%s", h->hero_bg);
+        snprintf(h->hero_bg, sizeof h->hero_bg, "%s", bg ? bg : "");
+        h->hero_fade = 0;
+        h->hero_text_t = 0;
+    }
+
+    /* prefetch around the focus and the start of the next row */
+    if (h->focus_row >= 0) {
+        Row *r = h->rows[h->focus_row];
+        char buf[512];
+        for (int j = r->focus - 2; j < r->focus + visible_cards(r) + 2; j++) {
+            if (j < 0 || j >= r->n) continue;
+            image_prefetch(r->kind == ROW_CONTINUE ? app_art_background(&r->metas[j], buf, sizeof buf) : app_art_poster(&r->metas[j], buf, sizeof buf));
+            if (j >= r->focus - 1 && j <= r->focus + 1) image_prefetch(app_art_background(&r->metas[j], buf, sizeof buf));
+        }
+        int nr = next_visible(h, h->focus_row, 1);
+        if (nr >= 0) { Row *n2 = h->rows[nr]; for (int j = 0; j < n2->n && j < 8; j++) image_prefetch(app_art_poster(&n2->metas[j], buf, sizeof buf)); }
+    }
+    if (g_app.addons_loading) app_redraw();
 }
 
-static void draw_top_bar(const Home *h)
+/* ---- drawing ---- */
+
+static void draw_nav(const Home *h)
 {
-    const char *labels[TOP_COUNT] = { "Search", "Settings", g_app.user_email ? g_app.user_email : "Sign in" };
-    font_draw("Stremio", THEME_MARGIN, 44, FONT_L, THEME_TEXT);
+    ui_brand(THEME_MARGIN, 44, 58);
+    const char *account = g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Account") : "Sign in";
+    char short_acc[24];
+    snprintf(short_acc, sizeof short_acc, "%.18s%s", account, strlen(account) > 18 ? "\xE2\x80\xA6" : "");
+    const char *labels[NAV_COUNT] = { "Search", "Settings", short_acc };
+    Icon icons[NAV_COUNT] = { ICON_SEARCH, ICON_SETTINGS, ICON_USER };
     float x = SNTV_UI_W - THEME_MARGIN;
-    for (int i = TOP_COUNT - 1; i >= 0; i--) {
-        float w = font_measure(labels[i], FONT_M) + 48;
+    for (int i = NAV_COUNT - 1; i >= 0; i--) {
+        int foc = h->focus_row == -1 && h->focus_nav == i;
+        float w = ui_pill_width(labels[i], 1, 60);
         x -= w;
-        ui_draw_button(labels[i], x, 44, w, 56, h->focus_row == -1 && h->focus_top == i, 0);
-        x -= 16;
+        ui_pill(labels[i], 1, icons[i], x, 44, 60, PILL_SECONDARY, foc);
+        x -= 14;
     }
+}
+
+static void draw_hero(Home *h, const MetaPreview *p)
+{
+    float k = g_app.fx_light ? 1.0f : h->hero_text_t;
+    int a = (int)(255 * k);
+    float x = THEME_MARGIN, y = 168 + (1 - k) * 18;
+    float maxw = 860;
+    char buf[512];
+    const char *logo = app_art_logo(p, buf, sizeof buf);
+    int lw = 0, lh = 0;
+    unsigned ltex = logo ? image_get(logo, &lw, &lh) : 0;
+    if (ltex && lh > 0) {
+        float w = 600, hh = w * lh / lw;
+        if (hh > 170) { hh = 170; w = hh * lw / lh; }
+        gfx_tex(ltex, x, y + (170 - hh), w, hh, RGBA(255, 255, 255, a));
+        y += 190;
+    } else {
+        int fs = font_measure(p->name, FONT_TITLE | FONT_B) > maxw ? (FONT_XL | FONT_B) : (FONT_TITLE | FONT_B);
+        int lines = font_draw_wrapped(p->name, 0, 0, fs, 0, maxw, 2);
+        float th = lines * font_height(fs);
+        float ty = y + 170 - th;
+        Color sh = RGBA(0, 0, 0, a / 2);
+        for (int i = 0; i < lines; i++) (void)i;
+        font_draw_wrapped(p->name, x + 3, ty + 3, fs, sh, maxw, 2);
+        font_draw_wrapped(p->name, x, ty, fs, COLOR_ALPHA(THEME_TEXT, a), maxw, 2);
+        y += 190;
+    }
+    /* meta line */
+    float mx = x;
+    if (p->imdb_rating && *p->imdb_rating) mx += ui_imdb(p->imdb_rating, mx, y) + 4;
+    const char *parts[5]; int np = 0;
+    if (p->release_info) parts[np++] = p->release_info;
+    if (p->runtime) parts[np++] = p->runtime;
+    if (p->type) parts[np++] = strcmp(p->type, "series") == 0 ? "Series" : strcmp(p->type, "movie") == 0 ? "Movie" : p->type;
+    for (int i = 0; i < np; i++) {
+        if (mx > x) mx = ui_dot_sep(mx, y, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+        font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
+        mx += font_measure(parts[i], FONT_S | FONT_B);
+    }
+    y += 54;
+    float gx = x;
+    for (int g = 0; g < p->genres.n && g < 4; g++) gx += ui_chip_outline(p->genres.v[g], gx, y, RGBA(0xFF, 0xFF, 0xFF, (int)(0x50 * k)), COLOR_ALPHA(THEME_TEXT_DIM, a)) + 10;
+    if (p->genres.n) y += 54;
+    if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 3);
+}
+
+static void draw_row(Home *h, int ri, float y)
+{
+    Row *r = h->rows[ri];
+    int focused_row = h->focus_row == ri;
+    float rowk = focused_row ? 1.0f : 0.55f;
+    font_draw(r->title, THEME_MARGIN, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * rowk)));
+    if (r->kind == ROW_CATALOG && r->addon < g_app.n_addons && focused_row) {
+        float tw = font_measure(r->title, FONT_M | FONT_B);
+        font_draw(g_app.addons[r->addon].manifest.name, THEME_MARGIN + tw + 18, y + 6, FONT_S, THEME_TEXT_MUTED);
+    }
+    float cy = y + TITLE_H, cw = card_w(r), ch = card_h(r);
+    if (!r->n) {
+        if (r->loading || !r->requested) for (int j = 0; j < 8; j++) ui_skeleton(THEME_MARGIN + j * (cw + GAP), cy, cw, ch, R_CARD);
+        else if (r->failed) font_draw("Couldn't load this catalog. It will retry next time.", THEME_MARGIN, cy + 20, FONT_S, THEME_TEXT_MUTED);
+        return;
+    }
+    int first = (int)(r->scroll_x / (cw + GAP)) - 1;
+    if (first < 0) first = 0;
+    char buf[512];
+    /* draw unfocused first so the focused card's shadow and ring sit on top */
+    for (int pass = 0; pass < 2; pass++)
+        for (int j = first; j < r->n && j < first + visible_cards(r) + 3; j++) {
+            float px = THEME_MARGIN + j * (cw + GAP) - r->scroll_x;
+            if (px > SNTV_UI_W + 40 || px + cw < -40) continue;
+            int is_focus = focused_row && r->focus == j;
+            int is_prev = h->prev_row == ri && h->prev_col == j && !is_focus;
+            if ((pass == 1) != (is_focus || is_prev)) continue;
+            float f = is_focus ? (g_app.fx_light ? 1.0f : h->focus_t) : is_prev ? h->prev_t : 0;
+            float dim = focused_row ? 0 : 0.45f;
+            const MetaPreview *m = &r->metas[j];
+            if (r->kind == ROW_CONTINUE) {
+                const char *bg = app_art_background(m, buf, sizeof buf);
+                ui_card(bg, px, cy, cw, ch, f, dim, m->name, 0);
+                float sc = ui_focus_scale(f), w2 = cw * sc, h2 = ch * sc, x2 = px - (w2 - cw) / 2, y2 = cy - (h2 - ch) / 2;
+                /* label + progress inside the card */
+                gfx_clip_push(x2, y2, w2, h2);
+                gfx_gradient_v(x2, y2 + h2 * 0.45f, w2, h2 * 0.55f + 1, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
+                gfx_clip_pop();
+                LibraryItem *li = app_library_find(m->id);
+                char sub[64] = "";
+                if (li && li->video_id) {
+                    int se = 0, ep = 0;
+                    const char *c1 = strchr(li->video_id, ':');
+                    if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(sub, sizeof sub, "S%d  E%d", se, ep);
+                }
+                font_draw_fit(m->name, x2 + 20, y2 + h2 - 76, FONT_S | FONT_B, THEME_TEXT, w2 - 40);
+                if (sub[0]) font_draw(sub, x2 + 20, y2 + h2 - 48, FONT_XS, THEME_TEXT_DIM);
+                if (li && li->duration) ui_progress(x2 + 20, y2 + h2 - 18, w2 - 40, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
+            } else {
+                ui_card(app_art_poster(m, buf, sizeof buf), px, cy, cw, ch, f, dim, m->name, 0);
+            }
+            if (is_focus && r->kind != ROW_CONTINUE) {
+                float sc = ui_focus_scale(f);
+                font_draw_fit(m->name, px - (cw * sc - cw) / 2, cy + ch * sc - (ch * sc - ch) / 2 + 14, FONT_XS | FONT_B,
+                              COLOR_ALPHA(THEME_TEXT, (int)(255 * f)), cw * sc);
+            }
+        }
 }
 
 static void draw(Screen *s)
 {
     Home *h = s->st;
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    const MetaPreview *hero = hero_item(h);
+    ui_background(hero ? image_tint(h->hero_bg) : 0);
 
-    /* backdrop of the focused item */
-    if (h->focus_row >= 0) {
-        const Row *r = h->rows[h->focus_row];
-        if (r->n) {
-            const MetaPreview *p = &r->metas[r->focus < r->n ? r->focus : 0];
-            int iw, ih;
-            unsigned tex = p->background ? image_get(p->background, &iw, &ih) : 0;
-            if (tex) gfx_tex(tex, 0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(255, 255, 255, 70));
-            gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0x0F, 0x0D, 0x20, 0x60), RGBA(0x0F, 0x0D, 0x20, 0xFF));
-            char info[256] = "";
-            if (p->release_info) snprintf(info, sizeof info, "%s", p->release_info);
-            if (p->imdb_rating) snprintf(info + strlen(info), sizeof info - strlen(info), "%sIMDb %s", info[0] ? "   " : "", p->imdb_rating);
-            for (int g = 0; g < p->genres.n && g < 3; g++) snprintf(info + strlen(info), sizeof info - strlen(info), "%s%s", (info[0] ? "   " : ""), p->genres.v[g]);
-            font_draw_fit(p->name, THEME_MARGIN, 130, FONT_XL, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN);
-            font_draw_fit(info, THEME_MARGIN, 196, FONT_S, THEME_TEXT_DIM, SNTV_UI_W - 2 * THEME_MARGIN);
-        }
+    if (hero) {
+        int iw, ih, pw, ph;
+        float fade = g_app.fx_light ? 1.0f : h->hero_fade;
+        unsigned prev = h->hero_prev_bg[0] && fade < 1 ? image_get(h->hero_prev_bg, &pw, &ph) : 0;
+        unsigned cur = h->hero_bg[0] ? image_get(h->hero_bg, &iw, &ih) : 0;
+        float bh = SNTV_UI_H * 0.86f;
+        ui_backdrop_fades(1180, 360, bh);
+        if (prev) ui_backdrop_image(prev, pw, ph, 1 - fade, bh);
+        if (cur) ui_backdrop_image(cur, iw, ih, fade, bh);
+        ui_text_scrim(1250, bh);
+        draw_hero(h, hero);
     }
 
-    gfx_clip_push(0, ROWS_TOP, SNTV_UI_W, SNTV_UI_H - ROWS_TOP);
-    float y = ROWS_TOP - h->scroll_y;
+    gfx_clip_push(0, ROWS_Y - 24, SNTV_UI_W, SNTV_UI_H - ROWS_Y + 24);
+    float y = ROWS_Y - h->scroll_y;
     for (int i = 0; i < h->n_rows; i++) {
         Row *r = h->rows[i];
         if (!row_visible(r)) continue;
-        if (y > SNTV_UI_H || y + ROW_H < ROWS_TOP) { y += ROW_H; continue; }
-        int focused_row = h->focus_row == i;
-        font_draw(r->title, THEME_MARGIN, y, FONT_M, focused_row ? THEME_TEXT : THEME_TEXT_DIM);
-        float py = y + 50;
-        if (r->loading && !r->n) ui_draw_spinner(THEME_MARGIN + 100, py + POSTER_H / 2);
-        if (!r->n && r->failed) font_draw("Could not load this catalog", THEME_MARGIN, py + 20, FONT_S, THEME_TEXT_MUTED);
-        int first = r->focus - (VISIBLE - 1);
-        if (first < 0) first = 0;
-        for (int j = first; j < r->n && j < first + VISIBLE + 1; j++) {
-            float px = THEME_MARGIN + (j - first) * (POSTER_W + POSTER_GAP);
-            int foc = focused_row && r->focus == j;
-            float grow = foc ? 10 : 0;
-            ui_draw_poster(r->metas[j].poster, px - grow, py - grow, POSTER_W + 2 * grow, POSTER_H + 2 * grow, foc, r->metas[j].name);
-            if (r->is_continue) {
-                LibraryItem *li = app_library_find(r->metas[j].id);
-                if (li && li->duration) {
-                    float frac = (float)li->time_offset / (float)li->duration;
-                    gfx_rect(px - grow, py + POSTER_H + grow - 8, POSTER_W + 2 * grow, 8, RGBA(0, 0, 0, 160));
-                    gfx_rect(px - grow, py + POSTER_H + grow - 8, (POSTER_W + 2 * grow) * frac, 8, THEME_ACCENT);
-                }
-            }
-        }
-        y += ROW_H;
+        float rh = row_h(r);
+        if (y + rh > ROWS_Y - 40 && y < SNTV_UI_H) draw_row(h, i, y);
+        y += rh;
     }
     gfx_clip_pop();
 
-    if (!h->n_rows || (h->n_rows == 1 && !h->rows[0]->n)) {
-        if (g_app.addons_loading) { ui_draw_spinner(SNTV_UI_W / 2, SNTV_UI_H / 2); font_draw("Loading addons...", SNTV_UI_W / 2 - 100, SNTV_UI_H / 2 + 50, FONT_M, THEME_TEXT_DIM); }
-        else if (g_app.addons_error[0]) font_draw(g_app.addons_error, THEME_MARGIN, SNTV_UI_H / 2, FONT_M, THEME_DANGER);
-        else font_draw("No catalogs. Sign in or install a catalog addon in Settings.", THEME_MARGIN, SNTV_UI_H / 2, FONT_M, THEME_TEXT_DIM);
+    int any = 0;
+    for (int i = 0; i < h->n_rows; i++) if (row_visible(h->rows[i])) any = 1;
+    if (!any) {
+        float cy = SNTV_UI_H / 2 + 60;
+        if (g_app.addons_loading) { ui_spinner(SNTV_UI_W / 2, cy, 30); font_draw_center("Loading your addons", SNTV_UI_W / 2, cy + 60, FONT_M | FONT_B, THEME_TEXT_DIM); }
+        else {
+            ui_icon(ICON_LIBRARY, SNTV_UI_W / 2, cy - 40, 80, THEME_TEXT_MUTED);
+            font_draw_center(g_app.addons_error[0] ? g_app.addons_error : "No catalogs yet", SNTV_UI_W / 2, cy + 30, FONT_L | FONT_B, THEME_TEXT);
+            font_draw_center("Sign in, or install a catalog addon from Settings.", SNTV_UI_W / 2, cy + 90, FONT_S, THEME_TEXT_DIM);
+        }
     }
-    draw_top_bar(h);
+    draw_nav(h);
+}
+
+/* ---- input ---- */
+
+static void move_focus(Home *h, int row, int col)
+{
+    if (h->focus_row >= 0) { h->prev_row = h->focus_row; h->prev_col = h->rows[h->focus_row]->focus; h->prev_t = h->focus_t; }
+    if (row >= 0 && col >= 0) h->rows[row]->focus = col;
+    h->focus_row = row;
+    h->focus_t = 0;
 }
 
 static int key(Screen *s, KeyAction a)
 {
     Home *h = s->st;
+    app_redraw();
     if (a == KEY_SEARCH) { app_push(screen_search_create()); return 1; }
     if (h->focus_row == -1) {
         switch (a) {
-        case KEY_LEFT: if (h->focus_top > 0) h->focus_top--; return 1;
-        case KEY_RIGHT: if (h->focus_top < TOP_COUNT - 1) h->focus_top++; return 1;
-        case KEY_DOWN: { int n = next_visible(h, -1, 1); if (n >= 0) h->focus_row = n; return 1; }
+        case KEY_LEFT: if (h->focus_nav > 0) h->focus_nav--; return 1;
+        case KEY_RIGHT: if (h->focus_nav < NAV_COUNT - 1) h->focus_nav++; return 1;
+        case KEY_DOWN: { int n = next_visible(h, -1, 1); if (n >= 0) move_focus(h, n, -1); return 1; }
         case KEY_OK:
-            if (h->focus_top == TOP_SEARCH) app_push(screen_search_create());
-            else if (h->focus_top == TOP_SETTINGS) app_push(screen_settings_create());
+            if (h->focus_nav == NAV_SEARCH) app_push(screen_search_create());
+            else if (h->focus_nav == NAV_SETTINGS) app_push(screen_settings_create());
             else app_push(g_app.auth_key ? screen_settings_create() : screen_login_create());
             return 1;
         case KEY_BACK: return 0;
@@ -272,18 +469,20 @@ static int key(Screen *s, KeyAction a)
     }
     Row *r = h->rows[h->focus_row];
     switch (a) {
-    case KEY_UP: { int n = next_visible(h, h->focus_row, -1); h->focus_row = n >= 0 ? n : -1; return 1; }
-    case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) h->focus_row = n; return 1; }
-    case KEY_LEFT: if (r->focus > 0) r->focus--; return 1;
-    case KEY_RIGHT: if (r->focus < r->n - 1) r->focus++; return 1;
+    case KEY_UP: { int n = next_visible(h, h->focus_row, -1); move_focus(h, n >= 0 ? n : -1, -1); return 1; }
+    case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) move_focus(h, n, -1); return 1; }
+    case KEY_LEFT: if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1); return 1;
+    case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
     case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
     case KEY_BACK:
-        if (h->focus_row > 0 || r->focus > 0) { r->focus = 0; h->focus_row = next_visible(h, -1, 1); return 1; }
-        g_app.quit = 1;   /* Back on the first row exits, like the LG/Samsung launchers expect */
+        if (h->focus_row != next_visible(h, -1, 1) || r->focus > 0) { r->focus = 0; move_focus(h, next_visible(h, -1, 1), 0); return 1; }
+        g_app.quit = 1;
         return 1;
     default: return 0;
     }
 }
+
+static void resume(Screen *s) { (void)s; app_redraw(); }
 
 static void destroy(Screen *s)
 {
@@ -300,8 +499,12 @@ Screen *screen_home_create(void)
     Home *h = calloc(1, sizeof *h);
     h->focus_row = -1;
     h->addons_seen = -1;
+    h->prev_row = -1;
+    h->focus_t = 1;
+    h->hero_fade = 1;
+    h->hero_text_t = 1;
     s->name = "home"; s->st = h;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     rebuild_rows(h);
     return s;
 }

@@ -1,0 +1,10 @@
+WEBVTT
+
+NOTE this is a comment
+
+00:01.000 --> 00:02.000 align:start
+<c.yellow>Styled</c> cue
+
+00:00:10.000 --> 00:00:12.000
+Line A
+Line B

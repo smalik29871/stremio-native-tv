@@ -1,15 +1,18 @@
 #include "input.h"
 #include "../platform/platform.h"
 
-/* webOS remote scancodes as delivered by the webosbrew SDL fork once the
- * SDL_WEBOS_ACCESS_POLICY_KEYS_* hints are set. Verify against the fork's
- * SDL_webOS.h for the firmware you target; these are the commonly used values. */
-#define WEBOS_SC_BACK    0x1BE
-#define WEBOS_SC_EXIT    0x1BF
-#define WEBOS_SC_RED     0x190
-#define WEBOS_SC_GREEN   0x191
-#define WEBOS_SC_YELLOW  0x192
-#define WEBOS_SC_BLUE    0x193
+/* webOS remote scancodes from the webosbrew SDL fork (include/SDL_scancode.h,
+ * branch webOS-2.30.x). They only arrive once the SDL_WEBOS_ACCESS_POLICY_KEYS_*
+ * hints are set before the window exists. */
+#define WEBOS_SC_CH_UP   480
+#define WEBOS_SC_CH_DOWN 481
+#define WEBOS_SC_BACK    482
+#define WEBOS_SC_RED     486
+#define WEBOS_SC_GREEN   487
+#define WEBOS_SC_YELLOW  488
+#define WEBOS_SC_BLUE    489
+#define WEBOS_SC_GUIDE   495
+#define WEBOS_SC_EXIT    505
 
 KeyAction input_map(const SDL_Event *e)
 {
@@ -24,6 +27,9 @@ KeyAction input_map(const SDL_Event *e)
     case WEBOS_SC_GREEN:  return KEY_GREEN;
     case WEBOS_SC_YELLOW: return KEY_YELLOW;
     case WEBOS_SC_BLUE:   return KEY_BLUE;
+    case WEBOS_SC_CH_UP:  return KEY_UP;
+    case WEBOS_SC_CH_DOWN:return KEY_DOWN;
+    case WEBOS_SC_GUIDE:  return KEY_INFO;
     default: break;
     }
 

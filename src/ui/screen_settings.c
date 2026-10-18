@@ -1,4 +1,5 @@
 #include "../app.h"
+#include "../image.h"
 #include "../log.h"
 #include "../store.h"
 #include "../platform/platform.h"
@@ -6,87 +7,164 @@
 #include "font.h"
 #include "keyboard.h"
 #include "theme.h"
+#include "widgets.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-enum { IT_ACCOUNT, IT_SERVER, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
+enum { IT_ACCOUNT, IT_SERVER, IT_PLAYBACK_HEADER, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_SIZE, IT_AUTOPLAY,
+       IT_UI_HEADER, IT_FX, IT_BLUR, IT_INSTALL, IT_ADDONS_HEADER, IT_FIXED_COUNT };
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL };
-enum { ROW_H = 76, VISIBLE = 10 };
+#define ROW_H 88.0f
+#define COL_X 420.0f
+
+static const char *LANGS[] = { "", "eng", "spa", "por", "fra", "deu", "ita", "rus", "tur", "ara", "hin", "jpn", "kor", "zho", "pol", "nld", NULL };
+static const char *LANG_NAMES[] = { "Off", "English", "Español", "Português", "Français", "Deutsch", "Italiano", "Русский", "Türkçe", "العربية", "हिन्दी", "日本語", "한국어", "中文", "Polski", "Nederlands", NULL };
 
 typedef struct {
     int focus;
-    int confirm_remove;     /* addon index awaiting second OK, or -1 */
+    int confirm_remove;
     int edit;
     Keyboard kb;
+    float scroll, scroll_target;
 } Settings;
 
 static int item_count(void) { return IT_FIXED_COUNT + g_app.n_addons; }
+static int is_header(int i) { return i == IT_PLAYBACK_HEADER || i == IT_UI_HEADER || i == IT_ADDONS_HEADER; }
 
-static void draw_row(float y, const char *title, const char *value, int focused, int header)
+static int lang_index(const char *code)
 {
-    float x = THEME_MARGIN, w = SNTV_UI_W - 2 * THEME_MARGIN;
-    if (header) { font_draw(title, x, y + 24, FONT_M, THEME_TEXT_DIM); return; }
-    gfx_rect(x, y, w, ROW_H - 8, focused ? THEME_SURFACE_HI : THEME_SURFACE);
-    if (focused) gfx_rect(x, y, 6, ROW_H - 8, THEME_ACCENT);
-    font_draw_fit(title, x + 24, y + 18, FONT_M, THEME_TEXT, w * 0.45f);
-    if (value) font_draw_fit(value, x + w * 0.5f, y + 20, FONT_S, THEME_TEXT_DIM, w * 0.5f - 24);
+    for (int i = 0; LANGS[i]; i++) if (strcmp(LANGS[i], code) == 0) return i;
+    return 0;
+}
+
+static const char *lang_name(const char *code)
+{
+    int i = lang_index(code);
+    return LANG_NAMES[i];
+}
+
+static void cycle_lang(char *code, size_t n, int dir)
+{
+    int i = lang_index(code), count = 0;
+    while (LANGS[count]) count++;
+    i = (i + dir + count) % count;
+    snprintf(code, n, "%s", LANGS[i]);
+}
+
+typedef enum { KIND_ACTION, KIND_TOGGLE, KIND_CHOICE, KIND_HEADER } RowKind;
+
+static void draw_row(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on)
+{
+    float x = COL_X, w = SNTV_UI_W - THEME_MARGIN - COL_X, h = ROW_H - 12;
+    if (kind == KIND_HEADER) { font_draw(title, x + 8, y + 30, FONT_XS | FONT_B, THEME_ACCENT2); return; }
+    if (focused && !g_app.fx_light) gfx_shadow(x, y + 6, w, h, 20, 24, RGBA(0, 0, 0, 0x80));
+    gfx_rrect(x, y, w, h, 20, focused ? THEME_TEXT : RGBA(0xFF, 0xFF, 0xFF, 0x0F));
+    Color fg = focused ? THEME_ON_LIGHT : THEME_TEXT, dim = focused ? RGBA(0x0B, 0x0A, 0x16, 0xA8) : THEME_TEXT_MUTED;
+    gfx_circle(x + 46, y + h / 2, 24, focused ? RGBA(0x0B, 0x0A, 0x16, 0x14) : RGBA(0xFF, 0xFF, 0xFF, 0x10));
+    ui_icon(icon, x + 46, y + h / 2, 26, fg);
+    font_draw_fit(title, x + 92, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg, w * 0.48f);
+    float rx = x + w - 30;
+    if (kind == KIND_TOGGLE) { ui_toggle(rx - 76, y + (h - 40) / 2, on, 0); return; }
+    if (kind == KIND_CHOICE) {
+        ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 22, dim);
+        float vw = font_measure(value, FONT_S | FONT_B);
+        font_draw(value, rx - 36 - vw, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
+        ui_icon(ICON_CHEVRON_LEFT, rx - 60 - vw, y + h / 2, 22, dim);
+        return;
+    }
+    if (value) font_draw_fit(value, x + w * 0.5f, y + (h - font_height(FONT_S)) / 2, FONT_S, dim, w * 0.5f - 40);
+}
+
+static void update(Screen *s, float dt)
+{
+    Settings *st = s->st;
+    int first = st->focus - 8;
+    st->scroll_target = (first < 0 ? 0 : first) * (float)ROW_H;
+    st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 12);
 }
 
 static void draw(Screen *s)
 {
     Settings *st = s->st;
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
-    char sub[128];
-    snprintf(sub, sizeof sub, "v%s  -  %s", SNTV_APP_VERSION, video_backend_name());
-    ui_draw_header("Settings", sub);
+    ui_background(0);
+    /* left rail */
+    font_draw("Settings", THEME_MARGIN, 120, FONT_XL | FONT_B, THEME_TEXT);
+    char sub[160];
+    snprintf(sub, sizeof sub, "Version %s", SNTV_APP_VERSION);
+    font_draw(sub, THEME_MARGIN, 196, FONT_S, THEME_TEXT_DIM);
+    font_draw_wrapped(video_backend_name(), THEME_MARGIN, 236, FONT_XS, THEME_TEXT_MUTED, COL_X - THEME_MARGIN - 40, 2);
+    snprintf(sub, sizeof sub, "%zu MB artwork in memory", image_cache_bytes() >> 20);
+    font_draw(sub, THEME_MARGIN, 296, FONT_XS, THEME_TEXT_MUTED);
+    if (g_app.auth_key) {
+        float ay = 380;
+        gfx_rrect_grad_v(THEME_MARGIN, ay, 72, 72, 36, THEME_ACCENT2, THEME_ACCENT);
+        char ini[4] = { g_app.user_email && g_app.user_email[0] ? (char)(g_app.user_email[0] >= 'a' && g_app.user_email[0] <= 'z' ? g_app.user_email[0] - 32 : g_app.user_email[0]) : 'S', 0 };
+        font_draw_center(ini, THEME_MARGIN + 36, ay + (72 - font_height(FONT_L | FONT_B)) / 2, FONT_L | FONT_B, THEME_TEXT);
+        font_draw_wrapped(g_app.user_email ? g_app.user_email : "Signed in", THEME_MARGIN, ay + 90, FONT_XS | FONT_B, THEME_TEXT_DIM, COL_X - THEME_MARGIN - 40, 2);
+    }
 
     if (st->edit != EDIT_NONE) {
-        const char *title = st->edit == EDIT_SERVER ? "Streaming server URL (e.g. http://192.168.1.10:11470)" : "Addon manifest URL";
-        font_draw(title, THEME_MARGIN, 160, FONT_M, THEME_TEXT);
-        gfx_rect(THEME_MARGIN, 210, keyboard_width(), 64, THEME_SURFACE);
-        font_draw_fit(st->kb.text[0] ? st->kb.text : " ", THEME_MARGIN + 20, 226, FONT_M, THEME_TEXT, keyboard_width() - 40);
-        keyboard_draw(&st->kb, THEME_MARGIN, 300, 1);
-        font_draw("Done saves, Back cancels", THEME_MARGIN, 300 + keyboard_height() + 30, FONT_S, THEME_TEXT_MUTED);
+        const char *title = st->edit == EDIT_SERVER ? "Streaming server URL" : "Addon manifest URL";
+        const char *hint = st->edit == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470" : "Paste or type the addon's manifest.json address";
+        float x = COL_X;
+        font_draw(title, x, 110, FONT_L | FONT_B, THEME_TEXT);
+        font_draw(hint, x, 166, FONT_S, THEME_TEXT_DIM);
+        gfx_rrect(x, 220, keyboard_width(), 76, 38, RGBA(0xFF, 0xFF, 0xFF, 0x18));
+        font_draw_fit(st->kb.text[0] ? st->kb.text : " ", x + 32, 220 + (76 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT, keyboard_width() - 64);
+        keyboard_draw(&st->kb, x, 330, 1);
+        font_draw("Done saves  \xC2\xB7  Back cancels", x, 330 + keyboard_height() + 30, FONT_S, THEME_TEXT_MUTED);
         return;
     }
 
+    static const char *FX_NAMES[] = { "Automatic", "Full", "Light" };
+    static const char *SIZE_NAMES[] = { "Small", "Medium", "Large" };
     int n = item_count();
-    int first = st->focus - (VISIBLE - 1);
-    if (first < 0) first = 0;
-    float y = 150;
-    for (int i = first; i < n && i < first + VISIBLE; i++, y += ROW_H) {
+    gfx_clip_push(0, 90, SNTV_UI_W, SNTV_UI_H - 90);
+    float y = 110 - st->scroll;
+    for (int i = 0; i < n; i++, y += ROW_H) {
+        if (y + ROW_H < 90 || y > SNTV_UI_H) continue;
         int foc = st->focus == i;
+        char v[300];
         switch (i) {
         case IT_ACCOUNT:
-            draw_row(y, g_app.auth_key ? "Sign out" : "Sign in", g_app.user_email ? g_app.user_email : "Not signed in: using the default Cinemeta catalog", foc, 0);
+            draw_row(y, ICON_USER, g_app.auth_key ? "Sign out" : "Sign in to Stremio",
+                     g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Signed in") : "Sync addons, Library and Continue Watching", foc, KIND_ACTION, 0);
             break;
         case IT_SERVER:
-            draw_row(y, "Streaming server", g_app.streaming_server && *g_app.streaming_server ? g_app.streaming_server : "Not set (torrent streams disabled)", foc, 0);
+            draw_row(y, ICON_LINK, "Streaming server", g_app.streaming_server && *g_app.streaming_server ? g_app.streaming_server : "Not set  \xC2\xB7  needed for torrents", foc, KIND_ACTION, 0);
             break;
-        case IT_INSTALL:
-            draw_row(y, "Install addon from URL", "Paste a manifest.json URL", foc, 0);
+        case IT_PLAYBACK_HEADER: draw_row(y, ICON_PLAY, "PLAYBACK", NULL, 0, KIND_HEADER, 0); break;
+        case IT_PREF_AUDIO: draw_row(y, ICON_AUDIO, "Preferred audio", lang_name(g_app.pref_audio), foc, KIND_CHOICE, 0); break;
+        case IT_PREF_SUBS: draw_row(y, ICON_SUBS, "Preferred subtitles", lang_name(g_app.pref_subs), foc, KIND_CHOICE, 0); break;
+        case IT_SUBS_SIZE: draw_row(y, ICON_SUBS, "Subtitle size", SIZE_NAMES[g_app.subs_size], foc, KIND_CHOICE, 0); break;
+        case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
+        case IT_UI_HEADER: draw_row(y, ICON_HOME, "INTERFACE", NULL, 0, KIND_HEADER, 0); break;
+        case IT_FX:
+            snprintf(v, sizeof v, "%s%s", FX_NAMES[g_app.fx_setting], g_app.fx_setting == FX_AUTO ? (g_app.fx_light ? " (Light)" : g_app.frames_measured >= 240 ? " (Full)" : "") : "");
+            draw_row(y, ICON_STAR, "Visual effects", v, foc, KIND_CHOICE, 0);
             break;
-        case IT_ADDONS_HEADER: {
-            char h[64];
-            snprintf(h, sizeof h, "Installed addons (%d)%s", g_app.n_addons, g_app.addons_loading ? "  loading..." : "");
-            draw_row(y, h, NULL, 0, 1);
+        case IT_BLUR: draw_row(y, ICON_LIBRARY, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
+        case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
+        case IT_ADDONS_HEADER:
+            snprintf(v, sizeof v, "ADDONS  \xC2\xB7  %d INSTALLED%s", g_app.n_addons, g_app.addons_loading ? "  \xC2\xB7  SYNCING" : "");
+            draw_row(y, ICON_LIBRARY, v, NULL, 0, KIND_HEADER, 0);
             break;
-        }
         default: {
             const Addon *a = &g_app.addons[i - IT_FIXED_COUNT];
-            char title[200], value[300];
-            snprintf(title, sizeof title, "%s  %s", a->manifest.name, a->manifest.version ? a->manifest.version : "");
-            if (st->confirm_remove == i - IT_FIXED_COUNT) snprintf(value, sizeof value, "Press OK again to remove");
+            char title[200];
+            snprintf(title, sizeof title, "%s", a->manifest.name);
+            if (st->confirm_remove == i - IT_FIXED_COUNT) snprintf(v, sizeof v, "Press OK again to remove");
             else {
-                value[0] = 0;
-                for (int r = 0; r < a->manifest.n_resources; r++) snprintf(value + strlen(value), sizeof value - strlen(value), "%s%s", value[0] ? ", " : "", a->manifest.resources[r].name);
-                if (a->flag_protected) strncat(value, "  (built-in)", sizeof value - strlen(value) - 1);
+                snprintf(v, sizeof v, "v%s  \xC2\xB7  ", a->manifest.version ? a->manifest.version : "?");
+                for (int r = 0; r < a->manifest.n_resources; r++) snprintf(v + strlen(v), sizeof v - strlen(v), "%s%s", r ? ", " : "", a->manifest.resources[r].name);
+                if (a->flag_protected) strncat(v, "  \xC2\xB7  built-in", sizeof v - strlen(v) - 1);
             }
-            draw_row(y, title, value, foc, 0);
+            draw_row(y, ICON_LIBRARY, title, v, foc, KIND_ACTION, 0);
         }
         }
     }
+    gfx_clip_pop();
 }
 
 static void begin_edit(Settings *st, int which)
@@ -116,9 +194,24 @@ static void finish_edit(Settings *st, int save)
     SDL_StopTextInput();
 }
 
+static void adjust(Settings *st, int dir)
+{
+    switch (st->focus) {
+    case IT_PREF_AUDIO: cycle_lang(g_app.pref_audio, sizeof g_app.pref_audio, dir); break;
+    case IT_PREF_SUBS: cycle_lang(g_app.pref_subs, sizeof g_app.pref_subs, dir); break;
+    case IT_SUBS_SIZE: g_app.subs_size = (g_app.subs_size + dir + 3) % 3; break;
+    case IT_FX: g_app.fx_setting = (FxLevel)(((int)g_app.fx_setting + dir + 3) % 3); break;
+    case IT_AUTOPLAY: g_app.autoplay_next = !g_app.autoplay_next; break;
+    case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
+    default: return;
+    }
+    app_save_prefs();
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Settings *st = s->st;
+    app_redraw();
     if (st->edit != EDIT_NONE) {
         if (a == KEY_BACK) { finish_edit(st, 0); return 1; }
         if (a == KEY_BACKSPACE) { keyboard_key(&st->kb, KEY_BACKSPACE); return 1; }
@@ -127,12 +220,21 @@ static int key(Screen *s, KeyAction a)
     }
     int n = item_count();
     switch (a) {
-    case KEY_UP: if (st->focus > 0) st->focus--; if (st->focus == IT_ADDONS_HEADER) st->focus--; st->confirm_remove = -1; return 1;
-    case KEY_DOWN: if (st->focus < n - 1) st->focus++; if (st->focus == IT_ADDONS_HEADER && st->focus < n - 1) st->focus++; st->confirm_remove = -1; return 1;
+    case KEY_UP: do { if (st->focus > 0) st->focus--; } while (is_header(st->focus) && st->focus > 0); st->confirm_remove = -1; return 1;
+    case KEY_DOWN: {
+        int f = st->focus;
+        do { if (f < n - 1) f++; else break; } while (is_header(f));
+        if (!is_header(f)) st->focus = f;
+        st->confirm_remove = -1;
+        return 1;
+    }
+    case KEY_LEFT: adjust(st, -1); return 1;
+    case KEY_RIGHT: adjust(st, 1); return 1;
     case KEY_OK:
         if (st->focus == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Signed out"); } else app_push(screen_login_create()); }
         else if (st->focus == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (st->focus == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
+        else if (st->focus == IT_AUTOPLAY || st->focus == IT_BLUR || st->focus == IT_FX || st->focus == IT_SUBS_SIZE || st->focus == IT_PREF_AUDIO || st->focus == IT_PREF_SUBS) adjust(st, 1);
         else if (st->focus >= IT_FIXED_COUNT) {
             int idx = st->focus - IT_FIXED_COUNT;
             if (st->confirm_remove == idx) { app_remove_addon(idx); st->confirm_remove = -1; if (st->focus >= item_count()) st->focus = item_count() - 1; }
@@ -147,7 +249,7 @@ static int key(Screen *s, KeyAction a)
 static void text(Screen *s, const char *utf8)
 {
     Settings *st = s->st;
-    if (st->edit != EDIT_NONE) keyboard_text_input(&st->kb, utf8);
+    if (st->edit != EDIT_NONE) { keyboard_text_input(&st->kb, utf8); app_redraw(); }
 }
 
 static void destroy(Screen *s)
@@ -164,6 +266,6 @@ Screen *screen_settings_create(void)
     Settings *st = calloc(1, sizeof *st);
     st->confirm_remove = -1;
     s->name = "settings"; s->st = st;
-    s->draw = draw; s->key = key; s->text = text; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->text = text; s->destroy = destroy;
     return s;
 }

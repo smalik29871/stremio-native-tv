@@ -4,25 +4,60 @@
 #include "../store.h"
 #include "font.h"
 #include "theme.h"
+#include "widgets.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-enum { ROW_H = 104, VISIBLE = 7 };
+#define ROW_H 142.0f
+#define LIST_X 620.0f
+#define LIST_Y 200.0f
+enum { VISIBLE = 7 };
 
 typedef struct Streams Streams;
 typedef struct { Streams *owner; int addon; unsigned generation; } Pending;
-static unsigned g_generation;        /* bumped when a streams screen dies */
+static unsigned g_generation;
 static Streams *g_live;
 
 struct Streams {
     MetaPreview meta;
-    char *video_id, *video_title;
+    char *video_id, *video_title, *autoplay_group;
     Stream *items; int n;
-    int pending, queried;
-    unsigned *reqs; int n_reqs;
+    int pending, n_reqs;
     int focus;
+    float scroll, scroll_target;
+    int autoplayed;
+    float started;
 };
+
+static int playable(const Stream *s)
+{
+    char reason[8];
+    char *u = app_stream_playable_url(s, reason, sizeof reason);
+    if (!u) return 0;
+    free(u);
+    return 1;
+}
+
+/* Keep the user's addon order, but playable sources first, and the previous
+ * binge group on top so Up Next stays on the same release. */
+static int rank(const Streams *st, const Stream *s)
+{
+    int r = playable(s) ? 0 : 100;
+    if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50;
+    return r;
+}
+
+static void sort_items(Streams *st)
+{
+    for (int i = 1; i < st->n; i++)
+        for (int j = i; j > 0 && rank(st, &st->items[j]) < rank(st, &st->items[j - 1]); j--) {
+            Stream t = st->items[j]; st->items[j] = st->items[j - 1]; st->items[j - 1] = t;
+        }
+}
+
+static void play_from(Streams *st, int index);
 
 static void on_streams(HttpResponse *r, void *user)
 {
@@ -39,16 +74,21 @@ static void on_streams(HttpResponse *r, void *user)
             st->items[st->n++] = got[i];
         }
         free(got);
+        sort_items(st);
+        app_redraw();
     } else {
         LOGW("streams: %s failed (%ld %s)", addon_name, r->status, r->error);
     }
     free(p);
+    /* Autoplay: as soon as a same-group stream shows up, or when everyone answered. */
+    if (st->autoplay_group && !st->autoplayed && st->n) {
+        int match = st->items[0].binge_group && strcmp(st->items[0].binge_group, st->autoplay_group) == 0;
+        if ((match || st->pending == 0) && playable(&st->items[0])) { st->autoplayed = 1; play_from(st, 0); }
+    }
 }
 
 static void query(Streams *st)
 {
-    st->queried = 1;
-    st->reqs = calloc((size_t)g_app.n_addons + 1, sizeof(unsigned));
     for (int i = 0; i < g_app.n_addons; i++) {
         if (!addon_supports(&g_app.addons[i], "stream", st->meta.type, st->video_id)) continue;
         char url[1024];
@@ -56,11 +96,11 @@ static void query(Streams *st)
         Pending *p = malloc(sizeof *p);
         p->owner = st; p->addon = i; p->generation = g_generation;
         st->pending++;
-        st->reqs[st->n_reqs++] = http_request_async(url, NULL, on_streams, p);
+        st->n_reqs++;
+        http_request_async(url, NULL, on_streams, p);
     }
 }
 
-/* Stream names/titles carry newlines and emoji; show the first line of each. */
 static void first_line(const char *s, char *out, size_t n)
 {
     if (!s) { out[0] = 0; return; }
@@ -83,57 +123,160 @@ static void rest_lines(const char *s, char *out, size_t n)
     out[o] = 0;
 }
 
+static void update(Screen *s, float dt)
+{
+    Streams *st = s->st;
+    int first = st->focus - (VISIBLE - 2);
+    st->scroll_target = (first < 0 ? 0 : first) * ROW_H;
+    st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 14);
+    if (st->pending) app_redraw();
+}
+
+/* ---- quality badges parsed from the stream's text ---- */
+
+static int has_ci(const char *hay, const char *needle)
+{
+    if (!hay) return 0;
+    size_t n = strlen(needle);
+    for (const char *p = hay; *p; p++) {
+        size_t i = 0;
+        while (i < n && p[i] && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i])) i++;
+        if (i == n) {
+            /* word-ish boundaries for short tokens like "dv" */
+            int left_ok = p == hay || !isalnum((unsigned char)p[-1]);
+            int right_ok = !isalnum((unsigned char)p[n]);
+            if (n > 3 || (left_ok && right_ok)) return 1;
+        }
+    }
+    return 0;
+}
+
+static void find_size(const char *t, char *out, size_t n)
+{
+    out[0] = 0;
+    if (!t) return;
+    for (const char *p = t; *p; p++) {
+        if (!isdigit((unsigned char)*p) || (p > t && (isdigit((unsigned char)p[-1]) || p[-1] == '.'))) continue;
+        char *end;
+        double v = strtod(p, &end);
+        while (*end == ' ') end++;
+        if ((end[0] == 'G' || end[0] == 'g' || end[0] == 'M' || end[0] == 'm') && (end[1] == 'B' || end[1] == 'b')) {
+            snprintf(out, n, "%.*f %cB", v < 10 ? 1 : 0, v, toupper((unsigned char)end[0]));
+            return;
+        }
+    }
+}
+
+static float draw_badges(const Stream *sm, float right_x, float y)
+{
+    char text[1200];
+    snprintf(text, sizeof text, "%s %s %s %s", sm->name ? sm->name : "", sm->title ? sm->title : "",
+             sm->description ? sm->description : "", sm->filename ? sm->filename : "");
+    const char *res = has_ci(text, "2160p") || has_ci(text, "4k") || has_ci(text, "uhd") ? "4K" :
+                      has_ci(text, "1440p") ? "1440p" : has_ci(text, "1080p") ? "1080p" : has_ci(text, "720p") ? "720p" :
+                      has_ci(text, "480p") ? "SD" : NULL;
+    const char *hdr = has_ci(text, "dolby vision") || has_ci(text, "dovi") || has_ci(text, "dv") ? "DOLBY VISION" :
+                      has_ci(text, "hdr10+") ? "HDR10+" : has_ci(text, "hdr") ? "HDR" : NULL;
+    const char *codec = has_ci(text, "av1") ? "AV1" : has_ci(text, "hevc") || has_ci(text, "x265") || has_ci(text, "h265") || has_ci(text, "h.265") ? "HEVC" : NULL;
+    const char *audio = has_ci(text, "atmos") ? "ATMOS" : has_ci(text, "truehd") ? "TRUEHD" : has_ci(text, "dts") ? "DTS" :
+                        has_ci(text, "7.1") ? "7.1" : has_ci(text, "5.1") ? "5.1" : NULL;
+    const char *cached = has_ci(text, "[rd+]") || has_ci(text, "[tb+]") || has_ci(text, "[ad+]") || has_ci(text, "[pm+]") || has_ci(text, "â¡") ? "CACHED" : NULL;
+    char size[24];
+    find_size(text, size, sizeof size);
+    if (!size[0] && sm->video_size) snprintf(size, sizeof size, "%.1f GB", sm->video_size / 1073741824.0);
+
+    struct { const char *t; Color bg, fg; } b[8]; int n = 0;
+    if (res) { b[n].t = res; b[n].bg = strcmp(res, "4K") == 0 ? THEME_GOLD : RGBA(0xFF, 0xFF, 0xFF, 0xE8); b[n].fg = THEME_ON_LIGHT; n++; }
+    if (hdr) { b[n].t = hdr; b[n].bg = RGBA(0x8B, 0x5C, 0xF6, 0xFF); b[n].fg = THEME_TEXT; n++; }
+    if (codec) { b[n].t = codec; b[n].bg = RGBA(0xFF, 0xFF, 0xFF, 0x22); b[n].fg = THEME_TEXT; n++; }
+    if (audio) { b[n].t = audio; b[n].bg = RGBA(0xFF, 0xFF, 0xFF, 0x22); b[n].fg = THEME_TEXT; n++; }
+    if (cached) { b[n].t = cached; b[n].bg = THEME_OK; b[n].fg = THEME_ON_LIGHT; n++; }
+    if (size[0]) { b[n].t = size; b[n].bg = RGBA(0xFF, 0xFF, 0xFF, 0x12); b[n].fg = THEME_TEXT_DIM; n++; }
+    float x = right_x;
+    for (int i = n - 1; i >= 0; i--) {
+        float w = font_measure(b[i].t, FONT_XS | FONT_B) + 24;
+        x -= w;
+        ui_chip(b[i].t, x, y, b[i].bg, b[i].fg);
+        x -= 8;
+    }
+    return x;
+}
+
 static void draw(Screen *s)
 {
     Streams *st = s->st;
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    char buf[512];
+    const char *bg = app_art_background(&st->meta, buf, sizeof buf);
+    ui_background(image_tint(bg));
     int iw, ih;
-    unsigned bg = st->meta.background ? image_get(st->meta.background, &iw, &ih) : 0;
-    if (bg) gfx_tex(bg, 0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(255, 255, 255, 40));
-    ui_draw_header(st->meta.name, st->video_title);
+    unsigned bgt = bg ? image_get_ex(bg, IMAGE_MIPMAP, &iw, &ih, NULL) : 0;
+    if (bgt && !g_app.fx_light) ui_backdrop_blur(bgt, iw, ih, 0.85f);
 
-    float x = THEME_MARGIN, y = 150, w = SNTV_UI_W - 2 * THEME_MARGIN;
-    if (st->pending) {
-        ui_draw_spinner(x + 30, y + 30);
-        char msg[96];
-        snprintf(msg, sizeof msg, "Searching %d addon%s...", st->pending, st->pending == 1 ? "" : "s");
-        font_draw(msg, x + 80, y + 14, FONT_S, THEME_TEXT_DIM);
-    } else if (!st->n) {
-        font_draw(st->n_reqs ? "No streams found for this title." : "No installed addon provides streams. Add one in Settings.", x, y + 14, FONT_M, THEME_TEXT_DIM);
+    /* left column: poster + titles */
+    float lx = THEME_MARGIN, ly = 120;
+    char pbuf[512];
+    ui_card(app_art_poster(&st->meta, pbuf, sizeof pbuf), lx, ly, 360, 540, 0, 0, st->meta.name, 0);
+    font_draw_wrapped(st->meta.name, lx, ly + 570, FONT_L | FONT_B, THEME_TEXT, 420, 2);
+    if (st->video_title) font_draw_wrapped(st->video_title, lx, ly + 570 + font_draw_wrapped(st->meta.name, 0, 0, FONT_L | FONT_B, 0, 420, 2) * font_height(FONT_L | FONT_B) + 8,
+                                           FONT_S, THEME_TEXT_DIM, 420, 2);
+
+    /* header */
+    float x = LIST_X, w = SNTV_UI_W - THEME_MARGIN - LIST_X;
+    font_draw("Choose a source", x, 104, FONT_L | FONT_B, THEME_TEXT);
+    char msg[128];
+    if (st->autoplay_group && !st->autoplayed) snprintf(msg, sizeof msg, "Finding the next episode on the same release");
+    else if (st->pending) snprintf(msg, sizeof msg, "%d found  Â·  %d addon%s still searching", st->n, st->pending, st->pending == 1 ? "" : "s");
+    else if (!st->n) snprintf(msg, sizeof msg, "%s", st->n_reqs ? "No sources found for this title" : "No stream addons installed. Add one in Settings.");
+    else snprintf(msg, sizeof msg, "%d source%s", st->n, st->n == 1 ? "" : "s");
+    font_draw(msg, x, 156, FONT_S, THEME_TEXT_MUTED);
+    if (st->pending || (st->autoplay_group && !st->autoplayed)) ui_spinner(x + w - 30, 140, 20);
+
+    if (!st->n && st->pending) {
+        for (int i = 0; i < 5; i++) ui_skeleton(x, LIST_Y + i * ROW_H, w, ROW_H - 14, 20);
+        return;
     }
-    y += 70;
 
-    int first = st->focus - (VISIBLE - 1);
-    if (first < 0) first = 0;
-    for (int i = first; i < st->n && i < first + VISIBLE; i++) {
+    gfx_clip_push(0, LIST_Y - 20, SNTV_UI_W, SNTV_UI_H - LIST_Y + 20);
+    float ry = LIST_Y - st->scroll;
+    for (int i = 0; i < st->n; i++, ry += ROW_H) {
+        if (ry + ROW_H < LIST_Y - 20 || ry > SNTV_UI_H) continue;
         const Stream *sm = &st->items[i];
         int foc = st->focus == i;
-        gfx_rect(x, y, w, ROW_H - 10, foc ? THEME_SURFACE_HI : THEME_SURFACE);
-        if (foc) gfx_rect(x, y, 6, ROW_H - 10, THEME_ACCENT);
-        char line1[200], line2[600], sub[300];
+        int ok = playable(sm);
+        float h = ROW_H - 14;
+        if (foc && !g_app.fx_light) gfx_shadow(x, ry + 8, w, h, 20, 26, RGBA(0, 0, 0, 0x90));
+        gfx_rrect(x, ry, w, h, 20, foc ? RGBA(0xFF, 0xFF, 0xFF, 0x2A) : RGBA(0xFF, 0xFF, 0xFF, 0x0E));
+        if (foc) gfx_rrect_ring(x, ry, w, h, 20, 3, THEME_TEXT);
+        char line1[200], line2[600], sub[300], rest[300];
         first_line(sm->name, line1, sizeof line1);
         rest_lines(sm->name, sub, sizeof sub);
         const char *desc = sm->description ? sm->description : sm->title;
         first_line(desc, line2, sizeof line2);
-        char rest[300], joined[600];
         rest_lines(desc, rest, sizeof rest);
-        if (rest[0]) { snprintf(joined, sizeof joined, "%s  %s", line2, rest); snprintf(line2, sizeof line2, "%s", joined); }
-        font_draw_fit(sm->addon_name, x + 24, y + 12, FONT_S, THEME_TEXT_MUTED, 260);
-        if (sub[0]) font_draw_fit(sub, x + 24, y + 48, FONT_S, THEME_TEXT_DIM, 260);
-        font_draw_fit(line1[0] ? line1 : "Stream", x + 300, y + 12, FONT_M, THEME_TEXT, w - 520);
-        font_draw_fit(line2, x + 300, y + 52, FONT_S, THEME_TEXT_DIM, w - 520);
-        const char *badge = sm->info_hash ? (g_app.streaming_server ? "torrent" : "needs server") : sm->yt_id ? "youtube" : sm->external_url ? "external" : NULL;
-        if (badge) {
-            float bw = font_measure(badge, FONT_S) + 24;
-            gfx_rect(x + w - bw - 20, y + 30, bw, 36, sm->info_hash && !g_app.streaming_server ? THEME_DANGER : THEME_SURFACE_HI);
-            font_draw(badge, x + w - bw - 8, y + 36, FONT_S, THEME_TEXT);
+        if (rest[0]) { size_t used = strlen(line2); snprintf(line2 + used, sizeof line2 - used, "  %s", rest); }
+        /* addon badge */
+        float ax = x + 24, ay = ry + 18;
+        float aw = font_measure(sm->addon_name, FONT_XS | FONT_B) + 24;
+        if (aw > 220) aw = 220;
+        gfx_rrect_grad_h(ax, ay, aw, 32, 16, COLOR_ALPHA(THEME_ACCENT, 0x60), COLOR_ALPHA(THEME_ACCENT2, 0x60));
+        font_draw_fit(sm->addon_name, ax + 12, ay + (32 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT, aw - 24);
+        if (sub[0]) font_draw_fit(sub, ax + aw + 12, ay + 4, FONT_XS | FONT_B, THEME_TEXT_DIM, 160);
+        float bx = draw_badges(sm, x + w - 24, ry + 18);
+        font_draw_fit(line1[0] ? line1 : "Stream", ax, ry + 60, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 48);
+        font_draw_fit(line2, ax, ry + 98, FONT_XS, ok ? THEME_TEXT_DIM : THEME_TEXT_MUTED, w - 48);
+        const char *flag = sm->info_hash ? (g_app.streaming_server ? NULL : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
+        if (st->autoplay_group && sm->binge_group && strcmp(sm->binge_group, st->autoplay_group) == 0) flag = "Same release";
+        if (flag) {
+            Color fc = !ok ? THEME_DANGER : THEME_OK;
+            float fw = font_measure(flag, FONT_XS | FONT_B) + 24;
+            ui_chip(flag, bx - fw - 8, ry + 18, COLOR_ALPHA(fc, 0x30), fc);
         }
-        y += ROW_H;
     }
+    gfx_clip_pop();
     if (st->n > VISIBLE) {
         char pos[48];
         snprintf(pos, sizeof pos, "%d / %d", st->focus + 1, st->n);
-        font_draw(pos, x + w - font_measure(pos, FONT_S), y, FONT_S, THEME_TEXT_MUTED);
+        font_draw(pos, x + w - font_measure(pos, FONT_S | FONT_B), 156, FONT_S | FONT_B, THEME_TEXT_MUTED);
     }
 }
 
@@ -148,54 +291,95 @@ static void remember_resume(Streams *st, const char *url)
     store_save();
 }
 
+/* Build the fallback list: the chosen stream first, then other playable ones
+ * (same binge group preferred), capped so a bad addon can't stall for ages. */
+static void play_from(Streams *st, int index)
+{
+    char reason[160];
+    char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
+    if (!url) { app_toast("%s", reason); return; }
+    PlayCandidate *c = calloc((size_t)st->n + 1, sizeof *c);
+    int n = 0;
+    const char *group = st->items[index].binge_group;
+    for (int pass = 0; pass < 3 && n < 6; pass++)
+        for (int i = 0; i < st->n && n < 6; i++) {
+            if (pass == 0 && i != index) continue;
+            if (pass > 0 && i == index) continue;
+            if (pass == 1 && !(group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0)) continue;
+            if (pass == 2 && group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0) continue;
+            char why[8];
+            char *u = i == index ? strdup(url) : app_stream_playable_url(&st->items[i], why, sizeof why);
+            if (!u) continue;
+            char label[200], l1[120];
+            first_line(st->items[i].name, l1, sizeof l1);
+            snprintf(label, sizeof label, "%s%s%s", st->items[i].addon_name, l1[0] ? " - " : "", l1);
+            c[n].url = u;
+            c[n].label = strdup(label);
+            c[n].binge_group = st->items[i].binge_group ? strdup(st->items[i].binge_group) : NULL;
+            c[n].filename = st->items[i].filename ? strdup(st->items[i].filename) : NULL;
+            c[n].video_size = st->items[i].video_size;
+            n++;
+        }
+    LibraryItem *li = app_library_find(st->meta.id);
+    double start = (li && li->video_id && strcmp(li->video_id, st->video_id) == 0) ? li->time_offset / 1000.0 : 0;
+    remember_resume(st, url);
+    free(url);
+    char title[300];
+    snprintf(title, sizeof title, "%s%s%s", st->meta.name, st->video_title ? "  -  " : "", st->video_title ? st->video_title : "");
+    char next_id[128] = "", next_title[200] = "";
+    int has_next = app_next_video(st->meta.id, st->video_id, next_id, sizeof next_id, next_title, sizeof next_title);
+    app_push(screen_player_create(&st->meta, st->video_id, title, c, n, 0, start, has_next ? next_id : NULL, has_next ? next_title : NULL));
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Streams *st = s->st;
     switch (a) {
-    case KEY_UP: if (st->focus > 0) st->focus--; return 1;
-    case KEY_DOWN: if (st->focus < st->n - 1) st->focus++; return 1;
-    case KEY_OK: {
-        if (st->focus >= st->n) return 1;
-        char reason[160];
-        char *url = app_stream_playable_url(&st->items[st->focus], reason, sizeof reason);
-        if (!url) { app_toast("%s", reason); return 1; }
-        LibraryItem *li = app_library_find(st->meta.id);
-        double start = (li && li->video_id && strcmp(li->video_id, st->video_id) == 0) ? li->time_offset / 1000.0 : 0;
-        remember_resume(st, url);
-        char title[300];
-        snprintf(title, sizeof title, "%s%s%s", st->meta.name, st->video_title ? "  -  " : "", st->video_title ? st->video_title : "");
-        app_push(screen_player_create(&st->meta, st->video_id, title, url, start));
-        free(url);
-        return 1;
-    }
+    case KEY_UP: if (st->focus > 0) st->focus--; app_redraw(); return 1;
+    case KEY_DOWN: if (st->focus < st->n - 1) st->focus++; app_redraw(); return 1;
+    case KEY_OK: if (st->focus < st->n) play_from(st, st->focus); return 1;
     default: return 0;
     }
+}
+
+static void resume(Screen *s)
+{
+    Streams *st = s->st;
+    /* Coming back from an auto-played episode: the user pressed Back, don't re-trigger. */
+    st->autoplayed = 1;
+    app_redraw();
 }
 
 static void destroy(Screen *s)
 {
     Streams *st = s->st;
-    /* Replies still in flight are dropped (and their Pending freed) by the generation check. */
     if (g_live == st) { g_live = NULL; g_generation++; }
-    free(st->reqs);
     streams_free(st->items, st->n);
     meta_preview_free(&st->meta);
-    free(st->video_id); free(st->video_title);
+    free(st->video_id); free(st->video_title); free(st->autoplay_group);
     free(st);
     free(s);
 }
 
-Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title)
+Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id, const char *video_title, const char *autoplay_group)
 {
     Screen *s = calloc(1, sizeof *s);
     Streams *st = calloc(1, sizeof *st);
     meta_preview_copy(&st->meta, meta);
     st->video_id = strdup(video_id);
     st->video_title = video_title ? strdup(video_title) : NULL;
+    st->autoplay_group = autoplay_group ? strdup(autoplay_group) : NULL;
+    if (!autoplay_group) st->autoplayed = 1;
+    st->started = g_app.time;
     s->name = "streams"; s->st = st;
-    s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     g_live = st;
     g_generation++;
     query(st);
     return s;
+}
+
+Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title)
+{
+    return screen_streams_create_auto(meta, video_id, video_title, NULL);
 }

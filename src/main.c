@@ -41,28 +41,41 @@ static const char *data_dir(void)
     return dir;
 }
 
-static const char *find_font(void)
+/* Artwork budget follows the TV's RAM, like Nuvio's normal/highcache packages. */
+static size_t image_budget(void)
 {
-    static const char *candidates[] = {
-        "assets/fonts/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans.ttf",
-        NULL
-    };
-    static char path[1200];
+    FILE *f = fopen("/proc/meminfo", "r");
+    long kb = 0;
+    if (f) { char line[128]; while (fgets(line, sizeof line, f)) if (sscanf(line, "MemTotal: %ld kB", &kb) == 1) break; fclose(f); }
+    size_t mb = kb / 1024;
+    if (mb == 0) return 0;                       /* unknown: keep the platform default */
+    if (mb < 1024) return 40u << 20;
+    if (mb < 2048) return 96u << 20;
+    return 192u << 20;
+}
+
+/* Bundled Inter (regular + bold) next to the binary, else system fallbacks. */
+static int find_fonts(char *regular, char *bold, size_t n)
+{
     char *base = SDL_GetBasePath();
-    if (base) {
-        snprintf(path, sizeof path, "%sassets/fonts/DejaVuSans.ttf", base);
-        SDL_free(base);
-        FILE *f = fopen(path, "rb");
-        if (f) { fclose(f); return path; }
+    const char *bases[3] = { base ? base : "", "", NULL };
+    for (int b = 0; bases[b]; b++) {
+        snprintf(regular, n, "%sassets/fonts/Inter-Medium.otf", bases[b]);
+        snprintf(bold, n, "%sassets/fonts/Inter-Bold.otf", bases[b]);
+        FILE *f = fopen(regular, "rb");
+        if (f) { fclose(f); if (base) SDL_free(base); return 0; }
     }
-    for (int i = 0; candidates[i]; i++) {
-        FILE *f = fopen(candidates[i], "rb");
-        if (f) { fclose(f); return candidates[i]; }
+    if (base) SDL_free(base);
+    static const char *sys[][2] = {
+        { "/usr/share/fonts/opentype/inter/Inter-Medium.otf", "/usr/share/fonts/opentype/inter/Inter-Bold.otf" },
+        { "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" },
+        { "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" },
+    };
+    for (size_t i = 0; i < sizeof sys / sizeof sys[0]; i++) {
+        FILE *f = fopen(sys[i][0], "rb");
+        if (f) { fclose(f); snprintf(regular, n, "%s", sys[i][0]); snprintf(bold, n, "%s", sys[i][1]); return 0; }
     }
-    return NULL;
+    return -1;
 }
 
 /* Dev aid: SNTV_SCREENSHOT=/path/out.ppm dumps the framebuffer after
@@ -103,6 +116,7 @@ static void dev_hooks(SDL_Window *win, int frame)
     int w, h;
     SDL_GL_GetDrawableSize(win, &w, &h);
     unsigned char *px = malloc((size_t)w * h * 4);
+    gfx_flush();
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
     FILE *f = fopen(shot, "wb");
     if (f) {
@@ -162,10 +176,13 @@ int main(int argc, char **argv)
     SDL_GL_SetSwapInterval(1);
 
     if (gfx_init(win) != 0) return 1;
-    const char *font = find_font();
-    if (!font || font_init(font) != 0) { LOGE("no usable TTF font found"); return 1; }
+    char font_regular[1200], font_bold[1200];
+    if (find_fonts(font_regular, font_bold, sizeof font_regular) != 0 || font_init(font_regular, font_bold) != 0) {
+        LOGE("no usable font found");
+        return 1;
+    }
     if (http_init() != 0) LOGE("network unavailable: libcurl missing");
-    image_init();
+    image_init(dir, image_budget());
     if (video_init(win) != 0) LOGW("video backend failed to initialise");
     LOGI("video backend: %s", video_backend_name());
     app_init();
@@ -185,7 +202,20 @@ int main(int argc, char **argv)
                 if (a == KEY_BACK) app_pop();
             } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
+                app_redraw();
+            } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST || e.window.event == SDL_WINDOWEVENT_HIDDEN || e.window.event == SDL_WINDOWEVENT_MINIMIZED)) {
+                video_app_background();
+            } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
+                video_app_foreground();
+                app_redraw();
+            } else if (e.type == SDL_APP_WILLENTERBACKGROUND) {
+                video_app_background();
+                store_save();
+            } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
+                video_app_foreground();
+                app_redraw();
             }
+            app_redraw();
         }
         Uint32 now = SDL_GetTicks();
         float dt = (now - prev) / 1000.0f;
@@ -198,17 +228,30 @@ int main(int argc, char **argv)
         image_frame_tick();
         video_update();
 
+        if (image_busy() || g_app.time < g_app.toast_until) app_redraw();
+
         Screen *top = app_top();
         if (top && top->update) top->update(top, dt);
-        gfx_begin_frame();
-        if (top && top->draw) top->draw(top);
-        app_draw_toast();
-        dev_hooks(win, frame++);
-        gfx_end_frame();
+        top = app_top();   /* update() may have popped or replaced the screen */
 
-        /* Old TVs: don't spin the CPU when vsync isn't honoured. */
-        Uint32 spent = SDL_GetTicks() - now;
-        if (spent < 16) SDL_Delay(16 - spent);
+        /* Idle frame skipping: when nothing animates or arrives, don't redraw at all.
+         * Keeps old TVs cool and leaves the CPU to the network threads. Dev hooks and
+         * the first second always render. */
+        int must_draw = g_app.need_redraw || frame < 60 || getenv("SNTV_SCREENSHOT");
+        if (must_draw) {
+            g_app.need_redraw = 0;
+            gfx_begin_frame(RGBA(0x08, 0x07, 0x12, 0xFF));
+            if (top && top->draw) top->draw(top);
+            app_draw_toast();
+            dev_hooks(win, frame++);
+            gfx_end_frame();
+            Uint32 spent = SDL_GetTicks() - now;
+            app_note_frame((float)spent);
+            if (frame == 120) LOGI("perf: %d draw calls, %u ms frame", gfx_draw_calls(), spent);
+            if (spent < 16) SDL_Delay(16 - spent);
+        } else {
+            SDL_Delay(25);   /* poll input/network at 40 Hz while idle */
+        }
     }
 
     app_shutdown();

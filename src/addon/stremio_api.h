@@ -12,6 +12,7 @@ struct cJSON;
 #define STREMIO_CINEMETA_URL "https://v3-cinemeta.strem.io/manifest.json"
 #define STREMIO_OPENSUBS_URL "https://opensubtitles-v3.strem.io/manifest.json"
 #define STREMIO_LIBRARY_COLLECTION "libraryItem"
+#define STREMIO_LINK_API_URL "https://link.stremio.com/api/v2"
 
 typedef struct LibraryItem {
     char *id, *name, *type, *poster, *poster_shape;
@@ -35,6 +36,15 @@ char *api_body_addon_collection_set(const char *auth_key, const Addon *addons, i
 char *api_body_datastore_get(const char *auth_key, const char *collection);
 char *api_body_datastore_put(const char *auth_key, const char *collection, const LibraryItem *items, int n);
 
+char *api_body_get_user(const char *auth_key);
+/* QR / code sign-in (link.stremio.com): GET create, then poll GET read?code= */
+const char *api_url_link_create(void);
+const char *api_url_link_read(const char *code, char *buf, size_t n);
+int api_parse_link_create(const char *json, char *code, size_t code_n, char *link, size_t link_n, char *qrcode, size_t qr_n, ApiError *err);
+/* 0 = linked (auth_key malloc'd), 1 = not yet, -1 = error */
+int api_parse_link_read(const char *json, char **auth_key, ApiError *err);
+int api_parse_user(const char *json, char **email, ApiError *err);
+
 /* Endpoint URLs */
 const char *api_url_login(void);
 const char *api_url_login_with_token(void);
@@ -43,6 +53,7 @@ const char *api_url_addon_collection_get(void);
 const char *api_url_addon_collection_set(void);
 const char *api_url_datastore_get(void);
 const char *api_url_datastore_put(void);
+const char *api_url_get_user(void);
 
 /* Response parsing. Each returns 0 on success, -1 on transport/JSON failure,
  * and 1 when the API returned {"error": ...} (err is filled). */

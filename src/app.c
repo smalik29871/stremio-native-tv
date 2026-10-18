@@ -5,14 +5,28 @@
 #include "image.h"
 #include "ui/font.h"
 #include "ui/theme.h"
+#include "ui/widgets.h"
 #include "cJSON.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 
 App g_app;
+
+void app_redraw(void) { g_app.need_redraw = 1; }
+
+float ui_ease(float from, float to, float *vel_unused, float dt, float speed)
+{
+    (void)vel_unused;
+    if (g_app.fx_light) return to;              /* light mode: no interpolation */
+    float k = 1 - SDL_powf(0.5f, dt * speed);   /* half-life based, frame-rate independent */
+    float v = from + (to - from) * k;
+    if (SDL_fabsf(to - v) < 0.3f) v = to; else app_redraw();
+    return v;
+}
 
 /* ---- screen stack ---------------------------------------------------------- */
 
@@ -41,6 +55,7 @@ Screen *app_top(void) { return g_app.depth ? g_app.stack[g_app.depth - 1] : NULL
 
 void app_toast(const char *fmt, ...)
 {
+    app_redraw();
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(g_app.toast, sizeof g_app.toast, fmt, ap);
@@ -52,11 +67,18 @@ void app_toast(const char *fmt, ...)
 void app_draw_toast(void)
 {
     if (g_app.time > g_app.toast_until || !g_app.toast[0]) return;
-    float w = font_measure(g_app.toast, FONT_M) + 60, h = 70;
-    float x = (SNTV_UI_W - w) / 2, y = SNTV_UI_H - 140;
-    gfx_rect(x, y, w, h, RGBA(0x30, 0x2C, 0x58, 0xF0));
-    gfx_rect(x, y, 6, h, THEME_ACCENT);
-    font_draw(g_app.toast, x + 30, y + (h - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT);
+    /* slide up + fade in, fade out at the end */
+    float age = 3.5f - (g_app.toast_until - g_app.time);
+    float in = age < 0.25f ? age / 0.25f : 1.0f, out = g_app.toast_until - g_app.time < 0.3f ? (g_app.toast_until - g_app.time) / 0.3f : 1.0f;
+    float k = g_app.fx_light ? 1.0f : (in < out ? in : out);
+    int fs = FONT_S | FONT_B;
+    float w = font_measure(g_app.toast, fs) + 100, h = 72;
+    float x = (SNTV_UI_W - w) / 2, y = SNTV_UI_H - 150 + (1 - k) * 30;
+    if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, h / 2, 30, RGBA(0, 0, 0, (int)(0x90 * k)));
+    gfx_rrect(x, y, w, h, h / 2, RGBA(0x24, 0x20, 0x44, (int)(0xF4 * k)));
+    gfx_rrect_ring(x, y, w, h, h / 2, 1.5f, RGBA(0xFF, 0xFF, 0xFF, (int)(0x22 * k)));
+    gfx_circle(x + 40, y + h / 2, 7, COLOR_ALPHA(THEME_ACCENT2, (int)(255 * k)));
+    font_draw(g_app.toast, x + 64, y + (h - font_height(fs)) / 2, fs, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)));
 }
 
 /* ---- addons ---------------------------------------------------------------- */
@@ -91,6 +113,7 @@ static void apply_collection_json(const char *json, int from_cache)
     g_app.n_addons = n;
     g_app.addons_error[0] = 0;
     g_app.addons_version++;
+    app_redraw();
     if (!from_cache) cache_addon_collection(json);
     LOGI("addons: %d loaded%s", n, from_cache ? " (cache)" : "");
 }
@@ -310,6 +333,7 @@ static void apply_library_json(const char *json, int from_cache)
     g_app.library = items;
     g_app.n_library = n;
     g_app.library_version++;
+    app_redraw();
     if (!from_cache) store_write_file("library.json", json, strlen(json));
     LOGI("library: %d items%s", n, from_cache ? " (cache)" : "");
 }
@@ -433,6 +457,157 @@ char *app_stream_playable_url(const Stream *s, char *reason, size_t n)
     return NULL;
 }
 
+/* ---- catalog disk cache ----------------------------------------------------- */
+
+static void cache_name(const char *url, char *out, size_t n)
+{
+    unsigned long long h = 1469598103934665603ull;
+    for (const char *p = url; *p; p++) h = (h ^ (unsigned char)*p) * 1099511628211ull;
+    snprintf(out, n, "cache/%016llx.json", h);
+}
+
+char *app_cache_get(const char *url, long max_age)
+{
+    char name[64], path[1200];
+    cache_name(url, name, sizeof name);
+    snprintf(path, sizeof path, "%s/%s", store_dir(), name);
+    struct stat st;
+    if (stat(path, &st) != 0) return NULL;
+    if (max_age > 0 && time(NULL) - st.st_mtime > max_age) return NULL;
+    return store_read_file(name);
+}
+
+void app_cache_put(const char *url, const char *body, size_t len)
+{
+    char name[64], dir[1200];
+    snprintf(dir, sizeof dir, "%s/cache", store_dir());
+    mkdir(dir, 0755);
+    cache_name(url, name, sizeof name);
+    store_write_file(name, body, len);
+}
+
+/* ---- preferences & perf ----------------------------------------------------- */
+
+static void load_prefs(void)
+{
+    g_app.fx_setting = (FxLevel)store_get_int("fx", FX_AUTO);
+    g_app.fx_light = g_app.fx_setting == FX_LIGHT;
+    g_app.spoiler_blur = store_get_int("spoilerBlur", 1);
+    g_app.subs_size = store_get_int("subsSize", 1);
+    g_app.autoplay_next = store_get_int("autoplayNext", 1);
+    snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
+    snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
+}
+
+void app_save_prefs(void)
+{
+    store_set_int("fx", g_app.fx_setting);
+    store_set_int("spoilerBlur", g_app.spoiler_blur);
+    store_set_int("subsSize", g_app.subs_size);
+    store_set_int("autoplayNext", g_app.autoplay_next);
+    store_set_str("prefAudio", g_app.pref_audio);
+    store_set_str("prefSubs", g_app.pref_subs);
+    store_save();
+    g_app.fx_light = g_app.fx_setting == FX_LIGHT || (g_app.fx_setting == FX_AUTO && store_get_int("fxAutoLight", 0));
+}
+
+/* Auto effects: average the first 240 busy frames; if the TV can't hold ~40 fps
+ * while scrolling posters, drop to light effects and remember it. */
+void app_note_frame(float ms)
+{
+    if (g_app.fx_setting != FX_AUTO || g_app.frames_measured >= 240) return;
+    if (g_app.frames_measured == 0 && g_app.time < 3.0f) return;   /* skip startup */
+    g_app.frames_measured++;
+    g_app.frame_ms_sum += ms;
+    if (ms > g_app.frame_ms_worst) g_app.frame_ms_worst = ms;
+    if (g_app.frames_measured == 240) {
+        float avg = g_app.frame_ms_sum / 240.0f;
+        int light = avg > 25.0f;
+        LOGI("perf: avg %.1f ms, worst %.1f ms -> %s effects", avg, g_app.frame_ms_worst, light ? "light" : "full");
+        if (light != store_get_int("fxAutoLight", 0)) { store_set_int("fxAutoLight", light); store_save(); }
+        g_app.fx_light = light;
+    }
+}
+
+static struct { char *meta_id; MetaVideo *videos; int n; } g_videos;
+
+void app_remember_videos(const char *meta_id, const MetaVideo *videos, int n)
+{
+    free(g_videos.meta_id);
+    for (int i = 0; i < g_videos.n; i++) { free(g_videos.videos[i].id); free(g_videos.videos[i].title); free(g_videos.videos[i].thumbnail); }
+    free(g_videos.videos);
+    g_videos.meta_id = strdup(meta_id);
+    g_videos.videos = calloc((size_t)n + 1, sizeof(MetaVideo));
+    g_videos.n = n;
+    for (int i = 0; i < n; i++) {
+        g_videos.videos[i].id = strdup(videos[i].id);
+        g_videos.videos[i].title = videos[i].title ? strdup(videos[i].title) : NULL;
+        g_videos.videos[i].thumbnail = videos[i].thumbnail ? strdup(videos[i].thumbnail) : NULL;
+        g_videos.videos[i].season = videos[i].season;
+        g_videos.videos[i].episode = videos[i].episode;
+    }
+}
+
+const char *app_video_thumbnail(const char *meta_id, const char *video_id)
+{
+    if (!g_videos.meta_id || !video_id || strcmp(g_videos.meta_id, meta_id) != 0) return NULL;
+    for (int i = 0; i < g_videos.n; i++) if (strcmp(g_videos.videos[i].id, video_id) == 0) return g_videos.videos[i].thumbnail;
+    return NULL;
+}
+
+/* Next = the following entry in release order within regular seasons (specials skipped). */
+int app_next_video(const char *meta_id, const char *video_id, char *next_id, size_t id_n, char *next_title, size_t title_n)
+{
+    if (!g_videos.meta_id || strcmp(g_videos.meta_id, meta_id) != 0) return 0;
+    int cur = -1;
+    for (int i = 0; i < g_videos.n; i++) if (strcmp(g_videos.videos[i].id, video_id) == 0) { cur = i; break; }
+    if (cur < 0) return 0;
+    const MetaVideo *c = &g_videos.videos[cur];
+    const MetaVideo *best = NULL;
+    for (int i = 0; i < g_videos.n; i++) {
+        const MetaVideo *v = &g_videos.videos[i];
+        if (v == c || v->season == 0) continue;
+        int after = v->season > c->season || (v->season == c->season && v->episode > c->episode);
+        if (c->season < 0) after = i > cur;   /* no season info: list order */
+        if (!after) continue;
+        if (!best || v->season < best->season || (v->season == best->season && v->episode < best->episode)) best = v;
+    }
+    if (!best) return 0;
+    snprintf(next_id, id_n, "%s", best->id);
+    if (best->season >= 0 && best->episode >= 0) snprintf(next_title, title_n, "S%d E%d - %s", best->season, best->episode, best->title ? best->title : "");
+    else snprintf(next_title, title_n, "%s", best->title ? best->title : "Next");
+    return 1;
+}
+
+static int imdb_id(const char *id) { return id && id[0] == 't' && id[1] == 't' && id[2] >= '0' && id[2] <= '9'; }
+
+const char *app_art_background(const MetaPreview *p, char *buf, size_t n)
+{
+    if (p->background && *p->background) return p->background;
+    if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/background/medium/%s/img", p->id); return buf; }
+    return p->poster;
+}
+
+const char *app_art_logo(const MetaPreview *p, char *buf, size_t n)
+{
+    if (p->logo && *p->logo) return p->logo;
+    if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/logo/medium/%s/img", p->id); return buf; }
+    return NULL;
+}
+
+const char *app_art_poster(const MetaPreview *p, char *buf, size_t n)
+{
+    if (p->poster && *p->poster) return p->poster;
+    if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/poster/medium/%s/img", p->id); return buf; }
+    return NULL;
+}
+
+void play_candidates_free(PlayCandidate *c, int n)
+{
+    for (int i = 0; i < n; i++) { free(c[i].url); free(c[i].label); free(c[i].binge_group); free(c[i].filename); }
+    free(c);
+}
+
 /* ---- shared widgets -------------------------------------------------------- */
 
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
@@ -448,50 +623,35 @@ void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
     }
 }
 
+void ui_draw_thumb(const char *url, float x, float y, float w, float h, int blur, Color placeholder)
+{
+    (void)placeholder;
+    ui_card(url, x, y, w, h, 0, 0, NULL, blur ? CARD_BLUR : CARD_MIP);
+}
+
 void ui_draw_poster(const char *url, float x, float y, float w, float h, int focused, const char *label)
 {
-    int iw = 0, ih = 0;
-    unsigned tex = image_get(url, &iw, &ih);
-    if (focused) gfx_rect_outline(x, y, w, h, 5, THEME_ACCENT);
-    if (tex) {
-        /* cover-fit */
-        float ia = (float)iw / (float)ih, pa = w / h;
-        float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-        if (ia > pa) { float k = pa / ia; u0 = (1 - k) / 2; u1 = 1 - u0; }
-        else { float k = ia / pa; v0 = (1 - k) / 2; v1 = 1 - v0; }
-        gfx_tex_uv(tex, x, y, w, h, u0, v0, u1, v1, RGBA(255, 255, 255, 255));
-    } else {
-        gfx_rect(x, y, w, h, THEME_POSTER_PH);
-        if (label) {
-            gfx_clip_push(x + 10, y, w - 20, h);
-            font_draw_wrapped(label, x + 12, y + h * 0.4f, FONT_S, THEME_TEXT_DIM, w - 24, 3);
-            gfx_clip_pop();
-        }
-    }
+    ui_card(url, x, y, w, h, focused ? 1.0f : 0.0f, 0, label, 0);
 }
 
 void ui_draw_header(const char *title, const char *subtitle)
 {
-    gfx_gradient_v(0, 0, SNTV_UI_W, 160, RGBA(0, 0, 0, 0xB0), RGBA(0, 0, 0, 0));
-    font_draw(title, THEME_MARGIN, 40, FONT_L, THEME_TEXT);
-    if (subtitle) font_draw(subtitle, THEME_MARGIN + font_measure(title, FONT_L) + 30, 52, FONT_M, THEME_TEXT_DIM);
+    font_draw(title, THEME_MARGIN, 52, FONT_L | FONT_B, THEME_TEXT);
+    if (subtitle) font_draw_fit(subtitle, THEME_MARGIN + font_measure(title, FONT_L | FONT_B) + 28, 64, FONT_S, THEME_TEXT_MUTED,
+                                SNTV_UI_W - 2 * THEME_MARGIN - font_measure(title, FONT_L | FONT_B) - 28);
 }
 
-void ui_draw_spinner(float cx, float cy)
-{
-    for (int i = 0; i < 8; i++) {
-        float a = g_app.time * 6.0f + i * 0.785f;
-        float px = cx + 26 * SDL_cosf(a), py = cy + 26 * SDL_sinf(a);
-        int alpha = 40 + (i * 215) / 8;
-        gfx_rect(px - 5, py - 5, 10, 10, COLOR_ALPHA(THEME_ACCENT, alpha));
-    }
-}
+void ui_draw_spinner(float cx, float cy) { ui_spinner(cx, cy, 24); }
 
 void ui_draw_button(const char *label, float x, float y, float w, float h, int focused, int accent)
 {
-    gfx_rect(x, y, w, h, focused ? THEME_ACCENT : accent ? THEME_SURFACE_HI : THEME_SURFACE);
-    float tw = font_measure(label, FONT_M);
-    font_draw_fit(label, x + (w - tw) / 2 > x + 16 ? x + (w - tw) / 2 : x + 16, y + (h - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT, w - 32);
+    if (focused && !g_app.fx_light) gfx_shadow(x, y + 6, w, h, h / 2, 22, RGBA(0, 0, 0, 0x70));
+    gfx_rrect(x, y, w, h, h / 2, focused ? THEME_TEXT : accent ? RGBA(0xFF, 0xFF, 0xFF, 0x2C) : THEME_SURFACE);
+    int fs = FONT_S | FONT_B;
+    float tw = font_measure(label, fs);
+    float tx = x + (w - tw) / 2;
+    if (tx < x + 24) tx = x + 24;
+    font_draw_fit(label, tx, y + (h - font_height(fs)) / 2, fs, focused ? THEME_ON_LIGHT : THEME_TEXT, w - 48);
 }
 
 void ui_format_time(double s, char *out, size_t n)
@@ -512,6 +672,8 @@ void app_init(void)
     g_app.auth_key = k ? strdup(k) : NULL;
     g_app.user_email = e ? strdup(e) : NULL;
     g_app.streaming_server = srv ? strdup(srv) : NULL;
+    load_prefs();
+    g_app.fx_light = g_app.fx_setting == FX_LIGHT || (g_app.fx_setting == FX_AUTO && store_get_int("fxAutoLight", 0));
     app_load_addons();
     app_load_library();
     app_push(screen_home_create());

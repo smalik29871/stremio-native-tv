@@ -18,9 +18,11 @@ add_compile_definitions(SNTV_PLATFORM_${SNTV_PLATFORM_UC}=1)
 # ---- core: no SDL video dependency, testable on the host --------------------
 add_library(sntv_core STATIC
   vendor/cJSON.c
+  vendor/qrcodegen.c
   src/log.c
   src/http.c
   src/store.c
+  src/subs.c
   src/addon/addon.c
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
@@ -84,4 +86,8 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_addon PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_addon PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME addon_protocol COMMAND test_addon)
+  add_executable(test_subs tests/test_subs.c)
+  target_link_libraries(test_subs PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  target_compile_definitions(test_subs PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
+  add_test(NAME subtitles COMMAND test_subs)
 endif()

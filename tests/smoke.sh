@@ -13,21 +13,34 @@ trap 'kill $SRV 2>/dev/null || true' EXIT
 sleep 0.5
 export NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
 export SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json"
+export SNTV_LINK_API="http://127.0.0.1:$PORT/link"
 export HOME="$OUT/home"; mkdir -p "$HOME"
-run() { # name frames keys
-  SNTV_SCREENSHOT="$OUT/$1.ppm" SNTV_SCREENSHOT_FRAMES="$2" SNTV_KEYS="$3" \
-    xvfb-run -a -s "-screen 0 1280x720x24" "$BUILD/stremio-tv" >"$OUT/$1.log" 2>&1 || { echo "run $1 failed"; tail -20 "$OUT/$1.log"; exit 1; }
-  echo "ok: $1"
+# preferred subtitles = English so the player auto-loads the fake addon's SRT
+mkdir -p "$HOME/.local/share/stremio/nativetv"
+echo '{"prefSubs":"eng"}' > "$HOME/.local/share/stremio/nativetv/settings.json"
+run() { # name frames keys [extra env assignments...]
+  local name="$1" frames="$2" keys="$3"; shift 3
+  env "$@" SNTV_SCREENSHOT="$OUT/$name.ppm" SNTV_SCREENSHOT_FRAMES="$frames" SNTV_KEYS="$keys" \
+    xvfb-run -a -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" >"$OUT/$name.log" 2>&1 || { echo "run $name failed"; tail -20 "$OUT/$name.log"; exit 1; }
+  echo "ok: $name"
 }
-run home 90 "down"
-run detail_movie 140 "down,ok"
-run detail_series 160 "down,right,ok"
-run episodes 180 "down,right,ok,ok"
-run streams 200 "down,right,ok,ok,ok"
-run player 220 "down,right,ok,ok,ok,ok"
-run search 200 "search,t:brea,right,right"
-run settings 120 "right,ok"
-run login 140 "right,right,ok"
+run home 150 "down,right,right"
+run detail_movie 170 "down,right,right,ok"
+run detail_series 170 "down,right,ok"
+run episodes 220 "down,right,ok,down,down,right"
+run streams 240 "down,right,ok,down,down,ok"
+run player 280 "down,right,ok,down,down,ok,ok"
+run player_subs 300 "down,right,ok,down,down,ok,ok,down"
+run player_audio 300 "down,right,ok,down,down,ok,ok,up"
+run player_cue 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1
+run player_seek 268 "down,right,ok,down,down,ok,ok,right,right,right"
+run upnext_card 300 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100
+run upnext_auto 380 "down,right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5
+run search 210 "search,t:ar"
+run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
+run settings 160 "right,ok,down,down,down,down,down"
+run login_qr 160 "right,right,ok"
+run login_pw 180 "right,right,ok,ok"
 python3 -I - "$OUT" <<'PY'
 import sys, glob, os
 from PIL import Image

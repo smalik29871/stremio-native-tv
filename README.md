@@ -9,10 +9,40 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.1.0 scaffold**. The desktop preview builds, passes its tests and runs the
-> full UI flow against a fake addon. The webOS and Tizen video backends are written
-> against the platform APIs but have **not yet been compiled against the TV toolchains
-> or run on a TV** in this environment. See *What is verified* below before trusting anything.
+> Status: **v0.3.0**. The desktop preview builds warning-free, passes its unit tests and
+> runs every screen headlessly against a fake addon (including subtitles, the track menu,
+> source fallback and Up Next). The webOS and Tizen video backends follow the platform
+> APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
+> toolchains or run on a TV**. See *What is verified* below before trusting anything.
+
+## Screenshots
+
+Captured headlessly from the desktop build against the test addon (generated
+artwork, not real titles). On a TV the player shows video where these show the
+backdrop.
+
+| Home | Detail + episodes |
+|---|---|
+| ![Home](docs/screenshots/home.jpg) | ![Episodes](docs/screenshots/episodes.jpg) |
+| **Sources** | **Player + subtitles** |
+| ![Streams](docs/screenshots/streams.jpg) | ![Player](docs/screenshots/player_cue.jpg) |
+| **Track panel** | **Up Next** |
+| ![Subtitles panel](docs/screenshots/player_subs.jpg) | ![Up Next](docs/screenshots/upnext_card.jpg) |
+| **Sign in with a QR code** | **Settings** |
+| ![QR](docs/screenshots/login_qr.jpg) | ![Settings](docs/screenshots/settings.jpg) |
+
+## Design
+
+- **Renderer**: a single batched GLES2 stream. Rounded rects, rings, soft shadows,
+  capsule lines and the play triangle are signed-distance shapes whose parameters
+  ride in the vertex format, so they batch with text and textures. Only a texture
+  or clip change splits a draw call.
+- **Ambient light**: the dominant colour of the focused artwork tints large soft
+  glows behind every screen and eases as focus moves.
+- **Motion**: half-life easing for scrolling, focus growth, hero cross-fades and
+  toasts; all of it switches off in *Light* effects, which *Automatic* picks on
+  slow TVs.
+- **Type**: Inter Medium and Bold, packed into two 2048² alpha atlases at start-up.
 
 ## What it does
 
@@ -28,15 +58,26 @@ account, addons, Library and Continue Watching as the official apps.
   YouTube / external), Player overlay, Search (debounced, every catalog with a `search`
   extra), Settings (account, streaming server, install/remove addons), Sign in with an
   on-screen keyboard.
-- **Low-RAM friendly**: images are decoded on a worker thread, downscaled to 512 px on
-  TVs, and evicted by byte budget (48 MB on TV). Home starts from the cached addon
-  collection and library.
+- **Playback**: audio / subtitle track menu, addon subtitles (SRT, VTT) with timing
+  offset, preferred languages, automatic fallback to the next source when the pipeline
+  fails or stalls, Up Next with autoplay on the same release, coalesced seeking,
+  buffering readout, background/foreground handling.
+- **Sign-in by QR** or short code via link.stremio.com; e-mail + password as fallback.
+- **Snappy on old hardware**: keep-alive HTTP, disk caches for artwork and catalogs
+  (Home opens from cache instantly), poster prefetch and fade-in, eased scrolling,
+  cross-faded backdrops, idle frame skipping, and an Automatic effects level that
+  measures the TV and drops to Light when it cannot keep up. Artwork budget follows RAM.
+- **Spoiler blur** on unwatched episode thumbnails (mipmap bias, no extra shader pass).
 - **libcurl via `dlopen`**: never linked, because LG ships `libcurl.so.5` and the SDK
   ships `.so.4`.
 
-Not done yet: subtitles rendering (parsed, not drawn), audio/subtitle track selection,
-torrent playback without an external Stremio streaming server, YouTube trailers,
-Trakt, debrid shortcuts, profiles, notifications. See `docs/ROADMAP.md`.
+Taken from the Nuvio port on purpose: cache-first Home, Automatic/Full/Light effects,
+spoiler blur, QR sign-in, seek-shows-only-the-bar, RAM-based texture budget, the
+exported-window / ACB split, dlopen'd curl, the log file. Left out on purpose because
+they would make the client less stable right now: the in-app updater, the DTS-to-AAC
+FFmpeg transcoder, libass for embedded ASS, YouTube/Apple trailers in the hero, the
+Samsung .NET host for 2018-2020 sets, Trakt/Simkl/debrid integrations (those live in
+Stremio addons anyway), and the JavaScript plugin engine. See `docs/ROADMAP.md`.
 
 ## Layout
 
@@ -48,10 +89,12 @@ src/
   store.c/.h           settings.json + cached JSON in the app's writable dir
   image.c/.h           async artwork loader with LRU byte budget
   log.c/.h             log file (stdout is /dev/null under SAM on webOS)
+  subs.c/.h            SRT / WebVTT parser and cue lookup
   addon/addon.c        Stremio addon protocol: manifest, catalog/meta/stream/subtitles
   addon/stremio_api.c  api.strem.io requests/responses, LibraryItem (de)serialisation
-  ui/gfx.c             GLES2 2D renderer, scissor clip, video hole (alpha 0)
-  ui/font.c            stb_truetype atlas, UTF-8, ellipsis, word wrap
+  ui/gfx.c             batched GLES2 renderer: SDF rounded rects, rings, shadows, lines, video hole
+  ui/font.c            two-face stb_truetype atlases (Inter), UTF-8, ellipsis, wrap, shadowed text
+  ui/widgets.c         design kit: icons, pills, chips, toggles, cards, skeletons, backdrops, ambient light
   ui/input.c           keyboard + LG/Samsung remote mapping
   ui/keyboard.c        d-pad on-screen keyboard
   ui/screen_*.c        home, detail, streams, player, login, search, settings
@@ -66,7 +109,8 @@ deploy/tizen-wasm      config.xml + index.html
 tools/                 linux.sh, webos.sh (+ --ipk/--install), package-ipk.sh,
                        tizen-native.sh, tizen-wasm.sh, env.sh
 tests/                 test_addon.c (protocol/API unit tests), fake_addon.py, smoke.sh
-vendor/                cJSON (MIT), stb_truetype, stb_image (public domain)
+vendor/                cJSON (MIT), qrcodegen (MIT), stb_truetype, stb_image (public domain)
+assets/fonts/          Inter Medium + Bold (SIL Open Font License, see Inter-LICENSE.txt)
 ```
 
 ## Building
@@ -106,18 +150,25 @@ in this build; `src/http.c` is still the curl implementation, so a `fetch()`-bas
 
 | Area | Status |
 |---|---|
-| Addon protocol + API parsing | Unit tests pass (`tests/test_addon.c`, 60+ assertions) |
-| Full UI flow (home → detail → episodes → streams → player, search, settings, login) | Smoke-tested headless under Xvfb against `tests/fake_addon.py` |
+| Addon protocol + API parsing, link login, subtitles | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`) |
+| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, QR screen | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (14 scripted runs, screenshots in `tests/out/`) |
 | Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
 | webOS build, LS2 payloads, exported window / ACB binding | Written from the webOS OSE reference and stremio-video/moonlight-tv practice; **needs a TV** |
 | Tizen native player | Written against capi-media-player; **needs Tizen Studio + TV** |
-| Remote scancodes (`0x1BE` back etc.) | Taken from community SDL-webOS usage; verify in `src/ui/input.c` |
+| Remote scancodes | From the webosbrew SDL fork's `SDL_scancode.h` (Back 482, Exit 505, colours 486-489) |
+| Live `link.stremio.com` QR flow | Endpoint shapes from stremio-core; unreachable from the sandbox, untested live |
 
 Things known from the Nuvio port that are already handled: `SDL_WEBOS_ACCESS_POLICY_KEYS_BACK`
 is set before the window is created; logs go to a file; libcurl is `dlopen`ed trying
 `.so.5` then `.so.4`; the GL surface keeps an 8-bit alpha channel and the player punches a
 transparent hole so the video plane shows through; the UI is laid out on a 1920x1080
 canvas and scaled, so 720p webOS 3 panels work.
+
+## Player keys
+
+OK play/pause, Left/Right seek 10 s (accelerates while held), Up audio menu, Down
+subtitle menu (Left/Right inside it shifts timing by 0.5 s), Green play Up Next now,
+Yellow switch to the next source, Back stop and save progress.
 
 ## Torrent streams
 
@@ -137,5 +188,5 @@ No credentials are compiled into the binary.
 
 No licence file is committed yet; pick one before publishing. The reference project is
 GPL-3.0 and stremio-web is GPL-2.0, so a GPL licence is the natural fit. Vendored
-code: cJSON (MIT), stb (public domain / MIT), DejaVu Sans (Bitstream Vera licence, see
-`assets/fonts/DejaVuSans-LICENSE.txt`).
+code: cJSON (MIT), qrcodegen (MIT), stb (public domain / MIT). Font: Inter (SIL Open
+Font License 1.1, see `assets/fonts/Inter-LICENSE.txt`).

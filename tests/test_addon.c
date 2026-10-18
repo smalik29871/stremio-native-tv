@@ -9,7 +9,7 @@
 
 static int failures;
 #define CHECK(cond) do { if (!(cond)) { failures++; fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
-#define STREQ(a, b) ((a) && (b) && strcmp((a), (b)) == 0)
+static int STREQ(const char *a, const char *b) { return a && b && strcmp(a, b) == 0; }
 
 static char *read_fixture(const char *name)
 {
@@ -103,8 +103,8 @@ static void test_responses(void)
     MetaItem m;
     CHECK(addon_parse_meta(json, &m) == 0);
     free(json);
-    CHECK(m.n_videos == 3 && m.videos[0].season == 1 && m.videos[0].episode == 1);
-    CHECK(STREQ(m.videos[1].title, "Cat's in the Bag..."));
+    CHECK(m.n_videos == 11 && m.videos[0].season == 1 && m.videos[0].episode == 1);
+    CHECK(STREQ(m.videos[1].title, "Cat's in the Bag...") && m.videos[10].season == 0);
     CHECK(m.default_video_id == NULL && !m.is_live);
     CHECK(STREQ(m.p.runtime, "49 min"));
     meta_item_free(&m);
@@ -180,6 +180,23 @@ static void test_api(void)
     free(body);
 
     CHECK(STREQ(api_url_addon_collection_get(), "https://api.strem.io/api/addonCollectionGet"));
+
+    /* link (QR) login */
+    char code[32], link[256], qr[256], rb[300];
+    CHECK(api_parse_link_create("{\"result\":{\"code\":\"AB12CD\",\"link\":\"https://www.stremio.com/link/AB12CD\",\"qrcode\":\"https://q/x.png\"}}", code, sizeof code, link, sizeof link, qr, sizeof qr, &err) == 0);
+    CHECK(STREQ(code, "AB12CD") && STREQ(link, "https://www.stremio.com/link/AB12CD"));
+    CHECK(api_parse_link_create("{\"code\":\"ZZ\"}", code, sizeof code, link, sizeof link, qr, sizeof qr, &err) == 0 && STREQ(code, "ZZ"));
+    CHECK(api_parse_link_create("{\"error\":{\"message\":\"nope\"}}", code, sizeof code, link, sizeof link, qr, sizeof qr, &err) == -1);
+    CHECK(STREQ(api_url_link_read("AB 1", rb, sizeof rb), "https://link.stremio.com/api/v2/read?code=AB%201"));
+    char *k = NULL;
+    CHECK(api_parse_link_read("{\"result\":{\"authKey\":\"KEY\"}}", &k, &err) == 0 && STREQ(k, "KEY"));
+    free(k);
+    CHECK(api_parse_link_read("{\"result\":{}}", &k, &err) == 1 && k == NULL);
+    CHECK(api_parse_link_read("{\"error\":{\"code\":102,\"message\":\"not yet\"}}", &k, &err) == 1);
+    CHECK(api_parse_link_read("{\"error\":{\"code\":5,\"message\":\"expired\"}}", &k, &err) == -1);
+    char *em = NULL;
+    CHECK(api_parse_user("{\"result\":{\"_id\":\"u\",\"email\":\"me@x.y\"}}", &em, &err) == 0 && STREQ(em, "me@x.y"));
+    free(em);
 }
 
 int main(void)
