@@ -288,7 +288,8 @@ static void draw(Screen *s)
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&e->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : e->focus_t) : 0, e->zone == Z_GRID && !foc ? 0.25f : 0, e->items[i].name, 0);
             font_draw_fit(e->items[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
-            if (e->items[i].release_info) font_draw(e->items[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
+            if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
+            else if (e->items[i].release_info) font_draw(e->items[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
     if (e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
         float f = g_app.fx_light ? 1 : e->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;

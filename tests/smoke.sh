@@ -126,7 +126,13 @@ run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 run break_video 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:8765"}')" SNTV_NOW=12:00
-run options_sheet 220 "right,right,hold"
+# hold OK: a short press still opens the title; the hint fills, then the release opens the sheet
+HOLD="wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait"
+run options_sheet 400 "right,right,hold,$HOLD,release"
+run hold_hint 200 "right,ok,down,down,right,hold,wait,wait"
+run episode_options 400 "right,ok,down,down,right,hold,$HOLD,release"
+run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok" HOME="$(home_with ep_marked '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run options_yellow 200 "right,right,right,yellow"
 run search_recent 200 "search" HOME="$(home_with recent '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"recentSearches":["breaking bad","midnight harbor","something about prison and hope"]}')"
 run offline_update 220 "right" SNTV_FAKE_OFFLINE=1 SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json

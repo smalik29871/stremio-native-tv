@@ -246,6 +246,8 @@ static void fetch_meta(Detail *d)
 static int ep_watched(const Detail *d, int k, const LibraryItem *li, int cur_idx)
 {
     const MetaVideo *v = &d->meta.videos[d->ep_index[k]];
+    int mark = app_episode_mark(d->preview.id, v->id);   /* set by hand: wins */
+    if (mark >= 0) return mark;
     if (!li) return 0;
     if (li->video_id && strcmp(li->video_id, v->id) == 0) return li->time_offset == 0 && li->times_watched > 0;
     return cur_idx >= 0 && k < cur_idx;
@@ -446,7 +448,8 @@ static void draw(Screen *s)
             else snprintf(lbl, sizeof lbl, "%s", v->title ? v->title : "Episode");
             float ly = RAIL_Y + EP_H + 16 + (foc ? 12 : 0);
             font_draw_fit(lbl, px, ly, FONT_S | FONT_B, foc || d->area != AREA_EPISODES ? THEME_TEXT : THEME_TEXT_DIM, EP_W);
-            if (v->released && !foc) { char date[11]; snprintf(date, sizeof date, "%.10s", v->released); font_draw(date, px, ly + 34, FONT_XS, THEME_TEXT_MUTED); }
+            if (foc && ui_hold_hint(px, ly + 36, EP_W)) {}
+            else if (v->released && !foc) { char date[11]; snprintf(date, sizeof date, "%.10s", v->released); font_draw(date, px, ly + 34, FONT_XS, THEME_TEXT_MUTED); }
         }
     if (d->ask_open) draw_ask(d);
 }
@@ -463,6 +466,99 @@ static void open_streams_for_video(Detail *d, int video_idx)
 
 static void focus_ep(Detail *d, int k) { if (k != d->ep_focus) { d->ep_focus = k; d->focus_t = 0; } }
 
+/* ---- options for one episode (hold OK on it) ---- */
+
+enum { EO_THIS, EO_UPTO, EO_FROM, EO_SEASON, EO_SOURCES, EO_SYNOPSIS };
+typedef struct { Detail *d; int k; int acts[8]; } EpOpt;
+
+static int resume_index(const Detail *d, const LibraryItem *li)
+{
+    if (li && li->video_id)
+        for (int k = 0; k < d->n_eps; k++) if (strcmp(d->meta.videos[d->ep_index[k]].id, li->video_id) == 0) return k;
+    return -1;
+}
+
+static void mark_range(Detail *d, int from, int to, int watched)
+{
+    const char *ids[512];
+    int n = 0;
+    for (int k = from; k <= to && k < d->n_eps && n < 512; k++) ids[n++] = d->meta.videos[d->ep_index[k]].id;
+    app_episode_set_marks(d->preview.id, ids, n, watched);
+}
+
+static void ep_choice(int c, void *user)
+{
+    EpOpt *o = user;
+    Detail *d = o->d;
+    int k = o->k, act = c >= 0 && c < 8 ? o->acts[c] : -1;
+    free(o);
+    if (k >= d->n_eps) return;
+    const LibraryItem *li = app_library_find(d->preview.id);
+    const MetaVideo *v = &d->meta.videos[d->ep_index[k]];
+    char what[64];
+    if (v->episode >= 0) snprintf(what, sizeof what, "Episode %d", v->episode); else snprintf(what, sizeof what, "This episode");
+    switch (act) {
+    case EO_THIS: {
+        int w = !ep_watched(d, k, li, resume_index(d, li));
+        mark_range(d, k, k, w);
+        app_toast("%s marked as %swatched", what, w ? "" : "not ");
+        break;
+    }
+    case EO_UPTO: mark_range(d, 0, k, 1); app_toast("%d episode%s marked as watched", k + 1, k ? "s" : ""); break;
+    case EO_FROM: mark_range(d, k, d->n_eps - 1, 0); app_toast("%d episode%s marked as not watched", d->n_eps - k, d->n_eps - k == 1 ? "" : "s"); break;
+    case EO_SEASON: {
+        int all = 1;
+        for (int i = 0; i < d->n_eps; i++) if (!ep_watched(d, i, li, resume_index(d, li))) all = 0;
+        mark_range(d, 0, d->n_eps - 1, !all);
+        app_toast("Season marked as %swatched", all ? "not " : "");
+        break;
+    }
+    case EO_SOURCES: open_streams_for_video(d, d->ep_index[k]); break;
+    case EO_SYNOPSIS: {
+        static const char *const close_item[] = { "Close" };
+        static const int close_icon[] = { ICON_CLOSE };
+        char title[200];
+        if (v->season >= 0 && v->episode >= 0) snprintf(title, sizeof title, "S%dE%d  %s", v->season, v->episode, v->title ? v->title : "");
+        else snprintf(title, sizeof title, "%s", v->title ? v->title : "Episode");
+        app_push(screen_options_create_ex(title, d->preview.name, v->overview, close_item, close_icon, 1, NULL, NULL));
+        break;
+    }
+    default: break;
+    }
+}
+
+static void episode_options(Detail *d)
+{
+    int k = d->ep_focus;
+    if (k < 0 || k >= d->n_eps) return;
+    const LibraryItem *li = app_library_find(d->preview.id);
+    int cur = resume_index(d, li), watched = ep_watched(d, k, li, cur), any_after = 0, all = 1;
+    for (int i = 0; i < d->n_eps; i++) {
+        int w = ep_watched(d, i, li, cur);
+        if (i >= k && w) any_after = 1;
+        if (!w) all = 0;
+    }
+    const MetaVideo *v = &d->meta.videos[d->ep_index[k]];
+    EpOpt *o = calloc(1, sizeof *o);
+    o->d = d; o->k = k;
+    const char *items[8]; int icons[8], n = 0;
+    char upto[64], from[64], season[64];
+    #define ADD(act, label, icon) do { o->acts[n] = act; items[n] = label; icons[n] = icon; n++; } while (0)
+    ADD(EO_THIS, watched ? "Mark as not watched" : "Mark as watched", watched ? ICON_CLOSE : ICON_CHECK);
+    if (k > 0) { snprintf(upto, sizeof upto, "Watched up to here (%d episodes)", k + 1); ADD(EO_UPTO, upto, ICON_NEXT); }
+    if (any_after && k < d->n_eps - 1) { snprintf(from, sizeof from, "Not watched from here on (%d)", d->n_eps - k); ADD(EO_FROM, from, ICON_RELOAD); }
+    snprintf(season, sizeof season, all ? "Whole season not watched" : "Whole season watched (%d episodes)", d->n_eps);
+    ADD(EO_SEASON, season, ICON_LIST);
+    ADD(EO_SOURCES, "Sources for this episode", ICON_SWAP);
+    if (v->overview && *v->overview) ADD(EO_SYNOPSIS, "Read synopsis", ICON_INFO);
+    #undef ADD
+    char title[200], sub[200];
+    if (v->season >= 0 && v->episode >= 0) snprintf(title, sizeof title, "S%dE%d  %s", v->season, v->episode, v->title ? v->title : "");
+    else snprintf(title, sizeof title, "%s", v->title ? v->title : "Episode");
+    snprintf(sub, sizeof sub, "%s%s", d->preview.name ? d->preview.name : "", watched ? "  \xC2\xB7  watched" : "");
+    app_push(screen_options_create_ex(title, sub, NULL, items, icons, n, ep_choice, o));
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Detail *d = s->st;
@@ -472,7 +568,10 @@ static int key(Screen *s, KeyAction a)
         if (a == KEY_BACK || a == KEY_OK || a == KEY_LONG_OK) d->ask_open = 0;
         return 1;
     }
-    if (a == KEY_LONG_OK || a == KEY_YELLOW || a == KEY_MENU || a == KEY_INFO) { screen_options_for_title(&d->preview); return 1; }
+    if (a == KEY_LONG_OK || a == KEY_YELLOW || a == KEY_MENU || a == KEY_INFO) {
+        if (d->area == AREA_EPISODES && d->n_eps) episode_options(d); else screen_options_for_title(&d->preview);
+        return 1;
+    }
     if (d->btn >= n_buttons_d(d)) d->btn = n_buttons_d(d) - 1;
     switch (d->area) {
     case AREA_ACTIONS:

@@ -8,7 +8,7 @@ typedef enum {
     ICON_PLAY, ICON_PAUSE, ICON_SEARCH, ICON_SETTINGS, ICON_USER, ICON_PLUS, ICON_CHECK,
     ICON_AUDIO, ICON_SUBS, ICON_NEXT, ICON_BACK, ICON_CHEVRON_LEFT, ICON_CHEVRON_RIGHT,
     ICON_HOME, ICON_LIBRARY, ICON_STAR, ICON_SWAP, ICON_LINK,
-    ICON_PREV, ICON_RELOAD, ICON_ASPECT, ICON_LIST, ICON_CLOCK, ICON_SPEED, ICON_INFO, ICON_COMPASS, ICON_CALENDAR, ICON_LOCK, ICON_UNLOCK
+    ICON_PREV, ICON_RELOAD, ICON_ASPECT, ICON_LIST, ICON_CLOCK, ICON_SPEED, ICON_INFO, ICON_COMPASS, ICON_CALENDAR, ICON_LOCK, ICON_UNLOCK, ICON_CLOSE
 } Icon;
 
 void ui_icon(Icon icon, float cx, float cy, float size, Color c);
@@ -75,6 +75,10 @@ void  ui_peek_step(Peek *p, const struct MetaPreview *m, float dt);
 /* The card's rectangle as drawn (focus scale included); the panel opens right of it,
  * or left when it would cross max_x. */
 void  ui_peek_draw(const Peek *p, const struct MetaPreview *m, float cx, float cy, float cw, float ch, float min_x, float max_x);
+/* While OK is held on a long-press screen: "Hold for options" with a bar that fills,
+ * then "Release for options". Drawn in place of the line under the focused card;
+ * returns 1 when it drew (the caller skips that line). */
+int   ui_hold_hint(float x, float y, float w);
 float ui_focus_scale(float focus);
 float ui_focus_lift(float focus);   /* upward shift of a focused card, canvas units */
 

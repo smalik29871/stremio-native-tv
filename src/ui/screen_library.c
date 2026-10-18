@@ -134,7 +134,8 @@ static void draw(Screen *s)
                 ui_progress(x2 + 14, y2 + h2 - 14, w2 - 28, 5, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
             }
             font_draw_fit(l->items[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
-            if (foc && li->video_id && strcmp(li->type, "series") == 0) {
+            if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
+            else if (foc && li->video_id && strcmp(li->type, "series") == 0) {
                 int se = 0, ep = 0; const char *c1 = strchr(li->video_id, ':'); char sub[32];
                 if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) { snprintf(sub, sizeof sub, "S%d E%d", se, ep); font_draw(sub, px, py + CELL_H + 50, FONT_XS, THEME_TEXT_MUTED); }
             }

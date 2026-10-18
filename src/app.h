@@ -70,6 +70,7 @@ typedef struct App {
     int oled;                  /* pure black background */
     int theme, theme_accent;   /* THEME_* and its accent index (ui/theme.h) */
     int card_details;          /* a focused card opens a details panel after a moment */
+    float ok_hold;             /* OK held on a long-press screen: 0 not held, else 0..1 toward options (1 = release opens them) */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */
     int quality_mode;          /* QUAL_*: how sources are ranked */
     int res_cap;               /* 2160, 1080 or 720 */
@@ -157,6 +158,10 @@ LibraryItem *app_library_find(const char *id);
 void app_library_progress(const MetaPreview *meta, const char *video_id, double position_s, double duration_s);
 void app_library_toggle(const MetaPreview *meta);  /* add / remove from library */
 void app_library_mark_watched(const MetaPreview *meta, int watched);
+/* Episode marks set by hand (they override what the resume point implies):
+ * -1 none, 0 not watched, 1 watched. Kept on this TV. */
+int  app_episode_mark(const char *series_id, const char *video_id);
+void app_episode_set_marks(const char *series_id, const char *const *video_ids, int n, int watched);
 void app_library_dismiss_continue(const MetaPreview *meta);   /* drop from Continue Watching, keep in Library */
 /* Links that failed to play are remembered for six hours and sorted last. */
 void app_link_failed(const char *url);

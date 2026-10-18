@@ -10,7 +10,7 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.7.7.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.7.8.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through

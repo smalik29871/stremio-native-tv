@@ -8,29 +8,62 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { char title[160], subtitle[200]; char items[8][64]; int n, focus; OptionsFn fn; void *user; float t; } Opt;
+#define MAX_ITEMS 8
+typedef struct {
+    char title[160], subtitle[200];
+    char *body;
+    char items[MAX_ITEMS][64]; int icons[MAX_ITEMS];
+    int n, focus; OptionsFn fn; void *user; float t;
+} Opt;
 
-static void update(Screen *s, float dt) { Opt *o = s->st; o->t = ui_ease(o->t * 100, 100, NULL, dt, 16) / 100; if (o->t < 0.999f) app_redraw(); }
+static void update(Screen *s, float dt)
+{
+    Opt *o = s->st;
+    o->t += dt / 0.32f;   /* the sheet rises, then its items arrive one after another */
+    if (o->t > 1 + o->n * 0.08f) o->t = 1 + o->n * 0.08f; else app_redraw();
+}
+
+static float ease_out(float t) { t = t < 0 ? 0 : t > 1 ? 1 : t; return 1 - (1 - t) * (1 - t) * (1 - t); }
 
 static void draw(Screen *s)
 {
     Opt *o = s->st;
-    float k = g_app.fx_light ? 1 : o->t;
+    float k = g_app.fx_light ? 1 : ease_out(o->t);
     Screen *below = g_app.depth >= 2 ? g_app.stack[g_app.depth - 2] : NULL;
     if (below && below->draw) below->draw(below); else ui_background(0);
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 120));
-    float w = 720, h = 150 + o->n * 78.0f + 40, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2 + (1 - k) * 40;
-    gfx_rrect(x + 6, y + 14, w, h, R_PANEL, RGBA(0, 0, 0, 90));
-    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, (int)(250 * k)));
-    font_draw_fit(o->title, x + 40, y + 36, FONT_M | FONT_B, THEME_TEXT, w - 80);
-    if (o->subtitle[0]) font_draw_fit(o->subtitle, x + 40, y + 80, FONT_XS, THEME_TEXT_DIM, w - 80);
-    float ry = y + 130;
-    for (int i = 0; i < o->n; i++, ry += 78) {
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(140 * k)));
+
+    float w = 760, pad = 40, item_h = 74;
+    int body_lines = o->body ? font_draw_wrapped(o->body, 0, 0, FONT_S, 0, w - 2 * pad, 12) : 0;
+    float body_h = body_lines ? body_lines * font_height(FONT_S) + 24 : 0;
+    float head = o->subtitle[0] ? 120 : 92;
+    float h = head + body_h + o->n * item_h + 64;
+    float x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2 + (1 - k) * 60;
+    gfx_set_alpha(k);
+    if (!g_app.fx_light) gfx_shadow(x, y + 16, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0x90));
+    gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
+    if (g_theme.focus_style == FOCUS_FRAME) gfx_rect(x, y, 6, h, THEME_ACCENT);
+    else if (g_theme.focus_style == FOCUS_LIGHTBAR) gfx_rect(x + R_PANEL, y, w - 2 * R_PANEL, 3, THEME_ACCENT);
+    else gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, THEME_LINE);
+    ui_title(o->title, x + pad, y + 34, FONT_M | FONT_B, THEME_TEXT, w - 2 * pad);
+    if (o->subtitle[0]) font_draw_fit(o->subtitle, x + pad, y + 80, FONT_XS, THEME_TEXT_DIM, w - 2 * pad);
+    float ry = y + head;
+    if (body_lines) { font_draw_wrapped(o->body, x + pad, ry, FONT_S, THEME_TEXT_DIM, w - 2 * pad, 12); ry += body_h; }
+    for (int i = 0; i < o->n; i++, ry += item_h) {
+        float ik = g_app.fx_light ? 1 : ease_out((o->t - 0.35f - i * 0.08f) / 0.5f);
+        if (ik <= 0) continue;
         int foc = i == o->focus;
-        if (foc) { ui_focus_under(x + 24, ry, w - 48, 66, R_KEY, 1); gfx_rrect(x + 24, ry, w - 48, 66, R_KEY, THEME_FOCUS); }
-        font_draw(o->items[i], x + 50, ry + (66 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : THEME_TEXT);
+        float ix = x + 24 + (1 - ik) * 40, iw = w - 48;
+        gfx_set_alpha(k * ik);
+        if (foc) { ui_focus_under(ix, ry, iw, item_h - 10, R_KEY, 1); gfx_rrect(ix, ry, iw, item_h - 10, R_KEY, THEME_FOCUS); }
+        Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
+        float tx = ix + 28;
+        if (o->icons[i] >= 0) { ui_icon((Icon)o->icons[i], tx + 14, ry + (item_h - 10) / 2, 28, fg); tx += 50; }
+        font_draw_fit(o->items[i], tx, ry + (item_h - 10 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg, ix + iw - tx - 20);
     }
-    font_draw("Back: close", x + 40, y + h - 34, FONT_XS, THEME_TEXT_MUTED);
+    gfx_set_alpha(k);
+    font_draw("Back: close", x + pad, y + h - 40, FONT_XS, THEME_TEXT_MUTED);
+    gfx_set_alpha(1);
 }
 
 static int key(Screen *s, KeyAction a)
@@ -40,25 +73,33 @@ static int key(Screen *s, KeyAction a)
     switch (a) {
     case KEY_UP: if (o->focus > 0) o->focus--; return 1;
     case KEY_DOWN: if (o->focus < o->n - 1) o->focus++; return 1;
+    case KEY_LONG_OK: return 1;   /* the hold that opened the sheet */
     case KEY_OK: { OptionsFn fn = o->fn; void *u = o->user; int c = o->focus; app_pop(); if (fn) fn(c, u); return 1; }
     case KEY_BACK: case KEY_YELLOW: app_pop(); return 1;
     default: return 1;
     }
 }
 
-static void destroy(Screen *s) { free(s->st); free(s); }
+static void destroy(Screen *s) { Opt *o = s->st; free(o->body); free(o); free(s); }
 
-Screen *screen_options_create(const char *title, const char *subtitle, const char *const *items, int n, OptionsFn fn, void *user)
+Screen *screen_options_create_ex(const char *title, const char *subtitle, const char *body,
+                                 const char *const *items, const int *icons, int n, OptionsFn fn, void *user)
 {
     Screen *s = calloc(1, sizeof *s);
     Opt *o = calloc(1, sizeof *o);
     snprintf(o->title, sizeof o->title, "%s", title ? title : "");
     snprintf(o->subtitle, sizeof o->subtitle, "%s", subtitle ? subtitle : "");
-    for (int i = 0; i < n && i < 8; i++) snprintf(o->items[o->n++], 64, "%s", items[i]);
+    o->body = body && *body ? strdup(body) : NULL;
+    for (int i = 0; i < n && i < MAX_ITEMS; i++) { snprintf(o->items[o->n], 64, "%s", items[i]); o->icons[o->n++] = icons ? icons[i] : -1; }
     o->fn = fn; o->user = user;
     s->name = "options"; s->st = o;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
     return s;
+}
+
+Screen *screen_options_create(const char *title, const char *subtitle, const char *const *items, int n, OptionsFn fn, void *user)
+{
+    return screen_options_create_ex(title, subtitle, NULL, items, NULL, n, fn, user);
 }
 
 /* The usual options for a title: watched state, Continue Watching, Library. */

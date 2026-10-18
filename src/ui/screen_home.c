@@ -513,7 +513,10 @@ static void draw_row(Home *h, int ri, float y)
                 ui_card(app_art_poster(m, buf, sizeof buf), px, cy, cw, ch, f, dim, m->name, 0);
             }
             if (is_focus && r->kind != ROW_CONTINUE) { m_peek = m; px_peek = px; f_peek = f; }
-            if (is_focus && r->kind != ROW_CONTINUE && h->peek.t < 0.05f) {
+            if (is_focus && g_app.ok_hold > 0) {   /* holding OK: the hint takes the line under the card */
+                float sc = ui_focus_scale(f);
+                ui_hold_hint(px - (cw * sc - cw) / 2, cy + ch * sc - (ch * sc - ch) / 2 + 14, cw * sc > 240 ? cw * sc : 240);
+            } else if (is_focus && r->kind != ROW_CONTINUE && h->peek.t < 0.05f) {
                 float sc = ui_focus_scale(f);
                 font_draw_fit(m->name, px - (cw * sc - cw) / 2, cy + ch * sc - (ch * sc - ch) / 2 + 14, FONT_XS | FONT_B,
                               COLOR_ALPHA(THEME_TEXT, (int)(255 * f)), cw * sc);

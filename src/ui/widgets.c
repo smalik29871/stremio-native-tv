@@ -143,6 +143,10 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         gfx_line(cx + s * 0.18f, cy - s * 0.18f, cx - s * 0.18f, cy + s * 0.18f, t * 1.4f, c);
         gfx_line(cx + s * 0.18f, cy - s * 0.18f, cx + s * 0.02f, cy + s * 0.02f, t * 2.2f, c);
         break;
+    case ICON_CLOSE:
+        gfx_line(cx - h * 0.62f, cy - h * 0.62f, cx + h * 0.62f, cy + h * 0.62f, t, c);
+        gfx_line(cx - h * 0.62f, cy + h * 0.62f, cx + h * 0.62f, cy - h * 0.62f, t, c);
+        break;
     case ICON_LOCK: case ICON_UNLOCK:   /* padlock; open when unlocked */
         gfx_rrect(cx - s * 0.30f, cy - s * 0.04f, s * 0.60f, s * 0.46f, s * 0.08f, c);
         if (icon == ICON_LOCK) gfx_rrect_ring(cx - s * 0.19f, cy - s * 0.42f, s * 0.38f, s * 0.46f, s * 0.19f, t, c);
@@ -432,6 +436,29 @@ void ui_row_header(int index, const char *title, const char *source, int count, 
         break;
     }
     }
+}
+
+/* ---- hold OK for options ---- */
+
+int ui_hold_hint(float x, float y, float w)
+{
+    float k = g_app.ok_hold;
+    if (k <= 0) return 0;
+    int armed = k >= 1;
+    const char *label = armed ? "Release for options" : "Hold for options";
+    char up[64];
+    if (g_theme.upper_titles) { ui_upper(label, up, sizeof up); label = up; }
+    /* the label slides up a touch and brightens as the hold fills */
+    float a = k < 0.25f ? k / 0.25f : 1;
+    font_draw_fit(label, x, y + (1 - a) * 8, FONT_XS | FONT_B, COLOR_ALPHA(armed ? THEME_ACCENT : THEME_TEXT, (int)(255 * a)), w);
+    float by = y + font_height(FONT_XS | FONT_B) + 6, bw = w < 240 ? w : 240;
+    gfx_rrect(x, by, bw, 4, theme_pill_r(4), COLOR_ALPHA(THEME_TEXT, 0x30));
+    gfx_rrect(x, by, bw * (k > 1 ? 1 : k), 4, theme_pill_r(4), THEME_ACCENT);
+    if (armed && !g_app.fx_light) {   /* a soft beat while it waits for the release */
+        float p = 0.5f + 0.5f * sinf(g_app.time * 9);
+        gfx_rrect(x - 2, by - 2, bw + 4, 8, theme_pill_r(8), COLOR_ALPHA(THEME_ACCENT, (int)(0x50 * p)));
+    }
+    return 1;
 }
 
 /* ---- details on a focused card ---- */

@@ -192,9 +192,9 @@ void app_draw_toast(void)
     int fs = FONT_S | FONT_B;
     float w = font_measure(g_app.toast, fs) + 100, h = 72;
     float x = (SNTV_UI_W - w) / 2, y = SNTV_UI_H - 150 + (1 - k) * 30;
-    if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, h / 2, 30, RGBA(0, 0, 0, (int)(0x90 * k)));
-    gfx_rrect(x, y, w, h, h / 2, RGBA(0x24, 0x20, 0x44, (int)(0xF4 * k)));
-    gfx_rrect_ring(x, y, w, h, h / 2, 1.5f, COLOR_ALPHA(THEME_TEXT, (int)(0x22 * k)));
+    if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, theme_pill_r(h), 30, RGBA(0, 0, 0, (int)(0x90 * k)));
+    gfx_rrect(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(THEME_PANEL, (int)(0xF4 * k)));
+    gfx_rrect_ring(x, y, w, h, theme_pill_r(h), 1.5f, COLOR_ALPHA(THEME_TEXT, (int)(0x22 * k)));
     gfx_circle(x + 40, y + h / 2, 7, COLOR_ALPHA(THEME_ACCENT2, (int)(255 * k)));
     font_draw(g_app.toast, x + 64, y + (h - font_height(fs)) / 2, fs, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)));
 }
@@ -799,6 +799,38 @@ void app_library_progress(const MetaPreview *meta, const char *video_id, double 
     if (dur && pos > dur * 9 / 10) { it->times_watched++; it->flagged_watched = 1; it->time_offset = 0; }
     save_library_cache();
     push_library_item(it);
+}
+
+/* ---- episode marks ---------------------------------------------------------- */
+
+#define EPISODE_MARK_SERIES 200   /* series kept; the oldest go first */
+
+int app_episode_mark(const char *series_id, const char *video_id)
+{
+    const cJSON *all = store_get_json("episodeMarks");
+    const cJSON *series = series_id ? cJSON_GetObjectItemCaseSensitive(all, series_id) : NULL;
+    const cJSON *m = video_id ? cJSON_GetObjectItemCaseSensitive(series, video_id) : NULL;
+    return cJSON_IsBool(m) ? cJSON_IsTrue(m) : -1;
+}
+
+void app_episode_set_marks(const char *series_id, const char *const *video_ids, int n, int watched)
+{
+    if (!series_id || n <= 0) return;
+    const cJSON *old = store_get_json("episodeMarks");
+    cJSON *all = old ? cJSON_Duplicate(old, 1) : cJSON_CreateObject();
+    cJSON *series = cJSON_DetachItemFromObjectCaseSensitive(all, series_id);
+    if (!series) series = cJSON_CreateObject();
+    for (int i = 0; i < n; i++) {
+        if (!video_ids[i]) continue;
+        cJSON_DeleteItemFromObjectCaseSensitive(series, video_ids[i]);
+        cJSON_AddBoolToObject(series, video_ids[i], watched);
+    }
+    while (cJSON_GetArraySize(all) >= EPISODE_MARK_SERIES) cJSON_DeleteItemFromArray(all, 0);
+    cJSON_AddItemToObject(all, series_id, series);   /* most recently touched last */
+    store_set_json("episodeMarks", all);
+    store_save();
+    g_app.library_version++;   /* screens that show watched state redraw */
+    app_redraw();
 }
 
 void app_library_mark_watched(const MetaPreview *meta, int watched)

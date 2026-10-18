@@ -91,12 +91,13 @@ static void dev_hooks(SDL_Window *win, int frame)
                 SDL_PushEvent(&e);
                 continue;
             }
-            int hold = strcmp(tok, "hold") == 0;   /* OK held down (long press) */
-            for (int k = 0; keys[k].n; k++) if (strcmp(keys[k].n, hold ? "ok" : tok) == 0) {
+            /* "hold" presses OK without letting go, "release" lets go ("wait" spends a step) */
+            int hold = strcmp(tok, "hold") == 0, release = strcmp(tok, "release") == 0;
+            for (int k = 0; keys[k].n; k++) if (strcmp(keys[k].n, hold || release ? "ok" : tok) == 0) {
                 SDL_Event e; memset(&e, 0, sizeof e);
-                e.type = SDL_KEYDOWN; e.key.keysym.sym = keys[k].k; e.key.keysym.scancode = SDL_SCANCODE_UNKNOWN;
+                e.type = release ? SDL_KEYUP : SDL_KEYDOWN; e.key.keysym.sym = keys[k].k; e.key.keysym.scancode = SDL_SCANCODE_UNKNOWN;
                 SDL_PushEvent(&e);
-                if (!hold) { e.type = SDL_KEYUP; SDL_PushEvent(&e); } else g_dev_hold = 1;   /* counts as held at once */
+                if (!hold && !release) { e.type = SDL_KEYUP; SDL_PushEvent(&e); } else if (hold) g_dev_hold = 1;   /* counts as held at once */
             }
         }
         free(copy);
@@ -225,9 +226,10 @@ int main(int argc, char **argv)
             else if (e.type == SDL_KEYUP) {
                 g_seen_keyup = 1;
                 SDL_Event d = e; d.type = SDL_KEYDOWN;
-                if (input_map(&d) == KEY_OK && g_ok_down) {   /* a short press: OK now */
+                if (input_map(&d) == KEY_OK && g_ok_down) {   /* released: OK, or the options once the hold filled */
                     g_ok_down = 0;
-                    if (!g_ok_long) dispatch_key(KEY_OK);
+                    g_app.ok_hold = 0;
+                    dispatch_key(g_ok_long ? KEY_LONG_OK : KEY_OK);
                 }
             }
             else if (e.type == SDL_KEYDOWN) {
@@ -238,7 +240,7 @@ int main(int argc, char **argv)
                 /* On screens that offer a long press, OK waits for the release (or the hold).
                  * Remotes that never send releases keep the old instant OK. */
                 if (a == KEY_OK && g_seen_keyup && top && top->long_ok && !(g_app.pip && g_pip_focus)) {
-                    if (!e.key.repeat) { g_ok_down = 1; g_ok_long = 0; g_ok_t0 = SDL_GetTicks() - (g_dev_hold ? 500 : 0); g_dev_hold = 0; }
+                    if (!e.key.repeat) { g_ok_down = 1; g_ok_long = 0; g_ok_t0 = SDL_GetTicks() - (g_dev_hold ? 500 : 0); g_dev_hold = 0; g_app.ok_hold = 0.001f; }
                     continue;
                 }
                 dispatch_key(a);
@@ -270,7 +272,16 @@ int main(int argc, char **argv)
         prev = now;
         g_app.time += dt;
 
-        if (g_ok_down && !g_ok_long && SDL_GetTicks() - g_ok_t0 >= 500) { g_ok_long = 1; dispatch_key(KEY_LONG_OK); }
+        /* Holding OK fills the screen's "Hold for options" hint; past 500 ms it reads
+         * "Release for options" and the release opens them. A release that never comes
+         * (a lost key-up) opens them after 2.5 s. */
+        if (g_ok_down) {
+            Uint32 held = SDL_GetTicks() - g_ok_t0;
+            g_app.ok_hold = held >= 500 ? 1 : 0.001f + held / 500.0f;
+            if (held >= 500) g_ok_long = 1;
+            if (held >= 2500) { g_ok_down = 0; g_app.ok_hold = 0; dispatch_key(KEY_LONG_OK); }
+            app_redraw();
+        }
         http_pump();
         { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
         image_pump();
