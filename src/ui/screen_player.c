@@ -81,6 +81,7 @@ struct Player {
     float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
     float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
+    double embedded_offset;   /* timing for the TV's own subtitles, seconds (positive = later) */
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
     int subs_user;            /* the viewer chose subtitles by hand this session */
@@ -122,6 +123,7 @@ static Player *g_live;
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
+static void push_sub_style(const Player *p);
 static int pick_forced(Player *p);
 static void autosync_tick(Player *p);
 static void xl_stop(Player *p);
@@ -835,6 +837,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->load_started = g_app.time;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     if (video_load(p->cands[idx].url, p->title, start) != 0) app_toast("Could not start playback");
+    push_sub_style(p);   /* re-sent by the backend once the new pipeline has loaded */
     show_overlay(p);
 }
 
@@ -1187,7 +1190,8 @@ static void draw_menu(Player *p)
         ROW("Choose for", p->assign_second ? "Second subtitles (above the main ones)  \xC2\xB7  Left/Right" : "Main subtitles  \xC2\xB7  Left/Right for a second language", 0);
         SECTION("LOOK AND TIMING  \xC2\xB7  LEFT/RIGHT CHANGES");
         if (p->track_loaded) snprintf(v, sizeof v, "%+.1f s  \xC2\xB7  earlier \xE2\x86\x90  \xE2\x86\x92 later  \xC2\xB7  OK resets", p->track.offset);
-        else snprintf(v, sizeof v, "For subtitles from your addons (the TV times the ones in the file)");
+        else if (p->embedded_text_sel >= 0) snprintf(v, sizeof v, "%+.1f s  \xC2\xB7  earlier \xE2\x86\x90  \xE2\x86\x92 later  \xC2\xB7  OK resets", p->embedded_offset);
+        else snprintf(v, sizeof v, "Turn on subtitles to adjust their timing");
         ROW("Timing", v, 0);
         snprintf(v, sizeof v, "%s", SIZES[g_app.subs_size]); ROW("Size", v, 0);
         snprintf(v, sizeof v, "%s", SUBS_STYLE_NAMES[g_app.subs_style]); ROW("Style", v, 0);
@@ -1784,13 +1788,29 @@ static void cand_addon(const PlayCandidate *c, char *out, size_t n)
     snprintf(out, n, "%.*s", sep ? (int)(sep - lbl) : 0, lbl);
 }
 
+/* Size, style, position and timing reach the subtitles the TV draws from the file too
+ * (the app draws addon subtitles itself, straight from g_app). */
+static void push_sub_style(const Player *p)
+{
+    video_subtitle_style(g_app.subs_size, g_app.subs_style, g_app.subs_pos, (int)(p->embedded_offset * 1000));
+}
+
 static void adjust_subs(Player *p, int row, int dir)
 {
-    (void)p;
     if (row == SUB_SIZE) g_app.subs_size = (g_app.subs_size + dir + 4) % 4;
     else if (row == SUB_STYLE) g_app.subs_style = (g_app.subs_style + dir + SUBS_STYLE_COUNT) % SUBS_STYLE_COUNT;
     else if (row == SUB_POS) g_app.subs_pos = (g_app.subs_pos + dir + 3) % 3;
     app_save_prefs();
+    push_sub_style(p);
+}
+
+/* Timing moves whichever subtitles are showing: addon cues here, file tracks on the TV. */
+static void shift_subs(Player *p, double by)
+{
+    if (p->track_loaded) { p->track.offset = by ? p->track.offset + by : 0; return; }
+    if (p->embedded_text_sel < 0) return;
+    p->embedded_offset = by ? p->embedded_offset + by : 0;
+    push_sub_style(p);
 }
 
 static int menu_rows(Player *p)
@@ -1833,7 +1853,7 @@ static void menu_activate(Player *p)
         return;
     }
     if (f == SUB_CHOOSE) { p->assign_second = !p->assign_second; return; }
-    if (f == SUB_TIMING) { if (p->track_loaded) { p->track.offset = 0; app_toast("Subtitle timing reset"); } return; }
+    if (f == SUB_TIMING) { if (p->track_loaded || p->embedded_text_sel >= 0) { shift_subs(p, 0); app_toast("Subtitle timing reset"); } return; }
     if (f >= SUB_SIZE && f <= SUB_POS) { adjust_subs(p, f, 1); return; }
     if (f == SUB_SYNC) {
         g_app.subs_autosync = !g_app.subs_autosync; app_save_prefs();
@@ -1904,7 +1924,7 @@ static int key(Screen *s, KeyAction a)
             if (p->menu == MENU_AUDIO && p->menu_focus == 0) { set_rate(p, p->rate_idx + dir); app_redraw(); return 1; }
             if (p->menu != MENU_SUBS) return 1;
             if (p->menu_focus == SUB_CHOOSE) p->assign_second = !p->assign_second;
-            else if (p->menu_focus == SUB_TIMING && p->track_loaded) p->track.offset += 0.1 * dir;
+            else if (p->menu_focus == SUB_TIMING) shift_subs(p, 0.1 * dir);
             else if (p->menu_focus >= SUB_SIZE && p->menu_focus <= SUB_POS) adjust_subs(p, p->menu_focus, dir);
             app_redraw();
             return 1;

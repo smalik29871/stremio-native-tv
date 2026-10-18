@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.1
+
+- **Subtitle size, style, position and timing reach subtitles inside the file.** The
+  player's Subtitles menu only changed subtitles from your addons, which the app draws
+  itself; tracks inside the video are drawn by the TV, and nothing told it about your
+  choices. The player now passes them to the TV's own subtitle renderer: size, text
+  colour (classic yellow), outline or shadow, the black box, position, and timing
+  (Left/Right on *Timing* now works for these tracks too). The TV starts a fresh
+  pipeline for every video, so the style is sent again after each load and each
+  subtitle track change.
+- **"Mark as unwatched from here on" is always in an episode's options**, not only
+  when a later episode already looked watched (and it works on the last episode too).
+  The range option reads *Mark as watched up to here*.
+
 ## 0.8.0
 
 - **Hold OK on an episode for its own options.** Holding OK on an episode used to open

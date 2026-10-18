@@ -126,6 +126,8 @@ int video_tracks(TrackKind kind, VideoTrack *out, int max)
     return count;
 }
 
+void video_subtitle_style(int size, int style, int position, int sync_ms) { (void)size; (void)style; (void)position; (void)sync_ms; }
+
 void video_select_track(TrackKind kind, int index)
 {
     if (!g_player) return;
