@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.3
+## 0.7.4
 
 - **Details on a card that stays focused.** Rest on a poster for a moment (on Home,
   in Explore, Library and Search) and a panel slides open beside it: the title, IMDb
@@ -10,6 +10,27 @@
   Duotone's soft card), and fetches the full details only once you have paused, from
   the same cache Home and the title page use. Settings > Interface > *Show details
   when a card stays focused* turns it off.
+
+## 0.7.3
+
+- **Episode details where you can read them.** With the episode row focused, the
+  space under the show's logo becomes that episode: *Season 1 · Episode 2 of 8*, the
+  title, the air date ("22 Aug 2021"), the runtime, *Watched* or the minutes left, and
+  three lines of synopsis, fading in as you move. The line at the bottom edge of the
+  screen, cut off and half in the TV's overscan, is gone.
+- **Subtitles you can tell apart.** Tracks in the video file are named by language
+  ("Hungarian", not "hu") with what the file says about them: their name (SDH, Forced,
+  Signs & Songs), forced, default and the format (text, or a picture format like PGS).
+  Audio tracks get the same, with the channels. Addon files read "OpenSubtitles v3 ·
+  option 2 of 3" instead of "English (2)". Sections say where each comes from.
+- **Sources in your addon order, with what each one is.** The player's Sources list
+  groups by addon in the order of your addon list (each header once), and every row
+  shows the quality ("1080p HEVC · Dolby Digital+ · cached") over the release name,
+  instead of the addon's name and server. Fallback still tries them in its own order.
+- **A sharper, richer hero.** Backdrops and logos on the TV are decoded at up to 1280
+  px instead of 512 (posters stay mipmapped at 512), so the hero is no longer a small
+  image stretched three times. The picture stays opaque down to the rows, and the side
+  fade and text shading are lighter, so it keeps its colour.
 
 ## 0.7.2
 

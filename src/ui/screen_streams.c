@@ -617,6 +617,12 @@ static void play_from(Streams *st, int index)
             c[n].label = strdup(label);
             c[n].binge_group = st->items[i].binge_group ? strdup(st->items[i].binge_group) : NULL;
             c[n].filename = st->items[i].filename ? strdup(st->items[i].filename) : NULL;
+            char detail[200], rel[200];
+            quality_summary(&st->items[i].tags, quality_runtime_minutes(st->meta.runtime), detail, sizeof detail);
+            first_line(st->items[i].title ? st->items[i].title : st->items[i].description ? st->items[i].description : st->items[i].filename, rel, sizeof rel);
+            c[n].detail = detail[0] ? strdup(detail) : NULL;
+            c[n].release = rel[0] ? strdup(rel) : NULL;
+            c[n].addon_order = st->items[i].addon_order;
             c[n].video_size = st->items[i].video_size;
             c[n].needs = quality_needs(&st->items[i].tags);
             n++;

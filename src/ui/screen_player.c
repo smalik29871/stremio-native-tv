@@ -123,6 +123,9 @@ static void go_up_next(Player *p);
 static int pick_forced(Player *p);
 static void autosync_tick(Player *p);
 static void xl_stop(Player *p);
+static int source_view(const Player *p, int *view);
+static void cand_addon(const PlayCandidate *c, char *out, size_t n);
+static void describe_track(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn);
 static int xl_available(Player *p);
 static void xl_start(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
@@ -1094,12 +1097,12 @@ static void draw_menu(Player *p)
     const MetaVideo *eps = p->menu == MENU_EPISODES ? app_videos(p->meta.id, &n_eps) : NULL;
     int ep_sections = 0;
     for (int i = 0; i <= p->menu_focus && i < n_eps; i++) if (i == 0 || eps[i].season != eps[i - 1].season) ep_sections++;
-    int src_sections = 0;
+    int src_sections = 0, view[64];
     if (p->menu == MENU_SOURCES) {
+        source_view(p, view);
         char last[80] = "";
-        for (int i = 0; i <= p->menu_focus && i < p->n_cands; i++) {
-            const char *lbl = p->cands[i].label ? p->cands[i].label : "", *sep = strstr(lbl, " - ");
-            char ad[80] = ""; if (sep) snprintf(ad, sizeof ad, "%.*s", (int)(sep - lbl) < 79 ? (int)(sep - lbl) : 79, lbl);
+        for (int k = 0; k <= p->menu_focus && k < p->n_cands; k++) {
+            char ad[80]; cand_addon(&p->cands[view[k]], ad, sizeof ad);
             if (ad[0] && strcmp(ad, last) != 0) { src_sections++; snprintf(last, sizeof last, "%s", ad); }
         }
     }
@@ -1158,18 +1161,19 @@ static void draw_menu(Player *p)
     }
     if (p->menu == MENU_SOURCES) {
         char last_addon[80] = "";
-        for (int i = 0; i < p->n_cands; i++) {
-            char host[80], addon[80] = "", name[160];
-            url_host(p->cands[i].url, host, sizeof host);
-            const char *lbl = p->cands[i].label ? p->cands[i].label : "Source", *sep = strstr(lbl, " - ");
-            if (sep) { snprintf(addon, sizeof addon, "%.*s", (int)(sep - lbl) < 79 ? (int)(sep - lbl) : 79, lbl); snprintf(name, sizeof name, "%s", sep + 3); }
-            else snprintf(name, sizeof name, "%s", lbl);
-            if (addon[0] && strcmp(addon, last_addon) != 0) {   /* one group per addon, in the order they answer */
-                char sec[96]; for (char *c = addon; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32;
-                snprintf(sec, sizeof sec, "%s", addon); SECTION(sec);
+        for (int k = 0; k < p->n_cands; k++) {
+            const PlayCandidate *c = &p->cands[view[k]];
+            char host[80], addon[80], name[160];
+            url_host(c->url, host, sizeof host);
+            cand_addon(c, addon, sizeof addon);
+            const char *lbl = c->label ? c->label : "Source", *sep = strstr(lbl, " - ");
+            snprintf(name, sizeof name, "%s", sep ? sep + 3 : lbl);
+            if (addon[0] && strcmp(addon, last_addon) != 0) {   /* one group per addon, in the user's addon order */
                 snprintf(last_addon, sizeof last_addon, "%s", addon);
+                for (char *ch = addon; *ch; ch++) if (*ch >= 'a' && *ch <= 'z') *ch -= 32;
+                SECTION(addon);
             }
-            ROW(name, host, i == p->cur);
+            ROW(c->detail ? c->detail : name, c->release ? c->release : host, view[k] == p->cur);
         }
         ROW("Browse all sources", "Every addon again, with the recommendation for this TV", 0);
         gfx_clip_pop();
@@ -1186,25 +1190,25 @@ static void draw_menu(Player *p)
         ROW("Choose for", p->assign_second ? "Second subtitles (above the main ones)  \xC2\xB7  Left/Right" : "Main subtitles  \xC2\xB7  Left/Right for a second language", 0);
         ROW("Off", "", p->assign_second ? p->active_addon_sub2 < 0 : (p->embedded_text_sel < 0 && p->active_addon_sub < 0));
     }
-    if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "EMBEDDED");
+    if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "IN THE VIDEO FILE");
     for (int i = 0; i < n; i++) {
-        char sub[80];
-        const char *ln = lang_known(tr[i].lang) ? lang_display(tr[i].lang) : "";
-        snprintf(sub, sizeof sub, "%s%s%s", tr[i].codec, tr[i].codec[0] && ln[0] ? "  \xC2\xB7  " : "", ln);
+        char title[96], sub[160];
+        describe_track(p, p->menu == MENU_AUDIO ? 2 : 3, tr, i, n, title, sizeof title, sub, sizeof sub);
         int on = p->menu == MENU_AUDIO ? tr[i].selected : p->embedded_text_sel == tr[i].index;
-        ROW(tr[i].label, sub, on);
+        ROW(title, sub, on);
     }
     if (p->menu == MENU_AUDIO && !n) font_draw_wrapped("The stream reports a single audio track.", x + 40, ry, FONT_S, THEME_TEXT_MUTED, w - 80, 2);
     if (p->menu == MENU_SUBS) {
-        if (ng || p->subs_pending) SECTION(p->subs_pending ? "FROM ADDONS  (SEARCHING)" : "FROM ADDONS");
+        if (ng || p->subs_pending) SECTION(p->subs_pending ? "DOWNLOADED BY YOUR ADDONS  (SEARCHING)" : "DOWNLOADED BY YOUR ADDONS");
         for (int g = 0; g < ng; g++) {
-            int idx = order[g], dup = 0;
-            for (int j = 0; j < g; j++) if (strcmp(lang_display(p->addon_subs[order[j]].lang), lang_display(p->addon_subs[idx].lang)) == 0) dup++;
-            char label[80];
-            if (dup) snprintf(label, sizeof label, "%s (%d)", lang_display(p->addon_subs[idx].lang), dup + 1);
-            else snprintf(label, sizeof label, "%s", lang_display(p->addon_subs[idx].lang));
-            char who[120];
-            snprintf(who, sizeof who, "%s%s%s", p->addon_subs[idx].addon, p->addon_subs[idx].matched ? "  \xC2\xB7  matched to this file" : "", p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
+            int idx = order[g], nth = 0, of = 0;
+            const char *ln = lang_display(p->addon_subs[idx].lang);
+            for (int j = 0; j < ng; j++) if (strcmp(lang_display(p->addon_subs[order[j]].lang), ln) == 0) { of++; if (j < g) nth++; }
+            char label[80], pick[40] = "";
+            snprintf(label, sizeof label, "%s", ln);
+            if (of > 1) snprintf(pick, sizeof pick, "  \xC2\xB7  option %d of %d", nth + 1, of);
+            char who[160];
+            snprintf(who, sizeof who, "%s%s%s%s", p->addon_subs[idx].addon, pick, p->addon_subs[idx].matched ? "  \xC2\xB7  matched to this file" : "", p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
             ROW(label, who, p->active_addon_sub == idx || p->active_addon_sub2 == idx);
         }
         if (xl_available(p)) {
@@ -1424,7 +1428,12 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = 0; break;
     case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = 0; break;
     case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
-    case BTN_SOURCES: p->menu = MENU_SOURCES; p->menu_focus = p->cur; break;
+    case BTN_SOURCES: {
+        int view[64]; int n = source_view(p, view);
+        p->menu = MENU_SOURCES; p->menu_focus = 0;
+        for (int k = 0; k < n; k++) if (view[k] == p->cur) p->menu_focus = k;
+        break;
+    }
     case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;
     case BTN_STATS: p->stats = !p->stats; break;
     }
@@ -1711,6 +1720,77 @@ static void draw(Screen *s)
     if (p->menu) draw_menu(p);
 }
 
+/* The fallback order decides what plays next; the menu lists sources by addon, in the
+ * user's addon order. view[k] is the candidate shown on row k. */
+static const char *format_name(const char *codec)
+{
+    static const struct { const char *id, *name; } F[] = {
+        { "S_TEXT/UTF8", "Text (SRT)" }, { "S_TEXT/ASS", "Styled text (ASS)" }, { "S_TEXT/SSA", "Styled text (SSA)" },
+        { "S_TEXT/WEBVTT", "Text (WebVTT)" }, { "S_HDMV/PGS", "Picture (PGS)" }, { "S_VOBSUB", "Picture (VobSub)" },
+        { "S_DVBSUB", "Picture (DVB)" }, { "tx3g", "Text" }, { "wvtt", "Text (WebVTT)" },
+        { "A_EAC3", "Dolby Digital+" }, { "A_AC3", "Dolby Digital" }, { "A_DTS", "DTS" }, { "A_TRUEHD", "Dolby TrueHD" },
+        { "A_AAC", "AAC" }, { "A_OPUS", "Opus" }, { "A_FLAC", "FLAC" }, { "A_MPEG/L3", "MP3" }, { "ec-3", "Dolby Digital+" },
+        { "ac-3", "Dolby Digital" }, { "mp4a", "AAC" }, { "dtsc", "DTS" }, { NULL, NULL } };
+    for (int i = 0; F[i].id; i++) if (strncasecmp(codec, F[i].id, strlen(F[i].id)) == 0) return F[i].name;
+    return codec;
+}
+
+/* A track as a viewer would name it: the language, then what the file says about it
+ * (its name such as "SDH" or "Commentary", forced, default, the format). The TV's track
+ * list and the header's list of the same kind are matched by position when they agree. */
+static void track_base(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn)
+{
+    const ProbeTrack *pt = NULL;
+    if (p->probe) {
+        int count = 0;
+        for (int k = 0; k < p->probe->n_tracks; k++) if (p->probe->tracks[k].kind == kind) count++;
+        if (count == n)
+            for (int k = 0, seen = 0; k < p->probe->n_tracks; k++)
+                if (p->probe->tracks[k].kind == kind && seen++ == i) { pt = &p->probe->tracks[k]; break; }
+    }
+    const char *lang = lang_known(tr[i].lang) ? tr[i].lang : pt && lang_known(pt->lang) ? pt->lang : NULL;
+    if (lang) snprintf(title, tn, "%s", lang_display(lang));
+    else if (tr[i].label[0]) snprintf(title, tn, "%s", tr[i].label);
+    else snprintf(title, tn, "Track %d", i + 1);
+    size_t o = 0;
+    sub[0] = 0;
+    #define PART(...) do { if (o < sn) { if (o) o += (size_t)snprintf(sub + o, sn - o, "  \xC2\xB7  "); if (o < sn) o += (size_t)snprintf(sub + o, sn - o, __VA_ARGS__); } } while (0)
+    if (pt && pt->name[0] && strcasecmp(pt->name, title) != 0) PART("%s", pt->name);
+    if (pt && pt->forced) PART("Forced");
+    if (kind == 2 && pt && pt->channels) PART("%s %s", format_name(pt->codec), pt->channels == 6 ? "5.1" : pt->channels == 8 ? "7.1" : pt->channels == 2 ? "stereo" : pt->channels == 1 ? "mono" : "");
+    else if (pt && pt->codec[0]) PART("%s", format_name(pt->codec));
+    else if (tr[i].codec[0]) PART("%s", format_name(tr[i].codec));
+    if (pt && pt->dflt) PART("Default");
+    #undef PART
+}
+
+static void describe_track(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn)
+{
+    track_base(p, kind, tr, i, n, title, tn, sub, sn);
+    int same = 0;   /* the same description twice: number them so the rows can be told apart */
+    for (int k = 0; k < i; k++) {
+        char t2[96], s2[160];
+        track_base(p, kind, tr, k, n, t2, sizeof t2, s2, sizeof s2);
+        if (strcmp(t2, title) == 0 && strcmp(s2, sub) == 0) same++;
+    }
+    if (same) { size_t l = strlen(title); snprintf(title + l, tn - l, " (%d)", same + 1); }
+}
+
+static int source_view(const Player *p, int *view)
+{
+    int n = p->n_cands < 64 ? p->n_cands : 64;
+    for (int i = 0; i < n; i++) view[i] = i;
+    for (int i = 1; i < n; i++)
+        for (int j = i; j > 0 && p->cands[view[j]].addon_order < p->cands[view[j - 1]].addon_order; j--) { int t = view[j]; view[j] = view[j - 1]; view[j - 1] = t; }
+    return n;
+}
+
+static void cand_addon(const PlayCandidate *c, char *out, size_t n)
+{
+    const char *lbl = c->label ? c->label : "", *sep = strstr(lbl, " - ");
+    snprintf(out, n, "%.*s", sep ? (int)(sep - lbl) : 0, lbl);
+}
+
 static int menu_rows(Player *p)
 {
     if (p->menu == MENU_STYLE) return SUBS_STYLE_COUNT + 3;
@@ -1732,7 +1812,8 @@ static void menu_activate(Player *p)
     if (p->menu == MENU_SOURCES) {
         VideoInfo vi;
         video_info(&vi);
-        if (p->menu_focus != p->cur && p->menu_focus < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->menu_focus, vi.position); }
+        int view[64]; source_view(p, view);
+        if (p->menu_focus < p->n_cands && view[p->menu_focus] != p->cur) { app_toast("Switching source"); start_candidate(p, view[p->menu_focus], vi.position); }
         return;
     }
     if (p->menu == MENU_EPISODES) {

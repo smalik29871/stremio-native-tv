@@ -268,6 +268,43 @@ static void update(Screen *s, float dt)
     }
 }
 
+/* "2021-08-22" -> "22 Aug 2021" */
+static void nice_date(const char *iso, char *out, size_t n)
+{
+    static const char *M[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    int y, m, dd;
+    if (iso && sscanf(iso, "%d-%d-%d", &y, &m, &dd) == 3 && m >= 1 && m <= 12) snprintf(out, n, "%d %s %d", dd, M[m - 1], y);
+    else snprintf(out, n, "%s", iso ? iso : "");
+}
+
+/* What the focused episode is, where the show's synopsis sits while the rail has focus. */
+static void draw_episode_info(const Detail *d, const LibraryItem *li, float x, float y, float w)
+{
+    const MetaVideo *v = &d->meta.videos[d->ep_index[d->ep_focus]];
+    int a = (int)(255 * (g_app.fx_light ? 1.0f : d->focus_t));
+    char kicker[96], date[32] = "", meta[160] = "";
+    if (v->season > 0 && v->episode >= 0) snprintf(kicker, sizeof kicker, "SEASON %d  \xC2\xB7  EPISODE %d OF %d", v->season, v->episode, d->n_eps);
+    else if (v->season == 0) snprintf(kicker, sizeof kicker, "SPECIAL %d OF %d", d->ep_focus + 1, d->n_eps);
+    else snprintf(kicker, sizeof kicker, "EPISODE %d OF %d", d->ep_focus + 1, d->n_eps);
+    font_draw(kicker, x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_ACCENT, a));
+    font_draw_fit(v->title && *v->title ? v->title : "Untitled episode", x, y + 30, FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, a), w);
+    nice_date(v->released, date, sizeof date);
+    size_t o = (size_t)snprintf(meta, sizeof meta, "%s", date);
+    if (d->preview.runtime && *d->preview.runtime) o += (size_t)snprintf(meta + o, sizeof meta - o, "%s%s", o ? "  \xC2\xB7  " : "", d->preview.runtime);
+    int is_cur = li && li->video_id && strcmp(li->video_id, v->id) == 0;
+    if (is_cur && li->duration && li->time_offset) {
+        int left = (int)((li->duration - li->time_offset) / 60000);
+        snprintf(meta + o, sizeof meta - o, "%s%d min left", o ? "  \xC2\xB7  " : "", left > 0 ? left : 1);
+    } else if (li) {
+        int cur_idx = -1;
+        for (int k = 0; k < d->n_eps; k++) if (li->video_id && strcmp(d->meta.videos[d->ep_index[k]].id, li->video_id) == 0) cur_idx = k;
+        if (ep_watched(d, d->ep_focus, li, cur_idx)) snprintf(meta + o, sizeof meta - o, "%sWatched", o ? "  \xC2\xB7  " : "");
+    }
+    font_draw(meta, x, y + 86, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
+    if (v->overview && *v->overview) font_draw_wrapped(v->overview, x, y + 128, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), w, 3);
+    else font_draw("No synopsis for this episode yet.", x, y + 128, FONT_S, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+}
+
 static void draw(Screen *s)
 {
     Detail *d = s->st;
@@ -300,32 +337,37 @@ static void draw(Screen *s)
     }
 
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
-    float mx = x;
-    if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
-    if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT) + 8;
-    const char *parts[4]; int np = 0;
-    char seasons_txt[32];
-    if (d->preview.release_info) parts[np++] = d->preview.release_info;
-    if (d->preview.runtime) parts[np++] = d->preview.runtime;
-    if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++;
-        snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); parts[np++] = seasons_txt; }
-    for (int i = 0; i < np; i++) {
-        if (mx > x) mx = ui_dot_sep(mx, y, THEME_TEXT_MUTED);
-        font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT_DIM);
-        mx += font_measure(parts[i], FONT_S | FONT_B);
+    LibraryItem *li = app_library_find(d->preview.id);
+    if (series && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) {
+        draw_episode_info(d, li, x, y, col_w);
+        y += 236;
+    } else {
+        float mx = x;
+        if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
+        if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT) + 8;
+        const char *parts[4]; int np = 0;
+        char seasons_txt[32];
+        if (d->preview.release_info) parts[np++] = d->preview.release_info;
+        if (d->preview.runtime) parts[np++] = d->preview.runtime;
+        if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++;
+            snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); parts[np++] = seasons_txt; }
+        for (int i = 0; i < np; i++) {
+            if (mx > x) mx = ui_dot_sep(mx, y, THEME_TEXT_MUTED);
+            font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT_DIM);
+            mx += font_measure(parts[i], FONT_S | FONT_B);
+        }
+        y += 52;
+        if (d->preview.genres.n) {
+            float gx = x;
+            for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, 0x50), THEME_TEXT_DIM) + 10;
+            y += 54;
+        }
+        if (d->preview.description)
+            y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : 5) * font_height(FONT_S) + 26;
     }
-    y += 52;
-    if (d->preview.genres.n) {
-        float gx = x;
-        for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, 0x50), THEME_TEXT_DIM) + 10;
-        y += 54;
-    }
-    if (d->preview.description)
-        y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : 5) * font_height(FONT_S) + 26;
     if (d->loading) { ui_spinner(x + 26, y + 30, 22); y += 70; }
     if (d->error[0]) { font_draw(d->error, x, y, FONT_S, THEME_DANGER); y += 44; }
     /* actions */
-    LibraryItem *li = app_library_find(d->preview.id);
     int in_lib = li && !li->removed;
     const char *play_label = d->resume_label[0] ? d->resume_label : series ? "Episodes" : "Play";
     float by = y > 500 ? y : 500;
@@ -409,16 +451,6 @@ static void draw(Screen *s)
             font_draw_fit(lbl, px, ly, FONT_S | FONT_B, foc || d->area != AREA_EPISODES ? THEME_TEXT : THEME_TEXT_DIM, EP_W);
             if (v->released && !foc) { char date[11]; snprintf(date, sizeof date, "%.10s", v->released); font_draw(date, px, ly + 34, FONT_XS, THEME_TEXT_MUTED); }
         }
-    if (d->area == AREA_EPISODES && d->ep_focus < d->n_eps) {
-        const MetaVideo *v = &d->meta.videos[d->ep_index[d->ep_focus]];
-        char line[600], date[11] = "";
-        if (v->released) snprintf(date, sizeof date, "%.10s", v->released);
-        snprintf(line, sizeof line, "%s%s%s", date, date[0] && v->overview ? "  \xC2\xB7  " : "", v->overview ? v->overview : "");
-        font_draw_fit(line, x, SNTV_UI_H - 64, FONT_S, THEME_TEXT_DIM, SNTV_UI_W - 2 * THEME_MARGIN - 160);
-        char pos[32];
-        snprintf(pos, sizeof pos, "%d / %d", d->ep_focus + 1, d->n_eps);
-        font_draw(pos, SNTV_UI_W - THEME_MARGIN - font_measure(pos, FONT_S | FONT_B), SNTV_UI_H - 64, FONT_S | FONT_B, THEME_TEXT_MUTED);
-    }
     if (d->ask_open) draw_ask(d);
 }
 

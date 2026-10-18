@@ -538,10 +538,10 @@ static void draw(Screen *s)
         unsigned prev = h->hero_prev_bg[0] && fade < 1 ? image_get(h->hero_prev_bg, &pw, &ph) : 0;
         unsigned cur = h->hero_bg[0] ? image_get(h->hero_bg, &iw, &ih) : 0;
         float bh = SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f);
-        ui_backdrop_fades(1180, 360, bh);
+        ui_backdrop_fades(1180, rows_y() - 140 > 360 ? rows_y() - 140 : 360, bh);   /* opaque down to the rows */
         if (prev) ui_backdrop_image(prev, pw, ph, 1 - fade, bh);
         if (cur) ui_backdrop_image(cur, iw, ih, fade, bh);
-        ui_text_scrim(1250, bh);
+        ui_text_scrim(1100, bh);
         draw_hero(h, hero);
         if (g_app.home_style == HOME_SHOWCASE) draw_showcase_controls(h);
     } else if (hero) {   /* Compact: one line about the focused title, the rows take the screen */
