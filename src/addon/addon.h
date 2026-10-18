@@ -56,6 +56,7 @@ typedef struct MetaPreview {
     char *description, *release_info, *imdb_rating, *runtime;
     StrList genres;
     StrList cast;               /* names, when the meta addon lists them */
+    StrList cast_photos, cast_roles;   /* parallel to cast when app_extras.cast had them ("" when not) */
 } MetaPreview;
 
 typedef struct MetaVideo {

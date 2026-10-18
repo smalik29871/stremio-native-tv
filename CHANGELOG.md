@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.2
+
+- **Picture-in-picture is off by default.** Back in the player stops playback and
+  returns to the title, as in the official apps. Settings > Playback >
+  *Picture-in-picture on Back* brings the corner player back.
+- **Cast photos without a key** when the meta addon carries them (Cinemeta's
+  `app_extras.cast`), with character names. A TMDB key still adds the age rating and
+  fills gaps; a key can also be baked into the build from a CI secret
+  (`TMDB_API_KEY`), which is how apps like Nuvio work without asking the viewer.
+
 ## 0.6.1
 
 - **Take breaks** (Settings > Take breaks). Pick a schedule: Islamic prayer times (Fajr,

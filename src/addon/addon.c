@@ -367,6 +367,25 @@ static void parse_preview(const cJSON *o, MetaPreview *p)
             }
         }
     }
+    {   /* app_extras.cast [{name, character, photo}]: the official apps' cast with pictures */
+        const cJSON *ax = cJSON_GetObjectItemCaseSensitive(o, "app_extras");
+        const cJSON *ac = ax ? cJSON_GetObjectItemCaseSensitive(ax, "cast") : NULL;
+        if (cJSON_IsArray(ac) && cJSON_GetArraySize(ac) > 0) {
+            int n = cJSON_GetArraySize(ac);
+            strlist_free(&p->cast);
+            p->cast.v = calloc((size_t)n + 1, sizeof(char *));
+            p->cast_photos.v = calloc((size_t)n + 1, sizeof(char *));
+            p->cast_roles.v = calloc((size_t)n + 1, sizeof(char *));
+            for (int i = 0; i < n && p->cast.n < 12; i++) {
+                const cJSON *it = cJSON_GetArrayItem(ac, i);
+                const cJSON *nm = cJSON_GetObjectItemCaseSensitive(it, "name"), *ph = cJSON_GetObjectItemCaseSensitive(it, "photo"), *ch = cJSON_GetObjectItemCaseSensitive(it, "character");
+                if (!cJSON_IsString(nm) || !nm->valuestring[0]) continue;
+                p->cast.v[p->cast.n++] = strdup(nm->valuestring);
+                p->cast_photos.v[p->cast_photos.n++] = strdup(cJSON_IsString(ph) ? ph->valuestring : "");
+                p->cast_roles.v[p->cast_roles.n++] = strdup(cJSON_IsString(ch) ? ch->valuestring : "");
+            }
+        }
+    }
     if (!p->genres.n) {
         /* Newer addons move genres into links[category=Genres]. */
         const cJSON *links = cJSON_GetObjectItemCaseSensitive(o, "links");
@@ -391,6 +410,8 @@ void meta_preview_free(MetaPreview *p)
     free(p->imdb_rating); free(p->runtime);
     strlist_free(&p->genres);
     strlist_free(&p->cast);
+    strlist_free(&p->cast_photos);
+    strlist_free(&p->cast_roles);
     memset(p, 0, sizeof *p);
 }
 

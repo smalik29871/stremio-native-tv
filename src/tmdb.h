@@ -12,6 +12,7 @@ typedef struct TmdbInfo {
 } TmdbInfo;
 
 int  tmdb_enabled(void);
+int  tmdb_builtin(void);       /* a key was compiled in (CI secret) */
 /* NULL without a key or while nothing is known yet (a lookup starts); the app is
  * redrawn when it arrives. `type` is "movie" or "series". */
 const TmdbInfo *tmdb_get(const char *imdb_id, const char *type);

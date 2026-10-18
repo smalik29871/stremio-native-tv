@@ -20,7 +20,7 @@ export HOME="$OUT/home"; mkdir -p "$HOME"
 # preferred subtitles = English so the player auto-loads the fake addon's SRT
 mkdir -p "$HOME/.local/share/stremio/nativetv"
 # subtitles always on (the fake audio is English too), first-run setup already done
-echo '{"prefSubs":"eng","subsAlways":1,"setupDone":1}' > "$HOME/.local/share/stremio/nativetv/settings.json"
+echo '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"pipEnabled":1}' > "$HOME/.local/share/stremio/nativetv/settings.json"
 home_with() { # name json: a separate profile for runs that need other settings
   local h="$OUT/home_$1"; rm -rf "$h"; mkdir -p "$h/.local/share/stremio/nativetv"
   echo "$2" > "$h/.local/share/stremio/nativetv/settings.json"; echo "$h"
@@ -111,6 +111,7 @@ run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
 run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
+run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)

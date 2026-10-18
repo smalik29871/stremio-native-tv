@@ -12,7 +12,7 @@ if [ ! -f "$WEBOS_TOOLCHAIN_FILE" ]; then
 fi
 B="$ROOT/build-webos"
 cmake -S "$ROOT" -B "$B" -DSNTV_PLATFORM=webos -DSNTV_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_TOOLCHAIN_FILE="$WEBOS_TOOLCHAIN_FILE"
+      -DCMAKE_TOOLCHAIN_FILE="$WEBOS_TOOLCHAIN_FILE" -DSNTV_TMDB_BUILTIN_KEY="${TMDB_API_KEY:-}"
 cmake --build "$B" -j"$(nproc)"
 "${WEBOS_TOOLCHAIN}/bin/arm-webos-linux-gnueabi-strip" "$B/stremio-tv" || true
 case "${1:-}" in

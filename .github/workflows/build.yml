@@ -61,6 +61,7 @@ jobs:
       - name: Build .ipk
         env:
           WEBOS_TOOLCHAIN: /home/runner/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}   # optional: bakes a TMDB key in (Settings > API keys explains)
         run: bash tools/webos.sh --ipk
       - name: Check package
         run: |

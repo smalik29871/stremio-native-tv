@@ -896,6 +896,7 @@ static void load_prefs(void)
     { const char *t = store_get_str("breakAudio", NULL); free(g_app.break_audio); g_app.break_audio = t && *t ? strdup(t) : NULL; }
     { const char *t = store_get_str("breakEnd", NULL); free(g_app.break_end); g_app.break_end = t && *t ? strdup(t) : NULL; }
     g_app.transitions = store_get_int("transitions", 1);
+    g_app.pip_enabled = store_get_int("pipEnabled", 0);
     {
         FILE *f = fopen("/proc/meminfo", "r"); long kb = 0;
         if (f) { char line[128]; while (fgets(line, sizeof line, f)) if (sscanf(line, "MemTotal: %ld kB", &kb) == 1) break; fclose(f); }
@@ -950,6 +951,7 @@ void app_save_prefs(void)
     store_set_str("breakAudio", g_app.break_audio && *g_app.break_audio ? g_app.break_audio : NULL);
     store_set_str("breakEnd", g_app.break_end && *g_app.break_end ? g_app.break_end : NULL);
     store_set_int("transitions", g_app.transitions);
+    store_set_int("pipEnabled", g_app.pip_enabled);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();
@@ -1114,6 +1116,14 @@ void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
     if (src->cast.n) {
         dst->cast.v = calloc((size_t)src->cast.n + 1, sizeof(char *));
         for (int i = 0; i < src->cast.n; i++) dst->cast.v[dst->cast.n++] = strdup(src->cast.v[i]);
+    }
+    if (src->cast_photos.n) {
+        dst->cast_photos.v = calloc((size_t)src->cast_photos.n + 1, sizeof(char *));
+        for (int i = 0; i < src->cast_photos.n; i++) dst->cast_photos.v[dst->cast_photos.n++] = strdup(src->cast_photos.v[i]);
+    }
+    if (src->cast_roles.n) {
+        dst->cast_roles.v = calloc((size_t)src->cast_roles.n + 1, sizeof(char *));
+        for (int i = 0; i < src->cast_roles.n; i++) dst->cast_roles.v[dst->cast_roles.n++] = strdup(src->cast_roles.v[i]);
     }
 }
 

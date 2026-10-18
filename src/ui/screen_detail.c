@@ -240,7 +240,7 @@ static void draw(Screen *s)
         float cx = x;
         for (int i = 0; i < n_cast && i < 6; i++) {
             const char *name = tm && tm->n_cast ? tm->cast[i].name : d->preview.cast.v[i];
-            const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : NULL;
+            const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : (i < d->preview.cast_photos.n && d->preview.cast_photos.v[i][0] ? d->preview.cast_photos.v[i] : NULL);
             float w = font_measure(name, FONT_XS | FONT_B) + 70;
             if (cx + w > x + col_w + 200) break;
             gfx_rrect(cx, y, w, 46, 23, RGBA(0xFF, 0xFF, 0xFF, 0x16));

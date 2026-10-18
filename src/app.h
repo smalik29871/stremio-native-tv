@@ -80,6 +80,7 @@ typedef struct App {
     int memory_mode;           /* 0 automatic, 1 low, 2 normal */
     int low_memory;            /* effective: fewer rows and posters kept */
     int transitions;           /* animated screen changes */
+    int pip_enabled;           /* Back in the player parks it in a corner instead of stopping */
     /* take breaks (breaks.h) */
     int breaks_on, break_sched, break_method, break_asr_hanafi;
     int break_lead_min, break_len_min, break_sound;   /* sound: 0 chime, 1 custom audio, 2 silent */

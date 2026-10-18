@@ -3,6 +3,7 @@
  * reordered and hidden; addons can be reordered (synced to the account). */
 #include "../app.h"
 #include "../breaks.h"
+#include "../tmdb.h"
 #include "../phone.h"
 #include "qrcodegen.h"
 #include "../suntimes.h"
@@ -38,7 +39,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
        IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -72,7 +73,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         for (int i = 0; i < st->n_accounts && n < max; i++) ids[n++] = IT_ACCT_BASE + i;
         ids[n++] = IT_SERVER;
         break;
-    case CAT_PLAYBACK: ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; break;
+    case CAT_PLAYBACK: ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP; ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; break;
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG: ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN; ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; break;
     case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; break;
@@ -255,6 +256,7 @@ static void draw(Screen *s)
         case IT_HIDE_ADULT: draw_row(y, ICON_LIBRARY, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
         case IT_TMDB: {
             char masked[96] = "Not set  \xC2\xB7  cast photos, age ratings (PG-13, TV-MA)";
+            if (tmdb_builtin()) snprintf(masked, sizeof masked, "Built-in key in use  \xC2\xB7  yours replaces it");
             if (g_app.tmdb_key) snprintf(masked, sizeof masked, "%.4s\xE2\x80\xA6%s  \xC2\xB7  cast photos, age ratings on", g_app.tmdb_key, strlen(g_app.tmdb_key) > 4 ? g_app.tmdb_key + strlen(g_app.tmdb_key) - 4 : "");
             draw_row(y, ICON_LINK, "The Movie Database (TMDB)", masked, foc, KIND_ACTION, 0);
             break;
@@ -266,6 +268,7 @@ static void draw(Screen *s)
             break;
         }
         case IT_TRANSITIONS: draw_row(y, ICON_STAR, "Animated screen changes", NULL, foc, KIND_TOGGLE, g_app.transitions); break;
+        case IT_PIP: draw_row(y, ICON_ASPECT, "Picture-in-picture on Back (keeps playing in a corner)", NULL, foc, KIND_TOGGLE, g_app.pip_enabled); break;
         case IT_BR_TEST: draw_row(y, ICON_PLAY, "Try a break now", "See and hear what a break looks like", foc, KIND_ACTION, 0); break;
         case IT_BR_ON: draw_row(y, ICON_CLOCK, "Take breaks", NULL, foc, KIND_TOGGLE, g_app.breaks_on); break;
         case IT_BR_SCHED: draw_row(y, ICON_CALENDAR, "Schedule", BRK_SCHED_NAMES[g_app.break_sched], foc, KIND_CHOICE, 0); break;
@@ -461,6 +464,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_HOME_STYLE: g_app.home_style = (g_app.home_style + dir + HOME_STYLE_COUNT) % HOME_STYLE_COUNT; break;
     case IT_HIDE_WATCHED: g_app.hide_watched = !g_app.hide_watched; break;
     case IT_TRANSITIONS: g_app.transitions = !g_app.transitions; break;
+    case IT_PIP: g_app.pip_enabled = !g_app.pip_enabled; break;
     case IT_MEMORY: {
         g_app.memory_mode = (g_app.memory_mode + dir + 3) % 3;
         FILE *f = fopen("/proc/meminfo", "r"); long kb = 0;

@@ -40,6 +40,12 @@ add_library(sntv_core STATIC
   src/addon/addon.c
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
+# Optional: a TMDB key baked into the build (CI takes it from a repository secret), so
+# cast photos and age ratings work without the viewer entering one.
+set(SNTV_TMDB_BUILTIN_KEY "" CACHE STRING "TMDB v3 API key compiled into the app")
+if(NOT SNTV_TMDB_BUILTIN_KEY STREQUAL "")
+  target_compile_definitions(sntv_core PUBLIC SNTV_TMDB_BUILTIN_KEY="${SNTV_TMDB_BUILTIN_KEY}")
+endif()
 
 # ---- platform libraries -----------------------------------------------------
 if(SNTV_PLATFORM STREQUAL "wasm")

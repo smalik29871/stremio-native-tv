@@ -15,7 +15,23 @@ static unsigned g_clock;
 static const char *api_base(void) { const char *e = getenv("SNTV_TMDB_API"); return e && *e ? e : "https://api.themoviedb.org/3"; }
 static const char *img_base(void) { const char *e = getenv("SNTV_TMDB_IMG"); return e && *e ? e : "https://image.tmdb.org/t/p/w185"; }
 
-int tmdb_enabled(void) { return g_app.tmdb_key && g_app.tmdb_key[0]; }
+static const char *api_key(void)
+{
+    if (g_app.tmdb_key && g_app.tmdb_key[0]) return g_app.tmdb_key;
+#ifdef SNTV_TMDB_BUILTIN_KEY
+    return SNTV_TMDB_BUILTIN_KEY;
+#else
+    return NULL;
+#endif
+}
+int tmdb_enabled(void) { return api_key() != NULL; }
+int tmdb_builtin(void) {
+#ifdef SNTV_TMDB_BUILTIN_KEY
+    return 1;
+#else
+    return 0;
+#endif
+}
 
 static Slot *slot_for(const char *imdb, const char *type)
 {
@@ -88,7 +104,7 @@ static void details_url(const Slot *s, int with_key, char *out, size_t n)
 {
     int tv = strcmp(s->type, "series") == 0;
     snprintf(out, n, "%s/%s/%d?append_to_response=%s%s%s", api_base(), tv ? "tv" : "movie", s->tmdb_id,
-             tv ? "aggregate_credits,content_ratings" : "credits,release_dates", with_key ? "&api_key=" : "", with_key ? g_app.tmdb_key : "");
+             tv ? "aggregate_credits,content_ratings" : "credits,release_dates", with_key ? "&api_key=" : "", with_key ? api_key() : "");
 }
 
 static void on_details(HttpResponse *r, void *user)
@@ -147,7 +163,7 @@ const TmdbInfo *tmdb_get(const char *imdb_id, const char *type)
     char *cached = app_cache_get(key, 30 * 24 * 3600);
     if (cached && (s->tmdb_id = parse_find(s, cached)) > 0) { free(cached); ask_details(s); return NULL; }
     free(cached);
-    snprintf(url, sizeof url, "%s/find/%s?external_source=imdb_id&api_key=%s", api_base(), imdb_id, g_app.tmdb_key);
+    snprintf(url, sizeof url, "%s/find/%s?external_source=imdb_id&api_key=%s", api_base(), imdb_id, api_key());
     http_request_async(url, NULL, on_find, s);
     return NULL;
 }

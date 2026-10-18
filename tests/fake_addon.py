@@ -60,6 +60,7 @@ for i in range(12):
 CATALOG["metas"].extend(extra)
 META = load("meta_series.json")
 META["meta"].setdefault("cast", ["Bryan Cranston", "Aaron Paul", "Anna Gunn", "Dean Norris", "Betsy Brandt"])
+META["meta"]["app_extras"] = {"cast": [{"name": n, "character": c, "photo": f"{BASE}/tmdbimg/p{i}.png"} for i, (n, c) in enumerate([("Bryan Cranston", "Walter White"), ("Aaron Paul", "Jesse Pinkman"), ("Anna Gunn", "Skyler White")])]}
 META["meta"]["poster"] = f"{BASE}/poster/1.png"
 META["meta"]["background"] = f"{BASE}/bg/1.png"
 META["meta"]["logo"] = None

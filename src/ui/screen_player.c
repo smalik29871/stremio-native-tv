@@ -1136,8 +1136,8 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         float cx = x;
         for (int i = 0; i < n_cast && i < 6; i++) {
             const char *name = tm && tm->n_cast ? tm->cast[i].name : p->meta.cast.v[i];
-            const char *role = tm && tm->n_cast ? tm->cast[i].character : "";
-            const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : NULL;
+            const char *role = tm && tm->n_cast ? tm->cast[i].character : (i < p->meta.cast_roles.n ? p->meta.cast_roles.v[i] : "");
+            const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : (i < p->meta.cast_photos.n && p->meta.cast_photos.v[i][0] ? p->meta.cast_photos.v[i] : NULL);
             float w = (font_measure(name, FONT_XS | FONT_B) > font_measure(role, FONT_XS) ? font_measure(name, FONT_XS | FONT_B) : font_measure(role, FONT_XS)) + (photo ? 90 : 74);
             if (cx + w > SNTV_UI_W - 600) break;
             float hh = role[0] ? 64 : 48;
@@ -1495,7 +1495,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
     case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->cur + 1, vi.position); } return 1;
     case KEY_BACK:
-        if ((vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
+        if (g_app.pip_enabled && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
         /* fall through */
     case KEY_STOP:
         report(p, 1);
