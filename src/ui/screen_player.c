@@ -8,6 +8,7 @@
 #include "../lang.h"
 #include "../log.h"
 #include "../probe.h"
+#include "../tmdb.h"
 #include "../skip.h"
 #include "../store.h"
 #include "../subs.h"
@@ -66,6 +67,7 @@ struct Player {
     int assign_second;        /* the subtitles menu picks for the second slot */
     int forced_checked;       /* looked for a forced track in the audio language */
     float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
+    float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
@@ -727,6 +729,9 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
 static void draw_menu(Player *p)
 {
     float w = 600, x = SNTV_UI_W - w - 40, y = 40, h = SNTV_UI_H - 80;
+    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; }
+    if (p->menu_t < 1) { p->menu_t += 0.09f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
+    { float e = 1 - (1 - p->menu_t) * (1 - p->menu_t); gfx_set_translate((w + 60) * (1 - e), 0); }
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
     gfx_rrect(x, y, w, h, R_PANEL, RGBA(0x14, 0x12, 0x2A, 0xF0));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x1C));
@@ -782,6 +787,7 @@ static void draw_menu(Player *p)
         SECTION("SIZE");
         for (int i = 0; i < 3; i++) ROW(SIZES[i], "", g_app.subs_size == i);
         gfx_clip_pop();
+        gfx_set_translate(0, 0);
         return;
     }
     if (p->menu == MENU_EPISODES) {
@@ -801,6 +807,7 @@ static void draw_menu(Player *p)
             row_thumb = NULL;
         }
         gfx_clip_pop();
+        gfx_set_translate(0, 0);
         return;
     }
     if (p->menu == MENU_SOURCES) {
@@ -820,6 +827,7 @@ static void draw_menu(Player *p)
         }
         ROW("Browse all sources", "Every addon again, with the recommendation for this TV", 0);
         gfx_clip_pop();
+        gfx_set_translate(0, 0);
         return;
     }
     if (p->menu == MENU_AUDIO) {
@@ -864,6 +872,7 @@ static void draw_menu(Player *p)
         ROW("Style and size", st, 0);
     }
     gfx_clip_pop();
+    gfx_set_translate(0, 0);
     #undef ROW
     #undef SECTION
 }
@@ -1106,8 +1115,10 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     }
     const char *ep = strstr(p->title, "  -  ");
     if (ep) { font_draw_fit(ep + 5, x, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), maxw); y += font_height(FONT_M | FONT_B) + 12; }
+    const TmdbInfo *tm = tmdb_get(p->meta.id, p->meta.type);
     float mx = x;
     if (p->meta.imdb_rating && *p->meta.imdb_rating) mx += ui_imdb(p->meta.imdb_rating, mx, y) + 6;
+    if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, RGBA(0xFF, 0xFF, 0xFF, (int)(0x70 * k)), COLOR_ALPHA(THEME_TEXT, a)) + 8;
     const char *parts[3]; int np = 0;
     if (p->meta.release_info) parts[np++] = p->meta.release_info;
     if (p->meta.runtime) parts[np++] = p->meta.runtime;
@@ -1118,19 +1129,34 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     }
     if (np || mx > x) y += 50;
     if (p->meta.description) y += font_draw_wrapped(p->meta.description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
-    if (p->meta.cast.n && y < SNTV_UI_H - 330) {
+    int n_cast = tm && tm->n_cast ? tm->n_cast : p->meta.cast.n;
+    if (n_cast && y < SNTV_UI_H - 330) {
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
         y += 36;
         float cx = x;
-        for (int i = 0; i < p->meta.cast.n && i < 6; i++) {
-            const char *name = p->meta.cast.v[i];
-            float w = font_measure(name, FONT_XS | FONT_B) + 74;
+        for (int i = 0; i < n_cast && i < 6; i++) {
+            const char *name = tm && tm->n_cast ? tm->cast[i].name : p->meta.cast.v[i];
+            const char *role = tm && tm->n_cast ? tm->cast[i].character : "";
+            const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : NULL;
+            float w = (font_measure(name, FONT_XS | FONT_B) > font_measure(role, FONT_XS) ? font_measure(name, FONT_XS | FONT_B) : font_measure(role, FONT_XS)) + (photo ? 90 : 74);
             if (cx + w > SNTV_UI_W - 600) break;
-            gfx_rrect(cx, y, w, 48, 24, RGBA(0xFF, 0xFF, 0xFF, (int)(0x1C * k)));
-            gfx_circle(cx + 24, y + 24, 17, COLOR_ALPHA(THEME_ACCENT, a));
-            char ini[2] = { name[0], 0 };
-            font_draw(ini, cx + 24 - font_measure(ini, FONT_XS | FONT_B) / 2, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
-            font_draw(name, cx + 52, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+            float hh = role[0] ? 64 : 48;
+            gfx_rrect(cx, y, w, hh, hh / 2, RGBA(0xFF, 0xFF, 0xFF, (int)(0x1C * k)));
+            int pw = 0, ph = 0;
+            unsigned ptex = photo ? image_get(photo, &pw, &ph) : 0;
+            float r = hh / 2 - 6;
+            if (ptex && pw > 0) {   /* a round photo, cropped to a square */
+                float ia = (float)pw / ph, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+                if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 2; v1 = 1 - v0; }
+                gfx_rtex_uv(ptex, cx + 6, y + 6, 2 * r, 2 * r, r, u0, v0, u1, v1, RGBA(255, 255, 255, a), 0);
+            } else {
+                gfx_circle(cx + 6 + r, y + 6 + r, r, COLOR_ALPHA(THEME_ACCENT, a));
+                char ini[2] = { name[0], 0 };
+                font_draw(ini, cx + 6 + r - font_measure(ini, FONT_XS | FONT_B) / 2, y + 6 + r - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+            }
+            float tx = cx + 2 * r + 18;
+            if (role[0]) { font_draw(name, tx, y + 11, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a)); font_draw(role, tx, y + 35, FONT_XS, COLOR_ALPHA(THEME_TEXT_DIM, a)); }
+            else font_draw(name, tx, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
             cx += w + 12;
         }
     }

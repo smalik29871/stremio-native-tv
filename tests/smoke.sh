@@ -15,6 +15,7 @@ export NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
 export SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json"
 export SNTV_LINK_API="http://127.0.0.1:$PORT/link"
 export SNTV_INTRODB_API="http://127.0.0.1:$PORT/introdb"
+export SNTV_NO_TRANSITIONS=1   # screenshots land mid-animation otherwise; transition_push turns them back on
 export HOME="$OUT/home"; mkdir -p "$HOME"
 # preferred subtitles = English so the player auto-loads the fake addon's SRT
 mkdir -p "$HOME/.local/share/stremio/nativetv"
@@ -48,10 +49,10 @@ run upnext_credits 300 "right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME="$(h
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run settings 260 "left,down,down,down,down,down,ok,down,down,right,down,down,down"
-run diagnostics 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok"
-run diagnostics_filter 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,left,left"
-run diagnostics_qr 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,ok"
-run diagnostics_prev_qr 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,blue,ok"
+run diagnostics 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok"
+run diagnostics_filter 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,left,left"
+run diagnostics_qr 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,ok"
+run diagnostics_prev_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,blue,ok"
 run settings_more 320 "left,down,down,down,down,down,ok,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
 run welcome 90 "" HOME="$(home_with fresh '{}')"
@@ -94,10 +95,16 @@ run settings_rows 360 "left,down,down,down,down,down,ok,down,down,down,down,down
 run settings_addons 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,down"
 run player_subs_second 480 "right,ok,down,down,ok,ok,down,right,right,right,ok,ok,down,down,down,down,ok" SNTV_FAKE_START=200
 run player_seek_thumb 238 "right,ok,down,down,ok,ok,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
-run settings_parental 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right"
-run pin_pad 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,ok,ok,right,ok"
+run settings_parental 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
+run pin_pad 440 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,ok,right,ok"
 run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"parentalPin":"1234","pinSettings":1}')"
 run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_with accts '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"accounts":[{"email":"other@example.com","key":"k"}]}')"
+TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
+run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run player_paused_tmdb 320 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run settings_keys 320 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right"
+run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
+run home_lowmem 150 "right,right" HOME="$(home_with lowmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"memoryMode":1}')"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)

@@ -58,6 +58,8 @@ void gfx_rtex_uv(unsigned tex, float x, float y, float w, float h, float r,
                  float u0, float v0, float u1, float v1, Color tint, float blur);
 void gfx_tex_blur(unsigned tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color tint, float blur);
 
+/* Everything drawn afterwards is shifted by (dx, dy) UI units (screen transitions). */
+void gfx_set_translate(float dx, float dy);
 void gfx_clip_push(float x, float y, float w, float h);
 void gfx_clip_pop(void);
 

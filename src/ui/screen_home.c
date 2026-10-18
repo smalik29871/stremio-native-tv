@@ -198,6 +198,7 @@ static void apply_catalog(Row *row, const char *json)
     MetaPreview *m; int n;
     if (addon_parse_metas(json, &m, &n) != 0) return;
     drop_watched(&m, &n);
+    if (g_app.low_memory && n > 40) { for (int i = 40; i < n; i++) meta_preview_free(&m[i]); n = 40; }   /* memory saver: shorter rows */
     char *focused = row->n && row->focus < row->n ? strdup(row->metas[row->focus].id) : NULL;
     meta_previews_free(row->metas, row->n);
     row->metas = m; row->n = n;
@@ -322,7 +323,8 @@ static void update(Screen *s, float dt)
     }
     int fetched = 0;
     for (int i = 0; i < h->n_rows && fetched < 4; i++) {
-        int near = h->focus_row < 0 ? i < 5 : (i >= h->focus_row - 1 && i <= h->focus_row + 3);
+        int reach = g_app.low_memory ? 1 : 3, first = g_app.low_memory ? 3 : 5;
+        int near = h->focus_row < 0 ? i < first : (i >= h->focus_row - 1 && i <= h->focus_row + reach);
         if (near && !h->rows[i]->requested && h->rows[i]->kind == ROW_CATALOG) { fetch_row(h->rows[i]); fetched++; }
     }
     if (h->focus_row >= 0 && (h->focus_row >= h->n_rows || !row_visible(h->rows[h->focus_row]))) {
@@ -380,7 +382,7 @@ static void update(Screen *s, float dt)
             if (j >= r->focus - 1 && j <= r->focus + 1) image_prefetch(app_art_background(&r->metas[j], buf, sizeof buf));
         }
         int nr = next_visible(h, h->focus_row, 1);
-        if (nr >= 0) { Row *n2 = h->rows[nr]; for (int j = 0; j < n2->n && j < 8; j++) image_prefetch(app_art_poster(&n2->metas[j], buf, sizeof buf)); }
+        if (nr >= 0 && !g_app.low_memory) { Row *n2 = h->rows[nr]; for (int j = 0; j < n2->n && j < 8; j++) image_prefetch(app_art_poster(&n2->metas[j], buf, sizeof buf)); }
     }
     if (g_app.addons_loading) app_redraw();
 }

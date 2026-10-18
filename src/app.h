@@ -76,6 +76,10 @@ typedef struct App {
     char parental_pin[8];      /* "" when none */
     int pin_settings;          /* ask for the PIN before Settings */
     int hide_adult;            /* catalogs of addons flagged adult are skipped */
+    char *tmdb_key;            /* Settings > API keys: cast photos and age ratings */
+    int memory_mode;           /* 0 automatic, 1 low, 2 normal */
+    int low_memory;            /* effective: fewer rows and posters kept */
+    int transitions;           /* animated screen changes */
     int home_rows_version;     /* bumped when rows are reordered or hidden */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
@@ -96,6 +100,9 @@ void app_replace(Screen *s);
 Screen *app_top(void);
 void app_toast(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void app_draw_toast(void);
+/* Draws the top screen, animating the change from the previous one when a transition runs. */
+void app_draw_screen(Screen *top, float dt);
+int  app_transition_active(void);
 
 /* --- data --- */
 void app_load_addons(void);                    /* from account or defaults; caches to disk */

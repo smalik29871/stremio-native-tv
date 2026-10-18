@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- **API keys** (Settings > API keys): add your own TMDB key and titles get cast photos
+  with character names (details page and the paused panel) and an age rating chip
+  (PG-13, TV-MA, 15, …) next to the IMDb score. Nothing is asked of TMDB without a key.
+- **Animated screen changes**: pages slide and settle when you open and leave them, the
+  player's side menu slides in, settings panes glide when the category changes. Off with
+  Settings > Interface > *Animated screen changes*, and off by itself on Light effects.
+- **Memory saver** (Settings > Interface > *Memory use*): Automatic turns it on for TVs
+  with under 2 GB; it keeps 48 MB of artwork instead of up to 192, loads only the rows
+  next to the focus, shortens rows to 40 titles and stops Explore at 140.
+
 ## 0.5.7
 
 - The centre of the picture stays clear: the -10 s / +10 s marks now appear only as a

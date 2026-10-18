@@ -33,6 +33,7 @@ add_library(sntv_core STATIC
   src/skip.c
   src/quality.c
   src/probe.c
+  src/tmdb.c
   src/lang.c
   src/trackmem.c
   src/addon/addon.c

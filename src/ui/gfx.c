@@ -22,6 +22,7 @@ static GLuint g_prog, g_vbo, g_ibo;
 static GLint g_a_pos, g_a_uv, g_a_loc, g_a_col, g_a_sdf, g_a_misc, g_u_tex, g_u_proj;
 static int g_draw_w, g_draw_h;
 static float g_scale, g_off_x, g_off_y, g_aa;
+static float g_tx, g_ty;   /* UI-space translation */
 static Vtx g_v[MAXQ * 4];
 static int g_nq, g_calls, g_last_calls;
 static GLuint g_cur_tex;
@@ -226,7 +227,7 @@ static void push(const float px[4], const float py[4], const float uv[8], const 
     static const float LX[4] = { 0, 1, 0, 1 }, LY[4] = { 0, 0, 1, 1 };
     Vtx *v = &g_v[g_nq * 4];
     for (int i = 0; i < 4; i++) {
-        v[i].x = px[i]; v[i].y = py[i];
+        v[i].x = px[i] + g_tx; v[i].y = py[i] + g_ty;
         v[i].u = uv[i * 2]; v[i].v = uv[i * 2 + 1];
         v[i].lx = LX[i]; v[i].ly = LY[i];
         v[i].r = (GLubyte)(c[i] >> 24); v[i].g = (GLubyte)(c[i] >> 16); v[i].b = (GLubyte)(c[i] >> 8); v[i].a = (GLubyte)c[i];
@@ -352,9 +353,12 @@ static void apply_clip(void)
     glScissor(g_clip[g_nclip - 1].x, g_clip[g_nclip - 1].y, g_clip[g_nclip - 1].w, g_clip[g_nclip - 1].h);
 }
 
+void gfx_set_translate(float dx, float dy) { if (dx != g_tx || dy != g_ty) { flush(); g_tx = dx; g_ty = dy; } }
+
 void gfx_clip_push(float x, float y, float w, float h)
 {
     flush();
+    x += g_tx; y += g_ty;
     if (g_nclip >= 8) return;
     int px = (int)(g_off_x + x * g_scale), py = (int)(g_off_y + y * g_scale);
     int pw = (int)(w * g_scale + 0.5f), ph = (int)(h * g_scale + 0.5f);

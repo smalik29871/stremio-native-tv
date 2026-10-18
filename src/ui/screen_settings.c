@@ -16,8 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
-static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "Parental", "About" };
+enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_KEYS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
+static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "API keys", "Parental", "About" };
 static const char *const CAT_DESC[CAT_COUNT] = {
     "Your Stremio account and the streaming server for torrents.",
     "What happens while a video plays.",
@@ -26,15 +26,16 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "The look of the app.",
     "Which rows Home shows, and in what order. OK shows or hides a row, Left/Right moves it.",
     "Installed addons, in the order they answer. Left/Right moves an addon; the order is kept in your account.",
+    "Your own keys for services that need one. Each unlocks a feature; nothing is asked without a key.",
     "A PIN that keeps Settings closed and adult addons out of the catalogs.",
     "Logs, device information and setup." };
-static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LOCK, ICON_INFO };
+static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LINK, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS,
        IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB };
 enum { MAX_ROWS = 160 };
 #define ROW_H 88.0f
 #define COL_X 560.0f
@@ -48,6 +49,7 @@ typedef struct {
     int edit;
     Keyboard kb;
     float scroll, scroll_target;
+    float pane_t; int pane_cat;   /* rows slide in when the category changes */
     HomeRowDef rows[MAX_ROWS]; int n_rows; int rows_seen;
     char accounts[8][128]; int n_accounts;
 } Settings;
@@ -66,7 +68,8 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG: ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN; ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; break;
     case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; break;
-    case CAT_INTERFACE: ids[n++] = IT_HOME_STYLE; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; break;
+    case CAT_INTERFACE: ids[n++] = IT_HOME_STYLE; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
+    case CAT_KEYS: ids[n++] = IT_TMDB; break;
     case CAT_ROWS:
         if (st->rows_seen != g_app.home_rows_version + g_app.addons_version * 1000) { st->n_rows = app_home_rows(st->rows, MAX_ROWS); st->rows_seen = g_app.home_rows_version + g_app.addons_version * 1000; }
         for (int i = 0; i < st->n_rows && n < max; i++) ids[n++] = IT_ROWS_BASE + i;
@@ -121,6 +124,8 @@ static void update(Screen *s, float dt)
     int first = st->focus - 7;
     st->scroll_target = (first < 0 ? 0 : first) * (float)ROW_H;
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 12);
+    if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_light ? 1 : 0; }
+    if (st->pane_t < 1) { st->pane_t += dt * 5; if (st->pane_t > 1) st->pane_t = 1; app_redraw(); }
 }
 
 static void draw_categories(const Settings *st)
@@ -145,9 +150,10 @@ static void draw(Screen *s)
     draw_categories(st);
 
     if (st->edit != EDIT_NONE) {
-        const char *title = st->edit == EDIT_SERVER ? "Streaming server URL" : st->edit == EDIT_THUMBS ? "Seek preview server" : "Addon manifest URL";
+        const char *title = st->edit == EDIT_SERVER ? "Streaming server URL" : st->edit == EDIT_THUMBS ? "Seek preview server" : st->edit == EDIT_TMDB ? "TMDB API key" : "Addon manifest URL";
         const char *hint = st->edit == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
                          : st->edit == EDIT_THUMBS ? "tools/thumbs/server.py on a computer or NAS with ffmpeg, e.g. http://192.168.1.10:11480. Empty turns previews off."
+                         : st->edit == EDIT_TMDB ? "Free at themoviedb.org > Settings > API (the v3 key, 32 characters). Empty removes it."
                          : "Paste or type the addon's manifest.json address";
         float x = COL_X;
         font_draw(title, x, 100, FONT_L | FONT_B, THEME_TEXT);
@@ -179,6 +185,7 @@ static void draw(Screen *s)
     int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
     if (st->focus >= n) st->focus = n ? n - 1 : 0;
     gfx_clip_push(COL_X - 40, ROWS_TOP - 20, SNTV_UI_W - COL_X + 40, SNTV_UI_H - ROWS_TOP + 20);
+    { float e = 1 - (1 - st->pane_t) * (1 - st->pane_t); gfx_set_translate(40 * (1 - e), 0); }
     float y = ROWS_TOP - st->scroll;
     for (int i = 0; i < n; i++, y += ROW_H) {
         if (y + ROW_H < ROWS_TOP - 20 || y > SNTV_UI_H) continue;
@@ -213,6 +220,19 @@ static void draw(Screen *s)
         case IT_PIN: draw_row(y, ICON_LOCK, g_app.parental_pin[0] ? "Parental PIN" : "Set a parental PIN", g_app.parental_pin[0] ? "Set  \xC2\xB7  OK to remove it (asks for the PIN)" : "Four digits; needed for the switches below", foc, KIND_ACTION, 0); break;
         case IT_PIN_SETTINGS: draw_row(y, ICON_SETTINGS, "Ask for the PIN to open Settings", NULL, foc, KIND_TOGGLE, g_app.pin_settings); break;
         case IT_HIDE_ADULT: draw_row(y, ICON_LIBRARY, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
+        case IT_TMDB: {
+            char masked[96] = "Not set  \xC2\xB7  cast photos, age ratings (PG-13, TV-MA)";
+            if (g_app.tmdb_key) snprintf(masked, sizeof masked, "%.4s\xE2\x80\xA6%s  \xC2\xB7  cast photos, age ratings on", g_app.tmdb_key, strlen(g_app.tmdb_key) > 4 ? g_app.tmdb_key + strlen(g_app.tmdb_key) - 4 : "");
+            draw_row(y, ICON_LINK, "The Movie Database (TMDB)", masked, foc, KIND_ACTION, 0);
+            break;
+        }
+        case IT_MEMORY: {
+            static const char *MEM[] = { "Automatic", "Low", "Normal" };
+            snprintf(v, sizeof v, "%s%s", MEM[g_app.memory_mode], g_app.memory_mode == 0 ? (g_app.low_memory ? " (Low)" : " (Normal)") : "");
+            draw_row(y, ICON_SETTINGS, "Memory use (rows and artwork kept)", v, foc, KIND_CHOICE, 0);
+            break;
+        }
+        case IT_TRANSITIONS: draw_row(y, ICON_STAR, "Animated screen changes", NULL, foc, KIND_TOGGLE, g_app.transitions); break;
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_HOME_STYLE: draw_row(y, ICON_HOME, "Home screen", HOME_STYLE_NAMES[g_app.home_style], foc, KIND_CHOICE, 0); break;
         case IT_HIDE_WATCHED: draw_row(y, ICON_CHECK, "Hide watched titles in catalogs", NULL, foc, KIND_TOGGLE, g_app.hide_watched); break;
@@ -252,6 +272,7 @@ static void draw(Screen *s)
             }
         }
     }
+    gfx_set_translate(0, 0);
     gfx_clip_pop();
     if (st->zone == 1 && st->cat != CAT_ABOUT) font_draw("Back: categories", SNTV_UI_W - THEME_MARGIN - font_measure("Back: categories", FONT_XS), 110, FONT_XS, THEME_TEXT_MUTED);
 
@@ -269,7 +290,7 @@ static void draw(Screen *s)
 static void begin_edit(Settings *st, int which)
 {
     st->edit = which;
-    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : which == EDIT_THUMBS ? (g_app.thumb_server ? g_app.thumb_server : "http://") : "https://");
+    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : which == EDIT_THUMBS ? (g_app.thumb_server ? g_app.thumb_server : "http://") : which == EDIT_TMDB ? (g_app.tmdb_key ? g_app.tmdb_key : "") : "https://");
     SDL_StartTextInput();
 }
 
@@ -285,6 +306,15 @@ static void finish_edit(Settings *st, int save)
             store_set_str("streamingServer", g_app.streaming_server);
             store_save();
             app_toast(n ? "Streaming server saved" : "Streaming server cleared");
+        } else if (st->edit == EDIT_TMDB) {
+            char *v = st->kb.text;
+            while (*v == ' ') v++;
+            size_t n = strlen(v);
+            while (n && v[n - 1] == ' ') v[--n] = 0;
+            free(g_app.tmdb_key);
+            g_app.tmdb_key = n >= 20 ? strdup(v) : NULL;
+            app_save_prefs();
+            app_toast(g_app.tmdb_key ? "TMDB key saved: cast photos and age ratings on" : n ? "That does not look like a TMDB key" : "TMDB key removed");
         } else if (st->edit == EDIT_THUMBS) {
             char *v = st->kb.text;
             size_t n = strlen(v);
@@ -326,6 +356,17 @@ static int adjust(Settings *st, int id, int dir)
     case IT_SCRUB: g_app.live_scrub = !g_app.live_scrub; break;
     case IT_HOME_STYLE: g_app.home_style = (g_app.home_style + dir + HOME_STYLE_COUNT) % HOME_STYLE_COUNT; break;
     case IT_HIDE_WATCHED: g_app.hide_watched = !g_app.hide_watched; break;
+    case IT_TRANSITIONS: g_app.transitions = !g_app.transitions; break;
+    case IT_MEMORY: {
+        g_app.memory_mode = (g_app.memory_mode + dir + 3) % 3;
+        FILE *f = fopen("/proc/meminfo", "r"); long kb = 0;
+        if (f) { char line[128]; while (fgets(line, sizeof line, f)) if (sscanf(line, "MemTotal: %ld kB", &kb) == 1) break; fclose(f); }
+        g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && kb > 0 && kb < 2000 * 1024);
+        image_set_budget(g_app.low_memory ? 48u << 20 : 0);
+        app_toast(g_app.low_memory ? "Memory saver on: fewer rows and posters kept" : "Normal memory use");
+        break;
+    }
+    case IT_TMDB: return 1;
     case IT_PIN_SETTINGS: case IT_HIDE_ADULT: case IT_PIN: case IT_THUMBS: return 1;   /* OK (with the PIN) changes these */
     case IT_OLED: g_app.oled = !g_app.oled; break;
     case IT_AMBIENT: {
@@ -397,6 +438,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));
         else if (id == IT_THUMBS) begin_edit(st, EDIT_THUMBS);
+        else if (id == IT_TMDB) begin_edit(st, EDIT_TMDB);
         else if (id == IT_PIN) { if (g_app.parental_pin[0]) app_push(screen_pin_create("Remove the parental PIN", 0, after_pin_clear, NULL)); else app_push(screen_pin_create("Parental PIN", 1, NULL, NULL)); }
         else if (id == IT_PIN_SETTINGS) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.pin_settings));
         else if (id == IT_HIDE_ADULT) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.hide_adult));

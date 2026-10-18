@@ -7,6 +7,7 @@
 typedef enum { IMAGE_PLAIN = 0, IMAGE_MIPMAP = 1 } ImageFlags;
 
 int  image_init(const char *cache_dir, size_t budget_bytes);
+void image_set_budget(size_t budget_bytes);   /* evicts down to it at once */
 void image_shutdown(void);
 /* Returns a texture id, or 0 while loading/failed. Requests the image on first call.
  * `age` (optional) receives frames since the texture became ready, for fade-ins. */

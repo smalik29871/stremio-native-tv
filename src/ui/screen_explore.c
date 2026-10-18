@@ -194,7 +194,7 @@ static void update(Screen *s, float dt)
     if (e->addons_seen != g_app.addons_version) { build_types(e); build_cats(e); reset_items(e); }
     if (!e->requested && e->n_cats) fetch(e, 0);
     /* more when the focus nears the end */
-    if (e->zone == Z_GRID && !e->done && !e->loading && e->n && e->focus >= e->n - COLS * 2) fetch(e, 1);
+    if (e->zone == Z_GRID && !e->done && !e->loading && e->n && e->focus >= e->n - COLS * 2 && !(g_app.low_memory && e->n >= 140)) fetch(e, 1);
     float row = e->zone == Z_GRID ? (float)(e->focus / COLS) : 0;
     float target = row * (CELL_H + 80);
     e->scroll = ui_ease(e->scroll, target, NULL, dt, 14);

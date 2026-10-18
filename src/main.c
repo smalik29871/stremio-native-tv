@@ -205,6 +205,7 @@ int main(int argc, char **argv)
     if (video_init(win) != 0) LOGW("video backend failed to initialise");
     LOGI("video backend: %s", video_backend_name());
     app_init();
+    if (g_app.low_memory) { image_set_budget(48u << 20); LOGI("memory saver on: 48 MB of artwork, shorter rows"); }
 
     Uint32 prev = SDL_GetTicks();
     while (!g_app.quit) {
@@ -278,7 +279,7 @@ int main(int argc, char **argv)
         if (must_draw) {
             g_app.need_redraw = 0;
             gfx_begin_frame(RGBA(0x08, 0x07, 0x12, 0xFF));
-            if (top && top->draw) top->draw(top);
+            app_draw_screen(top, dt);
             if (top && strcmp(top->name, "player") != 0 && strcmp(top->name, "ambient") != 0) ui_clock_pill();   /* the player shows it with its controls */
             if (!g_app.pip) g_pip_focus = 0;
             if (g_app.pip) player_pip_draw(g_app.pip, g_pip_focus);

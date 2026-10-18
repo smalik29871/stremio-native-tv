@@ -30,25 +30,87 @@ float ui_ease(float from, float to, float *vel_unused, float dt, float speed)
 
 /* ---- screen stack ---------------------------------------------------------- */
 
+/* ---- screen transitions ----------------------------------------------------- */
+
+static struct { Screen *from; int owned, dir; float t; int active; } g_trans;
+
+static int transitional(const Screen *s)
+{
+    return s && strcmp(s->name, "player") != 0 && strcmp(s->name, "ambient") != 0 && strcmp(s->name, "pin") != 0;
+}
+
+static void trans_finish(void)
+{
+    if (!g_trans.active) return;
+    if (g_trans.owned && g_trans.from && g_trans.from->destroy) g_trans.from->destroy(g_trans.from);
+    memset(&g_trans, 0, sizeof g_trans);
+}
+
+/* `from` leaves (owned: destroyed when the animation ends), the new top arrives. */
+static void trans_begin(Screen *from, int owned, int dir)
+{
+    trans_finish();
+    Screen *top = app_top();
+    if (!g_app.transitions || g_app.fx_light || !from || !transitional(from) || !transitional(top) || (getenv("SNTV_NO_TRANSITIONS") && *getenv("SNTV_NO_TRANSITIONS"))) {
+        if (owned && from && from->destroy) from->destroy(from);
+        return;
+    }
+    g_trans.from = from; g_trans.owned = owned; g_trans.dir = dir; g_trans.t = 0; g_trans.active = 1;
+    app_redraw();
+}
+
+int app_transition_active(void) { return g_trans.active; }
+
+void app_draw_screen(Screen *top, float dt)
+{
+    if (!g_trans.active) { if (top && top->draw) top->draw(top); return; }
+    g_trans.t += dt / 0.26f;
+    if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) top->draw(top); return; }
+    float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
+    float W = SNTV_UI_W;
+    Screen *from = g_trans.from;
+    if (g_trans.dir > 0) {   /* push: the old page slides back and dims, the new one slides in from the right */
+        gfx_set_translate(-0.22f * W * e, 0);
+        if (from->draw) from->draw(from);
+        gfx_set_translate(0, 0);
+        gfx_rect(0, 0, W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, (int)(0xA0 * e)));
+        gfx_set_translate(W * (1 - e), 0);
+        top->draw(top);
+    } else {                 /* pop: the page underneath comes forward, the old one slides out to the right */
+        gfx_set_translate(-0.22f * W * (1 - e), 0);
+        top->draw(top);
+        gfx_set_translate(0, 0);
+        gfx_rect(0, 0, W, SNTV_UI_H, RGBA(0x08, 0x07, 0x12, (int)(0xA0 * (1 - e))));
+        gfx_set_translate(W * e, 0);
+        if (from->draw) from->draw(from);
+    }
+    gfx_set_translate(0, 0);
+    app_redraw();
+}
+
 void app_push(Screen *s)
 {
     if (!s || g_app.depth >= (int)(sizeof g_app.stack / sizeof g_app.stack[0])) { if (s && s->destroy) s->destroy(s); return; }
+    Screen *old = app_top();
     g_app.stack[g_app.depth++] = s;
+    trans_begin(old, 0, 1);
 }
 
 void app_pop(void)
 {
     if (g_app.depth <= 1) { g_app.quit = 1; return; }
     Screen *s = g_app.stack[--g_app.depth];
-    if (s->destroy) s->destroy(s);
     Screen *top = app_top();
     if (top && top->resume) top->resume(top);
+    trans_begin(s, 1, -1);
 }
 
 void app_replace(Screen *s)
 {
-    if (g_app.depth) { Screen *old = g_app.stack[--g_app.depth]; if (old->destroy) old->destroy(old); }
-    app_push(s);
+    Screen *old = g_app.depth ? g_app.stack[--g_app.depth] : NULL;
+    if (!s || g_app.depth >= (int)(sizeof g_app.stack / sizeof g_app.stack[0])) { if (s && s->destroy) s->destroy(s); if (old && old->destroy) old->destroy(old); return; }
+    g_app.stack[g_app.depth++] = s;
+    trans_begin(old, 1, 1);
 }
 
 Screen *app_top(void) { return g_app.depth ? g_app.stack[g_app.depth - 1] : NULL; }
@@ -812,6 +874,14 @@ static void load_prefs(void)
     g_app.pin_settings = store_get_int("pinSettings", 0);
     g_app.hide_adult = store_get_int("hideAdult", 0);
     { const char *t = store_get_str("thumbServer", NULL); free(g_app.thumb_server); g_app.thumb_server = t && *t ? strdup(t) : NULL; }
+    { const char *t = store_get_str("tmdbKey", NULL); free(g_app.tmdb_key); g_app.tmdb_key = t && *t ? strdup(t) : NULL; }
+    g_app.memory_mode = store_get_int("memoryMode", 0);
+    g_app.transitions = store_get_int("transitions", 1);
+    {
+        FILE *f = fopen("/proc/meminfo", "r"); long kb = 0;
+        if (f) { char line[128]; while (fgets(line, sizeof line, f)) if (sscanf(line, "MemTotal: %ld kB", &kb) == 1) break; fclose(f); }
+        g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && kb > 0 && kb < 2000 * 1024);
+    }
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
@@ -840,6 +910,9 @@ void app_save_prefs(void)
     store_set_int("pinSettings", g_app.pin_settings);
     store_set_int("hideAdult", g_app.hide_adult);
     store_set_str("thumbServer", g_app.thumb_server && *g_app.thumb_server ? g_app.thumb_server : NULL);
+    store_set_str("tmdbKey", g_app.tmdb_key && *g_app.tmdb_key ? g_app.tmdb_key : NULL);
+    store_set_int("memoryMode", g_app.memory_mode);
+    store_set_int("transitions", g_app.transitions);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();

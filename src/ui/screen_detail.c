@@ -3,6 +3,8 @@
  * series: season tabs and a horizontal episode rail with thumbnails, watched
  * badges, resume progress and spoiler blur for what you haven't seen yet. */
 #include "../app.h"
+#include "../tmdb.h"
+#include "../image.h"
 #include "../http.h"
 #include "../log.h"
 #include "../store.h"
@@ -195,8 +197,10 @@ static void draw(Screen *s)
         y += 200;
     }
 
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
     float mx = x;
     if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
+    if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, RGBA(0xFF, 0xFF, 0xFF, 0x70), THEME_TEXT) + 8;
     const char *parts[4]; int np = 0;
     char seasons_txt[32];
     if (d->preview.release_info) parts[np++] = d->preview.release_info;
@@ -218,7 +222,6 @@ static void draw(Screen *s)
         y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : 5) * font_height(FONT_S) + 26;
     if (d->loading) { ui_spinner(x + 26, y + 30, 22); y += 70; }
     if (d->error[0]) { font_draw(d->error, x, y, FONT_S, THEME_DANGER); y += 44; }
-
     /* actions */
     LibraryItem *li = app_library_find(d->preview.id);
     int in_lib = li && !li->removed;
@@ -230,6 +233,29 @@ static void draw(Screen *s)
     if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
     ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, x + bw + 18, by, 72, PILL_SECONDARY,
             d->area == AREA_ACTIONS && d->btn == BTN_LIBRARY);
+    /* cast: TMDB photos when a key is set, else the names the addon gave */
+    int n_cast = tm && tm->n_cast ? tm->n_cast : d->preview.cast.n;
+    if (n_cast && !series) {
+        y = by + 104;
+        float cx = x;
+        for (int i = 0; i < n_cast && i < 6; i++) {
+            const char *name = tm && tm->n_cast ? tm->cast[i].name : d->preview.cast.v[i];
+            const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : NULL;
+            float w = font_measure(name, FONT_XS | FONT_B) + 70;
+            if (cx + w > x + col_w + 200) break;
+            gfx_rrect(cx, y, w, 46, 23, RGBA(0xFF, 0xFF, 0xFF, 0x16));
+            int pw = 0, ph = 0;
+            unsigned ptex = photo ? image_get(photo, &pw, &ph) : 0;
+            if (ptex && pw > 0) {
+                float ia = (float)pw / ph, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+                if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 2; v1 = 1 - v0; }
+                gfx_rtex_uv(ptex, cx + 5, y + 5, 36, 36, 18, u0, v0, u1, v1, RGBA(255, 255, 255, a), 0);
+            } else { gfx_circle(cx + 23, y + 23, 18, COLOR_ALPHA(THEME_ACCENT, a)); char ini[2] = { name[0], 0 }; font_draw(ini, cx + 23 - font_measure(ini, FONT_XS | FONT_B) / 2, y + 23 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_TEXT); }
+            font_draw(name, cx + 50, y + (46 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+            cx += w + 10;
+        }
+    }
+
 
     if (!series) return;
 

@@ -410,6 +410,9 @@ static void trim_disk_cache(void)
     free(files);
 }
 
+static void evict_if_needed(void);
+void image_set_budget(size_t budget_bytes) { if (budget_bytes) g_budget = budget_bytes; evict_if_needed(); }
+
 int image_init(const char *cache_dir, size_t budget_bytes)
 {
     if (budget_bytes) g_budget = budget_bytes;
