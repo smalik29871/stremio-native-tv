@@ -27,7 +27,7 @@ done
 NEWEST=$("$TC/bin/arm-webos-linux-gnueabi-objdump" -T "$BIN" | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -V | tail -1)
 echo "newest glibc symbol: $NEWEST"
 [ "$(printf '%s\n2.12\n' "$NEWEST" | sort -V | tail -1)" = "2.12" ] || fail "needs glibc $NEWEST, newer than webOS 3"
-for f in appinfo.json icon.png largeIcon.png assets/fonts/Inter-Medium.otf assets/fonts/Inter-Bold.otf; do
+for f in appinfo.json icon.png largeIcon.png assets/fonts/Inter-Medium.otf assets/fonts/Inter-Bold.otf assets/yt/solver.lib.js assets/yt/solver.core.js; do
   [ -f "$APPDIR/$f" ] || fail "missing $f"
 done
 if (cd "$W/data" && find . -iname 'settings.json' -o -iname '*.env' -o -iname 'local.properties' | grep -q .); then

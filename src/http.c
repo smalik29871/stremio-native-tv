@@ -133,6 +133,11 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     if (!opt || !opt->no_json_accept) hdrs = C.slist_append(hdrs, "Accept: application/json");
     if (post_json) hdrs = C.slist_append(hdrs, "Content-Type: application/json");
     if (opt && opt->bearer && opt->bearer[0]) { char *auth = malloc(strlen(opt->bearer) + 32); sprintf(auth, "Authorization: Bearer %s", opt->bearer); hdrs = C.slist_append(hdrs, auth); free(auth); }
+    for (const char *p = opt && opt->headers ? opt->headers : ""; *p; ) {
+        size_t len = strcspn(p, "\n");
+        if (len) { char *line = strndup(p, len); hdrs = C.slist_append(hdrs, line); free(line); }
+        p += len + (p[len] == '\n');
+    }
     char range[64];
     if (opt && opt->range_bytes) {
         snprintf(range, sizeof range, "%llu-%llu", (unsigned long long)opt->range_start, (unsigned long long)(opt->range_start + opt->range_bytes - 1));
@@ -190,6 +195,16 @@ int http_request(const char *url, const char *post_json, HttpResponse *out)
     return rc;
 }
 
+int http_request_ex(const char *url, const HttpOptions *opt, HttpResponse *out)
+{
+    if (!C.lib) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "libcurl unavailable"); return -1; }
+    CURL *h = C.easy_init();
+    if (!h) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "curl_easy_init failed"); return -1; }
+    int rc = request_with(h, url, opt ? opt->post_json : NULL, opt, out);
+    C.easy_cleanup(h);
+    return rc;
+}
+
 void http_response_free(HttpResponse *r)
 {
     free(r->body);
@@ -206,6 +221,7 @@ typedef struct Job {
     void *user;
     HttpResponse resp;
     HttpOptions opt;
+    HttpTaskFn task; void *task_arg;   /* http_task_async: run this instead of a transfer */
     int cancelled;
     struct Job *next;
 } Job;
@@ -243,7 +259,8 @@ static int worker_main(void *arg)
         SDL_UnlockMutex(g_qlock);
 
         if (!j->cancelled) {
-            if (h) request_with(h, j->url, j->post, &j->opt, &j->resp);
+            if (j->task) { memset(&j->resp, 0, sizeof j->resp); j->task(&j->resp, j->task_arg); if (!j->resp.body) j->resp.body = calloc(1, 1); }
+            else if (h) request_with(h, j->url, j->post, &j->opt, &j->resp);
             else http_request(j->url, j->post, &j->resp);
             if (j->opt.work && !j->cancelled) j->opt.work(&j->resp, j->url);
         }
@@ -267,6 +284,7 @@ static unsigned enqueue(const char *url, const char *post_json, const HttpOption
     if (opt) j->opt = *opt;
     j->opt.post_json = NULL;
     j->opt.bearer = opt && opt->bearer ? strdup(opt->bearer) : NULL;
+    j->opt.headers = opt && opt->headers ? strdup(opt->headers) : NULL;
     j->cb = cb;
     j->user = user;
     SDL_LockMutex(g_qlock);
@@ -276,6 +294,21 @@ static unsigned enqueue(const char *url, const char *post_json, const HttpOption
         if (g_pending_tail) g_pending_tail->next = j; else g_pending = j;
         g_pending_tail = j;
     }
+    SDL_CondSignal(g_qcond);
+    SDL_UnlockMutex(g_qlock);
+    return j->id;
+}
+
+unsigned http_task_async(const char *label, HttpTaskFn task, void *arg, HttpCallback cb, void *user)
+{
+    Job *j = calloc(1, sizeof *j);
+    j->url = strdup(label);
+    j->task = task; j->task_arg = arg;
+    j->cb = cb; j->user = user;
+    SDL_LockMutex(g_qlock);
+    j->id = g_next_id++;
+    if (g_pending_tail) g_pending_tail->next = j; else g_pending = j;
+    g_pending_tail = j;
     SDL_CondSignal(g_qcond);
     SDL_UnlockMutex(g_qlock);
     return j->id;
@@ -309,6 +342,7 @@ static void job_free(Job *j)
     free(j->url);
     free(j->post);
     free((char *)j->opt.bearer);
+    free((char *)j->opt.headers);
     free(j);
 }
 

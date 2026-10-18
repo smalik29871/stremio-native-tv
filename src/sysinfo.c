@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/utsname.h>
+#include <dlfcn.h>
 
 static int read_first(const char *path, char *buf, size_t n)
 {
@@ -54,3 +55,48 @@ int sysinfo_webos_release(char *out, size_t n, const char **source)
     else out[0] = 0;
     return 0;
 }
+
+static char g_decoders[200];
+static volatile int g_decoders_ready;
+
+/* dlopen("libx.so.N") for the first N in the list that loads (-1 ends it, then the unversioned name). */
+static void *open_any(const char *base, const int *majors)
+{
+    char name[64];
+    for (int i = 0;; i++) {
+        if (majors[i] >= 0) snprintf(name, sizeof name, "%s.so.%d", base, majors[i]); else snprintf(name, sizeof name, "%s.so", base);
+        void *h = dlopen(name, RTLD_LAZY | RTLD_LOCAL);
+        if (h || majors[i] < 0) return h;
+    }
+}
+
+static void append(const char *text)
+{
+    size_t len = strlen(g_decoders);
+    snprintf(g_decoders + len, sizeof g_decoders - len, "%s%s", len ? ", " : "", text);
+}
+
+void sysinfo_probe_decoders(void)
+{
+    static const int AVCODEC[] = { 62, 61, 60, 59, 58, 57, 56, 55, 54, -1 }, OPENH264[] = { 8, 7, 6, 5, 4, -1 }, ZERO[] = { 0, -1 };
+    char text[96];
+    void *h = open_any("libavcodec", AVCODEC);
+    if (h) {
+        unsigned (*version)(void) = (unsigned (*)(void))dlsym(h, "avcodec_version");
+        void (*register_all)(void) = (void (*)(void))dlsym(h, "avcodec_register_all");
+        const void *(*find)(const char *) = (const void *(*)(const char *))dlsym(h, "avcodec_find_decoder_by_name");
+        if (register_all) register_all();   /* FFmpeg before 4.0 lists nothing without it */
+        unsigned v = version ? version() : 0;
+        snprintf(text, sizeof text, "libavcodec %u.%u (%s, %s)", v >> 16, (v >> 8) & 0xFF,
+                 find && find("h264") ? "h264" : "no h264", find && find("hevc") ? "hevc" : "no hevc");
+        append(text);
+        dlclose(h);
+    }
+    if ((h = open_any("libde265", ZERO))) { append("libde265 (hevc)"); dlclose(h); }
+    if ((h = open_any("libopenh264", OPENH264))) { append("OpenH264"); dlclose(h); }
+    if ((h = open_any("libgstreamer-1.0", ZERO))) { append("GStreamer"); dlclose(h); }
+    if (!g_decoders[0]) append("none found");
+    g_decoders_ready = 1;
+}
+
+const char *sysinfo_decoders(void) { return g_decoders_ready ? g_decoders : NULL; }

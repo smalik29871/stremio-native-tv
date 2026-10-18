@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.9
+## 0.8.0
 
 - **Hold OK on an episode for its own options.** Holding OK on an episode used to open
   the series' options, so "Mark as watched" marked the whole show and nothing could be
@@ -17,7 +17,7 @@
   another, and the theme's colours (Signal's accent edge, Marquee's amber rule).
   Notifications take the theme's panel colour too.
 
-## 0.7.8
+## 0.7.9
 
 - **No more stray strips while scrolling Home.** A row sliding off the top was cut
   hard at the edge, and the last strip of a Continue Watching card (its dark shade,
@@ -26,6 +26,23 @@
   Continue card also follows the card's rounded corners (a square one showed past
   them, most in Duotone), and in Marquee its text and progress rise with the focused
   card.
+
+## 0.7.8
+
+- **YouTube links without the home helper.** Paste a YouTube link as a break recording
+  (an adhan, a dua) and the TV saves it by itself: it asks YouTube for the video the
+  way YouTube's own TV app does, solves the player's URL challenges with yt-dlp's
+  solver running in a small JavaScript engine (QuickJS) built into the app, and
+  downloads the audio, or a 360p video when *Show the video* is on, once. Breaks then
+  play it from the TV, offline too. The first link takes up to a minute while the
+  player is prepared; later ones only download. If the bundled solver stops working
+  after a YouTube change, the TV fetches the newest one from yt-dlp's releases and
+  retries. The home helper is now only a fallback. Links saved before this version
+  are saved on the TV at the next break.
+- **Diagnostics shows the TV's video decoders** (FFmpeg's libavcodec, libde265,
+  OpenH264, GStreamer) next to the webOS version. This tells whether seek previews
+  can be decoded on the TV itself, without the helper.
+- The app is about 0.5 MB larger (QuickJS and the solver).
 
 ## 0.7.7
 

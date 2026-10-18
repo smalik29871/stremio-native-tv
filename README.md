@@ -10,11 +10,11 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.7.9.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.8.0.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 103 scripted scenarios against a fake addon. See *What is verified* below.
+> 105 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -137,8 +137,8 @@ your location (MWL, ISNA, Egypt, Umm al-Qura, Karachi, Tehran, Jafari methods, H
 Asr; Angelus, Nitnem, Sandhya, zmanim and Baha'i windows as well), **stretch** reminders,
 **bedtime**, or **your own times**. A banner warns a few minutes ahead, then the video
 pauses on a calm page with a chime or your own recording (an adhan, a dua, a bell: sent
-from your phone to the TV, a direct link, or a YouTube page fetched by the home helper,
-shown full screen if it is a video), and playback continues where it stopped. Research and sources are in `docs/BREAKS.md`.
+from your phone to the TV, a direct link, or a YouTube link the TV saves once and then
+plays offline, shown full screen if it is a video), and playback continues where it stopped. Research and sources are in `docs/BREAKS.md`.
 
 ### Everyday conveniences
 - **Hold OK** (or press Yellow, Menu or Info) on any title: mark watched or not watched,
@@ -215,12 +215,19 @@ Play/Pause brings it back, Stop closes it).
   Streams that only carry an `infoHash` show a *needs server* badge until you set the
   **Streaming server** URL in Settings > Account (any computer on your LAN running Stremio
   or the service, usually port 11470). Debrid addons return plain HTTPS URLs and need nothing.
+- **YouTube links** for break recordings are handled on the TV: it asks YouTube for the
+  video as YouTube's own TV app does (that client needs no proof-of-origin token), solves
+  the player's URL challenges with yt-dlp's solver (`assets/yt`) in the bundled QuickJS
+  engine, and downloads the audio (or a 360p video) once. The first link takes up to a
+  minute while the player script is prepared; later ones only download. When YouTube
+  changes and the bundled solver stops working, the TV fetches the newest solver from
+  yt-dlp's releases on GitHub and tries again; it runs sandboxed, with no file or network
+  access. NewPipe does the same job on Android with its own extractor.
 - **The home helper** (`tools/thumbs/server.py`, ffmpeg and yt-dlp, Dockerfile included)
   runs next to the streaming server on the same machine. It gives seek previews (the TV's
-  video plane cannot be read and the streaming server has no frame endpoint) and turns
-  YouTube or other page links into files the TV plays, for break recordings. NewPipe
-  does the same job on Android with its own extractor; it cannot run inside a TV app, and
-  yt-dlp on the helper is the equivalent. Set its URL in Settings > Playback.
+  video plane cannot be read and the streaming server has no frame endpoint), and it is
+  the fallback for YouTube when YouTube refuses the TV, and for other page links. Set its
+  URL in Settings > Playback.
 
 ## Diagnostics (reporting a problem)
 
@@ -282,7 +289,7 @@ from the channel.
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (103 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (105 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
@@ -323,7 +330,7 @@ deploy/                webOS appinfo + icons, Tizen manifests
 tools/                 linux.sh, webos.sh, check-ipk.sh, package-ipk.sh, tizen-*.sh, thumbs/ (ffmpeg preview server)
 tests/                 unit tests, fake_addon.py, smoke.sh, fixtures
 docs/                  BREAKS.md (break schedules research), ROADMAP.md, PORTING-NOTES.md, screenshots/
-vendor/                cJSON, qrcodegen, stb_truetype, stb_image, libwebp decoder
+vendor/                cJSON, qrcodegen, stb_truetype, stb_image, libwebp decoder, QuickJS-ng
 ```
 
 ## Configuration and data
@@ -336,8 +343,10 @@ compiled into the binary except the optional TMDB key a CI secret provides.
 ## Third-party code
 
 `vendor/libwebp` is libwebp 1.4.0's decoder (BSD-3-Clause, see `vendor/libwebp/COPYING`);
-`vendor/cJSON` (MIT), `vendor/qrcodegen` (MIT), `stb_truetype` and `stb_image` (public
-domain) keep their own licences in place. The fonts in `assets/fonts` (Inter, Space
+`vendor/cJSON` (MIT), `vendor/qrcodegen` (MIT), `vendor/quickjs` (QuickJS-ng 0.17, MIT),
+`stb_truetype` and `stb_image` (public domain) keep their own licences in place. The
+YouTube solver in `assets/yt` is yt-dlp/ejs 0.8.0 (Unlicense; it bundles meriyah, ISC,
+and astring, MIT, with their licences in the file header). The fonts in `assets/fonts` (Inter, Space
 Grotesk, JetBrains Mono, Sora, Bebas Neue) are under the SIL Open Font License 1.1, each
 with its licence file next to it. Prayer times use the published PrayTimes.org method
 parameters, reimplemented in `src/suntimes.c` (see `docs/BREAKS.md`).

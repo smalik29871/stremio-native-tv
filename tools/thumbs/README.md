@@ -28,10 +28,9 @@ video you are watching is sent to the server.
 
 ## YouTube and other page links (adhan, dua, a bell)
 
-A native TV app cannot play a YouTube page: the page is not a media file, and turning it
-into one means running YouTube's own player code, which changes every few weeks. That is
-what NewPipe's extractor does on Android and what yt-dlp does on a computer; both need
-frequent updates and neither can run inside the TV app. So the helper does it:
+Since 0.7.8 the TV saves YouTube links by itself (YouTube's TV client plus yt-dlp's
+challenge solver in the app's QuickJS engine; see the main README), so the helper is
+only needed when YouTube refuses the TV, or for other page links. Then the helper does it:
 
 ```sh
 pip install yt-dlp                         # once; update it now and then (pip install -U yt-dlp)
