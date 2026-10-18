@@ -332,7 +332,7 @@ void phone_accept_file(const char *slot)
     SDL_UnlockMutex(g_lock);
 }
 
-int phone_local_url(const char *rel, char *out, size_t n)
+static int phone_local_url(const char *rel, char *out, size_t n)
 {
     if (g_sock < 0) return 0;
     snprintf(out, n, "http://127.0.0.1:%d/%s", g_port, rel);

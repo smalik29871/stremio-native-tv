@@ -1,4 +1,4 @@
-/* Options sheet: a short list of actions over a dimmed page (Yellow on a title). */
+/* Options sheet: a short list of actions over the dimmed page (hold OK or Yellow on a title). */
 #include "screen_options.h"
 #include "../app.h"
 #include "font.h"
@@ -16,7 +16,7 @@ static void draw(Screen *s)
     Opt *o = s->st;
     float k = g_app.fx_light ? 1 : o->t;
     Screen *below = g_app.depth >= 2 ? g_app.stack[g_app.depth - 2] : NULL;
-    if (below && below->draw) below->draw(below); else ui_background(0);   /* the page stays visible, dimmed */
+    if (below && below->draw) below->draw(below); else ui_background(0);
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 120));
     float w = 720, h = 150 + o->n * 78.0f + 40, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2 + (1 - k) * 40;
     gfx_rrect(x + 6, y + 14, w, h, 28, RGBA(0, 0, 0, 90));

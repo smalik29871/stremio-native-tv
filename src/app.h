@@ -89,7 +89,6 @@ typedef struct App {
     int subs_autotranslate;    /* AI: translate when nobody offers the preferred language */
     int addon_wait;            /* seconds auto-play waits for slow addons; 99 = all of them */
     int src_audio_lang;        /* rank sources that mention the preferred audio language higher */
-    int prev_crashed;          /* the previous session did not close properly */
     int break_video;           /* show the video of a break recording full screen */
     /* take breaks (breaks.h) */
     int breaks_on, break_sched, break_method, break_asr_hanafi;

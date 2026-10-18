@@ -163,7 +163,7 @@ static void dispatch_key(KeyAction a)
         return;
     }
     if (top && top->key && top->key(top, a)) return;
-    if (a == KEY_LONG_OK) { dispatch_key(KEY_OK); return; }   /* nothing to hold for here: a plain OK */
+    if (a == KEY_LONG_OK) { dispatch_key(KEY_OK); return; }
     if (g_app.pip && a == KEY_DOWN) { g_pip_focus = 1; app_redraw(); return; }   /* past the bottom of the screen: the corner */
     if (a == KEY_BACK) app_pop();
 }
@@ -232,8 +232,7 @@ int main(int argc, char **argv)
     LOGI("video backend: %s", video_backend_name());
     app_init();
     mem_apply_mode();
-    g_app.prev_crashed = crashed;
-    if (crashed && !getenv("SNTV_SCREENSHOT")) app_toast("The app closed unexpectedly last time. Settings > About > Diagnostics, Blue: that session's log");   /* memory saver: chosen, a small TV, or (later, mem_tick) memory getting tight */
+    if (crashed && !getenv("SNTV_SCREENSHOT")) app_toast("The app closed unexpectedly last time. Settings > About > Diagnostics, Blue: that session's log");
 
     Uint32 prev = SDL_GetTicks();
     while (!g_app.quit) {
@@ -289,8 +288,9 @@ int main(int argc, char **argv)
         prev = now;
         g_app.time += dt;
 
-        if (g_ok_down && !g_ok_long && SDL_GetTicks() - g_ok_t0 >= 500) { g_ok_long = 1; dispatch_key(KEY_LONG_OK); }   /* held */
+        if (g_ok_down && !g_ok_long && SDL_GetTicks() - g_ok_t0 >= 500) { g_ok_long = 1; dispatch_key(KEY_LONG_OK); }
         http_pump();
+        { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
         image_pump();
         image_frame_tick();
         video_update();
@@ -344,7 +344,7 @@ int main(int argc, char **argv)
     gfx_shutdown();
     store_save();
     store_shutdown();
-    remove(alive);   /* clean exit */
+    remove(alive);
     SDL_GL_DeleteContext(ctx);
     SDL_DestroyWindow(win);
     SDL_Quit();

@@ -82,7 +82,6 @@ struct Player {
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
     int subs_user;            /* the viewer chose subtitles by hand this session */
-    int subs_user_pick;       /* the current file was picked by hand: never swapped by auto-sync */
     int sync_retries, sync_first;
     int last_tracks_version;
     int last_warning_version;
@@ -608,7 +607,7 @@ static void autosync_tick(Player *p)
         cur->sync_failed = 1;
         LOGI("subs: could not align %s with the matched file", cur->lang);
         /* another file in the same language, up to three tries, then back to the first */
-        if (!p->subs_user_pick && p->sync_retries < 3) {
+        if (!p->subs_user && p->sync_retries < 3) {
             for (int i = 0; i < p->n_addon_subs; i++)
                 if (i != p->active_addon_sub && !p->addon_subs[i].matched && !p->addon_subs[i].sync_failed && lang_same(p->addon_subs[i].lang, cur->lang)) {
                     if (p->sync_first < 0) p->sync_first = p->active_addon_sub;
@@ -618,7 +617,7 @@ static void autosync_tick(Player *p)
                     return;
                 }
         }
-        if (p->sync_first >= 0 && p->sync_first != p->active_addon_sub && !p->subs_user_pick) { int f = p->sync_first; p->sync_first = -2; select_addon_sub(p, f); }
+        if (p->sync_first >= 0 && p->sync_first != p->active_addon_sub && !p->subs_user) { int f = p->sync_first; p->sync_first = -2; select_addon_sub(p, f); }
         if (p->sync_retries) app_toast("Could not sync these subtitles automatically. Subtitle timing adjusts them by hand");
     }
 }
@@ -1689,7 +1688,6 @@ static void menu_activate(Player *p)
         int idx = order[f];
         if (p->assign_second) { select_addon_sub_slot(p, p->active_addon_sub2 == idx ? -1 : idx, 1); return; }
         select_addon_sub(p, idx);
-        p->subs_user_pick = 1;
         remember_subs(p, p->addon_subs[idx].lang, SUBS_SRC_ADDON);
         return;
     }

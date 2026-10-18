@@ -85,13 +85,13 @@ static int has_audio_lang(const Stream *s)
     char text[600];
     snprintf(text, sizeof text, " %s %s %s ", s->name ? s->name : "", s->title ? s->title : "", s->description ? s->description : "");
     for (char *c = text; *c; c++) { if (*c >= 'A' && *c <= 'Z') *c += 32; if (strchr(".-_[]()|/,", *c)) *c = ' '; }
-    const char *name = lang_display_english(g_app.pref_audio);
-    char a[48], b[16], c3[16];
-    snprintf(a, sizeof a, " %s ", name); for (char *p = a; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
-    snprintf(b, sizeof b, " %s ", lang_canonical(g_app.pref_audio));
-    snprintf(c3, sizeof c3, " %.2s ", lang_canonical(g_app.pref_audio));
-    if (strstr(text, a) || strstr(text, b) || (strlen(lang_canonical(g_app.pref_audio)) >= 2 && strcmp(c3, " en ") && strstr(text, c3))) return 2;
-    if (strstr(text, " multi ") || strstr(text, " dual ") || strstr(text, " dual audio ")) return 1;
+    const char *canon = lang_canonical(g_app.pref_audio);
+    if (!canon) return 0;
+    char name[48], code[16];
+    snprintf(name, sizeof name, " %s ", lang_display_english(canon));
+    snprintf(code, sizeof code, " %s ", canon);
+    if (strstr(text, name) || strstr(text, code)) return 2;
+    if (strstr(text, " multi ") || strstr(text, " dual ")) return 1;
     return 0;
 }
 
@@ -100,7 +100,7 @@ static long rank(const Streams *st, const Stream *s)
     long r = g_app.quality_mode == QUAL_ADDON_ORDER ? s->addon_order * 10L : (200000L - s->score) * 10L + s->addon_order;
     if (!playable(s)) r += 100000000L;
     if (is_notice(s)) r += 200000000L;
-    if (s->url && app_link_dead(s->url)) r += 20000000L;   /* failed here in the last six hours */
+    if (s->url && app_link_dead(s->url)) r += 20000000L;
     if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50000000L;
     return r;
 }
@@ -186,7 +186,7 @@ static void sort_items(Streams *st)
     for (int i = 0; i < st->n; i++) {
         Stream *s = &st->items[i];
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
-        { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; }   /* your audio language first at the same quality */
+        { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; }
         if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */
         else if (s->probe_state == 2) {
             s->score += 60;                                              /* alive and understood */

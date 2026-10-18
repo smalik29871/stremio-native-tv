@@ -810,7 +810,7 @@ void app_update_check(float dt)
     http_request_async(url ? url : "https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json", NULL, on_repo, NULL);
 }
 
-/* ---- links that failed: six hours in the doghouse ---- */
+/* ---- links that failed to start, sorted last for six hours ---- */
 #define DEAD_MAX 64
 static struct { char *url; time_t when; } g_dead[DEAD_MAX];
 static int g_n_dead;

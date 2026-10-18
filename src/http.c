@@ -117,7 +117,11 @@ static size_t on_header(char *ptr, size_t size, size_t nmemb, void *user)
  * through for 15 s: one dead addon host while others answer is not "no internet". */
 static volatile int g_net_fail;            /* transport failures since the last success */
 static volatile Uint32 g_last_ok;          /* ticks of the last request that got any answer */
-int http_online(void) { return g_net_fail < 3 || SDL_GetTicks() - g_last_ok < 15000; }
+int http_online(void)
+{
+    if (getenv("SNTV_FAKE_OFFLINE")) return 0;
+    return g_net_fail < 3 || SDL_GetTicks() - g_last_ok < 15000;
+}
 
 static int request_with(CURL *h, const char *url, const char *post_json, const HttpOptions *opt, HttpResponse *out)
 {
@@ -231,7 +235,7 @@ static int worker_main(void *arg)
         if (!j->cancelled) {
             if (h) request_with(h, j->url, j->post, &j->opt, &j->resp);
             else http_request(j->url, j->post, &j->resp);
-            if (j->opt.work && !j->cancelled) j->opt.work(&j->resp, j->url);   /* parse here, not in a frame */
+            if (j->opt.work && !j->cancelled) j->opt.work(&j->resp, j->url);
         }
 
         SDL_LockMutex(g_qlock);
@@ -325,7 +329,7 @@ void http_pump(void)
             }
         }
         job_free(j);
-        if (ordered && SDL_GetTicks() - start > 8) { g_carry = ordered; break; }   /* the rest next frame */
+        if (ordered && SDL_GetTicks() - start > 8) { g_carry = ordered; break; }
     }
 }
 

@@ -48,8 +48,8 @@ unsigned http_request_async(const char *url, const char *post_json, HttpCallback
 unsigned http_request_async_ex(const char *url, const HttpOptions *opt, HttpCallback cb, void *user);
 void http_cancel(unsigned id);   /* the callback will not fire */
 void http_pump(void);
-int  http_pending_replies(void);
-int  http_online(void);   /* 0 after three transport failures in a row (no internet), 1 again on any success */   /* replies held for the next frame (keep drawing) */
+int  http_pending_replies(void);   /* replies held for the next frame (keep drawing) */
+int  http_online(void);            /* 0 when transport failures repeat and nothing got through for 15 s */
 
 /* Convenience: percent-encode into dst, returns dst. */
 char *http_url_encode(const char *src, char *dst, size_t dst_len);

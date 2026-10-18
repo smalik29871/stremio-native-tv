@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.5
+
+- Cleanup of the 0.6.3 and 0.6.4 code: no behaviour depends on a draw call any more
+  (the *Back online* notice moved to the main loop), memory-saver reasons are named,
+  one flag tracks subtitles picked by hand, and a few stale or misplaced comments are
+  fixed. Matching sources to your audio language no longer uses two-letter codes
+  (" it " and " de " are English words) and is safe for languages outside the alias
+  table. The home helper fetches a page link and its title in one yt-dlp call.
+
 ## 0.6.4
 
 - **Your own adhan, dua or bell from your phone.** Settings > Take breaks > Recording at

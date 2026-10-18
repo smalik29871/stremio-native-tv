@@ -5,7 +5,6 @@
 #include "../image.h"
 #include <math.h>
 #include <string.h>
-#include <stdlib.h>
 #include <time.h>
 
 /* ---- icons: built from capsules, rings and the SDF triangle so they stay crisp at any size ---- */
@@ -312,16 +311,13 @@ float ui_clock_width(void)
 
 float ui_clock_pill(void)
 {
-    static int was_online = 1;
-    int online = getenv("SNTV_FAKE_OFFLINE") ? 0 : http_online();
-    if (!online) {   /* stays in the corner until a request gets through */
+    if (!http_online()) {
         const char *t = "No internet";
         float w = font_measure(t, FONT_S | FONT_B) + 74, h = 52, x = SNTV_UI_W - THEME_MARGIN - w - (g_app.clock_mode == 2 ? 0 : ui_clock_width() + 14), y = 47;
         gfx_rrect(x, y, w, h, h / 2, RGBA(0x5A, 0x14, 0x1E, 0xE0));
         gfx_circle(x + 30, y + h / 2, 7, THEME_DANGER);
         font_draw(t, x + 48, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
-    } else if (!was_online) app_toast("Back online");
-    was_online = online;
+    }
     if (g_app.clock_mode == 2) return 0;
     char now[24];
     ui_clock_text(0, now, sizeof now);

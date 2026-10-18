@@ -90,8 +90,9 @@ def fetch_media(url, kind, dest):
     else:
         fmt = ["-f", "bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4][height<=720]/bv*[height<=720]+ba/b",
                "--merge-output-format", "mp4", "--remux-video", "mp4"]
+    title_opt = ["--no-simulate", "--print", "after_move:title"]
     try:
-        r = subprocess.run(cmd + common + fmt + ["--", url], timeout=ARGS.media_timeout, capture_output=True, text=True)
+        r = subprocess.run(cmd + common + fmt + title_opt + ["--", url], timeout=ARGS.media_timeout, capture_output=True, text=True)
     except subprocess.TimeoutExpired:
         return False, "the download took too long"
     got = [p for p in glob.glob(base + ".*") if not p.endswith((".part", ".ytdl"))]
@@ -99,12 +100,7 @@ def fetch_media(url, kind, dest):
         msg = (r.stderr or r.stdout or "").strip().splitlines()
         return False, (msg[-1] if msg else "yt-dlp could not get this link")[:300]
     os.replace(got[0], dest)
-    title = ""
-    try:
-        t = subprocess.run(cmd + ["--no-playlist", "--skip-download", "--print", "%(title)s", "--", url], timeout=60, capture_output=True, text=True)
-        title = t.stdout.strip().splitlines()[0] if t.returncode == 0 and t.stdout.strip() else ""
-    except Exception:  # noqa: BLE001
-        pass
+    title = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
     with open(dest + ".json", "w") as f: json.dump({"url": url, "title": title}, f)
     return True, title
 
