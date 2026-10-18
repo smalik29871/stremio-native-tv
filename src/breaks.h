@@ -28,6 +28,7 @@ int  breaks_minute_now(void);        /* local minute of day (SNTV_NOW=HH:MM over
 /* A break recording as the TV can play it: a file sent from the phone, a direct link,
  * or a page link (YouTube...) fetched by the home helper. NULL when it cannot play
  * (a page link without a helper). *is_video says whether it has a picture to show. */
+void breaks_settings_changed(void);   /* recompute today's times before the next check */
 const char *breaks_media_url(const char *stored, char *out, size_t n, int *is_video);
 int breaks_is_page_link(const char *url);
 #endif

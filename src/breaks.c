@@ -28,6 +28,7 @@ static struct {
     int banner_for;              /* minute of the event the banner shows, -1 none */
     float watch_s;               /* continuous watching, for the stretch reminder */
     int detecting;
+    int stale;                   /* settings changed: recompute the list, keep what already fired */
 } B = { .day_key = -1, .skipped_day = -1, .banner_for = -1 };
 
 static struct tm now_tm(void)
@@ -139,6 +140,8 @@ void breaks_set_location(double lat, double lon, const char *city)
     B.day_key = -1;
 }
 
+void breaks_settings_changed(void) { B.stale = 1; }
+
 static void on_ipapi(HttpResponse *r, void *user)
 {
     (void)user;
@@ -178,6 +181,16 @@ static void refresh_day(void)
     struct tm t = now_tm();
     int key = t.tm_yday + (t.tm_year << 9);
     if (key != B.day_key) { B.day_key = key; B.n = breaks_today(B.ev, 16); memset(B.fired, 0, sizeof B.fired); B.banner_for = -1; }
+    else if (B.stale) {
+        BreakEvent old[16]; int old_fired[16], old_n = B.n;
+        memcpy(old, B.ev, sizeof old); memcpy(old_fired, B.fired, sizeof old_fired);
+        B.n = breaks_today(B.ev, 16);
+        memset(B.fired, 0, sizeof B.fired);
+        for (int i = 0; i < B.n; i++)
+            for (int k = 0; k < old_n; k++) if (old_fired[k] && strcmp(old[k].name, B.ev[i].name) == 0) B.fired[i] = 1;
+        B.banner_for = -1;
+    }
+    B.stale = 0;
 }
 
 void breaks_skip_today(void) { struct tm t = now_tm(); B.skipped_day = t.tm_yday + (t.tm_year << 9); B.banner_for = -1; }

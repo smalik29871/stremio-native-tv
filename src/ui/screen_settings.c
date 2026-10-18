@@ -627,6 +627,7 @@ static int adjust(Settings *st, int id, int dir)
         return 0;
     }
     app_save_prefs();
+    breaks_settings_changed();
     return 1;
 }
 

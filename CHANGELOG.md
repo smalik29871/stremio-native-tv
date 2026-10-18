@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1
+
+- **Prayer settings take effect at once.** Changing the calculation method, the Asr
+  school, the schedule or a custom time updated the *Today* line, but the breaks
+  themselves kept the old times until midnight: switching Asr from Hanafi to Standard
+  in Toronto still paused at 4:45 instead of 4:01. The day's times are now recomputed
+  right after any change, and a prayer that already had its break today is not
+  repeated.
+
 ## 0.7.0
 
 - **Three themes of its own** (Settings > Interface > *Theme* and *Accent colour*),
