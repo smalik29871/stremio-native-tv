@@ -41,7 +41,7 @@ int mem_sample(MemSample *out)
 int mem_small_tv(void)
 {
     MemSample m;
-    return mem_sample(&m) && m.total_kb < 2000 * 1024;
+    return mem_sample(&m) && m.total_kb < 1200 * 1024;   /* 1 GB sets; 2 GB ones report 1.6-1.9 GB */
 }
 
 size_t mem_normal_budget(void)

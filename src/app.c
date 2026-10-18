@@ -1,5 +1,6 @@
 #include "app.h"
 #include "memwatch.h"
+#include "sysinfo.h"
 #include "http.h"
 #include "log.h"
 #include "store.h"
@@ -655,24 +656,53 @@ void app_logout(void)
 
 /* ---- library --------------------------------------------------------------- */
 
-static void apply_library_json(const char *json, int from_cache)
+static void set_library(LibraryItem *items, int n, int from_cache)
 {
-    LibraryItem *items; int n; ApiError err;
-    if (api_parse_library(json, &items, &n, &err) != 0) { LOGW("library: %s", err.message); return; }
     library_items_free(g_app.library, g_app.n_library);
     g_app.library = items;
     g_app.n_library = n;
     g_app.library_version++;
     app_redraw();
-    if (!from_cache) store_write_file("library.json", json, strlen(json));
     LOGI("library: %d items%s", n, from_cache ? " (cache)" : "");
+}
+
+static void apply_library_json(const char *json, int from_cache)
+{
+    LibraryItem *items; int n; ApiError err;
+    if (api_parse_library(json, &items, &n, &err) != 0) { LOGW("library: %s", err.message); return; }
+    set_library(items, n, from_cache);
+}
+
+/* A big library is a few hundred KB of JSON: parse and cache it on the network thread. */
+typedef struct { LibraryItem *items; int n; } ParsedLibrary;
+
+static void work_library(HttpResponse *r, const char *url)
+{
+    (void)url;
+    if (r->status != 200) return;
+    ParsedLibrary *pl = calloc(1, sizeof *pl);
+    ApiError err;
+    if (api_parse_library(r->body, &pl->items, &pl->n, &err) != 0) { LOGW("library: %s", err.message); free(pl); return; }
+    store_write_file("library.json", r->body, r->len);
+    r->parsed = pl;
+}
+
+static void free_library(void *parsed)
+{
+    ParsedLibrary *pl = parsed;
+    library_items_free(pl->items, pl->n);
+    free(pl);
 }
 
 static void on_library(HttpResponse *r, void *user)
 {
     (void)user;
     g_app.library_loading = 0;
-    if (r->status == 200) apply_library_json(r->body, 0);
+    ParsedLibrary *pl = r->parsed;
+    if (!pl) return;
+    r->parsed = NULL;
+    set_library(pl->items, pl->n, 0);
+    free(pl);
 }
 
 void app_load_library(void)
@@ -682,7 +712,8 @@ void app_load_library(void)
     if (!g_app.auth_key) return;
     g_app.library_loading = 1;
     char *body = api_body_datastore_get(g_app.auth_key, STREMIO_LIBRARY_COLLECTION);
-    http_request_async(api_url_datastore_get(), body, on_library, NULL);
+    HttpOptions o = { .post_json = body, .work = work_library, .free_parsed = free_library };
+    http_request_async_ex(api_url_datastore_get(), &o, on_library, NULL);
     free(body);
 }
 
@@ -1104,10 +1135,10 @@ void app_details_want(const char *type, const char *id)
 
 static void tv_profile_load(void)
 {
-    char rel[200] = "";
-    FILE *f = fopen("/etc/starfish-release", "r");
-    if (f) { if (!fgets(rel, sizeof rel, f)) rel[0] = 0; fclose(f); }
-    quality_tv_init(&g_app.tv, rel);
+    char rel[200]; const char *src;
+    sysinfo_webos_release(rel, sizeof rel, &src);
+    quality_tv_init(&g_app.tv, src[0] ? rel : NULL);
+    LOGI("system: %s%s%s", rel, src[0] ? " from " : " (no webOS release found)", src);
     const cJSON *caps = store_get_json("tvCaps");
     for (int c = 0; c < TVCAP_COUNT; c++) {
         const cJSON *e = cJSON_GetObjectItemCaseSensitive(caps, TVCAP_NAMES[c]);

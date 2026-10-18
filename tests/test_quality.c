@@ -26,6 +26,10 @@ int main(void)
     CHECK(t.tier == TIER_CAM && t.audio == AUDIO_AAC);
     quality_parse("x", "Movie.DVDRip.XviD-GRP", NULL, NULL, 0, &t);
     CHECK(t.codec == CODEC_OLD && t.tier == TIER_TV && t.res == 0 && t.hdr == 0);   /* "dvdrip" is not Dolby Vision */
+    quality_parse("[TB\xE2\x9A\xA1] Comet 360p", "HDRip DD 2.0 | 288 MB", NULL, "The.Middle.s02e14.WEB-DLRip.Ukr.Eng.avi", 0, &t);
+    CHECK(t.hdr == 0 && t.res == 360 && t.cached == 1);   /* "HDRip" and "HDTV" are not HDR */
+    quality_parse("Show.S01E01.2160p.WEB-DL.HDR10.HEVC", NULL, NULL, NULL, 0, &t);
+    CHECK(t.hdr == 1);
     quality_parse("x", "Movie 2160p AV1 Opus", NULL, NULL, 3221225472ULL, &t);
     CHECK(t.codec == CODEC_AV1 && t.audio == AUDIO_OTHER && fabs(t.size_gb - 3.0) < 0.01);
 

@@ -19,7 +19,7 @@
 #include <string.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES };
-enum { BTN_PLAY, BTN_RESTART, BTN_LIBRARY, BTN_ASK, BTN_COUNT };
+enum { BTN_PLAY, BTN_RESTART, BTN_LIBRARY, BTN_COUNT };
 #define EP_W 384.0f
 #define EP_H 216.0f
 #define EP_GAP 28.0f
@@ -42,14 +42,14 @@ typedef struct {
     char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
 } Detail;
 
-/* the visible buttons in order: Play/Resume, [From the start], Library, [Ask AI] */
+/* the visible buttons in order: Play/Resume, [From the start], Library */
 static int btn_at(const Detail *d, int pos)
 {
     if (pos == 0) return BTN_PLAY;
     if (d->resume_label[0]) { if (pos == 1) return BTN_RESTART; pos--; }
-    return pos == 1 ? BTN_LIBRARY : BTN_ASK;
+    return BTN_LIBRARY;
 }
-static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + (ai_enabled() ? 1 : 0); }
+static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0); }
 
 static void ask_clear(Detail *d)
 {
@@ -184,9 +184,9 @@ static void load_resume(Detail *d)
     struct cJSON *o = store_get_json(key);
     const struct cJSON *u = o ? cJSON_GetObjectItemCaseSensitive(o, "url") : NULL;
     const struct cJSON *v = o ? cJSON_GetObjectItemCaseSensitive(o, "video_id") : NULL;
-    if (!cJSON_IsString(u)) return;
-    if (li->video_id && cJSON_IsString(v) && strcmp(v->valuestring, li->video_id) != 0) return;
-    snprintf(d->resume_url, sizeof d->resume_url, "%s", u->valuestring);
+    /* the stream played last here, when it was this episode; else Resume opens its sources */
+    int same = cJSON_IsString(u) && !(li->video_id && cJSON_IsString(v) && strcmp(v->valuestring, li->video_id) != 0);
+    snprintf(d->resume_url, sizeof d->resume_url, "%s", same ? u->valuestring : "");
     snprintf(d->resume_video, sizeof d->resume_video, "%s", li->video_id ? li->video_id : d->preview.id);
     d->resume_pos = li->time_offset / 1000.0;
     d->resume_frac = li->duration ? (double)li->time_offset / (double)li->duration : 0;
@@ -254,9 +254,7 @@ static int ep_watched(const Detail *d, int k, const LibraryItem *li, int cur_idx
 static void update(Screen *s, float dt)
 {
     Detail *d = s->st;
-    int first = d->ep_focus - 2;
-    if (first < 0) first = 0;
-    d->rail_x = ui_ease(d->rail_x, first * (EP_W + EP_GAP), NULL, dt, 14);
+    d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
     if (d->ask_open) { d->ask_t = ui_ease(d->ask_t * 100, 100, NULL, dt, 14) / 100; if (d->ask_t < 0.999f || d->ask_req) app_redraw(); }
@@ -378,8 +376,7 @@ static void draw(Screen *s)
     float bx2 = x + bw + 18;
     int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
     if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
-    bx2 += ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY) + 18;
-    if (ai_enabled()) ui_pill("Ask AI", 1, ICON_STAR, bx2, by, 72, PILL_SECONDARY, cur == BTN_ASK);
+    ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
     /* cast: TMDB photos when a key is set, else the names the addon gave */
     int n_cast = tm && tm->n_cast ? tm->n_cast : d->preview.cast.n;
     if (n_cast && !series) {
@@ -485,7 +482,6 @@ static int key(Screen *s, KeyAction a)
         case KEY_DOWN: if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; return 1; } return 0;
         case KEY_OK:
             if (btn_at(d, d->btn) == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
-            if (btn_at(d, d->btn) == BTN_ASK) { ask_open(d); return 1; }
             if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
                 const char *vid = d->resume_video[0] ? d->resume_video : d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
                 if (app_pip_claim(vid)) return 1;
@@ -494,6 +490,7 @@ static int key(Screen *s, KeyAction a)
             }
             if (d->resume_label[0]) {
                 if (app_pip_claim(d->resume_video)) return 1;
+                if (!d->resume_url[0]) { app_push(screen_streams_create(&d->preview, d->resume_video, NULL)); return 1; }   /* starts at the saved position */
                 PlayCandidate *c = calloc(1, sizeof *c);
                 c->url = strdup(d->resume_url);
                 c->label = strdup("Resume");
@@ -544,6 +541,17 @@ static void destroy(Screen *s)
     free(d->seasons); free(d->ep_index);
     free(d);
     free(s);
+}
+
+/* "Ask AI" from the options sheet: on this page when it is the title's, else a new page. */
+void screen_detail_ask(const MetaPreview *p)
+{
+    Screen *top = app_top();
+    if (!top || strcmp(top->name, "detail") != 0 || strcmp(((Detail *)top->st)->preview.id, p->id) != 0) {
+        top = screen_detail_create(p);
+        app_push(top);
+    }
+    ask_open(top->st);
 }
 
 Screen *screen_detail_create(const MetaPreview *p)

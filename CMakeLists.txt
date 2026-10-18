@@ -36,6 +36,7 @@ add_library(sntv_core STATIC
   src/tmdb.c
   src/ai.c
   src/memlevel.c
+  src/sysinfo.c
   src/suntimes.c
   src/lang.c
   src/trackmem.c

@@ -49,12 +49,115 @@ int ai_enabled(void)
     return ai_model()[0] != 0;
 }
 
-typedef struct Req { AiCallback cb; void *user; int json_mode; unsigned id; struct Req *next; } Req;
+typedef struct Req {
+    AiCallback cb; void *user; int json_mode;
+    unsigned id, first_id;            /* first_id is what the caller holds (a retry gets a new id) */
+    char *system, *msg; int max_tokens, retried;
+    struct Req *next;
+} Req;
 static Req *g_reqs;
 
 static void req_unlink(Req *q)
 {
     for (Req **pp = &g_reqs; *pp; pp = &(*pp)->next) if (*pp == q) { *pp = q->next; break; }
+}
+
+static void req_free(Req *q) { free(q->system); free(q->msg); free(q); }
+
+static void send_req(Req *q);
+
+static void endpoint(const char *path, char *url, size_t n)
+{
+    const char *base = ai_base_url();
+    size_t bl = strlen(base);
+    snprintf(url, n, "%s%s%s", base, bl && base[bl - 1] == '/' ? "" : "/", path);
+}
+
+/* A chat model from the provider's list: the known good ones first, never speech,
+ * embedding, image or guard models. */
+static int model_rank(const char *id)
+{
+    static const char *const SKIP[] = { "whisper", "guard", "tts", "embed", "audio", "image", "vision", "moderation", "playai", "transcribe", "realtime", NULL };
+    static const char *const GOOD[] = { "llama-3.3-70b", "gpt-oss-120b", "llama-4-maverick", "gemini-2.5-flash", "llama-4-scout", "gemini-2.0-flash",
+                                        "qwen3", "kimi-k2", "deepseek", "mistral-small", "gpt-4o-mini", "gemma", "llama-3.1-8b", "llama", "gemini", "mistral", "gpt", NULL };
+    for (int i = 0; SKIP[i]; i++) if (strstr(id, SKIP[i])) return -1;
+    for (int i = 0; GOOD[i]; i++) if (strstr(id, GOOD[i])) return 100 - i + (strstr(id, ":free") ? 50 : 0);
+    return 0;
+}
+
+int ai_models_parse(const char *json, char ids[][96], int max)
+{
+    cJSON *root = cJSON_Parse(json ? json : "");
+    const cJSON *data = root ? cJSON_GetObjectItemCaseSensitive(root, "data") : NULL, *it;
+    int n = 0, rank[64];
+    cJSON_ArrayForEach(it, data) {
+        const cJSON *id = cJSON_GetObjectItemCaseSensitive(it, "id");
+        if (!cJSON_IsString(id)) continue;
+        const char *name = strncmp(id->valuestring, "models/", 7) == 0 ? id->valuestring + 7 : id->valuestring;   /* Gemini */
+        int r = model_rank(name);
+        if (r < 0) continue;
+        int k = n < max && n < 64 ? n++ : -1;
+        if (k < 0) { if (r <= rank[n - 1]) continue; k = n - 1; }
+        snprintf(ids[k], 96, "%s", name); rank[k] = r;
+        for (; k > 0 && rank[k] > rank[k - 1]; k--) {
+            char t[96]; memcpy(t, ids[k], 96); memcpy(ids[k], ids[k - 1], 96); memcpy(ids[k - 1], t, 96);
+            int tr = rank[k]; rank[k] = rank[k - 1]; rank[k - 1] = tr;
+        }
+    }
+    if (root) cJSON_Delete(root);
+    return n;
+}
+
+typedef struct { AiModelsCallback cb; void *user; Req *retry; } ListReq;
+
+static void on_models(HttpResponse *r, void *user)
+{
+    ListReq *l = user;
+    char ids[12][96];
+    int n = r->status == 200 ? ai_models_parse(r->body, ids, 12) : 0;
+    if (l->retry) {   /* the model was missing: take the best available one and ask again */
+        Req *q = l->retry;
+        if (n && q->cb) {
+            LOGI("ai: model %s not available, switching to %s", ai_model(), ids[0]);
+            free(g_app.ai_model); g_app.ai_model = strdup(ids[0]); app_save_prefs();
+            app_toast("AI model switched to %s", ids[0]);
+            send_req(q);
+        } else {
+            req_unlink(q);
+            if (q->cb) q->cb(NULL, "The AI model is not available: choose one in Settings > API keys > AI model", q->user);
+            req_free(q);
+        }
+    } else if (l->cb) {
+        char *v[12]; for (int i = 0; i < n; i++) v[i] = ids[i];
+        l->cb(n ? (const char *const *)v : NULL, n, n ? NULL : r->status ? "The provider listed no chat models" : "Could not reach the AI service", l->user);
+    }
+    free(l);
+}
+
+static void list_models(ListReq *l)
+{
+    char url[1200];
+    endpoint("models", url, sizeof url);
+    HttpOptions opt = { .timeout_s = 20, .bearer = g_app.ai_key && g_app.ai_key[0] ? g_app.ai_key : NULL };
+    http_request_async_ex(url, &opt, on_models, l);
+}
+
+void ai_list_models(AiModelsCallback cb, void *user)
+{
+    ListReq *l = calloc(1, sizeof *l);
+    l->cb = cb; l->user = user;
+    list_models(l);
+}
+
+/* Reasoning models write their thinking first: drop it. */
+static void strip_think(char *text)
+{
+    char *a;
+    while ((a = strstr(text, "<think>")) != NULL) {
+        char *b = strstr(a, "</think>");
+        if (!b) { *a = 0; return; }
+        memmove(a, b + 8, strlen(b + 8) + 1);
+    }
 }
 
 static char *trim_json(char *s)
@@ -83,6 +186,14 @@ static void on_reply(HttpResponse *r, void *user)
     } else if (root) {
         const cJSON *e = cJSON_GetObjectItemCaseSensitive(root, "error");
         const cJSON *m = e ? cJSON_GetObjectItemCaseSensitive(e, "message") : NULL;
+        if ((r->status == 404 || r->status == 400) && cJSON_IsString(m) && strstr(m->valuestring, "model") && !q->retried && q->cb) {
+            q->retried = 1;
+            cJSON_Delete(root);
+            ListReq *l = calloc(1, sizeof *l);
+            l->retry = q;
+            list_models(l);
+            return;
+        }
         if (r->status == 429) err = "The AI service is busy (rate limit): try again in a minute";
         else if (r->status == 401 || r->status == 403) err = "The AI key was refused: check Settings > API keys";
         else { snprintf(errbuf, sizeof errbuf, "AI error %ld%s%.100s", r->status, cJSON_IsString(m) ? ": " : "", cJSON_IsString(m) ? m->valuestring : ""); err = errbuf; }
@@ -92,8 +203,9 @@ static void on_reply(HttpResponse *r, void *user)
     }
     if (root) cJSON_Delete(root);
     req_unlink(q);
-    if (!q->cb) { free(text); free(q); return; }
+    if (!q->cb) { free(text); req_free(q); return; }
     if (text) {
+        strip_think(text);
         /* fenced answers: ```json ... ``` */
         char *fence = strstr(text, "```");
         if (fence) { char *nl = strchr(fence, '\n'); char *end = nl ? strstr(nl + 1, "```") : NULL; if (nl && end) { *end = 0; memmove(text, nl + 1, strlen(nl + 1) + 1); } }
@@ -103,42 +215,46 @@ static void on_reply(HttpResponse *r, void *user)
         LOGI("ai: %s", err);
         q->cb(NULL, err, q->user);
     }
-    free(q);
+    req_free(q);
 }
 
-unsigned ai_ask(const char *system, const char *user_msg, int max_tokens, int json_mode, AiCallback cb, void *user)
+static void send_req(Req *q)
 {
-    if (!ai_enabled()) return 0;
     cJSON *body = cJSON_CreateObject();
     cJSON_AddStringToObject(body, "model", ai_model());
     cJSON *msgs = cJSON_AddArrayToObject(body, "messages");
-    if (system && *system) { cJSON *m = cJSON_CreateObject(); cJSON_AddStringToObject(m, "role", "system"); cJSON_AddStringToObject(m, "content", system); cJSON_AddItemToArray(msgs, m); }
-    { cJSON *m = cJSON_CreateObject(); cJSON_AddStringToObject(m, "role", "user"); cJSON_AddStringToObject(m, "content", user_msg); cJSON_AddItemToArray(msgs, m); }
-    cJSON_AddNumberToObject(body, "temperature", json_mode ? 0.2 : 0.6);
-    if (max_tokens > 0) cJSON_AddNumberToObject(body, "max_tokens", max_tokens);
-    if (json_mode && g_app.ai_provider != AI_OPENROUTER) {   /* some free routes reject response_format */
+    if (q->system && *q->system) { cJSON *m = cJSON_CreateObject(); cJSON_AddStringToObject(m, "role", "system"); cJSON_AddStringToObject(m, "content", q->system); cJSON_AddItemToArray(msgs, m); }
+    { cJSON *m = cJSON_CreateObject(); cJSON_AddStringToObject(m, "role", "user"); cJSON_AddStringToObject(m, "content", q->msg); cJSON_AddItemToArray(msgs, m); }
+    cJSON_AddNumberToObject(body, "temperature", q->json_mode ? 0.2 : 0.6);
+    if (q->max_tokens > 0) cJSON_AddNumberToObject(body, "max_tokens", q->max_tokens);
+    if (q->json_mode && g_app.ai_provider != AI_OPENROUTER) {   /* some free routes reject response_format */
         cJSON *rf = cJSON_AddObjectToObject(body, "response_format");
         cJSON_AddStringToObject(rf, "type", "json_object");
     }
     char *json = cJSON_PrintUnformatted(body);
     cJSON_Delete(body);
     char url[1200];
-    const char *base = ai_base_url();
-    size_t bl = strlen(base);
-    snprintf(url, sizeof url, "%s%schat/completions", base, bl && base[bl - 1] == '/' ? "" : "/");
+    endpoint("chat/completions", url, sizeof url);
+    HttpOptions opt = { .timeout_s = 60, .post_json = json, .bearer = g_app.ai_key && g_app.ai_key[0] ? g_app.ai_key : NULL };
+    q->id = http_request_async_ex(url, &opt, on_reply, q);
+    free(json);
+}
+
+unsigned ai_ask(const char *system, const char *user_msg, int max_tokens, int json_mode, AiCallback cb, void *user)
+{
+    if (!ai_enabled()) return 0;
     Req *q = calloc(1, sizeof *q);
     q->cb = cb; q->user = user; q->json_mode = json_mode;
-    HttpOptions opt = { 0 };
-    opt.timeout_s = 60;
-    opt.post_json = json;
-    opt.bearer = g_app.ai_key && g_app.ai_key[0] ? g_app.ai_key : NULL;
-    unsigned id = http_request_async_ex(url, &opt, on_reply, q);
-    q->id = id; q->next = g_reqs; g_reqs = q;
-    free(json);
-    return id;
+    q->system = system ? strdup(system) : NULL;
+    q->msg = strdup(user_msg);
+    q->max_tokens = json_mode && max_tokens < 1200 ? 1200 : max_tokens;   /* reasoning models think before they answer */
+    send_req(q);
+    q->first_id = q->id;
+    q->next = g_reqs; g_reqs = q;
+    return q->first_id;
 }
 
 void ai_cancel(unsigned id)
 {
-    for (Req *q = g_reqs; q; q = q->next) if (q->id == id) { q->cb = NULL; return; }
+    for (Req *q = g_reqs; q; q = q->next) if (q->first_id == id) { q->cb = NULL; return; }
 }

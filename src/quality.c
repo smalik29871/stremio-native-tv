@@ -45,6 +45,7 @@ void quality_parse(const char *name, const char *title, const char *description,
     else if (has(text, "1080p") || has_token(text, "fhd") || has(text, "1080i")) out->res = 1080;
     else if (has(text, "720p")) out->res = 720;
     else if (has(text, "480p") || has(text, "576p") || has_token(text, "sd")) out->res = 480;
+    else if (has(text, "360p") || has(text, "240p")) out->res = 360;   /* unknown would be scored like 1080p */
 
     if (has_token(text, "av1")) out->codec = CODEC_AV1;
     else if (has(text, "hevc") || has(text, "x265") || has(text, "h265") || has(text, "h.265")) out->codec = CODEC_HEVC;
@@ -52,7 +53,7 @@ void quality_parse(const char *name, const char *title, const char *description,
     else if (has(text, "xvid") || has(text, "divx") || has(text, "mpeg-2") || has_token(text, "vc1") || has(text, "vc-1")) out->codec = CODEC_OLD;
 
     if (has(text, "dolby vision") || has(text, "dovi") || has_token(text, "dv")) out->hdr = 2;
-    else if (has(text, "hdr")) out->hdr = 1;
+    else if (has_token(text, "hdr") || has(text, "hdr10") || has_token(text, "hlg")) out->hdr = 1;   /* not "HDRip" or "HDTV" */
 
     out->atmos = has(text, "atmos");
     if (has_token(text, "dts") || has(text, "dts-hd") || has(text, "dts:x") || has(text, "dtsx") || has(text, "dts-x")) out->audio = AUDIO_DTS;
@@ -127,7 +128,8 @@ long quality_score(const StreamTags *t, const TvProfile *tv, const QualityPrefs 
     int res = t->res ? t->res : 1080;
     int mode = p->mode == QUAL_ADDON_ORDER ? QUAL_BEST : p->mode;
     static const struct { int res, best, balanced, saver; } R[] = {
-        { 2160, 400, 260, 100 }, { 1440, 330, 280, 160 }, { 1080, 300, 300, 260 }, { 720, 200, 220, 300 }, { 480, 100, 100, 200 } };
+        { 2160, 400, 260, 100 }, { 1440, 330, 280, 160 }, { 1080, 300, 300, 260 }, { 720, 200, 220, 300 }, { 480, 100, 100, 200 },
+        { 360, 40, 40, 120 } };
     for (size_t i = 0; i < sizeof R / sizeof R[0]; i++)
         if (res == R[i].res) s += mode == QUAL_SAVER ? R[i].saver : mode == QUAL_BALANCED ? R[i].balanced : R[i].best;
     if (mode == QUAL_HIGHEST && res >= 2160) s += 150;

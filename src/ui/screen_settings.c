@@ -20,6 +20,7 @@
 #include "keyboard.h"
 #include "theme.h"
 #include "widgets.h"
+#include "screen_options.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -448,6 +449,33 @@ static void warm_media(const char *stored)
     app_toast("The helper is fetching it\xE2\x80\xA6");
 }
 
+static void begin_edit(Settings *st, int which);
+
+/* AI model: a list of what the key can use, with typing a name as the last choice. */
+typedef struct { char ids[8][96]; int n; } ModelChoice;
+
+static void on_model_choice(int c, void *user)
+{
+    ModelChoice *mc = user;
+    Screen *top = app_top();
+    if (c < mc->n) { free(g_app.ai_model); g_app.ai_model = strdup(mc->ids[c]); app_save_prefs(); app_toast("AI model: %s", mc->ids[c]); }
+    else if (top && strcmp(top->name, "settings") == 0) begin_edit(top->st, EDIT_AI_MODEL);
+    free(mc);
+}
+
+static void on_models(const char *const *ids, int n, const char *error, void *user)
+{
+    (void)user;
+    Screen *top = app_top();
+    if (!top || strcmp(top->name, "settings") != 0) return;
+    if (!ids) { app_toast("%s", error ? error : "No models"); begin_edit(top->st, EDIT_AI_MODEL); return; }
+    ModelChoice *mc = calloc(1, sizeof *mc);
+    const char *items[8];
+    for (int i = 0; i < n && mc->n < 7; i++) { snprintf(mc->ids[mc->n], 96, "%s", ids[i]); items[mc->n] = mc->ids[mc->n]; mc->n++; }
+    items[mc->n] = "Type a model name\xE2\x80\xA6";
+    app_push(screen_options_create("AI model", "The models your key can use, best first", items, mc->n + 1, on_model_choice, mc));
+}
+
 static void begin_edit(Settings *st, int which)
 {
     st->edit = which;
@@ -679,7 +707,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_TMDB) begin_edit(st, EDIT_TMDB);
         else if (id == IT_AI_KEY) begin_edit(st, EDIT_AI_KEY);
         else if (id == IT_AI_BASE) begin_edit(st, EDIT_AI_BASE);
-        else if (id == IT_AI_MODEL) begin_edit(st, EDIT_AI_MODEL);
+        else if (id == IT_AI_MODEL) { app_toast("Asking %s for its models\xE2\x80\xA6", AI_PROVIDER_NAMES[g_app.ai_provider]); ai_list_models(on_models, NULL); }
         else if (id == IT_BR_TEST) breaks_fire_now(g_app.break_sched == BRK_ISLAM ? "Maghrib" : "Break", "This is how a break looks; OK continues", g_app.break_sched == BRK_ISLAM ? BRK_KIND_PRAYER : BRK_KIND_TEST);
         else if (id == IT_BR_LOCATION) begin_edit(st, EDIT_LOCATION);
         else if (id == IT_BR_DETECT) breaks_detect_location();

@@ -1,6 +1,7 @@
 /* Options sheet: a short list of actions over the dimmed page (hold OK or Yellow on a title). */
 #include "screen_options.h"
 #include "../app.h"
+#include "../ai.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -71,6 +72,7 @@ static void title_choice(int c, void *user)
     if (c == k++) app_library_mark_watched(&t->m, !watched);
     else if (in_cw && c == k++) app_library_dismiss_continue(&t->m);
     else if (c == k++) app_library_toggle(&t->m);
+    else if (ai_enabled() && c == k++) screen_detail_ask(&t->m);
     meta_preview_free(&t->m); free(t);
 }
 void screen_options_for_title(const MetaPreview *m)
@@ -78,10 +80,11 @@ void screen_options_for_title(const MetaPreview *m)
     if (!m || !m->id) return;
     LibraryItem *li = app_library_find(m->id);
     int watched = app_title_watched(m->id), in_cw = li && li->time_offset > 0, in_lib = li && !li->removed && !li->temp;
-    const char *items[4]; int n = 0;
+    const char *items[5]; int n = 0;
     items[n++] = watched ? "Mark as not watched" : "Mark as watched";
     if (in_cw) items[n++] = "Remove from Continue Watching";
     items[n++] = in_lib ? "Remove from Library" : "Add to Library";
+    if (ai_enabled()) items[n++] = "Ask AI about it (spoiler-free)";
     TitleOpt *t = calloc(1, sizeof *t);
     meta_preview_copy(&t->m, m);
     app_push(screen_options_create(m->name ? m->name : "Options", "Hold OK (or press Yellow) on any title", items, n, title_choice, t));

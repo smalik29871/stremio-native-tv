@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.6
+
+- **No more false "No internet".** Slow addons and the 2 MB format checks that time
+  out mid-transfer were counted as network failures, so a screen with 122 sources
+  could show the red pill while everything worked. Now only requests that got nothing
+  at all back (DNS, connection, TLS) count, and any data received resets it.
+- **Better source picks.** "360p" was not understood and was scored like an unknown
+  resolution, close to 1080p; "HDRip" and "HDTV" were taken for HDR. Both fixed. When
+  a sharper source loses, the recommendation now says why ("The best 1080p source is
+  not cached yet: it needs a debrid download first"), and Diagnostics lists the five
+  best scores with their reasons.
+- **Resume where you left off, next episode first.** A series you were watching shows
+  *Resume S2 E14* even when the progress came from another device: it opens that
+  episode's sources and starts at your position. The episode row starts with the
+  focused (next) episode on the left instead of third.
+- **AI that keeps working.** When the chosen model is retired or missing, the app asks
+  the provider for its models, switches to the best available one and tells you.
+  Answers from reasoning models are read correctly (their thinking is dropped and they
+  get room to finish). Settings > API keys > AI model lists the models your key can
+  use. *Ask AI* moved from the title page's buttons into the Hold-OK options.
+- **Faster start, right memory, known TV.** The account library (hundreds of KB) is
+  read and cached on a network thread instead of in a frame (39 ms on a QNED). The
+  memory saver no longer treats 2 GB TVs as small (they report 1.6-1.9 GB). The webOS
+  version is found on firmwares that hide /etc/starfish-release from apps, so the TV
+  profile and Diagnostics show it.
+
 ## 0.7.5
 
 - **Breaks as long as the adhan.** Settings > Take breaks > Break length has a new

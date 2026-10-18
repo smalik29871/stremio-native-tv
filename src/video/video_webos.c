@@ -33,6 +33,7 @@
  * app.log records every LS2 reply, which is what to read on a TV that misbehaves. */
 #include "video.h"
 #include "../log.h"
+#include "../sysinfo.h"
 #include "../platform/platform.h"
 #include "../../vendor/cJSON.h"
 #include <dlfcn.h>
@@ -119,15 +120,10 @@ static int g_ready;
 
 static int webos_major(void)
 {
-    /* /etc/starfish-release: "webOS TV Release 4.9.0-..." on most firmwares */
     if (g_webos_major) return g_webos_major;
-    FILE *f = fopen("/etc/starfish-release", "r");
-    char line[256] = "";
-    if (f) { if (!fgets(line, sizeof line, f)) line[0] = 0; fclose(f); }
-    line[strcspn(line, "\r\n")] = 0;
-    const char *r = strstr(line, "Release ");
-    g_webos_major = r ? atoi(r + 8) : 0;
-    LOGI("video(webos): starfish-release '%s' -> major %d", line, g_webos_major);
+    char line[256]; const char *src;
+    g_webos_major = sysinfo_webos_release(line, sizeof line, &src);
+    LOGI("video(webos): '%s' from %s -> major %d", line, src[0] ? src : "nowhere", g_webos_major);
     return g_webos_major;
 }
 

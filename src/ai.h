@@ -19,3 +19,8 @@ typedef void (*AiCallback)(const char *text, const char *error, void *user);
  * asks the model for JSON only (the reply is trimmed to the outermost {...} or [...]). */
 unsigned ai_ask(const char *system, const char *user_msg, int max_tokens, int json_mode, AiCallback cb, void *user);
 void ai_cancel(unsigned id);
+
+/* The provider's chat models, best first (ids is NULL with an error on failure). */
+typedef void (*AiModelsCallback)(const char *const *ids, int n, const char *error, void *user);
+void ai_list_models(AiModelsCallback cb, void *user);
+int  ai_models_parse(const char *json, char ids[][96], int max);   /* the chat models in a /models reply, best first */
