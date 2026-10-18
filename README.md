@@ -309,9 +309,3 @@ No credentials are compiled into the binary.
 `vendor/libwebp` is libwebp 1.4.0's decoder (BSD-3-Clause, see `vendor/libwebp/COPYING`);
 `vendor/cJSON`, `vendor/qrcodegen` and `stb_image` keep their own licences in place.
 
-## License
-
-No licence file is committed yet; pick one before publishing. The reference project is
-GPL-3.0 and stremio-web is GPL-2.0, so a GPL licence is the natural fit. Vendored
-code: cJSON (MIT), qrcodegen (MIT), stb (public domain / MIT). Font: Inter (SIL Open
-Font License 1.1, see `assets/fonts/Inter-LICENSE.txt`).
