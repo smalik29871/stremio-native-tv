@@ -136,6 +136,13 @@ permission has not been measured (the Nuvio project documents the same caveat).
 If the interface works but video is black, send `app.log` from the app's data
 folder; it records every reply from the media service.
 
+## Releasing
+
+Bump `version` in `deploy/webos/appinfo.json` (and `SNTV_APP_VERSION` in
+`src/platform/platform.h`), add a `## x.y.z` section to `CHANGELOG.md`, and push to
+`main`. CI builds and checks the package and, because that version has no release
+yet, publishes it with the Homebrew Channel files. TVs pick it up from the channel.
+
 ## Building
 
 ### Desktop preview (Linux, no video)

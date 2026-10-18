@@ -1,6 +1,8 @@
-# Builds and tests on every push. A tag like v0.3.0 also publishes a GitHub
-# release with the LG .ipk plus the Homebrew Channel repository files, so TVs
+# Builds and tests on every push. A push to main whose deploy/webos/appinfo.json
+# version has no release yet (or a pushed v* tag) publishes a GitHub release
+# with the LG .ipk plus the Homebrew Channel repository files, so TVs
 # subscribed to .../releases/latest/download/repo.json get the update.
+# To ship a new version: bump the version in appinfo.json and push to main.
 name: Build
 
 on:
@@ -74,7 +76,7 @@ jobs:
 
   release:
     name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [desktop, webos]
     runs-on: ubuntu-24.04
     permissions:
@@ -85,13 +87,29 @@ jobs:
         with:
           name: webos-ipk
           path: dist
-      - name: Check tag matches app version
+      - name: Decide release version
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('deploy/webos/appinfo.json'))['version'])")
-          [ "$GITHUB_REF_NAME" = "v$VERSION" ] || { echo "Tag $GITHUB_REF_NAME does not match appinfo.json version $VERSION"; exit 1; }
+          TAG="v$VERSION"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$TAG" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match appinfo.json version $VERSION"; exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Release notes from CHANGELOG
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           awk -v v="## $VERSION" '$0==v{on=1;next} /^## /{if(on)exit} on' CHANGELOG.md > notes.md
           {
             echo
@@ -104,9 +122,12 @@ jobs:
           } >> notes.md
           cat notes.md
       - name: Create release
+        if: steps.ver.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "Stremio Native TV ${GITHUB_REF_NAME}" \
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Stremio Native TV $TAG" \
             --notes-file notes.md
