@@ -3,6 +3,7 @@
 #include "font.h"
 #include "../app.h"
 #include "../image.h"
+#include "qrcodegen.h"
 #include <math.h>
 #include <string.h>
 #include <time.h>
@@ -652,10 +653,16 @@ float ui_dot_sep(float x, float y, Color c)
 
 const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT] = { "Soft shadow", "Bold outline", "Classic yellow", "Black box" };
 
+int ui_subtitle_font(int size_setting)
+{
+    static const int F[] = { FONT_M, FONT_L, FONT_XL, FONT_TITLE };
+    return F[size_setting < 0 ? 0 : size_setting > 3 ? 3 : size_setting] | FONT_B;
+}
+
 void ui_subtitle(const char *text, float bottom, int size_setting, int style)
 {
     if (!text || !*text) return;
-    int size = (size_setting == 0 ? FONT_M : size_setting == 2 ? FONT_XL : FONT_L) | FONT_B;
+    int size = ui_subtitle_font(size_setting);
     float max_w = SNTV_UI_W * 0.78f, lh = font_height(size) * 1.04f;
     int lines = font_draw_wrapped(text, 0, 0, size, 0, max_w, 3);
     float y = bottom - lines * lh;
@@ -812,4 +819,13 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
         }
     }
     focus_over(cx, cy, cw, ch, R_CARD, focus);
+}
+
+void ui_qr(const uint8_t *qr, float x, float y, float size)
+{
+    int n = qrcodegen_getSize(qr);
+    float cell = size / (n + 4), off = (size - cell * n) / 2;
+    gfx_rrect(x, y, size, size, R_PANEL, RGBA(255, 255, 255, 255));
+    for (int ry = 0; ry < n; ry++) for (int rx = 0; rx < n; rx++)
+        if (qrcodegen_getModule(qr, rx, ry)) gfx_rect(x + off + rx * cell, y + off + ry * cell, cell + 0.6f, cell + 0.6f, COLOR_ALPHA(THEME_BG, 255));
 }

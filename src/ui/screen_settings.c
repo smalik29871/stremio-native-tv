@@ -193,11 +193,7 @@ static void draw(Screen *s)
         if (st->qr_ready) {   /* or type it on the phone */
             float qx = x + keyboard_width() + 70, qy = 320, qs = 250;
             if (qx + qs < SNTV_UI_W - 40) {
-                int n = qrcodegen_getSize(st->qr);
-                float cell = qs / (n + 4), off = (qs - cell * n) / 2;
-                gfx_rrect(qx, qy, qs, qs, R_PANEL, RGBA(255, 255, 255, 255));
-                for (int ry = 0; ry < n; ry++) for (int rx = 0; rx < n; rx++)
-                    if (qrcodegen_getModule(st->qr, rx, ry)) gfx_rect(qx + off + rx * cell, qy + off + ry * cell, cell + 0.6f, cell + 0.6f, COLOR_ALPHA(THEME_BG, 255));
+                ui_qr(st->qr, qx, qy, qs);
                 font_draw("Or type it on your phone", qx, qy + qs + 22, FONT_S | FONT_B, THEME_TEXT);
                 font_draw_wrapped("Scan, paste the text, Send. It lands here and saves.", qx, qy + qs + 56, FONT_XS, THEME_TEXT_DIM, 380, 2);
                 font_draw(st->phone_url, qx, qy + qs + 112, FONT_XS, THEME_TEXT_MUTED);
@@ -221,7 +217,7 @@ static void draw(Screen *s)
     }
 
     static const char *FX_NAMES[] = { "Automatic", "Full", "Light" };
-    static const char *SIZE_NAMES[] = { "Small", "Medium", "Large" };
+    static const char *SIZE_NAMES[] = { "Small", "Medium", "Large", "Extra large" };
     static const char *CLOCK_NAMES[] = { "12-hour", "24-hour", "Off" };
     static const char *SKIP_NAMES[] = { "Show a Skip button", "Skip automatically", "Off" };
     int ids[MAX_ROWS + 8];
@@ -564,7 +560,7 @@ static int adjust(Settings *st, int id, int dir)
     switch (id) {
     case IT_PREF_AUDIO: cycle_lang(g_app.pref_audio, sizeof g_app.pref_audio, dir); break;
     case IT_PREF_SUBS: cycle_lang(g_app.pref_subs, sizeof g_app.pref_subs, dir); break;
-    case IT_SUBS_SIZE: g_app.subs_size = (g_app.subs_size + dir + 3) % 3; break;
+    case IT_SUBS_SIZE: g_app.subs_size = (g_app.subs_size + dir + 4) % 4; break;
     case IT_SUBS_STYLE: g_app.subs_style = (g_app.subs_style + dir + SUBS_STYLE_COUNT) % SUBS_STYLE_COUNT; break;
     case IT_FX: g_app.fx_setting = (FxLevel)(((int)g_app.fx_setting + dir + 3) % 3); break;
     case IT_AUTOPLAY: g_app.autoplay_next = !g_app.autoplay_next; break;

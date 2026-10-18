@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.7
+
+- **Subtitle settings where you need them.** The player's Subtitles menu now opens
+  with the controls: timing (Left/Right moves the subtitles 0.1 s earlier or later,
+  OK resets), size (now with *Extra large*), style, position (bottom, raised or top)
+  and auto-sync, then Off and the tracks. Changes show on the video straight away and
+  are remembered. The separate Style menu is gone.
+- **Search opens clean.** The keyboard stays closed until you press OK on the search
+  bar, so recent searches and results get the whole screen. With the keyboard open, a
+  QR code beside it lets you type or paste on your phone; what you send is searched
+  straight away. Done or Back closes the keyboard, Up from the results returns to the
+  bar.
+- The "No French subtitles, translate?" notice shows once per video instead of again
+  each time the list refreshes.
+
 ## 0.7.6
 
 - **No more false "No internet".** Slow addons and the 2 MB format checks that time

@@ -61,7 +61,8 @@ typedef struct App {
     int fx_light;              /* effective: 1 = light effects (resolved from Auto) */
     int spoiler_blur;          /* blur thumbnails of unwatched episodes */
     char pref_audio[8], pref_subs[8];   /* ISO 639-2/3 like "eng", or "" */
-    int subs_size;             /* 0 small, 1 medium, 2 large */
+    int subs_size;             /* 0 small, 1 medium, 2 large, 3 extra large */
+    int subs_pos;              /* 0 bottom, 1 raised, 2 top */
     int subs_style;            /* SUBS_STYLE_* for addon subtitles */
     int autoplay_next;         /* Up Next at the credits */
     int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
