@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.7
+
+- The centre of the picture stays clear: the -10 s / +10 s marks now appear only as a
+  flash on the side you seek towards, and go away at once.
+- The controls lock is gone.
+
 ## 0.5.6
 
 - **Seek previews, your own way**: `tools/thumbs/server.py` (ffmpeg, one file, or the

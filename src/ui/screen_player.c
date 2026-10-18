@@ -24,7 +24,7 @@
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
 enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_STYLE, MENU_SOURCES, MENU_EPISODES };
-enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_LOCK, BTN_STATS, BTN_COUNT };
+enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_STATS, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
 static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen", "Zoom" };
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
@@ -65,9 +65,7 @@ struct Player {
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
     int assign_second;        /* the subtitles menu picks for the second slot */
     int forced_checked;       /* looked for a forced track in the audio language */
-    int locked;               /* remote ignored until Back is pressed three times */
-    int unlock_presses; float unlock_last, lock_hint_until;
-    float seek_flash; int seek_flash_dir;   /* the centre ±10 s button lights up */
+    float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
     int embedded_text_sel;    /* -1 off */
     int auto_selected;        /* audio preference applied */
     int subs_auto_done;       /* subtitle preference applied (or given up) */
@@ -978,7 +976,6 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Sources", p->n_cands);
     ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP;
     if (n_eps > 1) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
-    ids[k] = BTN_LOCK; labels[k] = "Lock controls"; icons[k++] = ICON_LOCK;
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
     return k;
 }
@@ -1035,7 +1032,6 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
     case BTN_SOURCES: p->menu = MENU_SOURCES; p->menu_focus = p->cur; break;
     case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;
-    case BTN_LOCK: p->locked = 1; p->bar_focus = 0; p->lock_hint_until = g_app.time + 3; p->overlay_until = 0; app_toast("Controls locked. Press Back three times to unlock."); return;
     case BTN_STATS: p->stats = !p->stats; break;
     }
     show_overlay(p);
@@ -1185,31 +1181,18 @@ static void draw(Screen *s)
         if (flash > 0) app_redraw();
     }
 
-    if (overlay && !p->menu && !p->bar_focus && vi.state != VIDEO_LOADING && !p->locked) {   /* centre: -10 s, play/pause, +10 s */
-        float cx = SNTV_UI_W / 2, cy = SNTV_UI_H / 2;
-        for (int d = -1; d <= 1; d += 2) {
-            float bx2 = cx + d * 210;
-            int lit = p->seek_flash > g_app.time && p->seek_flash_dir == d;
-            gfx_circle(bx2, cy, 46, lit ? THEME_TEXT : RGBA(0, 0, 0, 0x70));
-            Color fg = lit ? THEME_ON_LIGHT : THEME_TEXT;
-            gfx_rrect_ring(bx2 - 22, cy - 22, 44, 44, 22, 3, fg);
-            /* a small arrow head riding the top of the ring, pointing the way */
-            float ax = bx2 + d * 8, ay = cy - 24;
-            gfx_line(ax, ay, ax - d * 9, ay - 8, 3, fg);
-            gfx_line(ax, ay, ax - d * 9, ay + 8, 3, fg);
-            font_draw("10", bx2 - font_measure("10", FONT_XS | FONT_B) / 2, cy - font_height(FONT_XS | FONT_B) / 2 + 1, FONT_XS | FONT_B, fg);
-            if (lit) app_redraw();
-        }
-        if (vi.state == VIDEO_PLAYING && flash <= 0) { gfx_circle(cx, cy, 60, RGBA(0, 0, 0, 0x70)); ui_icon(ICON_PAUSE, cx, cy, 44, THEME_TEXT); }
-    }
-    if (p->locked && (g_app.time < p->lock_hint_until)) {
-        const char *t = "Controls locked  \xC2\xB7  press Back three times to unlock";
-        float tw = font_measure(t, FONT_S | FONT_B) + 90, tx = (SNTV_UI_W - tw) / 2;
-        gfx_rrect(tx, 60, tw, 60, 30, RGBA(0x0B, 0x0A, 0x16, 0xD0));
-        ui_icon(ICON_LOCK, tx + 36, 90, 26, THEME_TEXT);
-        font_draw(t, tx + 64, 60 + (60 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+    if (p->seek_flash > g_app.time && !p->menu) {   /* -10 s / +10 s feedback on the side that seeks */
+        float k = (p->seek_flash - g_app.time) / 0.35f, cx = SNTV_UI_W / 2 + p->seek_flash_dir * 260, cy = SNTV_UI_H / 2;
+        int a8 = (int)(255 * (k > 1 ? 1 : k));
+        gfx_circle(cx, cy, 56, RGBA(0, 0, 0, (int)(0x80 * k)));
+        Color fg = RGBA(0xFF, 0xFF, 0xFF, a8);
+        gfx_rrect_ring(cx - 26, cy - 26, 52, 52, 26, 3, fg);
+        float ax = cx + p->seek_flash_dir * 9, ay = cy - 28;
+        gfx_line(ax, ay, ax - p->seek_flash_dir * 10, ay - 9, 3, fg);
+        gfx_line(ax, ay, ax - p->seek_flash_dir * 10, ay + 9, 3, fg);
+        font_draw("10", cx - font_measure("10", FONT_S | FONT_B) / 2, cy - font_height(FONT_S | FONT_B) / 2 + 1, FONT_S | FONT_B, fg);
         app_redraw();
-    } else if (p->locked) { gfx_circle(SNTV_UI_W - 70, 80, 26, RGBA(0x0B, 0x0A, 0x16, 0x90)); ui_icon(ICON_LOCK, SNTV_UI_W - 70, 80, 22, THEME_TEXT_DIM); }
+    }
     int bar_only = !overlay && p->seek_commit > 0;
     double shown_pos = p->seek_commit > 0 ? p->seek_target : vi.position;
     float bx = THEME_MARGIN, by = SNTV_UI_H - 150, bw = SNTV_UI_W - 2 * THEME_MARGIN;
@@ -1439,16 +1422,6 @@ static int key(Screen *s, KeyAction a)
         case KEY_BACK: p->menu = MENU_NONE; show_overlay(p); return 1;
         default: return 1;
         }
-    }
-    if (p->locked && !p->menu) {   /* three Backs within a few seconds unlock */
-        if (a == KEY_BACK) {
-            p->unlock_presses = g_app.time - p->unlock_last < 2.5f ? p->unlock_presses + 1 : 1;
-            p->unlock_last = g_app.time;
-            if (p->unlock_presses >= 3) { p->locked = 0; p->unlock_presses = 0; app_toast("Controls unlocked"); show_overlay(p); return 1; }
-        } else p->unlock_presses = 0;
-        p->lock_hint_until = g_app.time + 2.5f;
-        app_redraw();
-        return 1;
     }
     if (error_final(p, &vi) && a == KEY_OK) { app_push(screen_diagnostics_create(1)); return 1; }
     int overlay_on = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED;

@@ -92,7 +92,6 @@ run library 260 "left,down,down,down,ok"
 run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 360 "left,down,down,down,down,down,ok,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run settings_addons 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,down"
-run player_lock 420 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,right,right,ok,left,ok,back"
 run player_subs_second 480 "right,ok,down,down,ok,ok,down,right,right,right,ok,ok,down,down,down,down,ok" SNTV_FAKE_START=200
 run player_seek_thumb 238 "right,ok,down,down,ok,ok,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
 run settings_parental 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right"
