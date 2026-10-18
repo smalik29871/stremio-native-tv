@@ -163,9 +163,10 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
 
     Uint32 t0 = SDL_GetTicks();
     CURLcode rc = C.easy_perform(h);
-    /* resolve / connect / timeout / TLS / empty reply / send / receive: the network, not the server */
-    if (rc == 6 || rc == 7 || rc == 28 || rc == 35 || rc == 52 || rc == 55 || rc == 56) { if (g_net_fail < 1000) g_net_fail++; }
-    else if (rc == 0) { g_net_fail = 0; g_last_ok = SDL_GetTicks(); }
+    /* Any bytes back mean the network works, even when a slow addon or a header probe
+     * then times out. Only resolve / connect / TLS failures with nothing received count. */
+    if (rc == 0 || b.len > 0) { g_net_fail = 0; g_last_ok = SDL_GetTicks(); }
+    else if (rc == 6 || rc == 7 || rc == 28 || rc == 35) { if (g_net_fail < 1000) g_net_fail++; }
     out->seconds = (SDL_GetTicks() - t0) / 1000.0;
     if (rc == 0) {
         C.easy_getinfo(h, INFO_RESPONSE_CODE, &out->status);

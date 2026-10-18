@@ -218,6 +218,7 @@ Screen *screen_explore_create(void);   /* catalogs by type, catalog and genre */
 Screen *screen_library_create(void);   /* the account's library as a grid */
 Screen *screen_calendar_create(void);  /* upcoming and recent episodes of library series */
 Screen *screen_detail_create(const MetaPreview *preview);
+void    screen_detail_ask(const MetaPreview *preview);   /* the title page with its Ask AI panel open */
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title);
 /* The player takes ownership of `cands`. next_video_id (optional) enables Up Next. */
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,

@@ -52,6 +52,7 @@ static size_t image_budget(void) { return mem_normal_budget(); }   /* 0 = unknow
 
 /* Bundled Inter (regular + bold) next to the binary, else system fallbacks. */
 static int g_pip_focus;   /* the corner player is the focused element */
+static int g_dev_hold;    /* SNTV_KEYS "hold": the next OK press counts as held already */
 
 static int ambient_due(const Screen *top)
 {
@@ -95,7 +96,7 @@ static void dev_hooks(SDL_Window *win, int frame)
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_KEYDOWN; e.key.keysym.sym = keys[k].k; e.key.keysym.scancode = SDL_SCANCODE_UNKNOWN;
                 SDL_PushEvent(&e);
-                if (!hold) { e.type = SDL_KEYUP; SDL_PushEvent(&e); }
+                if (!hold) { e.type = SDL_KEYUP; SDL_PushEvent(&e); } else g_dev_hold = 1;   /* counts as held at once */
             }
         }
         free(copy);
@@ -237,7 +238,7 @@ int main(int argc, char **argv)
                 /* On screens that offer a long press, OK waits for the release (or the hold).
                  * Remotes that never send releases keep the old instant OK. */
                 if (a == KEY_OK && g_seen_keyup && top && top->long_ok && !(g_app.pip && g_pip_focus)) {
-                    if (!e.key.repeat) { g_ok_down = 1; g_ok_long = 0; g_ok_t0 = SDL_GetTicks(); }
+                    if (!e.key.repeat) { g_ok_down = 1; g_ok_long = 0; g_ok_t0 = SDL_GetTicks() - (g_dev_hold ? 500 : 0); g_dev_hold = 0; }
                     continue;
                 }
                 dispatch_key(a);

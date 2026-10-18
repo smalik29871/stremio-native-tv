@@ -158,6 +158,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(400, b'{"error":{"message":"bad json"}}')
             if "Bearer" not in (self.headers.get("Authorization") or "") and "SNTV_AI_NOAUTH" not in os.environ:
                 pass   # keys are the user's business; the fake answers anyway
+            if req.get("model") == "missing-model":
+                return self.send(404, json.dumps({"error": {"message": "The model `missing-model` does not exist or you do not have access to it."}}).encode())
             system = " ".join(m.get("content", "") for m in req.get("messages", []) if m.get("role") == "system")
             user = " ".join(m.get("content", "") for m in req.get("messages", []) if m.get("role") == "user")
             if "translate subtitle lines" in system:
@@ -222,6 +224,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"result": {"code": "QW7RT2", "link": "https://www.stremio.com/link?code=QW7RT2", "qrcode": ""}}).encode())
         if p.startswith("/link/read"):
             return self.send(200, json.dumps({"result": {}}).encode())
+        if p.endswith("/ai/v1/models"):
+            return self.send(200, json.dumps({"data": [{"id": "whisper-large-v3"}, {"id": "llama-3.1-8b-instant"}, {"id": "openai/gpt-oss-120b"}, {"id": "llama-guard-4-12b"}]}).encode())
         if p.startswith("/media?"):   # the home helper: a page link as a playable file
             with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
                 return self.send(200, f.read(), "video/mp4")

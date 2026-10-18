@@ -1,9 +1,9 @@
 #include "log.h"
+#include "sysinfo.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/utsname.h>
 #include <SDL.h>
 
 static FILE *g_file;
@@ -76,17 +76,8 @@ const char *log_previous_path(void) { return g_prev_path; }
 
 void log_system_info(char *out, size_t n)
 {
-    char rel[200] = "";
-    FILE *f = fopen("/etc/starfish-release", "r");
-    if (f) {
-        if (!fgets(rel, sizeof rel, f)) rel[0] = 0;
-        fclose(f);
-        rel[strcspn(rel, "\r\n")] = 0;
-    }
-    if (!rel[0]) {
-        struct utsname u;
-        if (uname(&u) == 0) snprintf(rel, sizeof rel, "%s %s %s", u.sysname, u.release, u.machine);
-    }
+    char rel[200]; const char *src;
+    sysinfo_webos_release(rel, sizeof rel, &src);
     unsigned uid = (unsigned)getuid();
     snprintf(out, n, "%s | uid %u%s", rel[0] ? rel : "unknown system", uid, uid == 0 ? " (root)" : " (not root)");
 }

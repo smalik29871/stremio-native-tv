@@ -35,6 +35,7 @@ struct Streams {
     int check_autoplay;
     int auto_rec_done;        /* the recommended source was started by itself */
     int probes_started, probe_inflight;
+    int ranks_logged;
     unsigned probe_gen;
 };
 #define PROBE_BYTES (2u << 20)   /* enough header for Tracks, Chapters or a faststart moov */
@@ -171,6 +172,30 @@ static void probe_next(Streams *st)
 }
 
 /* Best-scoring playable source, or -1 when nothing looks safe for this TV. */
+/* When a sharper source lost, say why: the viewer sees 360p recommended and 1080p in the list. */
+static void why_not_sharper(const Streams *st, int rec, char *out, size_t n)
+{
+    out[0] = 0;
+    const Stream *r = &st->items[rec];
+    int better = -1;
+    for (int i = 0; i < st->n; i++) {
+        const Stream *s = &st->items[i];
+        if (s->tags.res <= (r->tags.res ? r->tags.res : 1080) || (better >= 0 && s->score <= st->items[better].score)) continue;
+        better = i;
+    }
+    if (better < 0) return;
+    const Stream *b = &st->items[better];
+    char res[16]; if (b->tags.res >= 2160) snprintf(res, sizeof res, "4K"); else snprintf(res, sizeof res, "%dp", b->tags.res);
+    const char *warn[1];
+    QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
+    if (!playable(b)) snprintf(out, n, "The %s sources need a torrent streaming server", res);
+    else if (b->tags.cached < 0) snprintf(out, n, "The best %s source is not cached yet: it needs a debrid download first", res);
+    else if (b->probe_state == 4) snprintf(out, n, "The best %s link is not responding", res);
+    else if (b->probe_state == 2 && b->measured_mbps > 0 && b->file_mbps > b->measured_mbps * 0.85) snprintf(out, n, "The best %s file is heavier than this connection carries", res);
+    else if (quality_warnings(&b->tags, &g_app.tv, &qp, warn, 1)) snprintf(out, n, "The best %s source: %s", res, warn[0]);
+    else if (b->tags.res > g_app.res_cap && g_app.res_cap) snprintf(out, n, "%s is above your resolution limit in Settings > Sources", res);
+}
+
 static int recommended(const Streams *st)
 {
     int best = -1;
@@ -346,9 +371,30 @@ static void rest_lines(const char *s, char *out, size_t n)
     out[o] = 0;
 }
 
+/* The five best by score, once every addon answered: Diagnostics shows why a pick was made. */
+static void log_ranking(Streams *st)
+{
+    int top[5], n = 0;
+    for (int i = 0; i < st->n; i++) {
+        int k;
+        if (n < 5) k = n++;
+        else if (st->items[i].score > st->items[top[4]].score) k = 4;
+        else continue;
+        top[k] = i;
+        for (; k > 0 && st->items[top[k]].score > st->items[top[k - 1]].score; k--) { int t = top[k]; top[k] = top[k - 1]; top[k - 1] = t; }
+    }
+    for (int j = 0; j < n; j++) {
+        const Stream *s = &st->items[top[j]];
+        char l1[80]; first_line(s->name, l1, sizeof l1);
+        LOGI("streams: #%d score %ld  %s %s  res %d cached %d probe %d  %.0f/%.0f Mbit/s", j + 1, s->score, s->addon_name, l1,
+             s->tags.res, s->tags.cached, s->probe_state, s->file_mbps, s->measured_mbps);
+    }
+}
+
 static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
+    if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
     if (st->check_autoplay) { st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return; }
     if (st->n && !st->autoplay_group && (st->pending == 0 || g_app.time - st->started > 3)) probe_next(st);
     if (st->probe_inflight) app_redraw();
@@ -506,6 +552,9 @@ static void draw(Screen *s)
             }
         }
         font_draw_fit(summary[0] ? summary : "Playable on this TV", x + 90, LIST_Y + 88, FONT_XS, THEME_TEXT_DIM, w - 320);
+        char why[200];
+        why_not_sharper(st, rec, why, sizeof why);
+        if (why[0]) font_draw_fit(why, x + 90, LIST_Y + 114, FONT_XS, THEME_TEXT_MUTED, w - 320);
         ui_pill("Play", 1, ICON_PLAY, x + w - 170, LIST_Y + (h - 56) / 2, 56, foc ? PILL_PRIMARY : PILL_SECONDARY, foc);
         list_y += REC_H;
     }
