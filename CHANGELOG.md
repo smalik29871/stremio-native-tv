@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.2
+
+- **Seek previews without a computer.** The picture above the timeline while you seek
+  is now made by the TV itself. It reads the video file's keyframe index (Matroska Cues
+  or MP4 sample tables) once, downloads only the keyframe at or before the position
+  (one small range request), decodes it with a bundled FFmpeg that has nothing but its
+  H.264 and HEVC decoders (8 and 10-bit), and shows it scaled down. HDR frames get a
+  lift so they do not look grey. The home helper is optional now: when it is set, the
+  previews come from it as before. Fragmented MP4 and files without an index show no
+  preview; Diagnostics says why (`frames:` lines).
+- The app is about 0.8 MB larger (FFmpeg's two decoders).
+
 ## 0.8.1
 
 - **Watch progress reaches your account, including when the app closes.** Three

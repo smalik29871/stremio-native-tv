@@ -261,7 +261,7 @@ static void draw(Screen *s)
         }
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
         case IT_SCRUB: draw_row(y, ICON_PLAY, "Show the picture while seeking", NULL, foc, KIND_TOGGLE, g_app.live_scrub); break;
-        case IT_THUMBS: draw_row(y, ICON_ASPECT, "Home helper (seek previews)", g_app.thumb_server ? g_app.thumb_server : "Not set  \xC2\xB7  tools/thumbs on a computer or NAS: frames while seeking, a fallback for YouTube", foc, KIND_ACTION, 0); break;
+        case IT_THUMBS: draw_row(y, ICON_ASPECT, "Home helper (optional)", g_app.thumb_server ? g_app.thumb_server : "Not needed: the TV makes seek previews and saves YouTube links itself", foc, KIND_ACTION, 0); break;
         case IT_PIN: draw_row(y, ICON_LOCK, g_app.parental_pin[0] ? "Parental PIN" : "Set a parental PIN", g_app.parental_pin[0] ? "Set  \xC2\xB7  OK to remove it (asks for the PIN)" : "Four digits; needed for the switches below", foc, KIND_ACTION, 0); break;
         case IT_PIN_SETTINGS: draw_row(y, ICON_SETTINGS, "Ask for the PIN to open Settings", NULL, foc, KIND_TOGGLE, g_app.pin_settings); break;
         case IT_HIDE_ADULT: draw_row(y, ICON_LIBRARY, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
@@ -402,13 +402,13 @@ static void draw(Screen *s)
 static const char *edit_title(int which)
 {
     return which == EDIT_AI_KEY ? "AI API key" : which == EDIT_AI_BASE ? "AI endpoint (OpenAI-compatible)" : which == EDIT_AI_MODEL ? "AI model"
-         : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Seek preview server" : which == EDIT_TMDB ? "TMDB API key"
+         : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_TMDB ? "TMDB API key"
          : which == EDIT_LOCATION ? "Your location" : which == EDIT_BR_AUDIO ? "Audio at the start of a break" : which == EDIT_BR_END ? "Audio at the end of a break" : "Addon manifest URL";
 }
 static const char *edit_hint(int which)
 {
     return which == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
-         : which == EDIT_THUMBS ? "tools/thumbs/server.py on a computer or NAS with ffmpeg (and yt-dlp for YouTube links), e.g. http://192.168.1.10:11480. Empty turns it off."
+         : which == EDIT_THUMBS ? "Optional: tools/thumbs/server.py on a computer or NAS, e.g. http://192.168.1.10:11480. The TV already decodes seek previews and saves YouTube links; set this only to use the computer instead. Empty turns it off."
          : which == EDIT_TMDB ? "Free at themoviedb.org > Settings > API (the v3 key, 32 characters). Empty removes it."
          : which == EDIT_AI_KEY ? ai_key_hint(g_app.ai_provider)
          : which == EDIT_AI_BASE ? "The base URL that ends before /chat/completions, e.g. http://192.168.1.10:11434/v1 for Ollama."
@@ -564,7 +564,7 @@ static void finish_edit(Settings *st, int save)
             free(g_app.thumb_server);
             g_app.thumb_server = n > 8 ? strdup(v) : NULL;
             app_save_prefs();
-            app_toast(g_app.thumb_server ? "Seek previews on" : "Seek previews off");
+            app_toast(g_app.thumb_server ? "Home helper set: previews come from it" : "Home helper off: the TV makes previews itself");
         } else if (strlen(st->kb.text) > 10) {
             app_install_addon(st->kb.text);
         }

@@ -10,11 +10,11 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.8.1.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.8.2.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 113 scripted scenarios against a fake addon. See *What is verified* below.
+> 114 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -94,8 +94,8 @@ They show the default Signal theme.
   chapters") and dead links or files faster than your line are dropped.
 - **Automatic fallback** to the next source when playback fails or stalls; **Up Next**
   with autoplay, fetched while the credits roll; **chapters** on the timeline from the
-  file header; -10 s / +10 s feedback while seeking; optional **seek previews** from
-  a self-hosted ffmpeg server (`tools/thumbs`).
+  file header; -10 s / +10 s feedback while seeking; **seek previews** decoded
+  on the TV (below).
 - **Skip intro / recap** and credits-based Up Next from TheIntroDB and AniSkip (free,
   keyless): a button, automatic, or off.
 - **Track memory**: audio and subtitle choices are remembered per series; subtitles can
@@ -187,7 +187,7 @@ transcoding, libass, trailers, the Samsung .NET host, Trakt/Simkl/debrid integra
 | Category | What is there |
 |---|---|
 | Account | Sign in/out, saved accounts, streaming server URL |
-| Playback | Autoplay, skip intro, picture-in-picture, player clock, scrubbing, seek preview server |
+| Playback | Autoplay, skip intro, picture-in-picture, player clock, scrubbing, optional home helper |
 | Take breaks | Schedules, location, method, lead time, length, sound, stretch, bedtime, custom times |
 | Audio & subtitles | Preferred languages, when subtitles turn on, auto-sync, size, style |
 | Sources | Quality preference, resolution cap, pre-flight check, automatic recommendation |
@@ -224,11 +224,15 @@ Play/Pause brings it back, Stop closes it).
   changes and the bundled solver stops working, the TV fetches the newest solver from
   yt-dlp's releases on GitHub and tries again; it runs sandboxed, with no file or network
   access. NewPipe does the same job on Android with its own extractor.
+- **Seek previews** are made on the TV. The video plane cannot be read, so the app reads
+  the file's keyframe index (Matroska Cues, MP4 sample tables), downloads only the
+  keyframe at or before the seek position (one range request, ~50-500 KB), decodes it
+  with a bundled FFmpeg cut down to its H.264 and HEVC (8/10-bit) decoders, and scales
+  it to a small picture (`src/frames.c`). Fragmented MP4 and files without an index get
+  no preview.
 - **The home helper** (`tools/thumbs/server.py`, ffmpeg and yt-dlp, Dockerfile included)
-  runs next to the streaming server on the same machine. It gives seek previews (the TV's
-  video plane cannot be read and the streaming server has no frame endpoint), and it is
-  the fallback for YouTube when YouTube refuses the TV, and for other page links. Set its
-  URL in Settings > Playback.
+  is optional. When its URL is set (Settings > Playback) previews come from it, and it is
+  the fallback for YouTube when YouTube refuses the TV, and for other page links.
 
 ## Diagnostics (reporting a problem)
 
@@ -246,8 +250,8 @@ reply from the media service.
 
 ### Desktop preview (Linux, no video)
 ```
-sudo apt install cmake build-essential libsdl2-dev libgles-dev
-tools/linux.sh            # builds, runs unit tests
+sudo apt install cmake build-essential libsdl2-dev libgles-dev nasm
+tools/linux.sh            # builds FFmpeg's two decoders once, then the app; runs unit tests
 ./build/stremio-tv        # arrows / Enter / Esc, F3 = search, F1/F2/F5/F4 = red/green/yellow/blue
 ```
 Headless UI check (needs Xvfb + Pillow): `bash tests/smoke.sh` writes screenshots to `tests/out/`.
@@ -290,7 +294,7 @@ from the channel.
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (113 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (114 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
@@ -345,6 +349,9 @@ compiled into the binary except the optional TMDB key a CI secret provides.
 
 `vendor/libwebp` is libwebp 1.4.0's decoder (BSD-3-Clause, see `vendor/libwebp/COPYING`);
 `vendor/cJSON` (MIT), `vendor/qrcodegen` (MIT), `vendor/quickjs` (QuickJS-ng 0.17, MIT),
+FFmpeg 7.1.1 (LGPL 2.1; built from its source by `tools/ffmpeg.sh` with only the H.264 and
+HEVC decoders, no GPL parts, and linked statically: this repository has everything needed
+to rebuild the app against a changed FFmpeg),
 `stb_truetype` and `stb_image` (public domain) keep their own licences in place. The
 YouTube solver in `assets/yt` is yt-dlp/ejs 0.8.0 (Unlicense; it bundles meriyah, ISC,
 and astring, MIT, with their licences in the file header). The fonts in `assets/fonts` (Inter, Space

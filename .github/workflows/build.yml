@@ -29,10 +29,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake libsdl2-dev libgles-dev libegl-dev libcurl4-openssl-dev
+          sudo apt-get install -y --no-install-recommends cmake libsdl2-dev libgles-dev libegl-dev libcurl4-openssl-dev nasm
+      - name: Cache FFmpeg (seek preview decoder)
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-host
+          key: ffmpeg-host-${{ hashFiles('tools/ffmpeg.sh') }}
+      - name: FFmpeg
+        run: bash tools/ffmpeg.sh host ffmpeg-host
       - name: Build
         run: |
-          cmake -S . -B build -DSNTV_PLATFORM=linux -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DSNTV_PLATFORM=linux -DCMAKE_BUILD_TYPE=Release -DSNTV_FFMPEG_PREFIX="$PWD/ffmpeg-host"
           cmake --build build -j"$(nproc)"
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
@@ -58,6 +65,11 @@ jobs:
           rm /tmp/sdk.tar.gz
       - name: Relocate toolchain
         run: ~/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot/relocate-sdk.sh
+      - name: Cache FFmpeg (seek preview decoder)
+        uses: actions/cache@v4
+        with:
+          path: build-webos/ffmpeg
+          key: ffmpeg-webos-${{ env.WEBOS_SDK_SHA256 }}-${{ hashFiles('tools/ffmpeg.sh') }}
       - name: Build .ipk
         env:
           WEBOS_TOOLCHAIN: /home/runner/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot

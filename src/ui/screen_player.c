@@ -5,6 +5,8 @@
 #include "../app.h"
 #include "../http.h"
 #include "../image.h"
+#include "../frames.h"
+#include "../phone.h"
 #include "../lang.h"
 #include "../log.h"
 #include "../probe.h"
@@ -662,14 +664,21 @@ static void probe_current(Player *p)
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
 
-/* Seek preview from the viewer's own ffmpeg server (tools/thumbs): the frame at `t`
- * rounded to 10 s. Returns the texture when it has arrived, 0 meanwhile. */
+/* Seek preview: the keyframe near `t` (rounded to 10 s), decoded on the TV itself
+ * (frames.c, served by phone.c), or by the home helper (tools/thumbs) when one is set.
+ * Returns the texture when it has arrived, 0 meanwhile. */
 static unsigned seek_thumb(const Player *p, double t, int *w, int *h, int prefetch_neighbours)
 {
-    if (!g_app.thumb_server || p->cur >= p->n_cands || strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
+    if (p->cur >= p->n_cands || strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
     char enc[1600], url[2048];
     http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
     long sec = (long)(t / 10) * 10;
+    if (!g_app.thumb_server || !*g_app.thumb_server) {
+        char rel[1800];
+        snprintf(rel, sizeof rel, "frame?t=%ld&w=384&u=%s", sec, enc);
+        if (!frames_supported() || !phone_local_url(rel, url, sizeof url)) return 0;
+        return image_get(url, w, h);   /* one at a time: the TV decodes them in turn */
+    }
     if (prefetch_neighbours)
         for (int d = -2; d <= 2; d++) {
             if (!d || sec + d * 10 < 0) continue;

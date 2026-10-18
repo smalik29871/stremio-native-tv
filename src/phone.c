@@ -1,6 +1,7 @@
 #include "phone.h"
 #include "log.h"
 #include "store.h"
+#include "frames.h"
 #include <sys/stat.h>
 #include <SDL.h>
 #include <stdio.h>
@@ -170,22 +171,106 @@ static int receive_upload(int fd, const char *req, const char *body0, long have,
     return 1;
 }
 
-static void handle(int fd)
+/* ---- seek previews: GET /frame?t=<s>&w=<px>&u=<video url>, from this TV only ------------
+ * Decoding takes a few hundred ms, so the requests wait on their own thread, newest
+ * first; when the viewer keeps seeking, the oldest waiting ones are turned away. */
+typedef struct FrameJob { int fd; double t; int w; char url[2048]; struct FrameJob *next; } FrameJob;
+static FrameJob *g_frames;   /* newest first */
+static SDL_mutex *g_frames_lock;
+static SDL_cond *g_frames_cond;
+static SDL_Thread *g_frames_thread;
+enum { FRAMES_WAITING = 3 };
+
+static void respond_text(int fd, const char *status, const char *text)
+{
+    char head[256];
+    snprintf(head, sizeof head, "HTTP/1.1 %s\r\nContent-Type: text/plain\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", status, strlen(text));
+    send_all(fd, head, strlen(head));
+    send_all(fd, text, strlen(text));
+}
+
+static int frames_main(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        SDL_LockMutex(g_frames_lock);
+        while (!g_frames && !g_quit) SDL_CondWait(g_frames_cond, g_frames_lock);
+        if (g_quit) {   /* closing: nobody is waiting for these pictures */
+            while (g_frames) { FrameJob *o = g_frames; g_frames = o->next; close(o->fd); free(o); }
+            SDL_UnlockMutex(g_frames_lock);
+            return 0;
+        }
+        FrameJob *j = g_frames;
+        g_frames = j->next;
+        SDL_UnlockMutex(g_frames_lock);
+        char err[200] = "";
+        size_t len = 0;
+        uint8_t *bmp = frames_picture_url(j->url, j->t, j->w, &len, err, sizeof err);
+        if (bmp) {
+            char head[200];
+            snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: image/bmp\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", len);
+            send_all(j->fd, head, strlen(head));
+            send_all(j->fd, (const char *)bmp, len);
+            free(bmp);
+        } else respond_text(j->fd, "404 Not Found", err);
+        close(j->fd);
+        free(j);
+    }
+}
+
+/* Takes the connection (1) or leaves it to the caller (0). */
+static int queue_frame(int fd, const char *req)
+{
+    const char *q = strchr(req, '?'), *end = q ? q + strcspn(q, " \r\n") : NULL;
+    if (!q || !frames_supported()) return 0;
+    FrameJob *j = calloc(1, sizeof *j);
+    j->fd = fd; j->w = 384;
+    for (const char *p = q + 1; p < end; ) {
+        size_t len = strcspn(p, "& \r\n");
+        char val[2048];
+        snprintf(val, sizeof val, "%.*s", (int)(len > 2 ? len - 2 : 0), p + 2);
+        if (!strncmp(p, "t=", 2)) j->t = atof(val);
+        else if (!strncmp(p, "w=", 2)) { j->w = atoi(val); if (j->w < 64 || j->w > 960) j->w = 384; }
+        else if (!strncmp(p, "u=", 2)) url_decode(val, j->url, sizeof j->url);
+        p += len + (p[len] == '&');
+    }
+    if (strncmp(j->url, "http", 4) != 0) { free(j); return 0; }
+    struct timeval tv = { 30, 0 };
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    SDL_LockMutex(g_frames_lock);
+    j->next = g_frames; g_frames = j;
+    int n = 0;
+    for (FrameJob **pp = &g_frames; *pp; ) {   /* past the newest few: turn away */
+        if (++n > FRAMES_WAITING) { FrameJob *old = *pp; *pp = old->next; respond_text(old->fd, "503 Service Unavailable", "busy"); close(old->fd); free(old); }
+        else pp = &(*pp)->next;
+    }
+    if (!g_frames_thread) g_frames_thread = SDL_CreateThread(frames_main, "frames", NULL);
+    SDL_CondSignal(g_frames_cond);
+    SDL_UnlockMutex(g_frames_lock);
+    return 1;
+}
+
+static int handle(int fd, const struct sockaddr_in *peer)
 {
     char req[8192];
     ssize_t n = recv(fd, req, sizeof req - 1, 0);
-    if (n <= 0) return;
+    if (n <= 0) return 0;
     req[n] = 0;
+    if (strncmp(req, "GET /frame?", 11) == 0) {
+        if (peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK) && queue_frame(fd, req)) return 1;
+        respond_text(fd, "404 Not Found", "no previews here");
+        return 0;
+    }
     if (strncmp(req, "GET /sounds/", 12) == 0 || strncmp(req, "HEAD /sounds/", 13) == 0) {
         char name[200]; snprintf(name, sizeof name, "%.190s", strchr(req, '/') + 8);
         char *sp = strpbrk(name, " ?\r\n"); if (sp) *sp = 0;
         serve_sound(fd, req, name);
-        return;
+        return 0;
     }
     if (strncmp(req, "POST /upload", 12) == 0) {
         char *b = strstr(req, "\r\n\r\n");
         long clen = 0; const char *cl = ci_find(req, "Content-Length:"); if (cl) clen = atol(cl + 15);
-        if (!b) { respond(fd, "400 Bad Request", "<p>Bad upload"); return; }
+        if (!b) { respond(fd, "400 Bad Request", "<p>Bad upload"); return 0; }
         b += 4;
         SDL_LockMutex(g_lock); int can = g_file_slot[0] != 0; SDL_UnlockMutex(g_lock);
         char saved[80] = "", page[1200];
@@ -199,7 +284,7 @@ static void handle(int fd)
             snprintf(page, sizeof page, "%s<h1>That did not work</h1><p>Choose an audio file under 40 MB (MP3, M4A, OGG, WAV) while the recording field is open on the TV, then try again.</p>", PAGE_HEAD);
             respond(fd, can ? "400 Bad Request" : "409 Conflict", page);
         }
-        return;
+        return 0;
     }
     /* read the rest of a POST body when it did not arrive in one go */
     char *body = strstr(req, "\r\n\r\n");
@@ -230,12 +315,12 @@ static void handle(int fd)
         html_escape(title, et, sizeof et);
         snprintf(page, sizeof page, "%s<h1>Sent to the TV</h1><p class=ok>%s is filled in. You can close this page.</p>", PAGE_HEAD, et);
         respond(fd, "200 OK", page);
-        return;
+        return 0;
     }
     if (!title[0]) {
         snprintf(page, sizeof page, "%s<h1>Stremio TV</h1><p>Nothing to fill in right now. Open a text field on the TV (Settings, a key or a URL) and reload this page.</p>", PAGE_HEAD);
         respond(fd, "200 OK", page);
-        return;
+        return 0;
     }
     html_escape(title, et, sizeof et); html_escape(hint, eh, sizeof eh); html_escape(current, ec, sizeof ec);
     char upload[900] = "";
@@ -244,6 +329,7 @@ static void handle(int fd)
     snprintf(page, sizeof page, "%s<h1>%s</h1><p>%s</p><form method=post action=/><textarea name=text rows=4 autofocus autocapitalize=off autocorrect=off spellcheck=false>%s</textarea><button type=submit>Send to the TV</button></form>%s<p><small>This page is served by your TV on your home network and only works while that field is open.</small></p>",
              PAGE_HEAD, et, eh, ec, upload);
     respond(fd, "200 OK", page);
+    return 0;
 }
 
 static int serve(void *arg)
@@ -255,8 +341,7 @@ static int serve(void *arg)
         if (fd < 0) { if (g_quit) break; SDL_Delay(50); continue; }
         struct timeval tv = { 5, 0 };
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-        handle(fd);
-        close(fd);
+        if (!handle(fd, &peer)) close(fd);
     }
     return 0;
 }
@@ -265,6 +350,8 @@ void phone_start(void)
 {
     if (getenv("SNTV_NO_PHONE")) return;
     g_lock = SDL_CreateMutex();
+    g_frames_lock = SDL_CreateMutex();
+    g_frames_cond = SDL_CreateCond();
     g_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (g_sock < 0) return;
     int one = 1;
@@ -285,6 +372,12 @@ void phone_stop(void)
     g_quit = 1;
     if (g_sock >= 0) { shutdown(g_sock, SHUT_RDWR); close(g_sock); g_sock = -1; }
     if (g_thread) SDL_WaitThread(g_thread, NULL);
+    if (g_frames_lock) {
+        SDL_LockMutex(g_frames_lock);
+        SDL_CondSignal(g_frames_cond);
+        SDL_UnlockMutex(g_frames_lock);
+        if (g_frames_thread) SDL_WaitThread(g_frames_thread, NULL);   /* finishes the picture it is on */
+    }
 }
 
 int phone_url(char *out, size_t n)
@@ -332,7 +425,7 @@ void phone_accept_file(const char *slot)
     SDL_UnlockMutex(g_lock);
 }
 
-static int phone_local_url(const char *rel, char *out, size_t n)
+int phone_local_url(const char *rel, char *out, size_t n)
 {
     if (g_sock < 0) return 0;
     snprintf(out, n, "http://127.0.0.1:%d/%s", g_port, rel);

@@ -47,6 +47,7 @@ add_library(sntv_core STATIC
   src/memlevel.c
   src/sysinfo.c
   src/youtube.c
+  src/frames.c
   src/suntimes.c
   src/lang.c
   src/trackmem.c
@@ -54,6 +55,14 @@ add_library(sntv_core STATIC
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
 target_link_libraries(sntv_core PUBLIC quickjs)
+# Static FFmpeg (tools/ffmpeg.sh: H.264 and HEVC decoders only) for seek previews decoded
+# on the TV. Without it the app builds and previews need the home helper.
+set(SNTV_FFMPEG_PREFIX "" CACHE PATH "Prefix of the static FFmpeg built by tools/ffmpeg.sh")
+if(SNTV_FFMPEG_PREFIX)
+  target_compile_definitions(sntv_core PUBLIC SNTV_HAVE_FFMPEG=1)
+  target_include_directories(sntv_core PRIVATE ${SNTV_FFMPEG_PREFIX}/include)
+  target_link_libraries(sntv_core PUBLIC ${SNTV_FFMPEG_PREFIX}/lib/libavcodec.a ${SNTV_FFMPEG_PREFIX}/lib/libavutil.a m)
+endif()
 # Optional: a TMDB key baked into the build (CI takes it from a repository secret), so
 # cast photos and age ratings work without the viewer entering one.
 set(SNTV_TMDB_BUILTIN_KEY "" CACHE STRING "TMDB v3 API key compiled into the app")
@@ -149,6 +158,10 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_probe PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_probe PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME container_probe COMMAND test_probe)
+  add_executable(test_frames tests/test_frames.c)
+  target_link_libraries(test_frames PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  target_compile_definitions(test_frames PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
+  add_test(NAME seek_frames COMMAND test_frames)
   add_executable(test_youtube tests/test_youtube.c)
   target_link_libraries(test_youtube PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME youtube COMMAND test_youtube)

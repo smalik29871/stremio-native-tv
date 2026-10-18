@@ -15,6 +15,8 @@ int  phone_take(char *out, size_t n);
 /* Also accept an uploaded recording for `slot` ("start" or "end") on the open field's page.
  * The upload lands in <data>/sounds/<slot>.<ext> and phone_take() returns "sntv-sound://<slot>.<ext>". */
 void phone_accept_file(const char *slot);
+/* http://127.0.0.1:<port>/<rel> on this TV, or 0 when the server is not running. */
+int phone_local_url(const char *rel, char *out, size_t n);
 /* "sntv-sound://x.mp3" -> a URL the media pipeline can open; other URLs are copied unchanged. */
 const char *phone_resolve_sound(const char *url, char *out, size_t n);
 #endif

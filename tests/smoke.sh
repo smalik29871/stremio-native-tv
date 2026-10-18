@@ -114,6 +114,9 @@ run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down
 run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
 run player_subs_second 480 "right,ok,down,down,ok,ok,down,right,right,right,ok,ok,down,down,down,down,down,down,down,down,down,ok" SNTV_FAKE_START=200
 run player_seek_thumb 238 "right,ok,down,down,ok,ok,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
+# no helper: the TV decodes the keyframe itself (bundled FFmpeg) through its local /frame
+run player_seek_local 238 "right,ok,down,down,ok,ok,right,right,right,right,right,right"
+grep -q "frames: [0-9]* keyframes indexed" "$OUT/player_seek_local.log" && grep -q "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_local.log" || { echo "seek preview not decoded on the TV"; grep frames "$OUT/player_seek_local.log"; exit 1; }
 run settings_parental 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right"
 run pin_pad 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,ok,right,ok"
 run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"parentalPin":"1234","pinSettings":1}')"
