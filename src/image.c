@@ -174,10 +174,17 @@ static int decoder_main(void *arg)
             i->tint = average_tint(px, w, h);
             if (i->flags & IMAGE_MIPMAP) px = to_pot(px, &w, &h);
             i->pixels = px; i->w = w; i->h = h;
-        } else if (i->from_disk) {
-            char path[1200];
-            disk_path(i, path, sizeof path);
-            remove(path);   /* corrupt cache entry */
+        } else {
+            const unsigned char *e = i->encoded;
+            const char *kind = i->encoded_len > 12 && !memcmp(e, "RIFF", 4) && !memcmp(e + 8, "WEBP", 4) ? "WebP, not supported" :
+                               i->encoded_len > 12 && !memcmp(e + 4, "ftyp", 4) ? "AVIF/HEIF, not supported" :
+                               i->encoded_len > 1 && e[0] == '<' ? "HTML or SVG, not an image" : stbi_failure_reason();
+            LOGW("image: cannot decode %s (%s, %zu bytes)", i->url, kind ? kind : "?", i->encoded_len);
+            if (i->from_disk) {
+                char path[1200];
+                disk_path(i, path, sizeof path);
+                remove(path);   /* corrupt cache entry */
+            }
         }
         free(i->encoded);
         i->encoded = NULL;
@@ -204,7 +211,11 @@ static void on_http(HttpResponse *r, void *user)
 {
     Img *i = user;
     i->req = 0;
-    if (r->status != 200 || r->len == 0) { i->state = IMG_FAILED; return; }
+    if (r->status != 200 || r->len == 0) {
+        LOGW("image: %s -> HTTP %ld %s", i->url, r->status, r->error);
+        i->state = IMG_FAILED;
+        return;
+    }
     i->encoded = malloc(r->len);
     memcpy(i->encoded, r->body, r->len);
     i->encoded_len = r->len;

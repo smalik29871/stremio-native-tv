@@ -9,7 +9,7 @@ which proved the approach for Nuvio. This project does the same for the
 **Stremio addon protocol** and the **Stremio account API**, so it uses the same
 account, addons, Library and Continue Watching as the official apps.
 
-> Status: **v0.4.7**. The desktop preview builds warning-free, passes its unit tests and
+> Status: **v0.4.8**. The desktop preview builds warning-free, passes its unit tests and
 > runs every screen headlessly against a fake addon (including subtitles, the track menu,
 > source fallback and Up Next). The webOS and Tizen video backends follow the platform
 > APIs and the webosbrew SDL headers but have **not yet been compiled with the TV
@@ -222,11 +222,10 @@ in this build; `src/http.c` is still the curl implementation, so a `fetch()`-bas
 | Area | Status |
 |---|---|
 | Addon protocol + API parsing, link login, subtitles, skip markers, language matching, track memory | Unit tests pass (`tests/test_addon.c`, `tests/test_subs.c`, `tests/test_skip.c`, `tests/test_prefs.c`) |
-| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, track memory, first-run setup, OLED, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (41 scripted runs, screenshots in `tests/out/`) |
+| Full UI flow incl. track menu, addon subtitle rendering, Up Next card and autoplay, skip intro, credits Up Next, track memory, first-run setup, OLED, Diagnostics, QR screens | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (46 scripted runs, screenshots in `tests/out/`) |
 | Live `api.strem.io` / Cinemeta | Not reachable from the build sandbox; untested live |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
-| webOS app on a real TV | Installs from the Homebrew Channel, starts, draws the UI and reaches the network on an LG QNED (webOS); playback not yet reported |
-| webOS playback (LS2 payloads, exported window, ACB binding) | Follows what the Nuvio native client documents from real TVs; **not yet confirmed on a TV** |
+| webOS on a real TV | **Confirmed on an LG QNED (webOS)**: installs from the Homebrew Channel, signs in, browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes the video plane |
 | Tizen native player | Written against capi-media-player; **needs Tizen Studio + TV** |
 | Remote scancodes | Match LG's `SDL_webOS.h` in the webOS SDK (Back 482, Exit 505, colours 486-489) |
 | Live `link.stremio.com` QR flow | Endpoint shapes from stremio-core; unreachable from the sandbox, untested live |
@@ -255,8 +254,10 @@ the "This source can't be played" card.
 
 ## Player keys
 
-Back parks the video in a corner (picture-in-picture) and Play/Pause brings it back,
-Stop stops, Red stats for nerds, OK play/pause (while *Skip intro* / *Skip recap* is on screen, OK skips), Left/Right
+Down opens the control bar (Audio, Subtitles, Subtitle style, Sources, Next episode, Stats;
+Left/Right to move, OK to open, Up back to the timeline). Back parks the video in a corner
+(picture-in-picture): Play/Pause brings it back, or press Down past the bottom of any screen
+to select the corner and OK. Stop stops, Red stats for nerds, OK play/pause (while *Skip intro* / *Skip recap* is on screen, OK skips), Left/Right
 seek 10 s (accelerates while held), Up audio menu, Down subtitle menu (Left/Right inside
 it shifts timing by 0.5 s), Green play Up Next now, Yellow switch to the next source,
 Back hides the Up Next card (and cancels its countdown) or stops and saves progress.

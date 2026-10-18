@@ -22,7 +22,8 @@
 #include <time.h>
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
-enum { MENU_NONE, MENU_AUDIO, MENU_SUBS };
+enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_STYLE, MENU_SOURCES };
+enum { BTN_AUDIO, BTN_SUBS, BTN_STYLE, BTN_SOURCES, BTN_NEXT, BTN_STATS, BTN_COUNT };
 
 typedef struct AddonSub { char *url, *lang, *addon; } AddonSub;
 
@@ -74,6 +75,7 @@ struct Player {
     int up_next_dismissed;
 
     int menu, menu_focus;
+    int bar_focus, bar_index;  /* Down moves from the seek bar to the button row */
     float play_flash;          /* big centre icon after play/pause */
     int flash_icon;
 };
@@ -81,6 +83,8 @@ struct Player {
 static Player *g_live;
 
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
+static void url_host(const char *url, char *out, size_t n);
+static void go_up_next(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
 
 static void report(Player *p, int force)
@@ -436,6 +440,7 @@ static void update(Screen *s, float dt)
     VideoInfo vi;
     video_info(&vi);
     if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
+    if (p->bar_focus && g_app.time >= p->overlay_until && vi.state != VIDEO_PAUSED) p->bar_focus = 0;
     else if (g_app.clock_mode != 2 && time(NULL) / 60 != p->clock_minute) { p->clock_minute = time(NULL) / 60; app_redraw(); }
     p->since_report += dt;
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
@@ -515,8 +520,10 @@ static void draw_menu(Player *p)
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
     gfx_rrect(x, y, w, h, R_PANEL, RGBA(0x14, 0x12, 0x2A, 0xF0));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, RGBA(0xFF, 0xFF, 0xFF, 0x1C));
-    ui_icon(p->menu == MENU_AUDIO ? ICON_AUDIO : ICON_SUBS, x + 56, y + 62, 40, THEME_TEXT);
-    font_draw(p->menu == MENU_AUDIO ? "Audio" : "Subtitles", x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
+    static const char *TITLES[] = { "", "Audio", "Subtitles", "Subtitle style", "Sources" };
+    static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SUBS, ICON_SWAP };
+    ui_icon(ICONS[p->menu], x + 56, y + 62, 40, THEME_TEXT);
+    font_draw(TITLES[p->menu], x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
     float ry = y + 120;
     int row = 0;
     VideoTrack tr[MAX_TRACKS];
@@ -532,6 +539,23 @@ static void draw_menu(Player *p)
         if (sub_[0]) font_draw_fit(sub_, x + 50, ry + 40, FONT_XS, foc_ ? RGBA(0x0B, 0x0A, 0x16, 0xB0) : THEME_TEXT_MUTED, w - 190); \
         if (on) { gfx_circle(x + w - 70, ry + 35, 17, foc_ ? THEME_ON_LIGHT : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 35, 20, foc_ ? THEME_TEXT : THEME_TEXT); } } \
         ry += 78; row++; } while (0)
+    if (p->menu == MENU_STYLE) {
+        static const char *SIZES[] = { "Small", "Medium", "Large" };
+        SECTION("STYLE  (addon subtitles)");
+        for (int i = 0; i < SUBS_STYLE_COUNT; i++) ROW(SUBS_STYLE_NAMES[i], "", g_app.subs_style == i);
+        SECTION("SIZE");
+        for (int i = 0; i < 3; i++) ROW(SIZES[i], "", g_app.subs_size == i);
+        return;
+    }
+    if (p->menu == MENU_SOURCES) {
+        for (int i = 0; i < p->n_cands; i++) {
+            char host[80];
+            url_host(p->cands[i].url, host, sizeof host);
+            ROW(p->cands[i].label ? p->cands[i].label : "Source", host, i == p->cur);
+        }
+        font_draw_wrapped("Back in the sources list offers every addon again.", x + 40, y + h - 110, FONT_XS, THEME_TEXT_MUTED, w - 80, 2);
+        return;
+    }
     if (p->menu == MENU_SUBS) ROW("Off", "", p->embedded_text_sel < 0 && p->active_addon_sub < 0);
     if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "EMBEDDED");
     for (int i = 0; i < n; i++) {
@@ -645,6 +669,56 @@ static void draw_stats(Player *p, const VideoInfo *vi)
         font_draw(l[i], x + 28, ly, FONT_XS | FONT_B, THEME_TEXT_MUTED);
         font_draw_fit(bar + 1, x + 190, ly, FONT_XS, THEME_TEXT, w - 220);
     }
+}
+
+/* The button row under the seek bar. Returns the count; ids map to BTN_*. */
+static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *icons, char *src_label, size_t n)
+{
+    int k = 0;
+    ids[k] = BTN_AUDIO; labels[k] = "Audio"; icons[k++] = ICON_AUDIO;
+    ids[k] = BTN_SUBS; labels[k] = "Subtitles"; icons[k++] = ICON_SUBS;
+    ids[k] = BTN_STYLE; labels[k] = "Subtitle style"; icons[k++] = ICON_SUBS;
+    snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Source", p->n_cands);
+    ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP;
+    if (p->next_video_id) { ids[k] = BTN_NEXT; labels[k] = "Next episode"; icons[k++] = ICON_NEXT; }
+    ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_SETTINGS;
+    return k;
+}
+
+static void draw_bar(Player *p, float x, float y)
+{
+    int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
+    int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
+    if (p->bar_index >= n) p->bar_index = n - 1;
+    for (int i = 0; i < n; i++) {
+        int foc = p->bar_focus && i == p->bar_index;
+        float w = font_measure(labels[i], FONT_XS | FONT_B) + 70;
+        if (foc && !g_app.fx_light) gfx_shadow(x, y, w, 44, 22, 18, RGBA(0, 0, 0, 0x80));
+        gfx_rrect(x, y, w, 44, 22, foc ? THEME_TEXT : RGBA(0xFF, 0xFF, 0xFF, 0x18));
+        Color fg = foc ? THEME_ON_LIGHT : THEME_TEXT;
+        ui_icon(icons[i], x + 26, y + 22, 22, fg);
+        font_draw(labels[i], x + 48, y + (44 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, fg);
+        x += w + 12;
+    }
+    const char *hint = p->bar_focus ? "OK: open  \xC2\xB7  Up: back to the timeline" : "Down: options";
+    font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (44 - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
+}
+
+static void bar_activate(Player *p, const VideoInfo *vi)
+{
+    int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
+    int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
+    if (p->bar_index >= n) return;
+    switch (ids[p->bar_index]) {
+    case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = 0; break;
+    case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = 0; break;
+    case BTN_STYLE: p->menu = MENU_STYLE; p->menu_focus = g_app.subs_style; break;
+    case BTN_SOURCES: p->menu = MENU_SOURCES; p->menu_focus = p->cur; break;
+    case BTN_NEXT: go_up_next(p); return;
+    case BTN_STATS: p->stats = !p->stats; break;
+    }
+    (void)vi;
+    show_overlay(p);
 }
 
 /* Wall-clock time `from_now` seconds ahead, in the chosen 12/24-hour format. */
@@ -795,19 +869,7 @@ static void draw(Screen *s)
         }
     }
     if (overlay) {
-        /* hint row */
-        float hx = bx, hy = by + 66;
-        struct { Icon ic; const char *t; } hints[] = { { ICON_AUDIO, "Audio" }, { ICON_SUBS, "Subtitles" }, { ICON_SWAP, "Next source" } };
-        const char *keys[] = { "Up", "Down", "Yellow" };
-        for (int i = 0; i < 3; i++) {
-            if (i == 2 && p->n_cands < 2) break;
-            float w = font_measure(hints[i].t, FONT_XS | FONT_B) + font_measure(keys[i], FONT_XS) + 90;
-            gfx_rrect(hx, hy, w, 40, 20, RGBA(0xFF, 0xFF, 0xFF, 0x18));
-            ui_icon(hints[i].ic, hx + 26, hy + 20, 22, THEME_TEXT);
-            font_draw(hints[i].t, hx + 48, hy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT);
-            font_draw(keys[i], hx + 58 + font_measure(hints[i].t, FONT_XS | FONT_B), hy + (40 - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
-            hx += w + 12;
-        }
+        draw_bar(p, bx, by + 66);
     }
     if (p->stats && !p->menu) draw_stats(p, &vi);
     if (p->up_next_shown && p->next_video_id && !p->menu) draw_up_next(p, &vi, overlay);
@@ -818,6 +880,8 @@ static void draw(Screen *s)
 
 static int menu_rows(Player *p)
 {
+    if (p->menu == MENU_STYLE) return SUBS_STYLE_COUNT + 3;
+    if (p->menu == MENU_SOURCES) return p->n_cands;
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     return p->menu == MENU_AUDIO ? n : 1 + n + p->n_addon_subs;
@@ -825,6 +889,17 @@ static int menu_rows(Player *p)
 
 static void menu_activate(Player *p)
 {
+    if (p->menu == MENU_STYLE) {
+        if (p->menu_focus < SUBS_STYLE_COUNT) g_app.subs_style = p->menu_focus; else g_app.subs_size = p->menu_focus - SUBS_STYLE_COUNT;
+        app_save_prefs();
+        return;
+    }
+    if (p->menu == MENU_SOURCES) {
+        VideoInfo vi;
+        video_info(&vi);
+        if (p->menu_focus != p->cur && p->menu_focus < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->menu_focus, vi.position); }
+        return;
+    }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     int f = p->menu_focus;
@@ -869,12 +944,25 @@ static int key(Screen *s, KeyAction a)
         case KEY_DOWN: if (p->menu_focus < rows - 1) p->menu_focus++; app_redraw(); return 1;
         case KEY_LEFT: if (p->menu == MENU_SUBS && p->track_loaded) { p->track.offset -= 0.5; app_redraw(); } return 1;
         case KEY_RIGHT: if (p->menu == MENU_SUBS && p->track_loaded) { p->track.offset += 0.5; app_redraw(); } return 1;
-        case KEY_OK: menu_activate(p); p->menu = MENU_NONE; app_redraw(); return 1;
-        case KEY_BACK: p->menu = MENU_NONE; app_redraw(); return 1;
+        case KEY_OK: menu_activate(p); if (p->menu != MENU_STYLE) p->menu = MENU_NONE; show_overlay(p); return 1;
+        case KEY_BACK: p->menu = MENU_NONE; show_overlay(p); return 1;
         default: return 1;
         }
     }
     if (error_final(p, &vi) && a == KEY_OK) { app_push(screen_diagnostics_create(1)); return 1; }
+    int overlay_on = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED;
+    if (p->bar_focus && overlay_on) {   /* the button row has the focus */
+        int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
+        int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
+        switch (a) {
+        case KEY_LEFT: if (p->bar_index > 0) p->bar_index--; show_overlay(p); return 1;
+        case KEY_RIGHT: if (p->bar_index < n - 1) p->bar_index++; show_overlay(p); return 1;
+        case KEY_UP: case KEY_BACK: p->bar_focus = 0; show_overlay(p); return 1;
+        case KEY_DOWN: show_overlay(p); return 1;
+        case KEY_OK: bar_activate(p, &vi); return 1;
+        default: break;   /* play/pause, colours and the rest work as usual */
+        }
+    }
     if (a == KEY_OK && g_app.skip_mode == 0) { const SkipSeg *sk = skippable(p, &vi); if (sk) { do_skip(p, sk); show_overlay(p); return 1; } }
     if (a == KEY_BACK && p->up_next_shown && p->next_video_id) {   /* dismiss the card, keep watching */
         p->up_next_shown = 0; p->up_next_dismissed = 1; app_redraw(); return 1;
@@ -888,8 +976,8 @@ static int key(Screen *s, KeyAction a)
     case KEY_PAUSE: video_pause(); show_overlay(p); return 1;
     case KEY_LEFT: case KEY_REWIND: seek_by(p, -10); return 1;
     case KEY_RIGHT: case KEY_FORWARD: seek_by(p, 10); return 1;
-    case KEY_UP: p->menu = MENU_AUDIO; p->menu_focus = 0; app_redraw(); return 1;
-    case KEY_DOWN: p->menu = MENU_SUBS; p->menu_focus = 0; app_redraw(); return 1;
+    case KEY_UP: p->bar_focus = 0; show_overlay(p); return 1;
+    case KEY_DOWN: p->bar_focus = 1; show_overlay(p); return 1;
     case KEY_INFO: case KEY_MENU: show_overlay(p); return 1;
     case KEY_GREEN: if (p->next_video_id) go_up_next(p); return 1;
     case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
@@ -983,7 +1071,7 @@ void player_pip_update(Screen *s, float dt) { update(s, dt); }
 int player_pip_done(Screen *s) { return ((Player *)s->st)->pip_done; }
 const char *player_video_id(Screen *s) { return ((Player *)s->st)->video_id; }
 
-void player_pip_draw(Screen *s)
+void player_pip_draw(Screen *s, int focused)
 {
     Player *p = s->st;
     VideoInfo vi;
@@ -992,13 +1080,14 @@ void player_pip_draw(Screen *s)
     pip_rect(&x, &y, &w, &h);
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, 4, 44, RGBA(0, 0, 0, 0xC0));
     draw_video_area(p, x, y, w, h);
-    gfx_rrect_ring(x, y, w, h, 2, 2, RGBA(0xFF, 0xFF, 0xFF, 0x50));
+    if (focused) { if (!g_app.fx_light) gfx_shadow(x - 4, y - 4, w + 8, h + 8, 6, 30, COLOR_ALPHA(THEME_ACCENT2, 0xA0)); gfx_rrect_ring(x, y, w, h, 2, 4, THEME_TEXT); }
+    else gfx_rrect_ring(x, y, w, h, 2, 2, RGBA(0xFF, 0xFF, 0xFF, 0x50));
     gfx_gradient_v(x, y + h - 96, w, 96, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xC8));
     font_draw_fit(p->title, x + 18, y + h - 64, FONT_XS | FONT_B, THEME_TEXT, w - 36);
     if (vi.duration > 0) ui_progress(x + 18, y + h - 20, w - 36, 4, (float)(vi.position / vi.duration), THEME_ACCENT);
     float cx = x + w / 2, cy = y + h / 2 - 10;
     if (vi.state == VIDEO_PAUSED) { gfx_circle(cx, cy, 34, RGBA(0, 0, 0, 0x90)); ui_icon(ICON_PLAY, cx + 3, cy, 30, THEME_TEXT); }
     else if (vi.state == VIDEO_LOADING || vi.buffering) ui_spinner(cx, cy, 20);
-    ui_chip("Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), THEME_TEXT_DIM);
+    ui_chip(focused ? "OK: full screen  \xC2\xB7  Stop: close" : "Down: select  \xC2\xB7  Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), focused ? THEME_TEXT : THEME_TEXT_DIM);
     if (vi.state == VIDEO_PLAYING) app_redraw();
 }

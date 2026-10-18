@@ -1,17 +1,28 @@
 # Changelog
 
-## 0.4.7
+## 0.4.8
 
-First fixes from a real LG TV (QNED, webOS): the app installs from the Homebrew Channel,
-starts, reaches the network and shows the sign-in code.
+Fixes from the first evening on a real LG TV (QNED, webOS). The app installs from the
+Homebrew Channel, signs in, browses, plays debrid streams and does picture-in-picture.
 
+- **Sources follow your addon order** (the order in your Stremio account), the way the
+  official apps list them. Answers used to be listed in the order they arrived, so a slow
+  first addon ended up far down.
+- **Player control bar.** Down moves from the timeline to a row of buttons: Audio,
+  Subtitles, Subtitle style (style and size, previewed live), Sources (switch to another
+  source at the same position), Next episode and Stats. Left/Right move along the row,
+  OK opens, Up goes back to the timeline. The colour-key shortcuts still work.
+- **The corner player is selectable.** Press Down past the bottom of any screen and the
+  corner player takes the focus (white ring); OK brings it to full screen, Stop closes it.
+  Play/Pause still works from anywhere.
+- **Posters that fail** (WebP images, which the TV's decoder cannot read, or dead links)
+  fall back to metahub's JPEG for IMDb titles, and the reason is logged in Diagnostics.
 - **QR sign-in fixed.** The code check now sends `type=Read` the way Stremio's own apps
   do; without it the service answered "Invalid or expired token" and the app gave up
   (and hid the QR code) right away. An error from the service while waiting now means
   "not approved yet": the QR stays up and the app keeps checking, and after five minutes
   it quietly asks for a fresh code.
-- The sign-in screen shows the exact address the service returns for entering the code,
-  instead of a hard-coded one.
+- The sign-in screen shows the exact address the service returns for entering the code.
 
 ## 0.4.6
 

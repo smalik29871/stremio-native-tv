@@ -312,7 +312,7 @@ static int key(Screen *s, KeyAction a)
         switch (a) {
         case KEY_LEFT: if (d->btn > 0) d->btn--; return 1;
         case KEY_RIGHT: if (d->btn < BTN_COUNT - 1) d->btn++; return 1;
-        case KEY_DOWN: if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; } return 1;
+        case KEY_DOWN: if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; return 1; } return 0;
         case KEY_OK:
             if (d->btn == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
             if (d->resume_label[0]) {
@@ -337,7 +337,7 @@ static int key(Screen *s, KeyAction a)
         case KEY_LEFT: if (d->season_idx > 0) select_season(d, d->season_idx - 1); return 1;
         case KEY_RIGHT: if (d->season_idx < d->n_seasons - 1) select_season(d, d->season_idx + 1); return 1;
         case KEY_UP: d->area = AREA_ACTIONS; return 1;
-        case KEY_DOWN: case KEY_OK: if (d->n_eps) { d->area = AREA_EPISODES; d->focus_t = 0; } return 1;
+        case KEY_DOWN: case KEY_OK: if (d->n_eps) { d->area = AREA_EPISODES; d->focus_t = 0; return 1; } return a == KEY_OK;
         case KEY_BACK: d->area = AREA_ACTIONS; return 1;
         default: return 0;
         }
@@ -346,7 +346,7 @@ static int key(Screen *s, KeyAction a)
         case KEY_LEFT: if (d->ep_focus > 0) focus_ep(d, d->ep_focus - 1); return 1;
         case KEY_RIGHT: if (d->ep_focus < d->n_eps - 1) focus_ep(d, d->ep_focus + 1); return 1;
         case KEY_UP: d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_ACTIONS; return 1;
-        case KEY_DOWN: return 1;
+        case KEY_DOWN: return 0;   /* bottom of the page: main.c may hand focus to the corner player */
         case KEY_OK: if (d->n_eps) open_streams_for_video(d, d->ep_index[d->ep_focus]); return 1;
         case KEY_BACK: d->area = AREA_ACTIONS; return 1;
         default: return 0;

@@ -168,7 +168,7 @@ static int key(Screen *sc, KeyAction a)
     case KEY_LEFT: if (s->grid_focus % COLS == 0) s->focus_grid = 0; else s->grid_focus--; return 1;
     case KEY_RIGHT: if (s->grid_focus % COLS < COLS - 1 && s->grid_focus + 1 < s->n) s->grid_focus++; return 1;
     case KEY_UP: if (s->grid_focus >= COLS) s->grid_focus -= COLS; return 1;
-    case KEY_DOWN: if (s->grid_focus + COLS < s->n) s->grid_focus += COLS; return 1;
+    case KEY_DOWN: if (s->grid_focus + COLS < s->n) { s->grid_focus += COLS; return 1; } return 0;
     case KEY_OK: if (s->grid_focus < s->n) app_push(screen_detail_create(&s->results[s->grid_focus])); return 1;
     case KEY_BACK: s->focus_grid = 0; return 1;
     default: return 0;

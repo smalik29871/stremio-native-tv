@@ -78,6 +78,8 @@ static int find_fonts(char *regular, char *bold, size_t n)
     return -1;
 }
 
+static int g_pip_focus;   /* the corner player is the focused element */
+
 static int ambient_due(const Screen *top)
 {
     static float idle_after = -1;
@@ -216,7 +218,14 @@ int main(int argc, char **argv)
                 if (a == KEY_NONE) continue;
                 if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); continue; }
                 if (g_app.pip && a == KEY_STOP) { app_pip_close(); continue; }
+                if (g_app.pip && g_pip_focus) {   /* the corner player has the focus */
+                    if (a == KEY_OK) app_pip_restore();
+                    else if (a == KEY_UP || a == KEY_LEFT || a == KEY_BACK) g_pip_focus = 0;
+                    app_redraw();
+                    continue;
+                }
                 if (top && top->key && top->key(top, a)) continue;
+                if (g_app.pip && a == KEY_DOWN) { g_pip_focus = 1; app_redraw(); continue; }   /* past the bottom of the screen: the corner */
                 if (a == KEY_BACK) app_pop();
             } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
@@ -265,7 +274,8 @@ int main(int argc, char **argv)
             g_app.need_redraw = 0;
             gfx_begin_frame(RGBA(0x08, 0x07, 0x12, 0xFF));
             if (top && top->draw) top->draw(top);
-            if (g_app.pip) player_pip_draw(g_app.pip);
+            if (!g_app.pip) g_pip_focus = 0;
+            if (g_app.pip) player_pip_draw(g_app.pip, g_pip_focus);
             app_draw_toast();
             dev_hooks(win, frame++);
             gfx_end_frame();

@@ -255,8 +255,9 @@ static int key(Screen *s, KeyAction a)
     case KEY_DOWN: {
         int f = st->focus;
         do { if (f < n - 1) f++; else break; } while (is_header(f));
-        if (!is_header(f)) st->focus = f;
         st->confirm_remove = -1;
+        if (is_header(f) || f == st->focus) return 0;
+        st->focus = f;
         return 1;
     }
     case KEY_LEFT: adjust(st, -1); return 1;

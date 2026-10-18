@@ -140,7 +140,7 @@ void app_pip_close(void);
 int  app_pip_claim(const char *video_id);
 void player_set_pip(Screen *s, int on);
 void player_pip_update(Screen *s, float dt);
-void player_pip_draw(Screen *s);
+void player_pip_draw(Screen *s, int focused);
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);
 

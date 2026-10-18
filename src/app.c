@@ -670,7 +670,7 @@ int app_ambient_pool(const AmbientItem **out)
 
 const char *app_art_background(const MetaPreview *p, char *buf, size_t n)
 {
-    if (p->background && *p->background) return p->background;
+    if (p->background && *p->background && !(imdb_id(p->id) && image_failed(p->background))) return p->background;
     if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/background/medium/%s/img", p->id); return buf; }
     return p->poster;
 }
@@ -684,7 +684,8 @@ const char *app_art_logo(const MetaPreview *p, char *buf, size_t n)
 
 const char *app_art_poster(const MetaPreview *p, char *buf, size_t n)
 {
-    if (p->poster && *p->poster) return p->poster;
+    /* a poster the TV cannot fetch or decode (WebP, dead link): metahub has a JPEG for IMDb ids */
+    if (p->poster && *p->poster && !(imdb_id(p->id) && image_failed(p->poster))) return p->poster;
     if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/poster/medium/%s/img", p->id); return buf; }
     return NULL;
 }

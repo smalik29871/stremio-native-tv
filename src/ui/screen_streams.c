@@ -54,12 +54,15 @@ static int playable(const Stream *s)
     return 1;
 }
 
-/* Keep the user's addon order, but playable sources first, and the previous
- * binge group on top so Up Next stays on the same release. */
+/* The user's addon order (as in the Stremio apps), with unplayable sources last
+ * and, while chaining episodes, the previous binge group on top so Up Next stays
+ * on the same release. Answers arrive in any order, so this is applied on every
+ * arrival. */
 static int rank(const Streams *st, const Stream *s)
 {
-    int r = playable(s) ? 0 : 100;
-    if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50;
+    int r = s->addon_order;
+    if (!playable(s)) r += 100000;
+    if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50000;
     return r;
 }
 
@@ -85,6 +88,7 @@ static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
     *items = realloc(*items, sizeof(Stream) * (size_t)(*count + n));
     for (int i = 0; i < n; i++) {
         got[i].addon_name = strdup(addon_name);
+        got[i].addon_order = addon;
         (*items)[(*count)++] = got[i];
     }
     free(got);
@@ -419,7 +423,7 @@ static int key(Screen *s, KeyAction a)
     Streams *st = s->st;
     switch (a) {
     case KEY_UP: if (st->focus > 0) st->focus--; app_redraw(); return 1;
-    case KEY_DOWN: if (st->focus < st->n - 1) st->focus++; app_redraw(); return 1;
+    case KEY_DOWN: if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
     case KEY_OK: if (st->focus < st->n) play_from(st, st->focus); return 1;
     default: return 0;
     }

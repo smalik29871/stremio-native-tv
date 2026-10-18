@@ -77,6 +77,7 @@ typedef struct Stream {
     char *binge_group, *filename;
     uint64_t video_size;
     char *addon_name;           /* filled by the aggregator, not the parser */
+    int addon_order;            /* position of that addon in the user's list */
 } Stream;
 
 typedef struct Subtitle { char *id, *url, *lang; } Subtitle;

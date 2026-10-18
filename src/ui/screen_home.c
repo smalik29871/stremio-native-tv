@@ -471,7 +471,7 @@ static int key(Screen *s, KeyAction a)
     Row *r = h->rows[h->focus_row];
     switch (a) {
     case KEY_UP: { int n = next_visible(h, h->focus_row, -1); move_focus(h, n >= 0 ? n : -1, -1); return 1; }
-    case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) move_focus(h, n, -1); return 1; }
+    case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) { move_focus(h, n, -1); return 1; } return 0; }
     case KEY_LEFT: if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1); return 1;
     case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
     case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
