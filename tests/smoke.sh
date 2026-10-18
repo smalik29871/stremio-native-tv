@@ -162,6 +162,8 @@ HOLD="wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait"
 run options_sheet 400 "right,right,hold,$HOLD,release"
 run hold_hint 200 "right,ok,down,down,right,hold,wait,wait"
 run episode_options 400 "right,ok,down,down,right,hold,$HOLD,release"
+# timing for a subtitle track inside the file (the TV draws it; the player sends the offset)
+run player_subs_timing_embedded 420 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,right,right,right" SNTV_FAKE_START=300
 run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok" HOME="$(home_with ep_marked '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run options_yellow 200 "right,right,right,yellow"

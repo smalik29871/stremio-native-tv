@@ -505,7 +505,7 @@ static void ep_choice(int c, void *user)
         break;
     }
     case EO_UPTO: mark_range(d, 0, k, 1); app_toast("%d episode%s marked as watched", k + 1, k ? "s" : ""); break;
-    case EO_FROM: mark_range(d, k, d->n_eps - 1, 0); app_toast("%d episode%s marked as not watched", d->n_eps - k, d->n_eps - k == 1 ? "" : "s"); break;
+    case EO_FROM: mark_range(d, k, d->n_eps - 1, 0); app_toast("%d episode%s marked as unwatched", d->n_eps - k, d->n_eps - k == 1 ? "" : "s"); break;
     case EO_SEASON: {
         int all = 1;
         for (int i = 0; i < d->n_eps; i++) if (!ep_watched(d, i, li, resume_index(d, li))) all = 0;
@@ -532,12 +532,8 @@ static void episode_options(Detail *d)
     int k = d->ep_focus;
     if (k < 0 || k >= d->n_eps) return;
     const LibraryItem *li = app_library_find(d->preview.id);
-    int cur = resume_index(d, li), watched = ep_watched(d, k, li, cur), any_after = 0, all = 1;
-    for (int i = 0; i < d->n_eps; i++) {
-        int w = ep_watched(d, i, li, cur);
-        if (i >= k && w) any_after = 1;
-        if (!w) all = 0;
-    }
+    int cur = resume_index(d, li), watched = ep_watched(d, k, li, cur), all = 1;
+    for (int i = 0; i < d->n_eps; i++) if (!ep_watched(d, i, li, cur)) all = 0;
     const MetaVideo *v = &d->meta.videos[d->ep_index[k]];
     EpOpt *o = calloc(1, sizeof *o);
     o->d = d; o->k = k;
@@ -545,8 +541,10 @@ static void episode_options(Detail *d)
     char upto[64], from[64], season[64];
     #define ADD(act, label, icon) do { o->acts[n] = act; items[n] = label; icons[n] = icon; n++; } while (0)
     ADD(EO_THIS, watched ? "Mark as not watched" : "Mark as watched", watched ? ICON_CLOSE : ICON_CHECK);
-    if (k > 0) { snprintf(upto, sizeof upto, "Watched up to here (%d episodes)", k + 1); ADD(EO_UPTO, upto, ICON_NEXT); }
-    if (any_after && k < d->n_eps - 1) { snprintf(from, sizeof from, "Not watched from here on (%d)", d->n_eps - k); ADD(EO_FROM, from, ICON_RELOAD); }
+    if (k > 0) { snprintf(upto, sizeof upto, "Mark as watched up to here (%d)", k + 1); ADD(EO_UPTO, upto, ICON_NEXT); }
+    /* always offered: it is also how to undo a resume point that marked too much */
+    snprintf(from, sizeof from, d->n_eps - k == 1 ? "Mark as unwatched from here on (1 episode)" : "Mark as unwatched from here on (%d)", d->n_eps - k);
+    ADD(EO_FROM, from, ICON_RELOAD);
     snprintf(season, sizeof season, all ? "Whole season not watched" : "Whole season watched (%d episodes)", d->n_eps);
     ADD(EO_SEASON, season, ICON_LIST);
     ADD(EO_SOURCES, "Sources for this episode", ICON_SWAP);

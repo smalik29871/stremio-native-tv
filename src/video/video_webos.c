@@ -153,6 +153,49 @@ static void media_call(const char *method, const char *payload)
     L.ErrorFree(&e);
 }
 
+static void media_call_id(const char *method, const char *extra);
+
+/* ---- subtitles the TV draws ------------------------------------------------------
+ * The media service renders embedded subtitle tracks itself, so the app's size,
+ * style, position and timing reach them only through its subtitle setters. A fresh
+ * pipeline starts at every load, so the style is sent again after each loadCompleted
+ * and each track selection. Ranges as the service takes them: fontSize 0..4,
+ * position -3..4 (0 = default), sync in ms, colours by name, opacities 0..255. */
+static struct { int size, style, position, sync_ms, have, pending; } g_sub;
+
+static void subtitle_style_send(void)
+{
+    if (!g_sub.have) return;
+    static const int FONT[] = { 1, 2, 3, 4 };
+    static const int POS[] = { 0, 2, 4 };
+    int st = g_sub.style;
+    const char *colour = st == 2 ? "yellow" : "white";            /* SUBS_STYLE_YELLOW */
+    const char *edge = st == 0 ? "dropShadow" : st == 3 ? "none" : "uniform";
+    int box = st == 3 ? 190 : 0;                                  /* SUBS_STYLE_BOXED */
+    char x[96];
+    snprintf(x, sizeof x, "\"fontSize\":%d", FONT[g_sub.size < 0 ? 0 : g_sub.size > 3 ? 3 : g_sub.size]);
+    media_call_id("setSubtitleFontSize", x);
+    snprintf(x, sizeof x, "\"charColor\":\"%s\"", colour);
+    media_call_id("setSubtitleCharacterColor", x);
+    snprintf(x, sizeof x, "\"charEdgeType\":\"%s\"", edge);
+    media_call_id("setSubtitleCharacterEdge", x);
+    media_call_id("setSubtitleCharacterEdgeColor", "\"charEdgeColor\":\"black\"");
+    media_call_id("setSubtitleBackgroundColor", "\"bgColor\":\"black\"");
+    snprintf(x, sizeof x, "\"bgOpacity\":%d", box);
+    media_call_id("setSubtitleBackgroundOpacity", x);
+    snprintf(x, sizeof x, "\"position\":%d", POS[g_sub.position < 0 ? 0 : g_sub.position > 2 ? 2 : g_sub.position]);
+    media_call_id("setSubtitlePosition", x);
+    snprintf(x, sizeof x, "\"sync\":%d", g_sub.sync_ms);
+    media_call_id("setSubtitleSync", x);
+}
+
+void video_subtitle_style(int size, int style, int position, int sync_ms)
+{
+    int same = g_sub.have && g_sub.size == size && g_sub.style == style && g_sub.position == position && g_sub.sync_ms == sync_ms;
+    g_sub.size = size; g_sub.style = style; g_sub.position = position; g_sub.sync_ms = sync_ms; g_sub.have = 1;
+    if (!same) subtitle_style_send();
+}
+
 static void media_call_id(const char *method, const char *extra)
 {
     char id[96];
@@ -341,6 +384,7 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
         g_info.state = VIDEO_PAUSED;
         g_info.buffering = 0;
         start_bind = 1;
+        g_sub.pending = 1;   /* the new pipeline has default subtitles: re-style from the main thread */
     }
     if (cJSON_GetObjectItem(root, "currentTime")) {
         double t = find_number(root, "currentTime", -1);
@@ -693,6 +737,11 @@ void video_update(void)
     int loading = g_info.state == VIDEO_LOADING;
     Uint32 started = g_load_started;
     SDL_UnlockMutex(g_lock);
+    SDL_LockMutex(g_lock);
+    int restyle = g_sub.pending;
+    g_sub.pending = 0;
+    SDL_UnlockMutex(g_lock);
+    if (restyle) subtitle_style_send();
     if (loaded) {
         g_autoplayed = 1;
         if (seek > 0) video_seek(seek);
@@ -735,4 +784,5 @@ void video_select_track(TrackKind kind, int index)
     }
     snprintf(extra, sizeof extra, "\"type\":\"%s\",\"index\":%d", kind == TRACK_AUDIO ? "audio" : "text", index);
     media_call_id("selectTrack", extra);
+    if (kind == TRACK_TEXT) subtitle_style_send();
 }
