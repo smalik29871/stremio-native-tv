@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.3
+
+Side navigation, and three new places to find things.
+
+- **Side rail** on Home: Home, Explore, Search, Library, Calendar, Settings and the account
+  as icons down the left; Left from the first card opens it with labels, Right or Back
+  returns to the content. The top-right pills are gone; the clock stays.
+- **Explore**: every catalog addon's lists by type (Movies, Series, …), list and genre,
+  as a poster grid that loads more as you scroll. Catalogs that need a genre (Cinemeta's
+  by-year lists, for example) start on their first option.
+- **Library**: the whole library as a grid with All / Movies / Series / Continue watching
+  and a Recent / A to Z sort; progress bars on titles in progress.
+- **Calendar**: episodes of the series in your library from the last two weeks and the
+  next month, by day, with thumbnails; OK opens the series. Details come from the meta
+  addon and are cached for twelve hours.
+- **Subtitles menu** lists every file on its own row ("English", "English (2)", …) with
+  the addon's name under it, the preferred language first; nothing is folded away.
+
 ## 0.5.2
 
 The player grows the controls people expect from a TV app, and Home gets three looks.

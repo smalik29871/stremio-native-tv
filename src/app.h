@@ -133,6 +133,9 @@ void app_redraw(void);                  /* request a frame even when idle */
 
 /* --- screens --- */
 Screen *screen_home_create(void);
+Screen *screen_explore_create(void);   /* catalogs by type, catalog and genre */
+Screen *screen_library_create(void);   /* the account's library as a grid */
+Screen *screen_calendar_create(void);  /* upcoming and recent episodes of library series */
 Screen *screen_detail_create(const MetaPreview *preview);
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title);
 /* The player takes ownership of `cands`. next_video_id (optional) enables Up Next. */

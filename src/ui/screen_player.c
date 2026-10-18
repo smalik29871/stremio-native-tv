@@ -90,7 +90,6 @@ struct Player {
 
     int menu, menu_focus;
     int bar_focus, bar_index;  /* Down moves from the seek bar to the button row */
-    int sub_variant[32];       /* which file of a language group is chosen */
     float play_flash;          /* big centre icon after play/pause */
     int flash_icon;
 };
@@ -293,41 +292,20 @@ static void remember_subs(Player *p, const char *lang, SubsSource src)
 
 /* Addon subtitles grouped by language: one row per language, the files behind it
  * reachable with Left/Right. Preferred language first, then by name. */
-enum { MAX_SUB_GROUPS = 32 };
-typedef struct SubGroup { const char *lang; int first, count; } SubGroup;
-
-static int same_code(const char *a, const char *b) { return strcasecmp(a, b) == 0; }
-
-static int sub_groups(const Player *p, SubGroup *g, int max)
+/* Addon subtitle files in menu order: the preferred language first, then by language
+ * name, then as the addons listed them. Returns the count written to `order`. */
+static int sorted_subs(const Player *p, int *order)
 {
-    int n = 0;
-    for (int i = 0; i < p->n_addon_subs; i++) {
-        const char *l = p->addon_subs[i].lang;
-        int k;
-        for (k = 0; k < n; k++) if (same_code(g[k].lang, l)) break;
-        if (k == n) { if (n == max) continue; g[n].lang = l; g[n].first = i; g[n].count = 0; n++; }
-        g[k].count++;
-    }
+    int n = p->n_addon_subs;
+    for (int i = 0; i < n; i++) order[i] = i;
     for (int i = 1; i < n; i++)
         for (int j = i; j > 0; j--) {
-            int a = lang_same(g[j].lang, g_app.pref_subs), b = lang_same(g[j - 1].lang, g_app.pref_subs);
-            if (a > b || (a == b && strcasecmp(lang_display(g[j].lang), lang_display(g[j - 1].lang)) < 0)) { SubGroup t = g[j]; g[j] = g[j - 1]; g[j - 1] = t; }
-            else break;
+            const char *la = p->addon_subs[order[j]].lang, *lb = p->addon_subs[order[j - 1]].lang;
+            int a = lang_same(la, g_app.pref_subs), b = lang_same(lb, g_app.pref_subs);
+            int c = a > b || (a == b && strcasecmp(lang_display(la), lang_display(lb)) < 0);
+            if (c) { int t = order[j]; order[j] = order[j - 1]; order[j - 1] = t; } else break;
         }
     return n;
-}
-
-static int group_member(const Player *p, const SubGroup *g, int k)
-{
-    int seen = 0;
-    for (int i = 0; i < p->n_addon_subs; i++)
-        if (same_code(p->addon_subs[i].lang, g->lang)) { if (seen == k) return i; seen++; }
-    return g->first;
-}
-
-static int group_has(const Player *p, const SubGroup *g, int idx)
-{
-    return idx >= 0 && idx < p->n_addon_subs && same_code(p->addon_subs[idx].lang, g->lang);
 }
 
 /* ---- file header: chapters and what the file really contains ------------------ */
@@ -696,8 +674,8 @@ static void draw_menu(Player *p)
     font_draw(TITLES[p->menu], x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
-    SubGroup groups[MAX_SUB_GROUPS];
-    int ng = p->menu == MENU_SUBS ? sub_groups(p, groups, MAX_SUB_GROUPS) : 0;
+    int order[MAX_ADDON_SUBS];
+    int ng = p->menu == MENU_SUBS ? sorted_subs(p, order) : 0;   /* every file, one row each */
     /* keep the focused row inside the panel: rows are 78 px, section labels 40 px */
     int n_eps = 0;
     const MetaVideo *eps = p->menu == MENU_EPISODES ? app_videos(p->meta.id, &n_eps) : NULL;
@@ -778,12 +756,12 @@ static void draw_menu(Player *p)
     if (p->menu == MENU_SUBS) {
         if (ng || p->subs_pending) SECTION(p->subs_pending ? "FROM ADDONS  (SEARCHING)" : "FROM ADDONS");
         for (int g = 0; g < ng; g++) {
-            char sub[120];
-            int variant = p->sub_variant[g] % groups[g].count;
-            int member = group_member(p, &groups[g], variant);
-            if (groups[g].count > 1) snprintf(sub, sizeof sub, "file %d of %d  \xC2\xB7  %s  \xC2\xB7  Left/Right for another", variant + 1, groups[g].count, p->addon_subs[member].addon);
-            else snprintf(sub, sizeof sub, "%s", p->addon_subs[member].addon);
-            ROW(lang_display(groups[g].lang), sub, group_has(p, &groups[g], p->active_addon_sub));
+            int idx = order[g], dup = 0;
+            for (int j = 0; j < g; j++) if (strcmp(lang_display(p->addon_subs[order[j]].lang), lang_display(p->addon_subs[idx].lang)) == 0) dup++;
+            char label[80];
+            if (dup) snprintf(label, sizeof label, "%s (%d)", lang_display(p->addon_subs[idx].lang), dup + 1);
+            else snprintf(label, sizeof label, "%s", lang_display(p->addon_subs[idx].lang));
+            ROW(label, p->addon_subs[idx].addon, p->active_addon_sub == idx);
         }
         if (p->track_loaded) {
             char off[80];
@@ -1216,8 +1194,7 @@ static int menu_rows(Player *p)
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     if (p->menu == MENU_AUDIO) return n + 1;
-    SubGroup groups[MAX_SUB_GROUPS];
-    return 1 + n + sub_groups(p, groups, MAX_SUB_GROUPS) + (p->track_loaded ? 1 : 0) + 1;
+    return 1 + n + p->n_addon_subs + (p->track_loaded ? 1 : 0) + 1;
 }
 
 static void menu_activate(Player *p)
@@ -1262,10 +1239,10 @@ static void menu_activate(Player *p)
         return;
     }
     f -= n;
-    SubGroup groups[MAX_SUB_GROUPS];
-    int ng = sub_groups(p, groups, MAX_SUB_GROUPS);
+    int order[MAX_ADDON_SUBS];
+    int ng = sorted_subs(p, order);
     if (f < ng) {
-        int idx = group_member(p, &groups[f], p->sub_variant[f] % groups[f].count);
+        int idx = order[f];
         select_addon_sub(p, idx);
         remember_subs(p, p->addon_subs[idx].lang, SUBS_SRC_ADDON);
         return;
@@ -1310,17 +1287,8 @@ static int key(Screen *s, KeyAction a)
             if (p->menu != MENU_SUBS) return 1;
             VideoTrack tt[MAX_TRACKS];
             int nt = video_tracks(TRACK_TEXT, tt, MAX_TRACKS);
-            SubGroup groups[MAX_SUB_GROUPS];
-            int ng = sub_groups(p, groups, MAX_SUB_GROUPS);
             int g = p->menu_focus - 1 - nt;
-            if (g >= 0 && g < ng) {   /* another file of the same language */
-                if (groups[g].count > 1) {
-                    p->sub_variant[g] = (p->sub_variant[g] + dir + groups[g].count) % groups[g].count;
-                    if (group_has(p, &groups[g], p->active_addon_sub)) select_addon_sub(p, group_member(p, &groups[g], p->sub_variant[g]));
-                }
-            } else if (g == ng && p->track_loaded) {
-                p->track.offset += 0.5 * dir;
-            }
+            if (g == p->n_addon_subs && p->track_loaded) p->track.offset += 0.5 * dir;   /* the timing row */
             app_redraw();
             return 1;
         }

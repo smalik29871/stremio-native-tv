@@ -9,7 +9,7 @@
 
 #define SNTV_APP_ID      "org.stremio.nativetv"
 #define SNTV_APP_NAME    "Stremio"
-#define SNTV_APP_VERSION "0.5.2"
+#define SNTV_APP_VERSION "0.5.3"
 #define SNTV_USER_AGENT  "StremioNativeTV/" SNTV_APP_VERSION
 
 /* Logical UI canvas. Everything is laid out in these units and scaled to the

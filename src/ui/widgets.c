@@ -137,6 +137,18 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         gfx_circle(cx, cy - s * 0.20f, t * 0.9f, c);
         gfx_line(cx, cy - s * 0.04f, cx, cy + s * 0.24f, t, c);
         break;
+    case ICON_COMPASS:   /* ring with a needle */
+        gfx_rrect_ring(cx - s * 0.42f, cy - s * 0.42f, s * 0.84f, s * 0.84f, s * 0.42f, t, c);
+        gfx_line(cx + s * 0.18f, cy - s * 0.18f, cx - s * 0.18f, cy + s * 0.18f, t * 1.4f, c);
+        gfx_line(cx + s * 0.18f, cy - s * 0.18f, cx + s * 0.02f, cy + s * 0.02f, t * 2.2f, c);
+        break;
+    case ICON_CALENDAR:
+        gfx_rrect_ring(cx - s * 0.38f, cy - s * 0.30f, s * 0.76f, s * 0.70f, s * 0.10f, t, c);
+        gfx_line(cx - s * 0.38f, cy - s * 0.08f, cx + s * 0.38f, cy - s * 0.08f, t, c);
+        gfx_rrect(cx - s * 0.22f, cy - s * 0.46f, t, s * 0.22f, t / 2, c);
+        gfx_rrect(cx + s * 0.22f - t, cy - s * 0.46f, t, s * 0.22f, t / 2, c);
+        gfx_rrect(cx - s * 0.20f, cy + s * 0.06f, s * 0.16f, s * 0.14f, s * 0.03f, c);
+        break;
     }
 }
 

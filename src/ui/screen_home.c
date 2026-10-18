@@ -8,6 +8,7 @@
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
+#include "rail.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 enum { ROW_CATALOG, ROW_CONTINUE, ROW_LIBRARY };
 enum { NAV_SEARCH, NAV_SETTINGS, NAV_ACCOUNT, NAV_COUNT };
 
+#define LX RAIL_LX           /* content starts right of the side rail */
 #define ROWS_Y 610.0f          /* Cinematic; the other styles move it (rows_y) */
 #define SHOWCASE_N 10         /* titles in the Showcase carousel */
 #define SHOWCASE_EVERY 8.0f   /* seconds before the carousel moves by itself */
@@ -49,10 +51,12 @@ typedef struct {
     char hero_id[256];
     char hero_bg[1024], hero_prev_bg[1024]; float hero_fade;
     float hero_text_t;        /* fade/slide of the hero text on change */
+    int landed;               /* first focus went to the content */
     int feat;                 /* Showcase: which of the featured row's titles is up */
     float feat_timer;
 } Home;
 
+static void move_focus(Home *h, int row, int col);
 static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : g_app.home_style == HOME_SHOWCASE ? 660.0f : ROWS_Y; }
 
 /* ---- row geometry ---- */
@@ -60,7 +64,7 @@ static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : g
 static float card_w(const Row *r) { return r->kind == ROW_CONTINUE ? LAND_W : POSTER_W; }
 static float card_h(const Row *r) { return r->kind == ROW_CONTINUE ? LAND_H : POSTER_H; }
 static float row_h(const Row *r) { return TITLE_H + card_h(r) + 64; }
-static int visible_cards(const Row *r) { return (int)((SNTV_UI_W - THEME_MARGIN) / (card_w(r) + GAP)); }
+static int visible_cards(const Row *r) { return (int)((SNTV_UI_W - LX) / (card_w(r) + GAP)); }
 
 static void row_free(Row *r)
 {
@@ -319,6 +323,12 @@ static void update(Screen *s, float dt)
         h->focus_row = n < 0 ? -1 : n;
     }
 
+    if (!h->landed && h->focus_row == -1) {   /* open on the content; the rail is a Left press away */
+        int loading = 0;
+        for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CATALOG && (h->rows[i]->loading || !h->rows[i]->requested)) loading = 1;
+        if (g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->focus_row = FOCUS_SHOWCASE; h->landed = 1; }
+        else if (g_app.home_style != HOME_SHOWCASE || !loading) { int n = next_visible(h, -1, 1); if (n >= 0) { move_focus(h, n, -1); h->landed = 1; } }
+    }
     if (g_app.home_style == HOME_SHOWCASE && featured_count(h) > 1) {
         h->feat_timer += dt;
         if (h->feat_timer > SHOWCASE_EVERY && h->focus_row != FOCUS_SHOWCASE) { h->feat_timer = 0; h->feat = (h->feat + 1) % featured_count(h); app_redraw(); }
@@ -371,29 +381,11 @@ static void update(Screen *s, float dt)
 
 static void draw_showcase_controls(const Home *h);
 
-static void draw_nav(const Home *h)
-{
-    ui_brand(THEME_MARGIN, 44, 58);
-    const char *account = g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Account") : "Sign in";
-    char short_acc[24];
-    snprintf(short_acc, sizeof short_acc, "%.18s%s", account, strlen(account) > 18 ? "\xE2\x80\xA6" : "");
-    const char *labels[NAV_COUNT] = { "Search", "Settings", short_acc };
-    Icon icons[NAV_COUNT] = { ICON_SEARCH, ICON_SETTINGS, ICON_USER };
-    float x = SNTV_UI_W - THEME_MARGIN - (ui_clock_width() > 0 ? ui_clock_width() + 18 : 0);
-    for (int i = NAV_COUNT - 1; i >= 0; i--) {
-        int foc = h->focus_row == -1 && h->focus_nav == i;
-        float w = ui_pill_width(labels[i], 1, 60);
-        x -= w;
-        ui_pill(labels[i], 1, icons[i], x, 44, 60, PILL_SECONDARY, foc);
-        x -= 14;
-    }
-}
-
 static void draw_hero(Home *h, const MetaPreview *p)
 {
     float k = g_app.fx_light ? 1.0f : h->hero_text_t;
     int a = (int)(255 * k);
-    float x = THEME_MARGIN, y = 168 + (1 - k) * 18;
+    float x = LX, y = 168 + (1 - k) * 18;
     float maxw = 860;
     char buf[512];
     const char *logo = app_art_logo(p, buf, sizeof buf);
@@ -440,7 +432,7 @@ static void draw_showcase_controls(const Home *h)
     if (!n) return;
     int foc = h->focus_row == FOCUS_SHOWCASE;
     float y = rows_y() - 108;
-    ui_pill("View title", 1, ICON_CHEVRON_RIGHT, THEME_MARGIN, y, 60, PILL_PRIMARY, foc);
+    ui_pill("View title", 1, ICON_CHEVRON_RIGHT, LX, y, 60, PILL_PRIMARY, foc);
     /* page dots at the right, the current one stretched */
     float dw = 10, gap = 10, cur_w = 34, total = (n - 1) * (dw + gap) + cur_w;
     float x = SNTV_UI_W - THEME_MARGIN - total - 44, cy = y + 30;
@@ -460,15 +452,15 @@ static void draw_row(Home *h, int ri, float y)
     Row *r = h->rows[ri];
     int focused_row = h->focus_row == ri;
     float rowk = focused_row ? 1.0f : 0.55f;
-    font_draw(r->title, THEME_MARGIN, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * rowk)));
+    font_draw(r->title, LX, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * rowk)));
     if (r->kind == ROW_CATALOG && r->addon < g_app.n_addons && focused_row) {
         float tw = font_measure(r->title, FONT_M | FONT_B);
-        font_draw(g_app.addons[r->addon].manifest.name, THEME_MARGIN + tw + 18, y + 6, FONT_S, THEME_TEXT_MUTED);
+        font_draw(g_app.addons[r->addon].manifest.name, LX + tw + 18, y + 6, FONT_S, THEME_TEXT_MUTED);
     }
     float cy = y + TITLE_H, cw = card_w(r), ch = card_h(r);
     if (!r->n) {
-        if (r->loading || !r->requested) for (int j = 0; j < 8; j++) ui_skeleton(THEME_MARGIN + j * (cw + GAP), cy, cw, ch, R_CARD);
-        else if (r->failed) font_draw("Couldn't load this catalog. It will retry next time.", THEME_MARGIN, cy + 20, FONT_S, THEME_TEXT_MUTED);
+        if (r->loading || !r->requested) for (int j = 0; j < 8; j++) ui_skeleton(LX + j * (cw + GAP), cy, cw, ch, R_CARD);
+        else if (r->failed) font_draw("Couldn't load this catalog. It will retry next time.", LX, cy + 20, FONT_S, THEME_TEXT_MUTED);
         return;
     }
     int first = (int)(r->scroll_x / (cw + GAP)) - 1;
@@ -477,7 +469,7 @@ static void draw_row(Home *h, int ri, float y)
     /* draw unfocused first so the focused card's shadow and ring sit on top */
     for (int pass = 0; pass < 2; pass++)
         for (int j = first; j < r->n && j < first + visible_cards(r) + 3; j++) {
-            float px = THEME_MARGIN + j * (cw + GAP) - r->scroll_x;
+            float px = LX + j * (cw + GAP) - r->scroll_x;
             if (px > SNTV_UI_W + 40 || px + cw < -40) continue;
             int is_focus = focused_row && r->focus == j;
             int is_prev = h->prev_row == ri && h->prev_col == j && !is_focus;
@@ -537,7 +529,7 @@ static void draw(Screen *s)
         const char *type = hero->type ? (strcmp(hero->type, "series") == 0 ? "Series" : strcmp(hero->type, "movie") == 0 ? "Movie" : hero->type) : "";
         snprintf(line, sizeof line, "%s%s%s%s%s%s%s", hero->name ? hero->name : "", hero->release_info ? "   \xC2\xB7   " : "", hero->release_info ? hero->release_info : "",
                  type[0] ? "   \xC2\xB7   " : "", type, hero->genres.n ? "   \xC2\xB7   " : "", hero->genres.n ? hero->genres.v[0] : "");
-        font_draw_fit(line, THEME_MARGIN, 108, FONT_S | FONT_B, THEME_TEXT_DIM, SNTV_UI_W - 2 * THEME_MARGIN - 640);
+        font_draw_fit(line, LX, 108, FONT_S | FONT_B, THEME_TEXT_DIM, SNTV_UI_W - LX - THEME_MARGIN - 640);
     }
 
     gfx_clip_push(0, rows_y() - 24, SNTV_UI_W, SNTV_UI_H - rows_y() + 24);
@@ -562,7 +554,7 @@ static void draw(Screen *s)
             font_draw_center("Sign in, or install a catalog addon from Settings.", SNTV_UI_W / 2, cy + 90, FONT_S, THEME_TEXT_DIM);
         }
     }
-    draw_nav(h);
+    rail_draw(RAIL_HOME, h->focus_row == -1 ? h->focus_nav : -1);
 }
 
 /* ---- input ---- */
@@ -588,26 +580,20 @@ static int key(Screen *s, KeyAction a)
         case KEY_UP: h->focus_row = -1; return 1;
         case KEY_DOWN: { int r = next_visible(h, -1, 1); if (r >= 0) move_focus(h, r, -1); return 1; }
         case KEY_OK: { const MetaPreview *m = hero_item(h); if (m) app_push(screen_detail_create(m)); return 1; }
-        case KEY_BACK: g_app.quit = 1; return 1;
+        case KEY_BACK: h->focus_row = -1; h->focus_nav = RAIL_HOME; return 1;
         default: return 1;
         }
     }
-    if (h->focus_row == -1) {
-        switch (a) {
-        case KEY_LEFT: if (h->focus_nav > 0) h->focus_nav--; return 1;
-        case KEY_RIGHT: if (h->focus_nav < NAV_COUNT - 1) h->focus_nav++; return 1;
-        case KEY_DOWN: {
-            if (g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->focus_row = FOCUS_SHOWCASE; return 1; }
-            int n = next_visible(h, -1, 1); if (n >= 0) move_focus(h, n, -1); return 1;
-        }
-        case KEY_OK:
-            if (h->focus_nav == NAV_SEARCH) app_push(screen_search_create());
-            else if (h->focus_nav == NAV_SETTINGS) app_push(screen_settings_create());
-            else app_push(g_app.auth_key ? screen_settings_create() : screen_login_create());
+    if (h->focus_row == -1) {   /* the side rail */
+        int r = rail_key(a, &h->focus_nav, RAIL_HOME);
+        if (r == 2) {   /* Right: back into the content */
+            if (g_app.home_style == HOME_SHOWCASE && featured_count(h)) h->focus_row = FOCUS_SHOWCASE;
+            else { int n = next_visible(h, -1, 1); if (n >= 0) move_focus(h, n, -1); }
             return 1;
-        case KEY_BACK: return 0;
-        default: return 1;
         }
+        if (r == 1) return 1;
+        if (a == KEY_BACK) { g_app.quit = 1; return 1; }
+        return 0;
     }
     Row *r = h->rows[h->focus_row];
     switch (a) {
@@ -617,12 +603,15 @@ static int key(Screen *s, KeyAction a)
         move_focus(h, n >= 0 ? n : -1, -1); return 1;
     }
     case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) { move_focus(h, n, -1); return 1; } return 0; }
-    case KEY_LEFT: if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1); return 1;
+    case KEY_LEFT:
+        if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1);
+        else { h->focus_nav = RAIL_HOME; move_focus(h, -1, -1); }   /* first card: the rail */
+        return 1;
     case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
     case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
     case KEY_BACK:
         if (h->focus_row != next_visible(h, -1, 1) || r->focus > 0) { r->focus = 0; move_focus(h, next_visible(h, -1, 1), 0); return 1; }
-        g_app.quit = 1;
+        h->focus_nav = RAIL_HOME; move_focus(h, -1, -1);   /* then the rail; Back there leaves the app */
         return 1;
     default: return 0;
     }
