@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.7
+
+First fixes from a real LG TV (QNED, webOS): the app installs from the Homebrew Channel,
+starts, reaches the network and shows the sign-in code.
+
+- **QR sign-in fixed.** The code check now sends `type=Read` the way Stremio's own apps
+  do; without it the service answered "Invalid or expired token" and the app gave up
+  (and hid the QR code) right away. An error from the service while waiting now means
+  "not approved yet": the QR stays up and the app keeps checking, and after five minutes
+  it quietly asks for a fresh code.
+- The sign-in screen shows the exact address the service returns for entering the code,
+  instead of a hard-coded one.
+
 ## 0.4.6
 
 - **Picture-in-picture.** Back in the player now parks the video in the bottom-right

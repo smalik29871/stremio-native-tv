@@ -187,7 +187,7 @@ static void test_api(void)
     CHECK(STREQ(code, "AB12CD") && STREQ(link, "https://www.stremio.com/link/AB12CD"));
     CHECK(api_parse_link_create("{\"code\":\"ZZ\"}", code, sizeof code, link, sizeof link, qr, sizeof qr, &err) == 0 && STREQ(code, "ZZ"));
     CHECK(api_parse_link_create("{\"error\":{\"message\":\"nope\"}}", code, sizeof code, link, sizeof link, qr, sizeof qr, &err) == -1);
-    CHECK(STREQ(api_url_link_read("AB 1", rb, sizeof rb), "https://link.stremio.com/api/v2/read?code=AB%201"));
+    CHECK(STREQ(api_url_link_read("AB 1", rb, sizeof rb), "https://link.stremio.com/api/v2/read?type=Read&code=AB%201"));
     char *k = NULL;
     CHECK(api_parse_link_read("{\"result\":{\"authKey\":\"KEY\"}}", &k, &err) == 0 && STREQ(k, "KEY"));
     free(k);

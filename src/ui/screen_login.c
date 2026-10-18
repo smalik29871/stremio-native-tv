@@ -33,6 +33,7 @@ struct Login {
     int qr_ready;
     float next_poll, started;
     int polls;
+    int logged_pending;       /* the "not approved yet" answer was logged once */
     char *pending_key;
 };
 
@@ -67,6 +68,9 @@ static void on_user(HttpResponse *r, void *user)
     free(email);
 }
 
+static void start_link(Login *l);
+#define LINK_CODE_LIFETIME_S 300.0f   /* ask for a fresh code after this long */
+
 static void on_link_read(HttpResponse *r, void *user)
 {
     Req *q = user;
@@ -85,8 +89,12 @@ static void on_link_read(HttpResponse *r, void *user)
         http_request_async(api_url_get_user(), body, on_user, q2);
         free(body);
     } else if (rc < 0) {
-        snprintf(l->message, sizeof l->message, "Link expired (%s). Press OK for a new code.", err.message);
-        l->qr_ready = 0;
+        /* The service answers with an error until the phone approves, so keep
+         * polling; only a code older than the service's lifetime is renewed. */
+        if (!l->logged_pending) { LOGI("link: not approved yet (%ld %s)", r->status, err.message); l->logged_pending = 1; }
+        if (g_app.time - l->started > LINK_CODE_LIFETIME_S) { LOGI("link: code is %.0fs old, asking for a new one", g_app.time - l->started); start_link(l); }
+    } else if (r->status != 200 && r->status != 0) {
+        LOGW("link: read returned HTTP %ld", r->status);
     }
     app_redraw();
 }
@@ -106,12 +114,14 @@ static void on_link_create(HttpResponse *r, void *user)
         app_redraw();
         return;
     }
+    LOGI("link: code %s, link %s", l->code, l->link[0] ? l->link : "(none)");
     const char *content = l->link[0] ? l->link : l->code;
     uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
     l->qr_ready = qrcodegen_encodeText(content, tmp, l->qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, 10, qrcodegen_Mask_AUTO, true);
     l->started = g_app.time;
     l->next_poll = g_app.time + 3.0f;
     l->polls = 0;
+    l->logged_pending = 0;
     l->message[0] = 0;
     app_redraw();
 }
@@ -130,7 +140,7 @@ static void start_link(Login *l)
 static void poll_link(Login *l)
 {
     if (l->busy || !l->code[0]) return;
-    if (l->polls++ > 150) { snprintf(l->message, sizeof l->message, "Code expired. Press OK for a new one."); l->qr_ready = 0; l->code[0] = 0; return; }
+    if (l->polls++ > 150) { LOGI("link: polled long enough, asking for a new code"); start_link(l); return; }
     l->busy = 1;
     char url[400];
     api_url_link_read(l->code, url, sizeof url);
@@ -222,13 +232,16 @@ static void draw(Screen *s)
         float tx = qx + qs + 120, tw = SNTV_UI_W - tx - THEME_MARGIN;
         font_draw("Sign in with your phone", tx, 200, FONT_XL | FONT_B, THEME_TEXT);
         font_draw_wrapped("Your addons, Library and Continue Watching follow you here. No typing with the remote.", tx, 280, FONT_S, THEME_TEXT_DIM, tw, 2);
-        const char *steps[3] = { "Scan the code with your phone's camera", "Or open stremio.com/link and enter the code", "Approve, and this TV signs in by itself" };
+        /* step 2 shows the address the service itself handed us, never a guess */
+        char open_step[400];
+        snprintf(open_step, sizeof open_step, "Or open %s on any device", l->link[0] ? l->link : "the link page");
+        const char *steps[3] = { "Scan the code with your phone's camera", open_step, "Approve, and this TV signs in by itself" };
         for (int i = 0; i < 3; i++) {
             float sy = 380 + i * 64;
             gfx_circle(tx + 22, sy + 22, 22, RGBA(0xFF, 0xFF, 0xFF, 0x16));
             char num[4]; snprintf(num, sizeof num, "%d", i + 1);
             font_draw_center(num, tx + 22, sy + (44 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_ACCENT2);
-            font_draw(steps[i], tx + 64, sy + (44 - font_height(FONT_S)) / 2, FONT_S, THEME_TEXT);
+            font_draw_fit(steps[i], tx + 64, sy + (44 - font_height(FONT_S)) / 2, FONT_S, THEME_TEXT, SNTV_UI_W - THEME_MARGIN - tx - 64);
         }
         if (l->code[0]) {
             float cx = tx, cy = 590;

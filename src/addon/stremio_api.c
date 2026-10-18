@@ -43,7 +43,7 @@ const char *api_url_link_read(const char *code, char *buf, size_t n)
 {
     char enc[128];
     http_url_encode(code, enc, sizeof enc);
-    snprintf(buf, n, "%s/read?code=%s", link_base(), enc);
+    snprintf(buf, n, "%s/read?type=Read&code=%s", link_base(), enc);
     return buf;
 }
 
