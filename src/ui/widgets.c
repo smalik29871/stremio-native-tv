@@ -585,6 +585,27 @@ void ui_peek_step(Peek *p, const MetaPreview *m, float dt)
     app_redraw();
 }
 
+/* The panel's full width and side for a card drawn at (cx, cw) */
+static float peek_geom(float cw, float ch, float cx, float min_x, float max_x, float *gap, int *right)
+{
+    float pw = ch * 1.7f;
+    if (pw < 440) pw = 440;
+    if (pw > 620) pw = 620;
+    *gap = g_theme.focus_style == FOCUS_FRAME ? 18 : 12;
+    *right = cx + cw + *gap + pw <= max_x || cx - *gap - pw < min_x;
+    (void)cw;
+    return pw;
+}
+
+float ui_peek_room(const Peek *p, const MetaPreview *m, float cx, float cw, float ch, float min_x, float max_x, int *right)
+{
+    *right = 1;
+    if (p->t <= 0.01f || !m || strcmp(p->id, m->id ? m->id : "") != 0) return 0;
+    float gap, pw = peek_geom(cw, ch, cx, min_x, max_x, &gap, right);
+    float e = 1 - (1 - p->t) * (1 - p->t) * (1 - p->t);
+    return (gap + pw) * e;
+}
+
 void ui_peek_draw(const Peek *p, const MetaPreview *m, float cx, float cy, float cw, float ch, float min_x, float max_x)
 {
     if (p->t <= 0.01f || !m || strcmp(p->id, m->id ? m->id : "") != 0) return;
@@ -595,10 +616,8 @@ void ui_peek_draw(const Peek *p, const MetaPreview *m, float cx, float cy, float
     const MetaPreview *g = d && d->genres.n ? d : m;
 
     float e = 1 - (1 - p->t) * (1 - p->t) * (1 - p->t);
-    float pw = ch * 1.7f, gap = g_theme.focus_style == FOCUS_FRAME ? 18 : 12;
-    if (pw < 440) pw = 440;
-    if (pw > 620) pw = 620;
-    int right = cx + cw + gap + pw <= max_x || cx - gap - pw < min_x;
+    float gap; int right;
+    float pw = peek_geom(cw, ch, cx, min_x, max_x, &gap, &right);
     float w = pw * e, x = right ? cx + cw + gap : cx - gap - w, y = cy, h = ch;
 
     /* the panel, then its edge in the theme's language */

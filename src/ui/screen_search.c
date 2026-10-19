@@ -337,10 +337,19 @@ static void draw(Screen *sc)
     }
     gfx_clip_push(gx - 30, gy + 40, grid_w + 60, SNTV_UI_H - gy - 40);
     float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
+    /* details open on the focused card: the others in its row slide aside to make room */
+    float room = 0; int room_right = 1, room_row = -1;
+    if (s->focus_grid == 1 && s->grid_focus < s->n) {
+        float sc = ui_focus_scale(g_app.fx_light ? 1.0f : s->focus_t), w2 = CELL_W * sc;
+        float fx = gx + (s->grid_focus % nc) * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
+        room = ui_peek_room(&s->peek, &s->results[s->grid_focus], fx, w2, CELL_H * sc, gx - 30, gx + grid_w + 30, &room_right);
+        room_row = s->grid_focus / nc;
+    }
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < s->n; i++) {
             int r = i / nc, c = i % nc;
             float px = gx + c * (CELL_W + CELL_GAP), py = gy + 60 + r * row_h - s->grid_scroll;
+            if (room > 0 && r == room_row && (room_right ? i > s->grid_focus : i < s->grid_focus)) px += room_right ? room : -room;
             if (py > SNTV_UI_H || py + row_h < gy) continue;
             int foc = s->focus_grid == 1 && s->grid_focus == i;
             if ((pass == 1) != foc) continue;

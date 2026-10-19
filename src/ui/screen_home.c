@@ -557,10 +557,18 @@ static void draw_row(Home *h, int ri, float y, float alpha)
     char buf[512];
     float px_peek = 0, f_peek = 0;
     const MetaPreview *m_peek = NULL;
+    /* details open on the focused card: its neighbours slide aside to make room */
+    float room = 0; int room_right = 1;
+    if (focused_row && r->kind != ROW_CONTINUE && r->focus < r->n) {
+        float fpx = LX + r->focus * (cw + GAP) - r->scroll_x + nudge(h, 1);
+        float sc = ui_focus_scale(g_app.fx_light ? 1.0f : h->focus_t), w2 = cw * sc;
+        room = ui_peek_room(&h->peek, &r->metas[r->focus], fpx - (w2 - cw) / 2, w2, ch * sc, LX, SNTV_UI_W - 40, &room_right);
+    }
     /* draw unfocused first so the focused card's shadow and ring sit on top */
     for (int pass = 0; pass < 2; pass++)
         for (int j = first; j < r->n && j < first + visible_cards(r) + 3; j++) {
             float px = LX + j * (cw + GAP) - r->scroll_x + (focused_row ? nudge(h, 1) : 0);
+            if (room > 0 && (room_right ? j > r->focus : j < r->focus)) px += room_right ? room : -room;
             if (px > SNTV_UI_W + 40 || px + cw < -40) continue;
             int is_focus = focused_row && r->focus == j;
             int is_prev = h->prev_row == ri && h->prev_col == j && !is_focus;
@@ -604,7 +612,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
             }
         }
     gfx_set_alpha(alpha);
-    if (m_peek) {   /* over the neighbours, after both passes */
+    if (m_peek) {   /* in the room its neighbours made, after both passes */
         float sc = ui_focus_scale(f_peek), w2 = cw * sc, h2 = ch * sc;
         ui_peek_draw(&h->peek, m_peek, px_peek - (w2 - cw) / 2, cy - (h2 - ch) / 2 - ui_focus_lift(f_peek), w2, h2, LX, SNTV_UI_W - 40);
     }

@@ -423,10 +423,19 @@ static void draw(Screen *s)
         font_draw(e->failed ? "This list could not be loaded. It will retry when you come back." : "Nothing in this list.", gx, gy + 40, FONT_S, THEME_TEXT_DIM);
     }
     float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
+    /* details open on the focused card: the others in its row slide aside to make room */
+    float room = 0; int room_right = 1, room_row = -1;
+    if (e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
+        float sc = ui_focus_scale(g_app.fx_light ? 1.0f : e->focus_t), w2 = CELL_W * sc;
+        float fx = gx + (e->focus % COLS) * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
+        room = ui_peek_room(&e->peek, &e->items[e->focus], fx, w2, CELL_H * sc, gx, SNTV_UI_W - 40, &room_right);
+        room_row = e->focus / COLS;
+    }
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < e->n; i++) {
             int r = i / COLS, c = i % COLS;
             float px = gx + c * (CELL_W + CELL_GAP), py = gy + r * row_h - e->scroll;
+            if (room > 0 && r == room_row && (room_right ? i > e->focus : i < e->focus)) px += room_right ? room : -room;
             if (py > SNTV_UI_H || py + row_h < gy - 20) continue;
             int foc = e->zone == Z_GRID && e->rail_focus < 0 && e->focus == i;
             if ((pass == 1) != foc) continue;

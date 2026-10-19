@@ -72,8 +72,8 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
 /* Off while drawing cards that are only pictures (Settings previews): screens open out of
  * the last focused card, which must be one the viewer can press. */
 void ui_card_capture(int on);
-/* Details on a focused card: after the card has been focused for PEEK_DWELL seconds a
- * panel slides open beside it. Step from update() (it asks for the full details then),
+/* Details on a focused card: after the card has been focused for PEEK_DWELL seconds the
+ * card grows a panel beside it and its neighbours make room (ui_peek_room). Step from update() (it asks for the full details then),
  * draw from draw() (reads caches only). t is how far the panel is open, 0..1. */
 #define PEEK_DWELL 0.6f
 typedef struct Peek { char id[128]; float since, t; int asked; } Peek;
@@ -82,6 +82,9 @@ void  ui_peek_step(Peek *p, const struct MetaPreview *m, float dt);
 /* The card's rectangle as drawn (focus scale included); the panel opens right of it,
  * or left when it would cross max_x. */
 void  ui_peek_draw(const Peek *p, const struct MetaPreview *m, float cx, float cy, float cw, float ch, float min_x, float max_x);
+/* How far the open panel pushes the cards beside it, and to which side (*right: the
+ * cards after it move right; else the cards before it move left). Same arguments. */
+float ui_peek_room(const Peek *p, const struct MetaPreview *m, float cx, float cw, float ch, float min_x, float max_x, int *right);
 /* While OK is held on a long-press screen: "Hold for options" with a bar that fills,
  * then "Release for options". Drawn in place of the line under the focused card;
  * returns 1 when it drew (the caller skips that line). */

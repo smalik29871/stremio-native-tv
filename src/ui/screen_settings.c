@@ -286,7 +286,7 @@ static const char *row_desc(int id)
     case IT_BG: return "A tint for the screens behind the artwork.";
     case IT_ACCENT: return "Focus, highlights and progress.";
     case IT_HOME_STYLE: return "How much room the focused title's artwork takes.";
-    case IT_CARD_DETAILS: return "Rating, runtime and synopsis after a moment on a card.";
+    case IT_CARD_DETAILS: return "After a moment on a card it widens with the rating, runtime and synopsis; the cards beside it make room.";
     case IT_HIDE_WATCHED: return "Films and series you finished leave the catalog rows.";
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
     case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
