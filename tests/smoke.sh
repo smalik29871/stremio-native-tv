@@ -69,11 +69,11 @@ run upnext_credits 300 "right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME="$(h
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run search_keyboard 200 "search,ok" SNTV_PHONE_HOST=192.168.1.20
-run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down"
-run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok"
-run diagnostics_filter 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,left,left"
-run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,ok"
-run diagnostics_prev_qr 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,blue,ok"
+run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
+run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
+run diagnostics_filter 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,left,left"
+run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,ok"
+run diagnostics_prev_qr 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,blue,ok"
 run settings_more 340 "left,down,down,down,down,down,ok,down,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
 run welcome 90 "" HOME="$(home_with fresh '{}')"
@@ -85,7 +85,7 @@ MEM="$(home_with memory '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_pick_tracks 520 "right,ok,down,down,ok,ok,down,right,right,right,right,ok,down,down,ok,left,ok,down,down,down,down,ok" HOME="$MEM"
 run player_remembered 300 "right,ok,down,down,ok,ok" HOME="$MEM"
 run home_oled 150 "right,right" HOME="$(home_with oled '{"oled":1,"setupDone":1}')"
-run settings_subs_style 340 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,right"
+run settings_subs_style 340 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,right"
 run player_cue_yellow 300 "right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with yellow '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":2,"subsSize":2}')"
 run player_cue_boxed 300 "right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with boxed '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":3}')"
 P='right,ok,down,down,ok,ok,back'
@@ -142,7 +142,7 @@ BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"
 run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
-run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
+run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 # no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
 if [ -n "${FAKE_TORRENT_HASH:-}" ]; then
 run p2p_playing 420 "right,ok,down,down,ok,ok" HOME="$(home_with p2p1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=1
@@ -169,7 +169,7 @@ run progress_merge 200 "right" HOME="$H" SNTV_API_URL="http://127.0.0.1:$PORT"
 grep -q '"_id":"tt0903747".*"timeOffset":2000000' "$FAKE_PUT_LOG" || { echo "newer local progress was not kept and resent"; exit 1; }
 run break_video 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:8765"}')" SNTV_NOW=12:00
 # a YouTube link typed into Settings is saved by the TV itself (QuickJS runs the solver), then plays at the break with no helper
-run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
+run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
 grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
 run break_yt_play 300 "right,ok,down,down,ok,ok" HOME="$OUT/home_brkyt" SNTV_NOW=12:00
 grep -q "break: playing http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_play.log" || { echo "saved YouTube recording not played"; grep break "$OUT/break_yt_play.log"; exit 1; }
@@ -195,7 +195,7 @@ run update_install 1000 "" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways
 ASR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":0,"breakMethod":1,"breakAsr":1,"breakLat":"43.676","breakLon":"-79.485","breakCity":"Toronto","breakLead":5,"breaksEverywhere":1}'
 run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
 run break_media_length 230 "right,ok,down,down,ok,ok" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
-run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
+run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
 run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_autosync 520 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,ok,ok" SNTV_FAKE_START=200

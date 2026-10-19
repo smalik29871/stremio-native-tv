@@ -41,17 +41,25 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "Your own keys for services that need one. Each unlocks a feature; nothing is asked without a key.",
     "A PIN that keeps Settings closed and adult addons out of the catalogs.",
     "Logs, device information and setup." };
-static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_HOME, ICON_LIST, ICON_LIBRARY, ICON_LINK, ICON_LOCK, ICON_INFO };
+static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_PALETTE, ICON_LIST, ICON_LIBRARY, ICON_KEY, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
-       IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
+       IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
+/* Section headings inside a category: rows of their own that focus skips. */
+enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
+       SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_COUNT };
+static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio account", "Torrents", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
+    "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
+    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
+#define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL };
 enum { MAX_ROWS = 160 };
-#define ROW_H 88.0f
+#define ROW_H 100.0f
+#define SEC_H 70.0f
 #define COL_X 560.0f
 #define ROWS_TOP 230.0f
 
@@ -72,38 +80,118 @@ typedef struct {
 static int rows_for(Settings *st, int cat, int *ids, int max)
 {
     int n = 0;
+#define SEC(k) (ids[n++] = IT_SEC_BASE + (k))
     switch (cat) {
     case CAT_ACCOUNT:
+        SEC(SEC_STREMIO);
         ids[n++] = IT_ACCOUNT;
         st->n_accounts = app_saved_accounts(st->accounts, 8);
-        for (int i = 0; i < st->n_accounts && n < max; i++) ids[n++] = IT_ACCT_BASE + i;
-        ids[n++] = IT_SERVER;
+        for (int i = 0; i < st->n_accounts && n < max - 2; i++) ids[n++] = IT_ACCT_BASE + i;
+        SEC(SEC_SERVER); ids[n++] = IT_SERVER;
         break;
-    case CAT_PLAYBACK: ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP; ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; break;
+    case CAT_PLAYBACK:
+        SEC(SEC_EPISODES); ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP;
+        SEC(SEC_PLAYER); ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS;
+        break;
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
-    case CAT_LANG: ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL; ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; break;
-    case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT; ids[n++] = IT_P2P; break;
-    case CAT_INTERFACE: ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
-    case CAT_KEYS: ids[n++] = IT_TMDB; ids[n++] = IT_AI_PROVIDER;
+    case CAT_LANG:
+        SEC(SEC_LANGS); ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN;
+        SEC(SEC_SUBS_LOOK); ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE;
+        SEC(SEC_SUBS_SMART); ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL;
+        break;
+    case CAT_SOURCES:
+        SEC(SEC_RANKING); ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO;
+        SEC(SEC_STARTING); ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT;
+        SEC(SEC_FALLBACK); ids[n++] = IT_P2P;
+        break;
+    case CAT_INTERFACE:
+        SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_OLED;
+        SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
+        SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
+        SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; ids[n++] = IT_MEMORY;
+        break;
+    case CAT_KEYS:
+        SEC(SEC_META); ids[n++] = IT_TMDB;
+        SEC(SEC_AI); ids[n++] = IT_AI_PROVIDER;
         if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
         break;
     case CAT_BREAKS:
-        ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
+        SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
         if (g_app.break_sched == BRK_ISLAM) { ids[n++] = IT_BR_METHOD; ids[n++] = IT_BR_ASR; }
-        ids[n++] = IT_BR_LOCATION; ids[n++] = IT_BR_DETECT; ids[n++] = IT_BR_TODAY;
-        ids[n++] = IT_BR_LEAD; ids[n++] = IT_BR_LEN; ids[n++] = IT_BR_SOUND;
+        ids[n++] = IT_BR_WHERE;
+        SEC(SEC_BR_PLACE); ids[n++] = IT_BR_LOCATION; ids[n++] = IT_BR_DETECT; ids[n++] = IT_BR_TODAY;
+        SEC(SEC_BR_ALERT); ids[n++] = IT_BR_LEAD; ids[n++] = IT_BR_LEN; ids[n++] = IT_BR_SOUND;
         if (g_app.break_sound == 1) { ids[n++] = IT_BR_AUDIO; ids[n++] = IT_BR_END; ids[n++] = IT_BR_VIDEO; }
-        ids[n++] = IT_BR_HEALTH; if (g_app.break_health_min) ids[n++] = IT_BR_HEALTH_LEN;
-        ids[n++] = IT_BR_BED; ids[n++] = IT_BR_CUSTOM1; ids[n++] = IT_BR_CUSTOM2; ids[n++] = IT_BR_CUSTOM3; ids[n++] = IT_BR_WHERE;
+        SEC(SEC_BR_MORE); ids[n++] = IT_BR_HEALTH; if (g_app.break_health_min) ids[n++] = IT_BR_HEALTH_LEN;
+        ids[n++] = IT_BR_BED; ids[n++] = IT_BR_CUSTOM1; ids[n++] = IT_BR_CUSTOM2; ids[n++] = IT_BR_CUSTOM3;
         break;
     case CAT_ROWS:
         if (st->rows_seen != g_app.home_rows_version + g_app.addons_version * 1000) { st->n_rows = app_home_rows(st->rows, MAX_ROWS); st->rows_seen = g_app.home_rows_version + g_app.addons_version * 1000; }
         for (int i = 0; i < st->n_rows && n < max; i++) ids[n++] = IT_ROWS_BASE + i;
         break;
     case CAT_ADDONS: ids[n++] = IT_INSTALL; for (int i = 0; i < g_app.n_addons && n < max; i++) ids[n++] = IT_ADDON_BASE + i; break;
-    case CAT_ABOUT: ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; ids[n++] = IT_DIAG; ids[n++] = IT_SETUP; break;
+    case CAT_ABOUT: SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; SEC(SEC_HELP); ids[n++] = IT_DIAG; ids[n++] = IT_SETUP; break;
     }
+#undef SEC
     return n;
+}
+
+/* The line of help under a row's title; NULL when the title and value say it all. */
+static const char *row_desc(int id)
+{
+    switch (id) {
+    case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
+    case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
+    case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
+    case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
+    case IT_CLOCK: return "In the corner of every screen; hidden while a video plays.";
+    case IT_SCRUB: return "The picture follows the timeline while you seek.";
+    case IT_PREF_AUDIO: return "Picked by itself when a video has it.";
+    case IT_PREF_SUBS: return "Picked by itself from the video and your addons.";
+    case IT_SUBS_WHEN: return "Always, or only when the audio is in another language.";
+    case IT_SUBS_SIZE: return "For subtitles from addons and those inside the video.";
+    case IT_SUBS_STYLE: return "Colour, outline or a box behind the text.";
+    case IT_SUBS_SYNC: return "Lines addon subtitles up with the video's own timing.";
+    case IT_QUALITY: return "Which source comes first in the list.";
+    case IT_RES_CAP: return "Recommended sources stay at or below this.";
+    case IT_PREFLIGHT: return "Makes sure a link answers before it is recommended.";
+    case IT_AUTO_REC: return "Skips the list and starts the best match.";
+    case IT_ADDON_WAIT: return "How long autoplay waits for slow addons before choosing.";
+    case IT_P2P: return "When TorBox has no cached copy. Peers see your IP while it plays.";
+    case IT_THEME: return "Colours, type and how focus looks.";
+    case IT_OLED: return "No grey behind the screens; kind to OLED panels.";
+    case IT_HOME_STYLE: return "How much room the focused title's artwork takes.";
+    case IT_CARD_DETAILS: return "Rating, runtime and synopsis after a moment on a card.";
+    case IT_HIDE_WATCHED: return "Films and series you finished leave the catalog rows.";
+    case IT_BLUR: return "Episode stills stay blurred until you watch them.";
+    case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
+    case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
+    case IT_AMBIENT: return "Backdrops drift with a big clock when the remote is quiet.";
+    case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
+    case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";
+    case IT_AUTO_UPDATE: return "At a quiet moment with a countdown, never while something plays.";
+    case IT_BR_ON: return "Playback pauses at the times below.";
+    case IT_BR_SCHED: return "Where break times come from.";
+    case IT_BR_METHOD: return "The angles that set Fajr and Isha.";
+    case IT_BR_WHERE: return "Only during videos, or while browsing too.";
+    case IT_BR_LEAD: return "A banner warns this long before a break.";
+    case IT_BR_LEN: return "How long playback stays paused.";
+    case IT_BR_SOUND: return "What plays when a break starts.";
+    case IT_BR_VIDEO: return "For YouTube links and video recordings; off plays sound only.";
+    case IT_BR_HEALTH: return "A short pause to stand up and stretch.";
+    case IT_BR_BED: return "Playback stops at this time, with a warning first.";
+    case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3: return "A daily break at a time you choose.";
+    default: return NULL;
+    }
+}
+
+static float row_h(int id) { return IS_SEC(id) ? SEC_H : ROW_H; }
+
+/* Focus never rests on a heading: the next focusable row from i in direction dir, or -1. */
+static int focusable(const int *ids, int n, int i, int dir)
+{
+    for (; i >= 0 && i < n; i += dir) if (!IS_SEC(ids[i])) return i;
+    return -1;
 }
 
 static const char *lang_name(const char *code) { return code[0] ? lang_display(code) : "Off"; }
@@ -116,6 +204,9 @@ static void cycle_lang(char *code, size_t n, int dir)
 
 typedef enum { KIND_ACTION, KIND_TOGGLE, KIND_CHOICE, KIND_MOVABLE } RowKind;
 
+static const char *s_desc;   /* help line of the row being drawn (set per row in draw) */
+static int s_chevron;        /* actions end in an arrow, except addons (their arrows move them) */
+
 static void draw_row(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on)
 {
     float x = COL_X, w = SNTV_UI_W - THEME_MARGIN - COL_X, h = ROW_H - 12;
@@ -123,13 +214,22 @@ static void draw_row(float y, Icon icon, const char *title, const char *value, i
     if (focused) ui_focus_under(x, y, w, h, R_PANEL, 1);
     gfx_rrect(x, y, w, h, R_PANEL, focused ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x0F));
     Color fg = focused ? THEME_ON_FOCUS : THEME_TEXT, dim = focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xA8) : THEME_TEXT_MUTED;
-    gfx_circle(x + 46, y + h / 2, 24, focused ? COLOR_ALPHA(THEME_BG, 0x14) : COLOR_ALPHA(THEME_TEXT, 0x10));
-    ui_icon(icon, x + 46, y + h / 2, 26, fg);
-    font_draw_fit(title, x + 92, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg, w * 0.5f);
+    gfx_circle(x + 46, y + h / 2, 26, focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0x14) : COLOR_ALPHA(THEME_ACCENT, 0x1C));
+    ui_icon(icon, x + 46, y + h / 2, 26, focused ? fg : THEME_ACCENT);
+    /* an action's value is its second line (unless it has help of its own), with an arrow at the end */
+    const char *sub = s_desc;
+    if (kind == KIND_ACTION && !sub && value) { sub = value; value = NULL; }
+    float text_w = kind == KIND_ACTION ? (value ? w * 0.55f - 92 : w - 200) : w - 440;
+    float th = font_height(FONT_S | FONT_B), dh = font_height(FONT_XS);
+    if (sub) {
+        float ty = y + (h - th - dh - 4) / 2;
+        font_draw_fit(title, x + 92, ty, FONT_S | FONT_B, fg, text_w);
+        font_draw_fit(sub, x + 92, ty + th + 4, FONT_XS, focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB8) : THEME_TEXT_DIM, text_w);
+    } else font_draw_fit(title, x + 92, y + (h - th) / 2, FONT_S | FONT_B, fg, text_w);
     float rx = x + w - 30;
-    if (kind == KIND_TOGGLE) { ui_toggle(rx - 76, y + (h - 40) / 2, on, 0); return; }
+    if (kind == KIND_TOGGLE) { ui_toggle(rx - 76, y + (h - 40) / 2, on, focused); return; }
     if (kind == KIND_MOVABLE) {   /* shown/hidden toggle plus move arrows */
-        ui_toggle(rx - 76, y + (h - 40) / 2, on, 0);
+        ui_toggle(rx - 76, y + (h - 40) / 2, on, focused);
         ui_icon(ICON_CHEVRON_LEFT, rx - 130, y + h / 2, 22, dim);
         ui_icon(ICON_CHEVRON_RIGHT, rx - 100, y + h / 2, 22, dim);
         if (value) font_draw_fit(value, x + 92 + w * 0.5f + 10, y + (h - font_height(FONT_XS)) / 2, FONT_XS, dim, w * 0.5f - 260);
@@ -138,11 +238,26 @@ static void draw_row(float y, Icon icon, const char *title, const char *value, i
     if (kind == KIND_CHOICE) {
         ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 22, dim);
         float vw = font_measure(value, FONT_S | FONT_B);
-        font_draw(value, rx - 36 - vw, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
+        font_draw(value, rx - 36 - vw, y + (h - th) / 2, FONT_S | FONT_B, fg);
         ui_icon(ICON_CHEVRON_LEFT, rx - 60 - vw, y + h / 2, 22, dim);
         return;
     }
-    if (value) font_draw_fit(value, x + w * 0.52f, y + (h - font_height(FONT_S)) / 2, FONT_S, dim, w * 0.48f - 40);
+    if (s_chevron) ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 22, dim);
+    if (value) {
+        float vw = font_measure(value, FONT_XS), mw = w * 0.45f - 90;
+        if (vw > mw) vw = mw;
+        font_draw_fit(value, rx - 40 - vw, y + (h - dh) / 2, FONT_XS, dim, mw);
+    }
+}
+
+/* A heading in the accent's tone with a hairline to the edge. */
+static void draw_section(float y, const char *name)
+{
+    char up[96]; ui_upper(name, up, sizeof up);
+    float x = COL_X + 4, base = y + SEC_H - 34;
+    font_draw_tracked(up, x, base, FONT_XS | FONT_B, THEME_ACCENT, 1.5f);
+    float tw = font_measure_tracked(up, FONT_XS | FONT_B, 1.5f);
+    gfx_rect(x + tw + 20, base + font_height(FONT_XS | FONT_B) / 2, SNTV_UI_W - THEME_MARGIN - (x + tw + 20), 1, THEME_LINE);
 }
 
 static void finish_edit(Settings *st, int save);
@@ -155,8 +270,14 @@ static void update(Screen *s, float dt)
         char got[600];
         if (phone_take(got, sizeof got)) { snprintf(st->kb.text, sizeof st->kb.text, "%.255s", got); app_toast("Received from your phone"); finish_edit(st, 1); app_redraw(); }
     }
-    int first = st->focus - 7;
-    st->scroll_target = (first < 0 ? 0 : first) * (float)ROW_H;
+    if (st->edit == EDIT_NONE) {   /* keep the focused row inside the pane, two rows from its foot */
+        int ids[MAX_ROWS + 8];
+        int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
+        float yf = 0;
+        for (int i = 0; i < n && i < st->focus; i++) yf += row_h(ids[i]);
+        float t = yf - (SNTV_UI_H - ROWS_TOP - 2.5f * ROW_H);
+        st->scroll_target = t < 0 ? 0 : t;
+    }
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 12);
     if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_light ? 1 : 0; }
     if (st->pane_t < 1) { st->pane_t += dt * 5; if (st->pane_t > 1) st->pane_t = 1; app_redraw(); }
@@ -228,11 +349,14 @@ static void draw(Screen *s)
     gfx_clip_push(COL_X - 40, ROWS_TOP - 20, SNTV_UI_W - COL_X + 40, SNTV_UI_H - ROWS_TOP + 20);
     { float e = 1 - (1 - st->pane_t) * (1 - st->pane_t); gfx_set_translate(40 * (1 - e), 0); }
     float y = ROWS_TOP - st->scroll;
-    for (int i = 0; i < n; i++, y += ROW_H) {
+    for (int i = 0; i < n; y += row_h(ids[i]), i++) {
         if (y + ROW_H < ROWS_TOP - 20 || y > SNTV_UI_H) continue;
         int foc = st->zone == 1 && st->focus == i;
         int id = ids[i];
         char v[300];
+        if (IS_SEC(id)) { draw_section(y, SEC_NAMES[id - IT_SEC_BASE]); continue; }
+        s_desc = row_desc(id);
+        s_chevron = !(id >= IT_ADDON_BASE && id < IT_ACCT_BASE);
         switch (id) {
         case IT_ACCOUNT:
             draw_row(y, ICON_USER, g_app.auth_key ? "Sign out" : "Sign in to Stremio",
@@ -246,19 +370,19 @@ static void draw(Screen *s)
         case IT_SUBS_SIZE: draw_row(y, ICON_SUBS, "Subtitle size", SIZE_NAMES[g_app.subs_size], foc, KIND_CHOICE, 0); break;
         case IT_SUBS_STYLE: draw_row(y, ICON_SUBS, "Subtitle style", SUBS_STYLE_NAMES[g_app.subs_style], foc, KIND_CHOICE, 0); break;
         case IT_SUBS_SYNC: draw_row(y, ICON_SUBS, "Auto-sync subtitles to the file", NULL, foc, KIND_TOGGLE, g_app.subs_autosync); break;
-        case IT_BR_VIDEO: draw_row(y, ICON_PLAY, "Show the video (YouTube and video recordings)", NULL, foc, KIND_TOGGLE, g_app.break_video); break;
+        case IT_BR_VIDEO: draw_row(y, ICON_TV, "Show the video", NULL, foc, KIND_TOGGLE, g_app.break_video); break;
         case IT_P2P: draw_row(y, ICON_SWAP, "P2P fallback on this TV", NULL, foc, KIND_TOGGLE, g_app.p2p_fallback); break;
         case IT_SRC_AUDIO: { char la[96]; snprintf(la, sizeof la, "Sources in my audio language first%s%s%s", lang_known(g_app.pref_audio) ? " (" : "", lang_known(g_app.pref_audio) ? lang_display(g_app.pref_audio) : "", lang_known(g_app.pref_audio) ? ")" : ""); draw_row(y, ICON_AUDIO, la, NULL, foc, KIND_TOGGLE, g_app.src_audio_lang); break; }
         case IT_ADDON_WAIT: if (g_app.addon_wait >= 99) snprintf(v, sizeof v, "Every addon"); else snprintf(v, sizeof v, "%d s", g_app.addon_wait); draw_row(y, ICON_CLOCK, "Autoplay waits for slow addons", v, foc, KIND_CHOICE, 0); break;
-        case IT_SUBS_XL: draw_row(y, ICON_STAR, "Translate with AI when nobody offers my language", NULL, foc, KIND_TOGGLE, g_app.subs_autotranslate); break;
+        case IT_SUBS_XL: draw_row(y, ICON_SPARK, "Translate with AI when nobody offers my language", NULL, foc, KIND_TOGGLE, g_app.subs_autotranslate); break;
         case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
         case IT_SKIP: draw_row(y, ICON_NEXT, "Skip intros and recaps", SKIP_NAMES[g_app.skip_mode], foc, KIND_CHOICE, 0); break;
-        case IT_SUBS_WHEN: draw_row(y, ICON_SUBS, "Turn subtitles on", g_app.subs_always ? "Always" : "Only for other languages", foc, KIND_CHOICE, 0); break;
-        case IT_CLOCK: draw_row(y, ICON_CLOCK, "Clock (every screen; hidden while a video plays)", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0); break;
+        case IT_SUBS_WHEN: draw_row(y, ICON_GLOBE, "Turn subtitles on", g_app.subs_always ? "Always" : "Only for other languages", foc, KIND_CHOICE, 0); break;
+        case IT_CLOCK: draw_row(y, ICON_CLOCK, "Clock", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0); break;
         case IT_QUALITY: draw_row(y, ICON_SWAP, "Sort sources by", QUAL_MODE_NAMES[g_app.quality_mode], foc, KIND_CHOICE, 0); break;
         case IT_RES_CAP: {
             const char *cap = g_app.res_cap >= 2160 ? "Up to 4K" : g_app.res_cap >= 1080 ? "Up to 1080p" : "Up to 720p";
-            draw_row(y, ICON_STAR, "Resolution for recommendations", cap, foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_TV, "Resolution for recommendations", cap, foc, KIND_CHOICE, 0);
             break;
         }
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
@@ -266,24 +390,23 @@ static void draw(Screen *s)
         case IT_THUMBS: draw_row(y, ICON_ASPECT, "Home helper (optional)", g_app.thumb_server ? g_app.thumb_server : "Not needed: the TV makes seek previews and saves YouTube links itself", foc, KIND_ACTION, 0); break;
         case IT_PIN: draw_row(y, ICON_LOCK, g_app.parental_pin[0] ? "Parental PIN" : "Set a parental PIN", g_app.parental_pin[0] ? "Set  \xC2\xB7  OK to remove it (asks for the PIN)" : "Four digits; needed for the switches below", foc, KIND_ACTION, 0); break;
         case IT_PIN_SETTINGS: draw_row(y, ICON_SETTINGS, "Ask for the PIN to open Settings", NULL, foc, KIND_TOGGLE, g_app.pin_settings); break;
-        case IT_HIDE_ADULT: draw_row(y, ICON_LIBRARY, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
+        case IT_HIDE_ADULT: draw_row(y, ICON_EYE, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
         case IT_TMDB: {
             char masked[96] = "Not set  \xC2\xB7  cast photos, age ratings (PG-13, TV-MA)";
             if (tmdb_builtin()) snprintf(masked, sizeof masked, "Built-in key in use  \xC2\xB7  yours replaces it");
             if (g_app.tmdb_key) snprintf(masked, sizeof masked, "%.4s\xE2\x80\xA6%s  \xC2\xB7  cast photos, age ratings on", g_app.tmdb_key, strlen(g_app.tmdb_key) > 4 ? g_app.tmdb_key + strlen(g_app.tmdb_key) - 4 : "");
-            draw_row(y, ICON_LINK, "The Movie Database (TMDB)", masked, foc, KIND_ACTION, 0);
+            draw_row(y, ICON_KEY, "The Movie Database (TMDB)", masked, foc, KIND_ACTION, 0);
             break;
         }
         case IT_AI_PROVIDER: {
-            static const char *WHAT = "AI assistant: ask about a title, describe what you feel like watching, translate subtitles";
-            draw_row(y, ICON_STAR, g_app.ai_provider ? "AI assistant" : WHAT, g_app.ai_provider ? AI_PROVIDER_NAMES[g_app.ai_provider] : "Off  \xC2\xB7  free keys from Groq, OpenRouter or Google", foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_SPARK, "AI assistant", g_app.ai_provider ? AI_PROVIDER_NAMES[g_app.ai_provider] : "Off  \xC2\xB7  free keys from Groq, OpenRouter or Google", foc, KIND_CHOICE, 0);
             break;
         }
         case IT_AI_KEY: {
             char masked[160];
             if (g_app.ai_key) snprintf(masked, sizeof masked, "%.4s\xE2\x80\xA6%s  \xC2\xB7  %s", g_app.ai_key, strlen(g_app.ai_key) > 4 ? g_app.ai_key + strlen(g_app.ai_key) - 4 : "", ai_enabled() ? "on" : "not enough to run");
             else snprintf(masked, sizeof masked, "%s", g_app.ai_provider == AI_CUSTOM ? "Not set (fine for Ollama)" : ai_key_hint(g_app.ai_provider));
-            draw_row(y, ICON_LINK, "AI API key", masked, foc, KIND_ACTION, 0);
+            draw_row(y, ICON_KEY, "AI API key", masked, foc, KIND_ACTION, 0);
             break;
         }
         case IT_AI_BASE: draw_row(y, ICON_LINK, "AI endpoint", g_app.ai_base ? g_app.ai_base : ai_key_hint(AI_CUSTOM), foc, KIND_ACTION, 0); break;
@@ -296,11 +419,11 @@ static void draw(Screen *s)
         case IT_MEMORY: {
             static const char *MEM[] = { "Automatic", "Low", "Normal" };
             snprintf(v, sizeof v, "%s%s%s%s", MEM[g_app.memory_mode], g_app.memory_mode == 0 ? (g_app.low_memory ? " (Low  \xC2\xB7  " : " (Normal  \xC2\xB7  ") : "", g_app.memory_mode == 0 ? mem_reason_text() : "", g_app.memory_mode == 0 ? ")" : "");
-            draw_row(y, ICON_SETTINGS, "Memory use (rows and artwork kept)", v, foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_SETTINGS, "Memory use", v, foc, KIND_CHOICE, 0);
             break;
         }
-        case IT_TRANSITIONS: draw_row(y, ICON_STAR, "Animated screen changes", NULL, foc, KIND_TOGGLE, g_app.transitions); break;
-        case IT_PIP: draw_row(y, ICON_ASPECT, "Picture-in-picture on Back (keeps playing in a corner)", NULL, foc, KIND_TOGGLE, g_app.pip_enabled); break;
+        case IT_TRANSITIONS: draw_row(y, ICON_SPARK, "Animated screen changes", NULL, foc, KIND_TOGGLE, g_app.transitions); break;
+        case IT_PIP: draw_row(y, ICON_ASPECT, "Picture-in-picture", NULL, foc, KIND_TOGGLE, g_app.pip_enabled); break;
         case IT_BR_TEST: draw_row(y, ICON_PLAY, "Try a break now", "See and hear what a break looks like", foc, KIND_ACTION, 0); break;
         case IT_BR_ON: draw_row(y, ICON_CLOCK, "Take breaks", NULL, foc, KIND_TOGGLE, g_app.breaks_on); break;
         case IT_BR_SCHED: draw_row(y, ICON_CALENDAR, "Schedule", BRK_SCHED_NAMES[g_app.break_sched], foc, KIND_CHOICE, 0); break;
@@ -311,21 +434,21 @@ static void draw(Screen *s)
             else snprintf(v, sizeof v, "Not set  \xC2\xB7  needed for sun-based times");
             draw_row(y, ICON_COMPASS, "Location", v, foc, KIND_ACTION, 0);
             break;
-        case IT_BR_DETECT: draw_row(y, ICON_LINK, breaks_detecting() ? "Finding your location\xE2\x80\xA6" : "Find my location from the internet", "Uses ip-api.com; usually right to the city", foc, KIND_ACTION, 0); break;
+        case IT_BR_DETECT: draw_row(y, ICON_GLOBE, breaks_detecting() ? "Finding your location\xE2\x80\xA6" : "Find my location from the internet", "Uses ip-api.com; usually right to the city", foc, KIND_ACTION, 0); break;
         case IT_BR_TODAY: { char t[300]; breaks_describe_today(t, sizeof t); draw_row(y, ICON_CALENDAR, "Today", t, foc, KIND_ACTION, 0); break; }
-        case IT_BR_LEAD: snprintf(v, sizeof v, "%d min before", g_app.break_lead_min); draw_row(y, ICON_CLOCK, "Reminder banner", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_LEAD: snprintf(v, sizeof v, "%d min before", g_app.break_lead_min); draw_row(y, ICON_BELL, "Reminder banner", v, foc, KIND_CHOICE, 0); break;
         case IT_BR_LEN:
             if (g_app.break_len_min < 0) snprintf(v, sizeof v, "%s", g_app.break_sound == 1 ? "Same as the recording" : "Same as the recording (1 min)");
             else if (g_app.break_len_min) snprintf(v, sizeof v, "%d min", g_app.break_len_min);
             else snprintf(v, sizeof v, "Until I press OK");
             draw_row(y, ICON_CLOCK, "Break length", v, foc, KIND_CHOICE, 0);
             break;
-        case IT_BR_SOUND: { static const char *S[] = { "Soft chime", "My own recording", "Silent" }; draw_row(y, ICON_AUDIO, "Sound", S[g_app.break_sound], foc, KIND_CHOICE, 0); break; }
+        case IT_BR_SOUND: { static const char *S[] = { "Soft chime", "My own recording", "Silent" }; draw_row(y, ICON_BELL, "Sound", S[g_app.break_sound], foc, KIND_CHOICE, 0); break; }
         case IT_BR_AUDIO: draw_row(y, ICON_AUDIO, "Recording at the start", !g_app.break_audio ? "Not set  \xC2\xB7  send one from your phone, or a link (adhan, bell, chant)" : strncmp(g_app.break_audio, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_audio, foc, KIND_ACTION, 0); break;
         case IT_BR_END: draw_row(y, ICON_AUDIO, "Recording at the end", !g_app.break_end ? "Not set  \xC2\xB7  played before playback continues (a dua, a closing bell)" : strncmp(g_app.break_end, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_end, foc, KIND_ACTION, 0); break;
         case IT_BR_HEALTH: if (g_app.break_health_min) snprintf(v, sizeof v, "Every %d min of watching", g_app.break_health_min); else snprintf(v, sizeof v, "Off"); draw_row(y, ICON_STAR, "Stretch reminder", v, foc, KIND_CHOICE, 0); break;
         case IT_BR_HEALTH_LEN: snprintf(v, sizeof v, "%d min", g_app.break_health_len); draw_row(y, ICON_STAR, "Stretch length", v, foc, KIND_CHOICE, 0); break;
-        case IT_BR_BED: if (g_app.break_bed >= 0) snprintf(v, sizeof v, "%d:%02d", g_app.break_bed / 60, g_app.break_bed % 60); else snprintf(v, sizeof v, "Off"); draw_row(y, ICON_CLOCK, "Bedtime (playback stops)", v, foc, KIND_CHOICE, 0); break;
+        case IT_BR_BED: if (g_app.break_bed >= 0) snprintf(v, sizeof v, "%d:%02d", g_app.break_bed / 60, g_app.break_bed % 60); else snprintf(v, sizeof v, "Off"); draw_row(y, ICON_MOON, "Bedtime", v, foc, KIND_CHOICE, 0); break;
         case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3: {
             int m = g_app.break_custom[id - IT_BR_CUSTOM1]; char t[32];
             snprintf(t, sizeof t, "My time %d", id - IT_BR_CUSTOM1 + 1);
@@ -335,10 +458,10 @@ static void draw(Screen *s)
         }
         case IT_BR_WHERE: draw_row(y, ICON_HOME, "Breaks apply", g_app.breaks_everywhere ? "Everywhere in the app" : "Only while a video plays", foc, KIND_CHOICE, 0); break;
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
-        case IT_THEME: draw_row(y, ICON_STAR, "Theme", THEME_NAMES[g_app.theme], foc, KIND_CHOICE, 0); break;
+        case IT_THEME: draw_row(y, ICON_PALETTE, "Theme", THEME_NAMES[g_app.theme], foc, KIND_CHOICE, 0); break;
         case IT_CARD_DETAILS: draw_row(y, ICON_INFO, "Show details when a card stays focused", NULL, foc, KIND_TOGGLE, g_app.card_details); break;
         case IT_ACCENT: {
-            draw_row(y, ICON_STAR, "Accent colour", THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_PALETTE, "Accent colour", THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], foc, KIND_CHOICE, 0);
             /* the six swatches, the current one framed */
             float sx = SNTV_UI_W - THEME_MARGIN - 470, sy = y + 23;
             for (int i = 0; i < THEME_ACCENTS; i++) {
@@ -349,17 +472,17 @@ static void draw(Screen *s)
             break;
         }
         case IT_HOME_STYLE: draw_row(y, ICON_HOME, "Home screen", HOME_STYLE_NAMES[g_app.home_style], foc, KIND_CHOICE, 0); break;
-        case IT_HIDE_WATCHED: draw_row(y, ICON_CHECK, "Hide watched titles in catalogs", NULL, foc, KIND_TOGGLE, g_app.hide_watched); break;
+        case IT_HIDE_WATCHED: draw_row(y, ICON_EYE, "Hide watched titles in catalogs", NULL, foc, KIND_TOGGLE, g_app.hide_watched); break;
         case IT_FX:
             snprintf(v, sizeof v, "%s%s", FX_NAMES[g_app.fx_setting], g_app.fx_setting == FX_AUTO ? (g_app.fx_light ? " (Light)" : g_app.frames_measured >= 240 ? " (Full)" : "") : "");
-            draw_row(y, ICON_STAR, "Visual effects", v, foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_SPARK, "Visual effects", v, foc, KIND_CHOICE, 0);
             break;
-        case IT_OLED: draw_row(y, ICON_STAR, "Pure black background (OLED)", NULL, foc, KIND_TOGGLE, g_app.oled); break;
+        case IT_OLED: draw_row(y, ICON_MOON, "Pure black (OLED)", NULL, foc, KIND_TOGGLE, g_app.oled); break;
         case IT_AMBIENT:
             if (g_app.ambient_minutes) snprintf(v, sizeof v, "After %d min", g_app.ambient_minutes); else snprintf(v, sizeof v, "Off");
-            draw_row(y, ICON_STAR, "Screensaver", v, foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_TV, "Screensaver", v, foc, KIND_CHOICE, 0);
             break;
-        case IT_BLUR: draw_row(y, ICON_LIBRARY, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
+        case IT_BLUR: draw_row(y, ICON_EYE, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
         case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log, device info, QR export", foc, KIND_ACTION, 0); break;
         case IT_UPDATE: {
             char v[160];
@@ -368,7 +491,7 @@ static void draw(Screen *s)
             draw_row(y, ICON_RELOAD, "Update", v, foc, KIND_ACTION, 0);
             break;
         }
-        case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Update automatically when nothing is playing", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
+        case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Update automatically", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
         case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         default:
@@ -398,12 +521,37 @@ static void draw(Screen *s)
     gfx_clip_pop();
     if (st->zone == 1 && st->cat != CAT_ABOUT) font_draw("Back: categories", SNTV_UI_W - THEME_MARGIN - font_measure("Back: categories", FONT_XS), 110, FONT_XS, THEME_TEXT_MUTED);
 
+    /* live preview of the theme and accent: a row of cards with the second focused */
+    if (st->zone == 1 && n && (ids[st->focus] == IT_THEME || ids[st->focus] == IT_ACCENT)) {
+        float band = 400, top = SNTV_UI_H - 330;
+        gfx_gradient_v(0, SNTV_UI_H - band, SNTV_UI_W, band - 330, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
+        gfx_rect(0, top, SNTV_UI_W, 330, THEME_BG);
+        char cap[160]; snprintf(cap, sizeof cap, "PREVIEW  \xC2\xB7  %s  \xC2\xB7  %s", THEME_NAMES[g_app.theme], THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent]);
+        font_draw(cap, COL_X, top + 6, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        ui_row_header(1, "Popular movies", NULL, 24, COL_X, top + 44, SNTV_UI_W - THEME_MARGIN, 1);
+        /* posters from the library when there are some, named placeholders otherwise */
+        static const char *const NAMES[] = { "Dune", "Arrival", "Heat", "Alien", "Drive", "Up", "Her" };
+        float cw = 128, ch = 192, gap = 26;
+        int li = 0;
+        for (int i = 0; i < 7; i++) {
+            float x = COL_X + i * (cw + gap);
+            if (x + cw > SNTV_UI_W - THEME_MARGIN) break;
+            const LibraryItem *it = NULL;
+            while (li < g_app.n_library && !it) {
+                const LibraryItem *c = &g_app.library[li++];
+                if (!c->removed && c->poster && *c->poster) it = c;
+            }
+            ui_card(it ? it->poster : NULL, x, top + 100, cw, ch, i == 1 ? 1.0f : 0.0f, 0, it ? it->name : NAMES[i], CARD_MIP);
+        }
+        { float bw = 150, bx = SNTV_UI_W - THEME_MARGIN - bw; ui_pill("Play", 1, ICON_PLAY, bx, top + 6, 44, PILL_PRIMARY, 1); }
+    }
+
     /* live preview of the subtitle look while those rows are focused */
     if (st->zone == 1 && n && (ids[st->focus] == IT_SUBS_SIZE || ids[st->focus] == IT_SUBS_STYLE)) {
         float band = 300;
         gfx_gradient_v(0, SNTV_UI_H - band, SNTV_UI_W, band, COLOR_ALPHA(THEME_BG, 0), COLOR_ALPHA(THEME_BG, 0xF4));
         gfx_rect(0, SNTV_UI_H - 200, SNTV_UI_W, 200, COLOR_ALPHA(THEME_BG, 0xF4));
-        font_draw_center("PREVIEW  \xC2\xB7  applies to subtitles from addons; the TV draws embedded ones itself",
+        font_draw_center("PREVIEW  \xC2\xB7  subtitles inside the video follow it too, in the TV's own lettering",
                          SNTV_UI_W / 2, SNTV_UI_H - 190, FONT_XS | FONT_B, THEME_TEXT_MUTED);
         ui_subtitle("Subtitles will look like this.\nTwo lines, the way films do it.", SNTV_UI_H - 40, g_app.subs_size, g_app.subs_style);
     }
@@ -721,16 +869,20 @@ static int key(Screen *s, KeyAction a)
         switch (a) {
         case KEY_UP: if (st->cat > 0) { st->cat--; st->focus = 0; st->scroll = 0; } return 1;
         case KEY_DOWN: if (st->cat < CAT_COUNT - 1) { st->cat++; st->focus = 0; st->scroll = 0; } return 1;
-        case KEY_RIGHT: case KEY_OK: if (n) { st->zone = 1; st->focus = 0; } return 1;
+        case KEY_RIGHT: case KEY_OK: { int f = focusable(ids, n, 0, 1); if (f >= 0) { st->zone = 1; st->focus = f; } return 1; }
         case KEY_BACK: app_pop(); return 1;
         default: return 0;
         }
     }
-    if (!n) { st->zone = 0; return 1; }
+    if (st->focus >= n || IS_SEC(ids[st->focus])) {   /* the rows changed under the focus */
+        int f = focusable(ids, n, st->focus < n ? st->focus : n - 1, 1);
+        st->focus = f >= 0 ? f : focusable(ids, n, n - 1, -1);
+    }
+    if (!n || st->focus < 0) { st->zone = 0; st->focus = 0; return 1; }
     int id = ids[st->focus];
     switch (a) {
-    case KEY_UP: if (st->focus > 0) st->focus--; st->confirm_remove = -1; return 1;
-    case KEY_DOWN: if (st->focus < n - 1) { st->focus++; st->confirm_remove = -1; return 1; } return 0;
+    case KEY_UP: { int f = focusable(ids, n, st->focus - 1, -1); if (f >= 0) st->focus = f; st->confirm_remove = -1; return 1; }
+    case KEY_DOWN: { int f = focusable(ids, n, st->focus + 1, 1); if (f >= 0) { st->focus = f; st->confirm_remove = -1; return 1; } return 0; }
     case KEY_LEFT: if (!adjust(st, id, -1)) st->zone = 0; return 1;
     case KEY_RIGHT: adjust(st, id, 1); return 1;
     case KEY_BACK: st->zone = 0; st->confirm_remove = -1; return 1;

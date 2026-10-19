@@ -161,6 +161,44 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         gfx_rrect(cx + s * 0.22f - t, cy - s * 0.46f, t, s * 0.22f, t / 2, c);
         gfx_rrect(cx - s * 0.20f, cy + s * 0.06f, s * 0.16f, s * 0.14f, s * 0.03f, c);
         break;
+    case ICON_PALETTE:   /* contrast: a ring with its left half filled */
+        gfx_rrect_ring(cx - s * 0.40f, cy - s * 0.40f, s * 0.80f, s * 0.80f, s * 0.40f, t, c);
+        ui_arc(cx, cy, s * 0.17f, s * 0.34f, 0.5f, 0.5f, c);
+        break;
+    case ICON_EYE:
+        gfx_rrect_ring(cx - s * 0.44f, cy - s * 0.24f, s * 0.88f, s * 0.48f, s * 0.24f, t, c);
+        gfx_circle(cx, cy, s * 0.13f, c);
+        break;
+    case ICON_MOON:   /* a crescent: most of a thick ring */
+        ui_arc(cx + s * 0.02f, cy, s * 0.26f, s * 0.2f, 0.42f, 0.66f, c);
+        break;
+    case ICON_SPARK:   /* a four-point sparkle and a small one */
+        gfx_line(cx - s * 0.06f, cy - s * 0.40f, cx - s * 0.06f, cy + s * 0.32f, t * 1.2f, c);
+        gfx_line(cx - s * 0.40f, cy - s * 0.04f, cx + s * 0.28f, cy - s * 0.04f, t * 1.2f, c);
+        gfx_circle(cx - s * 0.06f, cy - s * 0.04f, s * 0.12f, c);
+        gfx_line(cx + s * 0.30f, cy + s * 0.16f, cx + s * 0.30f, cy + s * 0.40f, t * 0.8f, c);
+        gfx_line(cx + s * 0.18f, cy + s * 0.28f, cx + s * 0.42f, cy + s * 0.28f, t * 0.8f, c);
+        break;
+    case ICON_GLOBE:
+        gfx_rrect_ring(cx - s * 0.40f, cy - s * 0.40f, s * 0.80f, s * 0.80f, s * 0.40f, t, c);
+        gfx_rrect_ring(cx - s * 0.16f, cy - s * 0.40f, s * 0.32f, s * 0.80f, s * 0.16f, t * 0.8f, c);
+        gfx_line(cx - s * 0.38f, cy, cx + s * 0.38f, cy, t * 0.8f, c);
+        break;
+    case ICON_TV:
+        gfx_rrect_ring(cx - s * 0.42f, cy - s * 0.32f, s * 0.84f, s * 0.54f, s * 0.06f, t, c);
+        gfx_line(cx - s * 0.18f, cy + s * 0.36f, cx + s * 0.18f, cy + s * 0.36f, t, c);
+        break;
+    case ICON_KEY:
+        gfx_rrect_ring(cx - s * 0.42f, cy - s * 0.18f, s * 0.36f, s * 0.36f, s * 0.18f, t, c);
+        gfx_line(cx - s * 0.06f, cy, cx + s * 0.40f, cy, t, c);
+        gfx_line(cx + s * 0.24f, cy, cx + s * 0.24f, cy + s * 0.16f, t, c);
+        gfx_line(cx + s * 0.38f, cy, cx + s * 0.38f, cy + s * 0.20f, t, c);
+        break;
+    case ICON_BELL:
+        gfx_rrect(cx - s * 0.28f, cy - s * 0.32f, s * 0.56f, s * 0.56f, s * 0.26f, c);
+        gfx_rrect(cx - s * 0.38f, cy + s * 0.12f, s * 0.76f, s * 0.14f, s * 0.05f, c);
+        gfx_circle(cx, cy + s * 0.36f, s * 0.08f, c);
+        break;
     }
 }
 
@@ -725,12 +763,15 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
 
 void ui_toggle(float x, float y, int on, int focused)
 {
+    /* focused: drawn on a focused row, so in the row's own fill and text colours */
     float w = 76, h = 40, r = theme_pill_r(h);
-    if (on) gfx_rrect_grad_h(x, y, w, h, r, THEME_ACCENT, THEME_ACCENT2);
-    else gfx_rrect(x, y, w, h, r, THEME_SURFACE_HI);
-    if (focused) gfx_rrect_ring(x, y, w, h, r, 3, THEME_TEXT);
-    float k = h / 2 - 5, kx = on ? x + w - h / 2 : x + h / 2;
-    gfx_rrect(kx - k, y + h / 2 - k, 2 * k, 2 * k, theme_pill_r(2 * k) * 0.8f, on ? THEME_ON_ACCENT : THEME_TEXT);
+    Color track = focused ? (on ? THEME_ON_FOCUS : COLOR_ALPHA(THEME_ON_FOCUS, 0x30)) : on ? THEME_ACCENT : THEME_SURFACE_HI;
+    Color knob = focused ? (on ? THEME_FOCUS : THEME_ON_FOCUS) : on ? THEME_ON_ACCENT : THEME_TEXT_DIM;
+    if (on && !focused && THEME_ACCENT2 != THEME_ACCENT) gfx_rrect_grad_h(x, y, w, h, r, THEME_ACCENT, THEME_ACCENT2);
+    else gfx_rrect(x, y, w, h, r, track);
+    if (!on && !focused) gfx_rrect_ring(x, y, w, h, r, 2, THEME_LINE);
+    float k = h / 2 - 6, kx = on ? x + w - h / 2 : x + h / 2;
+    gfx_rrect(kx - k, y + h / 2 - k, 2 * k, 2 * k, theme_pill_r(2 * k) * 0.8f, knob);
 }
 
 void ui_progress(float x, float y, float w, float h, float frac, Color fill)
