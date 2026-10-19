@@ -135,17 +135,21 @@ static void on_trailer_stream(const char *url, const char *error, void *user)
     Screen *top = app_top();
     if (!top || strcmp(top->name, "detail") != 0 || strcmp(((Detail *)top->st)->preview.id, g_trailer.id) != 0) return;
     const MetaPreview *meta = &((Detail *)top->st)->preview;
-    PlayCandidate *c = calloc(1, sizeof *c);
-    char local[4600];
-    youtube_player_url(url, local, sizeof local);
-    url = local;
-    c->url = strdup(url);
-    c->label = strdup("Trailer");
+    static char urls[3][4608];
+    int nu = youtube_player_urls(url, g_trailer.yt, urls, 3);
+    if (!nu) { app_toast("The trailer could not be opened"); return; }
+    PlayCandidate *c = calloc((size_t)nu, sizeof *c);
+    static const char *const KIND[] = { "best", "next", "last" };
+    for (int i = 0; i < nu; i++) {   /* DASH, the playlist, the file: the player falls back in this order */
+        c[i].url = strdup(urls[i]);
+        char lbl[48]; snprintf(lbl, sizeof lbl, "Trailer - %s", KIND[i]);
+        c[i].label = strdup(lbl);
+    }
     char vid[160], title[200];
     snprintf(vid, sizeof vid, "trailer:%s", meta->id);
     snprintf(title, sizeof title, "%s  -  Trailer", meta->name ? meta->name : "");
     LOGI("detail: trailer for %s streaming", meta->id);
-    app_push(screen_player_create(meta, vid, title, c, 1, 0, 0, NULL, NULL));
+    app_push(screen_player_create(meta, vid, title, c, nu, 0, 0, NULL, NULL));
     app_redraw();
 }
 
@@ -160,6 +164,7 @@ static void trailer_play(Detail *d)
     snprintf(g_trailer.yt, sizeof g_trailer.yt, "%s", d->meta.trailer_yt);
     g_trailer.busy = 1;
     LOGI("detail: fetching the trailer for %s (%s)", d->preview.id, d->meta.trailer_yt);
+    youtube_set_quality(g_app.res_cap, quality_cap_ok(&g_app.tv, TVCAP_AV1), quality_cap_ok(&g_app.tv, TVCAP_4K));
     youtube_stream(url, on_trailer_stream, NULL);
 }
 

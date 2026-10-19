@@ -21,6 +21,12 @@ void youtube_save(const char *url, int video, YoutubeCallback cb, void *user);
 /* A URL the player can open now (an HLS playlist or an MP4 with sound), asked the
  * way Nuvio asks; `cb` gets it as `name`, or NULL and a reason. Nothing is saved. */
 void youtube_stream(const char *url, YoutubeCallback cb, void *user);
+/* youtube_stream's answer as URLs the player opens, best first (DASH up to 4K, then the
+ * playlist, then a file with sound). Returns how many. Defined with the TV's own server. */
+int youtube_player_urls(const char *answer, const char *id, char out[][4608], int max);
+
+/* What this TV takes: the resolution cap, AV1, 4K (from Settings and what it learned). */
+void youtube_set_quality(int res_cap, int av1_ok, int uhd_ok);
 
 /* What the player opens for a youtube_stream() URL: a playlist as it is, a whole file
  * through the TV's own server in YouTube's 10 MB range pieces (as Nuvio reads it). */

@@ -689,6 +689,80 @@ static char *reachable_mirror(const char *url)
     return found;
 }
 
+/* The formats a DASH manifest needs: video in MP4 (AV1 when this TV decodes it and the
+ * picture is above 1080p, else H.264), at or below the resolution cap, and AAC audio,
+ * the original track. Each with its byte ranges for the header and the index. */
+static cJSON *rep_of(const cJSON *f)
+{
+    const cJSON *u = cJSON_GetObjectItemCaseSensitive(f, "url"), *mt = cJSON_GetObjectItemCaseSensitive(f, "mimeType");
+    const cJSON *ir = cJSON_GetObjectItemCaseSensitive(f, "initRange"), *xr = cJSON_GetObjectItemCaseSensitive(f, "indexRange");
+    const cJSON *is = cJSON_GetObjectItemCaseSensitive(ir, "start"), *ie = cJSON_GetObjectItemCaseSensitive(ir, "end");
+    const cJSON *xs = cJSON_GetObjectItemCaseSensitive(xr, "start"), *xe = cJSON_GetObjectItemCaseSensitive(xr, "end");
+    if (!cJSON_IsString(u) || !cJSON_IsString(mt) || !cJSON_IsString(is) || !cJSON_IsString(ie) || !cJSON_IsString(xs) || !cJSON_IsString(xe)) return NULL;
+    const char *cq = strstr(mt->valuestring, "codecs=\"");
+    char codecs[48] = "", mime[24] = "";
+    if (cq) { cq += 8; size_t l = strcspn(cq, "\""); snprintf(codecs, sizeof codecs, "%.*s", (int)(l < 47 ? l : 47), cq); }
+    snprintf(mime, sizeof mime, "%.*s", (int)strcspn(mt->valuestring, ";"), mt->valuestring);
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "url", u->valuestring);
+    cJSON_AddStringToObject(o, "mime", mime);
+    cJSON_AddStringToObject(o, "codecs", codecs);
+    char rg[48];
+    snprintf(rg, sizeof rg, "%s-%s", is->valuestring, ie->valuestring); cJSON_AddStringToObject(o, "init", rg);
+    snprintf(rg, sizeof rg, "%s-%s", xs->valuestring, xe->valuestring); cJSON_AddStringToObject(o, "index", rg);
+    static const char *const NUM[] = { "bitrate", "width", "height", "fps", "audioSampleRate" };
+    for (int k = 0; k < 5; k++) {
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(f, NUM[k]);
+        double d = cJSON_IsNumber(v) ? v->valuedouble : cJSON_IsString(v) ? atof(v->valuestring) : 0;
+        cJSON_AddNumberToObject(o, NUM[k], d);
+    }
+    return o;
+}
+
+static int g_q_cap = 1080, g_q_av1, g_q_4k;
+void youtube_set_quality(int res_cap, int av1_ok, int uhd_ok) { g_q_cap = res_cap > 0 ? res_cap : 1080; g_q_av1 = av1_ok; g_q_4k = uhd_ok; }
+
+static cJSON *dash_pick(const cJSON *adaptive, double length_s)
+{
+    int cap = g_q_cap, av1 = g_q_av1, hd4k = g_q_4k;
+    if (!hd4k && cap > 1080) cap = 1080;
+    cJSON *video = cJSON_CreateArray(), *audio = NULL;
+    double audio_br = 0;
+    int want_av1 = 0;
+    const cJSON *f;
+    /* AV1 only pays off above 1080p, where H.264 is not offered */
+    cJSON_ArrayForEach(f, adaptive) {
+        const cJSON *mt = cJSON_GetObjectItemCaseSensitive(f, "mimeType"), *h = cJSON_GetObjectItemCaseSensitive(f, "height");
+        if (av1 && cJSON_IsString(mt) && strstr(mt->valuestring, "video/mp4") && strstr(mt->valuestring, "av01") && cJSON_IsNumber(h) && h->valueint > 1080 && h->valueint <= cap) want_av1 = 1;
+    }
+    cJSON_ArrayForEach(f, adaptive) {
+        const cJSON *mt = cJSON_GetObjectItemCaseSensitive(f, "mimeType"), *h = cJSON_GetObjectItemCaseSensitive(f, "height");
+        if (!cJSON_IsString(mt)) continue;
+        const char *m = mt->valuestring;
+        if (strstr(m, "video/mp4")) {
+            int is_av1 = strstr(m, "av01") != NULL, is_avc = strstr(m, "avc1") != NULL;
+            if (want_av1 ? !is_av1 : !is_avc) continue;
+            if (!cJSON_IsNumber(h) || h->valueint > cap || h->valueint < 360) continue;
+            cJSON *rp = rep_of(f);
+            if (rp) cJSON_AddItemToArray(video, rp);
+        } else if (strstr(m, "audio/mp4") && strstr(m, "mp4a")) {
+            const cJSON *tr = cJSON_GetObjectItemCaseSensitive(f, "audioTrack"), *br = cJSON_GetObjectItemCaseSensitive(f, "bitrate");
+            const cJSON *def = cJSON_GetObjectItemCaseSensitive(tr, "audioIsDefault"), *drc = cJSON_GetObjectItemCaseSensitive(f, "isDrc");
+            if ((tr && !cJSON_IsTrue(def)) || cJSON_IsTrue(drc)) continue;   /* a dub, or the loudness-squashed copy */
+            double b = cJSON_IsNumber(br) ? br->valuedouble : 0;
+            if (audio && b <= audio_br) continue;
+            cJSON *rp = rep_of(f);
+            if (rp) { cJSON_Delete(audio); audio = rp; audio_br = b; }
+        }
+    }
+    if (!cJSON_GetArraySize(video) || !audio) { cJSON_Delete(video); cJSON_Delete(audio); return NULL; }
+    cJSON *d = cJSON_CreateObject();
+    cJSON_AddItemToObject(d, "video", video);
+    cJSON_AddItemToObject(d, "audio", audio);
+    cJSON_AddNumberToObject(d, "duration", length_s);
+    return d;
+}
+
 static void stream_task(HttpResponse *r, void *arg)
 {
     Save *s = arg;
@@ -702,6 +776,7 @@ static void stream_task(HttpResponse *r, void *arg)
     http_response_free(&page);
     if (!key[0]) LOGW("youtube: no API key on the watch page");
     char *hls = NULL, *best = NULL;
+    cJSON *adaptive = NULL; double length_s = 0;
     double best_score = -1; int best_n = 1, best_mp4 = 0;
     for (size_t i = 0; i < sizeof CLIENTS / sizeof *CLIENTS; i++) {
         const Client *c = &CLIENTS[i];
@@ -726,14 +801,27 @@ static void stream_task(HttpResponse *r, void *arg)
                 free(best); best = strdup(u->valuestring); best_score = score; best_n = has_n; best_mp4 = mp4;
             }
         }
+        if (!adaptive && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")) > 0) {   /* the first client's, visionOS first as Nuvio prefers */
+            adaptive = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats"), 1);
+            const cJSON *ad = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
+            if (cJSON_IsString(ad)) length_s = atof(ad->valuestring);
+            LOGI("youtube: %s separate video and audio from the %s client", s->id, c->name);
+        }
         cJSON_Delete(resp);
     }
-    char *pick = NULL;
-    if (hls) { pick = hls; hls = NULL; LOGI("youtube: %s streams as HLS", s->id); }
-    else if (best && (pick = reachable_mirror(best))) LOGI("youtube: %s streams as a file (%.0fp)", s->id, best_score / 1e9);
-    if (pick) { r->status = 200; r->body = pick; r->len = strlen(pick); }
+    /* every way to play it, best first: separate video and audio (DASH, up to 4K), the
+     * playlist, a file with sound (360p at most these days) */
+    cJSON *out = cJSON_CreateObject();
+    cJSON *dash = adaptive ? dash_pick(adaptive, length_s) : NULL;
+    if (dash) cJSON_AddItemToObject(out, "dash", dash);
+    if (hls) cJSON_AddStringToObject(out, "hls", hls);
+    char *file = best ? reachable_mirror(best) : NULL;
+    if (file) cJSON_AddStringToObject(out, "file", file);
+    LOGI("youtube: %s streams as %s%s%s", s->id, dash ? "DASH, " : "", hls ? "HLS, " : "", file ? "a file" : "nothing else");
+    if (dash || hls || file) { r->status = 200; r->body = cJSON_PrintUnformatted(out); r->len = strlen(r->body); }
     else fail(r, "%.250s", why[0] ? why : best ? "no YouTube server answered" : "YouTube offered nothing to stream");
-    free(hls); free(best);
+    cJSON_Delete(out); cJSON_Delete(adaptive);
+    free(hls); free(best); free(file);
 }
 
 static void save_task(HttpResponse *r, void *arg)

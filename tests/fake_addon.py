@@ -240,8 +240,13 @@ class H(BaseHTTPRequestHandler):
                 "streamingData": {
                     "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123"}],
                     "adaptiveFormats": [
+                        {"itag": 137, "mimeType": "video/mp4; codecs=\"avc1.640028\"", "bitrate": 4400000, "width": 1920, "height": 1080, "fps": 30,
+                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v1080&clen={media}"},
+                        {"itag": 136, "mimeType": "video/mp4; codecs=\"avc1.4d401f\"", "bitrate": 2300000, "width": 1280, "height": 720, "fps": 30,
+                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v720&clen={media}"},
                         {"itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150000, "url": f"{BASE}/yt/media/opus.webm?n=abc123"},
-                        {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "contentLength": str(media), "url": f"{BASE}/yt/media/audio.m4a?n=abc123"},
+                        {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "audioSampleRate": "44100", "contentLength": str(media),
+                         "initRange": {"start": "0", "end": "631"}, "indexRange": {"start": "632", "end": "999"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={media}"},
                         {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 135000, "isDrc": True, "url": f"{BASE}/yt/media/drc.m4a?n=abc123"}]}}).encode())
         return self.send(404, b"{}")
 
@@ -376,6 +381,9 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, b"var yt={signatureTimestamp:20250};", "text/javascript")
         if p.startswith("/yt/media/"):   # googlevideo: only the AAC (or muxed MP4) the app should pick, in ranges
             name = p.split("?")[0].rsplit("/", 1)[1]
+            if name == "master.m3u8":   # three qualities: the app should keep the two sharp ones
+                body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=426x240\nlow.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720\nmid.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\nhigh.m3u8\n"
+                return self.send(200, body.encode(), "application/vnd.apple.mpegurl")
             if name not in ("audio.m4a", "video.mp4"):
                 return self.send(403, b"")
             with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:

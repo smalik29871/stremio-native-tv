@@ -3,6 +3,7 @@
 #include "store.h"
 #include "frames.h"
 #include "http.h"
+#include "../vendor/cJSON.h"
 #include "youtube.h"
 #include <sys/stat.h>
 #include <SDL.h>
@@ -86,6 +87,8 @@ static const char *mime_for(const char *name)
     if (!strcasecmp(dot, ".ogg") || !strcasecmp(dot, ".oga") || !strcasecmp(dot, ".opus")) return "audio/ogg";
     if (!strcasecmp(dot, ".wav")) return "audio/wav";
     if (!strcasecmp(dot, ".flac")) return "audio/flac";
+    if (!strcasecmp(dot, ".mpd")) return "application/dash+xml";
+    if (!strcasecmp(dot, ".m3u8")) return "application/vnd.apple.mpegurl";
     return "application/octet-stream";
 }
 
@@ -259,7 +262,7 @@ static int queue_frame(int fd, const char *req)
  * connection that reads a whole file at once, but serves "&range=a-b" pieces at full
  * speed, so the player's request is answered from 10 MB pieces fetched in turn. */
 enum { YT_PIECE = 10 << 20 };
-typedef struct { int fd; char url[4096]; uint64_t start; int ranged; } YtJob;
+typedef struct { int fd; char url[4096]; uint64_t start, end; int ranged; } YtJob;   /* end: last byte asked for, 0 to the end */
 
 static uint64_t url_clen(const char *url)
 {
@@ -267,9 +270,49 @@ static uint64_t url_clen(const char *url)
     return c && (c == url || c[-1] == '&' || c[-1] == '?') ? strtoull(c + 5, NULL, 10) : 0;
 }
 
+/* HLS master playlist: variants under 720p left out when better ones exist, so the
+ * player starts sharp instead of climbing up from 144p */
+static void yt_playlist(YtJob *j)
+{
+    HttpResponse r;
+    HttpOptions o = { .timeout_s = 15, .no_json_accept = 1 };
+    http_request_ex(j->url, &o, &r);
+    if (r.status != 200 || !r.body) { respond_text(j->fd, "502 Bad Gateway", "playlist"); http_response_free(&r); return; }
+    int high = 0;
+    for (const char *c = strstr(r.body, "RESOLUTION="); c; c = strstr(c + 1, "RESOLUTION=")) { const char *x = strchr(c, 'x'); if (x && atoi(x + 1) >= 720) high = 1; }
+    /* links in it are made absolute: the playlist now comes from this TV */
+    char base[4096]; snprintf(base, sizeof base, "%s", j->url);
+    char *q = strchr(base, '?'); if (q) *q = 0;
+    char *slash = strrchr(base, '/'); if (slash) slash[1] = 0;
+    size_t cap = r.len * 2 + 64 + strlen(base) * 64, o2 = 0;
+    char *out = malloc(cap);
+    int skip_next = 0;
+    for (char *line = r.body; out && line && *line; ) {
+        char *nl = strchr(line, '\n');
+        size_t l = nl ? (size_t)(nl - line) + 1 : strlen(line);
+        int drop = 0;
+        if (high && !strncmp(line, "#EXT-X-STREAM-INF", 17)) {
+            const char *res = strstr(line, "RESOLUTION="), *x = res ? strchr(res, 'x') : NULL;
+            if (x && (size_t)(x - line) < l && atoi(x + 1) < 720) { drop = 1; skip_next = 1; }
+        } else if (skip_next && line[0] != '#') { drop = 1; skip_next = 0; }
+        if (!drop) {
+            if (line[0] != '#' && line[0] != '\n' && line[0] != '\r' && strncmp(line, "http", 4) && o2 + strlen(base) + l < cap) { memcpy(out + o2, base, strlen(base)); o2 += strlen(base); }
+            if (o2 + l < cap) { memcpy(out + o2, line, l); o2 += l; }
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    char head[200];
+    snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", o2);
+    send_all(j->fd, head, strlen(head));
+    if (out) send_all(j->fd, out, o2);
+    free(out);
+    http_response_free(&r);
+}
+
 static int yt_main(void *arg)
 {
     YtJob *j = arg;
+    if (strstr(j->url, ".m3u8") || strstr(j->url, "/manifest/hls")) { yt_playlist(j); close(j->fd); free(j); return 0; }
     uint64_t total = url_clen(j->url);
     char head[400];
     if (!total) {   /* no length to cut pieces against: let the player fetch it itself */
@@ -277,16 +320,18 @@ static int yt_main(void *arg)
         send_all(j->fd, head, strlen(head));
     } else {
         if (j->start >= total) j->start = 0;
+        uint64_t last = j->end && j->end < total ? j->end : total - 1;   /* a DASH player asks for small ranges: send just those */
         if (j->ranged)
             snprintf(head, sizeof head, "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Range: bytes %llu-%llu/%llu\r\nContent-Length: %llu\r\nConnection: close\r\n\r\n",
-                     (unsigned long long)j->start, (unsigned long long)(total - 1), (unsigned long long)total, (unsigned long long)(total - j->start));
+                     (unsigned long long)j->start, (unsigned long long)last, (unsigned long long)total, (unsigned long long)(last + 1 - j->start));
         else
             snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Length: %llu\r\nConnection: close\r\n\r\n", (unsigned long long)total);
         send_all(j->fd, head, strlen(head));
         size_t ul = strlen(j->url) + 64;
         char *piece_url = malloc(ul);
-        for (uint64_t pos = j->start; pos < total && piece_url; ) {
-            uint64_t end = pos + YT_PIECE - 1 < total - 1 ? pos + YT_PIECE - 1 : total - 1;
+        uint64_t stop = j->ranged ? last + 1 : total;
+        for (uint64_t pos = j->start; pos < stop && piece_url; ) {
+            uint64_t end = pos + YT_PIECE - 1 < stop - 1 ? pos + YT_PIECE - 1 : stop - 1;
             snprintf(piece_url, ul, "%s&range=%llu-%llu", j->url, (unsigned long long)pos, (unsigned long long)end);
             HttpResponse r;
             HttpOptions o = { .timeout_s = 60, .no_json_accept = 1 };
@@ -315,7 +360,11 @@ static int queue_yt(int fd, const char *req)
     url_decode(raw, j->url, sizeof j->url);
     if (!strstr(j->url, "googlevideo.com") && !getenv("SNTV_YT_BASE")) { free(j); return 0; }
     const char *rg = ci_find(req, "\nRange: bytes=");
-    if (rg) { j->start = strtoull(rg + 14, NULL, 10); j->ranged = 1; }
+    if (rg) {
+        char *dash = NULL;
+        j->start = strtoull(rg + 14, &dash, 10); j->ranged = 1;
+        if (dash && *dash == '-' && dash[1] >= '0' && dash[1] <= '9') j->end = strtoull(dash + 1, NULL, 10);
+    }
     j->fd = fd;
     SDL_Thread *t = SDL_CreateThread(yt_main, "yt", j);
     if (!t) { free(j); return 0; }
@@ -610,9 +659,82 @@ char *phone_take_restore(void)
 void youtube_player_url(const char *u, char *out, size_t n)
 {
     snprintf(out, n, "%s", u);
-    if (strstr(u, ".m3u8") || strstr(u, "/manifest/") || strlen(u) > 3000) return;
+    if (strlen(u) > 3000) return;   /* files go in pieces; playlists are served without their low variants */
     char enc[4200], rel[4300];
     http_url_encode(u, enc, sizeof enc);
     snprintf(rel, sizeof rel, "yt?u=%s", enc);
     if (!phone_local_url(rel, out, n)) snprintf(out, n, "%s", u);
+}
+
+/* ---- what the player opens for a YouTube video (youtube_stream's answer) ---- */
+static void xml_attr(const char *in, char *out, size_t n)
+{
+    size_t o = 0;
+    for (; *in && o + 6 < n; in++) {
+        if (*in == '&') { memcpy(out + o, "&amp;", 5); o += 5; }
+        else if (*in == '<') { memcpy(out + o, "&lt;", 4); o += 4; }
+        else if (*in == '"') { memcpy(out + o, "&quot;", 6); o += 6; }
+        else out[o++] = *in;
+    }
+    out[o] = 0;
+}
+
+static void dash_rep(char **buf, size_t *len, const cJSON *rp, int video, int id)
+{
+    const cJSON *u = cJSON_GetObjectItemCaseSensitive(rp, "url");
+    char local[4600], esc[9000];
+    youtube_player_url(u->valuestring, local, sizeof local);
+    xml_attr(local, esc, sizeof esc);
+    const char *codecs = cJSON_GetObjectItemCaseSensitive(rp, "codecs")->valuestring;
+    const char *init = cJSON_GetObjectItemCaseSensitive(rp, "init")->valuestring, *index = cJSON_GetObjectItemCaseSensitive(rp, "index")->valuestring;
+    double bw = cJSON_GetObjectItemCaseSensitive(rp, "bitrate")->valuedouble;
+    char attrs[200];
+    if (video) snprintf(attrs, sizeof attrs, "width=\"%d\" height=\"%d\" frameRate=\"%d\"", (int)cJSON_GetObjectItemCaseSensitive(rp, "width")->valuedouble,
+                        (int)cJSON_GetObjectItemCaseSensitive(rp, "height")->valuedouble, (int)cJSON_GetObjectItemCaseSensitive(rp, "fps")->valuedouble);
+    else snprintf(attrs, sizeof attrs, "audioSamplingRate=\"%d\"", (int)cJSON_GetObjectItemCaseSensitive(rp, "audioSampleRate")->valuedouble);
+    size_t need = strlen(esc) + 600;
+    *buf = realloc(*buf, *len + need);
+    *len += (size_t)snprintf(*buf + *len, need,
+        "   <Representation id=\"%c%d\" bandwidth=\"%.0f\" codecs=\"%s\" %s>\n    <BaseURL>%s</BaseURL>\n"
+        "    <SegmentBase indexRange=\"%s\"><Initialization range=\"%s\"/></SegmentBase>\n   </Representation>\n",
+        video ? 'v' : 'a', id, bw > 0 ? bw : 1000000, codecs, attrs, esc, index, init);
+}
+
+int youtube_player_urls(const char *answer, const char *id, char out[][4608], int max)
+{
+    cJSON *j = cJSON_Parse(answer);
+    int n = 0;
+    if (!j) { if (max > 0 && answer && !strncmp(answer, "http", 4)) { youtube_player_url(answer, out[0], 4608); n = 1; } return n; }
+    const cJSON *d = cJSON_GetObjectItemCaseSensitive(j, "dash");
+    if (d && n < max) {
+        const cJSON *video = cJSON_GetObjectItemCaseSensitive(d, "video"), *audio = cJSON_GetObjectItemCaseSensitive(d, "audio"), *rp;
+        double dur = cJSON_GetObjectItemCaseSensitive(d, "duration") ? cJSON_GetObjectItemCaseSensitive(d, "duration")->valuedouble : 0;
+        size_t len = 0; char *buf = NULL;
+        char head[600];
+        snprintf(head, sizeof head, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" type=\"static\" minBufferTime=\"PT2S\" mediaPresentationDuration=\"PT%.1fS\">\n <Period>\n  <AdaptationSet mimeType=\"video/mp4\" segmentAlignment=\"true\" startWithSAP=\"1\">\n", dur);
+        buf = strdup(head); len = strlen(buf);
+        int k = 0;
+        cJSON_ArrayForEach(rp, video) dash_rep(&buf, &len, rp, 1, k++);
+        const char *mid = "  </AdaptationSet>\n  <AdaptationSet mimeType=\"audio/mp4\" segmentAlignment=\"true\" startWithSAP=\"1\">\n";
+        buf = realloc(buf, len + strlen(mid) + 1); memcpy(buf + len, mid, strlen(mid) + 1); len += strlen(mid);
+        dash_rep(&buf, &len, audio, 0, 0);
+        const char *tail = "  </AdaptationSet>\n </Period>\n</MPD>\n";
+        buf = realloc(buf, len + strlen(tail) + 1); memcpy(buf + len, tail, strlen(tail) + 1); len += strlen(tail);
+        char path[700], name[64];
+        snprintf(name, sizeof name, "yt-%.16s.mpd", id);
+        snprintf(path, sizeof path, "%s/sounds", store_dir()); mkdir(path, 0755);
+        snprintf(path, sizeof path, "%s/sounds/%s", store_dir(), name);
+        FILE *f = fopen(path, "wb");
+        if (f) {
+            fwrite(buf, 1, len, f); fclose(f);
+            char rel[96]; snprintf(rel, sizeof rel, "sounds/%s", name);
+            if (phone_local_url(rel, out[n], 4608)) { LOGI("youtube: %s as DASH, %d video qualities", id, k); n++; }
+        }
+        free(buf);
+    }
+    const cJSON *h = cJSON_GetObjectItemCaseSensitive(j, "hls"), *f = cJSON_GetObjectItemCaseSensitive(j, "file");
+    if (cJSON_IsString(h) && n < max) youtube_player_url(h->valuestring, out[n++], 4608);
+    if (cJSON_IsString(f) && n < max) youtube_player_url(f->valuestring, out[n++], 4608);
+    cJSON_Delete(j);
+    return n;
 }
