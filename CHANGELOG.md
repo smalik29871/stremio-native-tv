@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.9
+
+- **Never stuck on a dead source.** A source that stops mid-film is replaced at the same
+  moment, with the same audio language and subtitles. The next source is checked while
+  you watch, so the switch is quick. When the buffer keeps draining, a lighter copy
+  takes over before playback stops. Play tries the top three sources at once and
+  starts the first that answers. If every source fails, the addons are asked again.
+- **Source health.** Servers and addons that keep failing on this TV, at this time of
+  day, drop down the list and are marked "Often fails in the evening".
+- **Trailers as Nuvio plays them.** The way Nuvio's extractor does it: YouTube's API key
+  from the watch page, every script-free client, mirror servers, 10 MB range pieces.
+  When the addon has no trailer, TMDB's is used.
+- **YouTube from addons plays here.** YouTube entries (YouTubio, trailer addons) stream
+  in the app instead of saying "not supported".
+- **Subtitles that fit the video.** Among files in your language, the one that ends with
+  the video, has a full set of lines and lines up with the file-matched one is picked,
+  with the reason shown.
+- **OpenSubtitles.com built in.** Searched by title and your file's fingerprint, release
+  names compared with your video; only the chosen file is downloaded. Optional account.
+- **SimKL sign-in fixed**, and a refused sign-in now shows the service's reason.
+
 ## 0.10.8
 
 - **Trailers play like Nuvio's.** The TV asks YouTube as its phone apps do and streams the
