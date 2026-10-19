@@ -12,6 +12,7 @@ typedef struct VideoInfo {
     double duration;   /* seconds, 0 when unknown */
     int buffering;     /* 1 while the pipeline is stalled for data */
     int buffer_percent;
+    double buffer_ahead;   /* seconds buffered past the position; -1 unknown */
     char error[160];
     char codec[48];    /* informational, e.g. "H264 1920x1080 / AAC" */
     int width, height, fps;   /* 0 when the pipeline has not said */

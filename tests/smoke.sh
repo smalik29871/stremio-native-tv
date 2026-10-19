@@ -172,6 +172,21 @@ grep -q '"lists"' "$OUT/home_lists/.local/share/stremio/nativetv/settings.json" 
 NO_PREFLIGHT='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'   # the names decide (the test file itself is 180p)
 LIGHTER="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/manifest.json"   # its 2160p copy plays first
 run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
+# fallbacks: a source that dies mid-film is replaced at the same moment with the same subtitles;
+# the next source is checked while playing; a draining buffer moves to a lighter copy first;
+# Play races the top sources; when all fail the addons are asked again
+FB="SNTV_FAKE_NO_TEXT_TRACKS=1"
+run fallback_rescue 4000 "right,ok,down,down,ok,ok" "$LIGHTER" "$FB" HOME="$(home_with fb1 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DEAD_AFTER=2 SNTV_RESCUE_AFTER=2
+grep -q "player: rescue (The source stopped sending video) -> source 2 at 60[0-9]s" "$OUT/fallback_rescue.log" && grep -q "player: subtitles kept across the switch" "$OUT/fallback_rescue.log" \
+  || { echo "a dead source was not replaced at the same moment"; grep -E "player|video" "$OUT/fallback_rescue.log"; exit 1; }
+run fallback_drain 4000 "right,ok,down,down,ok,ok" "$LIGHTER" "$FB" HOME="$(home_with fb2 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DRAIN=1 SNTV_DRAIN_EVERY=1 SNTV_WARM_AFTER=1
+grep -q "player: next source 2 does not answer" "$OUT/fallback_drain.log" && grep -q "player: buffer draining .* switching to source 3 ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
+  || { echo "the draining buffer did not move to a working lighter source"; grep -E "player" "$OUT/fallback_drain.log"; exit 1; }
+run fallback_race 2000 "right,ok,down,down,ok,wait,wait,ok" "$LIGHTER" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
+grep -q "streams: source 3 answered first" "$OUT/fallback_race.log" && grep -q "player: candidate 1/3 Fake Addon - Example" "$OUT/fallback_race.log" \
+  || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
+run fallback_reask 5000 "right,ok,down,down,ok,wait,wait,ok" "$LIGHTER" HOME="$(home_with fb4 "$NO_PREFLIGHT")" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
+grep -q "player: asked the addons again: 3 sources" "$OUT/fallback_reask.log" || { echo "the addons were not asked again"; grep -E "player" "$OUT/fallback_reask.log"; exit 1; }
 grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
 run player_lighter_ok 820 "right,ok,down,down,ok,ok$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
 grep -q "player: switching to the lighter source [0-9]" "$OUT/player_lighter_ok.log" || { echo "OK did not take the lighter source"; grep player "$OUT/player_lighter_ok.log"; exit 1; }

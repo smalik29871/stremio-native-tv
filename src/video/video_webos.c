@@ -415,6 +415,8 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
     const cJSON *br = cJSON_GetObjectItem(root, "bufferRange");
     if (br) {
         double end = find_number(br, "endTime", -1), pct = find_number(br, "percent", -1);
+        double left = find_number(br, "remainingTime", -1);   /* seconds, as LG reports it */
+        g_info.buffer_ahead = left >= 0 ? left : end > 0 && end >= g_info.position ? end - g_info.position : -1;
         if (pct >= 0) g_info.buffer_percent = (int)pct;
         else if (end >= 0 && g_info.duration > 0) g_info.buffer_percent = (int)(100.0 * end / g_info.duration);
     }
@@ -651,7 +653,7 @@ int video_load(const char *url, const char *title, double start)
     if (!g_ready || !g_bus) {
         if (!g_lock) g_lock = SDL_CreateMutex();
         SDL_LockMutex(g_lock);
-        memset(&g_info, 0, sizeof g_info);
+        memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1;
         snprintf(g_info.error, sizeof g_info.error, "The TV's media service isn't available to this app. See app.log.");
         g_info.state = VIDEO_ERROR;
         SDL_UnlockMutex(g_lock);
@@ -660,7 +662,7 @@ int video_load(const char *url, const char *title, double start)
     video_stop();
     SDL_LockMutex(g_lock);
     int tv = g_info.tracks_version, wv = g_info.warning_version;
-    memset(&g_info, 0, sizeof g_info);
+    memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1;
     g_info.tracks_version = tv + 1;
     g_info.warning_version = wv;
     g_info.state = VIDEO_LOADING;

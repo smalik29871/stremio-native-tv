@@ -17,11 +17,16 @@ int video_init(SDL_Window *win) { (void)win; g.state = VIDEO_IDLE; return 0; }
 void video_shutdown(void) {}
 const char *video_backend_name(void) { return "null (desktop preview)"; }
 
+static int g_loads;          /* the test hooks below act on the first source only */
+static double g_played_here;
+
 int video_load(const char *url, const char *title, double start)
 {
+    g_loads++; g_played_here = 0;
     LOGI("video(null): load %s (%s) from %.0fs", url, title ? title : "", start);
     memset(&g, 0, sizeof g);
     g.state = VIDEO_LOADING;
+    g.buffer_ahead = -1;
     g.position = start;
     g.duration = 2 * 3600.0;
     /* test hooks: SNTV_FAKE_DURATION / SNTV_FAKE_START (seconds) */
@@ -68,6 +73,9 @@ void video_update(void)
     Uint32 now = SDL_GetTicks();
     double dt = (now - g_last) / 1000.0;
     g_last = now;
+    /* test hook: SNTV_FAKE_FAIL_LOADS=n fails the first n sources opened */
+    const char *fl = getenv("SNTV_FAKE_FAIL_LOADS");
+    if (g.state == VIDEO_LOADING && fl && g_loads <= atoi(fl)) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The link expired (SNTV_FAKE_FAIL_LOADS)"); return; }
     if (g.state == VIDEO_LOADING) g.state = VIDEO_PLAYING;
     /* test hook: SNTV_FAKE_STALLS=1 buffers for 0.2 s after every 0.4 s played */
     static double played;
@@ -80,6 +88,18 @@ void video_update(void)
         if (g.buffering && !was) LOGI("video(null): buffering (SNTV_FAKE_STALLS)");
         if (g.buffering) return;
     }
+    /* test hooks, first source only: SNTV_FAKE_DEAD_AFTER=s stops delivering after s seconds;
+     * SNTV_FAKE_DRAIN=1 has the buffer ahead shrink from 20 s by half a second a second */
+    if (g.state == VIDEO_PLAYING && g_loads == 1) {
+        const char *dead = getenv("SNTV_FAKE_DEAD_AFTER"), *drain = getenv("SNTV_FAKE_DRAIN");
+        g_played_here += dt;
+        if (dead && g_played_here > atof(dead)) { if (!g.buffering) LOGI("video(null): the source stopped (SNTV_FAKE_DEAD_AFTER)"); g.buffering = 1; return; }
+        if (drain && g.duration > 0) {
+            double ahead = 20 - g_played_here * 0.5;
+            g.buffer_ahead = ahead > 0 ? ahead : 0;
+            if (ahead <= 0) { g.buffering = 1; return; }
+        }
+    } else if (g_loads > 1) g.buffer_ahead = 120;
     if (g.state == VIDEO_PLAYING) {
         g.position += dt * g_rate;
         if (g.duration && g.position >= g.duration) { g.position = g.duration; g.state = VIDEO_ENDED; }

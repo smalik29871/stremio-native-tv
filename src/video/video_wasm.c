@@ -62,7 +62,7 @@ EM_JS(void, js_track_select, (int kind, int index), {
 int video_init(SDL_Window *win) { (void)win; return 0; }
 void video_shutdown(void) { js_video_stop(); }
 const char *video_backend_name(void) { return "HTML5 video (WebAssembly)"; }
-int video_load(const char *url, const char *title, double start) { (void)title; memset(&g_info, 0, sizeof g_info); g_info.state = VIDEO_LOADING; js_video_load(url, start); return 0; }
+int video_load(const char *url, const char *title, double start) { (void)title; memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1; g_info.state = VIDEO_LOADING; js_video_load(url, start); return 0; }
 void video_play(void) { js_video_play(); }
 void video_pause(void) { js_video_pause(); }
 void video_seek(double s) { js_video_seek(s); }

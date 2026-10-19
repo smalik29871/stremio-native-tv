@@ -20,6 +20,7 @@
 #include "../trackmem.h"
 #include "../tracking.h"
 #include "../opensubs.h"
+#include "../srchealth.h"
 #include "../video/video.h"
 #include "../platform/platform.h"
 #include "font.h"
@@ -98,6 +99,13 @@ struct Player {
     float rest_t;                           /* paused and left alone: the controls fade, the title stays */
     int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
     int tracked;                            /* Trakt was told this one started */
+    /* fallback: what the viewer had on, carried to the next source */
+    char keep_audio[8]; int keep_sub_kind, keep_sub_idx; char keep_sub_lang[8];   /* kind: 0 none, 1 addon file, 2 file track, 3 off */
+    unsigned char dead[16];                 /* sources found not to answer */
+    int warm_idx, warm_state; float warm_at, warm_s;   /* the next source, checked while this one plays (state 0 -, 1 asking, 2 answers) */
+    float drain_at[6], drain_v[6]; int drain_n; float drain_t;   /* seconds buffered ahead, sampled */
+    int reask_count; float reask_at; double reask_pos;   /* every source failed: the addons asked again */
+    float good_since; int good_recorded;   /* this source has played well for a while */
     int lighter_to; int lighter_offered;    /* buffering keeps stopping: a lower resolution offered (-1 none) */
     int stalls_here;                        /* stalls since this source started */
     double pos_seen; float jumped_at;       /* the playhead jumped (a seek): the buffering after it is not the connection's fault */
@@ -475,7 +483,7 @@ static void auto_select_tracks(Player *p)
     if (!p->auto_selected) {
         if (n == 0 && g_app.time - p->load_started <= 10) return;   /* wait for the track list */
         p->auto_selected = 1;
-        const char *want = has_mem && mem.audio[0] ? mem.audio : g_app.pref_audio;
+        const char *want = p->keep_audio[0] ? p->keep_audio : has_mem && mem.audio[0] ? mem.audio : g_app.pref_audio;   /* a switch keeps what was on */
         if (want[0]) {
             /* in that language, a track this TV surely plays (not DTS / TrueHD) first */
             int pick = -1;
@@ -498,6 +506,13 @@ static void auto_select_tracks(Player *p)
     #define SUBS_OFF_DONE() do { \
         if (!p->forced_checked) { if (!p->probe && g_app.time - p->load_started < 12) return; p->forced_checked = 1; pick_forced(p); } \
         p->subs_auto_done = 1; return; } while (0)
+    if (p->keep_sub_kind) {   /* moved to another source: the same subtitles as before */
+        int kind = p->keep_sub_kind;
+        p->keep_sub_kind = 0;
+        if (kind == 1 && p->keep_sub_idx < p->n_addon_subs) { select_addon_sub(p, p->keep_sub_idx); p->subs_auto_done = 1; LOGI("player: subtitles kept across the switch"); return; }
+        if (kind == 2 && pick_subs(p, p->keep_sub_lang, SUBS_SRC_EMBEDDED)) { p->subs_auto_done = 1; LOGI("player: subtitles %s kept across the switch", p->keep_sub_lang); return; }
+        if (kind == 3) { p->subs_auto_done = 1; return; }
+    }
     if (has_mem && mem.has_subs) {
         if (!mem.subs[0] || pick_subs(p, mem.subs, mem.subs_src)) {
             LOGI("player: subtitles %s (remembered for this series)", mem.subs[0] ? mem.subs : "off");
@@ -1025,6 +1040,8 @@ static void start_candidate(Player *p, int idx, double start)
     p->bm_state = 0;
     p->load_started = g_app.time;
     p->stalls_here = 0; p->lighter_to = -1;
+    p->warm_state = 0; p->warm_idx = -1; p->warm_at = g_app.time; p->drain_n = 0; p->drain_t = 0;
+    p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     p->p2p_status[0] = 0;
     if (torrent_engine_url_is(p->cands[idx].url)) {
@@ -1045,8 +1062,49 @@ static int next_candidate(const Player *p)
 {
     for (int i = p->cur + 1; p->tries >= 2 && i < p->n_cands; i++)
         if (torrent_engine_url_is(p->cands[i].url)) return i;
-    if (p->cur + 1 < p->n_cands && (p->tries < 3 || torrent_engine_url_is(p->cands[p->cur + 1].url))) return p->cur + 1;
+    /* the next one not already found dead (checked while this one played) */
+    for (int i = p->cur + 1; i < p->n_cands; i++) {
+        if (i < 16 && p->dead[i]) continue;
+        if (p->tries < 3 || torrent_engine_url_is(p->cands[i].url)) return i;
+        break;
+    }
     return -1;
+}
+
+/* What is on now, so the next source opens the same way. */
+static void keep_choices(Player *p)
+{
+    VideoTrack tr[MAX_TRACKS];
+    int n = video_tracks(TRACK_AUDIO, tr, MAX_TRACKS);
+    const char *a = current_audio_lang(tr, n);
+    snprintf(p->keep_audio, sizeof p->keep_audio, "%s", a ? a : p->audio_lang);
+    p->keep_sub_kind = 0;
+    if (p->active_addon_sub >= 0) { p->keep_sub_kind = 1; p->keep_sub_idx = p->active_addon_sub; }
+    else if (p->embedded_text_sel >= 0) {
+        int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+        for (int i = 0; i < nt; i++) if (tr[i].index == p->embedded_text_sel) { p->keep_sub_kind = 2; snprintf(p->keep_sub_lang, sizeof p->keep_sub_lang, "%s", tr[i].lang); }
+    } else if (p->subs_auto_done) p->keep_sub_kind = 3;
+}
+
+static void health_record(Player *p, int what)
+{
+    char addon[96];
+    cand_addon(&p->cands[p->cur], addon, sizeof addon);
+    srchealth_record(p->cands[p->cur].url, addon, what);
+}
+
+/* Silent rescue: the next source, at the same moment, with the same audio and subtitles. */
+static void rescue(Player *p, const char *why, double at)
+{
+    int next = next_candidate(p);
+    if (next < 0) return;
+    keep_choices(p);
+    p->tries++;
+    char addon[96];
+    cand_addon(&p->cands[next], addon, sizeof addon);
+    LOGI("player: rescue (%s) -> source %d at %.0fs", why, next + 1, at);
+    app_toast("%s. Carrying on with %s from the same moment", why, addon[0] ? addon : "another source");
+    start_candidate(p, next, at);
 }
 
 static void fail_over(Player *p, const char *why)
@@ -1056,14 +1114,127 @@ static void fail_over(Player *p, const char *why)
     double resume = vi.position > 5 ? vi.position : 0;
     if (!p->learned) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
     if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
+    health_record(p, HEALTH_FAIL);
     int next = next_candidate(p);
     if (next >= 0) {
+        if (resume > 0) { rescue(p, why, resume); return; }   /* mid-film: carry on as it was */
         p->tries++;
         app_toast(torrent_engine_url_is(p->cands[next].url) ? "%s. Trying P2P on this TV..." : "%s. Trying the next source...", why);
         start_candidate(p, next, resume);
     } else {
         p->error_handled = 1;   /* stay on the error screen */
     }
+}
+
+/* ---- fallback while watching ------------------------------------------------------ */
+
+static float env_s(const char *name, float def) { const char *e = getenv(name); return e && *e ? (float)atof(e) : def; }
+
+typedef struct { Player *owner; unsigned gen; int idx; } WarmReq;
+static void on_warm(HttpResponse *r, void *user)
+{
+    WarmReq *q = user;
+    Player *p = q->owner;
+    if (p == g_live && q->gen == p->gen && q->idx == p->warm_idx) {
+        p->warm_at = g_app.time;
+        if (r->status == 200 || r->status == 206) {
+            p->warm_state = 2; p->warm_s = (float)r->seconds;
+            LOGI("player: next source %d answers (%.1f s)", q->idx + 1, r->seconds);
+        } else {
+            p->warm_state = 0;
+            if (q->idx < 16) p->dead[q->idx] = 1;
+            app_link_failed(p->cands[q->idx].url);
+            LOGI("player: next source %d does not answer (%ld); the one after it stands by", q->idx + 1, r->status);
+        }
+    }
+    free(q);
+}
+
+/* Every source failed: ask the addons again (debrid links often come back). */
+static void on_reask(const Stream *items, int n, void *user)
+{
+    Player *p = user;
+    if (p != g_live || p->finished) return;
+    PlayCandidate *c = calloc(7, sizeof *c);
+    int k = 0;
+    for (int i = 0; i < n && k < 6; i++) if (streams_candidate(&p->meta, &items[i], &c[k])) k++;
+    p->reask_count++;
+    p->reask_at = 0;
+    if (!k) { free(c); LOGI("player: asked again, still nothing to play"); app_toast("Still no source plays this. Try again in a little while"); return; }
+    LOGI("player: asked the addons again: %d sources, resuming at %.0fs", k, p->reask_pos);
+    play_candidates_free(p->cands, p->n_cands);
+    p->cands = c; p->n_cands = k; p->tries = 0;
+    memset(p->dead, 0, sizeof p->dead);
+    app_toast("Found sources again. Carrying on from where it stopped");
+    start_candidate(p, 0, p->reask_pos);
+}
+
+static void fallback_tick(Player *p, const VideoInfo *vi)
+{
+    if (p->trailer || p->finished) return;
+    float now = g_app.time;
+    int playing = vi->state == VIDEO_PLAYING;
+    if (playing && vi->position > 5) p->reask_pos = vi->position;
+    /* 1. a source that stopped sending: the next one, from the same moment */
+    float dead_after = env_s("SNTV_RESCUE_AFTER", 20);
+    if (playing && vi->buffering && p->stall_since > 0 && now - p->stall_since > dead_after && now - p->jumped_at > dead_after && next_candidate(p) >= 0) {
+        health_record(p, HEALTH_STALL);
+        p->stall_s += now - p->stall_since; p->stall_since = 0; p->was_buffering = 0;
+        rescue(p, "The source stopped sending video", vi->position);
+        return;
+    }
+    /* 2. a while of good playing counts for this server */
+    if (playing && !vi->buffering) { if (!p->good_since) p->good_since = now; }
+    else if (vi->buffering) p->good_since = 0;
+    if (p->good_since && !p->good_recorded && now - p->good_since > env_s("SNTV_GOOD_AFTER", 600)) { p->good_recorded = 1; health_record(p, HEALTH_OK); }
+    /* 3. the next source checked while this one plays, so a switch is quick */
+    if (p->warm_state == 2 && now - p->warm_at > 600) p->warm_state = 0;   /* links age: check again */
+    if (playing && p->warm_state == 0 && now - p->load_started > env_s("SNTV_WARM_AFTER", 30) && now - p->warm_at > 5) {
+        int idx = next_candidate(p);
+        if (idx >= 0 && !strncmp(p->cands[idx].url, "http", 4) && !torrent_engine_url_is(p->cands[idx].url)) {
+            p->warm_idx = idx; p->warm_state = 1; p->warm_at = now;
+            WarmReq *q = malloc(sizeof *q);
+            q->owner = p; q->gen = p->gen; q->idx = idx;
+            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1 };
+            http_request_async_ex(p->cands[idx].url, &o, on_warm, q);
+        } else p->warm_at = now + 60;
+    }
+    /* 4. the buffer is draining: a lighter copy before playback stops */
+    if (playing && !vi->buffering && vi->buffer_ahead >= 0 && now - p->jumped_at > 8 && now - p->drain_t >= env_s("SNTV_DRAIN_EVERY", 5)) {
+        p->drain_t = now;
+        if (p->drain_n == 6) { memmove(p->drain_at, p->drain_at + 1, 5 * sizeof(float)); memmove(p->drain_v, p->drain_v + 1, 5 * sizeof(float)); p->drain_n = 5; }
+        p->drain_at[p->drain_n] = now; p->drain_v[p->drain_n] = (float)vi->buffer_ahead; p->drain_n++;
+        if (p->drain_n >= 4 && !p->lighter_offered) {
+            float span = p->drain_at[p->drain_n - 1] - p->drain_at[0];
+            float slope = span > 0 ? (p->drain_v[p->drain_n - 1] - p->drain_v[0]) / span : 0;
+            float left = p->drain_v[p->drain_n - 1];
+            if (slope < -0.2f && left < 25) {
+                int cur = p->cands[p->cur].res ? p->cands[p->cur].res : 1081, best = -1;
+                const char *grp = p->cands[p->cur].binge_group;
+                for (int pass = 0; pass < 2 && best < 0; pass++)   /* the same release first */
+                    for (int i = 0; i < p->n_cands; i++) {
+                        if (i == p->cur || (i < 16 && p->dead[i]) || p->cands[i].res <= 0 || p->cands[i].res >= cur) continue;
+                        if (pass == 0 && !(grp && p->cands[i].binge_group && !strcmp(grp, p->cands[i].binge_group))) continue;
+                        if (best < 0 || p->cands[i].res > p->cands[best].res) best = i;
+                    }
+                p->lighter_offered = 1;
+                if (best >= 0) {
+                    LOGI("player: buffer draining (%.1f s left, %.2f s/s); switching to source %d (%dp) before it stops", left, slope, best + 1, p->cands[best].res);
+                    keep_choices(p);
+                    app_toast("The connection is falling behind: switching to %dp before it stops", p->cands[best].res);
+                    start_candidate(p, best, vi->position);
+                    return;
+                }
+                LOGI("player: buffer draining (%.1f s left) and no lighter source", left);
+            }
+        }
+    }
+    /* 5. nothing left to try: ask the addons again, twice at most */
+    if (vi->state == VIDEO_ERROR && p->error_handled && next_candidate(p) < 0 && p->reask_count < 2) {
+        if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 8); LOGI("player: every source failed; asking the addons again shortly"); app_toast("No source plays right now. Asking the addons again in a few seconds"); }
+        else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; streams_lookup(&p->meta, p->video_id, on_reask, p); }
+    }
+    if (p->reask_at < 0) streams_lookup_tick();
 }
 
 static void go_to_video(Player *p, const char *video_id, const char *video_title)
@@ -1318,6 +1489,7 @@ static void update(Screen *s, float dt)
     if (!p->hash_state && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) hash_start(p);
     opensubs_tick(p);
     bestmatch_tick(p, &vi);
+    fallback_tick(p, &vi);
     autosync_tick(p);
     xl_tick(p, dt, vi.position);
     skip_fetch(p, &vi);

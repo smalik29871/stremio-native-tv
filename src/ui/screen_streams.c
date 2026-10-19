@@ -3,6 +3,7 @@
 #include "../http.h"
 #include "../log.h"
 #include "../youtube.h"
+#include "../srchealth.h"
 #include "../probe.h"
 #include "../store.h"
 #include "../torrent.h"
@@ -251,6 +252,7 @@ static void sort_items(Streams *st)
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
         { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; }
         if (rule_broken(s)) s->score -= 2000;                            /* Settings > Sources > Rules */
+        if (s->url) s->score -= srchealth_penalty(s->url, s->addon_name);   /* servers that keep failing here, at this hour */
         if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */
         else if (s->probe_state == 2) {
             s->score += 60;                                              /* alive and understood */
@@ -644,7 +646,12 @@ static void draw(Screen *s)
         }
         const char *warn[3];
         int nw = ok ? quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 3) : 0;
-        if (rule_broken(sm)) {
+        const char *sick = sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
+        if (sick && !rule_broken(sm)) {
+            float fw = font_measure(sick, FONT_XS | FONT_B) + 24;
+            bx -= fw + 8;
+            ui_chip(sick, bx, ry + 18, COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+        } else if (rule_broken(sm)) {
             float fw = font_measure("Against your rules", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
             ui_chip("Against your rules", bx, ry + 18, COLOR_ALPHA(THEME_TEXT_MUTED, 0x30), THEME_TEXT_MUTED);
@@ -714,6 +721,66 @@ int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c
     return 1;
 }
 
+/* "Never fails" Play: the top three sources are asked at once and the first that
+ * answers starts; the rest stay behind it as the player's fallbacks. */
+typedef struct {
+    int busy, pending, done;
+    PlayCandidate *c; int n; double start;
+    MetaPreview meta; char video_id[160], title[300], next_id[128], next_title[200]; int has_next;
+} Race;
+static Race g_race;
+
+static void race_launch(int first)
+{
+    Race *r = &g_race;
+    if (first > 0) { PlayCandidate t = r->c[first]; memmove(r->c + 1, r->c, sizeof *r->c * (size_t)first); r->c[0] = t; }
+    LOGI("streams: %s", first >= 0 ? "the quickest source starts" : "no source answered the race; trying them in order");
+    app_push(screen_player_create(&r->meta, r->video_id, r->title, r->c, r->n, 0, r->start, r->has_next ? r->next_id : NULL, r->has_next ? r->next_title : NULL));
+    meta_preview_free(&r->meta);
+    r->c = NULL; r->busy = 0;
+}
+
+typedef struct { int idx; unsigned round; } RaceReq;
+static unsigned g_race_round;
+static void on_race(HttpResponse *resp, void *user)
+{
+    RaceReq *q = user;
+    Race *r = &g_race;
+    if (q->round == g_race_round && r->busy && !r->done) {
+        r->pending--;
+        int ok = resp->status == 200 || resp->status == 206;
+        if (ok) { r->done = 1; LOGI("streams: source %d answered first (%.2f s)", q->idx + 1, resp->seconds); race_launch(q->idx); }
+        else if (r->pending == 0) { r->done = 1; race_launch(-1); }
+    }
+    free(q);
+}
+
+static void play_raced(const Streams *st, PlayCandidate *c, int n, double start, const char *title, int has_next, const char *next_id, const char *next_title, int race)
+{
+    Race *r = &g_race;
+    int racers = 0;
+    for (int i = 0; i < n && i < 3; i++) if (!strncmp(c[i].url, "http", 4) && !torrent_engine_url_is(c[i].url)) racers++;
+    if (r->busy) { play_candidates_free(c, n); app_toast("Finding the quickest source\xE2\x80\xA6"); return; }
+    memset(r, 0, sizeof *r);
+    r->c = c; r->n = n; r->start = start; r->has_next = has_next;
+    meta_preview_copy(&r->meta, &st->meta);
+    snprintf(r->video_id, sizeof r->video_id, "%s", st->video_id);
+    snprintf(r->title, sizeof r->title, "%s", title);
+    if (has_next) { snprintf(r->next_id, sizeof r->next_id, "%s", next_id); snprintf(r->next_title, sizeof r->next_title, "%s", next_title); }
+    r->busy = 1;
+    if (!race || racers < 2 || getenv("SNTV_NO_RACE")) { race_launch(0); return; }   /* a source the viewer chose plays as chosen */
+    g_race_round++;
+    for (int i = 0; i < n && i < 3; i++) {
+        if (strncmp(c[i].url, "http", 4) || torrent_engine_url_is(c[i].url)) continue;
+        RaceReq *q = malloc(sizeof *q);
+        q->idx = i; q->round = g_race_round;
+        r->pending++;
+        HttpOptions o = { .range_bytes = 2, .timeout_s = 6, .no_json_accept = 1 };
+        http_request_async_ex(c[i].url, &o, on_race, q);
+    }
+    LOGI("streams: racing %d sources", r->pending);
+}
+
 /* Build the fallback list: the chosen stream first, then other playable ones (same
  * binge group preferred), capped so a bad addon can't stall for ages. The best P2P
  * source rides along last, so TorBox being down still ends in something that plays. */
@@ -776,7 +843,7 @@ static void play_from(Streams *st, int index)
     snprintf(title, sizeof title, "%s%s%s", st->meta.name, st->video_title ? "  -  " : "", st->video_title ? st->video_title : "");
     char next_id[128] = "", next_title[200] = "";
     int has_next = app_next_video(st->meta.id, st->video_id, next_id, sizeof next_id, next_title, sizeof next_title);
-    app_push(screen_player_create(&st->meta, st->video_id, title, c, n, 0, start, has_next ? next_id : NULL, has_next ? next_title : NULL));
+    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st));
 }
 
 /* ---- a quiet lookup for the player ---- */

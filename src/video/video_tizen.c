@@ -52,7 +52,7 @@ int video_load(const char *url, const char *title, double start)
 {
     (void)title;
     video_stop();
-    memset(&g_info, 0, sizeof g_info);
+    memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1;
     g_info.state = VIDEO_LOADING;
     g_pending_seek = start > 0 ? start : -1;
     g_autoplayed = 0;
