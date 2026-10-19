@@ -19,6 +19,7 @@
 #include "../subs.h"
 #include "../trackmem.h"
 #include "../tracking.h"
+#include "../opensubs.h"
 #include "../video/video.h"
 #include "../platform/platform.h"
 #include "font.h"
@@ -42,7 +43,7 @@ static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen"
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
 enum { N_RATES = 7, RATE_NORMAL = 2 };
 
-typedef struct AddonSub { char *url, *lang, *addon; int matched, sync_failed; int fit; char fit_why[48]; } AddonSub;   /* fit: 0 not checked, else 1..101 */
+typedef struct AddonSub { char *url, *lang, *addon, *release; int matched, sync_failed; int fit; char fit_why[48]; int name; } AddonSub;   /* name: release-name match 0..100 (OpenSubtitles) */   /* fit: 0 not checked, else 1..101 */
 
 typedef struct Player Player;
 typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; } SubReq;
@@ -87,6 +88,7 @@ struct Player {
     SubTrack ref; int ref_loaded, ref_idx;   /* a matched subtitle used as the timing reference */
     /* best match: the files in the chosen language, fetched and scored once (subs_fit) */
     int bm_state;                            /* 0 not yet, 1 fetching, 2 done */
+    int os_asked;                            /* OpenSubtitles.com searched for this stream */
     int bm_idx[6], bm_n, bm_pending; SubTrack bm_track[6]; int bm_ok[6];
     int sync_for, sync_state; double sync_offset;   /* sync_state: 0 idle, 1 aligning, 2 synced, 3 no match */
     /* AI translation of the active addon file into the preferred language, a batch at a time, playhead first */
@@ -313,6 +315,72 @@ static void on_sub_file(HttpResponse *r, void *user)
     free(q);
 }
 
+/* A subtitle file: an addon's URL, or "os://<file id>" from OpenSubtitles.com, whose
+ * download link is asked for first (that is when a download counts). */
+typedef struct { HttpCallback cb; SubReq *q; } OsGet;
+static void on_os_link(const char *url, const char *error, void *user)
+{
+    OsGet *g = user;
+    if (url) http_request_async(url, NULL, g->cb, g->q);
+    else {
+        HttpResponse fake; memset(&fake, 0, sizeof fake);
+        snprintf(fake.error, sizeof fake.error, "%s", error ? error : "refused");
+        if (error && g->q->slot == 0) app_toast("%s", error);
+        g->cb(&fake, g->q);
+    }
+    free(g);
+}
+
+static unsigned sub_get(const char *url, HttpCallback cb, SubReq *q)
+{
+    if (strncmp(url, "os://", 5) != 0) return http_request_async(url, NULL, cb, q);
+    OsGet *g = malloc(sizeof *g);
+    g->cb = cb; g->q = q;
+    opensubs_link(atol(url + 5), on_os_link, g);
+    return 0;
+}
+
+static void on_os_results(const OsSub *subs, int n, void *user)
+{
+    SubReq *q = user;
+    Player *p = q->owner;
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    free(q);
+    p->subs_pending--;
+    int fresh_match = 0;
+    for (int i = 0; i < n && p->n_addon_subs < MAX_ADDON_SUBS; i++) {
+        char url[48]; snprintf(url, sizeof url, "os://%ld", subs[i].file_id);
+        int seen = 0; for (int k = 0; k < p->n_addon_subs; k++) if (!strcmp(p->addon_subs[k].url, url)) seen = 1;
+        if (seen) continue;
+        AddonSub *as = &p->addon_subs[p->n_addon_subs++];
+        memset(as, 0, sizeof *as);
+        as->url = strdup(url); as->lang = strdup(subs[i].lang); as->addon = strdup("OpenSubtitles");
+        as->release = subs[i].release[0] ? strdup(subs[i].release) : NULL;
+        as->matched = subs[i].hash_match;
+        { int a1 = opensubs_name_score(subs[i].release, p->cands[p->cur].filename), a2 = opensubs_name_score(subs[i].release, p->cands[p->cur].release); as->name = a1 > a2 ? a1 : a2; }
+        if (as->matched && lang_same(as->lang, g_app.pref_subs)) fresh_match = 1;
+    }
+    LOGI("subs: %d from OpenSubtitles.com%s", n, fresh_match ? ", one made for this file" : "");
+    if (fresh_match && !p->subs_user) p->subs_auto_done = 0;   /* made for this file: beats the earlier pick */
+    app_redraw();
+}
+
+static void opensubs_tick(Player *p)
+{
+    if (p->os_asked || p->trailer || !opensubs_enabled() || p->hash_state < 3 || !p->video_id || strncmp(p->video_id, "tt", 2)) return;
+    p->os_asked = 1;
+    char imdb[24]; int season = -1, episode = -1;
+    const char *c = strchr(p->video_id, ':');
+    snprintf(imdb, sizeof imdb, "%.*s", c ? (int)(c - p->video_id) : (int)strlen(p->video_id), p->video_id);
+    if (c && sscanf(c + 1, "%d:%d", &season, &episode) != 2) season = episode = -1;
+    const char *l1 = lang_iso1(g_app.pref_subs);
+    char langs[32]; snprintf(langs, sizeof langs, "%s", l1 ? l1 : "en");
+    SubReq *q = malloc(sizeof *q);
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0;
+    p->subs_pending++;
+    opensubs_search(imdb, season, episode, p->hash_state == 3 ? p->os_hash : "", langs, on_os_results, q);
+}
+
 static void select_addon_sub_slot(Player *p, int idx, int slot)
 {
     if (slot) { p->active_addon_sub2 = idx; subs_free(&p->track2); p->track2_loaded = 0; }
@@ -328,7 +396,7 @@ static void select_addon_sub_slot(Player *p, int idx, int slot)
     if (idx < 0) return;
     SubReq *q = malloc(sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = slot;
-    unsigned req = http_request_async(p->addon_subs[idx].url, NULL, on_sub_file, q);
+    unsigned req = sub_get(p->addon_subs[idx].url, on_sub_file, q);
     if (!slot) p->sub_req = req;
 }
 
@@ -375,9 +443,18 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
                     return 1;
                 }
         } else {
-            for (int pass = 0; pass < 2; pass++)   /* a file matched to this video first */
-                for (int i = 0; i < p->n_addon_subs; i++)
-                    if (lang_same(p->addon_subs[i].lang, lang) && (pass || p->addon_subs[i].matched)) { select_addon_sub(p, i); return 1; }
+            for (int pass = 0; pass < 3; pass++) {   /* made for this file, then for the same release (its name), then any */
+                int best = -1;
+                for (int i = 0; i < p->n_addon_subs; i++) {
+                    const AddonSub *as = &p->addon_subs[i];
+                    if (!lang_same(as->lang, lang)) continue;
+                    if (pass == 0 && !as->matched) continue;
+                    if (pass == 1 && as->name < 60) continue;
+                    if (best < 0 || (pass == 1 && as->name > p->addon_subs[best].name)) best = i;
+                    if (pass != 1) break;
+                }
+                if (best >= 0) { if (pass == 1) LOGI("subs: %s is the same release by name (%d)", p->addon_subs[best].release, p->addon_subs[best].name); select_addon_sub(p, best); return 1; }
+            }
         }
     }
     return 0;
@@ -643,21 +720,22 @@ static void bestmatch_tick(Player *p, const VideoInfo *vi)
     if (p->bm_state == 2 || p->trailer) return;
     if (p->bm_state == 0) {
         if (p->subs_user || p->active_addon_sub < 0 || p->subs_pending > 0 || vi->duration <= 60) return;
+        if ((p->hash_state < 3 || (opensubs_enabled() && !p->os_asked)) && g_app.time - p->load_started < 20) return;   /* files made for this one may still come */
         const AddonSub *cur = &p->addon_subs[p->active_addon_sub];
-        if (cur->matched) { p->bm_state = 2; return; }   /* made for this file already */
+        if (cur->matched || !strncmp(cur->url, "os://", 5)) { p->bm_state = 2; return; }   /* made for this file, or chosen by its release name */
         int ref = matched_reference(p);
         if (ref >= 0 && !p->ref_loaded && p->sync_state != 3 && g_app.time - p->load_started < 30) return;   /* score against it */
         p->bm_n = 0;
         p->bm_idx[p->bm_n++] = p->active_addon_sub;
         for (int i = 0; i < p->n_addon_subs && p->bm_n < 6; i++)
-            if (i != p->active_addon_sub && !p->addon_subs[i].matched && lang_same(p->addon_subs[i].lang, cur->lang)) p->bm_idx[p->bm_n++] = i;
+            if (i != p->active_addon_sub && !p->addon_subs[i].matched && strncmp(p->addon_subs[i].url, "os://", 5) && lang_same(p->addon_subs[i].lang, cur->lang)) p->bm_idx[p->bm_n++] = i;
         if (p->bm_n < 2) { p->bm_state = 2; return; }
         p->bm_state = 1; p->bm_pending = p->bm_n;
         for (int k = 0; k < p->bm_n; k++) {
             memset(&p->bm_track[k], 0, sizeof p->bm_track[k]); p->bm_ok[k] = 0;
             SubReq *q = malloc(sizeof *q);
             q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = k; q->hashed = 0;
-            http_request_async(p->addon_subs[p->bm_idx[k]].url, NULL, on_bm_file, q);
+            sub_get(p->addon_subs[p->bm_idx[k]].url, on_bm_file, q);
         }
         LOGI("subs: comparing %d %s files for the best fit", p->bm_n, cur->lang);
         return;
@@ -697,7 +775,7 @@ static void autosync_tick(Player *p)
         subs_free(&p->ref);
         SubReq *q = malloc(sizeof *q);
         q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 2; q->hashed = 0;
-        http_request_async(p->addon_subs[ref].url, NULL, on_sub_file, q);
+        sub_get(p->addon_subs[ref].url, on_sub_file, q);
         return;
     }
     if (!p->ref_loaded) return;
@@ -1238,6 +1316,7 @@ static void update(Screen *s, float dt)
     }
     if (!p->probe_asked && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) probe_current(p);
     if (!p->hash_state && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) hash_start(p);
+    opensubs_tick(p);
     bestmatch_tick(p, &vi);
     autosync_tick(p);
     xl_tick(p, dt, vi.position);
@@ -1467,6 +1546,7 @@ static void draw_menu(Player *p)
             char who[160];
             char fit[72] = "";
             if (!p->addon_subs[idx].matched && p->addon_subs[idx].fit && p->addon_subs[idx].fit_why[0]) snprintf(fit, sizeof fit, "  \xC2\xB7  %s", p->addon_subs[idx].fit_why);
+            else if (p->addon_subs[idx].release) snprintf(fit, sizeof fit, "  \xC2\xB7  %.40s%s", p->addon_subs[idx].release, p->addon_subs[idx].name >= 60 ? " (same release)" : "");
             snprintf(who, sizeof who, "%s%s%s%s%s", p->addon_subs[idx].addon, pick, p->addon_subs[idx].matched ? "  \xC2\xB7  matched to this file" : "", fit, p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
             ROW(label, who, p->active_addon_sub == idx || p->active_addon_sub2 == idx);
         }
@@ -2431,7 +2511,7 @@ static void destroy(Screen *s)
     for (int k = 0; k < 6; k++) subs_free(&p->bm_track[k]);
     xl_stop(p);
     free(p->probe);
-    for (int i = 0; i < p->n_addon_subs; i++) { free(p->addon_subs[i].url); free(p->addon_subs[i].lang); free(p->addon_subs[i].addon); }
+    for (int i = 0; i < p->n_addon_subs; i++) { free(p->addon_subs[i].url); free(p->addon_subs[i].lang); free(p->addon_subs[i].addon); free(p->addon_subs[i].release); }
     play_candidates_free(p->cands, p->n_cands);
     meta_preview_free(&p->meta);
     free(p->video_id); free(p->title); free(p->next_video_id); free(p->next_title); free(p->prev_video_id); free(p->prev_title);

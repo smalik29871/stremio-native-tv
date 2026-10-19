@@ -98,3 +98,12 @@ const char *lang_display_english(const char *code)
     for (size_t i = 0; i < sizeof ALIASES / sizeof ALIASES[0]; i++) if (c && strcmp(ALIASES[i][0], c) == 0) return ALIASES[i][3];
     return code ? code : "";
 }
+
+const char *lang_iso1(const char *code)
+{
+    if (is_brazilian(code)) return "pt-br";
+    const char *c = lang_canonical(code);
+    if (!c) return NULL;
+    for (size_t i = 0; i < sizeof ALIASES / sizeof ALIASES[0]; i++) if (!strcmp(ALIASES[i][0], c)) return ALIASES[i][1];
+    return NULL;
+}

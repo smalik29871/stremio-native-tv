@@ -44,6 +44,7 @@ add_library(sntv_core STATIC
   src/probe.c
   src/tmdb.c
   src/tracking.c
+  src/opensubs.c
   src/ai.c
   src/memlevel.c
   src/sysinfo.c
@@ -69,7 +70,7 @@ if(SNTV_FFMPEG_PREFIX)
 endif()
 # Optional: a TMDB key baked into the build (CI takes it from a repository secret), so
 # cast photos and age ratings work without the viewer entering one.
-foreach(k TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID MDBLIST_KEY)
+foreach(k TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID MDBLIST_KEY OPENSUBTITLES_KEY)
   set(SNTV_${k} "" CACHE STRING "Built-in ${k} (CI secret)")
   if(NOT SNTV_${k} STREQUAL "")
     target_compile_definitions(sntv_core PUBLIC SNTV_${k}="${SNTV_${k}}")

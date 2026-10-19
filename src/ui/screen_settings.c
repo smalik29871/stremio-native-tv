@@ -17,6 +17,7 @@
 #include "../log.h"
 #include "../store.h"
 #include "../tracking.h"
+#include "../opensubs.h"
 #include "../platform/platform.h"
 #include "../video/video.h"
 #include "font.h"
@@ -48,7 +49,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_ASK_PROFILE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -59,7 +60,7 @@ static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio account", "Torrents",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
     "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
 #define SEC_H 70.0f
@@ -111,7 +112,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_LANG:
         SEC(SEC_LANGS); ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN;
         SEC(SEC_SUBS_LOOK); ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE;
-        SEC(SEC_SUBS_SMART); ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL;
+        SEC(SEC_SUBS_SMART); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL;
         break;
     case CAT_SOURCES:
         SEC(SEC_RANKING); ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO;
@@ -182,6 +183,8 @@ static const char *row_title(int id)
     case IT_TRAKT: return "Trakt";
     case IT_SIMKL: return "SimKL";
     case IT_MDBLIST: return "MDBList ratings";
+    case IT_OS_KEY: return "OpenSubtitles.com";
+    case IT_OS_LOGIN: return "OpenSubtitles account";
     case IT_PLAY_LINK: return "Play a link from your phone";
     case IT_BACKUP: return "Back up or restore settings";
     case IT_PREFLIGHT: return "Check sources before recommending";
@@ -260,6 +263,8 @@ static const char *row_desc(int id)
     case IT_SRC_CACHED: return "Torrents that need a download first are never picked for you.";
     case IT_TRAKT: return "Scrobbles what you watch; your watchlist and recommendations become Home rows.";
     case IT_SIMKL: return "Titles you finish are added to your SimKL history.";
+    case IT_OS_KEY: return "Built-in subtitle search, with release names to find the subtitle made for your file's release.";
+    case IT_OS_LOGIN: return "Optional: a free account allows more subtitle downloads a day.";
     case IT_MDBLIST: return "Rotten Tomatoes, Metacritic and Letterboxd scores on title pages. Free key at mdblist.com.";
     case IT_PLAY_LINK: return "Send a video link from your phone and it plays here.";
     case IT_BACKUP: return "Save your settings to your phone, or bring a backup back.";
@@ -727,6 +732,8 @@ static void draw(Screen *s)
             draw_row(y, ICON_SPARK, TRACK_NAMES[svc], st2, foc, KIND_ACTION, 0);
             break;
         }
+        case IT_OS_KEY: draw_row(y, ICON_SUBS, "OpenSubtitles.com", opensubs_enabled() ? "On  \xC2\xB7  searched for every video" : "Off  \xC2\xB7  OK to add an API key", foc, KIND_ACTION, 0); break;
+        case IT_OS_LOGIN: { char u[96]; if (opensubs_signed_in()) snprintf(u, sizeof u, "Signed in as %s  \xC2\xB7  OK to sign out", opensubs_user()); else snprintf(u, sizeof u, "Not signed in  \xC2\xB7  a few downloads a day"); draw_row(y, ICON_KEY, "OpenSubtitles account", u, foc, KIND_ACTION, 0); break; }
         case IT_MDBLIST: draw_row(y, ICON_STAR, "MDBList ratings", mdblist_enabled() ? "Key set  \xC2\xB7  more ratings on title pages" : "Not set  \xC2\xB7  OK to add a key", foc, KIND_ACTION, 0); break;
         case IT_TVCAP: draw_row(y, ICON_TV, "What this TV can play", NULL, foc, KIND_ACTION, 0); break;
         case IT_SRC_EXCLUDE: draw_row(y, ICON_CLOSE, "Words to avoid in source names", g_app.src_exclude[0] ? g_app.src_exclude : "None  \xC2\xB7  OK to add, e.g. CAM, HDTS, 3D", foc, KIND_ACTION, 0); break;
@@ -882,6 +889,7 @@ static const char *edit_title(int which)
 {
     if (which == EDIT_SEARCH) return "Find a setting";
     return which == EDIT_AI_KEY ? "AI API key" : which == EDIT_AI_BASE ? "AI endpoint (OpenAI-compatible)" : which == EDIT_AI_MODEL ? "AI model"
+         : which == EDIT_OS_KEY ? "OpenSubtitles.com API key" : which == EDIT_OS_LOGIN ? "OpenSubtitles account"
          : which == EDIT_TRAKT_APP ? "Trakt app" : which == EDIT_SIMKL_APP ? "SimKL app id" : which == EDIT_MDBLIST ? "MDBList API key"
          : which == EDIT_PLAY_LINK ? "Play a link" : which == EDIT_BACKUP ? "Back up or restore settings"
          : which == EDIT_EXCLUDE ? "Words to avoid in source names" : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_TMDB ? "TMDB API key"
@@ -890,7 +898,9 @@ static const char *edit_title(int which)
 static const char *edit_hint(int which)
 {
     if (which == EDIT_SEARCH) return "A word from its name or from what it does: subtitle, clock, black, PIN, trailer\xE2\x80\xA6";
-    return which == EDIT_TRAKT_APP ? "Create an app at developer.trakt.tv/apps (type Development, redirect http://localhost), then enter its Client ID (and, for older apps that have one, a space and the Client Secret)."
+    return which == EDIT_OS_KEY ? "Free at opensubtitles.com > Profile > API consumers (create one, copy its API key). Empty removes it."
+         : which == EDIT_OS_LOGIN ? "Your opensubtitles.com username, a space, then your password. Only the sign-in token is kept on the TV."
+         : which == EDIT_TRAKT_APP ? "Create an app at developer.trakt.tv/apps (type Development, redirect http://localhost), then enter its Client ID (and, for older apps that have one, a space and the Client Secret)."
          : which == EDIT_SIMKL_APP ? "Create an app at simkl.com/settings/developer (redirect http://localhost) and enter its Client ID."
          : which == EDIT_MDBLIST ? "Free at mdblist.com > Preferences > API key. Empty removes it."
          : which == EDIT_PLAY_LINK ? "A direct video link (MP4, MKV, M3U8). Scan the code to paste it on your phone; it plays at once."
@@ -1125,7 +1135,7 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "http://")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
                   : which == EDIT_SEARCH || which == EDIT_BACKUP || which == EDIT_TRAKT_APP || which == EDIT_SIMKL_APP ? ""
-                  : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_PLAY_LINK ? "https://" : which == EDIT_EXCLUDE ? g_app.src_exclude
+                  : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "https://" : which == EDIT_EXCLUDE ? g_app.src_exclude
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "https://") : "https://");
     input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
@@ -1158,6 +1168,23 @@ static void finish_edit(Settings *st, int save)
             store_set_str("streamingServer", g_app.streaming_server);
             store_save();
             app_toast(n ? "Streaming server saved" : "Streaming server cleared");
+        } else if (st->edit == EDIT_OS_KEY || st->edit == EDIT_OS_LOGIN) {
+            char *v = st->kb.text;
+            while (*v == ' ') v++;
+            size_t n = strlen(v);
+            while (n && v[n - 1] == ' ') v[--n] = 0;
+            if (st->edit == EDIT_OS_KEY) { store_set_str("osApiKey", n ? v : NULL); store_save(); app_toast(n ? "OpenSubtitles.com on" : "OpenSubtitles.com key removed"); }
+            else {
+                char *sp = strchr(v, ' ');
+                if (!sp) app_toast("Enter the username, a space, then the password");
+                else {
+                    *sp++ = 0;
+                    char err[96];
+                    if (opensubs_login(v, sp, err, sizeof err)) app_toast("Signed in to OpenSubtitles as %s", v);
+                    else app_toast("OpenSubtitles sign-in failed: %s", err);
+                }
+                memset(st->kb.text, 0, sizeof st->kb.text);   /* the password goes no further */
+            }
         } else if (st->edit == EDIT_TRAKT_APP || st->edit == EDIT_SIMKL_APP || st->edit == EDIT_MDBLIST) {
             char *v = st->kb.text;
             while (*v == ' ') v++;
@@ -1434,6 +1461,8 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_TVCAP) show_tv_caps();
         else if (id == IT_PLAY_LINK) begin_edit(st, EDIT_PLAY_LINK);
         else if (id == IT_MDBLIST) begin_edit(st, EDIT_MDBLIST);
+        else if (id == IT_OS_KEY) begin_edit(st, EDIT_OS_KEY);
+        else if (id == IT_OS_LOGIN) { if (opensubs_signed_in()) { char e[8]; opensubs_login(NULL, NULL, e, sizeof e); app_toast("Signed out of OpenSubtitles"); } else begin_edit(st, EDIT_OS_LOGIN); }
         else if (id == IT_TRAKT || id == IT_SIMKL) tracking_row_ok(st, id == IT_TRAKT ? TRACK_TRAKT : TRACK_SIMKL);
         else if (id == IT_BACKUP) begin_edit(st, EDIT_BACKUP);
         else if (id == IT_AI_KEY) begin_edit(st, EDIT_AI_KEY);

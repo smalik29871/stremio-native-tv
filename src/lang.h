@@ -16,6 +16,8 @@ const char *lang_canonical(const char *code);
 const char *lang_display_english(const char *code);
 /* Same language? Unknown codes only match themselves (case-insensitive). */
 int lang_same(const char *a, const char *b);
+/* ISO 639-1 ("de", "pt-br" for Brazilian Portuguese), or NULL when not known. */
+const char *lang_iso1(const char *code);
 /* A real language (not empty, "und", "mis", "zxx", "mul"). */
 int lang_known(const char *code);
 

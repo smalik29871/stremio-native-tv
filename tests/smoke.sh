@@ -285,6 +285,10 @@ run player_autosync 520 "right,ok,down,down,ok,ok,down,right,right,right,ok,down
 # two English files, no file-matched one: the one that runs to the end of the video wins
 run player_subs_bestfit 420 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with bestfit '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1
 grep -q "subs: switching to file 1, it fits better" "$OUT/player_subs_bestfit.log" || { echo "the better-fitting subtitle was not picked"; grep subs "$OUT/player_subs_bestfit.log"; exit 1; }
+# OpenSubtitles.com built in: the file made for this video (its hash) is the one downloaded
+run player_subs_opensubs 420 "right,ok,down,down,ok,ok,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with os '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"osApiKey":"oskey"}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_OPENSUBS_API=http://127.0.0.1:8765/os
+grep -q "subs: 2 from OpenSubtitles.com, one made for this file" "$OUT/player_subs_opensubs.log" && grep -q "opensubs: file 222, 4 downloads left today" "$OUT/player_subs_opensubs.log" \
+  && ! grep -q "opensubs: file 111" "$OUT/player_subs_opensubs.log" || { echo "OpenSubtitles.com did not pick the file made for this video"; grep -E "subs|opensubs" "$OUT/player_subs_opensubs.log"; exit 1; }
 AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}'
 run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1

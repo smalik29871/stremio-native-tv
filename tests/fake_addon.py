@@ -170,6 +170,11 @@ class H(BaseHTTPRequestHandler):
                 with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
                     f.write(b"trakt " + q.encode() + b" " + body + b"\n")
                 return self.send(201, b"{}")
+        if p == "/os/download":
+            fid = json.loads(body.decode())["file_id"]
+            with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                f.write(f"os download {fid}\n".encode())
+            return self.send(200, json.dumps({"link": f"{BASE}/sub_matched.srt?os={fid}", "remaining": 4}).encode())
         if p.startswith("/simkl/sync/history"):
             with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
                 f.write(b"simkl history " + body + b"\n")
@@ -255,6 +260,13 @@ class H(BaseHTTPRequestHandler):
         # only a torrent (FAKE_TORRENT_HASH, seeded on this machine) and an uncached TorBox
         # entry; later answers add a cached TorBox copy, as when TorBox catches up.
         # /p2ponly/...: the same addon while TorBox never catches up.
+        if p.startswith("/os/subtitles"):   # OpenSubtitles.com: one popular file, one made for this file (its hash)
+            if self.headers.get("Api-Key") != "oskey":
+                return self.send(401, b"{}")
+            hashed = "moviehash=" in p
+            data = [{"id": "1", "attributes": {"language": "en", "release": "Some.Other.Cut.720p.HDTV-XYZ", "download_count": 900, "moviehash_match": False, "files": [{"file_id": 111}]}},
+                    {"id": "2", "attributes": {"language": "en", "release": "Movie.2024.1080p.WEB-DL", "download_count": 12, "moviehash_match": hashed, "files": [{"file_id": 222}]}}]
+            return self.send(200, json.dumps({"data": data}).encode())
         if p.startswith("/trakt/sync/watchlist"):
             return self.send(200, json.dumps([{"type": "movie", "movie": {"title": "The Shawshank Redemption", "year": 1994, "ids": {"imdb": "tt0111161"}}},
                                               {"type": "show", "show": {"title": "Breaking Bad", "year": 2008, "ids": {"imdb": "tt0903747"}}}]).encode())

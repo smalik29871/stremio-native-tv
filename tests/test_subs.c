@@ -1,4 +1,5 @@
 #include "subs.h"
+#include "opensubs.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,8 +63,21 @@ static void test_fit(void)
     subs_free(&good); subs_free(&early); subs_free(&past); subs_free(&forced); subs_free(&ref); subs_free(&other);
 }
 
+static void test_names(void)
+{
+    const char *file = "The.Movie.2024.1080p.AMZN.WEB-DL.DDP5.1.H.264-FLUX.mkv";
+    int same = opensubs_name_score("The.Movie.2024.1080p.AMZN.WEB-DL.DDP5.1.H.264-FLUX", file);
+    int web = opensubs_name_score("The.Movie.2024.1080p.WEBRip.x264-RARBG", file);
+    int bd = opensubs_name_score("The.Movie.2024.1080p.BluRay.x264-SPARKS", file);
+    int ext = opensubs_name_score("The.Movie.2024.Extended.1080p.AMZN.WEB-DL-FLUX", file);
+    printf("names: same %d web %d bluray %d extended %d\n", same, web, bd, ext);
+    CHECK(same >= 80 && same > web && web > bd && same > ext);
+    CHECK(opensubs_name_score("", file) == 0 && opensubs_name_score("x", NULL) == 0);
+}
+
 int main(void)
 {
+    test_names();
     test_fit();
     /* alignment: the same cues shifted by 2.3 s, with a few extra and missing ones */
     {

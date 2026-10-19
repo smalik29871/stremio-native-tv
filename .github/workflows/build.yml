@@ -92,6 +92,7 @@ jobs:
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
           MDBLIST_KEY: ${{ secrets.MDBLIST_KEY }}
+          OPENSUBTITLES_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
         run: bash tools/webos.sh --ipk
       - name: Check package
         run: |
