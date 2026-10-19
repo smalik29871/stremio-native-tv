@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.12
+
+- **Clock faces.** The Clock screensaver has seven faces (Settings > Interface > Clock face):
+  digital, flip cards that fall at each new minute, an analog dial with a sweeping second
+  hand, a word clock ("IT IS HALF PAST SEVEN"), rings, glowing nixie tubes, and stacked
+  StandBy-style digits. The big digits stay sharp at any size.
+- **Clock island styles.** The clock in the corner can show the day, seconds, or a small
+  dial (Settings > Playback > Clock style).
+- **Fireplace screensaver.** A real fireplace video (a YouTube or direct link, set in
+  Settings > Interface) plays full screen with the clock over it. Until one is set, a
+  drawn fire shows instead.
+- **Cast.** Pressing an actor opens their own films and series from TMDB, most popular
+  first, without talk shows and cameos.
+- **Test TV interruption.** Settings > Take breaks: tells whether this TV lets Stremio come
+  to the front by itself from another app, with every reply shown on screen.
+
 ## 0.10.11
 
 - **YouTube plays again.** YouTube links only work for the YouTube app they were issued
