@@ -1,4 +1,5 @@
 #include "subs.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +38,34 @@ int main(void)
         for (int i = 0; i < 8; i++) { c.cues[c.n].start = 1000 + i * 13.1; c.cues[c.n].end = c.cues[c.n].start + 1; c.cues[c.n].text = strdup("z"); c.n++; }
         CHECK(subs_align(&a, &c, &off) == 0);   /* nothing in common: no guess */
         subs_free(&a); subs_free(&b); subs_free(&c);
+    }
+    /* drift and a cut: subtitles timed for 25 fps (sped up 25/23.976) and 1.5 s early,
+     * and from minute 30 a scene the subtitles' version lacks moves the rest 20 s later */
+    {
+        SubTrack ref = { 0 }, t = { 0 };
+        int N = 700;
+        ref.cues = calloc((size_t)N, sizeof(SubCue)); t.cues = calloc((size_t)N, sizeof(SubCue));
+        unsigned seed = 11; double v = 4;
+        char txt[16];
+        for (int i = 0; i < N; i++) {
+            seed = seed * 1103515245u + 12345u; v += 1.5 + (seed >> 16) % 600 / 100.0;
+            double shown = v >= 1800 ? v + 20 : v;   /* the video has 20 s more from minute 30 */
+            snprintf(txt, sizeof txt, "c%d", i);
+            ref.cues[i].start = shown; ref.cues[i].end = shown + 1.2; ref.cues[i].text = strdup(txt);
+            t.cues[i].start = v * 23.976 / 25.0 - 1.5; t.cues[i].end = t.cues[i].start + 1.1; t.cues[i].text = strdup(txt);
+        }
+        ref.n = t.n = N;
+        CHECK(subs_sync(&ref, &t) == 1);
+        CHECK(fabs(t.scale - 25.0 / 23.976) < 1e-6);
+        int right = 0, asked = 0;
+        for (int i = 5; i < N; i += 7) {   /* mid-cue on the video's clock shows the same line */
+            double at = ref.cues[i].start + 0.5;
+            const char *got = subs_at(&t, at);
+            asked++;
+            if (got && strcmp(got, ref.cues[i].text) == 0) right++;
+        }
+        CHECK(right >= asked * 9 / 10);
+        subs_free(&ref); subs_free(&t);
     }
     /* UTF-16 LE with a BOM */
     {

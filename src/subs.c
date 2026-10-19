@@ -168,6 +168,72 @@ void subs_free(SubTrack *t)
     memset(t, 0, sizeof *t);
 }
 
+/* Votes for the shift that lines t (its times multiplied by `scale`) up with ref, within
+ * [lo, hi] seconds around `around`; only t's cues starting in [from, to) take part.
+ * Returns the support of the winner; *off gets the refined shift, *samples the voters. */
+static int vote(const SubTrack *ref, const SubTrack *t, double scale, double around, double span, double from, double to, double *off, int *samples)
+{
+    enum { MAXB = 601 };
+    static int hist[MAXB];
+    int half = (int)(span * 10), bins = 2 * half + 1;
+    if (bins > MAXB) { half = (MAXB - 1) / 2; bins = MAXB; }
+    memset(hist, 0, sizeof hist);
+    int step = t->n > 600 ? t->n / 600 : 1, j = 0;
+    *samples = 0;
+    for (int i = 0; i < t->n; i += step) {
+        double s = t->cues[i].start * scale;
+        if (s < from || s >= to) continue;
+        (*samples)++;
+        while (j < ref->n && ref->cues[j].start < s + around - span) j++;
+        for (int k = j; k < ref->n && ref->cues[k].start <= s + around + span; k++) {
+            int bin = (int)floor((ref->cues[k].start - s - around) * 10 + 0.5) + half;
+            if (bin >= 0 && bin < bins) hist[bin]++;
+        }
+    }
+    int best = 0;
+    for (int b = 1; b < bins; b++) if (hist[b] > hist[best]) best = b;
+    int support = hist[best] + (best > 0 ? hist[best - 1] : 0) + (best + 1 < bins ? hist[best + 1] : 0);
+    int second = 0;
+    for (int b = 0; b < bins; b++) if (abs(b - best) > 3 && hist[b] > second) second = hist[b];
+    if (hist[best] * 10 < second * 11) return 0;   /* no winner (a cut leaves a second, smaller peak) */
+    double centre = around + (best - half) / 10.0, sum = 0; int n = 0; j = 0;
+    for (int i = 0; i < t->n; i += step) {
+        double s = t->cues[i].start * scale;
+        if (s < from || s >= to) continue;
+        while (j < ref->n && ref->cues[j].start < s + centre - 0.35) j++;
+        for (int k = j; k < ref->n && ref->cues[k].start <= s + centre + 0.35; k++) { sum += ref->cues[k].start - s; n++; }
+    }
+    *off = n ? sum / n : centre;
+    return support;
+}
+
+int subs_sync(const SubTrack *ref, SubTrack *t)
+{
+    if (!ref || !t || ref->n < 3 || t->n < 3) return 0;
+    /* the speed: as written, or retimed between the usual frame rates */
+    static const double SCALES[] = { 1.0, 25.0 / 23.976, 23.976 / 25.0, 24.0 / 23.976, 23.976 / 24.0, 25.0 / 24.0, 24.0 / 25.0 };
+    double best_scale = 1, best_off = 0; int best_support = 0, best_samples = 1;
+    for (size_t i = 0; i < sizeof SCALES / sizeof SCALES[0]; i++) {
+        double off = 0; int samples = 0;
+        int sup = vote(ref, t, SCALES[i], 0, 30, -1e9, 1e9, &off, &samples);
+        /* another speed must win clearly: drift shows as votes for "as written" spreading out */
+        if (sup > (i ? best_support * 1.25 : 0)) { best_support = sup; best_samples = samples; best_scale = SCALES[i]; best_off = off; }
+    }
+    if (best_support < 3 || best_support < best_samples * 0.3) return 0;
+    t->scale = best_scale;
+    t->offset = fabs(best_off) < 0.15 ? 0 : best_off;
+    /* ten minutes at a time: a cut or an inserted scene moves the rest by a step */
+    float carry = 0;
+    for (int w = 0; w < SUBS_WINDOWS; w++) {
+        double off = 0; int samples = 0;
+        int sup = vote(ref, t, best_scale, t->offset, 30, w * 600.0 - t->offset, (w + 1) * 600.0 - t->offset, &off, &samples);
+        if (samples >= 8 && sup >= samples * 0.4 && fabs(off - t->offset) > 0.4) carry = (float)(off - t->offset);
+        else if (samples >= 8 && sup >= samples * 0.4) carry = 0;
+        t->window_fix[w] = carry;
+    }
+    return 1;
+}
+
 int subs_align(const SubTrack *ref, const SubTrack *t, double *offset_out)
 {
     if (!ref || !t || ref->n < 3 || t->n < 3) return 0;
@@ -205,6 +271,9 @@ int subs_align(const SubTrack *ref, const SubTrack *t, double *offset_out)
 const char *subs_at(const SubTrack *t, double s)
 {
     s -= t->offset;
+    int w = (int)(s / 600);
+    if (w >= 0 && w < SUBS_WINDOWS) s -= t->window_fix[w];
+    if (t->scale > 0 && t->scale != 1) s /= t->scale;
     /* cues are usually sorted; binary search the last cue starting before s */
     int lo = 0, hi = t->n - 1, best = -1;
     while (lo <= hi) {

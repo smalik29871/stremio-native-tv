@@ -278,6 +278,8 @@ static void hash_start(Player *p)
     http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q);
 }
 
+static double sub_fix_get(const char *url);
+
 static void on_sub_file(HttpResponse *r, void *user)
 {
     SubReq *q = user;
@@ -291,6 +293,10 @@ static void on_sub_file(HttpResponse *r, void *user)
     if (r->status == 200 && subs_parse(r->body, r->len, t) > 0) {
         *loaded = 1;
         LOGI("subs: loaded %d cues%s", t->n, q->slot == 2 ? " (timing reference)" : q->slot ? " (second subtitles)" : "");
+        if (!q->slot && p->active_addon_sub >= 0) {
+            double fix = sub_fix_get(p->addon_subs[p->active_addon_sub].url);
+            if (fix != 0) { t->offset = fix; LOGI("subs: remembered timing fix %+.2f s", fix); app_toast("Your timing fix for these subtitles is back (%+.1f s)", fix); }
+        }
     } else if (q->slot == 2) {
         p->sync_state = 3;
     } else {
@@ -626,12 +632,17 @@ static void autosync_tick(Player *p)
         return;
     }
     if (!p->ref_loaded) return;
-    double off = 0;
     p->sync_for = p->active_addon_sub;
-    if (subs_align(&p->ref, &p->track, &off)) {
-        p->track.offset = off; p->sync_offset = off; p->sync_state = 2;
-        LOGI("subs: auto-synced %+.2f s against %s (%s)", off, p->addon_subs[ref].addon, p->addon_subs[ref].lang);
-        if (fabs(off) >= 0.15) app_toast("Subtitles synced to the file (%+.1f s)", off); else app_toast("Subtitles already in sync with the file");
+    if (subs_sync(&p->ref, &p->track)) {   /* offset, frame-rate drift and cuts */
+        double off = p->track.offset;
+        p->track.offset += sub_fix_get(p->addon_subs[p->active_addon_sub].url);
+        int cuts = 0;
+        for (int w = 0; w < SUBS_WINDOWS; w++) if (p->track.window_fix[w] != 0 && (!w || p->track.window_fix[w] != p->track.window_fix[w - 1])) cuts++;
+        int drift = p->track.scale > 0 && fabs(p->track.scale - 1) > 0.001;
+        p->sync_offset = off; p->sync_state = 2;
+        LOGI("subs: auto-synced %+.2f s scale %.6f cuts %d against %s (%s)", off, p->track.scale, cuts, p->addon_subs[ref].addon, p->addon_subs[ref].lang);
+        if (drift || cuts) app_toast("Subtitles synced to the file (%+.1f s%s%s)", off, drift ? ", frame rate fixed" : "", cuts ? ", cuts fixed" : "");
+        else if (fabs(off) >= 0.15) app_toast("Subtitles synced to the file (%+.1f s)", off); else app_toast("Subtitles already in sync with the file");
     } else {
         p->sync_state = 3;
         AddonSub *cur = &p->addon_subs[p->active_addon_sub];
@@ -2046,10 +2057,43 @@ static void adjust_subs(Player *p, int row, int dir)
     push_sub_style(p);
 }
 
+/* A hand-made timing fix, remembered per subtitle file and put back next time. */
+static void sub_fix_key(const char *url, char *out, size_t n)
+{
+    unsigned long long h = 1469598103934665603ULL;
+    for (const char *c = url; *c; c++) { h ^= (unsigned char)*c; h *= 1099511628211ULL; }
+    snprintf(out, n, "%016llx", h);
+}
+
+static double sub_fix_get(const char *url)
+{
+    char k[24]; sub_fix_key(url, k, sizeof k);
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(store_get_json("sub_fixes"), k);
+    return cJSON_IsNumber(v) ? v->valuedouble : 0;
+}
+
+static void sub_fix_set(const char *url, double fix)
+{
+    char k[24]; sub_fix_key(url, k, sizeof k);
+    cJSON *m = cJSON_Duplicate(store_get_json("sub_fixes"), 1);
+    if (!cJSON_IsObject(m)) { cJSON_Delete(m); m = cJSON_CreateObject(); }
+    cJSON_DeleteItemFromObjectCaseSensitive(m, k);
+    if (fabs(fix) >= 0.05) {
+        while (cJSON_GetArraySize(m) >= 300) cJSON_DeleteItemFromArray(m, 0);   /* oldest first */
+        cJSON_AddNumberToObject(m, k, fix);
+    }
+    store_set_json("sub_fixes", m);
+    store_save();
+}
+
 /* Timing moves whichever subtitles are showing: addon cues here, file tracks on the TV. */
 static void shift_subs(Player *p, double by)
 {
-    if (p->track_loaded) { p->track.offset = by ? p->track.offset + by : 0; return; }
+    if (p->track_loaded) {
+        p->track.offset = by ? p->track.offset + by : (p->sync_state == 2 ? p->sync_offset : 0);
+        if (p->active_addon_sub >= 0) sub_fix_set(p->addon_subs[p->active_addon_sub].url, p->track.offset - (p->sync_state == 2 ? p->sync_offset : 0));
+        return;
+    }
     if (p->embedded_text_sel < 0) return;
     p->embedded_offset = by ? p->embedded_offset + by : 0;
     push_sub_style(p);
@@ -2099,7 +2143,7 @@ static void menu_activate(Player *p)
     if (f >= SUB_SIZE && f <= SUB_POS) { adjust_subs(p, f, 1); return; }
     if (f == SUB_SYNC) {
         g_app.subs_autosync = !g_app.subs_autosync; app_save_prefs();
-        if (!g_app.subs_autosync && p->track_loaded) { p->track.offset = 0; p->sync_state = 0; }
+        if (!g_app.subs_autosync && p->track_loaded) { p->track.offset = p->active_addon_sub >= 0 ? sub_fix_get(p->addon_subs[p->active_addon_sub].url) : 0; p->track.scale = 1; memset(p->track.window_fix, 0, sizeof p->track.window_fix); p->sync_state = 0; }
         p->sync_for = -1;
         return;
     }
