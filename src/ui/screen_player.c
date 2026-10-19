@@ -23,6 +23,7 @@
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
+#include "island.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2041,6 +2042,17 @@ static void seek_by(Player *p, double base)
     app_redraw();
 }
 
+/* Left mid-way: the island offers the title back for a while. */
+static void offer_resume(Player *p, const VideoInfo *vi)
+{
+    if (vi->duration < 120 || vi->position < 60 || vi->position > vi->duration * 0.92) return;
+    char line[200];
+    if (p->title && p->meta.name && strncmp(p->title, p->meta.name, strlen(p->meta.name)) != 0)
+        snprintf(line, sizeof line, "%s  \xC2\xB7  %s", p->meta.name, p->title);
+    else snprintf(line, sizeof line, "%s", p->title ? p->title : p->meta.name ? p->meta.name : "");   /* the title already names the show */
+    island_resume(&p->meta, line, (int)((vi->duration - vi->position) / 60 + 0.5));
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Player *p = s->st;
@@ -2136,6 +2148,7 @@ static int key(Screen *s, KeyAction a)
         /* fall through */
     case KEY_STOP:
         report(p, 1);
+        offer_resume(p, &vi);
         video_stop();
         p->finished = 1;
         app_pop();
@@ -2178,6 +2191,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     Screen *s = calloc(1, sizeof *s);
     Player *p = calloc(1, sizeof *p);
     p->bar_id = BTN_PLAY;
+    island_resume(NULL, NULL, 0);   /* watching again: nothing to offer back */
     meta_preview_copy(&p->meta, meta);
     p->video_id = strdup(video_id);
     p->title = strdup(title ? title : meta->name);

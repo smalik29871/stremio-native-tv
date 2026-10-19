@@ -126,7 +126,6 @@ void app_pop(void);
 void app_replace(Screen *s);
 Screen *app_top(void);
 void app_toast(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
-void app_draw_toast(void);
 /* Draws the top screen, animating the change from the previous one when a transition runs. */
 void app_draw_screen(Screen *top, float dt);
 int  app_transition_active(void);

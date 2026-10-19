@@ -3,6 +3,7 @@
 #include "breaks.h"
 #include "phone.h"
 #include "ui/widgets.h"
+#include "ui/island.h"
 #include "http.h"
 #include "image.h"
 #include "memwatch.h"
@@ -155,6 +156,11 @@ static void dispatch_key(KeyAction a)
 {
     Screen *top = app_top();
     if (a == KEY_OK || a == KEY_LONG_OK) g_app.press_at = g_app.time;
+    if (a == KEY_BLUE && top && !g_app.pip) {   /* Blue on a browsing screen opens the title the island offers to resume */
+        static const char *const BROWSE[] = { "home", "explore", "library", "calendar", "search" };
+        for (size_t i = 0; i < sizeof BROWSE / sizeof BROWSE[0]; i++)
+            if (strcmp(top->name, BROWSE[i]) == 0 && island_key_blue()) return;
+    }
     if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); return; }
     if (g_app.pip && a == KEY_STOP) { app_pip_close(); return; }
     if (g_app.pip && g_pip_focus) {   /* the corner player has the focus: 1 = Full screen, 2 = Close */
@@ -345,11 +351,11 @@ int main(int argc, char **argv)
             g_app.need_redraw = 0;
             gfx_begin_frame(g_app.oled ? RGBA(0, 0, 0, 0xFF) : THEME_BG);
             app_draw_screen(top, dt);
-            if (top && strcmp(top->name, "player") != 0 && strcmp(top->name, "ambient") != 0) ui_clock_pill();   /* the player shows it with its controls */
+            int in_player = top && strcmp(top->name, "player") == 0;
             if (!g_app.pip) g_pip_focus = 0;
             if (g_app.pip) player_pip_draw(g_app.pip, g_pip_focus);
             if (top && strcmp(top->name, "break") != 0 && strcmp(top->name, "pin") != 0) breaks_draw_banner();
-            app_draw_toast();
+            island_draw(in_player, top && !in_player && strcmp(top->name, "ambient") != 0);   /* the player has its clock in its controls */
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();
             gfx_end_frame();

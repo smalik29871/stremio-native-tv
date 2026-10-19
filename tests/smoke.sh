@@ -60,6 +60,9 @@ run upnext_card 300 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_
 run upnext_auto 380 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # OK on the card is its Play now (autoplay off, so only the key can start the next episode)
 run upnext_ok 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_ok '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
+# leaving a video mid-way: the island offers it back on Home, and Blue opens it
+run island_resume 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "island: resume tt0903747" "$OUT/island_resume.log" || { echo "Blue did not open the title left mid-way"; grep -i "island\|player" "$OUT/island_resume.log"; exit 1; }
 [ "$(grep -c 'player: candidate' "$OUT/upnext_ok.log")" -ge 2 ] || { echo "OK on the Up Next card did not start the next episode"; grep player "$OUT/upnext_ok.log"; exit 1; }
 # next episode's sources still arriving (the /slow addon answers 6 s late): the Up Next
 # button and the control bar's Next button fill as a loader

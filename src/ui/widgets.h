@@ -40,9 +40,8 @@ float ui_chip_outline(const char *text, float x, float y, Color line, Color fg);
 float ui_imdb(const char *rating, float x, float y);
 /* Wall-clock time `from_now` seconds ahead in the viewer's 12/24-hour format (settings). */
 void  ui_clock_text(double from_now, char *out, size_t n);
-/* The clock pill in the top-right corner of every screen (nothing when the clock is off).
- * Returns the width it took, so screens can keep their own corner buttons clear of it. */
-float ui_clock_pill(void);
+/* Width of the island when it shows the clock (0 when the clock is off), so screens can
+ * keep their own corner buttons clear of it. */
 float ui_clock_width(void);
 /* "a  •  b  •  c" meta line; returns the x after it. */
 float ui_dot_sep(float x, float y, Color c);

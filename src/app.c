@@ -238,23 +238,6 @@ void app_toast(const char *fmt, ...)
     LOGI("toast: %s", g_app.toast);
 }
 
-void app_draw_toast(void)
-{
-    if (g_app.time > g_app.toast_until || !g_app.toast[0]) return;
-    /* slide up + fade in, fade out at the end */
-    float age = 3.5f - (g_app.toast_until - g_app.time);
-    float in = age < 0.25f ? age / 0.25f : 1.0f, out = g_app.toast_until - g_app.time < 0.3f ? (g_app.toast_until - g_app.time) / 0.3f : 1.0f;
-    float k = g_app.fx_light ? 1.0f : (in < out ? in : out);
-    int fs = FONT_S | FONT_B;
-    float w = font_measure(g_app.toast, fs) + 100, h = 72;
-    float x = (SNTV_UI_W - w) / 2, y = SNTV_UI_H - 150 + (1 - k) * 30;
-    if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, theme_pill_r(h), 30, RGBA(0, 0, 0, (int)(0x90 * k)));
-    ui_panel(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(THEME_PANEL, (int)(0xF4 * k)));
-    gfx_rrect_ring(x, y, w, h, theme_pill_r(h), 1.5f, COLOR_ALPHA(THEME_TEXT, (int)(0x22 * k)));
-    gfx_circle(x + 40, y + h / 2, 7, COLOR_ALPHA(THEME_ACCENT2, (int)(255 * k)));
-    font_draw(g_app.toast, x + 64, y + (h - font_height(fs)) / 2, fs, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)));
-}
-
 /* ---- addons ---------------------------------------------------------------- */
 
 static void free_addons(void)

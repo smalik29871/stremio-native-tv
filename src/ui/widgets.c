@@ -712,30 +712,6 @@ float ui_clock_width(void)
     return font_measure(now, FONT_S | FONT_B) + 44;
 }
 
-float ui_clock_pill(void)
-{
-    if (!http_online()) {
-        const char *t = "No internet";
-        float w = font_measure(t, FONT_S | FONT_B) + 74, h = 52, x = SNTV_UI_W - THEME_MARGIN - w - (g_app.clock_mode == 2 ? 0 : ui_clock_width() + 14), y = 47;
-        gfx_rrect(x, y, w, h, h / 2, RGBA(0x5A, 0x14, 0x1E, 0xE0));
-        gfx_circle(x + 30, y + h / 2, 7, THEME_DANGER);
-        font_draw(t, x + 48, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
-    }
-    if (g_app.clock_mode == 2) return 0;
-    char now[24];
-    ui_clock_text(0, now, sizeof now);
-    float w = font_measure(now, FONT_S | FONT_B) + 44, h = 52, x = SNTV_UI_W - THEME_MARGIN - w, y = 47;
-    if (g_theme.focus_style == FOCUS_FRAME) {
-        gfx_rect(x + 10, y + h / 2 - 5, 10, 10, THEME_ACCENT);
-        font_draw(now, x + 30, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
-        return w;
-    }
-    gfx_rrect(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(THEME_BG, 0xB0));
-    gfx_rrect_ring(x, y, w, h, theme_pill_r(h), 1, THEME_LINE);
-    font_draw(now, x + 22, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
-    return w;
-}
-
 float ui_chip(const char *text, float x, float y, Color bg, Color fg)
 {
     int fs = FONT_XS | FONT_B;
