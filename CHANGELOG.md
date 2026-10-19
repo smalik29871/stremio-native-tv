@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.14
+
+- **YouTube starts sharp.** On TVs where YouTube's DASH stream doesn't play, the
+  app learns it and starts with the playlist instead (trying DASH again every fifth
+  time), and the playlist plays only its best quality within the TV's limit.
+- **Smoother Home.** Artwork goes to the screen a little at a time, so a burst of
+  posters or a big background no longer drops frames.
+- **Removed what webOS doesn't allow.** webOS won't let this app open other apps, so
+  the TV interruption test, opening a trailer in the YouTube app, and opening the
+  Homebrew Channel from the update screen are gone. A trailer that can't play now
+  says so, and a failed update says where to go.
+
 ## 0.10.13
 
 - **SimKL sign-in works again.** SimKL apps made today refuse the PIN; sign-in now uses
