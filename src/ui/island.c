@@ -70,7 +70,10 @@ void island_draw(int in_player, int show_clock)
     int fs = FONT_S | FONT_B;
     float tw = 0, th = 52;
     switch (kind) {
-    case IS_CLOCK: tw = font_measure(now, fs) + 44; break;
+    case IS_CLOCK:
+        tw = font_measure(now, fs) + 44;
+        if (g_update_version[0]) { char up[32]; snprintf(up, sizeof up, "Update %s", g_update_version); tw += font_measure(up, FONT_XS | FONT_B) + 52; }
+        break;
     case IS_NOTICE: tw = font_measure(g_app.toast, fs) + 84; if (tw > 1100) tw = 1100; th = 60; break;
     case IS_PROGRESS: tw = font_measure(I.progress, fs) + 220; th = 60; break;
     case IS_RESUME: {
@@ -114,6 +117,12 @@ void island_draw(int in_player, int show_clock)
     case IS_CLOCK:
         if (g_theme.focus_style == FOCUS_FRAME) { gfx_rect(x + 12, y + I.h / 2 - 5, 10, 10, THEME_ACCENT); font_draw(now, x + 30, cy, fs, THEME_TEXT); }
         else font_draw(now, x + 22, cy, fs, THEME_TEXT);
+        if (g_update_version[0]) {   /* a newer version is out: Settings > About > Update */
+            char up[32]; snprintf(up, sizeof up, "Update %s", g_update_version);
+            float ux = x + I.w - 22 - font_measure(up, FONT_XS | FONT_B);
+            gfx_circle(ux - 16, y + I.h / 2, 5, THEME_ACCENT);
+            font_draw(up, ux, y + (I.h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ACCENT);
+        }
         break;
     case IS_NOTICE:
         gfx_circle(x + 32, y + I.h / 2, 7, THEME_ACCENT2);

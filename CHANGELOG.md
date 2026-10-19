@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.3
+
+- **The clock island says when an update is out:** a dot and "Update 0.10.x" beside the
+  time, until it is installed (Settings > About > Update, or the Homebrew Channel).
+
 ## 0.10.2
 
 - **Updating when the TV won't let the app install.** On TVs that refuse the app a call
