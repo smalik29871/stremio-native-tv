@@ -20,6 +20,7 @@ int  tracking_connected(int svc);
 /* Starts signing in. The sheet shows `code` to type at `url`; tracking_tick() polls. */
 int  tracking_connect(int svc, char *code, size_t cn, char *url, size_t un);
 void tracking_disconnect(int svc);
+const char *tracking_last_error(void);   /* why the last sign-in did not start */
 int  tracking_pending(int svc);        /* a sign-in is waiting for the code */
 /* Settings > API keys: the app's id (and Trakt's secret), "" keeps the built-in one. */
 void tracking_set_app(int svc, const char *id, const char *secret);

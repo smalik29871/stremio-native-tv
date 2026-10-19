@@ -228,6 +228,8 @@ TK2='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","trakt
 run trakt_scrobble 420 "right,ok,down,down,ok,ok,wait,wait,back,back,back" HOME="$(home_with trakt2 "$TK2")" SNTV_FAKE_START=6600 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
 grep -q "tracking: Trakt start tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: Trakt stop tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: SimKL watched tt0903747" "$OUT/trakt_scrobble.log" \
   || { echo "playback was not scrobbled"; grep tracking "$OUT/trakt_scrobble.log"; exit 1; }
+run simkl_connect 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid"}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+grep -q "tracking: SimKL connected" "$OUT/simkl_connect.log" || { echo "SimKL did not connect"; grep tracking "$OUT/simkl_connect.log"; exit 1; }
 run detail_mdblist 260 "wait,ok,down" HOME="$(home_with mdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"mdblistKey":"k"}')" SNTV_MDBLIST_API=http://127.0.0.1:8765/mdblist
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)

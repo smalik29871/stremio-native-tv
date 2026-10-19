@@ -3,6 +3,7 @@
 #include "http.h"
 #include "log.h"
 #include "store.h"
+#include "platform/platform.h"
 #include "../vendor/cJSON.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -16,6 +17,10 @@ const char *const TROW_NAMES[TROW_COUNT] = { "Trakt watchlist", "Recommended on 
 static const char *env_or(const char *env, const char *def) { const char *e = getenv(env); return e && *e ? e : def; }
 static const char *trakt_api(void) { return env_or("SNTV_TRAKT_API", "https://api.trakt.tv"); }
 static const char *simkl_api(void) { return env_or("SNTV_SIMKL_API", "https://api.simkl.com"); }
+/* SimKL wants every call to name the app and its version */
+#define SIMKL_APP "&app-name=stremio-native-tv&app-version=" SNTV_APP_VERSION
+static char g_last_err[200];
+const char *tracking_last_error(void) { return g_last_err; }
 static const char *mdb_api(void) { return env_or("SNTV_MDBLIST_API", "https://mdblist.com/api"); }
 
 static const char *built_in(int svc, int secret)
@@ -130,7 +135,7 @@ static void poll(int svc)
         si->inflight = http_request_async_ex(url, &o, on_token, (void *)(intptr_t)svc);
         free(body);
     } else {
-        snprintf(url, sizeof url, "%s/oauth/pin/%s?client_id=%s", simkl_api(), si->user_code, tracking_app_id(svc));
+        snprintf(url, sizeof url, "%s/oauth/pin/%s?client_id=%s" SIMKL_APP, simkl_api(), si->user_code, tracking_app_id(svc));
         char hdr[300]; headers_for(svc, hdr, sizeof hdr);
         HttpOptions o = { .headers = hdr, .timeout_s = 20 };
         si->inflight = http_request_async_ex(url, &o, on_token, (void *)(intptr_t)svc);
@@ -151,7 +156,7 @@ int tracking_connect(int svc, char *code, size_t cn, char *url, size_t un)
         HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 15 };
         http_request_ex(u, &o, &r);
     } else {
-        snprintf(u, sizeof u, "%s/oauth/pin?client_id=%s", simkl_api(), tracking_app_id(svc));
+        snprintf(u, sizeof u, "%s/oauth/pin?client_id=%s&redirect=http%%3A%%2F%%2Flocalhost" SIMKL_APP, simkl_api(), tracking_app_id(svc));
         HttpOptions o = { .headers = hdr, .timeout_s = 15 };
         http_request_ex(u, &o, &r);
     }
@@ -170,7 +175,17 @@ int tracking_connect(int svc, char *code, size_t cn, char *url, size_t un)
         snprintf(code, cn, "%s", si->user_code);
         snprintf(url, un, "%s", cJSON_IsString(vu) ? vu->valuestring : svc == TRACK_TRAKT ? "https://trakt.tv/activate" : "https://simkl.com/pin");
         LOGI("tracking: %s sign-in code %s at %s", TRACK_NAMES[svc], code, url);
-    } else LOGW("tracking: %s sign-in failed (%ld %s)", TRACK_NAMES[svc], r.status, r.status ? "" : r.error);
+    } else {
+        /* what the service said, so the screen can show it */
+        const cJSON *m = cJSON_GetObjectItemCaseSensitive(j, "message"), *e = cJSON_GetObjectItemCaseSensitive(j, "error");
+        cJSON *jb = j ? NULL : cJSON_Parse(r.body ? r.body : "");
+        if (!m && !e && jb) { m = cJSON_GetObjectItemCaseSensitive(jb, "message"); e = cJSON_GetObjectItemCaseSensitive(jb, "error"); }
+        if (!r.status) snprintf(g_last_err, sizeof g_last_err, "no connection (%.120s)", r.error);
+        else snprintf(g_last_err, sizeof g_last_err, "HTTP %ld%s%.140s", r.status, cJSON_IsString(m) || cJSON_IsString(e) ? ": " : "",
+                      cJSON_IsString(m) ? m->valuestring : cJSON_IsString(e) ? e->valuestring : "");
+        LOGW("tracking: %s sign-in failed: %s  body: %.300s", TRACK_NAMES[svc], g_last_err, r.body ? r.body : "");
+        cJSON_Delete(jb);
+    }
     cJSON_Delete(j);
     http_response_free(&r);
     return ok;
@@ -370,7 +385,7 @@ static void simkl_watched(const char *imdb, int season, int episode)
     }
     char *body = cJSON_PrintUnformatted(b);
     cJSON_Delete(b);
-    char url[300]; snprintf(url, sizeof url, "%s/sync/history", simkl_api());
+    char url[400]; snprintf(url, sizeof url, "%s/sync/history?client_id=%s" SIMKL_APP, simkl_api(), tracking_app_id(TRACK_SIMKL));
     LOGI("tracking: SimKL watched %s", imdb);
     request(TRACK_SIMKL, url, body, on_ignored, NULL);
     free(body);

@@ -1082,7 +1082,7 @@ static void tracking_row_ok(Settings *st, int svc)
     }
     char code[32], url[160];
     if (!tracking_connect(svc, code, sizeof code, url, sizeof url)) {
-        app_toast("%s did not answer; check the app id (OK on the row again changes it)", TRACK_NAMES[svc]);
+        app_toast("%s refused the sign-in (%s). Check the app id", TRACK_NAMES[svc], tracking_last_error());
         begin_edit(st, svc == TRACK_TRAKT ? EDIT_TRAKT_APP : EDIT_SIMKL_APP);
         return;
     }

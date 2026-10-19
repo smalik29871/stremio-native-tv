@@ -274,6 +274,10 @@ class H(BaseHTTPRequestHandler):
             shows = "/shows" in p
             return self.send(200, json.dumps([{"title": "Breaking Bad" if shows else "Fight Club", "year": 2008 if shows else 1999,
                                                "ids": {"imdb": "tt0903747" if shows else "tt0137523"}}]).encode())
+        if p.startswith("/simkl/") and "app-name=" not in p:
+            return self.send(400, b'{"error":"app-name and app-version are required"}')
+        if p.startswith("/simkl/oauth/pin") and "client_id=bad" in p:
+            return self.send(401, b'{"error":"client_id_failed","message":"Client ID is not valid"}')
         if p.startswith("/simkl/oauth/pin/"):
             return self.send(200, json.dumps({"result": "OK", "access_token": "stok"}).encode())
         if p.startswith("/simkl/oauth/pin"):
