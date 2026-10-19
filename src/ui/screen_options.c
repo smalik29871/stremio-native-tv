@@ -41,7 +41,7 @@ static void draw(Screen *s)
     float x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2 + (1 - k) * 60;
     gfx_set_alpha(k);
     if (!g_app.fx_light) gfx_shadow(x, y + 16, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0x90));
-    gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
+    ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
     if (g_theme.focus_style == FOCUS_FRAME) gfx_rect(x, y, 6, h, THEME_ACCENT);
     else if (g_theme.focus_style == FOCUS_LIGHTBAR) gfx_rect(x + R_PANEL, y, w - 2 * R_PANEL, 3, THEME_ACCENT);
     else gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, THEME_LINE);

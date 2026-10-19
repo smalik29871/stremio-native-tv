@@ -56,7 +56,7 @@ static void draw(Screen *s)
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xB0));
     float w = 760, h = 720, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
-    gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
+    ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
     ui_icon(ICON_LOCK, x + w / 2, y + 70, 44, THEME_ACCENT2);
     font_draw_center(p->title, x + w / 2, y + 112, FONT_L | FONT_B, THEME_TEXT);

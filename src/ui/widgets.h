@@ -88,6 +88,11 @@ float ui_focus_lift(float focus);   /* upward shift of a focused card, canvas un
 /* The theme's language for focus, titles, metadata and row headings. */
 void  ui_focus_under(float x, float y, float w, float h, float r, float amount);
 void  ui_upper(const char *in, char *out, size_t n);
+void  ui_lower(const char *in, char *out, size_t n);
+/* A panel in `fill`; Glass adds a sheen and a light rim (frosted glass). */
+void  ui_panel(float x, float y, float w, float h, float r, Color fill);
+/* The artwork Glass blurs behind every screen (the last hero or title backdrop). */
+void  ui_set_ambient_art(const char *url);
 /* A title in the theme's case, face and letter spacing; max_w > 0 cuts with an ellipsis.
  * Returns the width drawn. */
 float ui_title(const char *text, float x, float y, int size, Color c, float max_w);

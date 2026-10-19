@@ -5,6 +5,7 @@
 #include "../image.h"
 #include "qrcodegen.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -205,6 +206,8 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
 /* ---- background ---- */
 
 static float g_tint[3] = { 0x8B, 0x5C, 0xF6 };
+static char g_ambient_art[1024];
+void ui_set_ambient_art(const char *url) { snprintf(g_ambient_art, sizeof g_ambient_art, "%s", url ? url : ""); }
 
 void ui_background(Color tint)
 {
@@ -219,7 +222,23 @@ void ui_background(Color tint)
      * nothing here; the others add one plain gradient tinted by the artwork. Soft
      * SDF glows used to shade more than a screen's worth of pixels every frame. */
     if (g_app.oled || !g_theme.glow) return;
+    if (g_theme.glass && !g_app.fx_light && g_ambient_art[0]) {
+        /* Glass sits on the last artwork, blurred by sampling a low mip (one textured quad) */
+        int iw = 0, ih = 0;
+        unsigned tex = image_get_ex(g_ambient_art, IMAGE_MIPMAP, &iw, &ih, NULL);
+        if (tex) { ui_backdrop_blur(tex, iw, ih, 1); return; }
+    }
     gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H * 0.6f, COLOR_ALPHA(t, g_app.fx_light ? 0x18 : 0x26), COLOR_ALPHA(t, 0));
+    if (g_theme.glass) gfx_gradient_h(0, SNTV_UI_H * 0.35f, SNTV_UI_W, SNTV_UI_H * 0.65f, COLOR_ALPHA(color_lerp(t, RGBA(0x40, 0x60, 0xFF, 0xFF), 0.5f), 0), COLOR_ALPHA(color_lerp(t, RGBA(0x40, 0x60, 0xFF, 0xFF), 0.5f), 0x22));
+}
+
+void ui_panel(float x, float y, float w, float h, float r, Color fill)
+{
+    gfx_rrect(x, y, w, h, r, fill);
+    if (!g_theme.glass) return;
+    float a = COLOR_A(fill) / 255.0f;   /* frosted glass: a sheen at the top and a light rim */
+    gfx_rrect_grad_v(x, y, w, h * 0.5f < 120 ? h * 0.5f : 120, r, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0x14 * a)), COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0));
+    gfx_rrect_ring(x, y, w, h, r, 1.5f, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0x30 * a)));
 }
 
 static void cover_uv(int iw, int ih, float w, float h, float *u0, float *v0, float *u1, float *v1)
@@ -293,8 +312,8 @@ void ui_backdrop_blur(unsigned tex, int iw, int ih, float alpha)
 
 /* ---- theme language: focus, titles, rows ---- */
 
-/* Under a focused control: Signal's hard offset block, Marquee's light bar,
- * Duotone's soft shadow. `a` is the focus amount 0..1. */
+/* Under a focused control: Signal's hard offset block, Marquee's light bar, Glass's
+ * soft white glow, nothing for Metro's flat tiles. `a` is the focus amount 0..1. */
 void ui_focus_under(float x, float y, float w, float h, float r, float a)
 {
     if (a <= 0.01f) return;
@@ -306,8 +325,13 @@ void ui_focus_under(float x, float y, float w, float h, float r, float a)
         gfx_rrect(x + w * 0.08f, y + h + 8, w * 0.84f, 4, 2, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a)));
         if (!g_app.fx_light) gfx_gradient_v(x + w * 0.08f, y + h + 12, w * 0.84f, 26, COLOR_ALPHA(THEME_ACCENT, (int)(0x38 * a)), COLOR_ALPHA(THEME_ACCENT, 0));
         break;
+    case FOCUS_GLASS:
+        if (!g_app.fx_light) {
+            gfx_shadow(x, y + 12 * a, w, h, r, 30, RGBA(0, 0, 0, (int)(0x80 * a)));
+            gfx_shadow(x, y, w, h, r, 22, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0x30 * a)));
+        }
+        break;
     default:
-        if (!g_app.fx_light) gfx_shadow(x, y + 10 * a, w, h, r, 26, RGBA(0, 0, 0, (int)(0x90 * a)));
         break;
     }
 }
@@ -319,7 +343,13 @@ static void focus_over(float x, float y, float w, float h, float r, float a)
     switch (g_theme.focus_style) {
     case FOCUS_FRAME: gfx_rrect_ring(x, y, w, h, r, 5, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a))); break;
     case FOCUS_LIGHTBAR: gfx_rrect_ring(x, y, w, h, r, 2, COLOR_ALPHA(THEME_TEXT, (int)(0xC0 * a))); break;
-    default: gfx_rrect_ring(x, y, w, h, r, 3, COLOR_ALPHA(THEME_TEXT, (int)(0xE0 * a))); break;
+    case FOCUS_GLASS:   /* a bright rim and a sheen across the top */
+        gfx_rrect_grad_v(x, y, w, h * 0.45f, r, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0x30 * a)), COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0));
+        gfx_rrect_ring(x, y, w, h, r, 2.5f, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0xE0 * a)));
+        break;
+    default:            /* Metro: a white border inside the tile */
+        gfx_rrect_ring(x + 4, y + 4, w - 8, h - 8, 0, 4, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(255 * a)));
+        break;
     }
 }
 
@@ -356,10 +386,22 @@ void ui_upper(const char *in, char *out, size_t n)
     out[o] = 0;
 }
 
+void ui_lower(const char *in, char *out, size_t n)
+{
+    size_t o = 0;
+    const unsigned char *p = (const unsigned char *)in;
+    while (*p && o + 4 < n) {   /* ASCII and Latin-1 capitals; anything else is copied */
+        if (p[0] >= 'A' && p[0] <= 'Z') { out[o++] = (char)(p[0] + 32); p++; continue; }
+        if (p[0] == 0xC3 && p[1] >= 0x80 && p[1] <= 0x9E && p[1] != 0x97) { out[o++] = (char)0xC3; out[o++] = (char)(p[1] + 32); p += 2; continue; }
+        out[o++] = (char)*p++;
+    }
+    out[o] = 0;
+}
+
 /* The face, case and spacing a title takes in this theme. */
 static int title_font(int size)
 {
-    if (g_theme.id == THEME_MARQUEE && (size & 0xFFF) >= FONT_L) return (size & 0xFFF) | FONT_ALT;
+    if ((g_theme.id == THEME_MARQUEE || g_theme.id == THEME_METRO) && (size & 0xFFF) >= FONT_L) return (size & 0xFFF) | FONT_ALT;
     return size;
 }
 
@@ -429,7 +471,8 @@ float ui_meta_line(const char *const *parts, int n, float x, float y, Color c)
 }
 
 /* A row's heading: "01 ── TITLE ──── 24 ›" (Signal), an amber kicker over the title
- * (Marquee) or the plain title with a count (Duotone). `k` is the row's emphasis 0..1. */
+ * (Marquee), big light lowercase (Metro) or the plain title (Glass). `k` is the row's
+ * emphasis 0..1. */
 void ui_row_header(int index, const char *title, const char *source, int count, float x, float y, float right, float k)
 {
     Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * (0.55f + 0.45f * k)));
@@ -468,6 +511,18 @@ void ui_row_header(int index, const char *title, const char *source, int count, 
         }
         ui_title(title, x, y, FONT_M | FONT_B, fg, right - x);
         break;
+    case ROWHEAD_METRO: {
+        char low[200];
+        ui_lower(title, low, sizeof low);
+        int f = FONT_L | FONT_ALT;
+        float dy = font_height(FONT_M | FONT_B) - font_height(f);
+        font_draw_fit(low, x - 2, y + dy, f, k > 0.5f ? THEME_TEXT : THEME_TEXT_MUTED, right - x - 120);
+        if (k > 0.5f && count > 0) {
+            char cnt[16]; snprintf(cnt, sizeof cnt, "%d", count);
+            font_draw(cnt, x + font_measure(low, f) + 16, y + dy + font_ascent(f) - font_ascent(FONT_S), FONT_S, THEME_ACCENT);
+        }
+        break;
+    }
     default: {
         float tw = font_measure(title, FONT_M | FONT_B);
         font_draw_fit(title, x, y, FONT_M | FONT_B, fg, right - x - 120);
@@ -536,8 +591,8 @@ void ui_peek_draw(const Peek *p, const MetaPreview *m, float cx, float cy, float
     float w = pw * e, x = right ? cx + cw + gap : cx - gap - w, y = cy, h = ch;
 
     /* the panel, then its edge in the theme's language */
-    if (g_theme.focus_style == FOCUS_BLOOM && !g_app.fx_light) gfx_shadow(x, y + 8, w, h, R_PANEL, 24, RGBA(0, 0, 0, (int)(0x90 * e)));
-    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, (int)(0xFF * e)));
+    if (g_theme.focus_style == FOCUS_GLASS && !g_app.fx_light) gfx_shadow(x, y + 8, w, h, R_PANEL, 24, RGBA(0, 0, 0, (int)(0x90 * e)));
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, (int)(0xFF * e)));
     if (g_theme.focus_style == FOCUS_FRAME) gfx_rect(right ? x : x + w - 4, y, 4, h, COLOR_ALPHA(THEME_ACCENT, (int)(255 * e)));
     else if (g_theme.focus_style == FOCUS_LIGHTBAR) gfx_rect(x + R_PANEL, y, w - 2 * R_PANEL > 0 ? w - 2 * R_PANEL : 0, 3, COLOR_ALPHA(THEME_ACCENT, (int)(255 * e)));
     else gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_LINE, (int)(255 * e)));
@@ -851,10 +906,10 @@ void ui_brand(float x, float y, float s)
 /* ---- cards ---- */
 
 /* How much a focused card grows and rises: Signal barely moves (the frame says it),
- * Marquee lifts toward its light bar, Duotone blooms. */
+ * Marquee lifts toward its light bar, Glass swells most, Metro barely. */
 float ui_focus_scale(float focus)
 {
-    float k = g_theme.focus_style == FOCUS_FRAME ? 0.04f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.09f;
+    float k = g_theme.focus_style == FOCUS_GLASS ? 0.08f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.04f;
     return 1.0f + k * focus;
 }
 
@@ -875,9 +930,7 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
         float a = g_app.fx_light ? 1.0f : (age >= 10 ? 1.0f : age / 10.0f);
         if (a < 1) { gfx_rrect(cx, cy, cw, ch, R_CARD, THEME_POSTER_PH); app_redraw(); }
         int shade = (int)(255 - dim * 90);
-        if (g_theme.duotone && !blur && !(flags & CARD_TRUE_COLOUR))
-            gfx_rtex_duo(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, COLOR_ALPHA(color_lerp(THEME_ACCENT2, RGBA(0, 0, 0, 0xFF), dim * 0.35f), (int)(255 * a)), focus);
-        else gfx_rtex_uv(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, RGBA(shade, shade, shade, (int)(255 * a)), blur ? 4.5f : 0);
+        gfx_rtex_uv(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, RGBA(shade, shade, shade, (int)(255 * a)), blur ? 4.5f : 0);
     } else {
         gfx_rrect_grad_v(cx, cy, cw, ch, R_CARD, COLOR_ALPHA(THEME_TEXT, 0x18), COLOR_ALPHA(THEME_TEXT, 0x08));
         if (title) {

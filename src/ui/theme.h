@@ -10,10 +10,13 @@
  *           a solid frame with a hard offset block as focus, mono metadata.
  *   Marquee cinema programme: warm ink, parchment text, projector amber, condensed
  *           display titles, a light bar under the focused card.
- *   Duotone artwork printed in two tones (accent + black); focus brings back colour. */
-enum { THEME_SIGNAL, THEME_MARQUEE, THEME_DUOTONE, THEME_COUNT };
-enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_BLOOM };
-enum { ROWHEAD_NUMBERED, ROWHEAD_KICKER, ROWHEAD_PLAIN };
+ *   Glass   frosted panels over blurred artwork, soft light edges, a white focus glow
+ *           (the blur is a low mip of a texture already loaded, not a blur pass).
+ *   Metro   flat colour tiles, big light type, square corners, a white tile border
+ *           as focus, lowercase headings. */
+enum { THEME_SIGNAL, THEME_MARQUEE, THEME_GLASS, THEME_METRO, THEME_COUNT };
+enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_GLASS, FOCUS_TILE };
+enum { ROWHEAD_NUMBERED, ROWHEAD_KICKER, ROWHEAD_PLAIN, ROWHEAD_METRO };
 #define THEME_ACCENTS 6
 
 typedef struct Theme {
@@ -28,7 +31,8 @@ typedef struct Theme {
     int row_header;       /* ROWHEAD_* */
     int upper_titles;     /* titles and labels in capitals */
     int mono_meta;        /* "2012 / 95 MIN" metadata in the mono face */
-    int duotone;          /* unfocused artwork printed in two tones */
+    int glass;            /* panels are frosted glass; screens sit on blurred artwork */
+    int lower_headings;   /* row and section headings in lowercase (Metro) */
     int ticks;            /* timelines carry tick marks */
     int glow;             /* soft ambient light behind screens */
     float title_track;    /* extra letter spacing for capital titles, px per glyph at FONT_M */

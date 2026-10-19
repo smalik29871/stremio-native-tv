@@ -7,12 +7,13 @@
 
 Theme g_theme;
 
-const char *const THEME_NAMES[THEME_COUNT] = { "Signal", "Marquee", "Duotone" };
+const char *const THEME_NAMES[THEME_COUNT] = { "Signal", "Marquee", "Glass", "Metro" };
 
 const char *const THEME_ACCENT_NAMES[THEME_COUNT][THEME_ACCENTS] = {
     { "Lime", "Signal orange", "Cyan", "Magenta", "Yellow", "White" },
     { "Amber", "Ember", "Brass", "Rose", "Teal", "Ivory" },
-    { "Coral", "Violet", "Ocean", "Mint", "Sun", "Ice" },
+    { "Ice", "Rose", "Mint", "Amber", "Violet", "Pearl" },
+    { "Cobalt", "Teal", "Magenta", "Orange", "Lime", "Crimson" },
 };
 
 static const Color ACCENTS[THEME_COUNT][THEME_ACCENTS] = {
@@ -20,8 +21,10 @@ static const Color ACCENTS[THEME_COUNT][THEME_ACCENTS] = {
       RGBA(0xFF, 0x3D, 0xA8, 0xFF), RGBA(0xFF, 0xD8, 0x3D, 0xFF), RGBA(0xF2, 0xF4, 0xF7, 0xFF) },
     { RGBA(0xFF, 0xB5, 0x47, 0xFF), RGBA(0xFF, 0x7A, 0x45, 0xFF), RGBA(0xD9, 0xB2, 0x6A, 0xFF),
       RGBA(0xFF, 0x8F, 0xA3, 0xFF), RGBA(0x4F, 0xD1, 0xC5, 0xFF), RGBA(0xF3, 0xED, 0xE4, 0xFF) },
-    { RGBA(0xFF, 0x5C, 0x7A, 0xFF), RGBA(0x8B, 0x5C, 0xF6, 0xFF), RGBA(0x3B, 0x82, 0xF6, 0xFF),
-      RGBA(0x34, 0xD3, 0x99, 0xFF), RGBA(0xFB, 0xBF, 0x24, 0xFF), RGBA(0x93, 0xC5, 0xFD, 0xFF) },
+    { RGBA(0x8A, 0xD4, 0xFF, 0xFF), RGBA(0xFF, 0x8F, 0xB1, 0xFF), RGBA(0x7B, 0xF1, 0xC8, 0xFF),
+      RGBA(0xFF, 0xC5, 0x6B, 0xFF), RGBA(0xB9, 0xA3, 0xFF, 0xFF), RGBA(0xF4, 0xF6, 0xFA, 0xFF) },
+    { RGBA(0x00, 0x78, 0xD7, 0xFF), RGBA(0x00, 0xAB, 0xA9, 0xFF), RGBA(0xD8, 0x00, 0x73, 0xFF),
+      RGBA(0xFA, 0x68, 0x00, 0xFF), RGBA(0x60, 0xA9, 0x17, 0xFF), RGBA(0xE5, 0x14, 0x00, 0xFF) },
 };
 
 Color theme_accent_swatch(int id, int accent_idx)
@@ -69,17 +72,28 @@ void theme_apply(int id, int accent_idx)
         t.glow = 1;
         t.title_track = 1.0f;
         break;
-    case THEME_DUOTONE:
-        t.bg = color_lerp(RGBA(0x08, 0x08, 0x0C, 0xFF), t.accent, 0.05f);
-        t.bg2 = color_lerp(RGBA(0x0C, 0x0C, 0x12, 0xFF), t.accent, 0.12f);
+    case THEME_GLASS:
+        t.bg = RGBA(0x0A, 0x0C, 0x12, 0xFF);
+        t.bg2 = RGBA(0x12, 0x15, 0x1F, 0xFF);
         t.text = RGBA(0xFF, 0xFF, 0xFF, 0xFF);
-        t.panel = color_lerp(RGBA(0x12, 0x12, 0x1A, 0xF4), t.accent, 0.08f);
-        t.accent2 = color_lerp(t.accent, RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0.3f);
-        t.r_card = 14; t.r_panel = 24; t.r_key = 14; t.r_pill = 999;
-        t.focus_style = FOCUS_BLOOM;
+        t.panel = RGBA(0x1E, 0x23, 0x30, 0xC8);   /* tinted glass over the blurred art */
+        t.accent2 = color_lerp(t.accent, RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0.35f);
+        t.r_card = 18; t.r_panel = 28; t.r_key = 18; t.r_pill = 999;
+        t.focus_style = FOCUS_GLASS;
         t.row_header = ROWHEAD_PLAIN;
-        t.duotone = 1;
+        t.glass = 1;
         t.glow = 1;
+        break;
+    case THEME_METRO:
+        t.bg = RGBA(0x10, 0x10, 0x10, 0xFF);
+        t.bg2 = RGBA(0x18, 0x18, 0x18, 0xFF);
+        t.text = RGBA(0xFF, 0xFF, 0xFF, 0xFF);
+        t.panel = RGBA(0x1F, 0x1F, 0x1F, 0xFF);
+        t.accent2 = t.accent;
+        t.r_card = 0; t.r_panel = 0; t.r_key = 0; t.r_pill = 0;
+        t.focus_style = FOCUS_TILE;
+        t.row_header = ROWHEAD_METRO;
+        t.lower_headings = 1;
         break;
     default:   /* Signal */
         t.bg = RGBA(0x0B, 0x0C, 0x0E, 0xFF);
@@ -105,9 +119,11 @@ void theme_apply(int id, int accent_idx)
     t.on_light = t.bg;
     t.accent_dim = COLOR_ALPHA(t.accent, 0x60);
     t.on_accent = luma(t.accent) > 0.35f ? RGBA(0x0A, 0x0A, 0x0C, 0xFF) : RGBA(0xFF, 0xFF, 0xFF, 0xFF);
-    /* Marquee focuses in parchment (the amber is its light bar); the others in the accent */
-    t.focus = id == THEME_MARQUEE ? t.text : t.accent;
-    t.on_focus = id == THEME_MARQUEE ? t.bg : t.on_accent;
+    /* Marquee focuses in parchment (the amber is its light bar), Glass in frosted white;
+     * the others in the accent */
+    t.focus = id == THEME_MARQUEE ? t.text : id == THEME_GLASS ? RGBA(0xF4, 0xF6, 0xFA, 0xFF) : t.accent;
+    t.on_focus = id == THEME_MARQUEE || id == THEME_GLASS ? t.bg : t.on_accent;
+    if (id == THEME_GLASS) { t.surface = COLOR_ALPHA(t.text, 0x16); t.surface_hi = COLOR_ALPHA(t.text, 0x2A); }
     g_theme = t;
 }
 
@@ -116,7 +132,8 @@ void theme_apply(int id, int accent_idx)
 static const struct { const char *regular, *bold, *alt; int alt_kind; } FONTS[THEME_COUNT] = {
     { "SpaceGrotesk-Medium.ttf", "SpaceGrotesk-Bold.ttf", "JetBrainsMono-Medium.ttf", FONT_ALT_MONO },
     { "Inter-Medium.otf", "Inter-Bold.otf", "BebasNeue-Regular.ttf", FONT_ALT_DISPLAY },
-    { "Sora-Medium.ttf", "Sora-Bold.ttf", NULL, FONT_ALT_NONE },
+    { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
+    { "OpenSans-Medium.ttf", "OpenSans-Bold.ttf", "OpenSans-Light.ttf", FONT_ALT_DISPLAY },
 };
 
 static int g_fonts_loaded = -1;

@@ -310,6 +310,7 @@ static void draw(Screen *s)
     Detail *d = s->st;
     char buf[512], lbuf[512];
     const char *bg = app_art_background(&d->preview, buf, sizeof buf);
+    if (bg) ui_set_ambient_art(bg);
     ui_background(image_tint(bg));
     int iw, ih;
     unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;

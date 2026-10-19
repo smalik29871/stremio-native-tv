@@ -1204,7 +1204,7 @@ static void draw_menu(Player *p)
     if (p->menu_t < 1) { p->menu_t += 0.09f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
     { float e = 1 - (1 - p->menu_t) * (1 - p->menu_t); gfx_set_translate((w + 60) * (1 - e), 0); }
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
-    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
     static const char *TITLES[] = { "", "Audio", "Subtitles", "Subtitle style", "Sources", "Episodes" };
     static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SUBS, ICON_SWAP, ICON_LIST };
@@ -1362,7 +1362,7 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
 {
     float w = 640, h = 176, x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240;
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0xA0));
-    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
     const char *thumb = app_video_thumbnail(p->meta.id, p->next_video_id);
     ui_card(thumb, x + 16, y + 16, 256, 144, 0, 0, NULL, CARD_MIP);
@@ -1684,7 +1684,7 @@ static void draw(Screen *s)
     if (error_final(p, &vi)) {
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
         float w = 900, h = 360, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
-        gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
+        ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
         gfx_circle(x + w / 2, y + 70, 36, COLOR_ALPHA(THEME_DANGER, 0x40));
         gfx_line(x + w / 2 - 12, y + 58, x + w / 2 + 12, y + 82, 6, THEME_DANGER);
         gfx_line(x + w / 2 + 12, y + 58, x + w / 2 - 12, y + 82, 6, THEME_DANGER);

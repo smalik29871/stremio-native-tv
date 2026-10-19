@@ -171,7 +171,7 @@ static void draw_qr_overlay(Diag *d)
 {
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xE8));
     float w = 1500, h = 760, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
-    gfx_rrect(x, y, w, h, R_PANEL, THEME_PANEL);
+    ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
     float qs = 680, qx = x + 40, qy = y + 40;
     gfx_rrect(qx, qy, qs, qs, R_PANEL, RGBA(255, 255, 255, 255));

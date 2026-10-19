@@ -230,7 +230,7 @@ static void draw_row(float y, Icon icon, const char *title, const char *value, i
     if (focused) ui_focus_under(x, y, w, h, R_PANEL, 1);
     gfx_rrect(x, y, w, h, R_PANEL, focused ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x0F));
     Color fg = focused ? THEME_ON_FOCUS : THEME_TEXT, dim = focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xA8) : THEME_TEXT_MUTED;
-    gfx_circle(x + 46, y + h / 2, 26, focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0x14) : COLOR_ALPHA(THEME_ACCENT, 0x1C));
+    gfx_rrect(x + 20, y + h / 2 - 26, 52, 52, theme_pill_r(52), focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0x14) : COLOR_ALPHA(THEME_ACCENT, 0x1C));
     ui_icon(icon, x + 46, y + h / 2, 26, focused ? fg : THEME_ACCENT);
     /* an action's value is its second line (unless it has help of its own), with an arrow at the end */
     const char *sub = s_desc;

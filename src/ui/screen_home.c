@@ -384,6 +384,7 @@ static void update(Screen *s, float dt)
         const char *bg = app_art_background(hero, buf, sizeof buf);
         snprintf(h->hero_prev_bg, sizeof h->hero_prev_bg, "%s", h->hero_bg);
         snprintf(h->hero_bg, sizeof h->hero_bg, "%s", bg ? bg : "");
+        if (bg) ui_set_ambient_art(bg);   /* Glass blurs it behind every screen */
         h->hero_fade = 0;
         h->hero_text_t = 0;
     }

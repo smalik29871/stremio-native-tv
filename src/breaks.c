@@ -247,7 +247,7 @@ void breaks_draw_banner(void)
     float tw = font_measure(text, FONT_S | FONT_B), sw = font_measure(sub, FONT_XS);
     float w = (tw > sw ? tw : sw) + 120, h = 84, x = (SNTV_UI_W - w) / 2, y = 28;
     if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, 24, 30, RGBA(0, 0, 0, 0x90));
-    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, THEME_LINE);
     gfx_circle(x + 44, y + h / 2, 22, COLOR_ALPHA(THEME_ACCENT2, 0x40));
     ui_icon(ICON_CLOCK, x + 44, y + h / 2, 24, THEME_TEXT);
