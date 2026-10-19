@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
+
+Ahead of Nuvio: everything a side-by-side found missing, kept as light as the rest.
 
 - **A colour from the artwork.** A new accent choice, *From the artwork*, for every theme:
   focus, highlights and progress take the colour of the title you're looking at and ease
