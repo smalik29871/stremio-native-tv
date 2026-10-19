@@ -324,6 +324,115 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
     }
     case PV_LANG_AUDIO: lang_carousel(g_app.pref_audio, ICON_AUDIO, sx, sy, sw, sh); caption("Picked by itself when a video has it", x, base + 6, w); return;
     case PV_LANG_SUBS: lang_carousel(g_app.pref_subs, ICON_SUBS, sx, sy, sw, sh); caption("From the video first, then from your addons", x, base + 6, w); return;
+    case PV_MEMORY: {   /* what stays in memory: a few rows of posters, or many */
+        int low = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && g_app.low_memory);
+        float gap = 30, mw = (sw - gap) / 2, mh = sh * 0.86f;
+        for (int i = 0; i < 2; i++) {
+            float mx = sx + i * (mw + gap);
+            screen(mx, sy, mw, mh);
+            int rows = i ? 4 : 2, per = i ? 6 : 4;
+            mini_rows(mx + 14, sy + 16, mw - 28, rows, per, (mh - 32 - (rows - 1) * 10) / rows - 4);
+            if (i == !low) chosen_ring(mx, sy, mw, mh);
+            label(i ? "Normal" : "Low", mx + mw / 2, base, i == !low);
+        }
+        return;
+    }
+    case PV_SUBS_SYNC: {   /* the subtitle lines against the speech in the video */
+        float ty = sy + sh * 0.3f, lh = 34, gx = sx + 20, gw = sw - 40;
+        font_draw("Speech", gx, ty - 34, FONT_XS | FONT_B, THEME_TEXT_DIM);
+        static const float SP[][2] = { { 0.06f, 0.22f }, { 0.32f, 0.5f }, { 0.6f, 0.86f } };
+        for (int i = 0; i < 3; i++) gfx_rrect(gx + gw * SP[i][0], ty, gw * (SP[i][1] - SP[i][0]), lh, 6, COLOR_ALPHA(THEME_TEXT, 0x40));
+        float off = g_app.subs_autosync ? 0 : 0.09f, y2 = ty + lh + 70;
+        font_draw("Subtitles", gx, y2 - 34, FONT_XS | FONT_B, THEME_TEXT_DIM);
+        for (int i = 0; i < 3; i++) gfx_rrect(gx + gw * (SP[i][0] + off), y2, gw * (SP[i][1] - SP[i][0]), lh, 6, g_app.subs_autosync ? THEME_ACCENT : THEME_DANGER);
+        caption(g_app.subs_autosync ? "Lines land on the speech" : "Lines from addons can come early or late", x, base + 6, w);
+        return;
+    }
+    case PV_PREFLIGHT: case PV_AUTO_REC: case PV_SRC_AUDIO: {   /* the source list, as each switch changes it */
+        static const char *const S[] = { "1080p  \xC2\xB7  English", "4K  \xC2\xB7  Italian", "720p  \xC2\xB7  English" };
+        int order[3] = { 0, 1, 2 };
+        if (kind == PV_SRC_AUDIO && !g_app.src_audio_lang) { order[0] = 1; order[1] = 0; }
+        if (kind == PV_PREFLIGHT && g_app.preflight) { order[1] = 2; order[2] = 1; }   /* the dead link sinks */
+        float rh = 62, ry = sy + (sh - 3 * rh - 24) / 2;
+        for (int i = 0; i < 3; i++) {
+            float yy = ry + i * (rh + 12);
+            int top = i == 0;
+            gfx_rrect(sx + 30, yy, sw - 60, rh, R_PANEL, top ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x10));
+            Color fg = top ? THEME_ON_FOCUS : THEME_TEXT;
+            font_draw(S[order[i]], sx + 56, yy + (rh - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
+            if (kind == PV_PREFLIGHT) {
+                float cx = sx + sw - 64, cy = yy + rh / 2;
+                if (!g_app.preflight) ui_icon(ICON_INFO, cx, cy, 24, top ? fg : THEME_TEXT_MUTED);
+                else if (order[i] == 1) ui_icon(ICON_CLOSE, cx, cy, 22, THEME_DANGER);
+                else ui_icon(ICON_CHECK, cx, cy, 24, top ? fg : THEME_OK);
+            }
+            if (kind == PV_AUTO_REC && top && g_app.auto_recommended) ui_icon(ICON_PLAY, sx + sw - 64, yy + rh / 2, 26, fg);
+        }
+        caption(kind == PV_PREFLIGHT ? (g_app.preflight ? "Links that answer, checked before they're recommended" : "Recommended without checking the link")
+              : kind == PV_AUTO_REC ? (g_app.auto_recommended ? "The top source starts by itself" : "The list waits for you to choose")
+              : (g_app.src_audio_lang ? "Sources in your audio language rise to the top" : "Language plays no part in the order"), x, base + 6, w);
+        return;
+    }
+    case PV_ADDON_WAIT: {   /* addons answering over time; the wait line decides who is in */
+        static const struct { const char *name; float at; } A[] = { { "Addon A", 1.5f }, { "Addon B", 4.0f }, { "Addon C", 11.0f } };
+        float tx = sx + 150, tw = sw - 180, span = 16, ry = sy + 40;
+        float line = g_app.addon_wait >= 99 ? span : (float)g_app.addon_wait;
+        for (int i = 0; i < 3; i++) {
+            float yy = ry + i * 72, ax = tx + tw * (A[i].at > span ? 1 : A[i].at / span);
+            int in = A[i].at <= line;
+            font_draw(A[i].name, sx + 20, yy + 6, FONT_XS | FONT_B, in ? THEME_TEXT : THEME_TEXT_MUTED);
+            gfx_rrect(tx, yy + 12, ax - tx, 8, 4, in ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x30));
+            gfx_circle(ax, yy + 16, 9, in ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x50));
+        }
+        float lx = tx + tw * (line / span > 1 ? 1 : line / span);
+        gfx_rect(lx - 1.5f, ry - 20, 3, 3 * 72 + 10, THEME_FOCUS);
+        snprintf(t, sizeof t, g_app.addon_wait >= 99 ? "Every addon" : "%d s", g_app.addon_wait);
+        font_draw_center(t, lx, ry - 50, FONT_XS | FONT_B, THEME_TEXT);
+        caption("Autoplay chooses from the sources in by then", x, base + 6, w);
+        return;
+    }
+    case PV_P2P: {   /* TorBox's cache, or the TV fetching from peers */
+        float cy = sy + sh / 2, tvx = sx + sw - 150;
+        screen(tvx, cy - 50, 130, 90);
+        font_draw_center("TV", tvx + 65, cy - 5 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
+        gfx_rrect(sx + 30, cy - 90, 180, 56, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14));
+        font_draw_center("TorBox cache", sx + 120, cy - 62 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_TEXT);
+        gfx_line(sx + 210, cy - 62, tvx, cy - 20, 3, THEME_ACCENT);
+        if (g_app.p2p_fallback)
+            for (int i = 0; i < 4; i++) {
+                float px = sx + 50 + i * 46, py = cy + 70 + (i & 1) * 26;
+                gfx_circle(px, py, 12, THEME_ACCENT2);
+                gfx_line(px, py, tvx, cy + 10, 1.5f, COLOR_ALPHA(THEME_ACCENT2, 0x80));
+            }
+        caption(g_app.p2p_fallback ? "No cached copy: the TV plays it from peers (they see your IP)" : "No cached copy: the source is skipped", x, base + 6, w);
+        return;
+    }
+    case PV_UPDATE: {   /* the island asking at a quiet moment */
+        art(sx, sy, sw, sh, R_KEY, 5, 0);
+        char v[64]; snprintf(v, sizeof v, "Version %s is ready", g_update_version[0] ? g_update_version : "9.9");
+        float pw = font_measure(v, FONT_S | FONT_B) + 60, ph = 112, px = sx + (sw - pw) / 2, py = sy + 30;
+        if (pw < 330) { px -= (330 - pw) / 2; pw = 330; }
+        gfx_rrect(px, py, pw, ph, theme_pill_r(56), COLOR_ALPHA(THEME_PANEL, 0xF4));
+        font_draw_center(v, px + pw / 2, py + 16, FONT_S | FONT_B, THEME_TEXT);
+        float bw = 130, bx = px + pw / 2 - bw - 8, by = py + 58;
+        gfx_rrect(bx, by, bw, 38, theme_pill_r(38), THEME_FOCUS);
+        font_draw_center("Update now", bx + bw / 2, by + (38 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ON_FOCUS);
+        gfx_rrect(bx + bw + 16, by, bw, 38, theme_pill_r(38), COLOR_ALPHA(THEME_TEXT, 0x18));
+        font_draw_center("Later", bx + bw * 1.5f + 16, by + (38 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT);
+        caption(g_app.auto_update ? "Asked when nothing is playing" : "A notice only; Update here installs it", x, base + 6, w);
+        return;
+    }
+    case PV_PARENTAL: {
+        int set = g_app.parental_pin[0] != 0;
+        ui_icon(set ? ICON_LOCK : ICON_UNLOCK, x + w / 2, sy + sh * 0.3f, 96, set ? THEME_ACCENT : THEME_TEXT_MUTED);
+        for (int i = 0; i < 4; i++) {
+            float dx = x + w / 2 - 84 + i * 56, dy = sy + sh * 0.62f;
+            gfx_rrect(dx - 20, dy - 20, 40, 40, theme_pill_r(40), COLOR_ALPHA(THEME_TEXT, 0x14));
+            if (set) gfx_circle(dx, dy, 8, THEME_TEXT);
+        }
+        caption(set ? "Settings and adult catalogs ask for the PIN" : "No PIN: everything is open", x, base + 6, w);
+        return;
+    }
     case PV_TRANSITIONS: {
         float mw = sw * 0.62f, mh = sh * 0.78f;
         screen(sx, sy + sh - mh, mw, mh);

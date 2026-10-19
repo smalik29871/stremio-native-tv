@@ -357,6 +357,15 @@ static PreviewKind preview_for(int id)
     case IT_PREF_AUDIO: return PV_LANG_AUDIO;
     case IT_PREF_SUBS: case IT_SUBS_WHEN: return PV_LANG_SUBS;
     case IT_BR_ON: case IT_BR_LEAD: case IT_BR_TEST: case IT_BR_SCHED: case IT_BR_WHERE: return PV_BREAK;
+    case IT_MEMORY: return PV_MEMORY;
+    case IT_SUBS_SYNC: return PV_SUBS_SYNC;
+    case IT_PREFLIGHT: return PV_PREFLIGHT;
+    case IT_AUTO_REC: return PV_AUTO_REC;
+    case IT_SRC_AUDIO: return PV_SRC_AUDIO;
+    case IT_ADDON_WAIT: return PV_ADDON_WAIT;
+    case IT_P2P: return PV_P2P;
+    case IT_UPDATE: case IT_AUTO_UPDATE: return PV_UPDATE;
+    case IT_PIN: case IT_PIN_SETTINGS: case IT_HIDE_ADULT: return PV_PARENTAL;
     default: return PV_NONE;
     }
 }
