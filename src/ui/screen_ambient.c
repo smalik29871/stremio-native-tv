@@ -39,7 +39,7 @@ typedef struct {
     unsigned char *heat; uint8_t *px; unsigned fire_tex; float fire_acc, fire_t; unsigned seed;
     /* a real fireplace video (Settings > Interface), played full screen and looped */
     int fv_state;         /* 0 none, 1 asking YouTube, 2 playing, 3 gave up (the drawn fire) */
-    char fv_urls[3][4608]; int fv_n, fv_i;
+    char fv_urls[YT_PLAY_URLS][4608]; int fv_n, fv_i;
 } Ambient;
 
 static Ambient *g_amb_live;   /* the screensaver a YouTube answer is for */
@@ -59,7 +59,7 @@ static void on_fv(const char *answer, const char *error, void *user)
     if (a != g_amb_live) return;
     char id[16] = "";
     youtube_video_id(store_get_str("fireplaceVideo", ""), id);
-    a->fv_n = answer ? youtube_player_urls(answer, id, a->fv_urls, 3) : 0;
+    a->fv_n = answer ? youtube_player_urls(answer, id, a->fv_urls, YT_PLAY_URLS) : 0;
     if (!a->fv_n) { a->fv_state = 3; LOGW("ambient: fireplace video unavailable: %s", error ? error : "?"); return; }
     a->fv_i = 0;
     fv_play(a);

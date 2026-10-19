@@ -15,6 +15,8 @@ unsigned image_get(const char *url, int *w, int *h);
 unsigned image_get_ex(const char *url, ImageFlags flags, int *w, int *h, unsigned *age);
 void image_prefetch(const char *url);   /* start loading without needing it this frame */
 int  image_failed(const char *url);
+unsigned image_peek(const char *url, int *w, int *h);   /* the texture if already loaded; never starts a request */
+int  image_pending(const char *url);   /* being fetched or decoded now */
 /* Average colour of a loaded image (saturated a little), 0 if not loaded yet.
  * Used to tint the ambient glow behind the hero, like Apple TV does. */
 unsigned image_tint(const char *url);

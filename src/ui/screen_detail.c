@@ -123,14 +123,13 @@ static void on_trailer_stream(const char *url, const char *error, void *user)
     Screen *top = app_top();
     if (!top || strcmp(top->name, "detail") != 0 || strcmp(((Detail *)top->st)->preview.id, g_trailer.id) != 0) return;
     const MetaPreview *meta = &((Detail *)top->st)->preview;
-    static char urls[3][4608];
-    int nu = youtube_player_urls(url, g_trailer.yt, urls, 3);
+    static char urls[YT_PLAY_URLS][4608];
+    int nu = youtube_player_urls(url, g_trailer.yt, urls, YT_PLAY_URLS);
     if (!nu) { app_toast("The trailer could not be opened"); return; }
     PlayCandidate *c = calloc((size_t)nu, sizeof *c);
-    static const char *const KIND[] = { "best", "next", "last" };
-    for (int i = 0; i < nu; i++) {   /* DASH, the playlist, the file: the player falls back in this order */
+    for (int i = 0; i < nu; i++) {   /* sharpest first: the player falls back in this order */
         c[i].url = strdup(urls[i]);
-        char lbl[48]; snprintf(lbl, sizeof lbl, "Trailer - %s", KIND[i]);
+        char lbl[48]; snprintf(lbl, sizeof lbl, "Trailer - %s", i == 0 ? "best" : i == nu - 1 ? "last" : "next");
         c[i].label = strdup(lbl);
     }
     char vid[160], title[200];

@@ -247,6 +247,7 @@ static void on_http(HttpResponse *r, void *user)
 {
     Img *i = user;
     i->req = 0;
+    if (r->status == 503) { i->state = IMG_EVICTED; return; }   /* "busy" (a seek preview turned away): asked again when wanted */
     if (r->status != 200 || r->len == 0) {
         LOGW("image: %s -> HTTP %ld %s", i->url, r->status, r->error);
         i->state = IMG_FAILED;
@@ -350,6 +351,22 @@ void image_prefetch(const char *url)
     if (!url || !*url) return;
     Img *i = get_or_create(url, IMAGE_PLAIN);
     if (i->last_used + 30 < g_clock) i->last_used = g_clock - 30;   /* keep alive briefly, but evictable */
+}
+
+unsigned image_peek(const char *url, int *w, int *h)
+{
+    Img *i = url && *url ? find(url) : NULL;
+    if (!i || i->state != IMG_READY) return 0;
+    i->last_used = g_clock;
+    if (w) *w = i->w;
+    if (h) *h = i->h;
+    return i->tex;
+}
+
+int image_pending(const char *url)
+{
+    Img *i = url && *url ? find(url) : NULL;
+    return i && (i->state == IMG_LOADING || i->state == IMG_DECODING);
 }
 
 int image_failed(const char *url)

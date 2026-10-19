@@ -244,6 +244,8 @@ class H(BaseHTTPRequestHandler):
             if client["clientName"] in ("VISIONOS", "ANDROID", "IOS") and req["videoId"].startswith("tv"):   # the bot check: the app falls back to the TV client
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you\u2019re not a bot"}}).encode())
             media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
+            vfrag = os.path.getsize(os.path.join(MEDIA_DIR, "yt_video_frag.mp4"))   # fragmented, with a sidx, as YouTube's are
+            afrag = os.path.getsize(os.path.join(MEDIA_DIR, "yt_audio_frag.m4a"))
             if "key=" in self.path and "key=AIzaFake" not in self.path:
                 return self.send(400, b'{"error":"bad API key"}')
             if req["videoId"].startswith("fileOnly"):   # no playlist: a muxed file, fetched in &range= pieces
@@ -260,12 +262,12 @@ class H(BaseHTTPRequestHandler):
                     "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123"}],
                     "adaptiveFormats": [
                         {"itag": 137, "mimeType": "video/mp4; codecs=\"avc1.640028\"", "bitrate": 4400000, "width": 1920, "height": 1080, "fps": 30,
-                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v1080&c=VISIONOS&clen={media}"},
+                         "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v1080&c=VISIONOS&clen={vfrag}"},
                         {"itag": 136, "mimeType": "video/mp4; codecs=\"avc1.4d401f\"", "bitrate": 2300000, "width": 1280, "height": 720, "fps": 30,
-                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v720&c=VISIONOS&clen={media}"},
+                         "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v720&c=VISIONOS&clen={vfrag}"},
                         {"itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150000, "url": f"{BASE}/yt/media/opus.webm?n=abc123"},
-                        {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "audioSampleRate": "44100", "contentLength": str(media),
-                         "initRange": {"start": "0", "end": "631"}, "indexRange": {"start": "632", "end": "999"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={media}"},
+                        {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "audioSampleRate": "44100", "contentLength": str(afrag),
+                         "initRange": {"start": "0", "end": "732"}, "indexRange": {"start": "733", "end": "784"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={afrag}"},
                         {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 135000, "isDrc": True, "url": f"{BASE}/yt/media/drc.m4a?n=abc123"}]}}).encode())
         return self.send(404, b"{}")
 
@@ -413,7 +415,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, body.encode(), "application/vnd.apple.mpegurl")
             if name not in ("audio.m4a", "video.mp4"):
                 return self.send(403, b"")
-            with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
+            src = "yt_audio_frag.m4a" if name == "audio.m4a" else "yt_video_frag.mp4" if "id=v" in p else "sample_h264_aac.mp4"
+            with open(os.path.join(MEDIA_DIR, src), "rb") as f:
                 data = f.read()
             rng = self.headers.get("Range", "bytes=0-")
             if "&range=" in p:   # YouTube's own range parameter, as Nuvio's player sends it

@@ -793,8 +793,8 @@ static void on_yt_stream(const char *url, const char *error, void *user)
     (void)user;
     g_yt.busy = 0;
     if (!url) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); meta_preview_free(&g_yt.meta); return; }
-    static char urls[3][4608];
-    int nu = youtube_player_urls(url, g_yt.yt, urls, 3);
+    static char urls[YT_PLAY_URLS][4608];
+    int nu = youtube_player_urls(url, g_yt.yt, urls, YT_PLAY_URLS);
     if (!nu) { app_toast("YouTube would not play this one"); meta_preview_free(&g_yt.meta); return; }
     PlayCandidate *c = calloc((size_t)nu, sizeof *c);
     for (int i = 0; i < nu; i++) { c[i].url = strdup(urls[i]); c[i].label = strdup("YouTube"); }

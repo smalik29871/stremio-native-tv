@@ -16,6 +16,7 @@
 #include "../../vendor/cJSON.h"
 #include "../skip.h"
 #include "../store.h"
+#include "../youtube.h"
 #include "../subs.h"
 #include "../trackmem.h"
 #include "../tracking.h"
@@ -128,6 +129,7 @@ struct Player {
     int learned;              /* this candidate's outcome was recorded in the TV profile */
     ProbeInfo *probe;         /* the file's header: chapters, real codecs */
     int probe_asked;
+    int yt_noted;             /* this candidate's start was reported (youtube_note_result) */
     float last_live_seek;     /* live scrub: the video follows the key every third of a second */
 
     /* stats for nerds (Red) */
@@ -894,10 +896,36 @@ static unsigned seek_thumb(const Player *p, double t, int *w, int *h, int prefet
     http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
     long sec = (long)(t / 10) * 10;
     if (!g_app.thumb_server || !*g_app.thumb_server) {
+        /* The TV decodes one at a time (a few hundred ms each). While the knob moves, ask
+         * for the next picture only when the last one is in, or once the knob rests; until
+         * then show the nearest picture already decoded rather than nothing. */
+        static struct { char src[1600]; long secs[24]; int n; long pending; double moved_at; long last; } T;
+        if (strcmp(T.src, enc) != 0) { memset(&T, 0, sizeof T); snprintf(T.src, sizeof T.src, "%s", enc); T.pending = -1; }
+        if (!frames_supported()) return 0;
+        #define THUMB_URL(s) (snprintf(rel, sizeof rel, "frame?t=%ld&w=384&u=%s", (long)(s), enc), phone_local_url(rel, url, sizeof url))
         char rel[1800];
-        snprintf(rel, sizeof rel, "frame?t=%ld&w=384&u=%s", sec, enc);
-        if (!frames_supported() || !phone_local_url(rel, url, sizeof url)) return 0;
-        return image_get(url, w, h);   /* one at a time: the TV decodes them in turn */
+        if (sec != T.last) { T.last = sec; T.moved_at = g_app.time; }
+        int have = 0;
+        for (int i = 0; i < T.n; i++) if (T.secs[i] == sec) have = 1;
+        int pending_open = T.pending >= 0 && THUMB_URL(T.pending) && image_pending(url);
+        int ready_here = THUMB_URL(sec) && image_peek(url, NULL, NULL);
+        /* ask for this spot: new, or turned away earlier ("busy") and now resting on it */
+        if (!ready_here && !pending_open && (!have || g_app.time - T.moved_at > 0.25) && THUMB_URL(sec)) {
+            int pw, ph;
+            image_get(url, &pw, &ph);
+            if (!have) { if (T.n == 24) { memmove(T.secs, T.secs + 1, sizeof T.secs[0] * 23); T.n--; } T.secs[T.n++] = sec; }
+            T.pending = sec;
+        }
+        unsigned best = 0; long best_d = -1;
+        for (int i = 0; i < T.n; i++) {
+            if (!THUMB_URL(T.secs[i])) continue;
+            int pw = 0, ph = 0;
+            unsigned tex = image_peek(url, &pw, &ph);   /* never asks: one decode at a time */
+            long dd = labs(T.secs[i] - sec);
+            if (tex && (best_d < 0 || dd < best_d)) { best = tex; best_d = dd; *w = pw; *h = ph; }
+        }
+        #undef THUMB_URL
+        return best;
     }
     if (prefetch_neighbours)
         for (int d = -2; d <= 2; d++) {
@@ -1057,6 +1085,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->error_handled = 0;
     p->learned = 0;
     p->probe_asked = 0;
+    p->yt_noted = 0;
     free(p->probe);
     p->probe = NULL;
     p->rate_applied = 0;
@@ -1140,10 +1169,7 @@ static void fail_over(Player *p, const char *why)
     double resume = vi.position > 5 ? vi.position : 0;
     if (!p->learned) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
     if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
-    if (vi.position < 5 && strstr(p->cands[p->cur].url, "/sounds/yt-") && strstr(p->cands[p->cur].url, ".mpd")) {   /* this TV and YouTube's DASH */
-        store_set_int("ytDashFails", store_get_int("ytDashFails", 0) + 1);
-        LOGW("player: YouTube DASH did not start (%s); %d time(s) running", why, store_get_int("ytDashFails", 0));
-    }
+    if (vi.position < 5) youtube_note_result(p->cands[p->cur].url, 0);   /* this TV and that way of playing YouTube */
     health_record(p, HEALTH_FAIL);
     int next = next_candidate(p);
     if (next >= 0) {
@@ -1493,8 +1519,7 @@ static void update(Screen *s, float dt)
     else if (g_app.clock_mode != 2 && time(NULL) / 60 != p->clock_minute) { p->clock_minute = time(NULL) / 60; app_redraw(); }
     p->since_report += dt;
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
-    if (vi.state == VIDEO_PLAYING && vi.position > 2 && store_get_int("ytDashFails", 0) && strstr(p->cands[p->cur].url, "/sounds/yt-") && strstr(p->cands[p->cur].url, ".mpd"))
-        store_set_int("ytDashFails", 0);   /* DASH plays here after all */
+    if (vi.state == VIDEO_PLAYING && vi.position > 2 && !p->yt_noted) { p->yt_noted = 1; youtube_note_result(p->cands[p->cur].url, 1); }
     if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0); }
     p->seek_decay -= dt;
     if (p->seek_decay <= 0) p->seek_steps = 0;

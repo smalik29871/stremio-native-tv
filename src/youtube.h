@@ -23,7 +23,10 @@ void youtube_save(const char *url, int video, YoutubeCallback cb, void *user);
 void youtube_stream(const char *url, YoutubeCallback cb, void *user);
 /* youtube_stream's answer as URLs the player opens, best first (DASH up to 4K, then the
  * playlist, then a file with sound). Returns how many. Defined with the TV's own server. */
+enum { YT_PLAY_URLS = 4 };   /* the most ways youtube_player_urls offers */
 int youtube_player_urls(const char *answer, const char *id, char out[][4608], int max);
+/* The player's verdict on one of those URLs: a way that never starts here goes later. */
+void youtube_note_result(const char *url, int played);
 
 /* What this TV takes: the resolution cap, AV1, 4K (from Settings and what it learned). */
 void youtube_set_quality(int res_cap, int av1_ok, int uhd_ok);

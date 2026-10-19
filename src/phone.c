@@ -7,6 +7,7 @@
 #include "youtube.h"
 #include <sys/stat.h>
 #include <SDL.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -741,26 +742,147 @@ static void xml_attr(const char *in, char *out, size_t n)
     out[o] = 0;
 }
 
-static void dash_rep(char **buf, size_t *len, const cJSON *rp, int video, int id)
+/* A growing text buffer for the manifests (a film's piece list runs to a few hundred KB) */
+typedef struct { char *p; size_t len, cap; } Sb;
+static void sb_add(Sb *b, const char *fmt, ...)
 {
-    const cJSON *u = cJSON_GetObjectItemCaseSensitive(rp, "url");
-    char local[4600], esc[9000];
-    youtube_player_url(u->valuestring, local, sizeof local);
-    xml_attr(local, esc, sizeof esc);
-    const char *codecs = cJSON_GetObjectItemCaseSensitive(rp, "codecs")->valuestring;
-    const char *init = cJSON_GetObjectItemCaseSensitive(rp, "init")->valuestring, *index = cJSON_GetObjectItemCaseSensitive(rp, "index")->valuestring;
-    double bw = cJSON_GetObjectItemCaseSensitive(rp, "bitrate")->valuedouble;
-    char attrs[200];
-    if (video) snprintf(attrs, sizeof attrs, "width=\"%d\" height=\"%d\" frameRate=\"%d\"", (int)cJSON_GetObjectItemCaseSensitive(rp, "width")->valuedouble,
-                        (int)cJSON_GetObjectItemCaseSensitive(rp, "height")->valuedouble, (int)cJSON_GetObjectItemCaseSensitive(rp, "fps")->valuedouble);
-    else snprintf(attrs, sizeof attrs, "audioSamplingRate=\"%d\"", (int)cJSON_GetObjectItemCaseSensitive(rp, "audioSampleRate")->valuedouble);
-    size_t need = strlen(esc) + 600;
-    *buf = realloc(*buf, *len + need);
-    *len += (size_t)snprintf(*buf + *len, need,
-        "   <Representation id=\"%c%d\" bandwidth=\"%.0f\" codecs=\"%s\" %s>\n    <BaseURL>%s</BaseURL>\n"
-        "    <SegmentBase indexRange=\"%s\"><Initialization range=\"%s\"/></SegmentBase>\n   </Representation>\n",
-        video ? 'v' : 'a', id, bw > 0 ? bw : 1000000, codecs, attrs, esc, index, init);
+    va_list ap;
+    va_start(ap, fmt);
+    int need = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (need < 0) return;
+    if (b->len + (size_t)need + 1 > b->cap) {
+        size_t cap = b->cap ? b->cap : 4096;
+        while (cap < b->len + (size_t)need + 1) cap *= 2;
+        char *np = realloc(b->p, cap);
+        if (!np) return;
+        b->p = np; b->cap = cap;
+    }
+    va_start(ap, fmt);
+    vsnprintf(b->p + b->len, b->cap - b->len, fmt, ap);
+    va_end(ap);
+    b->len += (size_t)need;
 }
+
+/* <data>/sounds/<name>, served by this server: its local URL in out */
+static int write_local(const char *name, const Sb *b, char *out, size_t n)
+{
+    char path[700];
+    snprintf(path, sizeof path, "%s/sounds", store_dir()); mkdir(path, 0755);
+    snprintf(path, sizeof path, "%s/sounds/%s", store_dir(), name);
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    int ok = fwrite(b->p, 1, b->len, f) == b->len;
+    if (fclose(f) != 0) ok = 0;
+    char rel[96]; snprintf(rel, sizeof rel, "sounds/%s", name);
+    return ok && phone_local_url(rel, out, n);
+}
+
+static double num_of(const cJSON *o, const char *k) { const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, k); return cJSON_IsNumber(v) ? v->valuedouble : 0; }
+static const char *str_of(const cJSON *o, const char *k) { const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, k); return cJSON_IsString(v) ? v->valuestring : ""; }
+
+/* One representation; with a piece index it is a SegmentList (each piece's bytes
+ * spelled out), else SegmentBase (the player reads the index itself) */
+static void dash_rep(Sb *b, const cJSON *rp, int video, int id, int listed)
+{
+    char local[4600], esc[9000];
+    youtube_player_url(str_of(rp, "url"), local, sizeof local);
+    xml_attr(local, esc, sizeof esc);
+    char attrs[200];
+    if (video) snprintf(attrs, sizeof attrs, "width=\"%d\" height=\"%d\" frameRate=\"%d\"", (int)num_of(rp, "width"), (int)num_of(rp, "height"), (int)num_of(rp, "fps"));
+    else snprintf(attrs, sizeof attrs, "audioSamplingRate=\"%d\"", (int)num_of(rp, "audioSampleRate"));
+    double bw = num_of(rp, "bitrate");
+    sb_add(b, "   <Representation id=\"%c%d\" bandwidth=\"%.0f\" codecs=\"%s\" %s>\n    <BaseURL>%s</BaseURL>\n",
+           video ? 'v' : 'a', id, bw > 0 ? bw : 1000000, str_of(rp, "codecs"), attrs, esc);
+    const cJSON *sx = cJSON_GetObjectItemCaseSensitive(rp, "sidx"), *seg;
+    if (listed && sx) {
+        sb_add(b, "    <SegmentList timescale=\"%.0f\">\n     <Initialization range=\"%s\"/>\n     <SegmentTimeline>\n", num_of(sx, "timescale"), str_of(rp, "init"));
+        double t = 0;
+        cJSON_ArrayForEach(seg, cJSON_GetObjectItemCaseSensitive(sx, "segs")) {
+            double d = cJSON_GetArrayItem(seg, 2)->valuedouble;
+            sb_add(b, "      <S t=\"%.0f\" d=\"%.0f\"/>\n", t, d);
+            t += d;
+        }
+        sb_add(b, "     </SegmentTimeline>\n");
+        cJSON_ArrayForEach(seg, cJSON_GetObjectItemCaseSensitive(sx, "segs"))
+            sb_add(b, "     <SegmentURL mediaRange=\"%.0f-%.0f\"/>\n", cJSON_GetArrayItem(seg, 0)->valuedouble, cJSON_GetArrayItem(seg, 1)->valuedouble);
+        sb_add(b, "    </SegmentList>\n   </Representation>\n");
+    } else sb_add(b, "    <SegmentBase indexRange=\"%s\"><Initialization range=\"%s\"/></SegmentBase>\n   </Representation>\n", str_of(rp, "index"), str_of(rp, "init"));
+}
+
+static int dash_url(const cJSON *d, const char *id, char *out)
+{
+    const cJSON *video = cJSON_GetObjectItemCaseSensitive(d, "video"), *audio = cJSON_GetObjectItemCaseSensitive(d, "audio"), *rp;
+    const cJSON *v0 = cJSON_GetArrayItem(video, 0);
+    int listed = cJSON_GetObjectItemCaseSensitive(v0, "sidx") && cJSON_GetObjectItemCaseSensitive(audio, "sidx");
+    Sb b = {0};
+    sb_add(&b, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:%s:2011\" type=\"static\" minBufferTime=\"PT2S\" mediaPresentationDuration=\"PT%.1fS\">\n <Period>\n  <AdaptationSet mimeType=\"video/mp4\" segmentAlignment=\"true\" startWithSAP=\"1\">\n",
+           listed ? "full" : "isoff-on-demand", num_of(d, "duration"));
+    int k = 0;
+    cJSON_ArrayForEach(rp, video) dash_rep(&b, rp, 1, k++, listed);
+    sb_add(&b, "  </AdaptationSet>\n  <AdaptationSet mimeType=\"audio/mp4\" segmentAlignment=\"true\" startWithSAP=\"1\">\n");
+    dash_rep(&b, audio, 0, 0, listed);
+    sb_add(&b, "  </AdaptationSet>\n </Period>\n</MPD>\n");
+    char name[64]; snprintf(name, sizeof name, "yt-%.16s.mpd", id);
+    int ok = b.p && write_local(name, &b, out, 4608);
+    if (ok) LOGI("youtube: %s as DASH at %dp%s (%d video %s%s)", id, (int)num_of(v0, "height"), num_of(v0, "fps") > 30 ? "60" : "", k, k == 1 ? "quality" : "qualities", listed ? ", pieces listed" : "");
+    free(b.p);
+    return ok;
+}
+
+/* The same two files as an HLS playlist: fMP4 pieces by byte range, the audio as its
+ * own rendition. webOS plays HLS where it refuses these files as DASH. */
+static int hls_media(const cJSON *rp, const char *name, char *out)
+{
+    const cJSON *sx = cJSON_GetObjectItemCaseSensitive(rp, "sidx"), *seg;
+    double ts = num_of(sx, "timescale"), longest = 1;
+    if (!sx || ts <= 0) return 0;
+    cJSON_ArrayForEach(seg, cJSON_GetObjectItemCaseSensitive(sx, "segs")) { double d = cJSON_GetArrayItem(seg, 2)->valuedouble / ts; if (d > longest) longest = d; }
+    char local[4600];
+    youtube_player_url(str_of(rp, "url"), local, sizeof local);
+    unsigned long long ia = 0, ib = 0;
+    sscanf(str_of(rp, "init"), "%llu-%llu", &ia, &ib);
+    Sb b = {0};
+    sb_add(&b, "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:%d\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-INDEPENDENT-SEGMENTS\n",
+           (int)longest + 1);
+    sb_add(&b, "#EXT-X-MAP:URI=\"%s\",BYTERANGE=\"%llu@%llu\"\n", local, ib - ia + 1, ia);
+    cJSON_ArrayForEach(seg, cJSON_GetObjectItemCaseSensitive(sx, "segs")) {
+        double a = cJSON_GetArrayItem(seg, 0)->valuedouble, e = cJSON_GetArrayItem(seg, 1)->valuedouble;
+        sb_add(&b, "#EXTINF:%.3f,\n#EXT-X-BYTERANGE:%.0f@%.0f\n%s\n", cJSON_GetArrayItem(seg, 2)->valuedouble / ts, e - a + 1, a, local);
+    }
+    sb_add(&b, "#EXT-X-ENDLIST\n");
+    int ok = b.p && write_local(name, &b, out, 4608);
+    free(b.p);
+    return ok;
+}
+
+static int hls_local_url(const cJSON *d, const char *id, char *out)
+{
+    const cJSON *v0 = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(d, "video"), 0), *au = cJSON_GetObjectItemCaseSensitive(d, "audio");
+    if (!v0 || !au || !cJSON_GetObjectItemCaseSensitive(v0, "sidx") || !cJSON_GetObjectItemCaseSensitive(au, "sidx")) return 0;
+    char vname[64], aname[64], vu[4608], au_url[4608];
+    snprintf(vname, sizeof vname, "yt-%.16s-v.m3u8", id);
+    snprintf(aname, sizeof aname, "yt-%.16s-a.m3u8", id);
+    if (!hls_media(v0, vname, vu) || !hls_media(au, aname, au_url)) return 0;
+    Sb b = {0};
+    double bw = num_of(v0, "bitrate") + num_of(au, "bitrate");
+    sb_add(&b, "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n"
+               "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"Audio\",DEFAULT=YES,AUTOSELECT=YES,URI=\"%s\"\n"
+               "#EXT-X-STREAM-INF:BANDWIDTH=%.0f,RESOLUTION=%dx%d,CODECS=\"%s,%s\",AUDIO=\"aud\"\n%s\n",
+           au_url, bw > 0 ? bw : 5000000, (int)num_of(v0, "width"), (int)num_of(v0, "height"), str_of(v0, "codecs"), str_of(au, "codecs"), vu);
+    char name[64]; snprintf(name, sizeof name, "yt-%.16s.m3u8", id);
+    int ok = b.p && write_local(name, &b, out, 4608);
+    if (ok) LOGI("youtube: %s as a byte-range playlist at %dp (%d pieces)", id, (int)num_of(v0, "height"),
+                 cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(v0, "sidx"), "segs")));
+    free(b.p);
+    return ok;
+}
+
+/* The ways to play it, sharpest first: our byte-range playlist, DASH, YouTube's own
+ * playlist, the 360p file. A way that failed on this TV goes after YouTube's playlist;
+ * every tenth play tries the full order again (an update may have fixed it). */
+enum { YT_LOCAL_HLS, YT_DASH, YT_HLS, YT_FILE, YT_KINDS };
+static const char *const YT_FAIL_KEY[YT_KINDS] = { "ytFailLocalHls", "ytFailDash", NULL, NULL };
 
 int youtube_player_urls(const char *answer, const char *id, char out[][4608], int max)
 {
@@ -769,40 +891,36 @@ int youtube_player_urls(const char *answer, const char *id, char out[][4608], in
     if (!j) { if (max > 0 && answer && !strncmp(answer, "http", 4)) { youtube_player_url(answer, out[0], 4608); n = 1; } return n; }
     const cJSON *d = cJSON_GetObjectItemCaseSensitive(j, "dash");
     const cJSON *h = cJSON_GetObjectItemCaseSensitive(j, "hls"), *f = cJSON_GetObjectItemCaseSensitive(j, "file");
-    /* DASH failed on this TV (webOS 10 answers 100): the playlist first, DASH again every tenth time */
     int plays = store_get_int("ytPlays", 0) + 1;
     store_set_int("ytPlays", plays);
-    int hls_first = cJSON_IsString(h) && store_get_int("ytDashFails", 0) >= 1 && plays % 10;
-    if (hls_first && n < max) { youtube_player_url(h->valuestring, out[n++], 4608); LOGI("youtube: %s playlist first (DASH failed here before)", id); }
-    if (d && n < max) {
-        const cJSON *video = cJSON_GetObjectItemCaseSensitive(d, "video"), *audio = cJSON_GetObjectItemCaseSensitive(d, "audio"), *rp;
-        double dur = cJSON_GetObjectItemCaseSensitive(d, "duration") ? cJSON_GetObjectItemCaseSensitive(d, "duration")->valuedouble : 0;
-        size_t len = 0; char *buf = NULL;
-        char head[600];
-        snprintf(head, sizeof head, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" type=\"static\" minBufferTime=\"PT2S\" mediaPresentationDuration=\"PT%.1fS\">\n <Period>\n  <AdaptationSet mimeType=\"video/mp4\" segmentAlignment=\"true\" startWithSAP=\"1\">\n", dur);
-        buf = strdup(head); len = strlen(buf);
-        int k = 0;
-        cJSON_ArrayForEach(rp, video) dash_rep(&buf, &len, rp, 1, k++);
-        const char *mid = "  </AdaptationSet>\n  <AdaptationSet mimeType=\"audio/mp4\" segmentAlignment=\"true\" startWithSAP=\"1\">\n";
-        buf = realloc(buf, len + strlen(mid) + 1); memcpy(buf + len, mid, strlen(mid) + 1); len += strlen(mid);
-        dash_rep(&buf, &len, audio, 0, 0);
-        const char *tail = "  </AdaptationSet>\n </Period>\n</MPD>\n";
-        buf = realloc(buf, len + strlen(tail) + 1); memcpy(buf + len, tail, strlen(tail) + 1); len += strlen(tail);
-        char path[700], name[64];
-        snprintf(name, sizeof name, "yt-%.16s.mpd", id);
-        snprintf(path, sizeof path, "%s/sounds", store_dir()); mkdir(path, 0755);
-        snprintf(path, sizeof path, "%s/sounds/%s", store_dir(), name);
-        FILE *f = fopen(path, "wb");
-        if (f) {
-            fwrite(buf, 1, len, f); fclose(f);
-            char rel[96]; snprintf(rel, sizeof rel, "sounds/%s", name);
-            const cJSON *v0 = cJSON_GetArrayItem(video, 0), *vh = cJSON_GetObjectItemCaseSensitive(v0, "height"), *vf = cJSON_GetObjectItemCaseSensitive(v0, "fps");
-            if (phone_local_url(rel, out[n], 4608)) { LOGI("youtube: %s as DASH at %dp%s (%d video %s)", id, cJSON_IsNumber(vh) ? vh->valueint : 0, cJSON_IsNumber(vf) && vf->valueint > 30 ? "60" : "", k, k == 1 ? "quality" : "qualities"); n++; }
-        }
-        free(buf);
+    int order[YT_KINDS], no = 0, late[YT_KINDS], nl = 0;
+    for (int k = 0; k < YT_KINDS; k++) {
+        int failed = YT_FAIL_KEY[k] && store_get_int(YT_FAIL_KEY[k], 0) >= 1 && plays % 10;
+        if (k == YT_FILE) continue;
+        if (failed) late[nl++] = k; else order[no++] = k;
     }
-    if (!hls_first && cJSON_IsString(h) && n < max) youtube_player_url(h->valuestring, out[n++], 4608);
-    if (cJSON_IsString(f) && n < max) youtube_player_url(f->valuestring, out[n++], 4608);
+    for (int i = 0; i < nl; i++) order[no++] = late[i];
+    order[no++] = YT_FILE;
+    if (nl) LOGI("youtube: %s %d way(s) failed here before, tried after YouTube's playlist", id, nl);
+    for (int i = 0; i < no && n < max; i++) {
+        int ok = 0;
+        switch (order[i]) {
+        case YT_LOCAL_HLS: ok = d && hls_local_url(d, id, out[n]); break;
+        case YT_DASH: ok = d && dash_url(d, id, out[n]); break;
+        case YT_HLS: if (cJSON_IsString(h)) { youtube_player_url(h->valuestring, out[n], 4608); ok = 1; } break;
+        case YT_FILE: if (cJSON_IsString(f)) { youtube_player_url(f->valuestring, out[n], 4608); ok = 1; } break;
+        }
+        if (ok) n++;
+    }
     cJSON_Delete(j);
     return n;
+}
+
+void youtube_note_result(const char *url, int played)
+{
+    int k = !url || !strstr(url, "/sounds/yt-") ? -1 : strstr(url, ".mpd") ? YT_DASH : strstr(url, ".m3u8") ? YT_LOCAL_HLS : -1;
+    if (k < 0) return;
+    int was = store_get_int(YT_FAIL_KEY[k], 0);
+    if (played && was) { store_set_int(YT_FAIL_KEY[k], 0); store_save(); }
+    else if (!played) { store_set_int(YT_FAIL_KEY[k], was + 1); store_save(); LOGW("youtube: %s did not start on this TV (%d time(s))", k == YT_DASH ? "DASH" : "the byte-range playlist", was + 1); }
 }

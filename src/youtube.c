@@ -6,6 +6,7 @@
 #include "quickjs/quickjs.h"
 #include <SDL.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -778,6 +779,56 @@ static cJSON *dash_pick(const cJSON *adaptive, double length_s)
     return d;
 }
 
+/* The pieces of a fragmented MP4 from its sidx (the "index" byte range YouTube gives):
+ * {"timescale":T,"segs":[[first byte,last byte,duration],...]}, NULL when unreadable.
+ * With them the same files can be offered as a byte-range HLS playlist or a DASH
+ * SegmentList, forms some TVs take where they refuse SegmentBase. */
+static cJSON *sidx_of(const cJSON *rep)
+{
+    const cJSON *u = cJSON_GetObjectItemCaseSensitive(rep, "url"), *ix = cJSON_GetObjectItemCaseSensitive(rep, "index");
+    if (!cJSON_IsString(u) || !cJSON_IsString(ix)) return NULL;
+    unsigned long long a = 0, b = 0;
+    if (sscanf(ix->valuestring, "%llu-%llu", &a, &b) != 2 || b < a + 32 || b - a > (1u << 20)) return NULL;
+    char hdr[400];
+    snprintf(hdr, sizeof hdr, "User-Agent: %s\nRange: bytes=%llu-%llu", youtube_ua_for(u->valuestring), a, b);
+    HttpResponse r;
+    HttpOptions o = { .timeout_s = 12, .no_json_accept = 1, .headers = hdr };
+    http_request_ex(u->valuestring, &o, &r);
+    const unsigned char *d = (const unsigned char *)r.body;
+    size_t n = r.len;
+    cJSON *out = NULL;
+    #define BE32(p) ((uint32_t)(p)[0] << 24 | (uint32_t)(p)[1] << 16 | (uint32_t)(p)[2] << 8 | (p)[3])
+    if ((r.status == 206 || r.status == 200) && n >= 32 && !memcmp(d + 4, "sidx", 4)) {
+        int v = d[8];
+        uint32_t ts = BE32(d + 16);
+        size_t p = 20;
+        uint64_t first = v == 0 ? BE32(d + 24) : ((uint64_t)BE32(d + 28) << 32 | BE32(d + 32));   /* after the 4-or-8-byte earliest time */
+        p += v == 0 ? 8 : 16;
+        unsigned count = p + 4 <= n ? (unsigned)(d[p + 2] << 8 | d[p + 3]) : 0;
+        p += 4;
+        if (ts && count && p + (size_t)count * 12 <= n) {
+            out = cJSON_CreateObject();
+            cJSON_AddNumberToObject(out, "timescale", ts);
+            cJSON *segs = cJSON_AddArrayToObject(out, "segs");
+            uint64_t at = b + 1 + first;
+            for (unsigned i = 0; i < count; i++, p += 12) {
+                uint32_t sz = BE32(d + p) & 0x7FFFFFFF, dur = BE32(d + p + 4);
+                if (d[p] & 0x80) { cJSON_Delete(out); out = NULL; break; }   /* a nested index: not YouTube's shape */
+                cJSON *s = cJSON_CreateArray();
+                cJSON_AddItemToArray(s, cJSON_CreateNumber((double)at));
+                cJSON_AddItemToArray(s, cJSON_CreateNumber((double)(at + sz - 1)));
+                cJSON_AddItemToArray(s, cJSON_CreateNumber(dur));
+                cJSON_AddItemToArray(segs, s);
+                at += sz;
+            }
+        }
+    }
+    #undef BE32
+    if (!out) LOGW("youtube: no piece index (HTTP %ld, %zu bytes)", r.status, n);
+    http_response_free(&r);
+    return out;
+}
+
 static void stream_task(HttpResponse *r, void *arg)
 {
     Save *s = arg;
@@ -828,7 +879,13 @@ static void stream_task(HttpResponse *r, void *arg)
      * playlist, a file with sound (360p at most these days) */
     cJSON *out = cJSON_CreateObject();
     cJSON *dash = adaptive ? dash_pick(adaptive, length_s) : NULL;
-    if (dash) cJSON_AddItemToObject(out, "dash", dash);
+    if (dash) {   /* the piece index of both, for the byte-range playlist and the SegmentList */
+        cJSON *v0 = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(dash, "video"), 0), *au = cJSON_GetObjectItemCaseSensitive(dash, "audio");
+        cJSON *vs = sidx_of(v0), *as = vs ? sidx_of(au) : NULL;
+        if (vs && as) { cJSON_AddItemToObject(v0, "sidx", vs); cJSON_AddItemToObject(au, "sidx", as); LOGI("youtube: %s has %d video pieces", s->id, cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(vs, "segs"))); }
+        else { cJSON_Delete(vs); cJSON_Delete(as); }
+        cJSON_AddItemToObject(out, "dash", dash);
+    }
     if (hls) cJSON_AddStringToObject(out, "hls", hls);
     char *file = best ? reachable_mirror(best) : NULL;
     if (file) cJSON_AddStringToObject(out, "file", file);
