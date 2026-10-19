@@ -176,11 +176,11 @@ run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 
 # the next source is checked while playing; a draining buffer moves to a lighter copy first;
 # Play races the top sources; when all fail the addons are asked again
 FB="SNTV_FAKE_NO_TEXT_TRACKS=1"
-run fallback_rescue 4000 "right,ok,down,down,ok,ok" "$LIGHTER" "$FB" HOME="$(home_with fb1 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DEAD_AFTER=2 SNTV_RESCUE_AFTER=2
-grep -q "player: rescue (The source stopped sending video) -> source 2 at 60[0-9]s" "$OUT/fallback_rescue.log" && grep -q "player: subtitles kept across the switch" "$OUT/fallback_rescue.log" \
+run fallback_rescue 4000 "right,ok,down,down,ok,ok" "$LIGHTER" "$FB" HOME="$(home_with fb1 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
+grep -q "player: next source 2 does not answer" "$OUT/fallback_rescue.log" && grep -q "player: rescue (The source stopped sending video) -> source 3 at 6[01][0-9]s" "$OUT/fallback_rescue.log" && grep -q "player: subtitles kept across the switch" "$OUT/fallback_rescue.log" \
   || { echo "a dead source was not replaced at the same moment"; grep -E "player|video" "$OUT/fallback_rescue.log"; exit 1; }
 run fallback_drain 4000 "right,ok,down,down,ok,ok" "$LIGHTER" "$FB" HOME="$(home_with fb2 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DRAIN=1 SNTV_DRAIN_EVERY=1 SNTV_WARM_AFTER=1
-grep -q "player: next source 2 does not answer" "$OUT/fallback_drain.log" && grep -q "player: buffer draining .* switching to source 3 ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
+grep -q "player: buffer draining .* switching to source [23] ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
   || { echo "the draining buffer did not move to a working lighter source"; grep -E "player" "$OUT/fallback_drain.log"; exit 1; }
 run fallback_race 2000 "right,ok,down,down,ok,wait,wait,ok" "$LIGHTER" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
 grep -q "streams: source 3 answered first" "$OUT/fallback_race.log" && grep -q "player: candidate 1/3 Fake Addon - Example" "$OUT/fallback_race.log" \

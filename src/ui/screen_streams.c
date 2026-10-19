@@ -749,6 +749,7 @@ static void on_race(HttpResponse *resp, void *user)
     if (q->round == g_race_round && r->busy && !r->done) {
         r->pending--;
         int ok = resp->status == 200 || resp->status == 206;
+        if (!ok && r->c && q->idx < r->n) { app_link_failed(r->c[q->idx].url); LOGI("streams: source %d did not answer the race", q->idx + 1); }   /* the player skips it */
         if (ok) { r->done = 1; LOGI("streams: source %d answered first (%.2f s)", q->idx + 1, resp->seconds); race_launch(q->idx); }
         else if (r->pending == 0) { r->done = 1; race_launch(-1); }
     }

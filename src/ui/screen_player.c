@@ -296,6 +296,8 @@ static void hash_start(Player *p)
 
 static double sub_fix_get(const char *url);
 
+static int sub_take(HttpResponse *r, SubTrack *out);
+
 static void on_sub_file(HttpResponse *r, void *user)
 {
     SubReq *q = user;
@@ -306,7 +308,7 @@ static void on_sub_file(HttpResponse *r, void *user)
     if (!q->slot) p->sub_req = 0;
     subs_free(t);
     *loaded = 0;
-    if (r->status == 200 && subs_parse(r->body, r->len, t) > 0) {
+    if (sub_take(r, t)) {
         *loaded = 1;
         LOGI("subs: loaded %d cues%s", t->n, q->slot == 2 ? " (timing reference)" : q->slot ? " (second subtitles)" : "");
         if (!q->slot && p->active_addon_sub >= 0) {
@@ -325,11 +327,35 @@ static void on_sub_file(HttpResponse *r, void *user)
 
 /* A subtitle file: an addon's URL, or "os://<file id>" from OpenSubtitles.com, whose
  * download link is asked for first (that is when a download counts). */
+/* Parsed on the network thread, so a big file never holds up drawing. */
+static void sub_parse_work(HttpResponse *r, const char *url)
+{
+    (void)url;
+    if (r->status != 200 || !r->body) return;
+    SubTrack *t = calloc(1, sizeof *t);
+    if (t && subs_parse(r->body, r->len, t) > 0) r->parsed = t;
+    else { if (t) subs_free(t); free(t); }
+}
+static void sub_parse_free(void *parsed) { subs_free(parsed); free(parsed); }
+static unsigned sub_fetch(const char *url, HttpCallback cb, SubReq *q)
+{
+    HttpOptions o = { .work = sub_parse_work, .free_parsed = sub_parse_free };
+    return http_request_async_ex(url, &o, cb, q);
+}
+/* the parsed file, taken from the response (0 when it did not parse) */
+static int sub_take(HttpResponse *r, SubTrack *out)
+{
+    SubTrack *t = r->parsed;
+    if (!t) return 0;
+    *out = *t; free(t); r->parsed = NULL;
+    return out->n > 0;
+}
+
 typedef struct { HttpCallback cb; SubReq *q; } OsGet;
 static void on_os_link(const char *url, const char *error, void *user)
 {
     OsGet *g = user;
-    if (url) http_request_async(url, NULL, g->cb, g->q);
+    if (url) sub_fetch(url, g->cb, g->q);
     else {
         HttpResponse fake; memset(&fake, 0, sizeof fake);
         snprintf(fake.error, sizeof fake.error, "%s", error ? error : "refused");
@@ -341,7 +367,7 @@ static void on_os_link(const char *url, const char *error, void *user)
 
 static unsigned sub_get(const char *url, HttpCallback cb, SubReq *q)
 {
-    if (strncmp(url, "os://", 5) != 0) return http_request_async(url, NULL, cb, q);
+    if (strncmp(url, "os://", 5) != 0) return sub_fetch(url, cb, q);
     OsGet *g = malloc(sizeof *g);
     g->cb = cb; g->q = q;
     opensubs_link(atol(url + 5), on_os_link, g);
@@ -722,7 +748,7 @@ static void on_bm_file(HttpResponse *r, void *user)
     Player *p = q->owner;
     if (p != g_live || q->gen != p->gen) { free(q); return; }
     int k = q->slot;
-    p->bm_ok[k] = r->status == 200 && subs_parse(r->body, r->len, &p->bm_track[k]) > 0;
+    p->bm_ok[k] = sub_take(r, &p->bm_track[k]);
     p->bm_pending--;
     free(q);
 }
@@ -1189,7 +1215,8 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     if (p->good_since && !p->good_recorded && now - p->good_since > env_s("SNTV_GOOD_AFTER", 600)) { p->good_recorded = 1; health_record(p, HEALTH_OK); }
     /* 3. the next source checked while this one plays, so a switch is quick */
     if (p->warm_state == 2 && now - p->warm_at > 600) p->warm_state = 0;   /* links age: check again */
-    if (playing && p->warm_state == 0 && now - p->load_started > env_s("SNTV_WARM_AFTER", 30) && now - p->warm_at > 5) {
+    int room = !vi->buffering && (vi->buffer_ahead < 0 || vi->buffer_ahead > 30);   /* never competes with a tight connection */
+    if (playing && room && p->warm_state == 0 && now - p->load_started > env_s("SNTV_WARM_AFTER", 30) && now - p->warm_at > 5) {
         int idx = next_candidate(p);
         if (idx >= 0 && !strncmp(p->cands[idx].url, "http", 4) && !torrent_engine_url_is(p->cands[idx].url)) {
             p->warm_idx = idx; p->warm_state = 1; p->warm_at = now;
