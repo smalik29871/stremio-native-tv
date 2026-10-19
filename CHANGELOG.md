@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- **A colour from the artwork.** A new accent choice, *From the artwork*, for every theme:
+  focus, highlights and progress take the colour of the title you're looking at and ease
+  between titles; grey artwork falls back to the theme's own colour.
+- **Title pages go deeper.** Down from the buttons (or the episodes) scrolls to *About*:
+  the full synopsis, who directed and wrote it, release date, country, awards, a ratings
+  card with your progress, the cast as photos with their roles (OK searches for their
+  other titles) and *More like this* from the same genre (OK opens it).
+- **A lean-back pause.** Paused and left alone for six seconds, the controls step aside
+  and the title, synopsis and cast stay with a quiet "Paused · time left" line. OK plays
+  on; any other key brings the controls back.
+- **Player menus start where you are.** Audio and subtitle menus open on the track that
+  is playing, and in the episodes menu Left and Right jump a season.
+- **Seeking fits the video.** Holding Left or Right still speeds up (now to two minutes a
+  press on a film) but never moves more than a sixtieth of the video at a time, and the
+  side mark shows how far each press went.
+- **A calmer Home hero.** Scrolling quickly along a row no longer swaps the artwork for
+  every card passed; it changes once the focus rests. The Showcase page dot fills until
+  the carousel moves on.
+
 ## 0.9.0
 
 A polish release: a richer Settings, two new themes, a clock island, smoother motion

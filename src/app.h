@@ -246,6 +246,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
 Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id, const char *video_title, const char *autoplay_group);
 Screen *screen_login_create(void);
 Screen *screen_search_create(void);
+Screen *screen_search_create_query(const char *q);   /* already searching for q (a person on a title page) */
 Screen *screen_settings_create(void);
 Screen *screen_diagnostics_create(int playback_only);
 Screen *screen_welcome_create(void);   /* first-run setup */

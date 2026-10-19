@@ -69,6 +69,10 @@ typedef struct MetaItem {
     MetaVideo *videos; int n_videos;
     char *default_video_id;
     int is_live;
+    /* the title page's About section; NULL / empty when the addon did not say */
+    StrList directors, writers;
+    char *country, *awards, *released;   /* released: ISO date of the first release */
+    char *trailer_yt;                    /* YouTube id of the first trailer */
 } MetaItem;
 
 #include "../quality.h"

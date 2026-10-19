@@ -626,16 +626,21 @@ static void draw(Screen *s)
         case IT_CARD_DETAILS: draw_row(y, ICON_INFO, "Show details when a card stays focused", NULL, foc, KIND_TOGGLE, g_app.card_details); break;
         case IT_ACCENT: case IT_BG: {
             /* the swatches sit on the help line, the current one framed */
-            int bg = id == IT_BG, n = bg ? THEME_BGS : THEME_ACCENTS, cur = bg ? g_app.theme_bg : g_app.theme_accent;
+            int bg = id == IT_BG, n = bg ? THEME_BGS : THEME_ACCENTS + 1, cur = bg ? g_app.theme_bg : g_app.theme_accent;
             s_desc = " ";
-            draw_row(y, ICON_PALETTE, bg ? "Background" : "Accent colour", bg ? THEME_BG_NAMES[g_app.theme][cur] : THEME_ACCENT_NAMES[g_app.theme][cur], foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_PALETTE, bg ? "Background" : "Accent colour", bg ? THEME_BG_NAMES[g_app.theme][cur] : theme_accent_name(g_app.theme, cur), foc, KIND_CHOICE, 0);
             float sz = bg ? 26 : 18, step = bg ? 40 : 28, sx = s_x + 92, sy = y + (ROW_H - 12) / 2 + 6;
             for (int i = 0; i < n; i++) {
                 float bx = sx + i * step;
                 Color c = bg ? theme_bg_swatch(g_app.theme, i) : theme_accent_swatch(g_app.theme, i);
                 if (i == cur) gfx_rrect_ring(bx - 3, sy - 3, sz + 6, sz + 6, theme_pill_r(sz + 6), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
+                if (!bg && i == THEME_ACCENT_ART) {   /* the artwork's colour: a little spectrum */
+                    gfx_rrect_grad_h(bx, sy, sz / 2, sz, theme_pill_r(sz) * 0.5f, RGBA(0xFF, 0x5C, 0x7A, 0xFF), RGBA(0xFF, 0xD8, 0x3D, 0xFF));
+                    gfx_rrect_grad_h(bx + sz / 2, sy, sz / 2, sz, theme_pill_r(sz) * 0.5f, RGBA(0x3D, 0xE0, 0xFF, 0xFF), RGBA(0x9D, 0x7B, 0xFF, 0xFF));
+                    continue;
+                }
                 gfx_rrect(bx, sy, bg ? sz * 1.4f : sz, sz, theme_pill_r(sz), c);
-                if (bg) gfx_rrect_ring(bx, sy, sz * 1.4f, sz, theme_pill_r(sz), 1, COLOR_ALPHA(foc ? THEME_ON_FOCUS : THEME_TEXT, 0x50));
+                gfx_rrect_ring(bx, sy, bg ? sz * 1.4f : sz, sz, theme_pill_r(sz), 1, COLOR_ALPHA(foc ? THEME_ON_FOCUS : THEME_TEXT, 0x50));   /* a white swatch on a white row */
             }
             break;
         }
@@ -898,7 +903,7 @@ static int adjust(Settings *st, int id, int dir)
         break;
     case IT_CARD_DETAILS: g_app.card_details = !g_app.card_details; break;
     case IT_ACCENT:
-        g_app.theme_accent = (g_app.theme_accent + dir + THEME_ACCENTS) % THEME_ACCENTS;
+        g_app.theme_accent = (g_app.theme_accent + dir + THEME_ACCENTS + 1) % (THEME_ACCENTS + 1);   /* the last is the artwork's colour */
         theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
         break;
     case IT_BG:

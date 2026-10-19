@@ -73,9 +73,11 @@ float theme_pill_r(float h) { return g_theme.r_pill < h / 2 ? g_theme.r_pill : h
 void theme_apply(int id, int accent_idx, int bg_idx)
 {
     if (id < 0 || id >= THEME_COUNT) id = THEME_SIGNAL;
+    int art = accent_idx == THEME_ACCENT_ART;
     if (accent_idx < 0 || accent_idx >= THEME_ACCENTS) accent_idx = 0;
     if (bg_idx < 0 || bg_idx >= THEME_BGS) bg_idx = 0;
     Theme t = { 0 };
+    t.art_accent = art;
     t.id = id;
     t.accent_idx = accent_idx;
     t.accent = ACCENTS[id][accent_idx];
@@ -156,7 +158,36 @@ void theme_apply(int id, int accent_idx, int bg_idx)
     t.focus = id == THEME_MARQUEE ? t.text : id == THEME_GLASS ? RGBA(0xF4, 0xF6, 0xFA, 0xFF) : t.accent;
     t.on_focus = id == THEME_MARQUEE || id == THEME_GLASS ? t.bg : t.on_accent;
     if (id == THEME_GLASS) { t.surface = COLOR_ALPHA(t.text, 0x16); t.surface_hi = COLOR_ALPHA(t.text, 0x2A); }
+    t.base_accent = t.accent;
     g_theme = t;
+}
+
+const char *theme_accent_name(int id, int accent_idx)
+{
+    if (accent_idx == THEME_ACCENT_ART) return "From the artwork";
+    if (id < 0 || id >= THEME_COUNT) id = THEME_SIGNAL;
+    return THEME_ACCENT_NAMES[id][accent_idx >= 0 && accent_idx < THEME_ACCENTS ? accent_idx : 0];
+}
+
+void theme_art_accent(Color tint)
+{
+    if (!g_theme.art_accent) return;
+    Color a = g_theme.base_accent;
+    float r = ((tint >> 24) & 255) / 255.0f, g = ((tint >> 16) & 255) / 255.0f, b = ((tint >> 8) & 255) / 255.0f;
+    float mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    float sat = mx > 0 ? (mx - mn) / mx : 0;
+    if (tint && sat > 0.12f) {   /* vivid: full brightness, at least moderate saturation (grey art keeps the theme's own) */
+        /* same hue; the brightest channel at v2, the dimmest at v2 * (1 - s2) */
+        float s2 = sat < 0.55f ? 0.55f : sat, v2 = 0.95f, d = mx - mn;
+        float rr = v2 * (1 - s2 * (mx - r) / d), gg = v2 * (1 - s2 * (mx - g) / d), bb = v2 * (1 - s2 * (mx - b) / d);
+        a = RGBA((int)(rr * 255), (int)(gg * 255), (int)(bb * 255), 0xFF);
+    }
+    if (a == g_theme.accent) return;
+    g_theme.accent = a;
+    g_theme.accent2 = g_theme.id == THEME_GLASS ? color_lerp(a, RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0.35f) : g_theme.id == THEME_MARQUEE ? color_lerp(a, RGBA(0xFF, 0xF1, 0xD6, 0xFF), 0.35f) : a;
+    g_theme.accent_dim = COLOR_ALPHA(a, 0x60);
+    g_theme.on_accent = luma(a) > 0.35f ? RGBA(0x0A, 0x0A, 0x0C, 0xFF) : RGBA(0xFF, 0xFF, 0xFF, 0xFF);
+    if (g_theme.id == THEME_SIGNAL || g_theme.id == THEME_METRO) { g_theme.focus = a; g_theme.on_focus = g_theme.on_accent; }
 }
 
 /* ---- type ---- */

@@ -21,6 +21,7 @@ enum { NAV_SEARCH, NAV_SETTINGS, NAV_ACCOUNT, NAV_COUNT };
 #define ROWS_Y 610.0f          /* Cinematic; the other styles move it (rows_y) */
 #define SHOWCASE_N 10         /* titles in the Showcase carousel */
 #define SHOWCASE_EVERY 8.0f   /* seconds before the carousel moves by itself */
+#define HERO_REST 0.22f       /* the focus rests this long before the hero changes (not on every card scrolled past) */
 #define FOCUS_SHOWCASE (-2)   /* focus_row: the carousel View button */
 #define POSTER_W 196.0f
 #define POSTER_H 294.0f
@@ -55,6 +56,7 @@ typedef struct {
     float focus_t;            /* 0..1 grow-in of the focused card */
     int prev_row, prev_col; float prev_t;
     char hero_id[256];
+    char want_id[256]; float want_since;   /* the focused title, and since when (HERO_REST) */
     char hero_bg[1024], hero_prev_bg[1024]; float hero_fade;
     float hero_text_t;        /* fade/slide of the hero text on change */
     int landed;               /* first focus went to the content */
@@ -279,6 +281,17 @@ static const Row *featured_row(const Home *h)
 }
 static int featured_count(const Home *h) { const Row *r = featured_row(h); return r ? (r->n < SHOWCASE_N ? r->n : SHOWCASE_N) : 0; }
 
+static const MetaPreview *hero_item(const Home *h);
+
+/* The title the hero shows: the focused one once the focus has rested on it. */
+static const MetaPreview *shown_hero(const Home *h)
+{
+    if (h->hero_id[0])
+        for (int i = 0; i < h->n_rows; i++)
+            for (int j = 0; j < h->rows[i]->n; j++) if (strcmp(h->rows[i]->metas[j].id, h->hero_id) == 0) return &h->rows[i]->metas[j];
+    return hero_item(h);
+}
+
 static const MetaPreview *hero_item(const Home *h)
 {
     if (g_app.home_style == HOME_SHOWCASE) {
@@ -364,7 +377,9 @@ static void update(Screen *s, float dt)
         else if (g_app.home_style != HOME_SHOWCASE || !loading) { int n = next_visible(h, -1, 1); if (n >= 0) { move_focus(h, n, -1); h->landed = 1; } }
     }
     if (g_app.home_style == HOME_SHOWCASE && featured_count(h) > 1) {
+        float was = h->feat_timer;
         h->feat_timer += dt;
+        if ((int)(was * 34 / SHOWCASE_EVERY) != (int)(h->feat_timer * 34 / SHOWCASE_EVERY) && !g_app.fx_light) app_redraw();   /* the dot's fill, a step a pixel */
         if (h->feat_timer > SHOWCASE_EVERY && h->focus_row != FOCUS_SHOWCASE) { h->feat_timer = 0; h->feat = (h->feat + 1) % featured_count(h); app_redraw(); }
         if (h->focus_row == FOCUS_SHOWCASE) h->feat_timer = 0;
     } else if (h->focus_row == FOCUS_SHOWCASE) h->focus_row = -1;
@@ -393,8 +408,11 @@ static void update(Screen *s, float dt)
     h->hero_text_t = ui_ease(h->hero_text_t * 100, 100, NULL, dt, 10) / 100;
 
     const MetaPreview *hero = hero_item(h);
-    if (hero && (!hero->description || !*hero->description) && strcmp(hero->id, g_desc_pending) != 0 && !desc_cached(hero->id)) request_desc(h, hero);
-    if (hero && strcmp(hero->id, h->hero_id) != 0) {
+    if (hero && strcmp(hero->id, h->want_id) != 0) { snprintf(h->want_id, sizeof h->want_id, "%s", hero->id); h->want_since = g_app.time; }
+    int settled = !h->hero_id[0] || g_app.home_style == HOME_SHOWCASE || g_app.fx_light || g_app.time - h->want_since >= HERO_REST;
+    if (hero && !settled && strcmp(hero->id, h->hero_id) != 0) app_redraw();   /* look again when it has rested */
+    if (hero && settled && (!hero->description || !*hero->description) && strcmp(hero->id, g_desc_pending) != 0 && !desc_cached(hero->id)) request_desc(h, hero);
+    if (hero && settled && strcmp(hero->id, h->hero_id) != 0) {
         snprintf(h->hero_id, sizeof h->hero_id, "%s", hero->id);
         char buf[512];
         const char *bg = app_art_background(hero, buf, sizeof buf);
@@ -472,7 +490,11 @@ static void draw_showcase_controls(const Home *h)
     for (int i = 0; i < n; i++) {
         int on = i == h->feat % n;
         float w = on ? cur_w : dw;
-        gfx_rrect(x, cy - 5, w, 10, theme_pill_r(10), on ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x60));
+        if (on && !foc && n > 1 && !g_app.fx_light) {   /* it fills until the carousel moves on */
+            float t = h->feat_timer / SHOWCASE_EVERY; if (t > 1) t = 1;
+            gfx_rrect(x, cy - 5, w, 10, theme_pill_r(10), COLOR_ALPHA(THEME_ACCENT, 0x60));
+            if (w * t > 10) gfx_rrect(x, cy - 5, w * t, 10, theme_pill_r(10), THEME_ACCENT);
+        } else gfx_rrect(x, cy - 5, w, 10, theme_pill_r(10), on ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x60));
         x += w + gap;
     }
     ui_icon(ICON_CHEVRON_RIGHT, x + 14, cy, 16, foc ? THEME_TEXT : THEME_TEXT_MUTED);
@@ -564,7 +586,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
 static void draw(Screen *s)
 {
     Home *h = s->st;
-    const MetaPreview *hero = hero_item(h);
+    const MetaPreview *hero = shown_hero(h);
     ui_background(hero ? image_tint(h->hero_bg) : 0);
 
     if (hero && g_app.home_style != HOME_COMPACT) {

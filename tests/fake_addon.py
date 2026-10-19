@@ -261,7 +261,11 @@ class H(BaseHTTPRequestHandler):
             m = next((x for x in CATALOG["metas"] if x["id"] == mid), None)
             if not m:
                 return self.send(404, b"{}")
-            return self.send(200, json.dumps({"meta": dict(m, description="A fixture movie used by the smoke test.", runtime="101 min")}).encode())
+            return self.send(200, json.dumps({"meta": dict(m, description="A fixture movie used by the smoke test.", runtime="101 min",
+                director=["Frank Darabont"], writer=["Stephen King", "Frank Darabont"], country="United States",
+                awards="Nominated for 7 Oscars. 21 wins & 43 nominations total", released="1994-10-14T00:00:00.000Z",
+                app_extras={"cast": [{"name": n, "character": c, "photo": f"{BASE}/tmdbimg/p{i}.png"} for i, (n, c) in enumerate(
+                    [("Tim Robbins", "Andy Dufresne"), ("Morgan Freeman", "Ellis Boyd 'Red' Redding"), ("Bob Gunton", "Warden Norton"), ("William Sadler", "Heywood")])]})}).encode())
         if p.startswith("/stream/"):
             return self.send(200, json.dumps(STREAMS).encode())
         if p.startswith("/introdb/media"):

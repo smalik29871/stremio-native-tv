@@ -1,6 +1,7 @@
 #include "addon.h"
 #include "../http.h"
 #include "../../vendor/cJSON.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -478,6 +479,35 @@ int addon_parse_meta(const char *json, MetaItem *out)
         out->is_live = jbool(bh, "isLive");
     }
     if (out->p.type && strcmp(out->p.type, "tv") == 0) out->is_live = 1;
+
+    /* credits: "director"/"writer" as lists or one string, else links[category] */
+    static const struct { const char *key, *cat; size_t off; } CREDITS[] = {
+        { "director", "Directors", offsetof(MetaItem, directors) }, { "writer", "Writers", offsetof(MetaItem, writers) },
+    };
+    for (size_t c = 0; c < sizeof CREDITS / sizeof CREDITS[0]; c++) {
+        StrList *l = (StrList *)((char *)out + CREDITS[c].off);
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(meta, CREDITS[c].key);
+        if (cJSON_IsArray(v)) jstrlist(meta, CREDITS[c].key, l);
+        else if (cJSON_IsString(v) && v->valuestring[0]) { l->v = calloc(2, sizeof(char *)); l->v[l->n++] = strdup(v->valuestring); }
+        const cJSON *links = cJSON_GetObjectItemCaseSensitive(meta, "links");
+        if (l->n || !cJSON_IsArray(links)) continue;
+        strlist_free(l);
+        l->v = calloc((size_t)cJSON_GetArraySize(links) + 1, sizeof(char *));
+        const cJSON *it;
+        cJSON_ArrayForEach(it, links) {
+            const cJSON *cat = cJSON_GetObjectItemCaseSensitive(it, "category"), *nm = cJSON_GetObjectItemCaseSensitive(it, "name");
+            if (cJSON_IsString(cat) && cJSON_IsString(nm) && nm->valuestring[0] && strcmp(cat->valuestring, CREDITS[c].cat) == 0)
+                l->v[l->n++] = strdup(nm->valuestring);
+        }
+    }
+    out->country = jstr(meta, "country");
+    out->awards = jstr(meta, "awards");
+    out->released = jstr(meta, "released");
+    const cJSON *ts = cJSON_GetObjectItemCaseSensitive(meta, "trailerStreams"), *it;
+    cJSON_ArrayForEach(it, ts) if (!out->trailer_yt) out->trailer_yt = jstr(it, "ytId");
+    ts = cJSON_GetObjectItemCaseSensitive(meta, "trailers");
+    cJSON_ArrayForEach(it, ts) if (!out->trailer_yt) out->trailer_yt = jstr(it, "source");
+    if (out->trailer_yt && !out->trailer_yt[0]) { free(out->trailer_yt); out->trailer_yt = NULL; }
     cJSON_Delete(root);
     return 0;
 }
@@ -491,6 +521,8 @@ void meta_item_free(MetaItem *m)
     }
     free(m->videos);
     free(m->default_video_id);
+    strlist_free(&m->directors); strlist_free(&m->writers);
+    free(m->country); free(m->awards); free(m->released); free(m->trailer_yt);
     memset(m, 0, sizeof *m);
 }
 

@@ -48,6 +48,15 @@ run() { # name frames keys [extra env assignments...]
 run home 150 "right,right"
 run detail_movie 170 "right,right,ok"
 run detail_series 170 "right,ok"
+# About, below the fold, on a profile with no Continue Watching: the first card is a Drama film
+ABOUT_HOME='{"prefSubs":"eng","subsAlways":1,"setupDone":1}'
+run detail_about 260 "wait,ok,down" HOME="$(home_with about "$ABOUT_HOME")"
+grep -q "detail: [0-9]* more like tt" "$OUT/detail_about.log" || { echo "no More like this on the title page"; grep detail "$OUT/detail_about.log"; exit 1; }
+run detail_cast 300 "wait,ok,down,down,right,ok" HOME="$(home_with about_cast "$ABOUT_HOME")"
+grep -q 'search: "Morgan Freeman" from a title page' "$OUT/detail_cast.log" || { echo "a cast member did not open a search"; grep search "$OUT/detail_cast.log"; exit 1; }
+run detail_more_like 320 "wait,ok,down,down,down,ok" HOME="$(home_with about_more "$ABOUT_HOME")"
+grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "More like this did not open the title"; grep detail "$OUT/detail_more_like.log"; exit 1; }
+run detail_about_series 300 "right,ok,down,down,down"
 run episodes 220 "right,ok,down,down,right"
 run streams 240 "right,ok,down,down,ok"
 run streams_best 240 "right,ok,down,down,ok,up" HOME="$(home_with best '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"qualityMode":1}')"
@@ -109,6 +118,11 @@ run pip_focus_close 460 "$P,back,back,down,down,down,down,down,down,down,right,o
 run player_subs_scrolled 420 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,down,down"
 run player_episodes 400 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,right,ok"
 run player_paused 320 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200
+run player_rest 330 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
+grep -q "player: paused and idle, the controls step aside" "$OUT/player_rest.log" || { echo "the paused player never leaned back"; grep player "$OUT/player_rest.log"; exit 1; }
+run player_rest_ok 360 "right,ok,down,down,ok,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
+grep -q "player: OK plays on from the lean-back screen" "$OUT/player_rest_ok.log" || { echo "OK did not play on from the lean-back screen"; grep player "$OUT/player_rest_ok.log"; exit 1; }
+run player_episodes_season 420 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,right,ok,right"
 run player_speed 400 "right,ok,down,down,ok,ok,down,right,right,right,right,ok,right,right"
 run player_aspect 360 "right,ok,down,down,ok,ok,down,right,right,right,right,right,ok"
 run home_showcase 200 "" HOME="$(home_with showcase '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":1}')"

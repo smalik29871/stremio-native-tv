@@ -1405,7 +1405,7 @@ static void load_prefs(void)
     g_app.theme = store_get_int("theme", THEME_SIGNAL);
     if (g_app.theme < 0 || g_app.theme >= THEME_COUNT) g_app.theme = THEME_SIGNAL;
     g_app.theme_accent = store_get_int("themeAccent", 0);
-    if (g_app.theme_accent < 0 || g_app.theme_accent >= THEME_ACCENTS) g_app.theme_accent = 0;
+    if (g_app.theme_accent < 0 || g_app.theme_accent > THEME_ACCENT_ART) g_app.theme_accent = 0;
     g_app.theme_bg = store_get_int("themeBg", 0);
     if (g_app.theme_bg < 0 || g_app.theme_bg >= THEME_BGS) g_app.theme_bg = 0;
     theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);

@@ -74,6 +74,10 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         gfx_line(cx - s * 0.12f, cy - s * 0.30f, cx + s * 0.16f, cy, t, c);
         gfx_line(cx + s * 0.16f, cy, cx - s * 0.12f, cy + s * 0.30f, t, c);
         break;
+    case ICON_CHEVRON_DOWN:
+        gfx_line(cx - s * 0.30f, cy - s * 0.12f, cx, cy + s * 0.16f, t, c);
+        gfx_line(cx, cy + s * 0.16f, cx + s * 0.30f, cy - s * 0.12f, t, c);
+        break;
     case ICON_HOME:
         gfx_line(cx - s * 0.38f, cy - s * 0.02f, cx, cy - s * 0.38f, t, c);
         gfx_line(cx, cy - s * 0.38f, cx + s * 0.38f, cy - s * 0.02f, t, c);
@@ -211,12 +215,13 @@ void ui_set_ambient_art(const char *url) { snprintf(g_ambient_art, sizeof g_ambi
 
 void ui_background(Color tint)
 {
-    if (!tint) tint = THEME_ACCENT;
+    if (!tint) tint = g_theme.art_accent ? g_theme.base_accent : THEME_ACCENT;   /* no artwork: the theme's own colour */
     float tr = (float)((tint >> 24) & 255), tg = (float)((tint >> 16) & 255), tb = (float)((tint >> 8) & 255);
     float k = g_app.fx_light ? 1.0f : 0.06f;
     g_tint[0] += (tr - g_tint[0]) * k; g_tint[1] += (tg - g_tint[1]) * k; g_tint[2] += (tb - g_tint[2]) * k;
     if (fabsf(tr - g_tint[0]) + fabsf(tg - g_tint[1]) + fabsf(tb - g_tint[2]) > 3) app_redraw();
     Color t = RGBA((int)g_tint[0], (int)g_tint[1], (int)g_tint[2], 0xFF);
+    theme_art_accent(t);   /* "From the artwork": the accent eases with the background's tint */
 
     /* The frame is cleared to the theme background (main.c), so a flat theme draws
      * nothing here; the others add one plain gradient tinted by the artwork. Soft
@@ -904,7 +909,10 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
     int mip = flags & (CARD_MIP | CARD_BLUR), blur = flags & CARD_BLUR;
     float sc = ui_focus_scale(focus);
     float cw = w * sc, ch = h * sc, cx = x - (cw - w) / 2, cy = y - (ch - h) / 2 - ui_focus_lift(focus);
-    if (focus > 0.95f && g_card_capture && !app_transition_active()) { g_app.card_rect[0] = cx; g_app.card_rect[1] = cy; g_app.card_rect[2] = cw; g_app.card_rect[3] = ch; g_app.card_at = g_app.time; }
+    if (focus > 0.95f && g_card_capture && !app_transition_active()) {
+        float tx, ty; gfx_get_translate(&tx, &ty);   /* where it is on screen (a scrolled page) */
+        g_app.card_rect[0] = cx + tx; g_app.card_rect[1] = cy + ty; g_app.card_rect[2] = cw; g_app.card_rect[3] = ch; g_app.card_at = g_app.time;
+    }
     ui_focus_under(cx, cy, cw, ch, R_CARD, focus);
     int iw = 0, ih = 0;
     unsigned age = 0;

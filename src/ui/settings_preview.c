@@ -128,7 +128,7 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
             ui_card(it ? it->poster : NULL, sx + 24 + i * (cw + 18), cy, cw, ch, i == 1, 0, it ? NULL : NAMES[i], CARD_MIP);
             ui_card_capture(1);
         }
-        snprintf(t, sizeof t, "%s  \xC2\xB7  %s  \xC2\xB7  %s", THEME_NAMES[g_app.theme], THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], THEME_BG_NAMES[g_app.theme][g_app.theme_bg]);
+        snprintf(t, sizeof t, "%s  \xC2\xB7  %s  \xC2\xB7  %s", THEME_NAMES[g_app.theme], theme_accent_name(g_app.theme, g_app.theme_accent), THEME_BG_NAMES[g_app.theme][g_app.theme_bg]);
         label(t, x + w / 2, base, 1);
         return;
     }

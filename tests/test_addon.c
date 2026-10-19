@@ -107,6 +107,20 @@ static void test_responses(void)
     CHECK(STREQ(m.videos[1].title, "Cat's in the Bag...") && m.videos[10].season == 0);
     CHECK(m.default_video_id == NULL && !m.is_live);
     CHECK(STREQ(m.p.runtime, "49 min"));
+    CHECK(m.directors.n == 0 && m.country == NULL && m.trailer_yt == NULL);
+    meta_item_free(&m);
+
+    /* About facts: lists, a lone string, or links by category */
+    CHECK(addon_parse_meta("{\"meta\":{\"id\":\"tt1\",\"name\":\"A\",\"director\":[\"Ann Lee\",\"Bo Ek\"],\"writer\":\"Cy Doe\","
+                           "\"country\":\"Sweden\",\"awards\":\"2 wins\",\"released\":\"1994-10-14T00:00:00.000Z\","
+                           "\"trailerStreams\":[{\"title\":\"T\",\"ytId\":\"abc123\"}]}}", &m) == 0);
+    CHECK(m.directors.n == 2 && STREQ(m.directors.v[1], "Bo Ek") && m.writers.n == 1 && STREQ(m.writers.v[0], "Cy Doe"));
+    CHECK(STREQ(m.country, "Sweden") && STREQ(m.awards, "2 wins") && STREQ(m.trailer_yt, "abc123"));
+    meta_item_free(&m);
+    CHECK(addon_parse_meta("{\"meta\":{\"id\":\"tt2\",\"name\":\"B\",\"links\":[{\"name\":\"Di Rector\",\"category\":\"Directors\"},"
+                           "{\"name\":\"Wri Ter\",\"category\":\"Writers\"},{\"name\":\"Drama\",\"category\":\"Genres\"}],"
+                           "\"trailers\":[{\"source\":\"xyz\",\"type\":\"Trailer\"}]}}", &m) == 0);
+    CHECK(m.directors.n == 1 && STREQ(m.directors.v[0], "Di Rector") && m.writers.n == 1 && STREQ(m.trailer_yt, "xyz"));
     meta_item_free(&m);
 
     json = read_fixture("streams.json");

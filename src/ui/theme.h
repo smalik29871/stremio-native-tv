@@ -18,6 +18,7 @@ enum { THEME_SIGNAL, THEME_MARQUEE, THEME_GLASS, THEME_METRO, THEME_COUNT };
 enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_GLASS, FOCUS_TILE };
 enum { ROWHEAD_NUMBERED, ROWHEAD_KICKER, ROWHEAD_PLAIN, ROWHEAD_METRO };
 #define THEME_ACCENTS 10
+#define THEME_ACCENT_ART THEME_ACCENTS   /* the accent index past the swatches: the artwork's own colour */
 #define THEME_BGS 4   /* background tints per theme */
 
 typedef struct Theme {
@@ -37,6 +38,8 @@ typedef struct Theme {
     int ticks;            /* timelines carry tick marks */
     int glow;             /* soft ambient light behind screens */
     float title_track;    /* extra letter spacing for capital titles, px per glyph at FONT_M */
+    int art_accent;       /* the accent follows the artwork (theme_art_accent) */
+    Color base_accent;    /* the accent before the artwork changed it */
 } Theme;
 
 extern Theme g_theme;
@@ -51,6 +54,10 @@ Color theme_accent_swatch(int id, int accent_idx);
 Color theme_bg_swatch(int id, int bg_idx);
 /* Corner radius for a control of height h (pills are capsules only in themes that want them). */
 float theme_pill_r(float h);
+/* With the artwork accent chosen: the accent and what derives from it follow `tint`
+ * (the focused artwork's colour, made vivid). No-op for the fixed accents. */
+void  theme_art_accent(Color tint);
+const char *theme_accent_name(int id, int accent_idx);
 
 /* The names screens have always used, now read from the active theme. */
 #define THEME_BG          (g_theme.bg)

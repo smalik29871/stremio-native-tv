@@ -371,6 +371,7 @@ static void apply_clip(void)
 }
 
 void gfx_set_translate(float dx, float dy) { if (dx != g_tx || dy != g_ty) { flush(); g_tx = dx; g_ty = dy; } }
+void gfx_get_translate(float *dx, float *dy) { *dx = g_tx; *dy = g_ty; }
 void gfx_set_alpha(float a) { g_alpha = a < 0 ? 0 : a > 1 ? 1 : a; }
 void gfx_set_scale(float s, float cx, float cy) { if (s != g_zs || cx != g_zx || cy != g_zy) { flush(); g_zs = s; g_zx = cx; g_zy = cy; } }
 void gfx_set_layer(float dx, float dy, float s, float cx, float cy, float alpha)

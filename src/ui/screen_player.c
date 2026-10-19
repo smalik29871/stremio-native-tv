@@ -24,6 +24,7 @@
 #include "theme.h"
 #include "widgets.h"
 #include "island.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,6 +88,8 @@ struct Player {
     /* AI translation of the active addon file into the preferred language, a batch at a time, playhead first */
     int xl_on, xl_hinted; char xl_lang[8]; unsigned char *xl_done; int xl_n_done, xl_fails; unsigned xl_req; unsigned xl_gen; int xl_from, xl_count; float xl_wait;
     float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
+    int seek_flash_step;                    /* seconds the last press moved (grows while the key is held) */
+    float rest_t;                           /* paused and left alone: the controls fade, the title stays */
     float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
     double embedded_offset;   /* timing for the TV's own subtitles, seconds (positive = later) */
@@ -130,6 +133,7 @@ struct Player {
 static Player *g_live;
 
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
+#define PAUSE_REST 6.0f   /* seconds paused and untouched before the controls step aside */
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
 static void push_sub_style(const Player *p);
@@ -1103,6 +1107,14 @@ static void update(Screen *s, float dt)
     if (vi.state == VIDEO_PAUSED && p->paused_since == 0) { p->paused_since = g_app.time; app_redraw(); }
     if (vi.state != VIDEO_PAUSED && p->paused_since != 0) p->paused_since = 0;
     if (vi.state == VIDEO_PAUSED && g_app.time - p->paused_since < 1.3f) app_redraw();   /* the info panel fades in */
+    {   /* paused and left alone for a while: lean back (the controls go, the title stays) */
+        int rest = vi.state == VIDEO_PAUSED && !p->menu && p->seek_commit <= 0 && p->paused_since > 0
+                && g_app.time - p->paused_since > PAUSE_REST && g_app.time > p->overlay_until + PAUSE_REST - 4;
+        if (rest && p->rest_t == 0) LOGI("player: paused and idle, the controls step aside");
+        if (g_app.fx_light) p->rest_t = (float)rest;
+        else p->rest_t = ui_ease(p->rest_t * 100, rest * 100.0f, NULL, dt, 5) / 100;
+        if (fabsf(p->rest_t - rest) > 0.005f) app_redraw(); else p->rest_t = (float)rest;
+    }
     if (vi.state == VIDEO_PLAYING && !p->rate_applied && p->rate_idx != RATE_NORMAL) { video_set_rate(RATES[p->rate_idx]); p->rate_applied = 1; }
     p2p_tick(p, &vi, dt);
     if (p->bar_focus && g_app.time >= p->overlay_until && vi.state != VIDEO_PAUSED) p->bar_focus = 0;
@@ -1534,6 +1546,40 @@ static void draw_bar(Player *p, float x, float y)
     font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (d - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
 }
 
+/* The row of what is playing, so a menu opens on it (Off when no subtitles show). */
+static int current_track_row(const Player *p, int menu)
+{
+    VideoTrack tr[MAX_TRACKS];
+    int n = video_tracks(menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
+    if (menu == MENU_AUDIO) {
+        for (int i = 0; i < n; i++) if (tr[i].selected) return 1 + i;
+        return 0;
+    }
+    if (p->active_addon_sub >= 0) {
+        int order[MAX_ADDON_SUBS], ng = sorted_subs(p, order);
+        for (int k = 0; k < ng; k++) if (order[k] == p->active_addon_sub) return SUB_OFF + 1 + n + k;
+    }
+    if (p->embedded_text_sel >= 0)
+        for (int i = 0; i < n; i++) if (tr[i].index == p->embedded_text_sel) return SUB_OFF + 1 + i;
+    return SUB_OFF;
+}
+
+/* Left/Right in the episodes menu: the first episode of the season before or after. */
+static int season_jump(const Player *p, int dir)
+{
+    int n = 0;
+    const MetaVideo *v = app_videos(p->meta.id, &n);
+    int f = p->menu_focus;
+    if (f < 0 || f >= n) return f;
+    int s = v[f].season, i = f;
+    if (dir > 0) { while (i < n && v[i].season == s) i++; return i < n ? i : f; }
+    while (i > 0 && v[i - 1].season == s) i--;   /* this season's first */
+    if (i == 0) return f;
+    int prev = v[i - 1].season;
+    while (i > 0 && v[i - 1].season == prev) i--;
+    return i;
+}
+
 static int episodes_focus(const Player *p)
 {
     int n = 0;
@@ -1554,8 +1600,8 @@ static void bar_activate(Player *p, const VideoInfo *vi)
         break;
     case BTN_NEXT: go_up_next(p); return;
     case BTN_RELOAD: app_toast("Reloading"); start_candidate(p, p->cur, vi->position); break;
-    case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = 0; break;
-    case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = 0; break;
+    case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = current_track_row(p, MENU_SUBS); break;
+    case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = current_track_row(p, MENU_AUDIO); break;
     case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
     case BTN_SOURCES: {
         int view[64]; int n = source_view(p, view);
@@ -1721,7 +1767,7 @@ static void draw(Screen *s)
     /* centre play/pause flash */
     float flash = p->play_flash - g_app.time;
     if (vi.state == VIDEO_PAUSED || flash > 0) {
-        float a = vi.state == VIDEO_PAUSED ? 1.0f : flash / 0.6f;
+        float a = vi.state == VIDEO_PAUSED ? 1.0f - p->rest_t : flash / 0.6f;
         float r = 70 + (1 - a) * 20 * (vi.state != VIDEO_PAUSED);
         gfx_circle(SNTV_UI_W / 2, SNTV_UI_H / 2, r, RGBA(0, 0, 0, (int)(0x80 * a)));
         gfx_rrect_ring(SNTV_UI_W / 2 - r, SNTV_UI_H / 2 - r, 2 * r, 2 * r, r, 2, COLOR_ALPHA(THEME_TEXT, (int)(0x40 * a)));
@@ -1739,7 +1785,10 @@ static void draw(Screen *s)
         float ax = cx + p->seek_flash_dir * 9, ay = cy - 28;
         gfx_line(ax, ay, ax - p->seek_flash_dir * 10, ay - 9, 3, fg);
         gfx_line(ax, ay, ax - p->seek_flash_dir * 10, ay + 9, 3, fg);
-        font_draw("10", cx - font_measure("10", FONT_S | FONT_B) / 2, cy - font_height(FONT_S | FONT_B) / 2 + 1, FONT_S | FONT_B, fg);
+        char st[16];
+        int sec = p->seek_flash_step > 0 ? p->seek_flash_step : 10;
+        if (sec >= 60 && sec % 60 == 0) snprintf(st, sizeof st, "%dm", sec / 60); else snprintf(st, sizeof st, "%d", sec);
+        font_draw(st, cx - font_measure(st, FONT_S | FONT_B) / 2, cy - font_height(FONT_S | FONT_B) / 2 + 1, FONT_S | FONT_B, fg);
         app_redraw();
     }
     int bar_only = !overlay && p->seek_commit > 0;
@@ -1780,6 +1829,22 @@ static void draw(Screen *s)
     } else if (bar_only) {
         gfx_gradient_v(0, SNTV_UI_H - 240, SNTV_UI_W, 240, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xB0));
     }
+    if (p->rest_t > 0.001f) {   /* lean-back: what is paused and how much is left, where the bar was */
+        char pos[32], rem[32], line[96];
+        ui_format_time(shown_pos, pos, sizeof pos);
+        ui_format_time(vi.duration - shown_pos, rem, sizeof rem);
+        if (vi.duration > 0) snprintf(line, sizeof line, "%s  \xC2\xB7  %s left", pos, rem); else snprintf(line, sizeof line, "%s", pos);
+        int ra = (int)(255 * p->rest_t);
+        float ix = bx, iy = by - 4;
+        gfx_rrect(ix, iy - 4, 6, 40, 3, COLOR_ALPHA(THEME_TEXT, ra));
+        gfx_rrect(ix + 14, iy - 4, 6, 40, 3, COLOR_ALPHA(THEME_TEXT, ra));
+        font_draw("Paused", ix + 40, iy - 2, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, ra));
+        float lx = ix + 40 + font_measure("Paused", FONT_M | FONT_B) + 22;
+        font_draw(line, lx, iy + (font_height(FONT_M | FONT_B) - font_height(FONT_S)) / 2 - 2, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, ra));
+        const char *hint = "OK  play";
+        font_draw(hint, bx + bw - font_measure(hint, FONT_S | FONT_B), iy + (font_height(FONT_M | FONT_B) - font_height(FONT_S | FONT_B)) / 2 - 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, ra));
+    }
+    if (p->rest_t > 0.001f) gfx_set_alpha(1 - p->rest_t);   /* the controls step aside */
     if (overlay || bar_only) {
         float th = p->seek_commit > 0 ? 12 : 8, ty = by - th / 2;
         gfx_rrect(bx, ty, bw, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
@@ -1843,6 +1908,7 @@ static void draw(Screen *s)
     if (overlay) {
         draw_bar(p, bx, by + 66);
     }
+    gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);
     if (p->up_next_shown && p->next_video_id && !p->menu) draw_up_next(p, &vi, overlay);
     const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu ? skippable(p, &vi) : NULL;
@@ -2027,7 +2093,14 @@ static void seek_by(Player *p, double base)
     video_info(&vi);
     p->seek_steps++;
     p->seek_decay = 0.6f;
-    double step = base * (p->seek_steps > 8 ? 6 : p->seek_steps > 4 ? 3 : 1);
+    /* held: bigger steps the longer the key stays down, never more than a 60th of the
+     * video per press (a short episode is not crossed in three presses) */
+    double step = base * (p->seek_steps > 16 ? 12 : p->seek_steps > 8 ? 6 : p->seek_steps > 4 ? 3 : 1);
+    double cap = vi.duration > 0 ? vi.duration / 60 : 0;
+    if (cap < fabs(base)) cap = fabs(base);
+    if (step > cap) step = cap;
+    if (step < -cap) step = -cap;
+    p->seek_flash_step = (int)(fabs(step) + 0.5);
     if (p->seek_commit <= 0) p->seek_origin = vi.position;
     double from = p->seek_commit > 0 ? p->seek_target : vi.position;
     double target = from + step;
@@ -2060,6 +2133,11 @@ static int key(Screen *s, KeyAction a)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
+    if (p->rest_t > 0.5f && !p->menu) {   /* leaning back: OK plays, anything else brings the controls back */
+        if (a == KEY_OK || a == KEY_PLAY_PAUSE || a == KEY_PLAY) { LOGI("player: OK plays on from the lean-back screen"); p->bar_id = BTN_PLAY; video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
+        show_overlay(p);
+        return 1;
+    }
     if (p->menu) {
         int rows = menu_rows(p);
         switch (a) {
@@ -2068,6 +2146,7 @@ static int key(Screen *s, KeyAction a)
         case KEY_LEFT: case KEY_RIGHT: {
             int dir = a == KEY_RIGHT ? 1 : -1;
             if (p->menu == MENU_AUDIO && p->menu_focus == 0) { set_rate(p, p->rate_idx + dir); app_redraw(); return 1; }
+            if (p->menu == MENU_EPISODES) { p->menu_focus = season_jump(p, dir); app_redraw(); return 1; }
             if (p->menu != MENU_SUBS) return 1;
             if (p->menu_focus == SUB_CHOOSE) p->assign_second = !p->assign_second;
             else if (p->menu_focus == SUB_TIMING) shift_subs(p, 0.1 * dir);

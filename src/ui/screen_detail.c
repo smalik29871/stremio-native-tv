@@ -1,7 +1,9 @@
 /* Detail: cinematic header over the backdrop (logo or title, IMDb, meta, genres,
  * synopsis), a pill action row (Play / Resume with progress, Library), and for
  * series: season tabs and a horizontal episode rail with thumbnails, watched
- * badges, resume progress and spoiler blur for what you haven't seen yet. */
+ * badges, resume progress and spoiler blur for what you haven't seen yet.
+ * Below the fold (Down) the page scrolls to About: the facts, a ratings card, the
+ * cast with their photos and more titles of the same genre. */
 #include "../app.h"
 #include "../tmdb.h"
 #include "../ai.h"
@@ -14,16 +16,25 @@
 #include "theme.h"
 #include "widgets.h"
 #include "screen_options.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES };
+enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_SIMILAR };
 enum { BTN_PLAY, BTN_RESTART, BTN_LIBRARY, BTN_COUNT };
 #define EP_W 384.0f
 #define EP_H 216.0f
 #define EP_GAP 28.0f
 #define RAIL_Y 700.0f
+/* About, below the fold */
+#define ABOUT_Y 1140.0f
+#define CAST_D 132.0f      /* a cast photo's diameter */
+#define CAST_STEP 204.0f
+#define SIM_W 200.0f
+#define SIM_H 300.0f
+#define SIM_GAP 26.0f
+#define MAX_SIMILAR 20
 
 typedef struct {
     MetaPreview preview;
@@ -40,6 +51,11 @@ typedef struct {
     /* "Ask AI": a spoiler-free card about the title */
     int ask_open; unsigned ask_req; float ask_t;
     char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
+    /* About */
+    float scroll, scroll_v, age, facts_h;
+    int cast_focus, sim_focus;
+    float cast_x, sim_x;
+    MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
 } Detail;
 
 /* the visible buttons in order: Play/Resume, [From the start], Library */
@@ -253,9 +269,134 @@ static int ep_watched(const Detail *d, int k, const LibraryItem *li, int cur_idx
     return cur_idx >= 0 && k < cur_idx;
 }
 
+/* ---- About ---- */
+
+/* the cast: TMDB's when a key is set, else what the addon gave */
+static int cast_count(const Detail *d, const TmdbInfo *tm)
+{
+    int n = tm && tm->n_cast ? tm->n_cast : d->preview.cast.n;
+    return n > 15 ? 15 : n;
+}
+
+static void cast_at(const Detail *d, const TmdbInfo *tm, int i, const char **name, const char **role, const char **photo)
+{
+    if (tm && tm->n_cast) { *name = tm->cast[i].name; *role = tm->cast[i].character; *photo = tm->cast[i].photo[0] ? tm->cast[i].photo : NULL; return; }
+    *name = d->preview.cast.v[i];
+    *role = i < d->preview.cast_roles.n ? d->preview.cast_roles.v[i] : "";
+    *photo = i < d->preview.cast_photos.n && d->preview.cast_photos.v[i][0] ? d->preview.cast_photos.v[i] : NULL;
+}
+
+/* where the About rows sit on the page; -1 for a row with nothing in it */
+typedef struct { float facts, cast, similar; } AboutLayout;
+static AboutLayout about_layout(const Detail *d, int n_cast)
+{
+    AboutLayout L;
+    float y = ABOUT_Y + 64;
+    L.facts = y; y += d->facts_h + 60;
+    L.cast = n_cast ? y : -1; if (n_cast) y += 60 + CAST_D + 120;
+    L.similar = d->n_similar ? y : -1;
+    return L;
+}
+
+static float scroll_target(const Detail *d, int n_cast)
+{
+    if (d->area < AREA_ABOUT) return 0;
+    AboutLayout L = about_layout(d, n_cast);
+    float top = ABOUT_Y - 150, bottom = L.facts + d->facts_h;
+    if (d->area == AREA_CAST && L.cast >= 0) bottom = L.cast + 60 + CAST_D + 100;
+    if (d->area == AREA_SIMILAR && L.similar >= 0) bottom = L.similar + 60 + SIM_H + 40;
+    float t = bottom + 60 - SNTV_UI_H;
+    return t > top ? t : top;
+}
+
+/* a row's offset that keeps the focused item in view, a step of room each side */
+static float row_offset(int focus, int n, float step, float view)
+{
+    float t = focus * step - (view - 2 * step);
+    float max = n * step - view;
+    if (t > max) t = max;
+    return t > 0 ? t : 0;
+}
+
+static int shared_genres(const MetaPreview *a, const MetaPreview *b)
+{
+    int n = 0;
+    for (int i = 0; i < a->genres.n; i++) if (strlist_contains(&b->genres, a->genres.v[i])) n++;
+    return n;
+}
+
+static void on_similar(HttpResponse *r, void *user)
+{
+    Detail *d = user;
+    d->sim_req = 0;
+    MetaPreview *m = NULL; int n = 0;
+    if (r->status != 200 || addon_parse_metas(r->body, &m, &n) != 0) return;
+    /* the title itself out; the most genres in common first, else the catalog's order */
+    int *idx = calloc((size_t)n + 1, sizeof(int)), *sc = calloc((size_t)n + 1, sizeof(int)), k = 0;
+    for (int i = 0; i < n; i++) {
+        if (!m[i].id || strcmp(m[i].id, d->preview.id) == 0) continue;
+        int g = shared_genres(&d->preview, &m[i]), j = k++;
+        for (; j > 0 && sc[j - 1] < g; j--) { idx[j] = idx[j - 1]; sc[j] = sc[j - 1]; }
+        idx[j] = i; sc[j] = g;
+    }
+    d->similar = calloc(MAX_SIMILAR, sizeof *d->similar);
+    for (int j = 0; j < k && d->n_similar < MAX_SIMILAR; j++) {
+        d->similar[d->n_similar++] = m[idx[j]];
+        memset(&m[idx[j]], 0, sizeof m[idx[j]]);   /* moved */
+    }
+    meta_previews_free(m, n);
+    free(idx); free(sc);
+    LOGI("detail: %d more like %s (%s)", d->n_similar, d->preview.id, d->sim_genre);
+    app_redraw();
+}
+
+/* More like this: a catalog that filters by one of the title's genres */
+static void fetch_similar(Detail *d)
+{
+    d->sim_asked = 1;
+    if (!d->preview.type) return;
+    for (int g = 0; g < d->preview.genres.n && g < 3; g++)
+        for (int i = 0; i < g_app.n_addons; i++) {
+            const Addon *a = &g_app.addons[i];
+            for (int c = 0; c < a->manifest.n_catalogs; c++) {
+                const AddonCatalog *cat = &a->manifest.catalogs[c];
+                if (!cat->type || !cat->id || strcmp(cat->type, d->preview.type) != 0) continue;
+                const AddonExtra *ge = addon_catalog_extra(cat, "genre");
+                if (!ge || !strlist_contains(&ge->options, d->preview.genres.v[g])) continue;
+                int other = 0;
+                for (int e = 0; e < cat->n_extra; e++) if (cat->extra[e].is_required && strcmp(cat->extra[e].name, "genre") != 0) other = 1;
+                if (other) continue;
+                const char *kv[] = { "genre", d->preview.genres.v[g], NULL, NULL };
+                char q[160], url[1024];
+                addon_extra_query(q, sizeof q, kv);
+                addon_url_catalog(a, cat->type, cat->id, q, url, sizeof url);
+                snprintf(d->sim_genre, sizeof d->sim_genre, "%s", d->preview.genres.v[g]);
+                d->sim_req = http_request_async(url, NULL, on_similar, d);
+                return;
+            }
+        }
+}
+
+static float facts_height(const Detail *d);
+
 static void update(Screen *s, float dt)
 {
     Detail *d = s->st;
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
+    int n_cast = cast_count(d, tm);
+    d->age += dt;
+    if (d->has_meta) d->facts_h = facts_height(d);
+    if (!d->sim_asked && d->has_meta && (d->age > 1.5f || d->area >= AREA_ABOUT)) fetch_similar(d);
+    if (d->area == AREA_CAST && d->cast_focus >= n_cast) d->cast_focus = n_cast ? n_cast - 1 : 0;
+    float view = SNTV_UI_W - 2 * THEME_MARGIN;
+    float st = scroll_target(d, n_cast), ct = row_offset(d->cast_focus, n_cast, CAST_STEP, view), mt = row_offset(d->sim_focus, d->n_similar, SIM_W + SIM_GAP, view);
+    if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; }
+    else {
+        d->scroll = ui_ease(d->scroll, st, &d->scroll_v, dt, 11);
+        d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
+        d->sim_x = ui_ease(d->sim_x, mt, NULL, dt, 14);
+        if (fabsf(d->scroll - st) > 0.5f || fabsf(d->cast_x - ct) > 0.5f || fabsf(d->sim_x - mt) > 0.5f) app_redraw();
+    }
     d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
@@ -305,107 +446,177 @@ static void draw_episode_info(const Detail *d, const LibraryItem *li, float x, f
     else font_draw("No synopsis for this episode yet.", x, y + 128, FONT_S, COLOR_ALPHA(THEME_TEXT_MUTED, a));
 }
 
-static void draw(Screen *s)
+/* text centred under a point, cut to max_w */
+static void draw_center_fit(const char *t, float cx, float y, int fs, Color c, float max_w)
 {
-    Detail *d = s->st;
-    char buf[512], lbuf[512];
-    const char *bg = app_art_background(&d->preview, buf, sizeof buf);
-    if (bg) ui_set_ambient_art(bg);
-    ui_background(image_tint(bg));
-    int iw, ih;
-    unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
+    float w = font_measure(t, fs);
+    if (w <= max_w) font_draw(t, cx - w / 2, y, fs, c);
+    else font_draw_fit(t, cx - max_w / 2, y, fs, c, max_w);
+}
+
+/* "A, B" from the first two of a list */
+static void join2(const StrList *l, char *out, size_t n)
+{
+    out[0] = 0;
+    for (int i = 0; i < l->n && i < 2; i++) { size_t o = strlen(out); snprintf(out + o, n - o, "%s%s", i ? ", " : "", l->v[i]); }
+}
+
+/* the facts under the synopsis; the strings point into the struct */
+typedef struct { const char *k[6], *v[6]; int n; char dir[160], wri[160], rel[32], runtime[64]; } Facts;
+static void facts_get(const Detail *d, Facts *F)
+{
     int series = d->meta.n_videos > 0;
-    float k = g_app.fx_light ? 1.0f : d->intro;
-    if (bgt) {
-        ui_backdrop_fades(1250, series ? 420 : 560, SNTV_UI_H);
-        ui_backdrop_image(bgt, iw, ih, k, SNTV_UI_H);
-        ui_text_scrim(1300, SNTV_UI_H);
+    join2(&d->meta.directors, F->dir, sizeof F->dir);
+    join2(&d->meta.writers, F->wri, sizeof F->wri);
+    nice_date(d->meta.released, F->rel, sizeof F->rel);
+    if (series) {
+        int real = 0; for (int i = 0; i < d->meta.n_videos; i++) if (d->meta.videos[i].season > 0) real++;
+        snprintf(F->runtime, sizeof F->runtime, "%d episode%s", real, real == 1 ? "" : "s");
+    } else snprintf(F->runtime, sizeof F->runtime, "%s", d->preview.runtime ? d->preview.runtime : "");
+    const char *k[] = { series ? "CREATED BY" : "DIRECTED BY", "WRITTEN BY", series ? "FIRST AIRED" : "RELEASED", "COUNTRY", series ? "EPISODES" : "RUNTIME", "YEARS" };
+    const char *v[] = { F->dir, F->wri, F->rel, d->meta.country, F->runtime, series ? d->preview.release_info : NULL };
+    F->n = 0;
+    for (int i = 0; i < 6; i++) if (v[i] && v[i][0]) { F->k[F->n] = k[i]; F->v[F->n] = v[i]; F->n++; }
+}
+
+#define FACTS_PAD 36.0f
+static float facts_width(void) { return (SNTV_UI_W - 2 * THEME_MARGIN) * 0.64f; }
+
+/* the facts panel's height: what is in it, and room for the ratings card */
+static float facts_height(const Detail *d)
+{
+    Facts F; facts_get(d, &F);
+    const char *desc = d->preview.description;
+    int lines = desc && *desc ? font_draw_wrapped(desc, 0, 0, FONT_S, 0, facts_width() - 2 * FACTS_PAD, 3) : 0;
+    float h = 30 + (lines ? lines * font_height(FONT_S) + 24 : 0) + ((F.n + 2) / 3) * 74 + (d->meta.awards && *d->meta.awards ? 56 : 0) + 14;
+    return h < 300 ? 300 : h;
+}
+
+static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, float x)
+{
+    if (ABOUT_Y - d->scroll > SNTV_UI_H) return;   /* not in view yet */
+    int n_cast = cast_count(d, tm), series = d->meta.n_videos > 0;
+    AboutLayout L = about_layout(d, n_cast);
+    float right = SNTV_UI_W - THEME_MARGIN, f = g_app.fx_light ? 1.0f : d->focus_t;
+    ui_row_header(0, "About", d->preview.type && strcmp(d->preview.type, "series") == 0 ? "Series" : "Film", 0, x, ABOUT_Y, right, d->area == AREA_ABOUT);
+
+    /* the facts: the full synopsis, then who made it, when and where */
+    float fw = facts_width(), fy = L.facts, pad = FACTS_PAD, FH = d->facts_h;
+    ui_panel(x, fy, fw, FH, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xD0));
+    if (d->area == AREA_ABOUT) gfx_rrect_ring(x, fy, fw, FH, R_PANEL, 3, THEME_FOCUS);
+    float py = fy + 30, pw = fw - 2 * pad;
+    if (d->preview.description && *d->preview.description)
+        py += font_draw_wrapped(d->preview.description, x + pad, py, FONT_S, THEME_TEXT, pw, 3) * font_height(FONT_S) + 24;
+    Facts F; facts_get(d, &F);
+    float colw = pw / 3;
+    for (int i = 0; i < F.n; i++) {
+        float cx = x + pad + (i % 3) * colw, cy = py + (i / 3) * 74;
+        font_draw_tracked(F.k[i], cx, cy, FONT_XS | FONT_B, THEME_TEXT_MUTED, 1.2f);
+        font_draw_fit(F.v[i], cx, cy + 28, FONT_S | FONT_B, THEME_TEXT, colw - 24);
+    }
+    if (d->meta.awards && *d->meta.awards) {
+        float ay = fy + FH - 50;
+        ui_icon(ICON_STAR, x + pad + 12, ay + font_height(FONT_S) / 2, 24, THEME_IMDB);
+        font_draw_fit(d->meta.awards, x + pad + 36, ay, FONT_S, THEME_TEXT_DIM, pw - 36);
     }
 
-    /* movies sit lower and more cinematic; series leave room for the episode rail */
-    float x = THEME_MARGIN, y = (series || d->loading ? 84 : 250) + (1 - k) * 24, col_w = 1000;
-    int a = (int)(255 * k);
-    const char *logo = app_art_logo(&d->preview, lbuf, sizeof lbuf);
-    unsigned ltex = logo ? image_get(logo, &iw, &ih) : 0;
-    if (ltex && ih > 0) {
-        float w = 640, h = w * ih / iw;
-        if (h > 180) { h = 180; w = h * iw / ih; }
-        gfx_tex(ltex, x, y + (180 - h), w, h, RGBA(255, 255, 255, a));
-        y += 200;
-    } else {
-        ui_hero_title(d->preview.name, x, y + 180, col_w, COLOR_ALPHA(THEME_TEXT, a));
-        y += 200;
-    }
-
-    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
-    LibraryItem *li = app_library_find(d->preview.id);
-    if (series && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) {
-        draw_episode_info(d, li, x, y, col_w);
-        y += 236;
-    } else {
-        float mx = x;
-        if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
-        if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT) + 8;
-        const char *parts[4]; int np = 0;
-        char seasons_txt[32];
-        if (d->preview.release_info) parts[np++] = d->preview.release_info;
-        if (d->preview.runtime) parts[np++] = d->preview.runtime;
-        if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++;
-            snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); parts[np++] = seasons_txt; }
-        for (int i = 0; i < np; i++) {
-            if (mx > x) mx = ui_dot_sep(mx, y, THEME_TEXT_MUTED);
-            font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT_DIM);
-            mx += font_measure(parts[i], FONT_S | FONT_B);
+    /* the ratings card */
+    float rx = x + fw + 28, rw = right - rx, ry = fy;
+    ui_panel(rx, ry, rw, FH, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xD0));
+    float cx = rx + pad, cy = ry + 30;
+    font_draw_tracked("RATINGS", cx, cy, FONT_XS | FONT_B, THEME_TEXT_MUTED, 1.2f);
+    cy += 40;
+    double imdb = d->preview.imdb_rating ? atof(d->preview.imdb_rating) : 0;
+    if (imdb > 0) {
+        char big[16]; snprintf(big, sizeof big, "%.1f", imdb);
+        font_draw(big, cx, cy, FONT_XL | FONT_B, THEME_TEXT);
+        float bw = font_measure(big, FONT_XL | FONT_B);
+        font_draw("/ 10", cx + bw + 10, cy + font_height(FONT_XL | FONT_B) - font_height(FONT_S) - 6, FONT_S, THEME_TEXT_MUTED);
+        float lw = font_measure("IMDb", FONT_XS | FONT_B) + 18, lx = rx + rw - pad - lw;
+        gfx_rrect(lx, cy + 10, lw, 34, 8, THEME_IMDB);
+        font_draw("IMDb", lx + 9, cy + 10 + (34 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, RGBA(0, 0, 0, 0xFF));
+        cy += font_height(FONT_XL | FONT_B) + 14;
+        /* ten segments, the last one partly filled */
+        float sw = (rw - 2 * pad - 9 * 6) / 10;
+        for (int i = 0; i < 10; i++) {
+            float sx = cx + i * (sw + 6), fill = (float)imdb - i;
+            gfx_rrect(sx, cy, sw, 8, 4, COLOR_ALPHA(THEME_TEXT, 0x22));
+            if (fill > 0) gfx_rrect(sx, cy, sw * (fill > 1 ? 1 : fill), 8, 4, THEME_IMDB);
         }
-        y += 52;
-        if (d->preview.genres.n) {
-            float gx = x;
-            for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, 0x50), THEME_TEXT_DIM) + 10;
-            y += 54;
-        }
-        if (d->preview.description)
-            y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : 5) * font_height(FONT_S) + 26;
+        cy += 36;
+    } else { font_draw("No rating yet", cx, cy, FONT_S | FONT_B, THEME_TEXT_DIM); cy += 50; }
+    if (tm && tm->cert[0]) {
+        font_draw("Age rating", cx, cy + 6, FONT_S, THEME_TEXT_DIM);
+        ui_chip_outline(tm->cert, rx + rw - pad - font_measure(tm->cert, FONT_XS | FONT_B) - 28, cy, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT);
+        cy += 50;
     }
-    if (d->loading) { ui_spinner(x + 26, y + 30, 22); y += 70; }
-    if (d->error[0]) { font_draw(d->error, x, y, FONT_S, THEME_DANGER); y += 44; }
-    /* actions */
-    int in_lib = li && !li->removed;
-    const char *play_label = d->resume_label[0] ? d->resume_label : series ? "Episodes" : "Play";
-    float by = y > 500 ? y : 500;
-    if (series && by > 520) by = 520;
-    float bw = ui_pill(play_label, 1, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
-                       d->area == AREA_ACTIONS && d->btn == 0);
-    if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
-    float bx2 = x + bw + 18;
-    int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
-    if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
-    ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
-    /* cast: TMDB photos when a key is set, else the names the addon gave */
-    int n_cast = tm && tm->n_cast ? tm->n_cast : d->preview.cast.n;
-    if (n_cast && !series) {
-        y = by + 104;
-        float cx = x;
-        for (int i = 0; i < n_cast && i < 6; i++) {
-            const char *name = tm && tm->n_cast ? tm->cast[i].name : d->preview.cast.v[i];
-            const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : (i < d->preview.cast_photos.n && d->preview.cast_photos.v[i][0] ? d->preview.cast_photos.v[i] : NULL);
-            float w = font_measure(name, FONT_XS | FONT_B) + 70;
-            if (cx + w > x + col_w + 200) break;
-            gfx_rrect(cx, y, w, 46, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x16));
-            int pw = 0, ph = 0;
-            unsigned ptex = photo ? image_get(photo, &pw, &ph) : 0;
-            if (ptex && pw > 0) {
-                float ia = (float)pw / ph, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-                if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 2; v1 = 1 - v0; }
-                gfx_rtex_uv(ptex, cx + 5, y + 5, 36, 36, 18, u0, v0, u1, v1, RGBA(255, 255, 255, a), 0);
-            } else { gfx_circle(cx + 23, y + 23, 18, COLOR_ALPHA(THEME_ACCENT, a)); char ini[2] = { name[0], 0 }; font_draw(ini, cx + 23 - font_measure(ini, FONT_XS | FONT_B) / 2, y + 23 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_TEXT); }
-            font_draw(name, cx + 50, y + (46 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
-            cx += w + 10;
-        }
+    /* how far the viewer is */
+    char prog[96] = "Not started";
+    if (li && !li->removed) {
+        int se = 0, ep = 0;
+        const char *c1 = li->video_id ? strchr(li->video_id, ':') : NULL;
+        if (series && c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(prog, sizeof prog, "Up to S%d E%d", se, ep);
+        else if (li->time_offset && li->duration) snprintf(prog, sizeof prog, "%d%% watched", (int)(100 * (double)li->time_offset / (double)li->duration));
+        else if (li->times_watched) snprintf(prog, sizeof prog, "Watched");
+        else snprintf(prog, sizeof prog, "In your Library");
+    }
+    font_draw("You", cx, cy + 6, FONT_S, THEME_TEXT_DIM);
+    float pw2 = font_measure(prog, FONT_S | FONT_B);
+    font_draw(prog, rx + rw - pad - pw2, cy + 6, FONT_S | FONT_B, THEME_TEXT);
+
+    /* the cast */
+    if (L.cast >= 0 && L.cast - d->scroll < SNTV_UI_H) {
+        ui_row_header(1, "Cast", NULL, n_cast, x, L.cast, right, d->area == AREA_CAST);
+        float rowy = L.cast + 60, r0 = CAST_D / 2;
+        for (int pass = 0; pass < 2; pass++)
+            for (int i = 0; i < n_cast; i++) {
+                float ix = x + i * CAST_STEP - d->cast_x;
+                if (ix > SNTV_UI_W || ix + CAST_STEP < 0) continue;
+                int foc = d->area == AREA_CAST && d->cast_focus == i;
+                if ((pass == 1) != foc) continue;
+                const char *name, *role, *photo;
+                cast_at(d, tm, i, &name, &role, &photo);
+                float sc = ui_focus_scale(foc ? f : 0), r = r0 * sc, ccx = ix + r0 + 4, ccy = rowy + r0;
+                if (foc) gfx_rrect_ring(ccx - r, ccy - r, 2 * r, 2 * r, r, 4, THEME_FOCUS);
+                int pw0 = 0, ph0 = 0;
+                unsigned ptex = photo ? image_get(photo, &pw0, &ph0) : 0;
+                if (ptex && pw0 > 0 && ph0 > 0) {
+                    float ia = (float)pw0 / ph0, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+                    if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 3; v1 = v0 + ia; }   /* faces sit high */
+                    gfx_rtex_uv(ptex, ccx - r, ccy - r, 2 * r, 2 * r, r, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
+                } else {
+                    gfx_circle(ccx, ccy, r, COLOR_ALPHA(THEME_TEXT, 0x1C));
+                    char ini[3] = { name[0], 0, 0 };
+                    const char *sp = strrchr(name, ' ');
+                    if (sp && sp[1]) ini[1] = sp[1];
+                    font_draw_center(ini, ccx, ccy - font_height(FONT_L | FONT_B) / 2, FONT_L | FONT_B, THEME_TEXT_DIM);
+                }
+                float ty = rowy + CAST_D + 16;
+                draw_center_fit(name, ccx, ty, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CAST_STEP - 14);
+                if (role && *role) draw_center_fit(role, ccx, ty + 30, FONT_XS, THEME_TEXT_MUTED, CAST_STEP - 14);
+            }
     }
 
+    /* more like this */
+    if (L.similar >= 0 && L.similar - d->scroll < SNTV_UI_H) {
+        char src[96]; snprintf(src, sizeof src, "%s", d->sim_genre);
+        ui_row_header(2, "More like this", src, d->n_similar, x, L.similar, right, d->area == AREA_SIMILAR);
+        float rowy = L.similar + 60;
+        for (int pass = 0; pass < 2; pass++)
+            for (int i = 0; i < d->n_similar; i++) {
+                float ix = x + i * (SIM_W + SIM_GAP) - d->sim_x;
+                if (ix > SNTV_UI_W || ix + SIM_W < 0) continue;
+                int foc = d->area == AREA_SIMILAR && d->sim_focus == i;
+                if ((pass == 1) != foc) continue;
+                char pb[512];
+                const char *poster = app_art_poster(&d->similar[i], pb, sizeof pb);
+                ui_card(poster, ix, rowy, SIM_W, SIM_H, foc ? f : 0, 0, d->similar[i].name, 0);
+            }
+    }
+}
 
-    if (!series) { if (d->ask_open) draw_ask(d); return; }
-
+static void draw_series(Detail *d, const LibraryItem *li, float x)
+{
     /* season tabs */
     float sy = RAIL_Y - 84, sx = x, avail = SNTV_UI_W - THEME_MARGIN - x;
     /* many seasons: the strip starts late enough for the selected one to show */
@@ -465,6 +676,97 @@ static void draw(Screen *s)
             if (foc && ui_hold_hint(px, ly + 36, EP_W)) {}
             else if (v->released && !foc) { char date[11]; snprintf(date, sizeof date, "%.10s", v->released); font_draw(date, px, ly + 34, FONT_XS, THEME_TEXT_MUTED); }
         }
+}
+
+static void draw(Screen *s)
+{
+    Detail *d = s->st;
+    char buf[512], lbuf[512];
+    const char *bg = app_art_background(&d->preview, buf, sizeof buf);
+    if (bg) ui_set_ambient_art(bg);
+    ui_background(image_tint(bg));
+    int iw, ih;
+    unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
+    int series = d->meta.n_videos > 0;
+    float k = g_app.fx_light ? 1.0f : d->intro;
+    if (bgt) {
+        ui_backdrop_fades(1250, series ? 420 : 560, SNTV_UI_H);
+        ui_backdrop_image(bgt, iw, ih, k, SNTV_UI_H);
+        ui_text_scrim(1300, SNTV_UI_H);
+    }
+    if (d->scroll > 1) {   /* About reads over a darker backdrop */
+        float t = d->scroll / (ABOUT_Y - 150); if (t > 1) t = 1;
+        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, (int)(0xD8 * t)));
+    }
+    gfx_set_translate(0, -d->scroll);
+
+    /* movies sit lower and more cinematic; series leave room for the episode rail */
+    float x = THEME_MARGIN, y = (series || d->loading ? 84 : 250) + (1 - k) * 24, col_w = 1000;
+    int a = (int)(255 * k);
+    const char *logo = app_art_logo(&d->preview, lbuf, sizeof lbuf);
+    unsigned ltex = logo ? image_get(logo, &iw, &ih) : 0;
+    if (ltex && ih > 0) {
+        float w = 640, h = w * ih / iw;
+        if (h > 180) { h = 180; w = h * iw / ih; }
+        gfx_tex(ltex, x, y + (180 - h), w, h, RGBA(255, 255, 255, a));
+        y += 200;
+    } else {
+        ui_hero_title(d->preview.name, x, y + 180, col_w, COLOR_ALPHA(THEME_TEXT, a));
+        y += 200;
+    }
+
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
+    LibraryItem *li = app_library_find(d->preview.id);
+    if (series && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) {
+        draw_episode_info(d, li, x, y, col_w);
+        y += 236;
+    } else {
+        float mx = x;
+        if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
+        if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT) + 8;
+        const char *parts[4]; int np = 0;
+        char seasons_txt[32];
+        if (d->preview.release_info) parts[np++] = d->preview.release_info;
+        if (d->preview.runtime) parts[np++] = d->preview.runtime;
+        if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++;
+            snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); parts[np++] = seasons_txt; }
+        for (int i = 0; i < np; i++) {
+            if (mx > x) mx = ui_dot_sep(mx, y, THEME_TEXT_MUTED);
+            font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT_DIM);
+            mx += font_measure(parts[i], FONT_S | FONT_B);
+        }
+        y += 52;
+        if (d->preview.genres.n) {
+            float gx = x;
+            for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, 0x50), THEME_TEXT_DIM) + 10;
+            y += 54;
+        }
+        if (d->preview.description)
+            y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : 5) * font_height(FONT_S) + 26;
+    }
+    if (d->loading) { ui_spinner(x + 26, y + 30, 22); y += 70; }
+    if (d->error[0]) { font_draw(d->error, x, y, FONT_S, THEME_DANGER); y += 44; }
+    /* actions */
+    int in_lib = li && !li->removed;
+    const char *play_label = d->resume_label[0] ? d->resume_label : series ? "Episodes" : "Play";
+    float by = y > 500 ? y : 500;
+    if (series && by > 520) by = 520;
+    float bw = ui_pill(play_label, 1, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
+                       d->area == AREA_ACTIONS && d->btn == 0);
+    if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
+    float bx2 = x + bw + 18;
+    int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
+    if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
+    ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
+    if (series) draw_series(d, li, x);
+    if (d->has_meta && d->scroll < 160) {   /* the way down to About; gone once the page moves */
+        Color c = COLOR_ALPHA(THEME_TEXT_MUTED, (int)(((THEME_TEXT_MUTED) & 0xFF) * (1 - d->scroll / 160)));
+        float cw = font_measure("About, cast and more", FONT_XS | FONT_B) + 36, cx = (SNTV_UI_W - cw) / 2, cy = SNTV_UI_H - 44;
+        ui_icon(ICON_CHEVRON_DOWN, cx + 10, cy + font_height(FONT_XS | FONT_B) / 2, 22, c);
+        font_draw("About, cast and more", cx + 36, cy, FONT_XS | FONT_B, c);
+    }
+    if (d->has_meta) draw_about(d, tm, li, x);
+    gfx_set_translate(0, 0);
     if (d->ask_open) draw_ask(d);
 }
 
@@ -571,6 +873,8 @@ static void episode_options(Detail *d)
     app_push(screen_options_create_ex(title, sub, NULL, items, icons, n, ep_choice, o));
 }
 
+static int about_key(Detail *d, KeyAction a);
+
 static int key(Screen *s, KeyAction a)
 {
     Detail *d = s->st;
@@ -581,16 +885,22 @@ static int key(Screen *s, KeyAction a)
         return 1;
     }
     if (a == KEY_LONG_OK || a == KEY_YELLOW || a == KEY_MENU || a == KEY_INFO) {
-        if (d->area == AREA_EPISODES && d->n_eps) episode_options(d); else screen_options_for_title(&d->preview);
+        if (d->area == AREA_EPISODES && d->n_eps) episode_options(d);
+        else if (d->area == AREA_SIMILAR && d->sim_focus < d->n_similar) screen_options_for_title(&d->similar[d->sim_focus]);
+        else screen_options_for_title(&d->preview);
         return 1;
     }
+    if (d->area >= AREA_ABOUT) return about_key(d, a);
     if (d->btn >= n_buttons_d(d)) d->btn = n_buttons_d(d) - 1;
     switch (d->area) {
     case AREA_ACTIONS:
         switch (a) {
         case KEY_LEFT: if (d->btn > 0) d->btn--; return 1;
         case KEY_RIGHT: if (d->btn < n_buttons_d(d) - 1) d->btn++; return 1;
-        case KEY_DOWN: if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; return 1; } return 0;
+        case KEY_DOWN:
+            if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; return 1; }
+            if (d->has_meta) { d->area = AREA_ABOUT; return 1; }
+            return 0;
         case KEY_OK:
             if (btn_at(d, d->btn) == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
             if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
@@ -631,10 +941,65 @@ static int key(Screen *s, KeyAction a)
         case KEY_LEFT: if (d->ep_focus > 0) focus_ep(d, d->ep_focus - 1); return 1;
         case KEY_RIGHT: if (d->ep_focus < d->n_eps - 1) focus_ep(d, d->ep_focus + 1); return 1;
         case KEY_UP: d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_ACTIONS; return 1;
-        case KEY_DOWN: return 0;   /* bottom of the page: main.c may hand focus to the corner player */
+        case KEY_DOWN: d->area = AREA_ABOUT; return 1;
         case KEY_OK: if (d->n_eps) open_streams_for_video(d, d->ep_index[d->ep_focus]); return 1;
         case KEY_BACK: d->area = AREA_ACTIONS; return 1;
         default: return 0;
+        }
+    }
+}
+
+/* Down from the title's buttons or episodes: About, the cast, more like this */
+static int about_key(Detail *d, KeyAction a)
+{
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
+    int n_cast = cast_count(d, tm), series = d->meta.n_videos > 0;
+    int up = series && d->n_eps ? AREA_EPISODES : AREA_ACTIONS;
+    if (a == KEY_BACK) { d->area = AREA_ACTIONS; return 1; }
+    switch (d->area) {
+    case AREA_ABOUT:
+        switch (a) {
+        case KEY_UP: d->area = up; d->focus_t = 0; return 1;
+        case KEY_DOWN:
+            if (n_cast) { d->area = AREA_CAST; d->focus_t = 0; return 1; }
+            if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; }
+            return 0;   /* bottom of the page: main.c may hand focus to the corner player */
+        case KEY_OK:
+            if (d->preview.description && *d->preview.description) {
+                static const char *const close_item[] = { "Close" };
+                static const int close_icon[] = { ICON_CLOSE };
+                app_push(screen_options_create_ex(d->preview.name, d->preview.release_info, d->preview.description, close_item, close_icon, 1, NULL, NULL));
+            }
+            return 1;
+        default: return 1;
+        }
+    case AREA_CAST:
+        switch (a) {
+        case KEY_LEFT: if (d->cast_focus > 0) { d->cast_focus--; d->focus_t = 0; } return 1;
+        case KEY_RIGHT: if (d->cast_focus < n_cast - 1) { d->cast_focus++; d->focus_t = 0; } return 1;
+        case KEY_UP: d->area = AREA_ABOUT; return 1;
+        case KEY_DOWN: if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; } return 0;
+        case KEY_OK: {   /* their other titles */
+            if (d->cast_focus >= n_cast) return 1;
+            const char *name, *role, *photo;
+            cast_at(d, tm, d->cast_focus, &name, &role, &photo);
+            app_push(screen_search_create_query(name));
+            return 1;
+        }
+        default: return 1;
+        }
+    default:
+        switch (a) {
+        case KEY_LEFT: if (d->sim_focus > 0) { d->sim_focus--; d->focus_t = 0; } return 1;
+        case KEY_RIGHT: if (d->sim_focus < d->n_similar - 1) { d->sim_focus++; d->focus_t = 0; } return 1;
+        case KEY_UP: d->area = n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
+        case KEY_DOWN: return 0;
+        case KEY_OK:
+            if (d->sim_focus >= d->n_similar) return 1;
+            LOGI("detail: more like this -> %s", d->similar[d->sim_focus].id);
+            app_push(screen_detail_create(&d->similar[d->sim_focus]));
+            return 1;
+        default: return 1;
         }
     }
 }
@@ -653,6 +1018,8 @@ static void destroy(Screen *s)
     Detail *d = s->st;
     if (d->req) http_cancel(d->req);
     if (d->ask_req) ai_cancel(d->ask_req);
+    if (d->sim_req) http_cancel(d->sim_req);
+    meta_previews_free(d->similar, d->n_similar);
     ask_clear(d);
     meta_preview_free(&d->preview);
     if (d->has_meta) meta_item_free(&d->meta);

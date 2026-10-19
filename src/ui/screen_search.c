@@ -456,3 +456,14 @@ Screen *screen_search_create(void)
     sc->update = update; sc->draw = draw; sc->key = key; sc->text = text; sc->destroy = destroy;
     return sc;
 }
+
+Screen *screen_search_create_query(const char *q)
+{
+    Screen *sc = screen_search_create();
+    Search *s = sc->st;
+    LOGI("search: \"%s\" from a title page", q);
+    keyboard_init(&s->kb, 0, q);
+    run_query(s);
+    s->want_results = 1;   /* the results take the focus when they come */
+    return sc;
+}
