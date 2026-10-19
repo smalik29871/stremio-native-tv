@@ -1,6 +1,7 @@
 #include "../app.h"
 #include "../http.h"
 #include "../ai.h"
+#include "../tmdb.h"
 #include "../store.h"
 #include "../../vendor/cJSON.h"
 #include "../log.h"
@@ -44,6 +45,8 @@ struct Search {
     char ai_note[160];
     char recent[10][96]; int n_recent, recent_focus;   /* shown while the field is empty */
 };
+
+static Search *g_person_live;   /* the screen a filmography lookup answers to */
 
 static void recent_load(Search *s)
 {
@@ -439,6 +442,7 @@ static void destroy(Screen *sc)
 {
     Search *s = sc->st;
     s->generation++;   /* orphan in-flight replies */
+    if (g_person_live == s) g_person_live = NULL;
     if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
     close_keyboard(s);
@@ -465,5 +469,42 @@ Screen *screen_search_create_query(const char *q)
     keyboard_init(&s->kb, 0, q);
     run_query(s);
     s->want_results = 1;   /* the results take the focus when they come */
+    return sc;
+}
+
+/* A person from a title page: their own films and series from TMDB, not every title that
+ * happens to contain their name. Without TMDB it falls back to searching the name. */
+typedef struct { Search *owner; unsigned generation; } PersonReq;
+
+static void on_person_titles(const MetaPreview *titles, int n, void *user)
+{
+    PersonReq *q = user;
+    Search *s = q->owner;
+    if (s != g_person_live || q->generation != s->generation) { free(q); return; }
+    free(q);
+    s->pending = 0;
+    if (n < 0) { LOGI("search: no filmography from TMDB, searching the name"); s->last_query[0] = 0; run_query(s); s->want_results = 1; return; }
+    clear_results(s);
+    s->results = calloc((size_t)n + 1, sizeof *s->results);
+    for (int i = 0; i < n; i++) meta_preview_copy(&s->results[s->n++], &titles[i]);
+    snprintf(s->ai_note, sizeof s->ai_note, "Films and series with %s", s->kb.text);
+    s->want_results = 1;
+    LOGI("search: %d titles with %s", n, s->kb.text);
+    app_redraw();
+}
+
+Screen *screen_search_create_person(const char *name, int person_id)
+{
+    Screen *sc = screen_search_create();
+    Search *s = sc->st;
+    LOGI("search: the films of \"%s\" from a title page", name);
+    keyboard_init(&s->kb, 0, name);
+    snprintf(s->last_query, sizeof s->last_query, "%s", name);   /* typing something else searches as usual */
+    s->generation++;
+    s->pending = 1;
+    g_person_live = s;
+    PersonReq *q = malloc(sizeof *q);
+    q->owner = s; q->generation = s->generation;
+    tmdb_person_titles(name, person_id, on_person_titles, q);
     return sc;
 }

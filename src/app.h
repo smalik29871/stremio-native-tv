@@ -258,6 +258,7 @@ Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id
 Screen *screen_login_create(void);
 Screen *screen_search_create(void);
 Screen *screen_search_create_query(const char *q);   /* already searching for q (a person on a title page) */
+Screen *screen_search_create_person(const char *name, int tmdb_person_id);   /* their films and series (TMDB), else a search for the name */
 Screen *screen_settings_create(void);
 Screen *screen_diagnostics_create(int playback_only);
 Screen *screen_welcome_create(void);   /* first-run setup */

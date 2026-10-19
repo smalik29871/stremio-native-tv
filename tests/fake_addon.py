@@ -476,6 +476,16 @@ class H(BaseHTTPRequestHandler):
                      {"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png"},
                      {"id": 2, "title": "Fake Saga: Again", "release_date": "2011-07-01", "poster_path": "/p1.png"}]
             return self.send(200, json.dumps({"id": 10, "name": "Fake Saga Collection", "parts": parts}).encode(), "application/json")
+        if p.startswith("/tmdb/3/search/person"):
+            return self.send(200, json.dumps({"results": [{"id": 17419, "name": "Bryan Cranston"}]}).encode(), "application/json")
+        if p.startswith("/tmdb/3/person/") and "combined_credits" in p:   # films, a series, and two that should be left out
+            return self.send(200, json.dumps({"cast": [
+                {"media_type": "movie", "id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "popularity": 50, "poster_path": "/p0.png"},
+                {"media_type": "tv", "id": 7, "name": "Breaking Bad", "first_air_date": "2008-01-20", "popularity": 80, "episode_count": 62},
+                {"media_type": "tv", "id": 8, "name": "Late Night Talk", "popularity": 99, "episode_count": 3, "genre_ids": [10767]},
+                {"media_type": "tv", "id": 9, "name": "One Cameo", "popularity": 90, "episode_count": 1}]}).encode(), "application/json")
+        if p.startswith("/tmdb/3/tv/") and "/external_ids" in p:
+            return self.send(200, json.dumps({"imdb_id": "tt0903747"}).encode(), "application/json")
         if p.startswith("/tmdb/3/movie/") and "/external_ids" in p:
             n = int(p.split("/movie/")[1].split("/")[0])
             return self.send(200, json.dumps({"imdb_id": f"tt{1000 + n}"}).encode(), "application/json")

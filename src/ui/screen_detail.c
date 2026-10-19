@@ -1154,7 +1154,7 @@ static int about_key(Detail *d, KeyAction a)
             if (d->cast_focus >= n_cast) return 1;
             const char *name, *role, *photo;
             cast_at(d, tm, d->cast_focus, &name, &role, &photo);
-            app_push(screen_search_create_query(name));
+            app_push(screen_search_create_person(name, tm && tm->n_cast ? tm->cast[d->cast_focus].person_id : 0));
             return 1;
         }
         default: return 1;

@@ -65,6 +65,8 @@ static void parse_details(Slot *s, const char *json)
         if (!cJSON_IsString(name)) continue;
         TmdbCast *c = &s->info.cast[s->info.n_cast++];
         snprintf(c->name, sizeof c->name, "%s", name->valuestring);
+        const cJSON *pid = cJSON_GetObjectItemCaseSensitive(it, "id");
+        c->person_id = cJSON_IsNumber(pid) ? pid->valueint : 0;
         if (cJSON_IsString(ch)) snprintf(c->character, sizeof c->character, "%s", ch->valuestring);
         else {   /* aggregate credits: roles[0].character */
             const cJSON *roles = cJSON_GetObjectItemCaseSensitive(it, "roles");
@@ -295,4 +297,98 @@ void tmdb_imdb_for(int tmdb_id, TmdbImdbCb cb, void *user)
     q->cb = cb; q->user = user; q->id = tmdb_id;
     snprintf(url, sizeof url, "%s?api_key=%s", key, api_key());
     http_request_async(url, NULL, on_imdb, q);
+}
+
+/* ---- a person's titles ---- */
+typedef struct { char name[96]; int id; TmdbTitlesCb cb; void *user; MetaPreview *out; int n; } PersonJob;
+
+static cJSON *get_json(const char *url)
+{
+    HttpResponse r;
+    HttpOptions o = { .timeout_s = 15 };
+    http_request_ex(url, &o, &r);
+    cJSON *j = r.status == 200 ? cJSON_Parse(r.body) : NULL;
+    http_response_free(&r);
+    return j;
+}
+
+static void person_task(HttpResponse *r, void *arg)
+{
+    PersonJob *pj = arg;
+    char url[600], enc[300];
+    int id = pj->id;
+    if (!id) {   /* by name: the most popular person called that */
+        http_url_encode(pj->name, enc, sizeof enc);
+        snprintf(url, sizeof url, "%s/search/person?query=%s&api_key=%s", api_base(), enc, api_key());
+        cJSON *j = get_json(url);
+        const cJSON *first = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(j, "results"), 0);
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(first, "id");
+        id = cJSON_IsNumber(v) ? v->valueint : 0;
+        cJSON_Delete(j);
+    }
+    if (!id) { r->status = 404; return; }
+    snprintf(url, sizeof url, "%s/person/%d/combined_credits?api_key=%s", api_base(), id, api_key());
+    cJSON *j = get_json(url);
+    const cJSON *cast = cJSON_GetObjectItemCaseSensitive(j, "cast"), *it;
+    /* acting roles, the most popular first; talk shows and one-off appearances left out */
+    enum { MAXP = 24 };
+    const cJSON *pick[MAXP]; double pop[MAXP]; int np = 0;
+    cJSON_ArrayForEach(it, cast) {
+        const cJSON *mt = cJSON_GetObjectItemCaseSensitive(it, "media_type"), *p = cJSON_GetObjectItemCaseSensitive(it, "popularity");
+        const cJSON *eps = cJSON_GetObjectItemCaseSensitive(it, "episode_count"), *g = cJSON_GetObjectItemCaseSensitive(it, "genre_ids"), *gg;
+        if (!cJSON_IsString(mt)) continue;
+        int tv = !strcmp(mt->valuestring, "tv");
+        if (!tv && strcmp(mt->valuestring, "movie")) continue;
+        int talk = 0;
+        cJSON_ArrayForEach(gg, g) if (cJSON_IsNumber(gg) && (gg->valueint == 10767 || gg->valueint == 10763 || gg->valueint == 10764)) talk = 1;   /* talk, news, reality */
+        if (talk || (tv && cJSON_IsNumber(eps) && eps->valueint < 2)) continue;
+        double pv = cJSON_IsNumber(p) ? p->valuedouble : 0;
+        int k = np < MAXP ? np++ : MAXP - 1;
+        if (k == MAXP - 1 && np == MAXP && pv <= pop[k]) continue;
+        for (; k > 0 && pop[k - 1] < pv; k--) { pick[k] = pick[k - 1]; pop[k] = pop[k - 1]; }
+        pick[k] = it; pop[k] = pv;
+    }
+    pj->out = calloc((size_t)np + 1, sizeof *pj->out);
+    for (int i = 0; i < np; i++) {
+        const cJSON *e = pick[i];
+        int tv = !strcmp(cJSON_GetObjectItemCaseSensitive(e, "media_type")->valuestring, "tv");
+        const cJSON *tid = cJSON_GetObjectItemCaseSensitive(e, "id");
+        if (!cJSON_IsNumber(tid)) continue;
+        snprintf(url, sizeof url, "%s/%s/%d/external_ids?api_key=%s", api_base(), tv ? "tv" : "movie", tid->valueint, api_key());
+        cJSON *x = get_json(url);
+        const cJSON *imdb = cJSON_GetObjectItemCaseSensitive(x, "imdb_id");
+        if (cJSON_IsString(imdb) && !strncmp(imdb->valuestring, "tt", 2)) {
+            MetaPreview *m = &pj->out[pj->n++];
+            const cJSON *t = cJSON_GetObjectItemCaseSensitive(e, tv ? "name" : "title");
+            const cJSON *d = cJSON_GetObjectItemCaseSensitive(e, tv ? "first_air_date" : "release_date");
+            const cJSON *pp = cJSON_GetObjectItemCaseSensitive(e, "poster_path"), *ov = cJSON_GetObjectItemCaseSensitive(e, "overview");
+            m->id = strdup(imdb->valuestring);
+            m->type = strdup(tv ? "series" : "movie");
+            m->name = strdup(cJSON_IsString(t) ? t->valuestring : imdb->valuestring);
+            if (cJSON_IsString(d) && strlen(d->valuestring) >= 4) { char y[8]; snprintf(y, sizeof y, "%.4s", d->valuestring); m->release_info = strdup(y); }
+            if (cJSON_IsString(pp) && pp->valuestring[0]) { char pu[320]; snprintf(pu, sizeof pu, "https://image.tmdb.org/t/p/w342%s", pp->valuestring); m->poster = strdup(pu); }
+            if (cJSON_IsString(ov) && ov->valuestring[0]) m->description = strdup(ov->valuestring);
+        }
+        cJSON_Delete(x);
+    }
+    cJSON_Delete(j);
+    r->status = 200;
+}
+
+static void on_person(HttpResponse *r, void *user)
+{
+    PersonJob *pj = user;
+    LOGI("tmdb: %s has %d titles", pj->name, pj->n);
+    pj->cb(pj->out, r->status == 200 ? pj->n : -1, pj->user);
+    meta_previews_free(pj->out, pj->n);
+    free(pj);
+}
+
+void tmdb_person_titles(const char *name, int person_id, TmdbTitlesCb cb, void *user)
+{
+    if (!tmdb_enabled()) { cb(NULL, -1, user); return; }
+    PersonJob *pj = calloc(1, sizeof *pj);
+    snprintf(pj->name, sizeof pj->name, "%s", name ? name : "");
+    pj->id = person_id; pj->cb = cb; pj->user = user;
+    http_task_async("themoviedb.org", person_task, pj, on_person, pj);
 }

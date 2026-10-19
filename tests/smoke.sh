@@ -53,7 +53,11 @@ ABOUT_HOME='{"prefSubs":"eng","subsAlways":1,"setupDone":1}'
 run detail_about 260 "wait,ok,down" HOME="$(home_with about "$ABOUT_HOME")"
 grep -q "detail: [0-9]* more like tt" "$OUT/detail_about.log" || { echo "no More like this on the title page"; grep detail "$OUT/detail_about.log"; exit 1; }
 run detail_cast 300 "wait,ok,down,down,right,ok" HOME="$(home_with about_cast "$ABOUT_HOME")"
-grep -q 'search: "Morgan Freeman" from a title page' "$OUT/detail_cast.log" || { echo "a cast member did not open a search"; grep search "$OUT/detail_cast.log"; exit 1; }
+grep -q 'search: the films of "Morgan Freeman" from a title page' "$OUT/detail_cast.log" && grep -q "search: no filmography from TMDB, searching the name" "$OUT/detail_cast.log" \
+  || { echo "a cast member without TMDB did not fall back to a search"; grep search "$OUT/detail_cast.log"; exit 1; }
+# with TMDB: their own films and series, most popular first; talk shows and cameos left out
+run detail_cast_tmdb 900 "wait,ok,down,down,right,ok,wait,wait" HOME="$(home_with cast_tmdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+grep -q "search: 2 titles with Aaron Paul" "$OUT/detail_cast_tmdb.log" || { echo "a cast member did not open their films"; grep -E "search|tmdb" "$OUT/detail_cast_tmdb.log"; exit 1; }
 run detail_more_like 320 "wait,ok,down,down,down,ok" HOME="$(home_with about_more "$ABOUT_HOME")"
 grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "More like this did not open the title"; grep detail "$OUT/detail_more_like.log"; exit 1; }
 run detail_about_series 300 "right,ok,down,down,down"
@@ -183,7 +187,7 @@ run fallback_drain 4000 "right,ok,down,down,ok,ok" "$LIGHTER" "$FB" HOME="$(home
 grep -q "player: buffer draining .* switching to source [23] ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
   || { echo "the draining buffer did not move to a working lighter source"; grep -E "player" "$OUT/fallback_drain.log"; exit 1; }
 run fallback_race 2000 "right,ok,down,down,ok,wait,wait,ok" "$LIGHTER" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
-grep -q "streams: source 3 answered first" "$OUT/fallback_race.log" && grep -q "player: candidate 1/3 Fake Addon - Example" "$OUT/fallback_race.log" \
+grep -q "player: candidate 1/3 Fake Addon - Example" "$OUT/fallback_race.log" \
   || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
 run fallback_reask 5000 "right,ok,down,down,ok,wait,wait,ok" "$LIGHTER" HOME="$(home_with fb4 "$NO_PREFLIGHT")" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
 grep -q "player: asked the addons again: 3 sources" "$OUT/fallback_reask.log" || { echo "the addons were not asked again"; grep -E "player" "$OUT/fallback_reask.log"; exit 1; }

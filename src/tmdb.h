@@ -4,7 +4,7 @@
 #ifndef SNTV_TMDB_H
 #define SNTV_TMDB_H
 
-typedef struct TmdbCast { char name[64], character[64], photo[320]; } TmdbCast;
+typedef struct TmdbCast { char name[64], character[64], photo[320]; int person_id; } TmdbCast;
 typedef struct TmdbInfo {
     int state;              /* 0 idle, 1 loading, 2 ready, 3 nothing found / failed */
     char cert[16];          /* "PG-13", "TV-MA", "15", ... or "" */
@@ -29,4 +29,10 @@ const TmdbCollection *tmdb_collection(int id);
 /* The IMDb id of a TMDB film, by callback ("" when unknown). */
 typedef void (*TmdbImdbCb)(const char *imdb_id, void *user);
 void tmdb_imdb_for(int tmdb_id, TmdbImdbCb cb, void *user);
+/* A person's films and series, most popular first, with IMDb ids so they open like any
+ * title (person_id 0: looked up by name). `cb` gets them on the main thread (n -1: no key
+ * or not found). The array is the callee's; copy what is kept. */
+#include "addon/addon.h"
+typedef void (*TmdbTitlesCb)(const MetaPreview *titles, int n, void *user);
+void tmdb_person_titles(const char *name, int person_id, TmdbTitlesCb cb, void *user);
 #endif
