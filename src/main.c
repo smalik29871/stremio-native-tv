@@ -154,6 +154,7 @@ static Uint32 g_ok_t0;
 static void dispatch_key(KeyAction a)
 {
     Screen *top = app_top();
+    if (a == KEY_OK || a == KEY_LONG_OK) g_app.press_at = g_app.time;
     if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); return; }
     if (g_app.pip && a == KEY_STOP) { app_pip_close(); return; }
     if (g_app.pip && g_pip_focus) {   /* the corner player has the focus: 1 = Full screen, 2 = Close */
@@ -300,6 +301,7 @@ int main(int argc, char **argv)
         Uint32 now = SDL_GetTicks();
         float dt = (now - prev) / 1000.0f;
         if (dt > 0.1f) dt = 0.1f;
+        { static float fixed = -1; if (fixed < 0) { const char *f = getenv("SNTV_FRAME_DT"); fixed = f ? (float)atof(f) : 0; } if (fixed > 0) dt = fixed; }   /* test hook: animations frame by frame */
         prev = now;
         g_app.time += dt;
 

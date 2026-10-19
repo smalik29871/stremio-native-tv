@@ -38,7 +38,7 @@ typedef struct Row {
     int loading, failed, requested;
     unsigned req;
     int focus;
-    float scroll_x;
+    float scroll_x, scroll_xv;   /* position and spring velocity */
     char url[1024];
 } Row;
 
@@ -48,7 +48,8 @@ typedef struct {
     int focus_nav;
     int rail_from;            /* the row (or FOCUS_SHOWCASE) the rail was opened from */
     float exit_ask;           /* time Back was pressed on the rail; a second Back soon after leaves */
-    float scroll_y;
+    float scroll_y, scroll_yv;
+    float nudge_at; int nudge_dir;   /* pressed past the end: the row (dir ±1) or the list (±2) nudges and settles */
     int addons_seen, library_seen, rows_seen, watched_seen;
     float focus_t;            /* 0..1 grow-in of the focused card */
     int prev_row, prev_col; float prev_t;
@@ -368,7 +369,7 @@ static void update(Screen *s, float dt)
 
     float y = 0;
     for (int i = 0; i < h->n_rows && i < h->focus_row; i++) if (row_visible(h->rows[i])) y += row_h(h->rows[i]);
-    h->scroll_y = ui_ease(h->scroll_y, h->focus_row < 0 ? 0 : y, NULL, dt, 14);
+    h->scroll_y = ui_ease(h->scroll_y, h->focus_row < 0 ? 0 : y, &h->scroll_yv, dt, 14);
     {
         const MetaPreview *pm = NULL;
         if (h->focus_row >= 0 && h->focus_row < h->n_rows) {
@@ -382,7 +383,7 @@ static void update(Screen *s, float dt)
         int vis = visible_cards(r);
         int first = r->focus - (vis - 2);
         if (first < 0) first = 0;
-        r->scroll_x = ui_ease(r->scroll_x, first * (card_w(r) + GAP), NULL, dt, 16);
+        r->scroll_x = ui_ease(r->scroll_x, first * (card_w(r) + GAP), &r->scroll_xv, dt, 16);
     }
     h->focus_t = ui_ease(h->focus_t * 100, 100, NULL, dt, 16) / 100;
     h->prev_t = ui_ease(h->prev_t * 100, 0, NULL, dt, 16) / 100;
@@ -476,6 +477,16 @@ static void draw_showcase_controls(const Home *h)
     if (foc) font_draw("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", SNTV_UI_W - THEME_MARGIN - font_measure("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", FONT_XS), cy + 22, FONT_XS, THEME_TEXT_MUTED);
 }
 
+/* How far the nudge has things now: 18 units toward the press, back by 0.28 s. axis 1 rows, 2 the list. */
+static float nudge(const Home *h, int axis)
+{
+    float t = g_app.time - h->nudge_at;
+    if (h->nudge_dir == 0 || abs(h->nudge_dir) != axis || t < 0 || t > 0.28f || g_app.fx_light) return 0;
+    app_redraw();
+    float k = t < 0.07f ? t / 0.07f : 1 - (t - 0.07f) / 0.21f;
+    return -18 * (h->nudge_dir > 0 ? 1 : -1) * k * k * (3 - 2 * k);
+}
+
 static void draw_row(Home *h, int ri, float y)
 {
     Row *r = h->rows[ri];
@@ -498,7 +509,7 @@ static void draw_row(Home *h, int ri, float y)
     /* draw unfocused first so the focused card's shadow and ring sit on top */
     for (int pass = 0; pass < 2; pass++)
         for (int j = first; j < r->n && j < first + visible_cards(r) + 3; j++) {
-            float px = LX + j * (cw + GAP) - r->scroll_x;
+            float px = LX + j * (cw + GAP) - r->scroll_x + (focused_row ? nudge(h, 1) : 0);
             if (px > SNTV_UI_W + 40 || px + cw < -40) continue;
             int is_focus = focused_row && r->focus == j;
             int is_prev = h->prev_row == ri && h->prev_col == j && !is_focus;
@@ -569,7 +580,7 @@ static void draw(Screen *s)
     }
 
     gfx_clip_push(0, rows_y() - 24, SNTV_UI_W, SNTV_UI_H - rows_y() + 24);
-    float y = rows_y() - h->scroll_y;
+    float y = rows_y() - h->scroll_y + nudge(h, 2);
     for (int i = 0; i < h->n_rows; i++) {
         Row *r = h->rows[i];
         if (!row_visible(r)) continue;
@@ -668,12 +679,15 @@ static int key(Screen *s, KeyAction a)
         if (n >= 0) move_focus(h, n, -1);   /* the top row is the top: the rail is to the left */
         return 1;
     }
-    case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) { move_focus(h, n, -1); return 1; } return 0; }
+    case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) { move_focus(h, n, -1); return 1; } h->nudge_at = g_app.time; h->nudge_dir = 2; return 1; }
     case KEY_LEFT:
         if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1);
         else open_rail(h);   /* first card: the rail */
         return 1;
-    case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
+    case KEY_RIGHT:
+        if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1);
+        else { h->nudge_at = g_app.time; h->nudge_dir = 1; }   /* the end of the row: a nudge, not nothing */
+        return 1;
     case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
     case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (r->focus < r->n) screen_options_for_title(&r->metas[r->focus]); return 1;
     case KEY_BACK:

@@ -81,6 +81,7 @@ typedef struct {
     float pane_t; int pane_cat;   /* rows slide in when the category changes */
     float wide_t;                 /* 0 choosing a category .. 1 inside one (preview shown) */
     int cat_focus[CAT_COUNT];     /* the row each category had focused, for coming back */
+    int panel_id; float panel_t;  /* the preview's setting, and how far its drawing has come in */
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* type on your phone */
     HomeRowDef rows[MAX_ROWS]; int n_rows; int rows_seen;
     char accounts[8][128]; int n_accounts;
@@ -296,10 +297,13 @@ static void update(Screen *s, float dt)
         for (int i = 0; i < n && i < st->focus; i++) yf += row_h(ids[i]);
         float t = yf - (SNTV_UI_H - ROWS_TOP - 2.5f * ROW_H);
         st->scroll_target = t < 0 ? 0 : t;
+        int fid = st->zone == 1 && st->focus < n ? ids[st->focus] : -1;
+        if (fid != st->panel_id) { st->panel_id = fid; st->panel_t = g_app.fx_light ? 1 : 0; }
     }
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 12);
     if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_light ? 1 : 0; }
     if (st->pane_t < 1) { st->pane_t += dt * 5; if (st->pane_t > 1) st->pane_t = 1; app_redraw(); }
+    if (st->panel_t < 1) { st->panel_t += dt * 6; if (st->panel_t > 1) st->panel_t = 1; app_redraw(); }
     float want = st->zone == 1 && st->edit == EDIT_NONE ? 1.0f : 0.0f;
     if (g_app.fx_light || !g_app.transitions) st->wide_t = want;
     else if (st->wide_t != want) {
@@ -378,12 +382,16 @@ static void draw_panel(const Settings *st, const int *ids, int n, float e)
     gfx_set_alpha(e);
     gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0A));
     PreviewKind kind = preview_for(id);
-    float ih = 470;
+    float ih = 470, pt = 1 - (1 - st->panel_t) * (1 - st->panel_t) * (1 - st->panel_t);
+    gfx_set_alpha(e * pt);   /* a new setting's drawing rises into place */
+    gfx_set_translate(0, 18 * (1 - pt));
     if (kind != PV_NONE) settings_preview_draw(kind, x, y + 8, w, ih);
     else {   /* no drawing for this one: its icon, large */
         gfx_circle(x + w / 2, y + ih / 2, 96, COLOR_ALPHA(THEME_ACCENT, 0x1C));
         ui_icon(s_ficon, x + w / 2, y + ih / 2, 96, THEME_ACCENT);
     }
+    gfx_set_translate(0, 0);
+    gfx_set_alpha(e);
     float tx = x + 32, tw = w - 64, ty = y + ih + 28;
     const char *sec = NULL;
     for (int i = st->focus; i >= 0 && !sec; i--) if (IS_SEC(ids[i])) sec = SEC_NAMES[ids[i] - IT_SEC_BASE];

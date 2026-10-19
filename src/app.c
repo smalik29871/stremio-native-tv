@@ -24,10 +24,21 @@ App g_app;
 
 void app_redraw(void) { g_app.need_redraw = 1; }
 
-float ui_ease(float from, float to, float *vel_unused, float dt, float speed)
+float ui_ease(float from, float to, float *vel, float dt, float speed)
 {
-    (void)vel_unused;
-    if (g_app.fx_light) return to;              /* light mode: no interpolation */
+    if (g_app.fx_light) { if (vel) *vel = 0; return to; }   /* light mode: no interpolation */
+    if (vel) {
+        /* a critically damped spring, solved exactly for the step: it eases in as well as
+         * out, never overshoots, and a new target mid-flight keeps the speed it had */
+        float w = speed * 0.75f, x = from - to, step = dt > 0.05f ? 0.05f : dt;
+        float e = SDL_expf(-w * step), c = (*vel + w * x) * step;
+        float v = to + (x + c) * e, nv = (*vel - w * c) * e;
+        if ((to > from && v > to) || (to < from && v < to)) { v = to; nv = 0; }
+        if (SDL_fabsf(to - v) < 0.3f && SDL_fabsf(nv) < 2) { *vel = 0; return to; }
+        *vel = nv;
+        app_redraw();
+        return v;
+    }
     float k = 1 - SDL_powf(0.5f, dt * speed);   /* half-life based, frame-rate independent */
     float v = from + (to - from) * k;
     if (SDL_fabsf(to - v) < 0.3f) v = to; else app_redraw();
@@ -38,7 +49,9 @@ float ui_ease(float from, float to, float *vel_unused, float dt, float speed)
 
 /* ---- screen transitions ----------------------------------------------------- */
 
-static struct { Screen *from; int owned, dir; float t; int active; } g_trans;
+static struct { Screen *from; int owned, dir; float t; int active; int zoom; float rect[4]; } g_trans;
+/* The card each pushed screen opened out of (so Back can shrink it back into it). */
+static struct { int has; float r[4]; } g_origin[12];
 
 static int transitional(const Screen *s)
 {
@@ -52,8 +65,9 @@ static void trans_finish(void)
     memset(&g_trans, 0, sizeof g_trans);
 }
 
-/* `from` leaves (owned: destroyed when the animation ends), the new top arrives. */
-static void trans_begin(Screen *from, int owned, int dir)
+/* `from` leaves (owned: destroyed when the animation ends), the new top arrives. With a
+ * rect, the page grows out of it (push) or shrinks back into it (pop). */
+static void trans_begin(Screen *from, int owned, int dir, const float *rect)
 {
     trans_finish();
     Screen *top = app_top();
@@ -62,43 +76,74 @@ static void trans_begin(Screen *from, int owned, int dir)
         return;
     }
     g_trans.from = from; g_trans.owned = owned; g_trans.dir = dir; g_trans.t = 0; g_trans.active = 1;
+    g_trans.zoom = rect != NULL;
+    if (rect) memcpy(g_trans.rect, rect, sizeof g_trans.rect);
     app_redraw();
 }
 
 int app_transition_active(void) { return g_trans.active; }
 
+/* The page growing out of a card: the card's rectangle opens to the screen (it reaches the
+ * edges at 75%, after which the page underneath is no longer drawn), the page inside it
+ * settles from 92% and fades in, the page behind dims and steps back a little. k: 0 card .. 1 open. */
+static void draw_zoom(Screen *under, Screen *page, float k)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H, *r = g_trans.rect;
+    float o = k / 0.75f > 1 ? 1 : k / 0.75f, oe = 1 - (1 - o) * (1 - o) * (1 - o);
+    float x = r[0] * (1 - oe), y = r[1] * (1 - oe), w = r[2] + (W - r[2]) * oe, h = r[3] + (H - r[3]) * oe;
+    float cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+    if (o < 1 && under && under->draw) {
+        gfx_set_layer(0, 0, 1 - 0.03f * k, W / 2, H / 2, 1);
+        under->draw(under);
+        gfx_set_layer(0, 0, 1, 0, 0, 1);
+        gfx_rect(0, 0, W, H, COLOR_ALPHA(THEME_BG, (int)(0xB0 * k)));
+    }
+    gfx_clip_push(x, y, w, h);
+    gfx_rect(x, y, w, h, COLOR_ALPHA(THEME_BG, (int)(255 * (o < 0.4f ? o / 0.4f : 1))));
+    gfx_set_layer(0, 0, 0.92f + 0.08f * k, cx, cy, k * 1.6f);
+    page->draw(page);
+    gfx_set_layer(0, 0, 1, 0, 0, 1);
+    gfx_clip_pop();
+}
+
 void app_draw_screen(Screen *top, float dt)
 {
     if (!g_trans.active) { if (top && top->draw) top->draw(top); return; }
-    g_trans.t += dt / 0.26f;
+    g_trans.t += dt / (g_trans.zoom ? 0.34f : 0.26f);
     if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) top->draw(top); return; }
     float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
     float W = SNTV_UI_W;
     Screen *from = g_trans.from;
+    if (g_trans.zoom) {
+        if (g_trans.dir > 0) draw_zoom(from, top, e);
+        else if (from->draw) draw_zoom(top, from, 1 - e);
+        app_redraw();
+        return;
+    }
     /* The page underneath is clipped to the strip the sliding page has not covered yet,
      * so the two pages together shade one screen of pixels instead of two plus a dim. */
     if (g_trans.dir > 0) {   /* push: the old page slides back and dims, the new one slides in from the right */
         float edge = W * (1 - e);
         gfx_clip_push(0, 0, edge, SNTV_UI_H);
-        gfx_set_translate(-0.22f * W * e, 0);
+        gfx_set_layer(-0.22f * W * e, 0, 1, 0, 0, 1);
         if (from->draw) from->draw(from);
-        gfx_set_translate(0, 0);
+        gfx_set_layer(0, 0, 1, 0, 0, 1);
         gfx_rect(0, 0, edge, SNTV_UI_H, COLOR_ALPHA(THEME_BG, (int)(0xA0 * e)));
         gfx_clip_pop();
-        gfx_set_translate(edge, 0);
+        gfx_set_layer(edge, 0, 1, 0, 0, 1);
         top->draw(top);
     } else {                 /* pop: the page underneath comes forward, the old one slides out to the right */
         float edge = W * e;
         gfx_clip_push(0, 0, edge, SNTV_UI_H);
-        gfx_set_translate(-0.22f * W * (1 - e), 0);
+        gfx_set_layer(-0.22f * W * (1 - e), 0, 1, 0, 0, 1);
         top->draw(top);
-        gfx_set_translate(0, 0);
+        gfx_set_layer(0, 0, 1, 0, 0, 1);
         gfx_rect(0, 0, edge, SNTV_UI_H, COLOR_ALPHA(THEME_BG, (int)(0xA0 * (1 - e))));
         gfx_clip_pop();
-        gfx_set_translate(edge, 0);
+        gfx_set_layer(edge, 0, 1, 0, 0, 1);
         if (from->draw) from->draw(from);
     }
-    gfx_set_translate(0, 0);
+    gfx_set_layer(0, 0, 1, 0, 0, 1);
     app_redraw();
 }
 
@@ -106,25 +151,32 @@ void app_push(Screen *s)
 {
     if (!s || g_app.depth >= (int)(sizeof g_app.stack / sizeof g_app.stack[0])) { if (s && s->destroy) s->destroy(s); return; }
     Screen *old = app_top();
+    int d = g_app.depth;
+    /* opened with OK on a card drawn this moment: grow out of that card */
+    g_origin[d].has = g_app.time - g_app.card_at < 0.12f && g_app.time - g_app.press_at < 0.12f;
+    if (g_origin[d].has) memcpy(g_origin[d].r, g_app.card_rect, sizeof g_origin[d].r);
     g_app.stack[g_app.depth++] = s;
-    trans_begin(old, 0, 1);
+    trans_begin(old, 0, 1, g_origin[d].has ? g_origin[d].r : NULL);
 }
 
 void app_pop(void)
 {
     if (g_app.depth <= 1) { g_app.quit = 1; return; }
     Screen *s = g_app.stack[--g_app.depth];
+    int d = g_app.depth;
     Screen *top = app_top();
     if (top && top->resume) top->resume(top);
-    trans_begin(s, 1, -1);
+    trans_begin(s, 1, -1, g_origin[d].has ? g_origin[d].r : NULL);
+    g_origin[d].has = 0;
 }
 
 void app_replace(Screen *s)
 {
     Screen *old = g_app.depth ? g_app.stack[--g_app.depth] : NULL;
     if (!s || g_app.depth >= (int)(sizeof g_app.stack / sizeof g_app.stack[0])) { if (s && s->destroy) s->destroy(s); if (old && old->destroy) old->destroy(old); return; }
+    g_origin[g_app.depth].has = 0;
     g_app.stack[g_app.depth++] = s;
-    trans_begin(old, 1, 1);
+    trans_begin(old, 1, 1, NULL);
 }
 
 Screen *app_top(void) { return g_app.depth ? g_app.stack[g_app.depth - 1] : NULL; }

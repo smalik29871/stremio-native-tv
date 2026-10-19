@@ -55,6 +55,8 @@ typedef struct App {
     Screen *pip;               /* the player, detached to a corner while browsing */
     int quit;
     float time;
+    float press_at;            /* when OK was last pressed: the focused card dips */
+    float card_rect[4]; float card_at;   /* the focused card as last drawn, and when: screens open out of it */
     char toast[160]; float toast_until;
 
     /* preferences */

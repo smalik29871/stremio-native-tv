@@ -139,6 +139,8 @@ run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_AP
 run player_paused_tmdb 320 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
+# OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)
+run transition_zoom 34 "right,ok" SNTV_NO_TRANSITIONS= SNTV_FRAME_DT=0.016
 run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000
 run home_lowmem 150 "right,right" HOME="$(home_with lowmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"memoryMode":1}')"
 BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":723,"breakLead":5,"breaksEverywhere":1}'

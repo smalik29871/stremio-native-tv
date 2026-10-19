@@ -68,6 +68,9 @@ void gfx_set_translate(float dx, float dy);
 void gfx_set_alpha(float a);
 /* Scales everything drawn afterwards by s about (cx, cy) (zoom transitions); 1 = off. */
 void gfx_set_scale(float s, float cx, float cy);
+/* The transition layer around a whole screen: shift, scale about (cx, cy) and fade,
+ * applied outside the screen's own translate/scale/alpha. gfx_set_layer(0,0,1,0,0,1) clears it. */
+void gfx_set_layer(float dx, float dy, float s, float cx, float cy, float alpha);
 void gfx_clip_push(float x, float y, float w, float h);
 void gfx_clip_pop(void);
 

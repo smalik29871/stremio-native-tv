@@ -910,7 +910,12 @@ void ui_brand(float x, float y, float s)
 float ui_focus_scale(float focus)
 {
     float k = g_theme.focus_style == FOCUS_GLASS ? 0.08f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.04f;
-    return 1.0f + k * focus;
+    float s = 1.0f + k * focus, t = g_app.time - g_app.press_at;
+    if (focus > 0.5f && t >= 0 && t < 0.2f && !g_app.fx_light) {   /* OK pressed: a quick dip and back */
+        s *= 1.0f - 0.05f * sinf(3.14159f * t / 0.2f);
+        app_redraw();
+    }
+    return s;
 }
 
 float ui_focus_lift(float focus) { return g_theme.focus_style == FOCUS_LIGHTBAR ? 10 * focus : 0; }
@@ -920,6 +925,7 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
     int mip = flags & (CARD_MIP | CARD_BLUR), blur = flags & CARD_BLUR;
     float sc = ui_focus_scale(focus);
     float cw = w * sc, ch = h * sc, cx = x - (cw - w) / 2, cy = y - (ch - h) / 2 - ui_focus_lift(focus);
+    if (focus > 0.95f) { g_app.card_rect[0] = cx; g_app.card_rect[1] = cy; g_app.card_rect[2] = cw; g_app.card_rect[3] = ch; g_app.card_at = g_app.time; }
     ui_focus_under(cx, cy, cw, ch, R_CARD, focus);
     int iw = 0, ih = 0;
     unsigned age = 0;
