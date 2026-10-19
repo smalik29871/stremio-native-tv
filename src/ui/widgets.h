@@ -43,6 +43,8 @@ void  ui_clock_text(double from_now, char *out, size_t n);
 /* Width of the island when it shows the clock (0 when the clock is off), so screens can
  * keep their own corner buttons clear of it. */
 float ui_clock_width(void);
+void  ui_island_text(char *out, size_t n);   /* the clock island in its style (g_app.island_style) */
+void  ui_mini_dial(float cx, float cy, float r, Color c);
 /* "a  •  b  •  c" meta line; returns the x after it. */
 float ui_dot_sep(float x, float y, Color c);
 

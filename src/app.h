@@ -37,6 +37,8 @@ typedef struct PlayCandidate {
 } PlayCandidate;
 
 enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
+enum { ISLAND_TIME, ISLAND_DAY, ISLAND_SECONDS, ISLAND_DIAL, ISLAND_STYLE_COUNT };   /* the clock island's styles */
+extern const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT];
 enum { AMBIENT_ARTWORK, AMBIENT_WALL, AMBIENT_CLOCK, AMBIENT_LOGO, AMBIENT_FIRE, AMBIENT_STYLE_COUNT };
 extern const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT];
 extern const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT];
@@ -73,6 +75,8 @@ typedef struct App {
     int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
     int subs_always;           /* 0: subtitles only when the audio is in another language */
     int clock_mode;            /* player clock: 0 12-hour, 1 24-hour, 2 off */
+    int island_style;          /* ISLAND_*: how the clock in the corner looks */
+    int clock_face;            /* CLOCKFACE_* for the Clock screensaver */
     int oled;                  /* pure black background */
     int theme, theme_accent, theme_bg;   /* THEME_*, its accent and background indexes (ui/theme.h) */
     int card_details;          /* a focused card opens a details panel after a moment */

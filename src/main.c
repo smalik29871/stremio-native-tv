@@ -367,7 +367,7 @@ int main(int argc, char **argv)
         video_update();
 
         if (image_busy() || http_pending_replies() || g_app.time < g_app.toast_until) app_redraw();
-        { static time_t minute; time_t m = time(NULL) / 60; if (m != minute) { minute = m; app_redraw(); } }   /* the clock moves */
+        { static time_t minute; time_t m = time(NULL) / (g_app.island_style == ISLAND_SECONDS ? 1 : 60); if (m != minute) { minute = m; app_redraw(); } }   /* the clock moves */
 
         Screen *top = app_top();
         if (top && top->update) top->update(top, dt);

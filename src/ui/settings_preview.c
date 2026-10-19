@@ -6,10 +6,12 @@
 #include "../app.h"
 #include "../lang.h"
 #include "../quality.h"
+#include "clockface.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
 #include <math.h>
+#include <time.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -157,10 +159,13 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         screen(sx, sy, sw, sh);
         mini_rows(sx + 24, sy + sh * 0.48f, sw - 48, 2, 5, sh * 0.18f);
         if (g_app.clock_mode != 2) {
-            ui_clock_text(0, t, sizeof t);
-            float tw = font_measure(t, FONT_S | FONT_B) + 36, ph = 46, px = sx + sw - 20 - tw;
+            ui_island_text(t, sizeof t);
+            float dial = g_app.island_style == ISLAND_DIAL ? 32 : 0;
+            float tw = font_measure(t, FONT_S | FONT_B) + 36 + dial, ph = 46, px = sx + sw - 20 - tw;
             gfx_rrect(px, sy + 18, tw, ph, theme_pill_r(ph), THEME_PANEL);
-            font_draw_center(t, px + tw / 2, sy + 18 + (ph - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+            if (dial) ui_mini_dial(px + 18 + 12, sy + 18 + ph / 2, 12, THEME_TEXT);
+            font_draw(t, px + 18 + dial, sy + 18 + (ph - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+            if (g_app.island_style == ISLAND_SECONDS) app_redraw();
             chosen_ring(px, sy + 18, tw, ph);
         }
         caption(g_app.clock_mode == 2 ? "No clock in the corner" : "In the corner of every screen, hidden while a video plays", x, base + 6, w);
@@ -319,7 +324,14 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
             gfx_rrect_grad_h(sx, sy, sw * 0.7f, sh, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0xB0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0));
         }
         gfx_clip_pop();
-        if (g_app.ambient_style == AMBIENT_CLOCK) font_draw_center(t, sx + sw / 2, sy + (sh - font_height(FONT_XL | FONT_B)) / 2, FONT_XL | FONT_B, RGBA(0xE8, 0xE8, 0xEE, 0xFF));
+        if (g_app.ambient_style == AMBIENT_CLOCK) {
+            time_t now = time(NULL); struct tm tmv; localtime_r(&now, &tmv);
+            struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+            gfx_clip_push(sx, sy, sw, sh);
+            clockface_draw(g_app.clock_face, sx + sw / 2, sy + sh / 2, sh / 1080 * 1.15f, &tmv, tmv.tm_sec + ts.tv_nsec / 1e9);
+            gfx_clip_pop();
+            app_redraw();
+        }
         else if (g_app.ambient_style == AMBIENT_LOGO) {
             float p = fmodf(g_app.time * 0.15f, 1.0f), q = fmodf(g_app.time * 0.11f, 1.0f);
             float lx = sx + 20 + (sw - 110) * (p < 0.5f ? p * 2 : 2 - p * 2), ly = sy + 20 + (sh - 110) * (q < 0.5f ? q * 2 : 2 - q * 2);

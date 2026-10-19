@@ -36,6 +36,7 @@ enum { F_REGULAR, F_BOLD, F_ALT, F_COUNT };
 static FontFile g_files[F_COUNT];
 static int g_have[F_COUNT];
 static char g_cache_dir[1024];
+static char g_digits_ttf[1024];   /* the bold face, for font_digits_load */
 
 static unsigned char *read_all(const char *path, long *len)
 {
@@ -241,6 +242,7 @@ void font_set_cache_dir(const char *dir) { snprintf(g_cache_dir, sizeof g_cache_
 int font_init(const char *regular, const char *bold, const char *alt, int alt_kind)
 {
     font_shutdown();
+    snprintf(g_digits_ttf, sizeof g_digits_ttf, "%s", bold ? bold : regular);
     if (load_file(&g_files[F_REGULAR], regular, F_REGULAR, SIZES, NSIZES) != 0) return -1;
     g_have[F_REGULAR] = 1;
     g_have[F_BOLD] = bold && load_file(&g_files[F_BOLD], bold, F_BOLD, SIZES, NSIZES) == 0;
@@ -404,3 +406,65 @@ int font_draw_wrapped(const char *s, float x, float y, int size, Color c, float 
     }
     return lines;
 }
+
+/* ---- clock digits: 0-9 and ':' baked big, only while a screensaver clock shows ---- */
+
+enum { DIGITS_PX = 400, DIGITS_AW = 2048, DIGITS_AH = 1024 };   /* 2 MB while a clock shows */
+static unsigned g_dtex;
+static stbtt_packedchar g_dch[11];   /* '0'..'9', ':' */
+static float g_dcap;   /* the height of '0' at DIGITS_PX */
+
+int font_digits_load(void)
+{
+    if (g_dtex) return 0;
+    unsigned char *ttf = g_digits_ttf[0] ? read_all(g_digits_ttf, NULL) : NULL;
+    if (!ttf) return -1;
+    stbtt_fontinfo info;
+    unsigned char *bitmap = calloc(DIGITS_AW * DIGITS_AH, 1);
+    stbtt_pack_context pc;
+    int ok = bitmap && stbtt_InitFont(&info, ttf, stbtt_GetFontOffsetForIndex(ttf, 0)) && stbtt_PackBegin(&pc, bitmap, DIGITS_AW, DIGITS_AH, 0, 1, NULL);
+    if (ok) {
+        ok = stbtt_PackFontRange(&pc, ttf, 0, DIGITS_PX, '0', 11, g_dch);   /* '0'..':' are adjacent */
+        stbtt_PackEnd(&pc);
+        g_dcap = -g_dch[0].yoff;
+    }
+    if (ok) g_dtex = gfx_texture_alpha(bitmap, DIGITS_AW, DIGITS_AH);
+    free(bitmap);
+    free(ttf);
+    if (!g_dtex) { LOGW("font: no big clock digits"); return -1; }
+    return 0;
+}
+
+void font_digits_free(void)
+{
+    if (g_dtex) gfx_texture_destroy(g_dtex);
+    g_dtex = 0;
+}
+
+static float digits_walk(const char *s, float x, float y, float px, Color c, int draw)
+{
+    float scale = px / DIGITS_PX, pen = 0;
+    for (; *s; s++) {
+        if (*s < '0' || *s > ':') continue;
+        stbtt_aligned_quad q;
+        float qx = pen, qy = g_dcap;   /* the top of the digits at y */
+        stbtt_GetPackedQuad(&g_dch[*s - '0'], DIGITS_AW, DIGITS_AH, 0, &qx, &qy, &q, 0);
+        if (draw) gfx_glyph(g_dtex, x + q.x0 * scale, y + q.y0 * scale, (q.x1 - q.x0) * scale, (q.y1 - q.y0) * scale, q.s0, q.t0, q.s1, q.t1, c);
+        pen = qx;
+    }
+    return pen * scale;
+}
+
+float font_digits_measure(const char *s, float px)
+{
+    if (!g_dtex) return font_measure(s, (int)px | FONT_B);
+    return digits_walk(s, 0, 0, px, 0, 0);
+}
+
+void font_digits_draw(const char *s, float x, float y, float px, Color c)
+{
+    if (!g_dtex) { font_draw(s, x, y - (font_height((int)px | FONT_B) - px) * 0.5f, (int)px | FONT_B, c); return; }   /* no atlas: the scaled text face */
+    digits_walk(s, x, y, px, c, 1);
+}
+
+float font_digits_height(float px) { return g_dtex ? g_dcap * px / DIGITS_PX : px * 0.72f; }

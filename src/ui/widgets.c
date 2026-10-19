@@ -715,12 +715,38 @@ void ui_clock_text(double from_now, char *out, size_t n)
     else snprintf(out, n, "%d:%02d %s", tmv.tm_hour % 12 ? tmv.tm_hour % 12 : 12, tmv.tm_min, tmv.tm_hour < 12 ? "AM" : "PM");
 }
 
+/* The clock island's text in its style: "6:51 PM", "Mon 6:51 PM", "6:51:09 PM". */
+void ui_island_text(char *out, size_t n)
+{
+    time_t t = time(NULL);
+    struct tm tmv;
+    if (!localtime_r(&t, &tmv)) { snprintf(out, n, "--:--"); return; }
+    int h = g_app.clock_mode == 1 ? tmv.tm_hour : (tmv.tm_hour % 12 ? tmv.tm_hour % 12 : 12);
+    const char *ap = g_app.clock_mode == 1 ? "" : tmv.tm_hour < 12 ? " AM" : " PM";
+    char day[8] = "";
+    if (g_app.island_style == ISLAND_DAY) strftime(day, sizeof day, "%a ", &tmv);
+    if (g_app.island_style == ISLAND_SECONDS) snprintf(out, n, g_app.clock_mode == 1 ? "%02d:%02d:%02d%s" : "%d:%02d:%02d%s", h, tmv.tm_min, tmv.tm_sec, ap);
+    else snprintf(out, n, g_app.clock_mode == 1 ? "%s%02d:%02d%s" : "%s%d:%02d%s", day, h, tmv.tm_min, ap);
+}
+
+/* A small dial for the island's Small dial style. */
+void ui_mini_dial(float cx, float cy, float r, Color c)
+{
+    time_t t = time(NULL);
+    struct tm tmv;
+    if (!localtime_r(&t, &tmv)) return;
+    gfx_rrect_ring(cx - r, cy - r, 2 * r, 2 * r, r, 2, c);
+    float m = tmv.tm_min / 60.0f * 6.2831853f, h = ((tmv.tm_hour % 12) + tmv.tm_min / 60.0f) / 12 * 6.2831853f;
+    gfx_line(cx, cy, cx + sinf(h) * r * 0.5f, cy - cosf(h) * r * 0.5f, 3, c);
+    gfx_line(cx, cy, cx + sinf(m) * r * 0.78f, cy - cosf(m) * r * 0.78f, 2, THEME_ACCENT);
+}
+
 float ui_clock_width(void)
 {
     if (g_app.clock_mode == 2) return 0;
-    char now[24];
-    ui_clock_text(0, now, sizeof now);
-    return font_measure(now, FONT_S | FONT_B) + 44;
+    char now[32];
+    ui_island_text(now, sizeof now);
+    return font_measure(now, FONT_S | FONT_B) + 44 + (g_app.island_style == ISLAND_DIAL ? 34 : 0);
 }
 
 float ui_chip(const char *text, float x, float y, Color bg, Color fg)

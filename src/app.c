@@ -10,6 +10,7 @@
 #include "log.h"
 #include "store.h"
 #include "image.h"
+#include "ui/clockface.h"
 #include "ui/font.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
@@ -1422,6 +1423,10 @@ static void load_prefs(void)
     g_app.subs_always = store_get_int("subsAlways", 0);
     g_app.clock_mode = store_get_int("clockMode", 0);
     if (g_app.clock_mode < 0 || g_app.clock_mode > 2) g_app.clock_mode = 0;
+    g_app.island_style = store_get_int("islandStyle", ISLAND_TIME);
+    if (g_app.island_style < 0 || g_app.island_style >= ISLAND_STYLE_COUNT) g_app.island_style = ISLAND_TIME;
+    g_app.clock_face = store_get_int("clockFace", CLOCKFACE_DIGITAL);
+    if (g_app.clock_face < 0 || g_app.clock_face >= CLOCKFACE_COUNT) g_app.clock_face = CLOCKFACE_DIGITAL;
     g_app.oled = store_get_int("oled", 0);
     g_app.theme = store_get_int("theme", THEME_SIGNAL);
     if (g_app.theme < 0 || g_app.theme >= THEME_COUNT) g_app.theme = THEME_SIGNAL;
@@ -1517,6 +1522,8 @@ void app_save_prefs(void)
     store_set_int("skipMode", g_app.skip_mode);
     store_set_int("subsAlways", g_app.subs_always);
     store_set_int("clockMode", g_app.clock_mode);
+    store_set_int("islandStyle", g_app.island_style);
+    store_set_int("clockFace", g_app.clock_face);
     store_set_int("oled", g_app.oled);
     store_set_int("theme", g_app.theme);
     store_set_int("themeAccent", g_app.theme_accent);
@@ -1721,6 +1728,7 @@ void play_candidates_free(PlayCandidate *c, int n)
 /* ---- shared widgets -------------------------------------------------------- */
 
 const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
+const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT] = { "Time", "Day and time", "With seconds", "Small dial" };
 const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo", "Fireplace" };
 
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)

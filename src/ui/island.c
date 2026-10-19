@@ -89,12 +89,13 @@ void island_draw(int in_player, int show_clock)
 {
     int kind = current_kind(show_clock);
     if (kind != I.kind) { I.kind = kind; I.kind_at = g_app.time; }
-    char now[24]; ui_clock_text(0, now, sizeof now);
+    char now[32]; ui_island_text(now, sizeof now);
+    float dial = g_app.island_style == ISLAND_DIAL ? 34 : 0;
     int fs = FONT_S | FONT_B;
     float tw = 0, th = 52;
     switch (kind) {
     case IS_CLOCK:
-        tw = font_measure(now, fs) + 44;
+        tw = font_measure(now, fs) + 44 + dial;
         if (g_update_version[0]) { char up[32]; snprintf(up, sizeof up, "Update %s", g_update_version); tw += font_measure(up, FONT_XS | FONT_B) + 52; }
         break;
     case IS_NOTICE: tw = font_measure(g_app.toast, fs) + 84; if (tw > 1100) tw = 1100; th = 60; break;
@@ -139,8 +140,9 @@ void island_draw(int in_player, int show_clock)
     float cy = y + (I.h - font_height(fs)) / 2;
     switch (kind) {
     case IS_CLOCK:
-        if (g_theme.focus_style == FOCUS_FRAME) { gfx_rect(x + 12, y + I.h / 2 - 5, 10, 10, THEME_ACCENT); font_draw(now, x + 30, cy, fs, THEME_TEXT); }
-        else font_draw(now, x + 22, cy, fs, THEME_TEXT);
+        if (dial) ui_mini_dial(x + 22 + 13, y + I.h / 2, 13, THEME_TEXT);
+        if (g_theme.focus_style == FOCUS_FRAME && !dial) { gfx_rect(x + 12, y + I.h / 2 - 5, 10, 10, THEME_ACCENT); font_draw(now, x + 30, cy, fs, THEME_TEXT); }
+        else font_draw(now, x + 22 + dial, cy, fs, THEME_TEXT);
         if (g_update_version[0]) {   /* a newer version is out: Settings > About > Update */
             char up[32]; snprintf(up, sizeof up, "Update %s", g_update_version);
             float ux = x + I.w - 22 - font_measure(up, FONT_XS | FONT_B);

@@ -334,6 +334,13 @@ grep -q "alarmtest: armed for .* (scheduler calls sent / sent)" "$OUT/settings_i
 run settings_interrupt_hit 200 "" HOME="$OUT/home_interrupt" SNTV_LAUNCH_PARAMS='{"sntvAlarm":"A","due":1}'
 grep -q "alarmtest: launched by path A (a fresh start)" "$OUT/settings_interrupt_hit.log" && grep -q "launches" "$OUT/home_interrupt/.local/share/stremio/nativetv/settings.json" \
   || { echo "a launch by the alarm was not recorded"; grep alarmtest "$OUT/settings_interrupt_hit.log"; exit 1; }
+# Clock faces: every one draws (flip, analog, words, rings, nixie, stacked), and the island's styles
+for f in 1 2 3 4 5 6; do
+  run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f}")"
+  grep -q "ambient: Clock screensaver with [0-9]* backdrops, face " "$OUT/ambient_face$f.log" && ! grep -q "no big clock digits" "$OUT/ambient_face$f.log" || { echo "clock face $f did not draw"; grep -E "ambient|font" "$OUT/ambient_face$f.log"; exit 1; }
+done
+run island_dial 150 "" HOME="$(home_with isl_dial '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":3}')"
+run island_seconds 150 "" HOME="$(home_with isl_sec '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":2}')"
 run ambient_paused 300 "right,ok,down,down,ok,ok,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run login_qr 260 "left,down,down,down,down,down,down,ok"
 run login_pw 280 "left,down,down,down,down,down,down,ok,ok"

@@ -8,6 +8,7 @@
 #include "../video/video.h"
 #include "../store.h"
 #include "../youtube.h"
+#include "clockface.h"
 #include "font.h"
 #include "gfx.h"
 #include "theme.h"
@@ -288,11 +289,9 @@ static void draw(Screen *s)
     float sx = (float)((tmv.tm_min % 5) - 2) * 7, sy = (float)(((tmv.tm_min / 5) % 3) - 1) * 7;
     char big[16];
     clock_text(&tmv, big, sizeof big);
-    if (g_app.ambient_style == AMBIENT_CLOCK) {   /* a big clock on black, wandering a little every minute */
-        char date[64]; strftime(date, sizeof date, "%A, %B %-d", &tmv);
-        float cx = SNTV_UI_W / 2 + sx * 8, cy = SNTV_UI_H / 2 - 90 + sy * 8;
-        font_draw_center(big, cx, cy, FONT_HUGE | FONT_B, RGBA(0xE8, 0xE8, 0xEE, 0xFF));
-        font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 10, FONT_M, RGBA(0x90, 0x90, 0x98, 0xFF));
+    if (g_app.ambient_style == AMBIENT_CLOCK) {   /* a clock face on black, wandering a little every minute */
+        struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+        clockface_draw(g_app.clock_face, SNTV_UI_W / 2 + sx * 4, SNTV_UI_H / 2 + sy * 4, 1, &tmv, tmv.tm_sec + ts.tv_nsec / 1e9);
         return;
     }
     if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real fireplace, the clock over it */
@@ -354,6 +353,7 @@ static void destroy(Screen *s)
     Ambient *a = s->st;
     free(a->items);
     if (a->fire_tex) gfx_texture_destroy(a->fire_tex);
+    font_digits_free();
     if (g_amb_live == a) g_amb_live = NULL;
     if (a->fv_state == 2) video_stop();
     free(a->heat); free(a->px);
@@ -370,7 +370,9 @@ Screen *screen_ambient_create(void)
     a->lx = SNTV_UI_W * 0.3f; a->ly = SNTV_UI_H * 0.35f; a->lvx = 90; a->lvy = 64;
     g_amb_live = a;
     if (g_app.ambient_style == AMBIENT_FIRE) fv_start(a);
-    LOGI("ambient: %s screensaver with %d backdrops", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n);
+    if (g_app.ambient_style == AMBIENT_CLOCK) font_digits_load();
+    LOGI("ambient: %s screensaver with %d backdrops%s%s", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n,
+         g_app.ambient_style == AMBIENT_CLOCK ? ", face " : "", g_app.ambient_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_app.clock_face] : "");
     s->name = "ambient"; s->st = a;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
     return s;

@@ -30,4 +30,13 @@ int   font_draw_wrapped(const char *utf8, float x, float y, int size, Color c, f
 void  font_draw_shadow(const char *utf8, float x, float y, int size, Color c, Color shadow);
 void  font_draw_center(const char *utf8, float cx, float y, int size, Color c);
 
+/* Big clock digits (0-9 and ':', sharp up to 400 px; px is the line height, the digits about 0.6 of it): load while a clock face shows,
+ * free after. Without the atlas they fall back to the scaled bold face. y is the top
+ * of the digits; font_digits_height is their cap height. */
+int   font_digits_load(void);
+void  font_digits_free(void);
+float font_digits_measure(const char *digits, float px);
+void  font_digits_draw(const char *digits, float x, float y, float px, Color c);
+float font_digits_height(float px);
+
 #endif
