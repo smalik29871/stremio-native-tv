@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.13
+
+- **SimKL sign-in works again.** SimKL apps made today refuse the PIN; sign-in now uses
+  SimKL's OAuth 2.0 device code and renews the week-long login by itself. Older SimKL
+  apps still use the PIN.
+- **YouTube in the best quality.** The TV's player started YouTube at the lowest quality
+  and rarely climbed; it now gets only the best one your TV allows.
+- **Diagnostics > Speed.** How fast the app runs on this TV: startup times, how long a
+  key press takes to show, and how long each screen takes to draw.
+- **TV interruption test.** Also tries the newer app launcher name, and reports whether
+  the TV's scheduler ran the alarm.
+
 ## 0.10.12
 
 - **Clock faces.** The Clock screensaver has seven faces (Settings > Interface > Clock face):
