@@ -27,5 +27,9 @@ int  subs_align(const SubTrack *ref, const SubTrack *t, double *offset_out);
  * a cut or an inserted scene moves everything after it; both are measured here. 1 when
  * synced, 0 when the two do not share enough timing to tell. */
 int  subs_sync(const SubTrack *ref, SubTrack *t);
+/* How well a subtitle fits a video, 0..100, with the main reason in `why`: it should end
+ * with the video (credits aside) rather than run past it or stop minutes early, have a
+ * full film's worth of lines, and, given a file-matched `ref`, line up with it. */
+int  subs_fit(const SubTrack *t, double duration, const SubTrack *ref, char *why, size_t wn);
 
 #endif

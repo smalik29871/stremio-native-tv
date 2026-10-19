@@ -284,3 +284,37 @@ const char *subs_at(const SubTrack *t, double s)
         if (t->cues[i].start <= s && s < t->cues[i].end) return t->cues[i].text;
     return NULL;
 }
+
+int subs_fit(const SubTrack *t, double duration, const SubTrack *ref, char *why, size_t wn)
+{
+    if (why && wn) why[0] = 0;
+    if (!t || t->n < 1) { if (why) snprintf(why, wn, "empty"); return 0; }
+    int score = 50;
+    double end = 0;
+    for (int i = 0; i < t->n; i++) if (t->cues[i].end > end) end = t->cues[i].end;
+    const char *reason = NULL;
+    char buf[64];
+    if (duration > 60) {
+        double gap = duration - end, credits = duration * 0.08 > 240 ? duration * 0.08 : 240;
+        if (gap < -20) { score -= 45; reason = "runs past the end of the video"; }
+        else if (gap <= credits) { score += 25; reason = "ends with the video"; }
+        else if (gap <= duration * 0.2) score += 5;
+        else { score -= 20; snprintf(buf, sizeof buf, "stops %.0f min before the end", gap / 60); reason = buf; }
+        if (t->n < duration / 60 * 2) { score -= 20; reason = "has too few lines for the whole video"; }   /* forced or partial */
+    }
+    if (ref && ref->n >= 3) {
+        SubTrack c = *t;   /* the cues are only read */
+        c.offset = 0; c.scale = 1;
+        for (int w = 0; w < SUBS_WINDOWS; w++) c.window_fix[w] = 0;
+        if (subs_sync(ref, &c)) {
+            int clean = c.scale == 0 || c.scale == 1;   /* a plain offset is fixed anyway; speed and cuts are not as clean */
+            for (int w = 0; w < SUBS_WINDOWS; w++) if (c.window_fix[w] != 0) clean = 0;
+            score += clean ? 25 : 10;
+            if (clean) reason = "matches the file's timing";
+        } else { score -= 15; if (!reason) reason = "does not line up with the file"; }
+    }
+    if (score < 0) score = 0;
+    if (score > 100) score = 100;
+    if (why && reason) snprintf(why, wn, "%s", reason);
+    return score;
+}

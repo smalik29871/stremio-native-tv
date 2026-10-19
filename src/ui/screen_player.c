@@ -42,7 +42,7 @@ static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen"
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
 enum { N_RATES = 7, RATE_NORMAL = 2 };
 
-typedef struct AddonSub { char *url, *lang, *addon; int matched, sync_failed; } AddonSub;
+typedef struct AddonSub { char *url, *lang, *addon; int matched, sync_failed; int fit; char fit_why[48]; } AddonSub;   /* fit: 0 not checked, else 1..101 */
 
 typedef struct Player Player;
 typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; } SubReq;
@@ -85,6 +85,9 @@ struct Player {
     int hash_state;           /* 0 not started, 1 head, 2 tail, 3 known, 4 unavailable */
     uint64_t os_sum, os_size; char os_hash[24];
     SubTrack ref; int ref_loaded, ref_idx;   /* a matched subtitle used as the timing reference */
+    /* best match: the files in the chosen language, fetched and scored once (subs_fit) */
+    int bm_state;                            /* 0 not yet, 1 fetching, 2 done */
+    int bm_idx[6], bm_n, bm_pending; SubTrack bm_track[6]; int bm_ok[6];
     int sync_for, sync_state; double sync_offset;   /* sync_state: 0 idle, 1 aligning, 2 synced, 3 no match */
     /* AI translation of the active addon file into the preferred language, a batch at a time, playhead first */
     int xl_on, xl_hinted; char xl_lang[8]; unsigned char *xl_done; int xl_n_done, xl_fails; unsigned xl_req; unsigned xl_gen; int xl_from, xl_count; float xl_wait;
@@ -619,6 +622,69 @@ static int matched_reference(const Player *p)
     return best;
 }
 
+static void select_addon_sub(Player *p, int idx);
+
+static void on_bm_file(HttpResponse *r, void *user)
+{
+    SubReq *q = user;
+    Player *p = q->owner;
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    int k = q->slot;
+    p->bm_ok[k] = r->status == 200 && subs_parse(r->body, r->len, &p->bm_track[k]) > 0;
+    p->bm_pending--;
+    free(q);
+}
+
+/* Several files in the language that was picked, none matched to this video: the one
+ * that fits it best (ends with it, a full set of lines, lines up with the file-matched
+ * subtitle when there is one) is worth more than the addon's order. */
+static void bestmatch_tick(Player *p, const VideoInfo *vi)
+{
+    if (p->bm_state == 2 || p->trailer) return;
+    if (p->bm_state == 0) {
+        if (p->subs_user || p->active_addon_sub < 0 || p->subs_pending > 0 || vi->duration <= 60) return;
+        const AddonSub *cur = &p->addon_subs[p->active_addon_sub];
+        if (cur->matched) { p->bm_state = 2; return; }   /* made for this file already */
+        int ref = matched_reference(p);
+        if (ref >= 0 && !p->ref_loaded && p->sync_state != 3 && g_app.time - p->load_started < 30) return;   /* score against it */
+        p->bm_n = 0;
+        p->bm_idx[p->bm_n++] = p->active_addon_sub;
+        for (int i = 0; i < p->n_addon_subs && p->bm_n < 6; i++)
+            if (i != p->active_addon_sub && !p->addon_subs[i].matched && lang_same(p->addon_subs[i].lang, cur->lang)) p->bm_idx[p->bm_n++] = i;
+        if (p->bm_n < 2) { p->bm_state = 2; return; }
+        p->bm_state = 1; p->bm_pending = p->bm_n;
+        for (int k = 0; k < p->bm_n; k++) {
+            memset(&p->bm_track[k], 0, sizeof p->bm_track[k]); p->bm_ok[k] = 0;
+            SubReq *q = malloc(sizeof *q);
+            q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = k; q->hashed = 0;
+            http_request_async(p->addon_subs[p->bm_idx[k]].url, NULL, on_bm_file, q);
+        }
+        LOGI("subs: comparing %d %s files for the best fit", p->bm_n, cur->lang);
+        return;
+    }
+    if (p->bm_pending > 0 && g_app.time - p->load_started < 60) return;
+    p->bm_state = 2;
+    const SubTrack *ref = p->ref_loaded ? &p->ref : NULL;
+    int best = -1, cur_score = 0, best_score = -1;
+    for (int k = 0; k < p->bm_n; k++) {
+        AddonSub *as = &p->addon_subs[p->bm_idx[k]];
+        int sc = p->bm_ok[k] ? subs_fit(&p->bm_track[k], vi->duration, ref, as->fit_why, sizeof as->fit_why) : 0;
+        as->fit = sc + 1;
+        LOGI("subs: %s file %d fits %d (%s)", as->lang, p->bm_idx[k], sc, as->fit_why[0] ? as->fit_why : "-");
+        if (k == 0) cur_score = sc;
+        if (sc > best_score) { best_score = sc; best = p->bm_idx[k]; }
+        subs_free(&p->bm_track[k]);
+    }
+    if (best >= 0 && best != p->active_addon_sub && best_score >= cur_score + 15 && !p->subs_user) {
+        LOGI("subs: switching to file %d, it fits better (%d vs %d)", best, best_score, cur_score);
+        select_addon_sub(p, best);
+        const AddonSub *was = &p->addon_subs[p->bm_idx[0]], *now = &p->addon_subs[best];
+        if (now->fit_why[0]) app_toast("Switched to subtitles that fit this video better: this one %s", now->fit_why);
+        else if (was->fit_why[0]) app_toast("Switched to subtitles that fit this video better: the first one %s", was->fit_why);
+        else app_toast("Switched to subtitles that fit this video better");
+    }
+}
+
 static void autosync_tick(Player *p)
 {
     if (!g_app.subs_autosync || !p->track_loaded || p->active_addon_sub < 0) return;
@@ -635,6 +701,7 @@ static void autosync_tick(Player *p)
         return;
     }
     if (!p->ref_loaded) return;
+    if (p->bm_state == 1) return;   /* the best file is being chosen; sync that one */
     p->sync_for = p->active_addon_sub;
     if (subs_sync(&p->ref, &p->track)) {   /* offset, frame-rate drift and cuts */
         double off = p->track.offset;
@@ -877,6 +944,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->hash_state = 0; p->sync_for = -1; p->sync_state = 0; p->ref_idx = -1; p->ref_loaded = 0; subs_free(&p->ref);
     p->auto_selected = 0;
     p->subs_auto_done = 0;
+    p->bm_state = 0;
     p->load_started = g_app.time;
     p->stalls_here = 0; p->lighter_to = -1;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
@@ -1170,6 +1238,7 @@ static void update(Screen *s, float dt)
     }
     if (!p->probe_asked && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) probe_current(p);
     if (!p->hash_state && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) hash_start(p);
+    bestmatch_tick(p, &vi);
     autosync_tick(p);
     xl_tick(p, dt, vi.position);
     skip_fetch(p, &vi);
@@ -1396,7 +1465,9 @@ static void draw_menu(Player *p)
             snprintf(label, sizeof label, "%s", ln);
             if (of > 1) snprintf(pick, sizeof pick, "  \xC2\xB7  option %d of %d", nth + 1, of);
             char who[160];
-            snprintf(who, sizeof who, "%s%s%s%s", p->addon_subs[idx].addon, pick, p->addon_subs[idx].matched ? "  \xC2\xB7  matched to this file" : "", p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
+            char fit[72] = "";
+            if (!p->addon_subs[idx].matched && p->addon_subs[idx].fit && p->addon_subs[idx].fit_why[0]) snprintf(fit, sizeof fit, "  \xC2\xB7  %s", p->addon_subs[idx].fit_why);
+            snprintf(who, sizeof who, "%s%s%s%s%s", p->addon_subs[idx].addon, pick, p->addon_subs[idx].matched ? "  \xC2\xB7  matched to this file" : "", fit, p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
             ROW(label, who, p->active_addon_sub == idx || p->active_addon_sub2 == idx);
         }
         if (xl_available(p)) {
@@ -2357,6 +2428,7 @@ static void destroy(Screen *s)
     subs_free(&p->track);
     subs_free(&p->track2);
     subs_free(&p->ref);
+    for (int k = 0; k < 6; k++) subs_free(&p->bm_track[k]);
     xl_stop(p);
     free(p->probe);
     for (int i = 0; i < p->n_addon_subs; i++) { free(p->addon_subs[i].url); free(p->addon_subs[i].lang); free(p->addon_subs[i].addon); }

@@ -21,8 +21,50 @@ static char *read_fixture(const char *name, size_t *len)
     return b;
 }
 
+/* n cues, every `step` seconds from `from`, each 2 s long, the i-th one moved by jitter */
+static SubTrack synth(int n, double from, double step)
+{
+    SubTrack t; memset(&t, 0, sizeof t);
+    t.cues = calloc((size_t)n, sizeof *t.cues); t.n = n;
+    for (int i = 0; i < n; i++) {
+        double j = (i * 7919 % 13) * 0.37;   /* uneven gaps, so offsets are tellable */
+        t.cues[i].start = from + i * step + j; t.cues[i].end = t.cues[i].start + 2; t.cues[i].text = strdup("x");
+    }
+    return t;
+}
+
+static void test_fit(void)
+{
+    char why[64];
+    double dur = 6000;
+    SubTrack good = synth(800, 60, 7.0);      /* ends ~5660: credits after */
+    SubTrack early = synth(500, 60, 7.0);     /* ends ~3560: a shorter cut */
+    SubTrack past = synth(900, 60, 7.2);      /* ends ~6540: past the video */
+    SubTrack forced = synth(40, 60, 140.0);   /* a few lines across the film */
+    int g = subs_fit(&good, dur, NULL, why, sizeof why);
+    CHECK(strcmp(why, "ends with the video") == 0);
+    int e = subs_fit(&early, dur, NULL, why, sizeof why);
+    CHECK(strstr(why, "min before the end") != NULL);
+    int p2 = subs_fit(&past, dur, NULL, why, sizeof why);
+    CHECK(strcmp(why, "runs past the end of the video") == 0);
+    int f = subs_fit(&forced, dur, NULL, why, sizeof why);
+    CHECK(strcmp(why, "has too few lines for the whole video") == 0);
+    CHECK(g > e && g > p2 && g > f);
+    /* with the file-matched subtitle: the same timing, shifted 2 s, wins over a reshuffled one */
+    SubTrack ref = synth(800, 62, 7.0);
+    SubTrack other = synth(800, 60, 7.0);
+    for (int i = 0; i < other.n; i++) { double j = (i * 104729 % 17) * 0.53; other.cues[i].start = 60 + i * 7.0 + j; other.cues[i].end = other.cues[i].start + 2; }
+    int gr = subs_fit(&good, dur, &ref, why, sizeof why);
+    CHECK(strcmp(why, "matches the file's timing") == 0);
+    int orr = subs_fit(&other, dur, &ref, why, sizeof why);
+    CHECK(gr > orr);
+    printf("fit: good %d early %d past %d forced %d | with ref %d vs %d\n", g, e, p2, f, gr, orr);
+    subs_free(&good); subs_free(&early); subs_free(&past); subs_free(&forced); subs_free(&ref); subs_free(&other);
+}
+
 int main(void)
 {
+    test_fit();
     /* alignment: the same cues shifted by 2.3 s, with a few extra and missing ones */
     {
         SubTrack a = { 0 }, b = { 0 };

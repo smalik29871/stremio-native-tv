@@ -243,6 +243,9 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path
         # /notrailer/...: the same addon with no trailers in its metas (TMDB then has one)
+        bestfit = p.startswith("/bestfit/")
+        if bestfit:
+            p = p[8:]
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
@@ -386,6 +389,17 @@ class H(BaseHTTPRequestHandler):
                 t = h * 3600 + mi * 60 + s + ms / 1000 + 2.0
                 return "%02d:%02d:%02d,%03d" % (t // 3600, (t % 3600) // 60, t % 60, round((t - int(t)) * 1000))
             return self.send(200, _re.sub(r"(\d\d):(\d\d):(\d\d),(\d\d\d)", shift, src).encode("latin-1"), "text/plain")
+        if bestfit:   # the same addon, with two English files: one stops an hour early
+            if p.startswith("/subtitles/"):
+                if "videoHash=" in p:
+                    return self.send(200, b'{"subtitles": []}')
+                return self.send(200, json.dumps({"subtitles": [{"id": "short", "url": f"{BASE}/gen.srt?n=300", "lang": "eng"},
+                                                                {"id": "full", "url": f"{BASE}/gen.srt?n=650", "lang": "eng"}]}).encode())
+        if p.startswith("/gen.srt"):   # n lines, one every 10 s
+            n = int(p.split("n=")[1].split("&")[0])
+            fmt = lambda t: "%02d:%02d:%02d,000" % (t // 3600, t % 3600 // 60, t % 60)
+            body = "".join(f"{i + 1}\n{fmt(30 + i * 10)} --> {fmt(32 + i * 10)}\nLine {i + 1}\n\n" for i in range(n))
+            return self.send(200, body.encode(), "text/plain")
         if p.startswith("/subtitles/"):
             if "videoHash=" in p:
                 return self.send(200, json.dumps({"subtitles": [{"id": "eng-matched", "url": f"{BASE}/sub_matched.srt", "lang": "eng"}]}).encode())
