@@ -5,9 +5,15 @@
 #include "../app.h"
 #include "../image.h"
 #include "../log.h"
+#include "../video/video.h"
+#include "../store.h"
+#include "../youtube.h"
 #include "font.h"
+#include "gfx.h"
 #include "theme.h"
 #include "widgets.h"
+#include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,7 +33,109 @@ typedef struct {
     int cur_ready;
     float wall_y;         /* Poster wall: how far the wall has drifted up */
     float lx, ly, lvx, lvy;   /* Floating logo: position and velocity */
+    /* Fireplace: heat per cell, spread up and cooled each step (the classic demo fire),
+     * drawn through a palette into a small texture the GPU stretches */
+    unsigned char *heat; uint8_t *px; unsigned fire_tex; float fire_acc, fire_t; unsigned seed;
+    /* a real fireplace video (Settings > Interface), played full screen and looped */
+    int fv_state;         /* 0 none, 1 asking YouTube, 2 playing, 3 gave up (the drawn fire) */
+    char fv_urls[3][4608]; int fv_n, fv_i;
 } Ambient;
+
+static Ambient *g_amb_live;   /* the screensaver a YouTube answer is for */
+
+static void fv_play(Ambient *a)
+{
+    if (a->fv_i >= a->fv_n) { a->fv_state = 3; LOGI("ambient: the fireplace video would not play; the drawn fire instead"); return; }
+    LOGI("ambient: fireplace video %d/%d", a->fv_i + 1, a->fv_n);
+    video_load(a->fv_urls[a->fv_i], "Fireplace", 0);
+    video_play();
+    a->fv_state = 2;
+}
+
+static void on_fv(const char *answer, const char *error, void *user)
+{
+    Ambient *a = user;
+    if (a != g_amb_live) return;
+    char id[16] = "";
+    youtube_video_id(store_get_str("fireplaceVideo", ""), id);
+    a->fv_n = answer ? youtube_player_urls(answer, id, a->fv_urls, 3) : 0;
+    if (!a->fv_n) { a->fv_state = 3; LOGW("ambient: fireplace video unavailable: %s", error ? error : "?"); return; }
+    a->fv_i = 0;
+    fv_play(a);
+}
+
+static void fv_start(Ambient *a)
+{
+    const char *url = store_get_str("fireplaceVideo", "");
+    VideoInfo vi; video_info(&vi);
+    if (!url || !*url || (vi.state != VIDEO_IDLE && vi.state != VIDEO_ENDED)) return;   /* a paused film keeps its picture */
+    char id[16];
+    if (youtube_video_id(url, id)) {
+        a->fv_state = 1;
+        youtube_set_quality(g_app.res_cap, quality_cap_ok(&g_app.tv, TVCAP_AV1), quality_cap_ok(&g_app.tv, TVCAP_4K));
+        youtube_stream(url, on_fv, a);
+    } else {
+        snprintf(a->fv_urls[0], sizeof a->fv_urls[0], "%s", url);
+        a->fv_n = 1; a->fv_i = 0;
+        fv_play(a);
+    }
+}
+
+enum { FIRE_W = 240, FIRE_H = 96, FIRE_MAX = 36 };
+
+static unsigned fire_rand(Ambient *a) { a->seed = a->seed * 1103515245u + 12345u; return a->seed >> 16; }
+
+/* black, ember red, orange, yellow, near white */
+static void fire_colour(int h, uint8_t *o)
+{
+    float t = (float)h / FIRE_MAX;
+    float r = t < 0.5f ? t * 2 : 1, g = t < 0.35f ? 0 : t < 0.85f ? (t - 0.35f) * 1.6f : 0.8f + (t - 0.85f) * 1.3f, b = t < 0.8f ? 0 : (t - 0.8f) * 3.5f;
+    o[0] = (uint8_t)(255 * (r > 1 ? 1 : r)); o[1] = (uint8_t)(255 * (g > 1 ? 1 : g)); o[2] = (uint8_t)(255 * (b > 1 ? 1 : b));
+    o[3] = (uint8_t)(h <= 1 ? 0 : t < 0.25f ? 255 * t * 4 : 255);
+}
+
+static void fire_step(Ambient *a)
+{
+    unsigned char *h = a->heat;
+    a->fire_t += 1.0f / 24;
+    float t = a->fire_t;
+    /* the embers: hottest in the middle, fading to the sides, with slow swells so the
+     * flames rise and fall in tongues instead of a flat wall */
+    for (int x = 0; x < FIRE_W; x++) {
+        float u = (float)x / FIRE_W;
+        float edge = u < 0.18f ? u / 0.18f : u > 0.82f ? (1 - u) / 0.18f : 1;
+        float swell = 0.62f + 0.22f * sinf(u * 17 + t * 1.3f) + 0.16f * sinf(u * 41 - t * 2.1f);
+        float v = edge * swell * FIRE_MAX + (float)(fire_rand(a) % 5) - 2;
+        h[(FIRE_H - 1) * FIRE_W + x] = (unsigned char)(v < 0 ? 0 : v > FIRE_MAX ? FIRE_MAX : v);
+    }
+    /* each cell rises into the one above, drifting a cell sideways and cooling a little */
+    for (int y = 1; y < FIRE_H; y++)
+        for (int x = 0; x < FIRE_W; x++) {
+            int src = y * FIRE_W + x;
+            unsigned r = fire_rand(a) & 3;
+            int dst = src - (int)r + 1 - FIRE_W;
+            if (dst < 0 || dst >= FIRE_W * FIRE_H) continue;
+            int v = h[src] - (int)(r & 1);
+            h[dst] = (unsigned char)(v < 0 ? 0 : v);
+        }
+    for (int i = 0; i < FIRE_W * FIRE_H; i++) fire_colour(h[i], a->px + i * 4);
+}
+
+static void draw_fire(Ambient *a, float sx, float sy, const char *clock, struct tm *tmv)
+{
+    /* the hearth: a warm glow on the back wall, the flames, then the logs in front */
+    gfx_gradient_v(0, SNTV_UI_H * 0.35f, SNTV_UI_W, SNTV_UI_H * 0.65f, RGBA(0, 0, 0, 0), RGBA(0x5A, 0x1C, 0x04, 0xB0));
+    if (a->fire_tex) gfx_rtex_uv(a->fire_tex, SNTV_UI_W * 0.12f, SNTV_UI_H * 0.28f, SNTV_UI_W * 0.76f, SNTV_UI_H * 0.62f, 0, 0, 0, 1, 1, RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0);
+    float ly = SNTV_UI_H * 0.86f;
+    gfx_rrect(SNTV_UI_W * 0.20f, ly, SNTV_UI_W * 0.34f, 46, 23, RGBA(0x3A, 0x22, 0x14, 0xFF));
+    gfx_rrect(SNTV_UI_W * 0.46f, ly + 10, SNTV_UI_W * 0.34f, 46, 23, RGBA(0x2E, 0x1B, 0x10, 0xFF));
+    gfx_rrect(SNTV_UI_W * 0.32f, ly - 30, SNTV_UI_W * 0.36f, 40, 20, RGBA(0x45, 0x29, 0x18, 0xFF));
+    gfx_rect(0, SNTV_UI_H * 0.93f, SNTV_UI_W, SNTV_UI_H * 0.07f, RGBA(0x12, 0x0C, 0x09, 0xFF));   /* the hearth floor */
+    char date[64]; strftime(date, sizeof date, "%A, %B %-d", tmv);
+    float cx = SNTV_UI_W / 2 + sx * 6, cy = 70 + sy * 4;
+    font_draw_center(clock, cx, cy, FONT_HUGE | FONT_B, RGBA(0xF4, 0xE6, 0xD8, 0xF0));
+    font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 6, FONT_M, RGBA(0xC8, 0xA8, 0x90, 0xD0));
+}
 
 #define LOGO_S 150.0f
 
@@ -89,6 +197,27 @@ static void update(Screen *s, float dt)
         return;
     }
     if (g_app.ambient_style == AMBIENT_WALL) { a->wall_y += dt * 18; return; }
+    if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real one: looped, or the next way to play it */
+        VideoInfo vi; video_info(&vi);
+        if (vi.state == VIDEO_ENDED) { video_seek(0); video_play(); }
+        else if (vi.state == VIDEO_ERROR) { a->fv_i++; fv_play(a); }
+        return;
+    }
+    if (g_app.ambient_style == AMBIENT_FIRE) {   /* 24 steps a second, whatever the frame rate */
+        if (!a->heat) {
+            a->heat = calloc(FIRE_W * FIRE_H, 1); a->px = calloc(FIRE_W * FIRE_H, 4); a->seed = (unsigned)time(NULL);
+            if (!a->heat || !a->px) return;
+            for (int i = 0; i < 60; i++) fire_step(a);   /* lit already */
+            a->fire_tex = gfx_texture_rgba(a->px, FIRE_W, FIRE_H);
+        }
+        a->fire_acc += dt;
+        if (a->fire_acc >= 1.0f / 24) {
+            a->fire_acc = a->fire_acc > 0.2f ? 0 : a->fire_acc - 1.0f / 24;
+            fire_step(a);
+            gfx_texture_update(a->fire_tex, a->px, FIRE_W, FIRE_H);
+        }
+        return;
+    }
     if (g_app.ambient_style == AMBIENT_CLOCK || !a->n) return;
     a->t += dt;
     if (a->fade > 0) { a->fade -= dt / FADE_S; if (a->fade < 0) a->fade = 0; }
@@ -166,6 +295,21 @@ static void draw(Screen *s)
         font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 10, FONT_M, RGBA(0x90, 0x90, 0x98, 0xFF));
         return;
     }
+    if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real fireplace, the clock over it */
+        gfx_video_hole(0, 0, SNTV_UI_W, SNTV_UI_H);
+        gfx_gradient_v(0, 0, SNTV_UI_W, 300, RGBA(0, 0, 0, 0x90), RGBA(0, 0, 0, 0));
+        char date[64]; strftime(date, sizeof date, "%A, %B %-d", &tmv);
+        float cx = SNTV_UI_W / 2 + sx * 6, cy = 70 + sy * 4;
+        font_draw_center(big, cx, cy, FONT_HUGE | FONT_B, RGBA(0xF4, 0xEC, 0xE4, 0xF0));
+        font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 6, FONT_M, RGBA(0xE0, 0xD0, 0xC4, 0xD0));
+        return;
+    }
+    if (g_app.ambient_style == AMBIENT_FIRE) {
+        draw_fire(a, sx, sy, big, &tmv);
+        const char *hint = a->fv_state == 1 ? "Getting the fireplace video\xE2\x80\xA6" : !*store_get_str("fireplaceVideo", "") ? "For a real fireplace, add a video in Settings > Interface > Fireplace video" : NULL;
+        if (hint) font_draw_center(hint, SNTV_UI_W / 2, SNTV_UI_H - 34, FONT_XS, RGBA(0x90, 0x80, 0x78, 0xC0));
+        return;
+    }
     if (g_app.ambient_style == AMBIENT_LOGO) {
         ui_mark(a->lx, a->ly, LOGO_S);
         float cw = font_measure(big, FONT_L | FONT_B);
@@ -209,6 +353,10 @@ static void destroy(Screen *s)
 {
     Ambient *a = s->st;
     free(a->items);
+    if (a->fire_tex) gfx_texture_destroy(a->fire_tex);
+    if (g_amb_live == a) g_amb_live = NULL;
+    if (a->fv_state == 2) video_stop();
+    free(a->heat); free(a->px);
     free(a);
     free(s);
 }
@@ -220,6 +368,8 @@ Screen *screen_ambient_create(void)
     collect(a);
     a->shown_at = g_app.time;
     a->lx = SNTV_UI_W * 0.3f; a->ly = SNTV_UI_H * 0.35f; a->lvx = 90; a->lvy = 64;
+    g_amb_live = a;
+    if (g_app.ambient_style == AMBIENT_FIRE) fv_start(a);
     LOGI("ambient: %s screensaver with %d backdrops", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n);
     s->name = "ambient"; s->st = a;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;

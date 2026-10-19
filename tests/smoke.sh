@@ -323,6 +323,10 @@ run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng",
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)
 run ambient 200 "" SNTV_AMBIENT_SECONDS=1
+run ambient_fire 400 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with fire '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2}')"
+run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
+grep -q "ambient: fireplace video 1/3" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.mpd (Fireplace)" "$OUT/ambient_fire_video.log" \
+  || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }
 run ambient_paused 300 "right,ok,down,down,ok,ok,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run login_qr 260 "left,down,down,down,down,down,down,ok"
 run login_pw 280 "left,down,down,down,down,down,down,ok,ok"

@@ -79,5 +79,6 @@ unsigned gfx_texture_rgba(const uint8_t *px, int w, int h);
 unsigned gfx_texture_rgba_mip(const uint8_t *px, int w, int h);
 unsigned gfx_texture_alpha(const uint8_t *px, int w, int h);
 void     gfx_texture_destroy(unsigned tex);
+void     gfx_texture_update(unsigned tex, const uint8_t *px, int w, int h);   /* same size, RGBA: animated pictures */
 
 #endif

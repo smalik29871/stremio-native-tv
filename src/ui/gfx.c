@@ -432,6 +432,15 @@ static unsigned make_tex(GLenum fmt, const uint8_t *px, int w, int h, int mip)
     return t;
 }
 unsigned gfx_texture_rgba(const uint8_t *px, int w, int h) { return make_tex(GL_RGBA, px, w, h, 0); }
+void gfx_texture_update(unsigned tex, const uint8_t *px, int w, int h)
+{
+    if (!tex) return;
+    flush();
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    g_cur_tex = 0;
+}
 unsigned gfx_texture_rgba_mip(const uint8_t *px, int w, int h) { return make_tex(GL_RGBA, px, w, h, 1); }
 unsigned gfx_texture_alpha(const uint8_t *px, int w, int h) { return make_tex(GL_ALPHA, px, w, h, 0); }
 

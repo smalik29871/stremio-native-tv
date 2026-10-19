@@ -1721,7 +1721,7 @@ void play_candidates_free(PlayCandidate *c, int n)
 /* ---- shared widgets -------------------------------------------------------- */
 
 const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
-const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo" };
+const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo", "Fireplace" };
 
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
 {
