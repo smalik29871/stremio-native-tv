@@ -57,6 +57,8 @@ grep -q 'search: "Morgan Freeman" from a title page' "$OUT/detail_cast.log" || {
 run detail_more_like 320 "wait,ok,down,down,down,ok" HOME="$(home_with about_more "$ABOUT_HOME")"
 grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "More like this did not open the title"; grep detail "$OUT/detail_more_like.log"; exit 1; }
 run detail_about_series 300 "right,ok,down,down,down"
+run detail_trailer_app 320 "wait,ok,right,ok,wait,wait,wait,wait" HOME="$(home_with trailer_app "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9
+grep -q "video(null): open app youtube.leanback.v4" "$OUT/detail_trailer_app.log" || { echo "a refused trailer did not open the YouTube app"; grep -E "detail|youtube" "$OUT/detail_trailer_app.log"; exit 1; }
 run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"

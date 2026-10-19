@@ -114,3 +114,4 @@ void video_select_track(TrackKind kind, int index)
 }
 
 int video_open_app(const char *app_id) { LOGI("video(null): open app %s", app_id); return 0; }
+int video_open_app_params(const char *app_id, const char *params_json) { LOGI("video(null): open app %s %s", app_id, params_json ? params_json : ""); return 0; }

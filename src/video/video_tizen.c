@@ -141,3 +141,4 @@ void video_select_track(TrackKind kind, int index)
 }
 
 int video_open_app(const char *app_id) { (void)app_id; return -1; }
+int video_open_app_params(const char *app_id, const char *params_json) { (void)app_id; (void)params_json; return -1; }

@@ -760,11 +760,14 @@ static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
     return 1;
 }
 
-int video_open_app(const char *app_id)
+int video_open_app(const char *app_id) { return video_open_app_params(app_id, NULL); }
+
+int video_open_app_params(const char *app_id, const char *params_json)
 {
     if (!g_bus || !L.Call) return -1;
-    char payload[200];
-    snprintf(payload, sizeof payload, "{\"id\":\"%s\"}", app_id);
+    char payload[600];
+    if (params_json) snprintf(payload, sizeof payload, "{\"id\":\"%s\",\"params\":%s}", app_id, params_json);
+    else snprintf(payload, sizeof payload, "{\"id\":\"%s\"}", app_id);
     LSError e; L.ErrorInit(&e);
     int sent = L.Call(g_bus, "luna://com.webos.applicationManager/launch", payload, NULL, NULL, NULL, &e);
     if (!sent) ls_error_log("launch", &e);

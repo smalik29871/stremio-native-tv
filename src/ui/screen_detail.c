@@ -14,6 +14,7 @@
 #include "../store.h"
 #include "../youtube.h"
 #include "../phone.h"
+#include "../video/video.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -73,7 +74,7 @@ static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0
 
 /* ---- the trailer: fetched from YouTube once, then played from the TV ---- */
 
-static struct { char id[128]; int busy; } g_trailer;   /* one fetch at a time, for the title `id` */
+static struct { char id[128]; char yt[32]; int busy; } g_trailer;   /* one fetch at a time, for the title `id` */
 
 static void trailer_url(const char *yt, char *out, size_t n) { snprintf(out, n, "https://www.youtube.com/watch?v=%s", yt); }
 
@@ -92,11 +93,27 @@ static void trailer_play_saved(const char *name, const MetaPreview *meta)
     app_push(screen_player_create(meta, vid, title, c, 1, 0, 0, NULL, NULL));
 }
 
+/* YouTube refuses the TV's own download now and then ("sign in to confirm you're not a
+ * bot"); the TV's YouTube app is signed in and trusted, so the trailer opens there. */
+static int trailer_in_youtube_app(const char *yt)
+{
+    char params[160];
+    snprintf(params, sizeof params, "{\"contentTarget\":\"https://www.youtube.com/tv?v=%s\"}", yt);
+    if (video_open_app_params("youtube.leanback.v4", params) != 0) return 0;
+    LOGI("detail: trailer %s opened in the YouTube app", yt);
+    return 1;
+}
+
 static void on_trailer(const char *name, const char *error, void *user)
 {
     (void)user;
     g_trailer.busy = 0;
-    if (!name) { LOGW("detail: trailer for %s failed: %s", g_trailer.id, error ? error : "?"); app_toast("The trailer could not be fetched%s%s", error ? ": " : "", error ? error : ""); return; }
+    if (!name) {
+        LOGW("detail: trailer for %s failed: %s", g_trailer.id, error ? error : "?");
+        if (g_trailer.yt[0] && trailer_in_youtube_app(g_trailer.yt)) return;
+        app_toast("The trailer could not be fetched%s%s", error ? ": " : "", error ? error : "");
+        return;
+    }
     Screen *top = app_top();
     if (top && strcmp(top->name, "detail") == 0 && strcmp(((Detail *)top->st)->preview.id, g_trailer.id) == 0) trailer_play_saved(name, &((Detail *)top->st)->preview);
     else app_toast("The trailer is ready: Trailer on the title page plays it");
@@ -111,6 +128,7 @@ static void trailer_play(Detail *d)
     if (youtube_saved(url, 1, name, sizeof name, &is_video) && is_video) { trailer_play_saved(name, &d->preview); return; }
     if (g_trailer.busy) { app_toast(strcmp(g_trailer.id, d->preview.id) == 0 ? "Getting the trailer\xE2\x80\xA6" : "Another trailer is on its way; one at a time"); return; }
     snprintf(g_trailer.id, sizeof g_trailer.id, "%s", d->preview.id);
+    snprintf(g_trailer.yt, sizeof g_trailer.yt, "%s", d->meta.trailer_yt);
     g_trailer.busy = 1;
     LOGI("detail: fetching the trailer for %s (%s)", d->preview.id, d->meta.trailer_yt);
     youtube_save(url, 1, on_trailer, NULL);

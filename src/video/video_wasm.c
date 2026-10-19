@@ -99,3 +99,4 @@ void video_subtitle_style(int size, int style, int position, int sync_ms) { (voi
 void video_select_track(TrackKind kind, int index) { js_track_select((int)kind, index); g_info.tracks_version++; }
 
 int video_open_app(const char *app_id) { (void)app_id; return -1; }
+int video_open_app_params(const char *app_id, const char *params_json) { (void)app_id; (void)params_json; return -1; }

@@ -70,5 +70,7 @@ int  video_install_status(char *out, size_t n);
 /* Opens another app (the Homebrew Channel, when this TV won't let us ask its installer).
  * 0 when the request went out. */
 int  video_open_app(const char *app_id);
+/* The same with launch parameters (a JSON object, e.g. {"contentTarget":"v=ID"}). */
+int  video_open_app_params(const char *app_id, const char *params_json);
 
 #endif

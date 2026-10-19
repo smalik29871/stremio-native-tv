@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.7
+
+- **Trailers when YouTube says "sign in".** YouTube sometimes refuses the TV's own
+  download ("Sign in to confirm you're not a bot"); the trailer now opens in the TV's
+  YouTube app instead, which is signed in and trusted. Back returns to Stremio.
+
 ## 0.10.6
 
 - **No "Buffering keeps stopping" from seeking.** Rewinding or skipping makes the player
