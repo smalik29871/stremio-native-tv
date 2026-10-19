@@ -64,25 +64,6 @@ void skip_url_kitsu_mappings(const char *kitsu_id, char *url, size_t n)
              base("SNTV_KITSU_API", "https://kitsu.io/api/edge"), kitsu_id);
 }
 
-void skip_url_arm(const char *imdb_id, char *url, size_t n)
-{
-    snprintf(url, n, "%s/imdb?id=%s", base("SNTV_ARM_API", "https://arm.haglund.dev/api/v2"), imdb_id);
-}
-
-long skip_parse_arm_mal(const char *json)
-{
-    cJSON *root = cJSON_Parse(json);
-    long mal = 0; int distinct = 0;
-    const cJSON *it;
-    if (cJSON_IsArray(root)) cJSON_ArrayForEach(it, root) {
-        const cJSON *m = cJSON_GetObjectItemCaseSensitive(it, "myanimelist");
-        if (!cJSON_IsNumber(m) || m->valuedouble <= 0) continue;
-        if ((long)m->valuedouble != mal) { mal = (long)m->valuedouble; distinct++; }
-    }
-    cJSON_Delete(root);
-    return distinct == 1 ? mal : 0;   /* several entries (one per season): which one is not certain */
-}
-
 /* ms value: number, or null/missing -> -1 */
 static double ms(const cJSON *o, const char *key)
 {

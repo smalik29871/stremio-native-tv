@@ -220,23 +220,6 @@ class H(BaseHTTPRequestHandler):
         # only a torrent (FAKE_TORRENT_HASH, seeded on this machine) and an uncached TorBox
         # entry; later answers add a cached TorBox copy, as when TorBox catches up.
         # /p2ponly/...: the same addon while TorBox never catches up.
-        # /anime/...: the same addon with its titles tagged Anime (the AniSkip fallback for IMDb ids)
-        if p.startswith("/anime/"):
-            p = p[6:]
-            if p.startswith("/catalog/") or p.startswith("/meta/series/"):
-                body = CATALOG if p.startswith("/catalog/") else META
-                body = json.loads(json.dumps(body))
-                for m in body.get("metas", []) + ([body["meta"]] if "meta" in body else []):
-                    m["genres"] = ["Anime", "Action"]
-                return self.send(200, json.dumps(body).encode())
-        if p.startswith("/arm/imdb"):   # arm.haglund.dev: one MyAnimeList entry for the show
-            return self.send(200, json.dumps([{"myanimelist": 21, "imdb": "tt0903747"}]).encode())
-        if p.startswith("/aniskip/skip-times/"):   # AniSkip v2: an opening from 0:30 to 2:00
-            ep = int(p.split("/skip-times/")[1].split("/")[1].split("?")[0])
-            return self.send(200, json.dumps({"found": True, "results": [{"interval": {"startTime": 30, "endTime": 120}, "skipType": "op",
-                                                                          "skipId": f"e{ep}", "episodeLength": 0}]}).encode())
-        if p.startswith("/nointro/"):
-            return self.send(404, b"{}")
         if p.startswith("/p2p/") or p.startswith("/p2ponly/"):
             only = p.startswith("/p2ponly/")
             p = p[8:] if only else p[4:]

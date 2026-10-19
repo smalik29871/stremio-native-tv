@@ -43,12 +43,6 @@ int skip_parse_introdb(const char *json, int season, int episode, SkipSeg *out, 
  * are known) and drops releases more than 10% longer or shorter. */
 int skip_parse_aniskip(const char *json, double duration, SkipSeg *out, int max);
 
-/* arm.haglund.dev: which MyAnimeList entries an IMDb id covers (SNTV_ARM_API). */
-void skip_url_arm(const char *imdb_id, char *url, size_t n);
-/* The MyAnimeList id when the IMDb id maps to exactly one entry (its episodes are then
- * numbered from the first to the last, across the IMDb seasons), else 0. */
-long skip_parse_arm_mal(const char *json);
-
 /* Kitsu mappings: the externalId of the myanimelist/anime mapping, or 0. */
 long skip_parse_kitsu_mal(const char *json);
 

@@ -741,45 +741,6 @@ static void skip_done(Player *p, int n, const char *from)
     app_redraw();
 }
 
-static void ask_aniskip(Player *p, long mal);
-
-/* Anime listed under IMDb ids: tagged so by the catalog. */
-static int is_anime(const Player *p)
-{
-    for (int i = 0; i < p->meta.genres.n; i++)
-        if (strcasecmp(p->meta.genres.v[i], "anime") == 0 || strcasecmp(p->meta.genres.v[i], "animation") == 0) return 1;
-    return 0;
-}
-
-/* The episode counted from the first, across seasons (specials left out): how
- * MyAnimeList numbers a show it keeps as one entry. 0 when not known. */
-static int absolute_episode(const Player *p)
-{
-    if (p->skip_id.season < 1 || p->skip_id.episode < 1) return 0;
-    int n = 0, before = 0, found = 0;
-    const MetaVideo *v = app_videos(p->meta.id, &n);
-    for (int i = 0; v && i < n; i++) {
-        if (v[i].season < 1 || v[i].episode < 1) continue;
-        if (v[i].season < p->skip_id.season) before++;
-        else if (v[i].season == p->skip_id.season && v[i].episode == p->skip_id.episode) found = 1;
-    }
-    return found ? before + p->skip_id.episode : 0;
-}
-
-static void on_arm(HttpResponse *r, void *user)
-{
-    SubReq *q = user;
-    Player *p = q->owner;
-    if (p != g_live || q->gen != p->gen) { free(q); return; }
-    free(q);
-    long mal = r->status == 200 && r->body ? skip_parse_arm_mal(r->body) : 0;
-    int ep = p->skip_id.season < 0 ? 1 : absolute_episode(p);
-    if (mal <= 0 || ep <= 0) { skip_done(p, 0, mal > 0 ? "AniSkip (episode not numbered)" : "TheIntroDB"); return; }
-    LOGI("player: anime %s is MyAnimeList %ld, episode %d", p->skip_id.id, mal, ep);
-    p->skip_id.episode = ep;
-    ask_aniskip(p, mal);
-}
-
 static void on_introdb(HttpResponse *r, void *user)
 {
     SubReq *q = user;
@@ -792,14 +753,6 @@ static void on_introdb(HttpResponse *r, void *user)
         if (n < 0) LOGW("player: TheIntroDB answered for another episode, markers ignored");
     } else if (r->status != 204 && r->status != 404) {
         LOGW("player: TheIntroDB status %ld %s", r->status, r->error);
-    }
-    if (n <= 0 && is_anime(p)) {   /* nothing there: AniSkip, when the show maps to one MyAnimeList entry */
-        char url[300];
-        skip_url_arm(p->skip_id.id, url, sizeof url);
-        SubReq *q2 = malloc(sizeof *q2);
-        q2->owner = p; q2->gen = p->gen; q2->addon = -1;
-        http_request_async(url, NULL, on_arm, q2);
-        return;
     }
     skip_done(p, n, "TheIntroDB");
 }
