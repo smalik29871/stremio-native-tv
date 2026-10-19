@@ -93,6 +93,7 @@ struct Player {
     int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
     int lighter_to; int lighter_offered;    /* buffering keeps stopping: a lower resolution offered (-1 none) */
     int stalls_here;                        /* stalls since this source started */
+    double pos_seen; float jumped_at;       /* the playhead jumped (a seek): the buffering after it is not the connection's fault */
     float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
     double embedded_offset;   /* timing for the TV's own subtitles, seconds (positive = later) */
@@ -1192,10 +1193,13 @@ static void update(Screen *s, float dt)
         streams_prefetch(&p->meta, p->next_video_id);
     }
     next_progress_update(p, dt);
-    if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; p->stalls_here++; p->stall_since = g_app.time; }
+    if (fabs(vi.position - p->pos_seen) > 3 + dt * 4 || p->seek_commit > 0) p->jumped_at = g_app.time;   /* seeking, or just sought */
+    p->pos_seen = vi.position;
+    int settled = g_app.time - p->jumped_at > 8 && vi.state == VIDEO_PLAYING;
+    if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; if (settled) p->stalls_here++; p->stall_since = g_app.time; }
     /* it keeps stopping to buffer: offer the best source below this one's resolution, once */
     if (!p->lighter_offered && !p->trailer && p->n_cands > 1 && vi.state != VIDEO_LOADING
-        && (p->stalls_here >= 3 || (vi.buffering && p->stall_since > 0 && g_app.time - p->stall_since > 10))) {
+        && (p->stalls_here >= 3 || (settled && vi.buffering && p->stall_since > 0 && g_app.time - p->stall_since > 10))) {
         int cur = p->cands[p->cur].res ? p->cands[p->cur].res : 1081, best = -1;
         for (int i = 0; i < p->n_cands; i++)
             if (i != p->cur && p->cands[i].res > 0 && p->cands[i].res < cur && (best < 0 || p->cands[i].res > p->cands[best].res)) best = i;
@@ -2323,6 +2327,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     Player *p = calloc(1, sizeof *p);
     p->bar_id = BTN_PLAY;
     p->lighter_to = -1;
+    p->jumped_at = -100;
     p->trailer = strncmp(video_id, "trailer:", 8) == 0;
     if (!p->trailer) island_resume(NULL, NULL, 0);   /* watching again: nothing to offer back */
     meta_preview_copy(&p->meta, meta);

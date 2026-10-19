@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.6
+
+- **No "Buffering keeps stopping" from seeking.** Rewinding or skipping makes the player
+  fill its buffer again; those pauses, and any while paused, no longer count towards
+  offering a lighter source. Only buffering during plain playback does.
+
 ## 0.10.5
 
 - **Explore's list and genre rows scroll properly.** Moving along a long row no longer

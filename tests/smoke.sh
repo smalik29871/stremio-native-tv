@@ -169,6 +169,8 @@ run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 
 grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
 run player_lighter_ok 820 "right,ok,down,down,ok,ok$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
 grep -q "player: switching to the lighter source [0-9]" "$OUT/player_lighter_ok.log" || { echo "OK did not take the lighter source"; grep player "$OUT/player_lighter_ok.log"; exit 1; }
+run player_lighter_seek 700 "right,ok,down,down,ok,ok,right,right,right,right,right,left,left,left,right,right,right" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_seek "$NO_PREFLIGHT")"
+grep -q "offering source" "$OUT/player_lighter_seek.log" && { echo "seeking counted as buffering trouble"; exit 1; }
 run library_stats 280 "left,down,down,down,ok,up,right,right,right,right,ok"
 run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
