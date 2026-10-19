@@ -88,6 +88,10 @@ void video_set_display_rect(int x, int y, int w, int h) { if (g_player) player_s
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 
+/* No installer on this platform: updates come from its store. */
+int video_install_update(const char *ipk_url, const char *sha256, const char *app_id) { (void)ipk_url; (void)sha256; (void)app_id; return -1; }
+int video_install_status(char *out, size_t n) { if (n) out[0] = 0; return 0; }
+
 void video_update(void)
 {
     if (!g_player) return;

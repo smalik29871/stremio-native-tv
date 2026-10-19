@@ -2,6 +2,7 @@
  * UI, track menu, progress reporting and library sync can be exercised. */
 #include "video.h"
 #include "../log.h"
+#include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,24 @@ void video_set_rate(double r) { g_rate = r; }
 void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
+
+/* No installer here. SNTV_FAKE_INSTALL (tests) walks through the steps a TV shows. */
+static double g_install_at;
+int video_install_update(const char *ipk_url, const char *sha256, const char *app_id)
+{
+    (void)ipk_url; (void)sha256; (void)app_id;
+    if (!getenv("SNTV_FAKE_INSTALL")) return -1;
+    g_install_at = SDL_GetTicks() / 1000.0;
+    return 0;
+}
+int video_install_status(char *out, size_t n)
+{
+    if (!g_install_at) { snprintf(out, n, "%s", ""); return 0; }
+    double t = SDL_GetTicks() / 1000.0 - g_install_at;
+    if (t < 1.5) { snprintf(out, n, "Downloading\xE2\x80\xA6  %d%%", (int)(t / 1.5 * 100)); return 1; }
+    if (t < 2.5) { snprintf(out, n, "Installing\xE2\x80\xA6"); return 1; }
+    snprintf(out, n, "Finished."); return 2;
+}
 
 void video_update(void)
 {

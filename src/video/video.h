@@ -60,4 +60,12 @@ void video_set_display_rect(int x, int y, int w, int h);
 void video_app_background(void);
 void video_app_foreground(void);
 
+/* Updating the app itself (here because the system bus lives in this backend). On webOS
+ * the Homebrew Channel's service downloads the package, checks its SHA-256 and installs
+ * it; the system closes this app while it does. 0 when the request went out. */
+int  video_install_update(const char *ipk_url, const char *sha256, const char *app_id);
+/* What the installer said last ("Downloading…  42%"), and its state:
+ * 0 nothing asked, 1 working, 2 finished, -1 failed (out has the reason). */
+int  video_install_status(char *out, size_t n);
+
 #endif

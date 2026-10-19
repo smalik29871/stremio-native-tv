@@ -308,7 +308,8 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(data[a:b + 1])
             return
         if p == "/repo.json":   # an update notice
-            return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {"version": "9.9.9"}}]}).encode())
+            return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {
+                "version": "9.9.9", "ipkUrl": f"{BASE}/org.stremio.nativetv_9.9.9_arm.ipk", "ipkHash": {"sha256": "ab" * 32}}}]}).encode())
         if p.startswith("/sub_matched.srt"):   # the file-matched subtitle: the same cues, 2 s later
             src = SRT
             import re as _re

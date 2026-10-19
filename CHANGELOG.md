@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.7
+
+- **Updates install themselves.** The app checks for a new release at start and every
+  six hours (it used to check once a day and only tell you). When there is one, it
+  waits until nothing is playing, shows a 10-second countdown (OK: now; Back: not now,
+  it asks again at the next start), then asks the Homebrew Channel to download the
+  package, check its SHA-256 and install it, with progress on screen. webOS closes the
+  app while it installs; open it again from the Home screen.
+- **Settings > About > Update** checks or installs right away, and *Update
+  automatically* turns the automatic part off (you then get a notice instead).
+
 ## 0.8.6
 
 - **Sign-in and settings survive the TV losing power.** Settings were saved by writing a

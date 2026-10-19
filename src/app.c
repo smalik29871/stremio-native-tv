@@ -897,8 +897,11 @@ void app_library_dismiss_continue(const MetaPreview *meta)
     app_toast("Removed from Continue Watching");
 }
 
-/* ---- update notice ---- */
-char g_update_version[16];
+/* ---- updates ---- */
+char g_update_version[16], g_update_url[600], g_update_sha256[80];
+static int g_update_offered;   /* the countdown was shown this run (Back means: later) */
+static int g_update_manual;    /* a check the viewer asked for: say the result */
+
 static int version_newer(const char *a, const char *b)   /* a > b, dotted numbers */
 {
     int x[3] = { 0 }, y[3] = { 0 };
@@ -906,38 +909,69 @@ static int version_newer(const char *a, const char *b)   /* a > b, dotted number
     for (int i = 0; i < 3; i++) if (x[i] != y[i]) return x[i] > y[i];
     return 0;
 }
+
 static void on_repo(HttpResponse *r, void *user)
 {
     (void)user;
-    if (r->status != 200) return;
+    int manual = g_update_manual;
+    g_update_manual = 0;
+    if (r->status != 200) { if (manual) app_toast("Could not check for updates (%ld)", r->status); return; }
     cJSON *root = cJSON_Parse(r->body);
     const cJSON *pk = root ? cJSON_GetObjectItemCaseSensitive(root, "packages") : NULL;
     const cJSON *p0 = cJSON_IsArray(pk) ? cJSON_GetArrayItem(pk, 0) : NULL;
     const cJSON *mf = p0 ? cJSON_GetObjectItemCaseSensitive(p0, "manifest") : NULL;
-    const cJSON *v = mf ? cJSON_GetObjectItemCaseSensitive(mf, "version") : NULL;
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(mf, "version");
+    const cJSON *url = cJSON_GetObjectItemCaseSensitive(mf, "ipkUrl");
+    const cJSON *sha = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(mf, "ipkHash"), "sha256");
     if (cJSON_IsString(v) && version_newer(v->valuestring, SNTV_APP_VERSION)) {
         snprintf(g_update_version, sizeof g_update_version, "%s", v->valuestring);
-        if (strcmp(store_get_str("updateToldFor", ""), v->valuestring) != 0) {
-            app_toast("Version %s is ready: Homebrew Channel > Stremio (native) > Update", v->valuestring);
+        snprintf(g_update_url, sizeof g_update_url, "%s", cJSON_IsString(url) ? url->valuestring : "");
+        snprintf(g_update_sha256, sizeof g_update_sha256, "%s", cJSON_IsString(sha) ? sha->valuestring : "");
+        LOGI("update: %s available (running %s)", v->valuestring, SNTV_APP_VERSION);
+        if ((manual || !g_app.auto_update) && strcmp(store_get_str("updateToldFor", ""), v->valuestring) != 0) {
+            app_toast("Version %s is ready: Settings > About > Update", v->valuestring);
             store_set_str("updateToldFor", v->valuestring); store_save();
         }
-        LOGI("update: %s available (running %s)", v->valuestring, SNTV_APP_VERSION);
-    }
+    } else if (manual) app_toast("Stremio (native) %s is the newest version", SNTV_APP_VERSION);
     if (root) cJSON_Delete(root);
 }
+
+static const char *repo_url(void)
+{
+    const char *url = getenv("SNTV_UPDATE_URL");
+    return url ? url : "https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json";
+}
+
+void app_update_check_now(void)
+{
+    g_update_manual = 1;
+    http_request_async(repo_url(), NULL, on_repo, NULL);
+}
+
+/* Somewhere it is fine for the app to close for a minute: nothing playing, no break. */
+static int quiet_moment(void)
+{
+    const Screen *top = app_top();
+    if (!top || g_app.pip) return 0;
+    static const char *const BUSY[] = { "player", "break", "welcome", "login", "update", "pin", NULL };
+    for (int i = 0; BUSY[i]; i++) if (!strcmp(top->name, BUSY[i])) return 0;
+    return g_app.time - g_app.last_input > 2;   /* not in the middle of pressing keys */
+}
+
 void app_update_check(float dt)
 {
-    static float t; static int done;
-    if (done) return;
+    static float t, next = -1;
+    if (next < 0) next = getenv("SNTV_UPDATE_URL") ? 1 : 20;   /* tests check at once */
     t += dt;
-    if (t < (getenv("SNTV_UPDATE_URL") ? 1 : 20)) return;
-    done = 1;
-    const char *url = getenv("SNTV_UPDATE_URL");
-    if (getenv("SNTV_SCREENSHOT") && !url) return;   /* headless test runs stay offline */
-    long last = atol(store_get_str("updateCheckedAt", "0"));
-    if (!url && time(NULL) - last < 20 * 3600) return;
-    char now[24]; snprintf(now, sizeof now, "%ld", (long)time(NULL)); store_set_str("updateCheckedAt", now);
-    http_request_async(url ? url : "https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json", NULL, on_repo, NULL);
+    if (g_update_version[0] && g_update_url[0] && g_update_sha256[0] && g_app.auto_update && !g_update_offered && quiet_moment()) {
+        g_update_offered = 1;
+        app_push(screen_update_create(10));
+        return;
+    }
+    if (t < next) return;
+    next = t + 6 * 3600;   /* then every six hours while it runs */
+    if (getenv("SNTV_SCREENSHOT") && !getenv("SNTV_UPDATE_URL")) return;   /* headless test runs stay offline */
+    http_request_async(repo_url(), NULL, on_repo, NULL);
 }
 
 /* ---- links that failed to start, sorted last for six hours ---- */
@@ -1361,6 +1395,7 @@ static void load_prefs(void)
     g_app.break_video = store_get_int("breakVideo", 1);
     g_app.src_audio_lang = store_get_int("srcAudioLang", 1);
     g_app.p2p_fallback = store_get_int("p2pFallback", 1);
+    g_app.auto_update = store_get_int("autoUpdate", 1);
     dead_load();
     g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && mem_small_tv());   /* main.c calls mem_apply_mode() once images exist */
     torrent_engine_set_cache_mb(g_app.low_memory ? 96 : 192);   /* the P2P engine's RAM for pieces */
@@ -1429,6 +1464,7 @@ void app_save_prefs(void)
     store_set_int("breakVideo", g_app.break_video);
     store_set_int("srcAudioLang", g_app.src_audio_lang);
     store_set_int("p2pFallback", g_app.p2p_fallback);
+    store_set_int("autoUpdate", g_app.auto_update);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();

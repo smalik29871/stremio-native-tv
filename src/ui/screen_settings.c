@@ -45,7 +45,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
        IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -101,7 +101,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         for (int i = 0; i < st->n_rows && n < max; i++) ids[n++] = IT_ROWS_BASE + i;
         break;
     case CAT_ADDONS: ids[n++] = IT_INSTALL; for (int i = 0; i < g_app.n_addons && n < max; i++) ids[n++] = IT_ADDON_BASE + i; break;
-    case CAT_ABOUT: ids[n++] = IT_DIAG; ids[n++] = IT_SETUP; break;
+    case CAT_ABOUT: ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; ids[n++] = IT_DIAG; ids[n++] = IT_SETUP; break;
     }
     return n;
 }
@@ -213,7 +213,7 @@ static void draw(Screen *s)
         snprintf(info, sizeof info, "Version %s  \xC2\xB7  %s  \xC2\xB7  %zu MB artwork in memory  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name(), image_cache_bytes() >> 20, mem);
         font_draw_fit(info, COL_X, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED, SNTV_UI_W - THEME_MARGIN - COL_X);
         char tv[300];
-        if (g_update_version[0]) snprintf(tv, sizeof tv, "Version %s is available: open Homebrew Channel, select Stremio (native), Update", g_update_version);
+        if (g_update_version[0]) snprintf(tv, sizeof tv, "Version %s is available: Update above installs it", g_update_version);
         else snprintf(tv, sizeof tv, "TV profile: %s", "learned from what played here; Diagnostics shows it");
         font_draw_fit(tv, COL_X, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED, SNTV_UI_W - THEME_MARGIN - COL_X);
     }
@@ -361,6 +361,14 @@ static void draw(Screen *s)
             break;
         case IT_BLUR: draw_row(y, ICON_LIBRARY, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
         case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log, device info, QR export", foc, KIND_ACTION, 0); break;
+        case IT_UPDATE: {
+            char v[160];
+            if (g_update_version[0]) snprintf(v, sizeof v, "Version %s is ready  \xC2\xB7  OK installs it now", g_update_version);
+            else snprintf(v, sizeof v, "%s is the newest we know of  \xC2\xB7  OK checks", SNTV_APP_VERSION);
+            draw_row(y, ICON_RELOAD, "Update", v, foc, KIND_ACTION, 0);
+            break;
+        }
+        case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Update automatically when nothing is playing", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
         case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         default:
@@ -627,6 +635,7 @@ static int adjust(Settings *st, int id, int dir)
         break;
     case IT_SRC_AUDIO: g_app.src_audio_lang = !g_app.src_audio_lang; break;
     case IT_P2P: g_app.p2p_fallback = !g_app.p2p_fallback; if (!g_app.p2p_fallback) torrent_engine_stop(); break;
+    case IT_AUTO_UPDATE: g_app.auto_update = !g_app.auto_update; break;
     case IT_ADDON_WAIT: { static const int L[] = { 3, 5, 8, 15, 30, 99 }; int k = 2; for (int i = 0; i < 6; i++) if (L[i] == g_app.addon_wait) k = i; g_app.addon_wait = L[(k + dir + 6) % 6]; break; }
     case IT_AI_PROVIDER: g_app.ai_provider = (g_app.ai_provider + dir + AI_PROVIDER_COUNT) % AI_PROVIDER_COUNT; break;
     case IT_MEMORY: {
@@ -730,6 +739,10 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));
+        else if (id == IT_UPDATE) {
+            if (g_update_version[0] && g_update_url[0] && g_update_sha256[0]) app_push(screen_update_create(0));
+            else { app_toast("Checking for updates\xE2\x80\xA6"); app_update_check_now(); }
+        }
         else if (id == IT_THUMBS) begin_edit(st, EDIT_THUMBS);
         else if (id == IT_TMDB) begin_edit(st, EDIT_TMDB);
         else if (id == IT_AI_KEY) begin_edit(st, EDIT_AI_KEY);

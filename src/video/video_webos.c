@@ -728,6 +728,75 @@ void video_set_display_rect(int x, int y, int w, int h)
 void video_app_background(void) { g_background = 1; video_pause(); }
 void video_app_foreground(void) { g_background = 0; acb_state(ACB_STATE_PAUSED); }
 
+/* ---- updating the app through the Homebrew Channel ---------------------------------
+ * Its service (org.webosbrew.hbchannel.service/install) downloads the package, checks
+ * the SHA-256 and installs it, answering with progress on the way. Replies arrive on
+ * the bus thread; the app reads the latest one from its own. */
+static pthread_mutex_t g_install_lock = PTHREAD_MUTEX_INITIALIZER;
+static char g_install_text[160];
+static int g_install_state;
+
+static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
+{
+    (void)sh; (void)ctx;
+    const char *payload = L.MessageGetPayload(msg);
+    cJSON *r = cJSON_Parse(payload ? payload : "");
+    const cJSON *status = cJSON_GetObjectItemCaseSensitive(r, "statusText"), *pct = cJSON_GetObjectItemCaseSensitive(r, "progress");
+    const cJSON *err = cJSON_GetObjectItemCaseSensitive(r, "errorText"), *ok = cJSON_GetObjectItemCaseSensitive(r, "returnValue");
+    pthread_mutex_lock(&g_install_lock);
+    if (cJSON_IsFalse(ok) || cJSON_IsString(err)) {
+        g_install_state = -1;
+        snprintf(g_install_text, sizeof g_install_text, "%.150s", cJSON_IsString(err) ? err->valuestring : "the Homebrew Channel refused the update");
+    } else if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "finished"))) {
+        g_install_state = 2;
+        snprintf(g_install_text, sizeof g_install_text, "Installed");
+    } else if (cJSON_IsString(status)) {
+        if (cJSON_IsNumber(pct)) snprintf(g_install_text, sizeof g_install_text, "%.100s  %d%%", status->valuestring, (int)pct->valuedouble);
+        else snprintf(g_install_text, sizeof g_install_text, "%.140s", status->valuestring);
+    }
+    pthread_mutex_unlock(&g_install_lock);
+    LOGI("update: installer says %.200s", payload ? payload : "");
+    if (r) cJSON_Delete(r);
+    return 1;
+}
+
+int video_install_update(const char *ipk_url, const char *sha256, const char *app_id)
+{
+    if (!g_bus || !L.Call) return -1;
+    cJSON *p = cJSON_CreateObject();
+    cJSON_AddStringToObject(p, "ipkUrl", ipk_url);
+    cJSON_AddStringToObject(p, "ipkHash", sha256);
+    cJSON_AddStringToObject(p, "id", app_id);
+    cJSON_AddTrueToObject(p, "subscribe");   /* progress comes as further replies */
+    char *payload = cJSON_PrintUnformatted(p);
+    cJSON_Delete(p);
+    pthread_mutex_lock(&g_install_lock);
+    g_install_state = 1;
+    snprintf(g_install_text, sizeof g_install_text, "Asking the Homebrew Channel\xE2\x80\xA6");
+    pthread_mutex_unlock(&g_install_lock);
+    LSError e; L.ErrorInit(&e);
+    int sent = L.Call(g_bus, "luna://org.webosbrew.hbchannel.service/install", payload, on_install, NULL, NULL, &e);
+    if (!sent) {
+        pthread_mutex_lock(&g_install_lock);
+        g_install_state = -1;
+        snprintf(g_install_text, sizeof g_install_text, "%.150s", e.message ? e.message : "the Homebrew Channel service did not answer");
+        pthread_mutex_unlock(&g_install_lock);
+        ls_error_log("hbchannel install", &e);
+    }
+    L.ErrorFree(&e);
+    free(payload);
+    return sent ? 0 : -1;
+}
+
+int video_install_status(char *out, size_t n)
+{
+    pthread_mutex_lock(&g_install_lock);
+    snprintf(out, n, "%s", g_install_text);
+    int s = g_install_state;
+    pthread_mutex_unlock(&g_install_lock);
+    return s;
+}
+
 void video_update(void)
 {
     if (!g_ready) return;

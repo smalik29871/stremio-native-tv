@@ -10,11 +10,11 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.8.6.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.8.7.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 118 scripted scenarios against a fake addon. See *What is verified* below.
+> 120 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -24,7 +24,16 @@ account API**: the same account, addons, Library and Continue Watching as the of
    ```
    https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json
    ```
-3. Back in the app list, install **Stremio (native)**. Updates appear there too.
+3. Back in the app list, install **Stremio (native)**.
+
+**Updates install themselves.** The app checks this repository at start and every six
+hours. When a new release is out it waits until nothing is playing, shows a 10-second
+countdown (Back postpones it to the next start), and asks the Homebrew Channel's own
+installer (`org.webosbrew.hbchannel.service/install`) to download the package, check its
+SHA-256 and install it. webOS closes the app while it installs; open it again afterwards.
+Settings > About has *Update* (check or install now) and *Update automatically*.
+The release files must stay publicly downloadable for this, as for the Homebrew Channel:
+a private repository's release files need a GitHub login that a TV does not have.
 
 Or download the `.ipk` from the [latest release](https://github.com/smalik29871/stremio-native-tv/releases/latest)
 and install it with Developer Mode (`ares-install`) or Dev Manager.
@@ -304,7 +313,7 @@ from the channel.
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (118 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (120 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |

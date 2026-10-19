@@ -97,6 +97,7 @@ typedef struct App {
     int addon_wait;            /* seconds auto-play waits for slow addons; 99 = all of them */
     int src_audio_lang;        /* rank sources that mention the preferred audio language higher */
     int p2p_fallback;          /* torrents play on this TV (torrent.h) when no streaming server is set */
+    int auto_update;           /* install new releases by itself at a quiet moment */
     int break_video;           /* show the video of a break recording full screen */
     /* take breaks (breaks.h) */
     int breaks_on, break_sched, break_method, break_asr_hanafi;
@@ -168,9 +169,14 @@ void app_episode_set_marks(const char *series_id, const char *const *video_ids, 
 void app_library_dismiss_continue(const MetaPreview *meta);   /* drop from Continue Watching, keep in Library */
 /* Links that failed to play are remembered for six hours and sorted last. */
 void app_link_failed(const char *url);
-/* Once a day, 20 s after start: is there a newer release in the Homebrew Channel repo? */
+/* 20 s after start, then every 6 hours: is there a newer release in the Homebrew
+ * Channel repo? With auto-update on, it is installed at the next quiet moment (nothing
+ * playing) after a countdown the viewer can cancel (screen_update_create). */
 void app_update_check(float dt);
+void app_update_check_now(void);
 extern char g_update_version[16];   /* "" or the newer version */
+extern char g_update_url[600], g_update_sha256[80];   /* the package and its checksum */
+Screen *screen_update_create(int countdown_s);
 int  app_link_dead(const char *url);
 
 /* Resolve a stream to a playable URL. Returns malloc'd string or NULL (with reason). */
