@@ -2,9 +2,11 @@
 #include "screen_options.h"
 #include "../app.h"
 #include "../ai.h"
+#include "../lists.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -102,7 +104,31 @@ Screen *screen_options_create(const char *title, const char *subtitle, const cha
     return screen_options_create_ex(title, subtitle, NULL, items, NULL, n, fn, user);
 }
 
-/* The usual options for a title: watched state, Continue Watching, Library. */
+/* Save to a list: the lists with a tick where the title is, OK puts it in or takes it out. */
+static MetaPreview g_list_title;   /* the title the sheet is about (one sheet at a time) */
+static void list_choice(int c, void *user)
+{
+    (void)user;
+    if (c < 0 || c >= LIST_COUNT || !g_list_title.id) return;
+    int added = lists_toggle(c, &g_list_title);
+    if (added >= 0) app_toast(added ? "Saved to %s" : "Taken out of %s", LIST_NAMES[c]);
+}
+void screen_options_lists(const MetaPreview *m)
+{
+    if (!m || !m->id) return;
+    meta_preview_free(&g_list_title);
+    meta_preview_copy(&g_list_title, m);
+    const char *items[LIST_COUNT]; int icons[LIST_COUNT]; char labels[LIST_COUNT][64];
+    for (int i = 0; i < LIST_COUNT; i++) {
+        int has = lists_has(i, m->id), n = lists_count(i);
+        if (n) snprintf(labels[i], sizeof labels[i], "%s  \xC2\xB7  %d title%s", LIST_NAMES[i], n, n == 1 ? "" : "s");
+        else snprintf(labels[i], sizeof labels[i], "%s", LIST_NAMES[i]);
+        items[i] = labels[i]; icons[i] = has ? ICON_CHECK : ICON_PLUS;
+    }
+    app_push(screen_options_create_ex("Save to a list", m->name, "Each list is a row on Home. A tick: the title is in it; OK takes it out.", items, icons, LIST_COUNT, list_choice, NULL));
+}
+
+/* The usual options for a title: watched state, Continue Watching, Library, lists. */
 typedef struct { MetaPreview m; } TitleOpt;
 static void title_choice(int c, void *user)
 {
@@ -114,6 +140,7 @@ static void title_choice(int c, void *user)
     else if (in_cw && c == k++) app_library_dismiss_continue(&t->m);
     else if (c == k++) app_library_toggle(&t->m);
     else if (ai_enabled() && c == k++) screen_detail_ask(&t->m);
+    else if (c == k++) screen_options_lists(&t->m);
     meta_preview_free(&t->m); free(t);
 }
 void screen_options_for_title(const MetaPreview *m)
@@ -121,11 +148,12 @@ void screen_options_for_title(const MetaPreview *m)
     if (!m || !m->id) return;
     LibraryItem *li = app_library_find(m->id);
     int watched = app_title_watched(m->id), in_cw = li && li->time_offset > 0, in_lib = li && !li->removed && !li->temp;
-    const char *items[5]; int n = 0;
+    const char *items[6]; int n = 0;
     items[n++] = watched ? "Mark as not watched" : "Mark as watched";
     if (in_cw) items[n++] = "Remove from Continue Watching";
     items[n++] = in_lib ? "Remove from Library" : "Add to Library";
     if (ai_enabled()) items[n++] = "Ask AI about it (spoiler-free)";
+    items[n++] = "Save to a list\xE2\x80\xA6";
     TitleOpt *t = calloc(1, sizeof *t);
     meta_preview_copy(&t->m, m);
     app_push(screen_options_create(m->name ? m->name : "Options", "Hold OK (or press Yellow) on any title", items, n, title_choice, t));

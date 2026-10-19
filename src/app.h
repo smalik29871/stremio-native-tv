@@ -89,6 +89,7 @@ typedef struct App {
     char *thumb_server;        /* optional seek preview server (tools/thumbs) */
     char parental_pin[8];      /* "" when none */
     int pin_settings;          /* ask for the PIN before Settings */
+    int ask_profile;           /* "Who's watching?" at start when several accounts are saved */
     int hide_adult;            /* catalogs of addons flagged adult are skipped */
     char *tmdb_key;            /* Settings > API keys: cast photos and age ratings */
     int   ai_provider;         /* AI_* in ai.h */
@@ -151,7 +152,7 @@ int  app_title_watched(const char *id);        /* the library says this title wa
 typedef struct HomeRowDef {
     char key[200];             /* "continue", "library", "catalog:<addon id>:<type>:<catalog id>" */
     char title[128];
-    int kind;                  /* 0 continue watching, 1 library, 2 catalog */
+    int kind;                  /* 0 continue watching, 1 library, 2 catalog, 3 a saved list (catalog = which) */
     int addon, catalog;
     int hidden;
 } HomeRowDef;
@@ -253,6 +254,8 @@ Screen *screen_welcome_create(void);   /* first-run setup */
 Screen *screen_pin_create(const char *title, int setting, void (*done)(int ok, void *user), void *user);
 Screen *screen_break_create(const char *name, const char *detail, int kind);
 Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + clock */
+Screen *screen_profiles_create(void);  /* Who's watching: the saved accounts as profiles */
+int     profiles_at_start(void);       /* signed in, others saved and the picker wanted */
 
 /* Picture-in-picture: Back in the player parks the video in a corner and keeps it
  * playing under the other screens; Play/Pause brings it back, Stop closes it. */

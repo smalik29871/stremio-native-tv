@@ -3,6 +3,7 @@
  * progress), My Library, and one row per addon catalog. Everything eases;
  * rows are served from the disk cache first and refreshed in the background. */
 #include "../app.h"
+#include "../lists.h"
 #include "../http.h"
 #include "../log.h"
 #include "font.h"
@@ -14,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { ROW_CATALOG, ROW_CONTINUE, ROW_LIBRARY };
+enum { ROW_CATALOG, ROW_CONTINUE, ROW_LIBRARY, ROW_LIST };
 enum { NAV_SEARCH, NAV_SETTINGS, NAV_ACCOUNT, NAV_COUNT };
 
 #define LX RAIL_LX           /* content starts right of the side rail */
@@ -52,7 +53,7 @@ typedef struct {
     float exit_ask;           /* time Back was pressed on the rail; a second Back soon after leaves */
     float scroll_y, scroll_yv;
     float nudge_at; int nudge_dir;   /* pressed past the end: the row (dir ±1) or the list (±2) nudges and settles */
-    int addons_seen, library_seen, rows_seen, watched_seen;
+    int addons_seen, library_seen, rows_seen, watched_seen, lists_seen;
     float focus_t;            /* 0..1 grow-in of the focused card */
     int prev_row, prev_col; float prev_t;
     char hero_id[256];
@@ -132,6 +133,12 @@ static void build_library_row(Row *r)
     if (r->focus < r->n && r->metas[r->focus].id) snprintf(keep, sizeof keep, "%s", r->metas[r->focus].id);
     meta_previews_free(r->metas, r->n);
     r->metas = NULL; r->n = 0;
+    if (r->kind == ROW_LIST) {   /* a saved list, newest first */
+        r->n = lists_items(r->catalog, &r->metas);
+        if (keep[0]) for (int i = 0; i < r->n; i++) if (strcmp(r->metas[i].id, keep) == 0) { r->focus = i; break; }
+        if (r->focus >= r->n) r->focus = r->n ? r->n - 1 : 0;
+        return;
+    }
     if (!g_app.n_library) return;
     LibraryItem **sorted = malloc(sizeof *sorted * (size_t)g_app.n_library);
     int n = 0;
@@ -179,7 +186,8 @@ static void rebuild_rows(Home *h)
         if (defs[d].hidden) continue;
         Row *r = NULL;
         for (int i = 0; i < n_old; i++) if (old[i] && strcmp(old[i]->key, defs[d].key) == 0) { r = old[i]; old[i] = NULL; break; }
-        if (!r) { r = new_row(defs[d].kind == 0 ? ROW_CONTINUE : defs[d].kind == 1 ? ROW_LIBRARY : ROW_CATALOG, defs[d].title); snprintf(r->key, sizeof r->key, "%s", defs[d].key); }
+        if (!r) { r = new_row(defs[d].kind == 0 ? ROW_CONTINUE : defs[d].kind == 1 ? ROW_LIBRARY : defs[d].kind == 3 ? ROW_LIST : ROW_CATALOG, defs[d].title); snprintf(r->key, sizeof r->key, "%s", defs[d].key); }
+        if (r->kind == ROW_LIST) r->catalog = defs[d].catalog;   /* which list */
         if (r->kind == ROW_CATALOG) {
             /* the row title drops the addon name; it is drawn beside it */
             char *sep = strstr(defs[d].title, "  \xC2\xB7  ");
@@ -355,8 +363,12 @@ static void update(Screen *s, float dt)
         for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CATALOG) { h->rows[i]->requested = 0; h->rows[i]->req = 0; }
     }
     if (h->library_seen != g_app.library_version) {
-        for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind != ROW_CATALOG) build_library_row(h->rows[i]);
+        for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CONTINUE || h->rows[i]->kind == ROW_LIBRARY) build_library_row(h->rows[i]);
         h->library_seen = g_app.library_version;
+    }
+    if (h->lists_seen != lists_version()) {   /* saved to a list, or another profile's lists */
+        for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_LIST) build_library_row(h->rows[i]);
+        h->lists_seen = lists_version();
     }
     int fetched = 0;
     for (int i = 0; i < h->n_rows && fetched < 4; i++) {

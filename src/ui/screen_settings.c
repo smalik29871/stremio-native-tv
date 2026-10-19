@@ -24,6 +24,7 @@
 #include "widgets.h"
 #include "screen_options.h"
 #include "settings_preview.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,7 +49,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_ASK_PROFILE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -57,7 +58,7 @@ static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio account", "Torrents",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
     "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
 #define SEC_H 70.0f
@@ -81,6 +82,7 @@ typedef struct {
     float pane_t; int pane_cat;   /* rows slide in when the category changes */
     float wide_t;                 /* 0 choosing a category .. 1 inside one (preview shown) */
     int cat_focus[CAT_COUNT];     /* the row each category had focused, for coming back */
+    int search_foc;               /* the "Find a setting" field beside the heading has the focus */
     int panel_id; float panel_t;  /* the preview's setting, and how far its drawing has come in */
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* type on your phone */
     HomeRowDef rows[MAX_ROWS]; int n_rows; int rows_seen;
@@ -96,7 +98,8 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_STREMIO);
         ids[n++] = IT_ACCOUNT;
         st->n_accounts = app_saved_accounts(st->accounts, 8);
-        for (int i = 0; i < st->n_accounts && n < max - 2; i++) ids[n++] = IT_ACCT_BASE + i;
+        for (int i = 0; i < st->n_accounts && n < max - 3; i++) ids[n++] = IT_ACCT_BASE + i;
+        if (st->n_accounts && g_app.auth_key) ids[n++] = IT_ASK_PROFILE;
         SEC(SEC_SERVER); ids[n++] = IT_SERVER;
         break;
     case CAT_PLAYBACK:
@@ -147,6 +150,82 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
 }
 
 /* The line of help under a row's title; NULL when the title and value say it all. */
+/* A row's name, for finding it (the rows draw their own, some of them changing with the value). */
+static const char *row_title(int id)
+{
+    switch (id) {
+    case IT_ACCOUNT: return "Stremio account: sign in or out";
+    case IT_SERVER: return "Streaming server";
+    case IT_PREF_AUDIO: return "Preferred audio";
+    case IT_PREF_SUBS: return "Preferred subtitles";
+    case IT_SUBS_SIZE: return "Subtitle size";
+    case IT_SUBS_STYLE: return "Subtitle style";
+    case IT_SUBS_SYNC: return "Auto-sync subtitles to the file";
+    case IT_BR_VIDEO: return "Show the video";
+    case IT_P2P: return "P2P fallback on this TV";
+    case IT_SRC_AUDIO: return "Sources in my audio language first";
+    case IT_ADDON_WAIT: return "Autoplay waits for slow addons";
+    case IT_SUBS_XL: return "Translate with AI when nobody offers my language";
+    case IT_AUTOPLAY: return "Play next episode automatically";
+    case IT_SKIP: return "Skip intros and recaps";
+    case IT_SUBS_WHEN: return "Turn subtitles on";
+    case IT_CLOCK: return "Clock";
+    case IT_QUALITY: return "Sort sources by";
+    case IT_RES_CAP: return "Resolution for recommendations";
+    case IT_PREFLIGHT: return "Check sources before recommending";
+    case IT_SCRUB: return "Show the picture while seeking";
+    case IT_THUMBS: return "Home helper (optional)";
+    case IT_PIN: return "Parental PIN";
+    case IT_PIN_SETTINGS: return "Ask for the PIN to open Settings";
+    case IT_HIDE_ADULT: return "Hide catalogs of addons flagged adult";
+    case IT_TMDB: return "The Movie Database (TMDB)";
+    case IT_AI_PROVIDER: return "AI assistant";
+    case IT_AI_KEY: return "AI API key";
+    case IT_AI_BASE: return "AI endpoint";
+    case IT_AI_MODEL: return "AI model";
+    case IT_MEMORY: return "Memory use";
+    case IT_TRANSITIONS: return "Animated screen changes";
+    case IT_PIP: return "Picture-in-picture";
+    case IT_BR_TEST: return "Try a break now";
+    case IT_BR_ON: return "Take breaks";
+    case IT_BR_SCHED: return "Break schedule";
+    case IT_BR_METHOD: return "Calculation method";
+    case IT_BR_ASR: return "Asr";
+    case IT_BR_LOCATION: return "Location";
+    case IT_BR_DETECT: return "Find my location from the internet";
+    case IT_BR_TODAY: return "Today's breaks";
+    case IT_BR_LEAD: return "Reminder banner";
+    case IT_BR_LEN: return "Break length";
+    case IT_BR_SOUND: return "Break sound";
+    case IT_BR_AUDIO: return "Recording at the start";
+    case IT_BR_END: return "Recording at the end";
+    case IT_BR_HEALTH: return "Stretch reminder";
+    case IT_BR_HEALTH_LEN: return "Stretch length";
+    case IT_BR_BED: return "Bedtime";
+    case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3: return "Your own break time";
+    case IT_BR_WHERE: return "Breaks apply";
+    case IT_AUTO_REC: return "Play the recommended source automatically";
+    case IT_THEME: return "Theme";
+    case IT_ACCENT: return "Accent colour";
+    case IT_BG: return "Background";
+    case IT_CARD_DETAILS: return "Show details when a card stays focused";
+    case IT_HOME_STYLE: return "Home screen";
+    case IT_HIDE_WATCHED: return "Hide watched titles in catalogs";
+    case IT_FX: return "Visual effects";
+    case IT_OLED: return "Pure black (OLED)";
+    case IT_ASK_PROFILE: return "Ask who's watching at start";
+    case IT_AMBIENT: return "Screensaver";
+    case IT_AMBIENT_STYLE: return "Screensaver style";
+    case IT_BLUR: return "Blur unwatched episodes";
+    case IT_DIAG: return "Diagnostics";
+    case IT_UPDATE: return "Update";
+    case IT_AUTO_UPDATE: return "Ask me when an update is out";
+    case IT_SETUP: return "Run quick setup again";
+    case IT_INSTALL: return "Install addon from URL";
+    default: return NULL;
+    }
+}
+
 static const char *row_desc(int id)
 {
     switch (id) {
@@ -170,6 +249,7 @@ static const char *row_desc(int id)
     case IT_P2P: return "When TorBox has no cached copy. Peers see your IP while it plays.";
     case IT_THEME: return "Colours, type and how focus looks.";
     case IT_OLED: return "No grey behind the screens; kind to OLED panels.";
+    case IT_ASK_PROFILE: return "The saved accounts as profiles when the app opens.";
     case IT_BG: return "A tint for the screens behind the artwork.";
     case IT_ACCENT: return "Focus, highlights and progress.";
     case IT_HOME_STYLE: return "How much room the focused title's artwork takes.";
@@ -244,6 +324,28 @@ typedef enum { KIND_ACTION, KIND_TOGGLE, KIND_CHOICE, KIND_MOVABLE } RowKind;
 
 static float s_x = COL_X0, s_r = SNTV_UI_W - THEME_MARGIN;   /* the rows' left and right edges this frame */
 static const char *s_desc;   /* help line of the row being drawn (set per row in draw) */
+static int s_steps, s_step;  /* a scale: how many steps, and where the value is (a slider under it) */
+
+/* Settings that are a scale, low to high: Left/Right walk them and the row draws a slider. */
+static const int ADDON_WAITS[] = { 3, 5, 8, 15, 30, 99 }, BR_LEADS[] = { 1, 2, 3, 5, 10, 15 },
+                 BR_LENS[] = { -1, 0, 3, 5, 10, 15, 20, 30 }, BR_HEALTH_LENS[] = { 2, 3, 5, 10 }, AMBIENT_STEPS[] = { 0, 2, 5, 10, 20 };
+#define N_OF(a) ((int)(sizeof (a) / sizeof (a)[0]))
+static int step_in(const int *l, int n, int v, int dflt) { for (int i = 0; i < n; i++) if (l[i] == v) return i; return dflt; }
+static int step_move(const int *l, int n, int v, int dflt, int dir) { return l[(step_in(l, n, v, dflt) + dir + n) % n]; }
+
+static int scale_of(int id, int *step)
+{
+    switch (id) {
+    case IT_SUBS_SIZE: *step = g_app.subs_size; return 4;
+    case IT_RES_CAP: *step = g_app.res_cap <= 720 ? 0 : g_app.res_cap <= 1080 ? 1 : 2; return 3;
+    case IT_ADDON_WAIT: *step = step_in(ADDON_WAITS, N_OF(ADDON_WAITS), g_app.addon_wait, 2); return N_OF(ADDON_WAITS);
+    case IT_BR_LEAD: *step = step_in(BR_LEADS, N_OF(BR_LEADS), g_app.break_lead_min, 3); return N_OF(BR_LEADS);
+    case IT_BR_LEN: *step = step_in(BR_LENS, N_OF(BR_LENS), g_app.break_len_min, 4); return N_OF(BR_LENS);
+    case IT_BR_HEALTH_LEN: *step = step_in(BR_HEALTH_LENS, N_OF(BR_HEALTH_LENS), g_app.break_health_len, 1); return N_OF(BR_HEALTH_LENS);
+    case IT_AMBIENT: *step = step_in(AMBIENT_STEPS, N_OF(AMBIENT_STEPS), g_app.ambient_minutes, 0); return N_OF(AMBIENT_STEPS);
+    default: *step = 0; return 0;
+    }
+}
 /* what the focused row drew, for the preview panel */
 static char s_ftitle[200], s_fvalue[300]; static Icon s_ficon; static int s_fkind, s_fon;
 static int s_chevron;        /* actions end in an arrow, except addons (their arrows move them) */
@@ -284,10 +386,22 @@ static void draw_row(float y, Icon icon, const char *title, const char *value, i
         return;
     }
     if (kind == KIND_CHOICE) {
-        ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 22, dim);
+        float vy = y + (h - th) / 2;
+        if (s_steps > 1) {   /* a scale: the value above a track with a tick a step and the knob at it */
+            vy = y + h / 2 - th + 2;
+            float tw = 30.0f * (s_steps - 1) < 200 ? 30.0f * (s_steps - 1) : 200, t1 = rx - 12, t0 = t1 - tw, ty = y + h / 2 + 16;
+            float kx = t0 + tw * s_step / (s_steps - 1);
+            Color track = focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0x30) : COLOR_ALPHA(THEME_TEXT, 0x26), lit = focused ? THEME_ON_FOCUS : THEME_ACCENT;
+            gfx_rrect(t0, ty - 2, tw, 4, 2, track);
+            if (kx > t0 + 2) gfx_rrect(t0, ty - 2, kx - t0, 4, 2, lit);
+            for (int i = 0; i < s_steps; i++) gfx_circle(t0 + tw * i / (s_steps - 1), ty, 3.5f, i <= s_step ? lit : track);
+            gfx_circle(kx, ty, 8, lit);
+            if (focused) gfx_circle(kx, ty, 3.5f, THEME_FOCUS);
+        }
+        ui_icon(ICON_CHEVRON_RIGHT, rx - 10, vy + th / 2, 22, dim);
         float vw = font_measure(value, FONT_S | FONT_B);
-        font_draw(value, rx - 36 - vw, y + (h - th) / 2, FONT_S | FONT_B, fg);
-        ui_icon(ICON_CHEVRON_LEFT, rx - 60 - vw, y + h / 2, 22, dim);
+        font_draw(value, rx - 36 - vw, vy, FONT_S | FONT_B, fg);
+        ui_icon(ICON_CHEVRON_LEFT, rx - 60 - vw, vy + th / 2, 22, dim);
         return;
     }
     if (s_chevron) ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 22, dim);
@@ -346,9 +460,20 @@ static void update(Screen *s, float dt)
 static void draw_categories(const Settings *st, float e)
 {
     font_draw("Settings", THEME_MARGIN, 100, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * (1 - e))));
+    if (e < 1) {   /* Find a setting: under the heading, Up from the first category */
+        const char *t = "Find a setting";
+        float fx = THEME_MARGIN, fh = 50, fw = COL_X0 - THEME_MARGIN - 70, fy = ROWS_TOP - fh - 16;
+        int foc = st->zone == 0 && st->search_foc;
+        gfx_set_alpha(1 - e);
+        if (foc) { ui_focus_under(fx, fy, fw, fh, theme_pill_r(fh), 1); gfx_rrect(fx, fy, fw, fh, theme_pill_r(fh), THEME_FOCUS); }
+        else { gfx_rrect(fx, fy, fw, fh, theme_pill_r(fh), COLOR_ALPHA(THEME_TEXT, 0x10)); gfx_rrect_ring(fx, fy, fw, fh, theme_pill_r(fh), 1, THEME_LINE); }
+        ui_icon(ICON_SEARCH, fx + 36, fy + fh / 2, 22, foc ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
+        font_draw(t, fx + 70, fy + (fh - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
+        gfx_set_alpha(1);
+    }
     for (int i = 0; i < CAT_COUNT; i++) {
         float y = ROWS_TOP + i * 76, h = 64, w = (COL_X0 - THEME_MARGIN - 70) * (1 - e) + 72 * e;
-        int foc = st->zone == 0 && st->cat == i, act = st->cat == i;
+        int foc = st->zone == 0 && st->cat == i && !st->search_foc, act = st->cat == i;
         if (foc) { ui_focus_under(THEME_MARGIN, y, w, h, theme_pill_r(h), 1); gfx_rrect(THEME_MARGIN, y, w, h, theme_pill_r(h), THEME_FOCUS); }
         else if (act) gfx_rrect(THEME_MARGIN, y, w, h, R_PANEL, e > 0.5f ? COLOR_ALPHA(THEME_ACCENT, 0x30) : COLOR_ALPHA(THEME_TEXT, 0x16));
         Color fg = foc ? THEME_ON_FOCUS : act ? (e > 0.5f ? THEME_ACCENT : THEME_TEXT) : THEME_TEXT_DIM;
@@ -520,6 +645,7 @@ static void draw(Screen *s)
         char v[300];
         if (IS_SEC(id)) { draw_section(y, SEC_NAMES[id - IT_SEC_BASE]); continue; }
         s_desc = row_desc(id);
+        s_steps = scale_of(id, &s_step);
         s_chevron = !(id >= IT_ADDON_BASE && id < IT_ACCT_BASE);
         switch (id) {
         case IT_ACCOUNT:
@@ -651,6 +777,7 @@ static void draw(Screen *s)
             draw_row(y, ICON_SPARK, "Visual effects", v, foc, KIND_CHOICE, 0);
             break;
         case IT_OLED: draw_row(y, ICON_MOON, "Pure black (OLED)", NULL, foc, KIND_TOGGLE, g_app.oled); break;
+        case IT_ASK_PROFILE: draw_row(y, ICON_USER, "Ask who's watching at start", NULL, foc, KIND_TOGGLE, g_app.ask_profile); break;
         case IT_AMBIENT:
             if (g_app.ambient_minutes) snprintf(v, sizeof v, "After %d min", g_app.ambient_minutes); else snprintf(v, sizeof v, "Off");
             draw_row(y, ICON_TV, "Screensaver", v, foc, KIND_CHOICE, 0);
@@ -698,12 +825,14 @@ static void draw(Screen *s)
 
 static const char *edit_title(int which)
 {
+    if (which == EDIT_SEARCH) return "Find a setting";
     return which == EDIT_AI_KEY ? "AI API key" : which == EDIT_AI_BASE ? "AI endpoint (OpenAI-compatible)" : which == EDIT_AI_MODEL ? "AI model"
          : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_TMDB ? "TMDB API key"
          : which == EDIT_LOCATION ? "Your location" : which == EDIT_BR_AUDIO ? "Audio at the start of a break" : which == EDIT_BR_END ? "Audio at the end of a break" : "Addon manifest URL";
 }
 static const char *edit_hint(int which)
 {
+    if (which == EDIT_SEARCH) return "A word from its name or from what it does: subtitle, clock, black, PIN, trailer\xE2\x80\xA6";
     return which == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
          : which == EDIT_THUMBS ? "Optional: tools/thumbs/server.py on a computer or NAS, e.g. http://192.168.1.10:11480. The TV already decodes seek previews and saves YouTube links; set this only to use the computer instead. Empty turns it off."
          : which == EDIT_TMDB ? "Free at themoviedb.org > Settings > API (the v3 key, 32 characters). Empty removes it."
@@ -787,6 +916,76 @@ static void on_models(const char *const *ids, int n, const char *error, void *us
     app_push(screen_options_create("AI model", "The models your key can use, best first", items, mc->n + 1, on_model_choice, mc));
 }
 
+/* ---- finding a setting ---- */
+
+#define FOUND_MAX 8   /* what the options sheet holds */
+static struct { Settings *st; int n, cat[FOUND_MAX], id[FOUND_MAX]; char label[FOUND_MAX][64]; } g_found;
+
+static int has_ci(const char *s, const char *w, size_t wn)
+{
+    for (; *s; s++) {
+        size_t i = 0;
+        while (i < wn && s[i] && tolower((unsigned char)s[i]) == tolower((unsigned char)w[i])) i++;
+        if (i == wn) return 1;
+    }
+    return 0;
+}
+
+/* every word of q somewhere in s, ignoring case */
+static int words_in(const char *q, const char *s)
+{
+    if (!s) return 0;
+    while (*q) {
+        while (*q == ' ') q++;
+        size_t n = 0;
+        while (q[n] && q[n] != ' ') n++;
+        if (n && !has_ci(s, q, n)) return 0;
+        q += n;
+    }
+    return 1;
+}
+
+static void jump_to(Settings *st, int cat, int id)
+{
+    int ids[MAX_ROWS + 8], n = rows_for(st, cat, ids, MAX_ROWS + 8);
+    for (int i = 0; i < n; i++)
+        if (ids[i] == id) {
+            st->cat = cat; st->zone = 1; st->focus = i; st->search_foc = 0; st->scroll = st->scroll_target = 0;
+            LOGI("settings: found %s in %s", row_title(id), CAT_NAMES[cat]);
+            app_redraw();
+            return;
+        }
+}
+
+static void on_found(int c, void *user) { (void)user; if (c >= 0 && c < g_found.n) jump_to(g_found.st, g_found.cat[c], g_found.id[c]); }
+
+static void find_setting(Settings *st, const char *q)
+{
+    while (*q == ' ') q++;
+    if (!*q) return;
+    g_found.st = st; g_found.n = 0;
+    for (int pass = 0; pass < 2; pass++)   /* names first, then what the help lines say */
+        for (int c = 0; c < CAT_COUNT; c++) {
+            if (c == CAT_ROWS || c == CAT_ADDONS) continue;   /* lists of the viewer's own, not settings */
+            int ids[MAX_ROWS + 8], n = rows_for(st, c, ids, MAX_ROWS + 8);
+            for (int i = 0; i < n && g_found.n < FOUND_MAX; i++) {
+                const char *t = row_title(ids[i]);
+                if (!t || !(pass == 0 ? words_in(q, t) : !words_in(q, t) && words_in(q, row_desc(ids[i])))) continue;
+                int k = g_found.n++;
+                g_found.cat[k] = c; g_found.id[k] = ids[i];
+                snprintf(g_found.label[k], sizeof g_found.label[k], "%s  \xC2\xB7  %s", t, CAT_NAMES[c]);
+            }
+        }
+    LOGI("settings: \"%s\" matches %d", q, g_found.n);
+    if (!g_found.n) { app_toast("No setting matches \"%s\"", q); return; }
+    if (g_found.n == 1) { jump_to(st, g_found.cat[0], g_found.id[0]); return; }
+    const char *items[FOUND_MAX];
+    for (int i = 0; i < g_found.n; i++) items[i] = g_found.label[i];
+    char sub[160];
+    snprintf(sub, sizeof sub, "%s\"%.80s\"", g_found.n == FOUND_MAX ? "The first matches for " : "Settings that match ", q);   /* the sheet cuts a long one */
+    app_push(screen_options_create("Find a setting", sub, items, g_found.n, on_found, NULL));
+}
+
 static void begin_edit(Settings *st, int which)
 {
     st->edit = which;
@@ -796,6 +995,7 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_TMDB ? (g_app.tmdb_key ? g_app.tmdb_key : "")
                   : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "http://")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
+                  : which == EDIT_SEARCH ? ""
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "https://") : "https://");
     input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
@@ -803,8 +1003,19 @@ static void begin_edit(Settings *st, int which)
     phone_qr_make(st);
 }
 
+static void find_setting(Settings *st, const char *q);
+
 static void finish_edit(Settings *st, int save)
 {
+    if (st->edit == EDIT_SEARCH) {   /* the keyboard goes first: the matches open over the list */
+        char q[sizeof st->kb.text];
+        snprintf(q, sizeof q, "%s", st->kb.text);
+        st->edit = EDIT_NONE;
+        input_text(0);
+        phone_prompt(NULL, NULL, NULL);
+        if (save) find_setting(st, q);
+        return;
+    }
     if (save) {
         if (st->edit == EDIT_SERVER) {
             char *v = st->kb.text;
@@ -887,8 +1098,8 @@ static int adjust(Settings *st, int id, int dir)
     case IT_CLOCK: g_app.clock_mode = (g_app.clock_mode + dir + 3) % 3; break;
     case IT_QUALITY: g_app.quality_mode = (g_app.quality_mode + dir + QUAL_MODE_COUNT) % QUAL_MODE_COUNT; break;
     case IT_RES_CAP: {
-        static const int CAPS[] = { 2160, 1080, 720 };
-        int k = g_app.res_cap <= 720 ? 2 : g_app.res_cap <= 1080 ? 1 : 0;
+        static const int CAPS[] = { 720, 1080, 2160 };   /* low to high, as the slider shows them */
+        int k = g_app.res_cap <= 720 ? 0 : g_app.res_cap <= 1080 ? 1 : 2;
         g_app.res_cap = CAPS[(k + dir + 3) % 3];
         break;
     }
@@ -927,7 +1138,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_SRC_AUDIO: g_app.src_audio_lang = !g_app.src_audio_lang; break;
     case IT_P2P: g_app.p2p_fallback = !g_app.p2p_fallback; if (!g_app.p2p_fallback) torrent_engine_stop(); break;
     case IT_AUTO_UPDATE: g_app.auto_update = !g_app.auto_update; break;
-    case IT_ADDON_WAIT: { static const int L[] = { 3, 5, 8, 15, 30, 99 }; int k = 2; for (int i = 0; i < 6; i++) if (L[i] == g_app.addon_wait) k = i; g_app.addon_wait = L[(k + dir + 6) % 6]; break; }
+    case IT_ADDON_WAIT: g_app.addon_wait = step_move(ADDON_WAITS, N_OF(ADDON_WAITS), g_app.addon_wait, 2, dir); break;
     case IT_AI_PROVIDER: g_app.ai_provider = (g_app.ai_provider + dir + AI_PROVIDER_COUNT) % AI_PROVIDER_COUNT; break;
     case IT_MEMORY: {
         g_app.memory_mode = (g_app.memory_mode + dir + 3) % 3;
@@ -940,11 +1151,11 @@ static int adjust(Settings *st, int id, int dir)
     case IT_BR_SCHED: g_app.break_sched = (g_app.break_sched + dir + BRK_SCHED_COUNT) % BRK_SCHED_COUNT; break;
     case IT_BR_METHOD: g_app.break_method = (g_app.break_method + dir + SUN_METHOD_COUNT) % SUN_METHOD_COUNT; break;
     case IT_BR_ASR: g_app.break_asr_hanafi = !g_app.break_asr_hanafi; break;
-    case IT_BR_LEAD: { static const int L[] = { 1, 2, 3, 5, 10, 15 }; int k = 3; for (int i = 0; i < 6; i++) if (L[i] == g_app.break_lead_min) k = i; g_app.break_lead_min = L[(k + dir + 6) % 6]; break; }
-    case IT_BR_LEN: { static const int L[] = { -1, 0, 3, 5, 10, 15, 20, 30 }; int k = 4; for (int i = 0; i < 8; i++) if (L[i] == g_app.break_len_min) k = i; g_app.break_len_min = L[(k + dir + 8) % 8]; break; }
+    case IT_BR_LEAD: g_app.break_lead_min = step_move(BR_LEADS, N_OF(BR_LEADS), g_app.break_lead_min, 3, dir); break;
+    case IT_BR_LEN: g_app.break_len_min = step_move(BR_LENS, N_OF(BR_LENS), g_app.break_len_min, 4, dir); break;
     case IT_BR_SOUND: g_app.break_sound = (g_app.break_sound + dir + 3) % 3; break;
     case IT_BR_HEALTH: { static const int L[] = { 0, 30, 45, 60, 90, 120 }; int k = 0; for (int i = 0; i < 6; i++) if (L[i] == g_app.break_health_min) k = i; g_app.break_health_min = L[(k + dir + 6) % 6]; break; }
-    case IT_BR_HEALTH_LEN: { static const int L[] = { 2, 3, 5, 10 }; int k = 1; for (int i = 0; i < 4; i++) if (L[i] == g_app.break_health_len) k = i; g_app.break_health_len = L[(k + dir + 4) % 4]; break; }
+    case IT_BR_HEALTH_LEN: g_app.break_health_len = step_move(BR_HEALTH_LENS, N_OF(BR_HEALTH_LENS), g_app.break_health_len, 1, dir); break;
     case IT_BR_BED: {   /* Off, 20:00 ... 23:30, 0:00, 0:30, 1:00 */
         static const int L[] = { -1, 1200, 1230, 1260, 1290, 1320, 1350, 1380, 1410, 0, 30, 60 };
         int k = 0; for (int i = 0; i < 12; i++) if (L[i] == g_app.break_bed) k = i;
@@ -961,13 +1172,8 @@ static int adjust(Settings *st, int id, int dir)
     case IT_BR_TEST: case IT_BR_LOCATION: case IT_BR_DETECT: case IT_BR_TODAY: case IT_BR_AUDIO: case IT_BR_END: return 1;
     case IT_PIN_SETTINGS: case IT_HIDE_ADULT: case IT_PIN: case IT_THUMBS: return 1;   /* OK (with the PIN) changes these */
     case IT_OLED: g_app.oled = !g_app.oled; break;
-    case IT_AMBIENT: {
-        static const int STEPS[] = { 0, 2, 5, 10, 20 };
-        int k = 0;
-        for (int i = 0; i < 5; i++) if (STEPS[i] == g_app.ambient_minutes) k = i;
-        g_app.ambient_minutes = STEPS[(k + dir + 5) % 5];
-        break;
-    }
+    case IT_ASK_PROFILE: g_app.ask_profile = !g_app.ask_profile; break;
+    case IT_AMBIENT: g_app.ambient_minutes = step_move(AMBIENT_STEPS, N_OF(AMBIENT_STEPS), g_app.ambient_minutes, 0, dir); break;
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     case IT_AMBIENT_STYLE: g_app.ambient_style = (g_app.ambient_style + dir + AMBIENT_STYLE_COUNT) % AMBIENT_STYLE_COUNT; break;
     default:
@@ -1013,9 +1219,17 @@ static int key(Screen *s, KeyAction a)
     }
     int ids[MAX_ROWS + 8];
     int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
+    if (st->zone == 0 && st->search_foc) {
+        switch (a) {
+        case KEY_DOWN: st->search_foc = 0; return 1;
+        case KEY_OK: begin_edit(st, EDIT_SEARCH); return 1;
+        case KEY_BACK: app_pop(); return 1;
+        default: return 1;
+        }
+    }
     if (st->zone == 0) {
         switch (a) {
-        case KEY_UP: if (st->cat > 0) { st->cat--; st->focus = 0; st->scroll = 0; } return 1;
+        case KEY_UP: if (st->cat > 0) { st->cat--; st->focus = 0; st->scroll = 0; } else st->search_foc = 1; return 1;
         case KEY_DOWN: if (st->cat < CAT_COUNT - 1) { st->cat++; st->focus = 0; st->scroll = 0; } return 1;
         case KEY_RIGHT: case KEY_OK: {   /* back to the row this category had */
             int f = focusable(ids, n, st->cat_focus[st->cat] < n ? st->cat_focus[st->cat] : 0, 1);

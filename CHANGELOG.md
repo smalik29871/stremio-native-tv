@@ -14,9 +14,37 @@
   on; any other key brings the controls back.
 - **Player menus start where you are.** Audio and subtitle menus open on the track that
   is playing, and in the episodes menu Left and Right jump a season.
+- **When buffering keeps stopping**, the player offers the best source below the one
+  playing (by its real resolution when the file was checked): OK switches and carries on
+  from the same moment, Back keeps watching. Once per video.
 - **Seeking fits the video.** Holding Left or Right still speeds up (now to two minutes a
   press on a film) but never moves more than a sixtieth of the video at a time, and the
   side mark shows how far each press went.
+- **Trailers.** Title pages with a trailer get a Trailer button: the TV fetches it from
+  YouTube once (the island shows it coming) and plays it in the player. Watching it
+  saves nothing against the title: no progress, no resume, no Continue Watching.
+- **Find a setting.** Up from the first category reaches *Find a setting*: type a word
+  and the matching settings are listed with their category (names first, then what
+  their help says); one match opens straight on its row, ready to change.
+- **Sliders for scales.** Subtitle size, screensaver delay, reminder and break lengths,
+  addon wait and the resolution limit show a slider under the value: where you are,
+  and how far there is to go.
+- **A launch animation.** The Stremio mark grows in at the centre and settles into its
+  place in the rail as Home appears. Any key skips it; it stays off with Light effects
+  or without animated screen changes.
+- **Who's watching?** With more than one Stremio account saved on the TV, the app opens
+  on a profile picker: a tile each in its own colour with its initials. OK signs that
+  profile in (its library, addons and progress); Back keeps the one signed in. Settings >
+  Account can stop asking.
+- **Your stats.** Library has a *Your stats* tab: time watched, titles started and
+  finished, films against series, your most watched titles with their hours, and a
+  square-a-day chart of when you watch, with your busiest weekday and longest run.
+- **Your lists.** *Save to a list…* in any title's options (hold OK or Yellow) keeps it
+  in Favourites, Watch later, With the family or Rewatch. Each list becomes a row on
+  Home (newest first, movable in Settings > Home rows); each profile has its own.
+- **Moods in Explore.** *Moods* in Explore's type row offers Feel-good, Edge of your seat,
+  Mind-bending, Date night, Family night, Spooky, Epic and True stories: each mixes three
+  genres from your own catalogs, films and series together, the best matches first.
 - **A calmer Home hero.** Scrolling quickly along a row no longer swaps the artwork for
   every card passed; it changes once the focus rests. The Showcase page dot fills until
   the carousel moves on.

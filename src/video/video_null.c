@@ -4,6 +4,7 @@
 #include "../log.h"
 #include <SDL.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -68,6 +69,17 @@ void video_update(void)
     double dt = (now - g_last) / 1000.0;
     g_last = now;
     if (g.state == VIDEO_LOADING) g.state = VIDEO_PLAYING;
+    /* test hook: SNTV_FAKE_STALLS=1 buffers for 0.2 s after every 0.4 s played */
+    static double played;
+    static const char *stalls = (const char *)-1;
+    if (stalls == (const char *)-1) stalls = getenv("SNTV_FAKE_STALLS");
+    if (stalls && g.state == VIDEO_PLAYING) {
+        played += dt;
+        int was = g.buffering;
+        g.buffering = fmod(played, 0.6) > 0.4;
+        if (g.buffering && !was) LOGI("video(null): buffering (SNTV_FAKE_STALLS)");
+        if (g.buffering) return;
+    }
     if (g.state == VIDEO_PLAYING) {
         g.position += dt * g_rate;
         if (g.duration && g.position >= g.duration) { g.position = g.duration; g.state = VIDEO_ENDED; }

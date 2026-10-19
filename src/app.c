@@ -1,4 +1,5 @@
 #include "app.h"
+#include "lists.h"
 #include "memwatch.h"
 #include "sysinfo.h"
 #include "tidy.h"
@@ -17,6 +18,7 @@
 #include "ui/screen_options.h"
 #include "cJSON.h"
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -278,9 +280,13 @@ static void apply_collection_json(const char *json, int from_cache)
     LOGI("addons: %d loaded%s", n, from_cache ? " (cache)" : "");
 }
 
+/* Which account a reply was asked for: one signed in since then drops it (a profile picked
+ * while the last one's library or addons were still on their way). */
+static uintptr_t g_account_gen = 1;
+
 static void on_collection(HttpResponse *r, void *user)
 {
-    (void)user;
+    if ((uintptr_t)user != g_account_gen) { LOGI("addons: a reply for the previous account, dropped"); return; }
     g_app.addons_loading = 0;
     if (r->status != 200) {
         snprintf(g_app.addons_error, sizeof g_app.addons_error, "addon collection: %s", r->error[0] ? r->error : "HTTP error");
@@ -371,7 +377,7 @@ void app_load_addons(void)
 
     if (g_app.auth_key) {
         char *body = api_body_addon_collection_get(g_app.auth_key);
-        http_request_async(api_url_addon_collection_get(), body, on_collection, NULL);
+        http_request_async(api_url_addon_collection_get(), body, on_collection, (void *)g_account_gen);
         free(body);
     } else {
         load_default_addons();
@@ -511,6 +517,8 @@ void app_switch_account(int index)
     free(g_app.auth_key); free(g_app.user_email);
     g_app.auth_key = strdup(k->valuestring);
     g_app.user_email = strdup(e->valuestring);
+    lists_set_owner(g_app.user_email);
+    g_account_gen++;
     store_set_str("authKey", g_app.auth_key);
     store_set_str("email", g_app.user_email);
     store_save();
@@ -592,6 +600,10 @@ int app_home_rows(HomeRowDef *out, int max)
     int n = 0;
     if (n < max) { snprintf(all[n].key, sizeof all[n].key, "continue"); snprintf(all[n].title, sizeof all[n].title, "Continue Watching"); all[n].kind = 0; n++; }
     if (n < max) { snprintf(all[n].key, sizeof all[n].key, "library"); snprintf(all[n].title, sizeof all[n].title, "My Library"); all[n].kind = 1; n++; }
+    for (int l = 0; l < LIST_COUNT && n < max; l++) {   /* the saved lists (a row shows once it has a title) */
+        snprintf(all[n].key, sizeof all[n].key, "list:%d", l); snprintf(all[n].title, sizeof all[n].title, "%s", LIST_NAMES[l]);
+        all[n].kind = 3; all[n].catalog = l; n++;
+    }
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];
         if (g_app.hide_adult && ad->manifest.bh_adult) continue;
@@ -660,6 +672,8 @@ static void on_login(HttpResponse *r, void *user)
     free(g_app.auth_key); free(g_app.user_email);
     g_app.auth_key = key;
     g_app.user_email = email;
+    lists_set_owner(email);
+    g_account_gen++;
     store_set_str("authKey", key);
     store_set_str("email", email);
     store_save();
@@ -686,6 +700,8 @@ void app_logout(void)
     }
     free(g_app.auth_key); free(g_app.user_email);
     g_app.auth_key = g_app.user_email = NULL;
+    lists_set_owner(NULL);
+    g_account_gen++;
     store_set_str("authKey", NULL);
     store_set_str("email", NULL);
     store_save();
@@ -766,7 +782,7 @@ static void keep_newer_local(LibraryItem **items, int *n)
 
 static void on_library(HttpResponse *r, void *user)
 {
-    (void)user;
+    if ((uintptr_t)user != g_account_gen) { LOGI("library: a reply for the previous account, dropped"); return; }   /* its items are freed with the reply */
     g_app.library_loading = 0;
     ParsedLibrary *pl = r->parsed;
     if (!pl) return;
@@ -784,7 +800,7 @@ void app_load_library(void)
     g_app.library_loading = 1;
     char *body = api_body_datastore_get(g_app.auth_key, STREMIO_LIBRARY_COLLECTION);
     HttpOptions o = { .post_json = body, .work = work_library, .free_parsed = free_library };
-    http_request_async_ex(api_url_datastore_get(), &o, on_library, NULL);
+    http_request_async_ex(api_url_datastore_get(), &o, on_library, (void *)g_account_gen);
     free(body);
 }
 
@@ -1423,6 +1439,7 @@ static void load_prefs(void)
     g_app.hide_watched = store_get_int("hideWatched", 0);
     snprintf(g_app.parental_pin, sizeof g_app.parental_pin, "%.7s", store_get_str("parentalPin", ""));
     g_app.pin_settings = store_get_int("pinSettings", 0);
+    g_app.ask_profile = store_get_int("askProfile", 1);
     g_app.hide_adult = store_get_int("hideAdult", 0);
     { const char *t = store_get_str("thumbServer", NULL); free(g_app.thumb_server); g_app.thumb_server = t && *t ? strdup(t) : NULL; }
     { const char *t = store_get_str("tmdbKey", NULL); free(g_app.tmdb_key); g_app.tmdb_key = t && *t ? strdup(t) : NULL; }
@@ -1506,6 +1523,7 @@ void app_save_prefs(void)
     store_set_int("homeStyle", g_app.home_style);
     store_set_int("hideWatched", g_app.hide_watched);
     store_set_int("pinSettings", g_app.pin_settings);
+    store_set_int("askProfile", g_app.ask_profile);
     store_set_int("hideAdult", g_app.hide_adult);
     store_set_str("thumbServer", g_app.thumb_server && *g_app.thumb_server ? g_app.thumb_server : NULL);
     store_set_str("tmdbKey", g_app.tmdb_key && *g_app.tmdb_key ? g_app.tmdb_key : NULL);
@@ -1767,6 +1785,7 @@ void app_init(void)
     const char *srv = store_get_str("streamingServer", NULL);
     g_app.auth_key = k ? strdup(k) : NULL;
     g_app.user_email = e ? strdup(e) : NULL;
+    lists_set_owner(g_app.user_email);
     g_app.streaming_server = srv ? strdup(srv) : NULL;
     load_prefs();
     g_app.fx_light = g_app.fx_setting == FX_LIGHT || (g_app.fx_setting == FX_AUTO && store_get_int("fxAutoLight", 0));

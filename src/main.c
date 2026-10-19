@@ -4,6 +4,7 @@
 #include "phone.h"
 #include "ui/widgets.h"
 #include "ui/island.h"
+#include "ui/intro.h"
 #include "http.h"
 #include "image.h"
 #include "memwatch.h"
@@ -166,6 +167,7 @@ static Uint32 g_ok_t0;
 static void dispatch_key(KeyAction a)
 {
     Screen *top = app_top();
+    if (intro_active()) { intro_skip(); return; }   /* a key during the launch animation only ends it */
     if (a == KEY_OK || a == KEY_LONG_OK) g_app.press_at = g_app.time;
     if (a == KEY_BLUE && top && !g_app.pip) {   /* Blue on a browsing screen opens the title the island offers to resume */
         static const char *const BROWSE[] = { "home", "explore", "library", "calendar", "search" };
@@ -256,6 +258,8 @@ int main(int argc, char **argv)
     LOGI("video backend: %s", video_backend_name());
     app_init();
     mem_apply_mode();
+    if (profiles_at_start()) app_push(screen_profiles_create());   /* who's watching, before Home */
+    intro_start();
     if (crashed && !getenv("SNTV_SCREENSHOT")) app_toast("The app closed unexpectedly last time. Settings > About > Diagnostics, Blue: that session's log");
 
     Uint32 prev = SDL_GetTicks();
@@ -382,6 +386,7 @@ int main(int argc, char **argv)
             if (g_app.pip) player_pip_draw(g_app.pip, g_pip_focus);
             if (top && strcmp(top->name, "break") != 0 && strcmp(top->name, "pin") != 0) breaks_draw_banner();
             island_draw(in_player, top && !in_player && strcmp(top->name, "ambient") != 0);   /* the player has its clock in its controls */
+            intro_draw();
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();
             gfx_end_frame();

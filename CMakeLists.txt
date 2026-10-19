@@ -53,6 +53,7 @@ add_library(sntv_core STATIC
   src/suntimes.c
   src/lang.c
   src/trackmem.c
+  src/lists.c
   src/addon/addon.c
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
@@ -163,6 +164,9 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   add_executable(test_store tests/test_store.c)
   target_link_libraries(test_store PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME settings_survive_power_cuts COMMAND test_store)
+  add_executable(test_lists tests/test_lists.c)
+  target_link_libraries(test_lists PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME saved_lists COMMAND test_lists)
   add_executable(test_tidy tests/test_tidy.c)
   target_link_libraries(test_tidy PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME data_folder_tidy COMMAND test_tidy)

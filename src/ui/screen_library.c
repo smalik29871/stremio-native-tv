@@ -1,5 +1,6 @@
 /* Library: everything in the account's library as a poster grid, with filters
- * (all, movies, series, continue watching) and a sort (recent, name). */
+ * (all, movies, series, continue watching) and a sort (recent, name), and Your stats:
+ * time watched, what was finished, the most watched titles and when you watch. */
 #include "../app.h"
 #include "../image.h"
 #include "font.h"
@@ -10,15 +11,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 enum { COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28 };
-enum { F_ALL, F_MOVIES, F_SERIES, F_CONTINUE, F_COUNT };
+enum { F_ALL, F_MOVIES, F_SERIES, F_CONTINUE, F_STATS, F_COUNT };
 enum { S_RECENT, S_NAME, S_COUNT };
 enum { Z_FILTERS, Z_GRID };
 #define LX RAIL_LX
 #define GRID_Y 230.0f
 
-static const char *const FILTERS[F_COUNT] = { "All", "Movies", "Series", "Continue watching" };
+static const char *const FILTERS[F_COUNT] = { "All", "Movies", "Series", "Continue watching", "Your stats" };
 static const char *const SORTS[S_COUNT] = { "Recent", "A to Z" };
 
 typedef struct {
@@ -41,6 +43,130 @@ static MetaPreview preview_of(const LibraryItem *li)
     return p;
 }
 
+/* ---- Your stats ---- */
+
+#define WEEKS 15
+typedef struct {
+    double hours, film_hours, series_hours;
+    int started, finished, this_month;
+    const LibraryItem *top[6]; int n_top;
+    int days[WEEKS * 7];        /* titles last watched on each day, oldest first, the last is today */
+    int busiest_wd, streak;     /* weekday with most (0 Monday), longest run of days in a row */
+} Stats;
+
+static void stats_build(Stats *st)
+{
+    memset(st, 0, sizeof *st);
+    time_t now = time(NULL);
+    struct tm today; localtime_r(&now, &today);
+    today.tm_hour = 12; today.tm_min = today.tm_sec = 0;
+    time_t noon = mktime(&today);
+    int wd_count[7] = { 0 };
+    for (int i = 0; i < g_app.n_library; i++) {
+        const LibraryItem *li = &g_app.library[i];
+        double h = li->overall_time_watched / 3600000.0;
+        if (h <= 0 && !li->times_watched && !li->flagged_watched) continue;
+        st->hours += h;
+        if (li->type && strcmp(li->type, "series") == 0) st->series_hours += h; else st->film_hours += h;
+        st->started++;
+        if (li->times_watched > 0 || li->flagged_watched) st->finished++;
+        if (li->last_watched_ms > 0) {
+            time_t t = (time_t)(li->last_watched_ms / 1000);
+            struct tm lt; localtime_r(&t, &lt);
+            if (lt.tm_year == today.tm_year && lt.tm_mon == today.tm_mon) st->this_month++;
+            lt.tm_hour = 12; lt.tm_min = lt.tm_sec = 0;
+            long ago = (long)((noon - mktime(&lt) + 43200) / 86400);   /* rounded: a daylight-saving day is 23 or 25 hours */
+            if (ago >= 0 && ago < WEEKS * 7) { st->days[WEEKS * 7 - 1 - ago]++; wd_count[(lt.tm_wday + 6) % 7]++; }
+        }
+        /* the most watched, by time */
+        int k = st->n_top < 6 ? st->n_top++ : 5;
+        if (k == 5 && st->top[5] && st->top[5]->overall_time_watched >= li->overall_time_watched) continue;
+        st->top[k] = li;
+        for (; k > 0 && st->top[k - 1]->overall_time_watched < st->top[k]->overall_time_watched; k--) { const LibraryItem *t = st->top[k]; st->top[k] = st->top[k - 1]; st->top[k - 1] = t; }
+    }
+    for (int d = 1; d < 7; d++) if (wd_count[d] > wd_count[st->busiest_wd]) st->busiest_wd = d;
+    if (!wd_count[st->busiest_wd]) st->busiest_wd = -1;
+    for (int i = 0, run = 0; i < WEEKS * 7; i++) { run = st->days[i] ? run + 1 : 0; if (run > st->streak) st->streak = run; }
+}
+
+static void stat_tile(float x, float y, float w, float h, const char *value, const char *label, const char *sub)
+{
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xC8));
+    font_draw_tracked(label, x + 28, y + 24, FONT_XS | FONT_B, THEME_TEXT_MUTED, 1.2f);
+    font_draw(value, x + 28, y + 60, FONT_XL | FONT_B, THEME_TEXT);
+    if (sub) font_draw_fit(sub, x + 28, y + h - 44, FONT_XS, THEME_TEXT_DIM, w - 56);
+}
+
+static void draw_stats(void)
+{
+    Stats st; stats_build(&st);
+    float x = LX, y = GRID_Y, W = SNTV_UI_W - THEME_MARGIN - LX, gap = 24, tw = (W - 3 * gap) / 4, th = 176;
+    if (!st.started) {
+        float cy = SNTV_UI_H / 2;
+        ui_icon(ICON_CLOCK, SNTV_UI_W / 2, cy - 60, 80, THEME_TEXT_MUTED);
+        font_draw_center("Nothing watched yet", SNTV_UI_W / 2, cy + 10, FONT_L | FONT_B, THEME_TEXT);
+        font_draw_center("What you watch on any device signed in to your account adds up here.", SNTV_UI_W / 2, cy + 70, FONT_S, THEME_TEXT_DIM);
+        return;
+    }
+    char v[32], sub[96];
+    if (st.hours >= 10) snprintf(v, sizeof v, "%.0f h", st.hours); else snprintf(v, sizeof v, "%.1f h", st.hours);
+    snprintf(sub, sizeof sub, "about %.0f films' worth", st.hours / 2 + 0.5);
+    stat_tile(x, y, tw, th, v, "TIME WATCHED", sub);
+    snprintf(v, sizeof v, "%d", st.started); snprintf(sub, sizeof sub, "%d this month", st.this_month);
+    stat_tile(x + (tw + gap), y, tw, th, v, "TITLES STARTED", sub);
+    snprintf(v, sizeof v, "%d", st.finished); snprintf(sub, sizeof sub, "%d%% of what you started", st.started ? 100 * st.finished / st.started : 0);
+    stat_tile(x + 2 * (tw + gap), y, tw, th, v, "FINISHED", sub);
+    {   /* films and series: the split as a bar */
+        float fx = x + 3 * (tw + gap), tot = (float)(st.film_hours + st.series_hours);
+        int fp = tot > 0 ? (int)(100 * st.film_hours / tot + 0.5) : 0;
+        snprintf(v, sizeof v, "%d%% / %d%%", fp, 100 - fp);
+        stat_tile(fx, y, tw, th, v, "FILMS / SERIES", NULL);
+        float bw = tw - 56, by = y + th - 40;
+        gfx_rrect(fx + 28, by, bw, 10, 5, COLOR_ALPHA(THEME_ACCENT2, 0x90));
+        if (fp > 0) gfx_rrect(fx + 28, by, bw * fp / 100, 10, 5, THEME_ACCENT);
+    }
+    y += th + 52;
+
+    /* the most watched */
+    ui_row_header(0, "Most watched", NULL, 0, x, y, x + W, 0);
+    float py = y + 56, pw = 150, ph = 225, pg = 26;
+    for (int i = 0; i < st.n_top; i++) {
+        const LibraryItem *li = st.top[i];
+        float px = x + i * (pw + pg);
+        MetaPreview m; memset(&m, 0, sizeof m);
+        m.id = li->id; m.type = li->type; m.name = li->name; m.poster = li->poster;
+        char pb[512];
+        ui_card_capture(0);
+        ui_card(app_art_poster(&m, pb, sizeof pb), px, py, pw, ph, 0, 0, li->name, 0);
+        ui_card_capture(1);
+        double h = li->overall_time_watched / 3600000.0;
+        if (h >= 1) snprintf(v, sizeof v, "%.0f h", h); else snprintf(v, sizeof v, "%.0f min", h * 60);
+        font_draw_fit(li->name, px, py + ph + 12, FONT_XS | FONT_B, THEME_TEXT, pw);
+        font_draw(v, px, py + ph + 40, FONT_XS, THEME_TEXT_MUTED);
+    }
+
+    /* when: a square a day, the last WEEKS weeks, Monday at the top */
+    float gx0 = x + 6 * (pw + pg) + 30, cell = 22, cg = 6;
+    ui_row_header(1, "When you watch", NULL, 0, gx0, y, x + W, 0);
+    float gy0 = py;
+    time_t now = time(NULL); struct tm today; localtime_r(&now, &today);
+    int today_wd = (today.tm_wday + 6) % 7, first_wd = (today_wd - (WEEKS * 7 - 1) % 7 + 7 * WEEKS) % 7;
+    for (int i = 0; i < WEEKS * 7; i++) {
+        int col = (i + first_wd) / 7, row = (i + first_wd) % 7;
+        float cx = gx0 + col * (cell + cg), cy = gy0 + row * (cell + cg);
+        int n = st.days[i];
+        Color c = n == 0 ? COLOR_ALPHA(THEME_TEXT, 0x14) : n == 1 ? COLOR_ALPHA(THEME_ACCENT, 0x70) : n == 2 ? COLOR_ALPHA(THEME_ACCENT, 0xB0) : THEME_ACCENT;
+        gfx_rrect(cx, cy, cell, cell, 5, c);
+        if (i == WEEKS * 7 - 1) gfx_rrect_ring(cx, cy, cell, cell, 5, 2, THEME_TEXT);
+    }
+    static const char *const WD[7] = { "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays" };
+    float ty = gy0 + 7 * (cell + cg) + 18;
+    if (st.busiest_wd >= 0) { snprintf(sub, sizeof sub, "Most often on %s", WD[st.busiest_wd]); font_draw(sub, gx0, ty, FONT_S | FONT_B, THEME_TEXT); ty += 38; }
+    snprintf(sub, sizeof sub, "Longest run: %d day%s in a row", st.streak, st.streak == 1 ? "" : "s");
+    font_draw(sub, gx0, ty, FONT_XS, THEME_TEXT_DIM);
+    font_draw_wrapped("A square is a day; brighter, more titles. Each title counts on the day you last watched it.", gx0, ty + 34, FONT_XS, THEME_TEXT_MUTED, x + W - gx0, 3);
+}
+
 static void build(Library *l)
 {
     char keep[160] = "";   /* the focused title, found again after the re-sort */
@@ -52,6 +178,7 @@ static void build(Library *l)
     for (int i = 0; i < g_app.n_library; i++) {
         const LibraryItem *li = &g_app.library[i];
         int cont = li->time_offset > 0 && li->duration > 0 && (!li->removed || li->temp);
+        if (l->filter == F_STATS) continue;   /* no grid: the stats */
         if (l->filter == F_CONTINUE) { if (!cont) continue; }
         else {
             if (li->removed || li->temp) continue;
@@ -95,7 +222,8 @@ static void draw(Screen *s)
     ui_background(bg ? image_tint(bg) : 0);
     font_draw("Library", LX, 52, FONT_L | FONT_B, THEME_TEXT);
     char cnt[48];
-    snprintf(cnt, sizeof cnt, "%d title%s", l->n, l->n == 1 ? "" : "s");
+    if (l->filter == F_STATS) cnt[0] = 0;
+    else snprintf(cnt, sizeof cnt, "%d title%s", l->n, l->n == 1 ? "" : "s");
     font_draw(cnt, LX + font_measure("Library", FONT_L | FONT_B) + 24, 52 + font_height(FONT_L | FONT_B) - font_height(FONT_S) - 6, FONT_S, THEME_TEXT_MUTED);
     float x = LX, y = 134;
     for (int i = 0; i < F_COUNT; i++) {
@@ -110,6 +238,7 @@ static void draw(Screen *s)
         ui_pill(sl, 1, ICON_SWAP, SNTV_UI_W - THEME_MARGIN - w, y, 52, PILL_SECONDARY, l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == F_COUNT);
     }
     float gx = LX, gy = GRID_Y, row_h = CELL_H + 80;
+    if (l->filter == F_STATS) { draw_stats(); rail_draw(RAIL_LIBRARY, l->rail_focus); return; }
     if (!l->n) {
         float cy = SNTV_UI_H / 2;
         ui_icon(ICON_LIBRARY, SNTV_UI_W / 2, cy - 60, 80, THEME_TEXT_MUTED);

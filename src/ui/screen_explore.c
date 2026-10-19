@@ -1,5 +1,6 @@
 /* Explore: every catalog addon's lists by type, catalog and genre, as a poster
- * grid that loads more as you scroll (catalogs that take `skip`). */
+ * grid that loads more as you scroll (catalogs that take `skip`). Moods, last in the
+ * type row, mix three genres across films and series, the best matches first. */
 #include "../app.h"
 #include "../http.h"
 #include "../image.h"
@@ -12,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 enum { COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, MAX_TYPES = 8, MAX_CATS = 64, PAGE = 100 };
 enum { Z_TYPES, Z_CATS, Z_GENRES, Z_GRID };
@@ -21,6 +23,19 @@ enum { Z_TYPES, Z_CATS, Z_GENRES, Z_GRID };
 typedef struct { int addon, catalog; } CatRef;
 typedef struct Explore Explore;
 typedef struct { Explore *owner; unsigned gen; int append; } Req;
+
+#define MOODS_TYPE "moods"   /* not an addon type: the Moods entry */
+static const struct { const char *name; const char *genres[3]; } MOODS[] = {
+    { "Feel-good", { "Comedy", "Family", "Romance" } },
+    { "Edge of your seat", { "Thriller", "Action", "Crime" } },
+    { "Mind-bending", { "Sci-Fi", "Mystery", "Fantasy" } },
+    { "Date night", { "Romance", "Comedy", "Drama" } },
+    { "Family night", { "Family", "Animation", "Adventure" } },
+    { "Spooky", { "Horror", "Mystery", "Thriller" } },
+    { "Epic", { "Adventure", "History", "War" } },
+    { "True stories", { "Documentary", "Biography", "History" } },
+};
+#define N_MOODS ((int)(sizeof MOODS / sizeof MOODS[0]))
 
 struct Explore {
     char types[MAX_TYPES][24]; int n_types, type_i;
@@ -36,10 +51,25 @@ struct Explore {
     int rail_focus;           /* -1: content has the focus */
     int addons_seen;
     char url[1024];
+    int mood_pending;         /* Moods: catalog requests still out */
 };
+
+/* Explore screens alive now: a reply checks its owner is still here before touching it
+ * (Back from Explore while a mood's six lists are out), and generations are never reused. */
+#define MAX_LIVE 8
+static Explore *g_live[MAX_LIVE];
+static unsigned g_next_gen = 1;
+static int alive(const Req *q)
+{
+    for (int i = 0; i < MAX_LIVE; i++) if (g_live[i] == q->owner) return q->gen == q->owner->gen;
+    return 0;
+}
+
+static int is_moods(const Explore *e) { return e->n_types && strcmp(e->types[e->type_i], MOODS_TYPE) == 0; }
 
 static const char *type_label(const char *t)
 {
+    if (!strcmp(t, MOODS_TYPE)) return "Moods";
     if (!strcmp(t, "movie")) return "Movies";
     if (!strcmp(t, "series")) return "Series";
     if (!strcmp(t, "channel")) return "Channels";
@@ -50,7 +80,7 @@ static const char *type_label(const char *t)
 
 static const AddonCatalog *cur_cat(const Explore *e, const Addon **ad)
 {
-    if (e->cat_i >= e->n_cats) return NULL;
+    if (e->cat_i >= e->n_cats || is_moods(e)) return NULL;
     const Addon *a = &g_app.addons[e->cats[e->cat_i].addon];
     if (ad) *ad = a;
     return &a->manifest.catalogs[e->cats[e->cat_i].catalog];
@@ -94,6 +124,15 @@ static void build_types(Explore *e)
             int rb = !strcmp(e->types[j - 1], "movie") ? 0 : !strcmp(e->types[j - 1], "series") ? 1 : 2;
             if (ra < rb) { char t[24]; memcpy(t, e->types[j], 24); memcpy(e->types[j], e->types[j - 1], 24); memcpy(e->types[j - 1], t, 24); } else break;
         }
+    int genre_lists = 0;   /* Moods need a catalog that filters by genre */
+    for (int a = 0; a < g_app.n_addons && !genre_lists; a++)
+        for (int c = 0; c < g_app.addons[a].manifest.n_catalogs; c++) {
+            const AddonCatalog *cat = &g_app.addons[a].manifest.catalogs[c];
+            const AddonExtra *g = addon_catalog_extra(cat, "genre");
+            int kind = !strcmp(cat->type, "movie") || !strcmp(cat->type, "series");   /* the ones a mood asks */
+            if (kind && g && g->options.n && usable(cat) && !(g_app.hide_adult && g_app.addons[a].manifest.bh_adult)) { genre_lists = 1; break; }
+        }
+    if (genre_lists && e->n_types < MAX_TYPES) snprintf(e->types[e->n_types++], 24, "%s", MOODS_TYPE);
     if (e->type_i >= e->n_types) e->type_i = 0;
     e->addons_seen = g_app.addons_version;
 }
@@ -102,6 +141,13 @@ static void build_cats(Explore *e)
 {
     e->n_cats = 0;
     if (!e->n_types) return;
+    if (is_moods(e)) {   /* the list row holds the moods */
+        e->n_cats = N_MOODS;
+        if (e->cat_i >= e->n_cats) e->cat_i = 0;
+        if (e->cat_focus >= e->n_cats) e->cat_focus = e->cat_i;
+        e->genre_i = e->genre_focus = 0;
+        return;
+    }
     for (int a = 0; a < g_app.n_addons; a++)
         for (int c = 0; c < g_app.addons[a].manifest.n_catalogs && e->n_cats < MAX_CATS; c++) {
             const AddonCatalog *cat = &g_app.addons[a].manifest.catalogs[c];
@@ -116,7 +162,7 @@ static void build_cats(Explore *e)
 
 static void reset_items(Explore *e)
 {
-    e->gen++;
+    e->gen = g_next_gen++;
     meta_previews_free(e->items, e->n);
     e->items = NULL; e->n = 0;
     e->loading = e->done = e->failed = e->requested = 0;
@@ -127,7 +173,7 @@ static void on_page(HttpResponse *r, void *user)
 {
     Req *q = user;
     Explore *e = q->owner;
-    if (q->gen != e->gen) { free(q); return; }
+    if (!alive(q)) { free(q); return; }
     free(q);
     e->loading = 0;
     ParsedMetas *pm = r->parsed;
@@ -156,8 +202,100 @@ static void on_page(HttpResponse *r, void *user)
     app_redraw();
 }
 
+/* "Sci-Fi" is "Science Fiction" in some addons */
+static int genre_is(const char *option, const char *want)
+{
+    if (!strcasecmp(option, want)) return 1;
+    return !strcasecmp(want, "Sci-Fi") && (!strcasecmp(option, "Science Fiction") || !strcasecmp(option, "Sci-Fi & Fantasy"));
+}
+
+static int mood_score(int mood, const MetaPreview *m)
+{
+    int n = 0;
+    for (int g = 0; g < 3; g++) for (int i = 0; i < m->genres.n; i++) if (genre_is(m->genres.v[i], MOODS[mood].genres[g])) { n++; break; }
+    return n;
+}
+
+/* best first: more of the mood's genres, then the rating */
+static void mood_sort(Explore *e)
+{
+    int mood = e->cat_i;
+    for (int i = 1; i < e->n; i++)
+        for (int j = i; j > 0; j--) {
+            int sa = mood_score(mood, &e->items[j]), sb = mood_score(mood, &e->items[j - 1]);
+            double ra = e->items[j].imdb_rating ? atof(e->items[j].imdb_rating) : 0, rb = e->items[j - 1].imdb_rating ? atof(e->items[j - 1].imdb_rating) : 0;
+            if (sa > sb || (sa == sb && ra > rb)) { MetaPreview t = e->items[j]; e->items[j] = e->items[j - 1]; e->items[j - 1] = t; } else break;
+        }
+}
+
+static void on_mood_page(HttpResponse *r, void *user)
+{
+    Req *q = user;
+    Explore *e = q->owner;
+    if (!alive(q)) { free(q); return; }
+    free(q);
+    if (--e->mood_pending <= 0) { e->loading = 0; e->done = 1; }
+    ParsedMetas *pm = r->parsed;
+    MetaPreview *m = pm ? pm->m : NULL; int n = pm ? pm->n : 0;
+    if (pm) { r->parsed = NULL; free(pm); }
+    if (r->status != 200 || !m) { if (e->done && !e->n) e->failed = 1; app_redraw(); return; }
+    MetaPreview *all = realloc(e->items, (size_t)(e->n + n + 1) * sizeof(MetaPreview));
+    if (!all) { meta_previews_free(m, n); return; }
+    e->items = all;
+    for (int i = 0; i < n; i++) {   /* each title once, unwatched when asked */
+        int dup = !m[i].id || (g_app.hide_watched && app_title_watched(m[i].id));
+        for (int k = 0; k < e->n && !dup; k++) dup = strcmp(e->items[k].id, m[i].id) == 0;
+        if (dup) meta_preview_free(&m[i]); else e->items[e->n++] = m[i];
+    }
+    free(m);
+    {   /* sorted again, the focused title kept under the focus */
+        char keep[160] = "";
+        if (e->zone == Z_GRID && e->focus < e->n && e->items[e->focus].id) snprintf(keep, sizeof keep, "%s", e->items[e->focus].id);
+        mood_sort(e);
+        if (keep[0]) for (int i = 0; i < e->n; i++) if (!strcmp(e->items[i].id, keep)) { e->focus = i; break; }
+    }
+    LOGI("explore: mood %s has %d titles%s", MOODS[e->cat_i].name, e->n, e->done ? "" : " so far");
+    app_redraw();
+}
+
+static void fetch_mood(Explore *e)
+{
+    static const char *const TYPES[] = { "movie", "series" };
+    e->requested = 1; e->mood_pending = 0;
+    snprintf(e->url, sizeof e->url, "mood:%s", MOODS[e->cat_i].name);
+    for (int g = 0; g < 3; g++)
+        for (int t = 0; t < 2; t++) {
+            int sent = 0;
+            for (int a = 0; a < g_app.n_addons && !sent; a++) {
+                const Addon *ad = &g_app.addons[a];
+                if (g_app.hide_adult && ad->manifest.bh_adult) continue;
+                for (int c = 0; c < ad->manifest.n_catalogs && !sent; c++) {
+                    const AddonCatalog *cat = &ad->manifest.catalogs[c];
+                    if (strcmp(cat->type, TYPES[t]) != 0 || !usable(cat)) continue;
+                    const AddonExtra *ge = addon_catalog_extra(cat, "genre");
+                    for (int o = 0; ge && o < ge->options.n && !sent; o++) {
+                        if (!genre_is(ge->options.v[o], MOODS[e->cat_i].genres[g])) continue;
+                        const char *kv[] = { "genre", ge->options.v[o], NULL };
+                        char extra[256], url[1024];
+                        addon_extra_query(extra, sizeof extra, kv);
+                        addon_url_catalog(ad, cat->type, cat->id, extra, url, sizeof url);
+                        Req *q = malloc(sizeof *q);
+                        q->owner = e; q->gen = e->gen; q->append = 0;
+                        e->mood_pending++;
+                        app_fetch_metas(url, 1, on_mood_page, q);
+                        sent = 1;
+                    }
+                }
+            }
+        }
+    e->loading = e->mood_pending > 0;
+    if (!e->mood_pending) { e->done = 1; e->failed = 1; }
+    LOGI("explore: mood %s asks %d lists", MOODS[e->cat_i].name, e->mood_pending);
+}
+
 static void fetch(Explore *e, int append)
 {
+    if (is_moods(e)) { if (append) e->done = 1; else if (!e->loading) fetch_mood(e); return; }
     const Addon *ad;
     const AddonCatalog *c = cur_cat(e, &ad);
     if (!c || e->loading) return;
@@ -253,11 +391,17 @@ static void draw(Screen *s)
     /* catalogs */
     const char *cl[MAX_CATS]; char cn[MAX_CATS][96];
     for (int i = 0; i < e->n_cats; i++) {
+        if (is_moods(e)) { cl[i] = MOODS[i].name; continue; }
         const Addon *a = &g_app.addons[e->cats[i].addon];
         snprintf(cn[i], sizeof cn[i], "%s  \xC2\xB7  %s", a->manifest.catalogs[e->cats[i].catalog].name, a->manifest.name);
         cl[i] = cn[i];
     }
-    font_draw("LIST", LX, 206, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    font_draw(is_moods(e) ? "MOOD" : "LIST", LX, 206, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    if (is_moods(e) && e->cat_i < N_MOODS) {   /* what the mood mixes, where the genres would be */
+        char mix[160];
+        snprintf(mix, sizeof mix, "%s, %s and %s from your catalogs, films and series together", MOODS[e->cat_i].genres[0], MOODS[e->cat_i].genres[1], MOODS[e->cat_i].genres[2]);
+        font_draw(mix, LX + 86, 280, FONT_S, THEME_TEXT_DIM);
+    }
     draw_pills(LX + 70, 196, maxw - 70, cl, e->n_cats, e->cat_i, e->zone == Z_CATS && e->rail_focus < 0, e->cat_focus, &e->cat_scroll, 0);
     int required;
     const AddonExtra *g = genres(e, &required);
@@ -370,7 +514,7 @@ static void resume(Screen *s) { Explore *e = s->st; e->rail_focus = -1; app_redr
 static void destroy(Screen *s)
 {
     Explore *e = s->st;
-    e->gen++;
+    for (int i = 0; i < MAX_LIVE; i++) if (g_live[i] == e) g_live[i] = NULL;
     meta_previews_free(e->items, e->n);
     free(e);
     free(s);
@@ -384,6 +528,8 @@ Screen *screen_explore_create(void)
     e->zone = Z_TYPES;
     e->focus_t = 1;
     e->addons_seen = -1;
+    e->gen = g_next_gen++;
+    for (int i = 0; i < MAX_LIVE; i++) if (!g_live[i]) { g_live[i] = e; break; }
     s->name = "explore"; s->st = e; s->long_ok = 1;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     return s;

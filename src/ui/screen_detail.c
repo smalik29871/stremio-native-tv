@@ -12,17 +12,20 @@
 #include "../http.h"
 #include "../log.h"
 #include "../store.h"
+#include "../youtube.h"
+#include "../phone.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
 #include "screen_options.h"
+#include "island.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_SIMILAR };
-enum { BTN_PLAY, BTN_RESTART, BTN_LIBRARY, BTN_COUNT };
+enum { BTN_PLAY, BTN_RESTART, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
 #define EP_W 384.0f
 #define EP_H 216.0f
 #define EP_GAP 28.0f
@@ -58,14 +61,60 @@ typedef struct {
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
 } Detail;
 
-/* the visible buttons in order: Play/Resume, [From the start], Library */
+/* the visible buttons in order: Play/Resume, [From the start], [Trailer], Library */
 static int btn_at(const Detail *d, int pos)
 {
     if (pos == 0) return BTN_PLAY;
     if (d->resume_label[0]) { if (pos == 1) return BTN_RESTART; pos--; }
+    if (d->meta.trailer_yt) { if (pos == 1) return BTN_TRAILER; pos--; }
     return BTN_LIBRARY;
 }
-static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0); }
+static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + (d->meta.trailer_yt ? 1 : 0); }
+
+/* ---- the trailer: fetched from YouTube once, then played from the TV ---- */
+
+static struct { char id[128]; int busy; } g_trailer;   /* one fetch at a time, for the title `id` */
+
+static void trailer_url(const char *yt, char *out, size_t n) { snprintf(out, n, "https://www.youtube.com/watch?v=%s", yt); }
+
+static void trailer_play_saved(const char *name, const MetaPreview *meta)
+{
+    char snd[128], buf[800], vid[160];
+    snprintf(snd, sizeof snd, "sntv-sound://%s", name);
+    const char *u = phone_resolve_sound(snd, buf, sizeof buf);
+    if (!u) { app_toast("The trailer could not be opened"); return; }
+    PlayCandidate *c = calloc(1, sizeof *c);
+    c->url = strdup(u);
+    c->label = strdup("Trailer");
+    snprintf(vid, sizeof vid, "trailer:%s", meta->id);
+    char title[200]; snprintf(title, sizeof title, "%s  -  Trailer", meta->name ? meta->name : "");
+    LOGI("detail: trailer for %s from %s", meta->id, name);
+    app_push(screen_player_create(meta, vid, title, c, 1, 0, 0, NULL, NULL));
+}
+
+static void on_trailer(const char *name, const char *error, void *user)
+{
+    (void)user;
+    g_trailer.busy = 0;
+    if (!name) { LOGW("detail: trailer for %s failed: %s", g_trailer.id, error ? error : "?"); app_toast("The trailer could not be fetched%s%s", error ? ": " : "", error ? error : ""); return; }
+    Screen *top = app_top();
+    if (top && strcmp(top->name, "detail") == 0 && strcmp(((Detail *)top->st)->preview.id, g_trailer.id) == 0) trailer_play_saved(name, &((Detail *)top->st)->preview);
+    else app_toast("The trailer is ready: Trailer on the title page plays it");
+    app_redraw();
+}
+
+static void trailer_play(Detail *d)
+{
+    if (!d->meta.trailer_yt) return;
+    char url[96], name[80]; int is_video = 0;
+    trailer_url(d->meta.trailer_yt, url, sizeof url);
+    if (youtube_saved(url, 1, name, sizeof name, &is_video) && is_video) { trailer_play_saved(name, &d->preview); return; }
+    if (g_trailer.busy) { app_toast(strcmp(g_trailer.id, d->preview.id) == 0 ? "Getting the trailer\xE2\x80\xA6" : "Another trailer is on its way; one at a time"); return; }
+    snprintf(g_trailer.id, sizeof g_trailer.id, "%s", d->preview.id);
+    g_trailer.busy = 1;
+    LOGI("detail: fetching the trailer for %s (%s)", d->preview.id, d->meta.trailer_yt);
+    youtube_save(url, 1, on_trailer, NULL);
+}
 
 static void ask_clear(Detail *d)
 {
@@ -217,6 +266,7 @@ static void load_resume(Detail *d)
 static void on_meta(HttpResponse *r, void *user)
 {
     Detail *d = user;
+    int was = btn_at(d, d->btn);   /* a trailer or a resume point can add buttons: keep the focused one */
     d->req = 0;
     d->loading = 0;
     if (r->status == 200 && r->len && r->seconds >= 0) app_meta_put(d->preview.type, d->preview.id, r->body, r->len);
@@ -235,6 +285,7 @@ static void on_meta(HttpResponse *r, void *user)
     d->preview = merged;
     compute_seasons(d);
     load_resume(d);
+    for (int i = 0; i < n_buttons_d(d); i++) if (btn_at(d, i) == was) { d->btn = i; break; }
     app_redraw();
 }
 
@@ -386,6 +437,7 @@ static void update(Screen *s, float dt)
     int n_cast = cast_count(d, tm);
     d->age += dt;
     if (d->has_meta) d->facts_h = facts_height(d);
+    if (g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0) island_progress("Getting the trailer from YouTube", -1);
     if (!d->sim_asked && d->has_meta && (d->age > 1.5f || d->area >= AREA_ABOUT)) fetch_similar(d);
     if (d->area == AREA_CAST && d->cast_focus >= n_cast) d->cast_focus = n_cast ? n_cast - 1 : 0;
     float view = SNTV_UI_W - 2 * THEME_MARGIN;
@@ -757,6 +809,10 @@ static void draw(Screen *s)
     float bx2 = x + bw + 18;
     int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
     if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
+    if (d->meta.trailer_yt) {
+        int getting = g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
+        bx2 += ui_pill(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", 1, ICON_TV, bx2, by, 72, PILL_SECONDARY, cur == BTN_TRAILER) + 18;
+    }
     ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
     if (series) draw_series(d, li, x);
     if (d->has_meta && d->scroll < 160) {   /* the way down to About; gone once the page moves */
@@ -903,6 +959,7 @@ static int key(Screen *s, KeyAction a)
             return 0;
         case KEY_OK:
             if (btn_at(d, d->btn) == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
+            if (btn_at(d, d->btn) == BTN_TRAILER) { trailer_play(d); return 1; }
             if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
                 const char *vid = d->resume_video[0] ? d->resume_video : d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
                 if (app_pip_claim(vid)) return 1;

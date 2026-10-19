@@ -234,6 +234,16 @@ class H(BaseHTTPRequestHandler):
                     streams.insert(0, {"name": "[TB+] Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\u26A1 cached",
                                        "url": f"{BASE}/video/sample_h264_aac.mkv"})
                 return self.send(200, json.dumps({"streams": streams}).encode())
+        if p.startswith("/lighter/"):   # 2160p and 480p copies of every video, for the "buffering keeps stopping" offer
+            p = p[8:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.lighter", name="Lighter Addon",
+                                                      resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                first = STREAMS["streams"][0]
+                return self.send(200, json.dumps({"streams": [{"name": "Lighter\n2160p", "title": "Movie.2024.2160p.WEB-DL", "url": first["url"] + "?q=2160"},
+                                                              {"name": "Lighter\n480p", "title": "Movie.2024.480p.WEB-DL", "url": first["url"] + "?q=480"}]}).encode())
+            return self.send(404, b"{}")
         if p.startswith("/slow/"):
             p = p[5:]
             if p == "/manifest.json":
@@ -264,6 +274,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"meta": dict(m, description="A fixture movie used by the smoke test.", runtime="101 min",
                 director=["Frank Darabont"], writer=["Stephen King", "Frank Darabont"], country="United States",
                 awards="Nominated for 7 Oscars. 21 wins & 43 nominations total", released="1994-10-14T00:00:00.000Z",
+                trailerStreams=[{"title": "Trailer", "ytId": "dQw4w9WgXcQ"}],
                 app_extras={"cast": [{"name": n, "character": c, "photo": f"{BASE}/tmdbimg/p{i}.png"} for i, (n, c) in enumerate(
                     [("Tim Robbins", "Andy Dufresne"), ("Morgan Freeman", "Ellis Boyd 'Red' Redding"), ("Bob Gunton", "Warden Norton"), ("William Sadler", "Heywood")])]})}).encode())
         if p.startswith("/stream/"):

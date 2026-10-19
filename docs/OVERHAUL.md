@@ -182,3 +182,25 @@ unit tests green, version bumped and CHANGELOG updated.
 - `SNTV_PERF` numbers compared before/after each phase and recorded in the PR.
 - First TV check after phase 1 on the LG QNED, then on a webOS 3.x set if one is
   available.
+
+## 7. Ahead of Nuvio (after 0.9.0)
+
+A side-by-side with Nuvio Legacy found it ahead in a handful of places; each now has
+an answer here, kept as light as the rest (no new libraries, idle frames still skipped).
+
+| Nuvio has | Here |
+|---|---|
+| Accent from the artwork | *From the artwork* accent for every theme, eased between titles, theme colour on grey art |
+| Rich title page | About below the fold: credits, release, country, awards, ratings card with your progress, cast photos (OK searches them), More like this |
+| Paused info screen | Lean-back pause after 6 s idle: controls step aside, title and cast stay; OK plays |
+| Tracks menus on the current track, season jump | Audio/subtitle menus open on what plays; Left/Right jump seasons in Episodes |
+| Held-seek acceleration | ×3/×6/×12 while held, capped to a sixtieth of the video per press, real step shown |
+| Hero that waits | Hero swaps after the focus rests 220 ms; Showcase page dot fills to the next turn |
+| Trailers | Trailer button: fetched from YouTube once by the TV itself, played without touching progress |
+| Settings search, sliders | *Find a setting* (names, then help text; one match opens its row); sliders under scale settings |
+| Intro animation | The Stremio mark grows in and settles into the rail; any key skips |
+| Profiles | *Who's watching?* from the accounts saved on the TV; per-profile lists |
+| Watch stats | Library > *Your stats*: time, started/finished, films vs series, most watched, a square-a-day chart |
+| Mood browsing | Explore > *Moods*: three genres mixed across films and series, best matches first |
+| Lists | Save to Favourites / Watch later / With the family / Rewatch; each a Home row |
+| Adaptive quality | Repeated buffering offers the best lighter source, from the same moment |

@@ -1,4 +1,5 @@
 #include "rail.h"
+#include "intro.h"
 #include "../app.h"
 #include "font.h"
 #include "theme.h"
@@ -26,7 +27,7 @@ void rail_draw(int active, int focus)
     else gfx_gradient_h(0, 0, RAIL_W + 60, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xB8), COLOR_ALPHA(THEME_BG, 0));
     /* brand */
     float bs = 48, bx = (RAIL_W - bs) / 2;
-    ui_mark(bx, 44, bs);
+    if (!intro_active()) ui_mark(bx, 44, bs);   /* the launch animation is still bringing it here */
     if (open) font_draw("Stremio", RAIL_W, 44 + (bs - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT);
 
     const char *acc = g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Account") : "Sign in";

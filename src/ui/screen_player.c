@@ -90,6 +90,9 @@ struct Player {
     float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
     int seek_flash_step;                    /* seconds the last press moved (grows while the key is held) */
     float rest_t;                           /* paused and left alone: the controls fade, the title stays */
+    int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
+    int lighter_to; int lighter_offered;    /* buffering keeps stopping: a lower resolution offered (-1 none) */
+    int stalls_here;                        /* stalls since this source started */
     float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
     double embedded_offset;   /* timing for the TV's own subtitles, seconds (positive = later) */
@@ -153,6 +156,7 @@ static void report(Player *p, int force)
     video_info(&vi);
     if (vi.state == VIDEO_IDLE || vi.state == VIDEO_LOADING || vi.state == VIDEO_ERROR) return;
     if (!force && vi.position == p->last_reported) return;
+    if (p->trailer) return;
     p->last_reported = vi.position;
     app_library_progress(&p->meta, p->video_id, vi.position, vi.duration);
 }
@@ -200,6 +204,7 @@ static void on_addon_subs(HttpResponse *r, void *user)
 
 static void query_addon_subs_ex(Player *p, int hashed)
 {
+    if (p->trailer) return;
     const PlayCandidate *c = &p->cands[p->cur];
     char extra[700] = "";
     char size[32];
@@ -319,6 +324,7 @@ static void select_addon_sub(Player *p, int idx) { select_addon_sub_slot(p, idx,
 /* Series remember their own track choices; movies use the global preferences. */
 static const char *memory_key(const Player *p)
 {
+    if (p->trailer) return NULL;
     return p->meta.type && strcmp(p->meta.type, "movie") ? p->meta.id : NULL;
 }
 
@@ -779,6 +785,7 @@ static void on_kitsu(HttpResponse *r, void *user)
  * the cut by its length) or after 10 s without one. */
 static void skip_fetch(Player *p, const VideoInfo *vi)
 {
+    if (p->trailer) return;
     if (p->skip_state || (g_app.skip_mode == 2 && !p->next_video_id)) return;
     if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED) return;
     if (vi->duration <= 0 && g_app.time - p->load_started < 10) return;
@@ -828,6 +835,7 @@ static void do_skip(Player *p, const SkipSeg *s)
 /* Back to the sources list for this episode; the player goes away with its video. */
 static void browse_sources(Player *p)
 {
+    if (p->trailer) return;   /* "trailer:<id>" is not a video any addon knows */
     report(p, 1);
     MetaPreview meta;
     meta_preview_copy(&meta, &p->meta);
@@ -855,6 +863,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->auto_selected = 0;
     p->subs_auto_done = 0;
     p->load_started = g_app.time;
+    p->stalls_here = 0; p->lighter_to = -1;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     p->p2p_status[0] = 0;
     if (torrent_engine_url_is(p->cands[idx].url)) {
@@ -1183,7 +1192,19 @@ static void update(Screen *s, float dt)
         streams_prefetch(&p->meta, p->next_video_id);
     }
     next_progress_update(p, dt);
-    if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; p->stall_since = g_app.time; }
+    if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; p->stalls_here++; p->stall_since = g_app.time; }
+    /* it keeps stopping to buffer: offer the best source below this one's resolution, once */
+    if (!p->lighter_offered && !p->trailer && p->n_cands > 1 && vi.state != VIDEO_LOADING
+        && (p->stalls_here >= 3 || (vi.buffering && p->stall_since > 0 && g_app.time - p->stall_since > 10))) {
+        int cur = p->cands[p->cur].res ? p->cands[p->cur].res : 1081, best = -1;
+        for (int i = 0; i < p->n_cands; i++)
+            if (i != p->cur && p->cands[i].res > 0 && p->cands[i].res < cur && (best < 0 || p->cands[i].res > p->cands[best].res)) best = i;
+        p->lighter_offered = 1;
+        p->lighter_to = best;
+        for (int i = 0; i < p->n_cands; i++) LOGI("player: source %d %s %dp", i + 1, p->cands[i].label ? p->cands[i].label : "", p->cands[i].res);
+        if (best >= 0) { LOGI("player: %d stalls; offering source %d (%dp)", p->stalls_here, best + 1, p->cands[best].res); app_redraw(); }
+        else LOGI("player: %d stalls; no source below %dp to offer", p->stalls_here, p->cands[p->cur].res);
+    }
     if (!vi.buffering && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
     p->was_buffering = vi.buffering;
     if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
@@ -1374,6 +1395,23 @@ static void draw_menu(Player *p)
     #undef SECTION
 }
 
+/* "Buffering keeps stopping": the lighter source on offer, OK takes it. */
+static void draw_lighter(const Player *p, int overlay)
+{
+    const PlayCandidate *c = &p->cands[p->lighter_to];
+    float w = 640, h = 132, x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 200;
+    if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0xA0));
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
+    font_draw("BUFFERING KEEPS STOPPING", x + 28, y + 22, FONT_XS | FONT_B, THEME_ACCENT2);
+    char line[200], addon[96] = "";
+    const char *lbl = c->label ? c->label : "", *sep = strstr(lbl, " - ");
+    snprintf(addon, sizeof addon, "%.*s", sep ? (int)(sep - lbl) : (int)strlen(lbl), lbl);
+    snprintf(line, sizeof line, "Try %dp%s%s, from where you are", c->res, addon[0] ? " from " : "", addon);
+    font_draw_fit(line, x + 28, y + 54, FONT_S | FONT_B, THEME_TEXT, w - 56);
+    font_draw("OK  switch   \xC2\xB7   Back  keep this one", x + 28, y + h - 40, FONT_XS, THEME_TEXT_DIM);
+}
+
 static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
 {
     float w = 640, h = 176, x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240;
@@ -1497,8 +1535,8 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     ids[k] = BTN_AUDIO; labels[k] = "Audio and speed"; icons[k++] = ICON_AUDIO;
     ids[k] = BTN_ASPECT; labels[k] = "Aspect ratio"; icons[k++] = ICON_ASPECT;
     snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Sources", p->n_cands);
-    ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP;
-    if (n_eps > 1) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
+    if (!p->trailer) { ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP; }   /* a trailer has no sources or episodes */
+    if (n_eps > 1 && !p->trailer) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
     return k;
 }
@@ -1911,6 +1949,7 @@ static void draw(Screen *s)
     gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);
     if (p->up_next_shown && p->next_video_id && !p->menu) draw_up_next(p, &vi, overlay);
+    else if (p->lighter_to >= 0 && !p->menu) draw_lighter(p, overlay);
     const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu ? skippable(p, &vi) : NULL;
     if (sk) draw_skip_button(p, sk, &vi, overlay);
     if (p->menu) draw_menu(p);
@@ -2120,6 +2159,7 @@ static void seek_by(Player *p, double base)
 /* Left mid-way: the island offers the title back for a while. */
 static void offer_resume(Player *p, const VideoInfo *vi)
 {
+    if (p->trailer) return;
     if (vi->duration < 120 || vi->position < 60 || vi->position > vi->duration * 0.92) return;
     char line[200];
     if (p->title && p->meta.name && strncmp(p->title, p->meta.name, strlen(p->meta.name)) != 0)
@@ -2133,6 +2173,13 @@ static int key(Screen *s, KeyAction a)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
+    if (p->lighter_to >= 0 && !p->menu && p->seek_commit <= 0 && !(p->up_next_shown && p->next_video_id) && (a == KEY_OK || a == KEY_BACK)) {   /* the lighter source on offer */
+        int to = p->lighter_to;
+        p->lighter_to = -1;
+        if (a == KEY_OK) { LOGI("player: switching to the lighter source %d", to + 1); app_toast("Switching to %dp", p->cands[to].res); start_candidate(p, to, vi.position); }
+        app_redraw();
+        return 1;
+    }
     if (p->rest_t > 0.5f && !p->menu) {   /* leaning back: OK plays, anything else brings the controls back */
         if (a == KEY_OK || a == KEY_PLAY_PAUSE || a == KEY_PLAY) { LOGI("player: OK plays on from the lean-back screen"); p->bar_id = BTN_PLAY; video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
         show_overlay(p);
@@ -2228,7 +2275,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
     case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->cur + 1, vi.position); } return 1;
     case KEY_BACK:
-        if (g_app.pip_enabled && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
+        if (g_app.pip_enabled && !p->trailer && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
         /* fall through */
     case KEY_STOP:
         report(p, 1);
@@ -2275,7 +2322,9 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     Screen *s = calloc(1, sizeof *s);
     Player *p = calloc(1, sizeof *p);
     p->bar_id = BTN_PLAY;
-    island_resume(NULL, NULL, 0);   /* watching again: nothing to offer back */
+    p->lighter_to = -1;
+    p->trailer = strncmp(video_id, "trailer:", 8) == 0;
+    if (!p->trailer) island_resume(NULL, NULL, 0);   /* watching again: nothing to offer back */
     meta_preview_copy(&p->meta, meta);
     p->video_id = strdup(video_id);
     p->title = strdup(title ? title : meta->name);

@@ -57,6 +57,17 @@ grep -q 'search: "Morgan Freeman" from a title page' "$OUT/detail_cast.log" || {
 run detail_more_like 320 "wait,ok,down,down,down,ok" HOME="$(home_with about_more "$ABOUT_HOME")"
 grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "More like this did not open the title"; grep detail "$OUT/detail_more_like.log"; exit 1; }
 run detail_about_series 300 "right,ok,down,down,down"
+run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
+grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
+run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
+grep -q "settings: found Pure black (OLED) in Interface" "$OUT/settings_find_one.log" || { echo "a single match did not open its row"; grep settings "$OUT/settings_find_one.log"; exit 1; }
+run intro 70 "" SNTV_INTRO=1 SNTV_FRAME_DT=0.03 SNTV_NO_TRANSITIONS=
+grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not finish"; exit 1; }
+run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
+grep -q "detail: trailer for tt0111161 from yt-dQw4w9WgXcQ-video.mp4" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/1 Trailer" "$OUT/detail_trailer.log" \
+  || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
+LIBF="$OUT/home_trailer/.local/share/stremio/nativetv/library.json"
+[ ! -f "$LIBF" ] || ! grep -q tt0111161 "$LIBF" || { echo "watching the trailer saved progress for the film"; exit 1; }
 run episodes 220 "right,ok,down,down,right"
 run streams 240 "right,ok,down,down,ok"
 run streams_best 240 "right,ok,down,down,ok,up" HOME="$(home_with best '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"qualityMode":1}')"
@@ -139,6 +150,22 @@ CW_HOME="$(home_with cw_scroll '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"
 run home_cw_scroll 90 "right,right,right,down" HOME="$CW_HOME"
 run explore_cats 300 "left,down,ok,right,down,right"
 run library 260 "left,down,down,down,ok"
+run explore_moods 300 "left,down,ok,wait,up,right,right,down,right,ok"
+grep -q "explore: mood Edge of your seat has [1-9]" "$OUT/explore_moods.log" || { echo "the mood list stayed empty"; grep explore "$OUT/explore_moods.log"; exit 1; }
+PROFILES='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey","email":"sam.rivera@example.com","accounts":[{"email":"sam.rivera@example.com","key":"testkey"},{"email":"alex@example.com","key":"k2"}]}'
+run profiles 160 "right,ok" HOME="$(home_with profiles "$PROFILES")" SNTV_API_URL="http://127.0.0.1:$PORT"
+grep -q "profiles: switching" "$OUT/profiles.log" || { echo "choosing a profile did not switch accounts"; grep -E "profiles|account" "$OUT/profiles.log"; exit 1; }
+run profiles_back 160 "back" HOME="$(home_with profiles_back "$PROFILES")" SNTV_API_URL="http://127.0.0.1:$PORT"
+grep -q "profiles: switching" "$OUT/profiles_back.log" && { echo "Back on Who's watching switched accounts"; exit 1; }
+run list_save 300 "wait,yellow,down,down,ok,ok,wait,up" HOME="$(home_with lists "$ABOUT_HOME")"
+grep -q "toast: Saved to Favourites" "$OUT/list_save.log" || { echo "Save to a list did not save"; grep -E "toast|list" "$OUT/list_save.log"; exit 1; }
+grep -q '"lists"' "$OUT/home_lists/.local/share/stremio/nativetv/settings.json" || { echo "the list was not stored"; exit 1; }
+LIGHTER="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/lighter/manifest.json"
+run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$ABOUT_HOME")"
+grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
+run player_lighter_ok 820 "right,ok,down,down,ok,ok$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$ABOUT_HOME")"
+grep -q "player: switching to the lighter source [0-9]" "$OUT/player_lighter_ok.log" || { echo "OK did not take the lighter source"; grep player "$OUT/player_lighter_ok.log"; exit 1; }
+run library_stats 280 "left,down,down,down,ok,up,right,right,right,right,ok"
 run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
