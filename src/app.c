@@ -1433,6 +1433,10 @@ static void load_prefs(void)
     if (g_app.quality_mode < 0 || g_app.quality_mode >= QUAL_MODE_COUNT) g_app.quality_mode = QUAL_ADDON_ORDER;
     g_app.res_cap = store_get_int("resCap", 2160);
     g_app.auto_recommended = store_get_int("autoRecommended", 0);
+    g_app.src_max_gb = store_get_int("srcMaxGb", 0);
+    g_app.src_hdr = store_get_int("srcHdr", 0);
+    g_app.src_cached_only = store_get_int("srcCachedOnly", 0);
+    snprintf(g_app.src_exclude, sizeof g_app.src_exclude, "%s", store_get_str("srcExclude", ""));
     g_app.preflight = store_get_int("preflight", 1);
     g_app.live_scrub = store_get_int("liveScrub", 1);
     g_app.home_style = store_get_int("homeStyle", HOME_CINEMATIC);
@@ -1518,6 +1522,10 @@ void app_save_prefs(void)
     store_set_int("qualityMode", g_app.quality_mode);
     store_set_int("resCap", g_app.res_cap);
     store_set_int("autoRecommended", g_app.auto_recommended);
+    store_set_int("srcMaxGb", g_app.src_max_gb);
+    store_set_int("srcHdr", g_app.src_hdr);
+    store_set_int("srcCachedOnly", g_app.src_cached_only);
+    store_set_str("srcExclude", g_app.src_exclude[0] ? g_app.src_exclude : NULL);
     store_set_int("preflight", g_app.preflight);
     store_set_int("liveScrub", g_app.live_scrub);
     store_set_int("homeStyle", g_app.home_style);

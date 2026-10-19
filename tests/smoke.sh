@@ -190,6 +190,8 @@ TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef01
 run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run player_paused_tmdb 320 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
+run settings_rules 380 "left,down,down,down,down,down,ok,up,ok,t:largest,down,down,down,down,left,ok,right" HOME="$(home_with rules '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"CAM, 3D"}')"
+run streams_rules 240 "right,ok,down,down,ok" HOME="$(home_with rules2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"web-dl","preflight":0}')"
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)
 run transition_zoom 34 "right,ok" SNTV_NO_TRANSITIONS= SNTV_FRAME_DT=0.016

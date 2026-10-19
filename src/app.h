@@ -101,6 +101,10 @@ typedef struct App {
     int subs_autosync;         /* shift addon subtitles to match a file-matched subtitle */
     int subs_autotranslate;    /* AI: translate when nobody offers the preferred language */
     int addon_wait;            /* seconds auto-play waits for slow addons; 99 = all of them */
+    int src_max_gb;            /* source rules: largest file to pick, 0 any */
+    int src_hdr;               /* 0 any, 1 no Dolby Vision, 2 no HDR at all */
+    int src_cached_only;       /* only debrid-cached or direct links */
+    char src_exclude[128];     /* comma-separated words a source name must not contain */
     int src_audio_lang;        /* rank sources that mention the preferred audio language higher */
     int p2p_fallback;          /* torrents play on this TV (torrent.h) when no streaming server is set */
     int auto_update;           /* ask when a new release is out (else a notice only) */

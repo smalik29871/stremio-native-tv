@@ -81,6 +81,31 @@ static int is_notice(const Stream *s)
     return 0;
 }
 
+/* Settings > Sources > Rules: the reason a source breaks one, or NULL. Broken rules keep
+ * the source in the list but never recommended or auto-played. */
+static const char *rule_broken(const Stream *s)
+{
+    double gb = s->tags.size_gb > 0 ? s->tags.size_gb : s->video_size ? s->video_size / 1073741824.0 : 0;
+    if (g_app.src_max_gb && gb > g_app.src_max_gb) return "larger than your size limit";
+    if (g_app.src_hdr == 1 && s->tags.hdr == 2) return "Dolby Vision, which your rules avoid";
+    if (g_app.src_hdr == 2 && s->tags.hdr) return "HDR, which your rules avoid";
+    if (g_app.src_cached_only && s->tags.cached < 0) return "not cached, and your rules want cached only";
+    if (g_app.src_cached_only && s->info_hash && !s->tags.cached) return "a torrent, and your rules want cached only";
+    if (g_app.src_exclude[0]) {
+        char text[600], words[sizeof g_app.src_exclude];
+        snprintf(text, sizeof text, "%s %s %s", s->name ? s->name : "", s->title ? s->title : "", s->description ? s->description : "");
+        for (char *c = text; *c; c++) if (*c >= 'A' && *c <= 'Z') *c += 32;
+        snprintf(words, sizeof words, "%s", g_app.src_exclude);
+        for (char *c = words; *c; c++) if (*c >= 'A' && *c <= 'Z') *c += 32;
+        for (char *w = strtok(words, ","); w; w = strtok(NULL, ",")) {
+            while (*w == ' ') w++;
+            size_t n = strlen(w); while (n && w[n - 1] == ' ') w[--n] = 0;
+            if (n && strstr(text, w)) return "named with a word your rules exclude";
+        }
+    }
+    return NULL;
+}
+
 /* The source's name mentions the preferred audio language (or MULTI / DUAL). */
 static int has_audio_lang(const Stream *s)
 {
@@ -224,6 +249,7 @@ static void sort_items(Streams *st)
         Stream *s = &st->items[i];
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
         { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; }
+        if (rule_broken(s)) s->score -= 2000;                            /* Settings > Sources > Rules */
         if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */
         else if (s->probe_state == 2) {
             s->score += 60;                                              /* alive and understood */
@@ -617,7 +643,11 @@ static void draw(Screen *s)
         }
         const char *warn[3];
         int nw = ok ? quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 3) : 0;
-        if (sm->probe_state == 4) {
+        if (rule_broken(sm)) {
+            float fw = font_measure("Against your rules", FONT_XS | FONT_B) + 24;
+            bx -= fw + 8;
+            ui_chip("Against your rules", bx, ry + 18, COLOR_ALPHA(THEME_TEXT_MUTED, 0x30), THEME_TEXT_MUTED);
+        } else if (sm->probe_state == 4) {
             float fw = font_measure("Link not responding", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
             ui_chip("Link not responding", bx, ry + 18, COLOR_ALPHA(THEME_DANGER, 0x30), THEME_DANGER);

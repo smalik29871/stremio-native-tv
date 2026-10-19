@@ -47,7 +47,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_ASK_PROFILE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -58,7 +58,7 @@ static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio account", "Torrents",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
     "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
 #define SEC_H 70.0f
@@ -114,6 +114,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_SOURCES:
         SEC(SEC_RANKING); ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO;
+        ids[n++] = IT_SRC_SIZE; ids[n++] = IT_SRC_HDR; ids[n++] = IT_SRC_CACHED; ids[n++] = IT_SRC_EXCLUDE;
         SEC(SEC_STARTING); ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT;
         SEC(SEC_FALLBACK); ids[n++] = IT_P2P;
         break;
@@ -172,6 +173,10 @@ static const char *row_title(int id)
     case IT_CLOCK: return "Clock";
     case IT_QUALITY: return "Sort sources by";
     case IT_RES_CAP: return "Resolution for recommendations";
+    case IT_SRC_SIZE: return "Largest file to pick";
+    case IT_SRC_HDR: return "HDR and Dolby Vision";
+    case IT_SRC_CACHED: return "Only cached or direct sources";
+    case IT_SRC_EXCLUDE: return "Words to avoid in source names";
     case IT_PREFLIGHT: return "Check sources before recommending";
     case IT_SCRUB: return "Show the picture while seeking";
     case IT_THUMBS: return "Home helper (optional)";
@@ -243,6 +248,10 @@ static const char *row_desc(int id)
     case IT_SUBS_SYNC: return "Lines addon subtitles up with the video's own timing.";
     case IT_QUALITY: return "Which source comes first in the list.";
     case IT_RES_CAP: return "Recommended sources stay at or below this.";
+    case IT_SRC_SIZE: return "Bigger files stay in the list but are never picked for you.";
+    case IT_SRC_HDR: return "Avoid sources this screen shows badly. They stay in the list.";
+    case IT_SRC_CACHED: return "Torrents that need a download first are never picked for you.";
+    case IT_SRC_EXCLUDE: return "Comma-separated, e.g. CAM, HDTS, 3D. Matching sources are never picked.";
     case IT_PREFLIGHT: return "Makes sure a link answers before it is recommended.";
     case IT_AUTO_REC: return "Skips the list and starts the best match.";
     case IT_ADDON_WAIT: return "How long autoplay waits for slow addons before choosing.";
@@ -286,7 +295,7 @@ static int row_takes_left(int id)
     if (id >= IT_ROWS_BASE && id < IT_ACCT_BASE) return 1;   /* home rows and addons move */
     switch (id) {
     case IT_PREF_AUDIO: case IT_PREF_SUBS: case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_ADDON_WAIT: case IT_SKIP:
-    case IT_SUBS_WHEN: case IT_CLOCK: case IT_QUALITY: case IT_RES_CAP: case IT_AI_PROVIDER: case IT_MEMORY:
+    case IT_SUBS_WHEN: case IT_CLOCK: case IT_QUALITY: case IT_RES_CAP: case IT_SRC_SIZE: case IT_SRC_HDR: case IT_AI_PROVIDER: case IT_MEMORY:
     case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
     case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
     case IT_BR_WHERE: case IT_THEME: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE:
@@ -328,7 +337,7 @@ static int s_steps, s_step;  /* a scale: how many steps, and where the value is 
 
 /* Settings that are a scale, low to high: Left/Right walk them and the row draws a slider. */
 static const int ADDON_WAITS[] = { 3, 5, 8, 15, 30, 99 }, BR_LEADS[] = { 1, 2, 3, 5, 10, 15 },
-                 BR_LENS[] = { -1, 0, 3, 5, 10, 15, 20, 30 }, BR_HEALTH_LENS[] = { 2, 3, 5, 10 }, AMBIENT_STEPS[] = { 0, 2, 5, 10, 20 };
+                 BR_LENS[] = { -1, 0, 3, 5, 10, 15, 20, 30 }, BR_HEALTH_LENS[] = { 2, 3, 5, 10 }, AMBIENT_STEPS[] = { 0, 2, 5, 10, 20 }, SRC_SIZES[] = { 0, 2, 5, 10, 20, 40 };
 #define N_OF(a) ((int)(sizeof (a) / sizeof (a)[0]))
 static int step_in(const int *l, int n, int v, int dflt) { for (int i = 0; i < n; i++) if (l[i] == v) return i; return dflt; }
 static int step_move(const int *l, int n, int v, int dflt, int dir) { return l[(step_in(l, n, v, dflt) + dir + n) % n]; }
@@ -338,6 +347,7 @@ static int scale_of(int id, int *step)
     switch (id) {
     case IT_SUBS_SIZE: *step = g_app.subs_size; return 4;
     case IT_RES_CAP: *step = g_app.res_cap <= 720 ? 0 : g_app.res_cap <= 1080 ? 1 : 2; return 3;
+    case IT_SRC_SIZE: *step = step_in(SRC_SIZES, N_OF(SRC_SIZES), g_app.src_max_gb, 0); return N_OF(SRC_SIZES);
     case IT_ADDON_WAIT: *step = step_in(ADDON_WAITS, N_OF(ADDON_WAITS), g_app.addon_wait, 2); return N_OF(ADDON_WAITS);
     case IT_BR_LEAD: *step = step_in(BR_LEADS, N_OF(BR_LEADS), g_app.break_lead_min, 3); return N_OF(BR_LEADS);
     case IT_BR_LEN: *step = step_in(BR_LENS, N_OF(BR_LENS), g_app.break_len_min, 4); return N_OF(BR_LENS);
@@ -675,6 +685,10 @@ static void draw(Screen *s)
             draw_row(y, ICON_TV, "Resolution for recommendations", cap, foc, KIND_CHOICE, 0);
             break;
         }
+        case IT_SRC_SIZE: if (g_app.src_max_gb) snprintf(v, sizeof v, "Up to %d GB", g_app.src_max_gb); else snprintf(v, sizeof v, "Any size"); draw_row(y, ICON_SPEED, "Largest file to pick", v, foc, KIND_CHOICE, 0); break;
+        case IT_SRC_HDR: draw_row(y, ICON_TV, "HDR and Dolby Vision", g_app.src_hdr == 2 ? "Avoid HDR" : g_app.src_hdr == 1 ? "Avoid Dolby Vision" : "Any", foc, KIND_CHOICE, 0); break;
+        case IT_SRC_CACHED: draw_row(y, ICON_CHECK, "Only cached or direct sources", NULL, foc, KIND_TOGGLE, g_app.src_cached_only); break;
+        case IT_SRC_EXCLUDE: draw_row(y, ICON_CLOSE, "Words to avoid in source names", g_app.src_exclude[0] ? g_app.src_exclude : "None  \xC2\xB7  OK to add, e.g. CAM, HDTS, 3D", foc, KIND_ACTION, 0); break;
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
         case IT_SCRUB: draw_row(y, ICON_PLAY, "Show the picture while seeking", NULL, foc, KIND_TOGGLE, g_app.live_scrub); break;
         case IT_THUMBS: draw_row(y, ICON_ASPECT, "Home helper (optional)", g_app.thumb_server ? g_app.thumb_server : "Not needed: the TV makes seek previews and saves YouTube links itself", foc, KIND_ACTION, 0); break;
@@ -827,13 +841,14 @@ static const char *edit_title(int which)
 {
     if (which == EDIT_SEARCH) return "Find a setting";
     return which == EDIT_AI_KEY ? "AI API key" : which == EDIT_AI_BASE ? "AI endpoint (OpenAI-compatible)" : which == EDIT_AI_MODEL ? "AI model"
-         : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_TMDB ? "TMDB API key"
+         : which == EDIT_EXCLUDE ? "Words to avoid in source names" : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_TMDB ? "TMDB API key"
          : which == EDIT_LOCATION ? "Your location" : which == EDIT_BR_AUDIO ? "Audio at the start of a break" : which == EDIT_BR_END ? "Audio at the end of a break" : "Addon manifest URL";
 }
 static const char *edit_hint(int which)
 {
     if (which == EDIT_SEARCH) return "A word from its name or from what it does: subtitle, clock, black, PIN, trailer\xE2\x80\xA6";
-    return which == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
+    return which == EDIT_EXCLUDE ? "Comma-separated, e.g. CAM, HDTS, 3D, HC. Sources with any of them in their name are never picked for you. Empty removes the rule."
+         : which == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
          : which == EDIT_THUMBS ? "Optional: tools/thumbs/server.py on a computer or NAS, e.g. http://192.168.1.10:11480. The TV already decodes seek previews and saves YouTube links; set this only to use the computer instead. Empty turns it off."
          : which == EDIT_TMDB ? "Free at themoviedb.org > Settings > API (the v3 key, 32 characters). Empty removes it."
          : which == EDIT_AI_KEY ? ai_key_hint(g_app.ai_provider)
@@ -995,7 +1010,7 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_TMDB ? (g_app.tmdb_key ? g_app.tmdb_key : "")
                   : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "http://")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
-                  : which == EDIT_SEARCH ? ""
+                  : which == EDIT_SEARCH ? "" : which == EDIT_EXCLUDE ? g_app.src_exclude
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "https://") : "https://");
     input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
@@ -1026,6 +1041,12 @@ static void finish_edit(Settings *st, int save)
             store_set_str("streamingServer", g_app.streaming_server);
             store_save();
             app_toast(n ? "Streaming server saved" : "Streaming server cleared");
+        } else if (st->edit == EDIT_EXCLUDE) {
+            char *v = st->kb.text;
+            while (*v == ' ' || *v == ',') v++;
+            snprintf(g_app.src_exclude, sizeof g_app.src_exclude, "%.127s", v);
+            app_save_prefs();
+            app_toast(g_app.src_exclude[0] ? "Sources named with these words are never picked for you" : "Word rule removed");
         } else if (st->edit == EDIT_TMDB) {
             char *v = st->kb.text;
             while (*v == ' ') v++;
@@ -1104,6 +1125,9 @@ static int adjust(Settings *st, int id, int dir)
         break;
     }
     case IT_AUTO_REC: g_app.auto_recommended = !g_app.auto_recommended; break;
+    case IT_SRC_SIZE: g_app.src_max_gb = step_move(SRC_SIZES, N_OF(SRC_SIZES), g_app.src_max_gb, 0, dir); break;
+    case IT_SRC_HDR: g_app.src_hdr = (g_app.src_hdr + dir + 3) % 3; break;
+    case IT_SRC_CACHED: g_app.src_cached_only = !g_app.src_cached_only; break;
     case IT_PREFLIGHT: g_app.preflight = !g_app.preflight; break;
     case IT_SCRUB: g_app.live_scrub = !g_app.live_scrub; break;
     case IT_THEME:
@@ -1146,7 +1170,7 @@ static int adjust(Settings *st, int id, int dir)
         app_toast(g_app.low_memory ? "Memory saver on: fewer rows and posters kept" : g_app.memory_mode == 0 ? "Automatic: the saver turns on by itself when memory gets tight" : "Normal memory use");
         break;
     }
-    case IT_TMDB: case IT_AI_KEY: case IT_AI_BASE: case IT_AI_MODEL: return 1;
+    case IT_TMDB: case IT_AI_KEY: case IT_AI_BASE: case IT_AI_MODEL: case IT_SRC_EXCLUDE: return 1;
     case IT_BR_ON: g_app.breaks_on = !g_app.breaks_on; break;
     case IT_BR_SCHED: g_app.break_sched = (g_app.break_sched + dir + BRK_SCHED_COUNT) % BRK_SCHED_COUNT; break;
     case IT_BR_METHOD: g_app.break_method = (g_app.break_method + dir + SUN_METHOD_COUNT) % SUN_METHOD_COUNT; break;
@@ -1264,6 +1288,7 @@ static int key(Screen *s, KeyAction a)
         }
         else if (id == IT_THUMBS) begin_edit(st, EDIT_THUMBS);
         else if (id == IT_TMDB) begin_edit(st, EDIT_TMDB);
+        else if (id == IT_SRC_EXCLUDE) begin_edit(st, EDIT_EXCLUDE);
         else if (id == IT_AI_KEY) begin_edit(st, EDIT_AI_KEY);
         else if (id == IT_AI_BASE) begin_edit(st, EDIT_AI_BASE);
         else if (id == IT_AI_MODEL) { app_toast("Asking %s for its models\xE2\x80\xA6", AI_PROVIDER_NAMES[g_app.ai_provider]); ai_list_models(on_models, NULL); }
