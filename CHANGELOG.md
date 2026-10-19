@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.2
+
+- **Updating when the TV won't let the app install.** On TVs that refuse the app a call
+  to the Homebrew Channel's installer, the update screen now says so plainly and OK opens
+  the Homebrew Channel, where Stremio (native) > Update installs the new version.
+
 ## 0.10.1
 
 - **Updates come from a new address.** Releases now live in a public repository of their

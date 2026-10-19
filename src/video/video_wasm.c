@@ -97,3 +97,5 @@ int video_tracks(TrackKind kind, VideoTrack *out, int max)
 }
 void video_subtitle_style(int size, int style, int position, int sync_ms) { (void)size; (void)style; (void)position; (void)sync_ms; }
 void video_select_track(TrackKind kind, int index) { js_track_select((int)kind, index); g_info.tracks_version++; }
+
+int video_open_app(const char *app_id) { (void)app_id; return -1; }

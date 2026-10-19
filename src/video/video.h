@@ -67,5 +67,8 @@ int  video_install_update(const char *ipk_url, const char *sha256, const char *a
 /* What the installer said last ("Downloading…  42%"), and its state:
  * 0 nothing asked, 1 working, 2 finished, -1 failed (out has the reason). */
 int  video_install_status(char *out, size_t n);
+/* Opens another app (the Homebrew Channel, when this TV won't let us ask its installer).
+ * 0 when the request went out. */
+int  video_open_app(const char *app_id);
 
 #endif

@@ -760,6 +760,19 @@ static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
     return 1;
 }
 
+int video_open_app(const char *app_id)
+{
+    if (!g_bus || !L.Call) return -1;
+    char payload[200];
+    snprintf(payload, sizeof payload, "{\"id\":\"%s\"}", app_id);
+    LSError e; L.ErrorInit(&e);
+    int sent = L.Call(g_bus, "luna://com.webos.applicationManager/launch", payload, NULL, NULL, NULL, &e);
+    if (!sent) ls_error_log("launch", &e);
+    L.ErrorFree(&e);
+    LOGI("update: opening %s%s", app_id, sent ? "" : " failed");
+    return sent ? 0 : -1;
+}
+
 int video_install_update(const char *ipk_url, const char *sha256, const char *app_id)
 {
     if (!g_bus || !L.Call) return -1;

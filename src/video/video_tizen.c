@@ -139,3 +139,5 @@ void video_select_track(TrackKind kind, int index)
     if (index >= 0) player_select_track(g_player, type, index);
     g_info.tracks_version++;
 }
+
+int video_open_app(const char *app_id) { (void)app_id; return -1; }

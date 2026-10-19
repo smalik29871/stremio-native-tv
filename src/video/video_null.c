@@ -112,3 +112,5 @@ void video_select_track(TrackKind kind, int index)
     if (kind == TRACK_AUDIO) g_audio_sel = index; else g_text_sel = index;
     g.tracks_version++;
 }
+
+int video_open_app(const char *app_id) { LOGI("video(null): open app %s", app_id); return 0; }
