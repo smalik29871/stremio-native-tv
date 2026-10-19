@@ -1,7 +1,10 @@
 # Builds and tests on every push. A push to main whose deploy/webos/appinfo.json
-# version has no release yet (or a pushed v* tag) publishes a GitHub release
-# with the LG .ipk plus the Homebrew Channel repository files, so TVs
-# subscribed to .../releases/latest/download/repo.json get the update.
+# version has no release yet (or a pushed v* tag) publishes a release with the LG
+# .ipk plus the Homebrew Channel repository files to the public releases repository
+# (RELEASES_REPO, written with the RELEASES_TOKEN secret), so TVs subscribed to
+# .../releases/latest/download/repo.json get the update; this source repository can
+# stay private. While it is still public the release is made here too, so TVs on
+# older versions (which look here) find the build that moves them over.
 # To ship a new version: bump the version in appinfo.json and push to main.
 name: Build
 
@@ -16,6 +19,7 @@ permissions:
   contents: read
 
 env:
+  RELEASES_REPO: smalik29871/stremio-custom-lg-tv-releases
   # openlgtv buildroot SDK pinned to the release the Nuvio native client ships with.
   WEBOS_SDK_URL: https://github.com/openlgtv/buildroot-nc4/releases/download/webos-a38c582/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
   WEBOS_SDK_SHA256: 04ad3311b48b4557a7002aef56ae2e167478e8e129f37daac04649bddf813616
@@ -91,6 +95,7 @@ jobs:
           bash tools/check-ipk.sh "$IPK" ~/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot
           bash tools/hb-repo.sh "$IPK" dist
           cp "$IPK" dist/
+          cp deploy/webos/largeIcon.png dist/   # the Homebrew Channel icon
       - uses: actions/upload-artifact@v4
         with:
           name: webos-ipk
@@ -106,6 +111,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # git to the releases repository uses its own token
       - uses: actions/download-artifact@v4
         with:
           name: webos-ipk
@@ -114,22 +121,30 @@ jobs:
         id: ver
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLIC_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('deploy/webos/appinfo.json'))['version'])")
           TAG="v$VERSION"
           if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$TAG" ]; then
             echo "Tag $GITHUB_REF_NAME does not match appinfo.json version $VERSION"; exit 1
           fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; nothing to publish."
+          if [ -z "$PUBLIC_TOKEN" ]; then echo "The RELEASES_TOKEN secret is missing"; exit 1; fi
+          if GH_TOKEN="$PUBLIC_TOKEN" gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists in $RELEASES_REPO."
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
+          # here too while this repository is public (TVs on older versions look here)
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = "false" ] && ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "here=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "here=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Release notes from CHANGELOG
-        if: steps.ver.outputs.publish == 'true'
+        if: steps.ver.outputs.publish == 'true' || steps.ver.outputs.here == 'true'
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
@@ -140,12 +155,31 @@ jobs:
             echo "In the Homebrew Channel, open Settings, add this repository, and install **Stremio (native)**:"
             echo
             echo '```'
-            echo "https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/repo.json"
+            echo "https://github.com/${RELEASES_REPO}/releases/latest/download/repo.json"
             echo '```'
           } >> notes.md
           cat notes.md
-      - name: Create release
+      - name: Create the release in the public repository
         if: steps.ver.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          # a release needs a commit to tag: an empty repository gets a README first
+          if [ -z "$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" 2>/dev/null)" ]; then
+            mkdir seed && cd seed && git init -q -b main
+            printf '# Stremio (native) for LG webOS: releases\n\nBuilds of the native Stremio TV client. In the Homebrew Channel, add\n\n    https://github.com/%s/releases/latest/download/repo.json\n' "$RELEASES_REPO" > README.md
+            git add README.md
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Releases of the native Stremio TV client"
+            git push -q "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" main
+            cd ..
+          fi
+          gh release create "$TAG" dist/* \
+            --repo "$RELEASES_REPO" \
+            --title "Stremio Native TV $TAG" \
+            --notes-file notes.md
+      - name: Create the release here too
+        if: steps.ver.outputs.here == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.ver.outputs.tag }}

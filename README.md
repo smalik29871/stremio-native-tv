@@ -10,7 +10,7 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.10.0.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.10.1.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
@@ -22,7 +22,7 @@ account API**: the same account, addons, Library and Continue Watching as the of
 2. Add this repository URL:
 
    ```
-   https://github.com/smalik29871/stremio-native-tv/releases/latest/download/repo.json
+   https://github.com/smalik29871/stremio-custom-lg-tv-releases/releases/latest/download/repo.json
    ```
 3. Back in the app list, install **Stremio (native)**.
 
@@ -35,7 +35,7 @@ Settings > About has *Update* (check or install now) and *Ask me when an update 
 The release files must stay publicly downloadable for this, as for the Homebrew Channel:
 a private repository's release files need a GitHub login that a TV does not have.
 
-Or download the `.ipk` from the [latest release](https://github.com/smalik29871/stremio-native-tv/releases/latest)
+Or download the `.ipk` from the [latest release](https://github.com/smalik29871/stremio-custom-lg-tv-releases/releases/latest)
 and install it with Developer Mode (`ares-install`) or Dev Manager.
 
 First start asks six questions (languages, when subtitles turn on, intro skipping,

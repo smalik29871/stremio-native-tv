@@ -17,7 +17,8 @@ cd "$(dirname "$0")/.."
 
 IPK="${1:?usage: hb-repo.sh <package.ipk> <out-dir>}"
 OUT="${2:?usage: hb-repo.sh <package.ipk> <out-dir>}"
-REPO="${GITHUB_REPOSITORY:-smalik29871/stremio-native-tv}"
+# The public repository that carries the releases (the source repository can be private).
+REPO="${RELEASES_REPO:-smalik29871/stremio-custom-lg-tv-releases}"
 mkdir -p "$OUT"
 
 python3 - "$IPK" "$OUT" "$REPO" <<'PY'
@@ -32,7 +33,7 @@ if name != expected:
     sys.exit(f"hb-repo.sh: expected {expected}, got {name}")
 sha = hashlib.sha256(open(ipk, "rb").read()).hexdigest()
 base = f"https://github.com/{repo}/releases/download/v{version}"
-icon = f"https://raw.githubusercontent.com/{repo}/v{version}/deploy/webos/largeIcon.png"
+icon = f"{base}/largeIcon.png"   # published with the release: the source may be private
 manifest = {
     "id": app["id"],
     "version": version,

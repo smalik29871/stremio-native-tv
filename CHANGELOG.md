@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1
+
+- **Updates come from a new address.** Releases now live in a public repository of their
+  own, [stremio-custom-lg-tv-releases](https://github.com/smalik29871/stremio-custom-lg-tv-releases);
+  the app checks there from this version on. In the Homebrew Channel, replace the old
+  repository with
+  `https://github.com/smalik29871/stremio-custom-lg-tv-releases/releases/latest/download/repo.json`.
+
 ## 0.10.0
 
 Ahead of Nuvio: everything a side-by-side found missing, kept as light as the rest.
