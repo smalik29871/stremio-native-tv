@@ -18,6 +18,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/vfs.h>
 #include <SDL.h>
 #include <GLES2/gl2.h>
 
@@ -32,15 +33,37 @@ static int dir_writable(const char *dir)
     return 1;
 }
 
+/* A folder in RAM (tmpfs/ramfs) is wiped when the TV powers off: sign-in and settings
+ * with it. Such a folder is used only when nothing else is writable. */
+static int in_ram(const char *dir)
+{
+    struct statfs fs;
+    if (statfs(dir, &fs) != 0) return 0;
+    unsigned long type = (unsigned long)(unsigned int)fs.f_type;
+    return type == 0x01021994UL || type == 0x858458f6UL;   /* tmpfs, ramfs */
+}
+
 static const char *data_dir(void)
 {
     static char dir[1024];
+    char ram[1024] = "";
     char *pref = SDL_GetPrefPath("stremio", "nativetv");
-    if (pref && dir_writable(pref)) { snprintf(dir, sizeof dir, "%s", pref); SDL_free(pref); return dir; }
-    if (pref) SDL_free(pref);
+    if (pref && dir_writable(pref)) {
+        snprintf(dir, sizeof dir, "%s", pref); SDL_free(pref);
+        if (!in_ram(dir)) return dir;
+        snprintf(ram, sizeof ram, "%s", dir);
+    } else if (pref) SDL_free(pref);
+    char *base = SDL_GetBasePath();   /* next to the app: where Homebrew installed it */
+    if (base) {
+        snprintf(dir, sizeof dir, "%sdata", base); SDL_free(base);
+        mkdir(dir, 0755);
+        if (dir_writable(dir) && !in_ram(dir)) return dir;
+    }
     const char *home = getenv("HOME");
     snprintf(dir, sizeof dir, "%s/.%s", home ? home : "/tmp", SNTV_APP_ID);
     mkdir(dir, 0755);
+    if (dir_writable(dir) && !in_ram(dir)) return dir;
+    if (ram[0]) { snprintf(dir, sizeof dir, "%s", ram); return dir; }
     if (dir_writable(dir)) return dir;
     snprintf(dir, sizeof dir, "/tmp/%s", SNTV_APP_ID);
     mkdir(dir, 0755);
@@ -166,6 +189,7 @@ int main(int argc, char **argv)
     const char *dir = data_dir();
     log_init(dir);
     LOGI("%s %s starting, data dir %s", SNTV_APP_NAME, SNTV_APP_VERSION, dir);
+    if (in_ram(dir)) LOGW("store: %s is in RAM: sign-in and settings will not survive the TV powering off", dir);
     store_init(dir);
     /* a marker that only a clean exit removes: present at start = the last session crashed */
     char alive[1200]; snprintf(alive, sizeof alive, "%s/session.alive", dir);
@@ -253,6 +277,8 @@ int main(int argc, char **argv)
                 player_save_progress();   /* Home or another app: webOS may end us without notice later */
                 video_app_background();
                 app_library_flush(1);
+                store_save();
+                store_flush();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
                 video_app_foreground();
                 app_redraw();
@@ -263,6 +289,7 @@ int main(int argc, char **argv)
                 video_app_background();
                 app_library_flush(1);
                 store_save();
+                store_flush();   /* on flash before webOS may end us */
             } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
                 video_app_foreground();
                 app_redraw();

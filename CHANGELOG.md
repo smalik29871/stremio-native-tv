@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.6
+
+- **Sign-in and settings survive the TV losing power.** Settings were saved by writing a
+  new file and renaming it over the old one, but nothing made sure the data had reached
+  the TV's flash first. A power cut right after a save could leave `settings.json` empty
+  or cut off, and the app then started as if new: the welcome screen, signed out, every
+  preference gone, and the next save made it permanent. Now:
+  - the file is forced to flash before it replaces the old one, and the copy before it
+    is kept as `settings.json.bak`;
+  - an empty or damaged `settings.json` is recovered from that copy at start (Diagnostics
+    says so), and the damaged file is kept aside instead of being overwritten;
+  - saving happens on a background thread, so the extra flash write never stalls a
+    frame, and everything pending is written when you press Home or switch apps.
+- If the data folder turns out to be on a RAM disk (wiped at power-off), the app uses a
+  persistent folder next to itself instead and logs a warning.
+
 ## 0.8.5
 
 - **P2P fallback for TorBox, on the TV itself.** When TorBox has no cached copy of a
