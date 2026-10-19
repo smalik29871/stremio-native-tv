@@ -95,6 +95,13 @@ static void parse_details(Slot *s, const char *json)
             }
         }
     }
+    const cJSON *bc = tv ? NULL : cJSON_GetObjectItemCaseSensitive(root, "belongs_to_collection");
+    const cJSON *bid = bc ? cJSON_GetObjectItemCaseSensitive(bc, "id") : NULL, *bname = bc ? cJSON_GetObjectItemCaseSensitive(bc, "name") : NULL;
+    if (cJSON_IsNumber(bid) && bid->valueint > 0) {
+        s->info.collection_id = bid->valueint;
+        snprintf(s->info.collection, sizeof s->info.collection, "%s", cJSON_IsString(bname) ? bname->valuestring : "");
+    }
+    s->info.tmdb_id = s->tmdb_id;
     cJSON_Delete(root);
     s->info.state = 2;
     LOGI("tmdb: %s -> %d cast, rating %s", s->imdb, s->info.n_cast, s->info.cert[0] ? s->info.cert : "none");
@@ -166,4 +173,115 @@ const TmdbInfo *tmdb_get(const char *imdb_id, const char *type)
     snprintf(url, sizeof url, "%s/find/%s?external_source=imdb_id&api_key=%s", api_base(), imdb_id, api_key());
     http_request_async(url, NULL, on_find, s);
     return NULL;
+}
+
+/* ---- collections ---- */
+static TmdbCollection g_coll[4];
+static unsigned g_coll_stamp[4];
+
+static int part_cmp(const void *a, const void *b)
+{
+    const TmdbPart *x = a, *y = b;
+    if (!x->year[0] != !y->year[0]) return x->year[0] ? -1 : 1;   /* unreleased last */
+    return strcmp(x->year, y->year);
+}
+
+static void parse_collection(TmdbCollection *c, const char *json)
+{
+    cJSON *root = cJSON_Parse(json);
+    const cJSON *parts = root ? cJSON_GetObjectItemCaseSensitive(root, "parts") : NULL, *it;
+    const cJSON *name = root ? cJSON_GetObjectItemCaseSensitive(root, "name") : NULL;
+    char dates[16][12] = {{0}};
+    c->n = 0;
+    if (cJSON_IsString(name)) snprintf(c->name, sizeof c->name, "%s", name->valuestring);
+    if (cJSON_IsArray(parts)) cJSON_ArrayForEach(it, parts) {
+        if (c->n >= 16) break;
+        const cJSON *id = cJSON_GetObjectItemCaseSensitive(it, "id"), *t = cJSON_GetObjectItemCaseSensitive(it, "title");
+        const cJSON *rd = cJSON_GetObjectItemCaseSensitive(it, "release_date"), *pp = cJSON_GetObjectItemCaseSensitive(it, "poster_path");
+        if (!cJSON_IsNumber(id) || !cJSON_IsString(t)) continue;
+        TmdbPart *pt = &c->parts[c->n];
+        memset(pt, 0, sizeof *pt);
+        pt->tmdb_id = id->valueint;
+        snprintf(pt->title, sizeof pt->title, "%s", t->valuestring);
+        /* the full date sorts; the year shows */
+        if (cJSON_IsString(rd) && strlen(rd->valuestring) >= 4) snprintf(dates[c->n], sizeof dates[c->n], "%.10s", rd->valuestring);
+        if (cJSON_IsString(pp) && pp->valuestring[0]) snprintf(pt->poster, sizeof pt->poster, "%s%s", img_base(), pp->valuestring);
+        c->n++;
+    }
+    /* sort by date, carrying the full date in year[] for the sort, then cut it to the year */
+    for (int i = 0; i < c->n; i++) snprintf(c->parts[i].year, sizeof c->parts[i].year, "%.7s", dates[i]);
+    qsort(c->parts, (size_t)c->n, sizeof c->parts[0], part_cmp);
+    for (int i = 0; i < c->n; i++) c->parts[i].year[4] = 0;
+    cJSON_Delete(root);
+    c->state = c->n >= 2 ? 2 : 3;
+    LOGI("tmdb: collection %d \"%s\" has %d films", c->id, c->name, c->n);
+}
+
+static void coll_key(int id, char *out, size_t n) { snprintf(out, n, "%s/collection/%d", api_base(), id); }
+
+static void on_collection(HttpResponse *r, void *user)
+{
+    TmdbCollection *c = user;
+    if (r->status == 200) {
+        char key[256]; coll_key(c->id, key, sizeof key);
+        app_cache_put(key, r->body, r->len);
+        parse_collection(c, r->body);
+    } else c->state = 3;
+    app_redraw();
+}
+
+const TmdbCollection *tmdb_collection(int id)
+{
+    if (!tmdb_enabled() || id <= 0) return NULL;
+    int slot = 0;
+    for (int i = 0; i < 4; i++) {
+        if (g_coll[i].id == id) { g_coll_stamp[i] = ++g_clock; return g_coll[i].state == 2 ? &g_coll[i] : NULL; }
+        if (g_coll_stamp[i] < g_coll_stamp[slot]) slot = i;
+    }
+    TmdbCollection *c = &g_coll[slot];
+    memset(c, 0, sizeof *c);
+    c->id = id; c->state = 1; g_coll_stamp[slot] = ++g_clock;
+    char key[256], url[512];
+    coll_key(id, key, sizeof key);
+    char *cached = app_cache_get(key, 7 * 24 * 3600);
+    if (cached) { parse_collection(c, cached); free(cached); return c->state == 2 ? c : NULL; }
+    snprintf(url, sizeof url, "%s?api_key=%s", key, api_key());
+    http_request_async(url, NULL, on_collection, c);
+    return NULL;
+}
+
+typedef struct { TmdbImdbCb cb; void *user; int id; } ImdbReq;
+
+static void imdb_from(const char *json, char *out, size_t n)
+{
+    cJSON *root = cJSON_Parse(json);
+    const cJSON *v = root ? cJSON_GetObjectItemCaseSensitive(root, "imdb_id") : NULL;
+    snprintf(out, n, "%s", cJSON_IsString(v) ? v->valuestring : "");
+    cJSON_Delete(root);
+}
+
+static void on_imdb(HttpResponse *r, void *user)
+{
+    ImdbReq *q = user;
+    char imdb[24] = "";
+    if (r->status == 200) {
+        imdb_from(r->body, imdb, sizeof imdb);
+        char key[256]; snprintf(key, sizeof key, "%s/movie/%d/external_ids", api_base(), q->id);
+        if (imdb[0]) app_cache_put(key, r->body, r->len);
+    }
+    q->cb(imdb, q->user);
+    free(q);
+}
+
+void tmdb_imdb_for(int tmdb_id, TmdbImdbCb cb, void *user)
+{
+    char key[256], url[512], imdb[24] = "";
+    snprintf(key, sizeof key, "%s/movie/%d/external_ids", api_base(), tmdb_id);
+    char *cached = app_cache_get(key, 90 * 24 * 3600);
+    if (cached) { imdb_from(cached, imdb, sizeof imdb); free(cached); cb(imdb, user); return; }
+    if (!tmdb_enabled()) { cb("", user); return; }
+    ImdbReq *q = malloc(sizeof *q);
+    q->cb = cb; q->user = user; q->id = tmdb_id;
+    snprintf(url, sizeof url, "%s?api_key=%s", key, api_key());
+    http_request_async(url, NULL, on_imdb, q);
 }

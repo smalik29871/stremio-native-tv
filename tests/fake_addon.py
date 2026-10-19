@@ -372,6 +372,14 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/tmdb/3/find/"):     # TMDB stand-in: every IMDb id maps to id 1
             tv = "tt0903747" in p
             return self.send(200, json.dumps({"movie_results": [] if tv else [{"id": 1}], "tv_results": [{"id": 1}] if tv else []}).encode(), "application/json")
+        if p.startswith("/tmdb/3/collection/"):   # a franchise, out of order on purpose
+            parts = [{"id": 3, "title": "Fake Saga: Return", "release_date": "2014-05-01", "poster_path": "/p2.png"},
+                     {"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png"},
+                     {"id": 2, "title": "Fake Saga: Again", "release_date": "2011-07-01", "poster_path": "/p1.png"}]
+            return self.send(200, json.dumps({"id": 10, "name": "Fake Saga Collection", "parts": parts}).encode(), "application/json")
+        if p.startswith("/tmdb/3/movie/") and "/external_ids" in p:
+            n = int(p.split("/movie/")[1].split("/")[0])
+            return self.send(200, json.dumps({"imdb_id": f"tt{1000 + n}"}).encode(), "application/json")
         if p.startswith("/tmdb/3/movie/") or p.startswith("/tmdb/3/tv/"):
             tv = "/tv/" in p
             cast = [{"name": n, "character": c, "profile_path": f"/p{i}.png"} for i, (n, c) in enumerate([("Bryan Cranston", "Walter White"), ("Aaron Paul", "Jesse Pinkman"), ("Anna Gunn", "Skyler White"), ("Dean Norris", "Hank Schrader")])]
@@ -379,7 +387,7 @@ class H(BaseHTTPRequestHandler):
                 for cm in cast: cm["roles"] = [{"character": cm.pop("character")}]
                 body = {"aggregate_credits": {"cast": cast}, "content_ratings": {"results": [{"iso_3166_1": "US", "rating": "TV-MA"}]}}
             else:
-                body = {"credits": {"cast": cast}, "release_dates": {"results": [{"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}]}}
+                body = {"belongs_to_collection": {"id": 10, "name": "Fake Saga Collection"}, "credits": {"cast": cast}, "release_dates": {"results": [{"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}]}}
             return self.send(200, json.dumps(body).encode(), "application/json")
         if p.startswith("/tmdbimg/"):
             i = int(p.rsplit("/p", 1)[1].split(".")[0]) if "/p" in p else 0

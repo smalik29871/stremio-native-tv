@@ -25,7 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_SIMILAR };
+enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
 enum { BTN_PLAY, BTN_RESTART, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
 #define EP_W 384.0f
 #define EP_H 216.0f
@@ -57,8 +57,8 @@ typedef struct {
     char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
     /* About */
     float scroll, scroll_v, age, facts_h;
-    int cast_focus, sim_focus;
-    float cast_x, sim_x;
+    int cast_focus, sim_focus, fr_focus, fr_opening; unsigned fr_gen;
+    float cast_x, sim_x, fr_x;
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
 } Detail;
 
@@ -356,13 +356,22 @@ static void cast_at(const Detail *d, const TmdbInfo *tm, int i, const char **nam
 }
 
 /* where the About rows sit on the page; -1 for a row with nothing in it */
-typedef struct { float facts, cast, similar; } AboutLayout;
+typedef struct { float facts, cast, franchise, similar; } AboutLayout;
+
+/* The film's franchise in release order, when TMDB knows one. */
+static const TmdbCollection *franchise(const Detail *d)
+{
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
+    return tm && tm->collection_id ? tmdb_collection(tm->collection_id) : NULL;
+}
 static AboutLayout about_layout(const Detail *d, int n_cast)
 {
     AboutLayout L;
     float y = ABOUT_Y + 64;
     L.facts = y; y += d->facts_h + 60;
     L.cast = n_cast ? y : -1; if (n_cast) y += 60 + CAST_D + 120;
+    const TmdbCollection *fc = franchise(d);
+    L.franchise = fc ? y : -1; if (fc) y += 60 + SIM_H + 110;
     L.similar = d->n_similar ? y : -1;
     return L;
 }
@@ -373,6 +382,7 @@ static float scroll_target(const Detail *d, int n_cast)
     AboutLayout L = about_layout(d, n_cast);
     float top = ABOUT_Y - 150, bottom = L.facts + d->facts_h;
     if (d->area == AREA_CAST && L.cast >= 0) bottom = L.cast + 60 + CAST_D + 100;
+    if (d->area == AREA_FRANCHISE && L.franchise >= 0) bottom = L.franchise + 60 + SIM_H + 80;
     if (d->area == AREA_SIMILAR && L.similar >= 0) bottom = L.similar + 60 + SIM_H + 40;
     float t = bottom + 60 - SNTV_UI_H;
     return t > top ? t : top;
@@ -459,13 +469,16 @@ static void update(Screen *s, float dt)
     if (!d->sim_asked && d->has_meta && (d->age > 1.5f || d->area >= AREA_ABOUT)) fetch_similar(d);
     if (d->area == AREA_CAST && d->cast_focus >= n_cast) d->cast_focus = n_cast ? n_cast - 1 : 0;
     float view = SNTV_UI_W - 2 * THEME_MARGIN;
+    const TmdbCollection *fc = franchise(d);
     float st = scroll_target(d, n_cast), ct = row_offset(d->cast_focus, n_cast, CAST_STEP, view), mt = row_offset(d->sim_focus, d->n_similar, SIM_W + SIM_GAP, view);
-    if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; }
+    float ft = row_offset(d->fr_focus, fc ? fc->n : 0, SIM_W + SIM_GAP, view);
+    if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; }
     else {
         d->scroll = ui_ease(d->scroll, st, &d->scroll_v, dt, 11);
         d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
         d->sim_x = ui_ease(d->sim_x, mt, NULL, dt, 14);
-        if (fabsf(d->scroll - st) > 0.5f || fabsf(d->cast_x - ct) > 0.5f || fabsf(d->sim_x - mt) > 0.5f) app_redraw();
+        d->fr_x = ui_ease(d->fr_x, ft, NULL, dt, 14);
+        if (fabsf(d->scroll - st) > 0.5f || fabsf(d->cast_x - ct) > 0.5f || fabsf(d->sim_x - mt) > 0.5f || fabsf(d->fr_x - ft) > 0.5f) app_redraw();
     }
     d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
@@ -667,10 +680,31 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
             }
     }
 
+    /* the franchise, in release order; this film marked */
+    const TmdbCollection *fc = franchise(d);
+    if (fc && L.franchise >= 0 && L.franchise - d->scroll < SNTV_UI_H) {
+        const TmdbInfo *tmi = tmdb_get(d->preview.id, d->preview.type);
+        ui_row_header(2, "In order", fc->name, fc->n, x, L.franchise, right, d->area == AREA_FRANCHISE);
+        float rowy = L.franchise + 60;
+        for (int pass = 0; pass < 2; pass++)
+            for (int i = 0; i < fc->n; i++) {
+                float ix = x + i * (SIM_W + SIM_GAP) - d->fr_x;
+                if (ix > SNTV_UI_W || ix + SIM_W < 0) continue;
+                int foc = d->area == AREA_FRANCHISE && d->fr_focus == i;
+                if ((pass == 1) != foc) continue;
+                const TmdbPart *pt = &fc->parts[i];
+                ui_card(pt->poster[0] ? pt->poster : NULL, ix, rowy, SIM_W, SIM_H, foc ? f : 0, 0, pt->title, 0);
+                char lbl[32];
+                snprintf(lbl, sizeof lbl, "%d%s%s", i + 1, pt->year[0] ? "  \xC2\xB7  " : "", pt->year);
+                font_draw(lbl, ix, rowy + SIM_H + 14, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_MUTED);
+                if (tmi && pt->tmdb_id == tmi->tmdb_id) ui_chip("This film", ix + 10, rowy + 10, THEME_ACCENT, THEME_ON_ACCENT);
+            }
+    }
+
     /* more like this */
     if (L.similar >= 0 && L.similar - d->scroll < SNTV_UI_H) {
         char src[96]; snprintf(src, sizeof src, "%s", d->sim_genre);
-        ui_row_header(2, "More like this", src, d->n_similar, x, L.similar, right, d->area == AREA_SIMILAR);
+        ui_row_header(L.franchise >= 0 ? 3 : 2, "More like this", src, d->n_similar, x, L.similar, right, d->area == AREA_SIMILAR);
         float rowy = L.similar + 60;
         for (int pass = 0; pass < 2; pass++)
             for (int i = 0; i < d->n_similar; i++) {
@@ -1025,6 +1059,27 @@ static int key(Screen *s, KeyAction a)
 }
 
 /* Down from the title's buttons or episodes: About, the cast, more like this */
+/* A franchise film opens once its IMDb id is known (one lookup, cached). */
+typedef struct { Detail *owner; unsigned gen; TmdbPart part; } FranchiseOpen;
+static Detail *g_detail_live[8];
+static int detail_alive(const Detail *d) { for (int i = 0; i < 8; i++) if (g_detail_live[i] == d) return 1; return 0; }
+
+static void on_franchise_imdb(const char *imdb, void *user)
+{
+    FranchiseOpen *o = user;
+    Detail *d = o->owner;
+    if (detail_alive(d) && d->fr_gen == o->gen) {
+        d->fr_opening = 0;
+        if (imdb && *imdb) {
+            MetaPreview mp = { 0 };
+            mp.id = (char *)imdb; mp.type = (char *)"movie"; mp.name = o->part.title; mp.poster = o->part.poster[0] ? o->part.poster : NULL;
+            LOGI("detail: franchise -> %s (%s)", imdb, o->part.title);
+            app_push(screen_detail_create(&mp));
+        } else app_toast("Could not open %s", o->part.title);
+    }
+    free(o);
+}
+
 static int about_key(Detail *d, KeyAction a)
 {
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
@@ -1037,6 +1092,7 @@ static int about_key(Detail *d, KeyAction a)
         case KEY_UP: d->area = up; d->focus_t = 0; return 1;
         case KEY_DOWN:
             if (n_cast) { d->area = AREA_CAST; d->focus_t = 0; return 1; }
+            if (franchise(d)) { d->area = AREA_FRANCHISE; d->focus_t = 0; return 1; }
             if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; }
             return 0;   /* bottom of the page: main.c may hand focus to the corner player */
         case KEY_OK:
@@ -1053,7 +1109,10 @@ static int about_key(Detail *d, KeyAction a)
         case KEY_LEFT: if (d->cast_focus > 0) { d->cast_focus--; d->focus_t = 0; } return 1;
         case KEY_RIGHT: if (d->cast_focus < n_cast - 1) { d->cast_focus++; d->focus_t = 0; } return 1;
         case KEY_UP: d->area = AREA_ABOUT; return 1;
-        case KEY_DOWN: if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; } return 0;
+        case KEY_DOWN:
+            if (franchise(d)) { d->area = AREA_FRANCHISE; d->focus_t = 0; return 1; }
+            if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; }
+            return 0;
         case KEY_OK: {   /* their other titles */
             if (d->cast_focus >= n_cast) return 1;
             const char *name, *role, *photo;
@@ -1063,11 +1122,32 @@ static int about_key(Detail *d, KeyAction a)
         }
         default: return 1;
         }
+    case AREA_FRANCHISE: {
+        const TmdbCollection *fc = franchise(d);
+        int n = fc ? fc->n : 0;
+        switch (a) {
+        case KEY_LEFT: if (d->fr_focus > 0) { d->fr_focus--; d->focus_t = 0; } return 1;
+        case KEY_RIGHT: if (d->fr_focus < n - 1) { d->fr_focus++; d->focus_t = 0; } return 1;
+        case KEY_UP: d->area = n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
+        case KEY_DOWN: if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; } return 0;
+        case KEY_OK: {
+            if (d->fr_focus >= n || d->fr_opening) return 1;
+            const TmdbPart *pt = &fc->parts[d->fr_focus];
+            if (tm && pt->tmdb_id == tm->tmdb_id) return 1;   /* already here */
+            FranchiseOpen *o = calloc(1, sizeof *o);
+            o->owner = d; o->gen = d->fr_gen = d->fr_gen + 1; o->part = *pt;
+            d->fr_opening = 1;
+            tmdb_imdb_for(pt->tmdb_id, on_franchise_imdb, o);
+            return 1;
+        }
+        default: return 1;
+        }
+    }
     default:
         switch (a) {
         case KEY_LEFT: if (d->sim_focus > 0) { d->sim_focus--; d->focus_t = 0; } return 1;
         case KEY_RIGHT: if (d->sim_focus < d->n_similar - 1) { d->sim_focus++; d->focus_t = 0; } return 1;
-        case KEY_UP: d->area = n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
+        case KEY_UP: d->area = franchise(d) ? AREA_FRANCHISE : n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
         case KEY_DOWN: return 0;
         case KEY_OK:
             if (d->sim_focus >= d->n_similar) return 1;
@@ -1095,6 +1175,7 @@ static void destroy(Screen *s)
     if (d->ask_req) ai_cancel(d->ask_req);
     if (d->sim_req) http_cancel(d->sim_req);
     meta_previews_free(d->similar, d->n_similar);
+    for (int i = 0; i < 8; i++) if (g_detail_live[i] == d) g_detail_live[i] = NULL;
     ask_clear(d);
     meta_preview_free(&d->preview);
     if (d->has_meta) meta_item_free(&d->meta);
@@ -1118,6 +1199,7 @@ Screen *screen_detail_create(const MetaPreview *p)
 {
     Screen *s = calloc(1, sizeof *s);
     Detail *d = calloc(1, sizeof *d);
+    for (int i = 0; i < 8; i++) if (!g_detail_live[i]) { g_detail_live[i] = d; break; }
     meta_preview_copy(&d->preview, p);
     d->focus_t = 1;
     s->name = "detail"; s->st = d; s->long_ok = 1;

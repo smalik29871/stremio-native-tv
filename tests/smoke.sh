@@ -189,6 +189,8 @@ run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_w
 TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
 run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run player_paused_tmdb 320 "right,ok,down,down,ok,ok,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run detail_franchise 420 "right,right,ok,down,down,down,right,ok" HOME="$(home_with tmdb3 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+grep -q 'detail: franchise -> tt1002' "$OUT/detail_franchise.log" || { echo "the franchise row did not open the next film"; grep -E "detail|tmdb" "$OUT/detail_franchise.log"; exit 1; }
 run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
 run settings_rules 380 "left,down,down,down,down,down,ok,up,ok,t:largest,down,down,down,down,left,ok,right" HOME="$(home_with rules '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"CAM, 3D"}')"
 run streams_rules 240 "right,ok,down,down,ok" HOME="$(home_with rules2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"web-dl","preflight":0}')"
