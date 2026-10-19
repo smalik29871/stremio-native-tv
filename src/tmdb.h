@@ -11,6 +11,7 @@ typedef struct TmdbInfo {
     TmdbCast cast[12]; int n_cast;
     int tmdb_id;
     int collection_id;      /* the franchise the film belongs to, 0 none */
+    char trailer_yt[16];    /* a YouTube trailer TMDB lists (official first), "" none */
     char collection[96];
 } TmdbInfo;
 

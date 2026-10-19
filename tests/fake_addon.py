@@ -220,6 +220,12 @@ class H(BaseHTTPRequestHandler):
             if client["clientName"] in ("VISIONOS", "ANDROID", "IOS") and req["videoId"].startswith("tv"):   # the bot check: the app falls back to the TV client
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you\u2019re not a bot"}}).encode())
             media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
+            if "key=" in self.path and "key=AIzaFake" not in self.path:
+                return self.send(400, b'{"error":"bad API key"}')
+            if req["videoId"].startswith("fileOnly"):   # no playlist: a muxed file, fetched in &range= pieces
+                media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
+                return self.send(200, json.dumps({"playabilityStatus": {"status": "OK"}, "videoDetails": {"videoId": req["videoId"], "lengthSeconds": "185"},
+                    "streamingData": {"formats": [{"itag": 18, "height": 360, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=2&clen={media}"}]}}).encode())
             if client["clientName"] == "IOS":   # the iPhone app also offers an HLS playlist
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "OK"}, "videoDetails": {"videoId": req["videoId"], "lengthSeconds": "185"},
                                                   "streamingData": {"hlsManifestUrl": f"{BASE}/yt/media/master.m3u8?id={req['videoId']}"}}).encode())
@@ -236,6 +242,10 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path
+        # /notrailer/...: the same addon with no trailers in its metas (TMDB then has one)
+        notrailer = p.startswith("/notrailer/")
+        if notrailer:
+            p = p[10:]
         # /slow/...: a second, stream-only addon that answers after FAKE_SLOW_S seconds for
         # ids containing FAKE_SLOW_ID (the next episode, so the loader has something to show)
         # /p2p/...: an addon like Torrentio next to TorBox. The first answer for a video has
@@ -313,7 +323,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"meta": dict(m, description="A fixture movie used by the smoke test.", runtime="101 min",
                 director=["Frank Darabont"], writer=["Stephen King", "Frank Darabont"], country="United States",
                 awards="Nominated for 7 Oscars. 21 wins & 43 nominations total", released="1994-10-14T00:00:00.000Z",
-                trailerStreams=[{"title": "Trailer", "ytId": "dQw4w9WgXcQ"}],
+                trailerStreams=[] if notrailer else [{"title": "Trailer", "ytId": "dQw4w9WgXcQ"}],
                 app_extras={"cast": [{"name": n, "character": c, "photo": f"{BASE}/tmdbimg/p{i}.png"} for i, (n, c) in enumerate(
                     [("Tim Robbins", "Andy Dufresne"), ("Morgan Freeman", "Ellis Boyd 'Red' Redding"), ("Bob Gunton", "Warden Norton"), ("William Sadler", "Heywood")])]})}).encode())
         if p.startswith("/stream/"):
@@ -341,7 +351,7 @@ class H(BaseHTTPRequestHandler):
             if "SOCS=CAI" not in (self.headers.get("Cookie") or ""):
                 return self.send(302, b"")   # the consent page, in real life
             cfg = {"INNERTUBE_CONTEXT": {"client": {"clientName": "WEB", "visitorData": "vis123"}},
-                   "VISITOR_DATA": "vis123", "PLAYER_JS_URL": "/s/player/abcd1234/player_ias.vflset/en_US/base.js"}
+                   "VISITOR_DATA": "vis123", "INNERTUBE_API_KEY": "AIzaFake", "PLAYER_JS_URL": "/s/player/abcd1234/player_ias.vflset/en_US/base.js"}
             return self.send(200, ("<html><script>ytcfg.set(%s);</script></html>" % json.dumps(cfg)).encode(), "text/html")
         if p == "/yt/s/player/abcd1234/player_ias.vflset/en_US/base.js":
             return self.send(200, b"var yt={signatureTimestamp:20250};", "text/javascript")
@@ -352,6 +362,10 @@ class H(BaseHTTPRequestHandler):
             with open(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"), "rb") as f:
                 data = f.read()
             rng = self.headers.get("Range", "bytes=0-")
+            if "&range=" in p:   # YouTube's own range parameter, as Nuvio's player sends it
+                rng = "bytes=" + p.split("&range=")[1].split("&")[0]
+                with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                    f.write(("yt piece " + rng + "\n").encode())
             a, _, b = rng[6:].partition("-")
             a = int(a or 0); b = min(int(b) if b else len(data) - 1, len(data) - 1)
             self.send_response(206)
@@ -426,7 +440,9 @@ class H(BaseHTTPRequestHandler):
                 for cm in cast: cm["roles"] = [{"character": cm.pop("character")}]
                 body = {"aggregate_credits": {"cast": cast}, "content_ratings": {"results": [{"iso_3166_1": "US", "rating": "TV-MA"}]}}
             else:
-                body = {"belongs_to_collection": {"id": 10, "name": "Fake Saga Collection"}, "credits": {"cast": cast}, "release_dates": {"results": [{"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}]}}
+                body = {"videos": {"results": [{"site": "YouTube", "type": "Teaser", "key": "teaserOnly1", "official": True},
+                                               {"site": "YouTube", "type": "Trailer", "key": "fileOnly001", "official": True}]},
+                        "belongs_to_collection": {"id": 10, "name": "Fake Saga Collection"}, "credits": {"cast": cast}, "release_dates": {"results": [{"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}]}}
             return self.send(200, json.dumps(body).encode(), "application/json")
         if p.startswith("/tmdbimg/"):
             i = int(p.rsplit("/p", 1)[1].split(".")[0]) if "/p" in p else 0

@@ -101,6 +101,17 @@ static void parse_details(Slot *s, const char *json)
         s->info.collection_id = bid->valueint;
         snprintf(s->info.collection, sizeof s->info.collection, "%s", cJSON_IsString(bname) ? bname->valuestring : "");
     }
+    /* trailers, as Nuvio takes them when the addon lists none: YouTube, type Trailer, official first */
+    const cJSON *vids = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "videos"), "results"), *v;
+    for (int pass = 0; pass < 2 && !s->info.trailer_yt[0]; pass++)
+        if (cJSON_IsArray(vids)) cJSON_ArrayForEach(v, vids) {
+            const cJSON *site = cJSON_GetObjectItemCaseSensitive(v, "site"), *type = cJSON_GetObjectItemCaseSensitive(v, "type");
+            const cJSON *key = cJSON_GetObjectItemCaseSensitive(v, "key"), *off = cJSON_GetObjectItemCaseSensitive(v, "official");
+            if (!cJSON_IsString(site) || strcmp(site->valuestring, "YouTube") || !cJSON_IsString(type) || strcmp(type->valuestring, "Trailer")) continue;
+            if (!cJSON_IsString(key) || strlen(key->valuestring) != 11 || (pass == 0 && !cJSON_IsTrue(off))) continue;
+            snprintf(s->info.trailer_yt, sizeof s->info.trailer_yt, "%s", key->valuestring);
+            break;
+        }
     s->info.tmdb_id = s->tmdb_id;
     cJSON_Delete(root);
     s->info.state = 2;
@@ -111,7 +122,7 @@ static void details_url(const Slot *s, int with_key, char *out, size_t n)
 {
     int tv = strcmp(s->type, "series") == 0;
     snprintf(out, n, "%s/%s/%d?append_to_response=%s%s%s", api_base(), tv ? "tv" : "movie", s->tmdb_id,
-             tv ? "aggregate_credits,content_ratings" : "credits,release_dates", with_key ? "&api_key=" : "", with_key ? api_key() : "");
+             tv ? "aggregate_credits,content_ratings,videos" : "credits,release_dates,videos", with_key ? "&api_key=" : "", with_key ? api_key() : "");
 }
 
 static void on_details(HttpResponse *r, void *user)

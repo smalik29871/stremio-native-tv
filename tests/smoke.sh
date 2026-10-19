@@ -68,6 +68,10 @@ grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not f
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
 grep -q "youtube: dQw4w9WgXcQ playlist from the IOS client" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/1 Trailer" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
+# no trailer from the addon: TMDB's, a file with no playlist, fetched in YouTube's &range= pieces
+run detail_trailer_file 360 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_file '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/notrailer/manifest.json SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+grep -q "youtube: fileOnly001 streams as a file (360p)" "$OUT/detail_trailer_file.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_file.log" \
+  || { echo "the TMDB trailer did not stream through the chunked proxy"; grep -E "detail|youtube|video" "$OUT/detail_trailer_file.log"; exit 1; }
 LIBF="$OUT/home_trailer/.local/share/stremio/nativetv/library.json"
 [ ! -f "$LIBF" ] || ! grep -q tt0111161 "$LIBF" || { echo "watching the trailer saved progress for the film"; exit 1; }
 run episodes 220 "right,ok,down,down,right"

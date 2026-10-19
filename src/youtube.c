@@ -563,7 +563,7 @@ static int download(const char *url, const char *headers, const char *path, uint
 }
 
 /* The client's view of the video, or NULL with YouTube's reason (playability) in why. */
-static cJSON *player_request(const Client *c, const char *video_id, const char *visitor, int sts, char *why, size_t wn)
+static cJSON *player_request(const Client *c, const char *video_id, const char *visitor, int sts, const char *api_key, char *why, size_t wn)
 {
     cJSON *req = cJSON_CreateObject();
     cJSON *cl = cJSON_AddObjectToObject(cJSON_AddObjectToObject(req, "context"), "client");
@@ -577,6 +577,7 @@ static cJSON *player_request(const Client *c, const char *video_id, const char *
     if (c->platform) cJSON_AddStringToObject(cl, "platform", c->platform);
     if (c->sdk) cJSON_AddNumberToObject(cl, "androidSdkVersion", c->sdk);
     cJSON_AddStringToObject(cl, "hl", "en");
+    cJSON_AddStringToObject(cl, "gl", "US");
     cJSON_AddStringToObject(cl, "timeZone", "UTC");
     cJSON_AddNumberToObject(cl, "utcOffsetMinutes", 0);
     if (visitor) cJSON_AddStringToObject(cl, "visitorData", visitor);
@@ -590,7 +591,7 @@ static cJSON *player_request(const Client *c, const char *video_id, const char *
     char *body = cJSON_PrintUnformatted(req);
     cJSON_Delete(req);
     char url[300], headers[800];
-    snprintf(url, sizeof url, "%s/youtubei/v1/player?prettyPrint=false", base_url());
+    snprintf(url, sizeof url, "%s/youtubei/v1/player?prettyPrint=false%s%s", base_url(), api_key ? "&key=" : "", api_key ? api_key : "");
     snprintf(headers, sizeof headers, "User-Agent: %s\nX-YouTube-Client-Name: %d\nX-YouTube-Client-Version: %s\nOrigin: https://www.youtube.com%s%s",
              c->ua, c->id, c->version, visitor ? "\nX-Goog-Visitor-Id: " : "", visitor ? visitor : "");
     HttpResponse pr;
@@ -631,39 +632,107 @@ static void watch_page(const char *id, char *visitor, size_t vn, char *player_id
     if (!visitor[0]) LOGW("youtube: no visitor id from the watch page");
 }
 
-/* Streaming without a download, as Nuvio plays trailers: the clients that need no
- * script, the HLS master playlist when one is offered (every quality, audio with it),
- * else the tallest file with video and audio together. */
+/* Streaming without a download, the way Nuvio plays trailers (its InAppYouTubeExtractor):
+ *   1. the watch page as an Android TV browser opens it: YouTube's API key and a visitor id
+ *   2. the player API with that key, asked as every client that needs no script
+ *   3. the HLS master playlist when any client offers one (every quality, audio with it);
+ *      else the best file with video and audio together: tallest, then without an "n"
+ *      challenge, MP4 before WebM
+ *   4. a googlevideo address that answers: the one given, else its mirrors from "mn"
+ * TVs cannot play YouTube's separate video and audio files together, as Nuvio's player does,
+ * so those are left out. */
+static const char *NUVIO_UA = "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36";
+
+static void between(const char *html, const char *open, char *out, size_t n)
+{
+    out[0] = 0;
+    const char *p = html ? strstr(html, open) : NULL;   /* "NAME": then the quoted value */
+    if (!p) return;
+    p += strlen(open);
+    while (*p == ' ' || *p == ':') p++;
+    if (*p++ != '"') return;
+    const char *e = strchr(p, '"');
+    if (e && (size_t)(e - p) < n) snprintf(out, n, "%.*s", (int)(e - p), p);
+}
+
+/* GET bytes=0-0 in under 2 s */
+static int reachable(const char *url)
+{
+    char hdr[300];
+    snprintf(hdr, sizeof hdr, "User-Agent: %s\nAccept-Language: en-US,en;q=0.9", NUVIO_UA);
+    HttpResponse r;
+    HttpOptions o = { .range_bytes = 1, .timeout_s = 2, .no_json_accept = 1, .headers = hdr };
+    http_request_ex(url, &o, &r);
+    int ok = r.status >= 200 && r.status < 300;
+    http_response_free(&r);
+    return ok;
+}
+
+/* The URL, or one of its mirrors: rrN---<mn server>.googlevideo.com. NULL when none answers. */
+static char *reachable_mirror(const char *url)
+{
+    if (!strstr(url, "googlevideo.com")) return strdup(url);
+    char *mn = param(strchr(url, '?') ? strchr(url, '?') + 1 : "", "mn");
+    if (!mn || !strchr(mn, ',')) { free(mn); return reachable(url) ? strdup(url) : NULL; }
+    if (reachable(url)) { free(mn); return strdup(url); }
+    const char *hs = strstr(url, "://"), *he = hs ? strchr(hs + 3, '/') : NULL;
+    const char *dash = hs ? strstr(hs, "---") : NULL;
+    const char *dot = dash ? strchr(dash, '.') : NULL;
+    char *found = NULL; int idx = 1;
+    for (char *srv = strtok(mn, ","); srv && !found && dash && dot && he && dot < he; srv = strtok(NULL, ","), idx++) {
+        size_t l = strlen(url) + strlen(srv) + 16;
+        char *alt = malloc(l);
+        snprintf(alt, l, "%.*srr%d---%s%s", (int)(hs + 3 - url), url, idx, srv, dot);
+        if (reachable(alt)) found = alt; else free(alt);
+    }
+    free(mn);
+    return found;
+}
+
 static void stream_task(HttpResponse *r, void *arg)
 {
     Save *s = arg;
-    char visitor[256] = "", why[300] = "";
-    watch_page(s->id, visitor, sizeof visitor, NULL, 0);
-    char *hls = NULL, *best = NULL; int best_h = -1;
+    char url[300], headers[400], key[128] = "", visitor[256] = "", why[300] = "";
+    HttpResponse page;
+    snprintf(url, sizeof url, "%s/watch?v=%s&hl=en", base_url(), s->id);
+    snprintf(headers, sizeof headers, "User-Agent: %s\nAccept-Language: en-US,en;q=0.9\nCookie: SOCS=CAI; PREF=hl=en&tz=UTC", NUVIO_UA);   /* past the EU consent page */
+    if (!get(url, headers, 20, &page)) LOGW("youtube: the watch page answered %ld %s", page.status, page.status ? "" : page.error);
+    between(page.body, "\"INNERTUBE_API_KEY\"", key, sizeof key);
+    between(page.body, "\"VISITOR_DATA\"", visitor, sizeof visitor);
+    http_response_free(&page);
+    if (!key[0]) LOGW("youtube: no API key on the watch page");
+    char *hls = NULL, *best = NULL;
+    double best_score = -1; int best_n = 1, best_mp4 = 0;
     for (size_t i = 0; i < sizeof CLIENTS / sizeof *CLIENTS; i++) {
         const Client *c = &CLIENTS[i];
         if (c->needs_js) continue;
         char this_why[300] = "";
-        cJSON *resp = player_request(c, s->id, visitor[0] ? visitor : NULL, 0, this_why, sizeof this_why);
+        cJSON *resp = player_request(c, s->id, visitor[0] ? visitor : NULL, 0, key[0] ? key : NULL, this_why, sizeof this_why);
         if (!why[0]) snprintf(why, sizeof why, "%s", this_why);
         const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
         const cJSON *m = cJSON_GetObjectItemCaseSensitive(sd, "hlsManifestUrl"), *f;
         if (!hls && cJSON_IsString(m) && m->valuestring[0]) { hls = strdup(m->valuestring); LOGI("youtube: %s playlist from the %s client", s->id, c->name); }
         cJSON_ArrayForEach(f, cJSON_GetObjectItemCaseSensitive(sd, "formats")) {
             const cJSON *u = cJSON_GetObjectItemCaseSensitive(f, "url"), *mt = cJSON_GetObjectItemCaseSensitive(f, "mimeType");
-            const cJSON *h = cJSON_GetObjectItemCaseSensitive(f, "height");
-            if (!cJSON_IsString(u) || (cJSON_IsString(mt) && !strstr(mt->valuestring, "video/mp4"))) continue;
-            int hh = cJSON_IsNumber(h) ? h->valueint : 0;
-            if (hh > best_h) { free(best); best = strdup(u->valuestring); best_h = hh; }
+            if (!cJSON_IsString(u) || (cJSON_IsString(mt) && !strstr(mt->valuestring, "video/"))) continue;
+            const cJSON *h = cJSON_GetObjectItemCaseSensitive(f, "height"), *fps = cJSON_GetObjectItemCaseSensitive(f, "fps");
+            const cJSON *br = cJSON_GetObjectItemCaseSensitive(f, "bitrate");
+            double score = (cJSON_IsNumber(h) ? h->valuedouble : 0) * 1e9 + (cJSON_IsNumber(fps) ? fps->valuedouble : 0) * 1e6 + (cJSON_IsNumber(br) ? br->valuedouble : 0);
+            const char *q = strchr(u->valuestring, '?');
+            char *nv = q ? param(q + 1, "n") : NULL;
+            int has_n = nv && *nv; free(nv);
+            int mp4 = cJSON_IsString(mt) && strstr(mt->valuestring, "mp4") != NULL;
+            if (score > best_score || (score == best_score && (best_n > has_n || (best_n == has_n && mp4 > best_mp4)))) {
+                free(best); best = strdup(u->valuestring); best_score = score; best_n = has_n; best_mp4 = mp4;
+            }
         }
         cJSON_Delete(resp);
-        if (hls) break;
     }
-    const char *pick = hls ? hls : best;
-    if (pick) {
-        LOGI("youtube: %s streams as %s", s->id, hls ? "HLS" : "a progressive file");
-        r->status = 200; r->body = strdup(pick); r->len = strlen(pick);
-    } else fail(r, "%.250s", why[0] ? why : "YouTube offered nothing to stream");
+    char *pick = NULL;
+    if (hls) { pick = hls; hls = NULL; LOGI("youtube: %s streams as HLS", s->id); }
+    else if (best && (pick = reachable_mirror(best))) LOGI("youtube: %s streams as a file (%.0fp)", s->id, best_score / 1e9);
+    if (pick) { r->status = 200; r->body = pick; r->len = strlen(pick); }
+    else fail(r, "%.250s", why[0] ? why : best ? "no YouTube server answered" : "YouTube offered nothing to stream");
     free(hls); free(best);
 }
 
@@ -705,7 +774,7 @@ static void save_task(HttpResponse *r, void *arg)
             }
         }
         char this_why[300] = "";
-        resp = player_request(c, s->id, visitor[0] ? visitor : NULL, sts, this_why, sizeof this_why);
+        resp = player_request(c, s->id, visitor[0] ? visitor : NULL, sts, NULL, this_why, sizeof this_why);
         if (!why[0]) snprintf(why, sizeof why, "%s", this_why);   /* the first refusal says the most */
         if (resp) {
             const cJSON *len = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");

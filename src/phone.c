@@ -2,6 +2,7 @@
 #include "log.h"
 #include "store.h"
 #include "frames.h"
+#include "http.h"
 #include <sys/stat.h>
 #include <SDL.h>
 #include <stdio.h>
@@ -252,6 +253,75 @@ static int queue_frame(int fd, const char *req)
     return 1;
 }
 
+/* ---- YouTube files, fetched the way Nuvio's player does (YoutubeChunkedDataSource) ----
+ * GET /yt?u=<googlevideo url>, from this TV only. YouTube slows down and drops a
+ * connection that reads a whole file at once, but serves "&range=a-b" pieces at full
+ * speed, so the player's request is answered from 10 MB pieces fetched in turn. */
+enum { YT_PIECE = 10 << 20 };
+typedef struct { int fd; char url[4096]; uint64_t start; int ranged; } YtJob;
+
+static uint64_t url_clen(const char *url)
+{
+    const char *c = strstr(url, "clen=");
+    return c && (c == url || c[-1] == '&' || c[-1] == '?') ? strtoull(c + 5, NULL, 10) : 0;
+}
+
+static int yt_main(void *arg)
+{
+    YtJob *j = arg;
+    uint64_t total = url_clen(j->url);
+    char head[400];
+    if (!total) {   /* no length to cut pieces against: let the player fetch it itself */
+        snprintf(head, sizeof head, "HTTP/1.1 302 Found\r\nLocation: %.300s\r\nConnection: close\r\n\r\n", j->url);
+        send_all(j->fd, head, strlen(head));
+    } else {
+        if (j->start >= total) j->start = 0;
+        if (j->ranged)
+            snprintf(head, sizeof head, "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Range: bytes %llu-%llu/%llu\r\nContent-Length: %llu\r\nConnection: close\r\n\r\n",
+                     (unsigned long long)j->start, (unsigned long long)(total - 1), (unsigned long long)total, (unsigned long long)(total - j->start));
+        else
+            snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Length: %llu\r\nConnection: close\r\n\r\n", (unsigned long long)total);
+        send_all(j->fd, head, strlen(head));
+        size_t ul = strlen(j->url) + 64;
+        char *piece_url = malloc(ul);
+        for (uint64_t pos = j->start; pos < total && piece_url; ) {
+            uint64_t end = pos + YT_PIECE - 1 < total - 1 ? pos + YT_PIECE - 1 : total - 1;
+            snprintf(piece_url, ul, "%s&range=%llu-%llu", j->url, (unsigned long long)pos, (unsigned long long)end);
+            HttpResponse r;
+            HttpOptions o = { .timeout_s = 60, .no_json_accept = 1 };
+            http_request_ex(piece_url, &o, &r);
+            int ok = (r.status == 200 || r.status == 206) && r.len > 0;
+            if (ok) { ssize_t w = 0; size_t left = r.len; const char *b = r.body;
+                      while (left && (w = send(j->fd, b, left, MSG_NOSIGNAL)) > 0) { b += w; left -= (size_t)w; }
+                      if (left) ok = 0; }
+            pos += r.len;
+            http_response_free(&r);
+            if (!ok) break;   /* the player stopped reading, or YouTube refused */
+        }
+        free(piece_url);
+    }
+    close(j->fd);
+    free(j);
+    return 0;
+}
+
+static int queue_yt(int fd, const char *req)
+{
+    const char *q = strstr(req, "?u="), *end = q ? q + 3 + strcspn(q + 3, " \r\n&") : NULL;
+    if (!q) return 0;
+    YtJob *j = calloc(1, sizeof *j);
+    char raw[4096]; snprintf(raw, sizeof raw, "%.*s", (int)(end - q - 3), q + 3);
+    url_decode(raw, j->url, sizeof j->url);
+    if (!strstr(j->url, "googlevideo.com") && !getenv("SNTV_YT_BASE")) { free(j); return 0; }
+    const char *rg = ci_find(req, "\nRange: bytes=");
+    if (rg) { j->start = strtoull(rg + 14, NULL, 10); j->ranged = 1; }
+    j->fd = fd;
+    SDL_Thread *t = SDL_CreateThread(yt_main, "yt", j);
+    if (!t) { free(j); return 0; }
+    SDL_DetachThread(t);
+    return 1;
+}
+
 /* Settings backup: GET /backup.json while the TV offers one; POST /restore takes one back. */
 static int handle_backup(int fd, char *req, ssize_t n)
 {
@@ -304,6 +374,11 @@ static int handle(int fd, const struct sockaddr_in *peer)
     if (n <= 0) return 0;
     req[n] = 0;
     if (handle_backup(fd, req, n)) return 0;
+    if (strncmp(req, "GET /yt?", 8) == 0) {
+        if (peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK) && queue_yt(fd, req)) return 1;
+        respond_text(fd, "404 Not Found", "no YouTube files here");
+        return 0;
+    }
     if (strncmp(req, "GET /frame?", 11) == 0) {
         if (peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK) && queue_frame(fd, req)) return 1;
         respond_text(fd, "404 Not Found", "no previews here");

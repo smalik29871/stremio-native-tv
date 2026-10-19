@@ -136,6 +136,16 @@ static void on_trailer_stream(const char *url, const char *error, void *user)
     if (!top || strcmp(top->name, "detail") != 0 || strcmp(((Detail *)top->st)->preview.id, g_trailer.id) != 0) return;
     const MetaPreview *meta = &((Detail *)top->st)->preview;
     PlayCandidate *c = calloc(1, sizeof *c);
+    /* a whole file goes through the TV's own server in 10 MB pieces, as Nuvio fetches it;
+     * a playlist's pieces are small already */
+    char local[4600], enc[4200];
+    int playlist = strstr(url, ".m3u8") || strstr(url, "/manifest/");
+    if (!playlist && strlen(url) < 3000) {
+        char rel[4300];
+        http_url_encode(url, enc, sizeof enc);
+        snprintf(rel, sizeof rel, "yt?u=%s", enc);
+        if (phone_local_url(rel, local, sizeof local)) url = local;
+    }
     c->url = strdup(url);
     c->label = strdup("Trailer");
     char vid[160], title[200];
@@ -489,6 +499,7 @@ static void update(Screen *s, float dt)
     Detail *d = s->st;
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
     int n_cast = cast_count(d, tm);
+    if (d->has_meta && !d->meta.trailer_yt && tm && tm->trailer_yt[0]) d->meta.trailer_yt = strdup(tm->trailer_yt);   /* TMDB's, when the addon has none */
     d->age += dt;
     if (d->has_meta) d->facts_h = facts_height(d);
     if (g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0) island_progress("Getting the trailer from YouTube", -1);
