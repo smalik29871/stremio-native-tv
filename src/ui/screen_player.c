@@ -18,6 +18,7 @@
 #include "../store.h"
 #include "../subs.h"
 #include "../trackmem.h"
+#include "../tracking.h"
 #include "../video/video.h"
 #include "../platform/platform.h"
 #include "font.h"
@@ -91,6 +92,7 @@ struct Player {
     int seek_flash_step;                    /* seconds the last press moved (grows while the key is held) */
     float rest_t;                           /* paused and left alone: the controls fade, the title stays */
     int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
+    int tracked;                            /* Trakt was told this one started */
     int lighter_to; int lighter_offered;    /* buffering keeps stopping: a lower resolution offered (-1 none) */
     int stalls_here;                        /* stalls since this source started */
     double pos_seen; float jumped_at;       /* the playhead jumped (a seek): the buffering after it is not the connection's fault */
@@ -160,6 +162,7 @@ static void report(Player *p, int force)
     if (p->trailer) return;
     p->last_reported = vi.position;
     app_library_progress(&p->meta, p->video_id, vi.position, vi.duration);
+    tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, force || vi.state == VIDEO_PAUSED);
 }
 
 /* ---- addon subtitles ---------------------------------------------------------- */
@@ -1142,6 +1145,7 @@ static void update(Screen *s, float dt)
     else if (g_app.clock_mode != 2 && time(NULL) / 60 != p->clock_minute) { p->clock_minute = time(NULL) / 60; app_redraw(); }
     p->since_report += dt;
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
+    if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0); }
     p->seek_decay -= dt;
     if (p->seek_decay <= 0) p->seek_steps = 0;
     if (p->seek_commit > 0) { p->seek_commit -= dt; if (p->seek_commit <= 0) video_seek(p->seek_target); }

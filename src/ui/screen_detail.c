@@ -6,6 +6,7 @@
  * cast with their photos and more titles of the same genre. */
 #include "../app.h"
 #include "../tmdb.h"
+#include "../tracking.h"
 #include "../ai.h"
 #include "../image.h"
 #include "../../vendor/cJSON.h"
@@ -653,6 +654,8 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
         }
         cy += 36;
     } else { font_draw("No rating yet", cx, cy, FONT_S | FONT_B, THEME_TEXT_DIM); cy += 50; }
+    const char *more = mdblist_line(d->preview.id, d->preview.type);   /* MDBList: the other critics */
+    if (more) { font_draw_fit(more, cx, cy - 8, FONT_XS | FONT_B, THEME_TEXT_DIM, rw - 2 * pad); cy += 34; }
     if (tm && tm->cert[0]) {
         font_draw("Age rating", cx, cy + 6, FONT_S, THEME_TEXT_DIM);
         ui_chip_outline(tm->cert, rx + rw - pad - font_measure(tm->cert, FONT_XS | FONT_B) - 28, cy, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT);

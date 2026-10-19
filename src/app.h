@@ -156,7 +156,7 @@ int  app_title_watched(const char *id);        /* the library says this title wa
 typedef struct HomeRowDef {
     char key[200];             /* "continue", "library", "catalog:<addon id>:<type>:<catalog id>" */
     char title[128];
-    int kind;                  /* 0 continue watching, 1 library, 2 catalog, 3 a saved list (catalog = which) */
+    int kind;                  /* 0 continue watching, 1 library, 2 catalog, 3 a saved list (catalog = which), 4 a Trakt row */
     int addon, catalog;
     int hidden;
 } HomeRowDef;

@@ -14,7 +14,7 @@ B="$ROOT/build-webos"
 FF="${SNTV_FFMPEG_PREFIX:-$B/ffmpeg}"   # seek previews decoded on the TV (built once, then reused)
 WEBOS_TOOLCHAIN="$WEBOS_TOOLCHAIN" bash "$ROOT/tools/ffmpeg.sh" webos "$FF"
 cmake -S "$ROOT" -B "$B" -DSNTV_PLATFORM=webos -DSNTV_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_TOOLCHAIN_FILE="$WEBOS_TOOLCHAIN_FILE" -DSNTV_TMDB_BUILTIN_KEY="${TMDB_API_KEY:-}" -DSNTV_FFMPEG_PREFIX="$FF"
+      -DCMAKE_TOOLCHAIN_FILE="$WEBOS_TOOLCHAIN_FILE" -DSNTV_TMDB_BUILTIN_KEY="${TMDB_API_KEY:-}" -DSNTV_TRAKT_CLIENT_ID="${TRAKT_CLIENT_ID:-}" -DSNTV_TRAKT_CLIENT_SECRET="${TRAKT_CLIENT_SECRET:-}" -DSNTV_SIMKL_CLIENT_ID="${SIMKL_CLIENT_ID:-}" -DSNTV_MDBLIST_KEY="${MDBLIST_KEY:-}" -DSNTV_FFMPEG_PREFIX="$FF"
 cmake --build "$B" -j"$(nproc)"
 "${WEBOS_TOOLCHAIN}/bin/arm-webos-linux-gnueabi-strip" "$B/stremio-tv" || true
 bash "$ROOT/tools/torrentd.sh" webos "$B/torrentd"   # the P2P fallback engine (Go, static)

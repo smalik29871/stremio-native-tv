@@ -6,6 +6,7 @@
 #include "torrent.h"
 #include "youtube.h"
 #include "http.h"
+#include "tracking.h"
 #include "log.h"
 #include "store.h"
 #include "image.h"
@@ -603,6 +604,10 @@ int app_home_rows(HomeRowDef *out, int max)
     for (int l = 0; l < LIST_COUNT && n < max; l++) {   /* the saved lists (a row shows once it has a title) */
         snprintf(all[n].key, sizeof all[n].key, "list:%d", l); snprintf(all[n].title, sizeof all[n].title, "%s", LIST_NAMES[l]);
         all[n].kind = 3; all[n].catalog = l; n++;
+    }
+    for (int t = 0; t < TROW_COUNT && n < max && tracking_connected(TRACK_TRAKT); t++) {   /* Trakt, once signed in */
+        snprintf(all[n].key, sizeof all[n].key, "trakt:%d", t); snprintf(all[n].title, sizeof all[n].title, "%s", TROW_NAMES[t]);
+        all[n].kind = 4; all[n].catalog = t; n++;
     }
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];

@@ -6,6 +6,7 @@
 #include "ui/island.h"
 #include "ui/intro.h"
 #include "http.h"
+#include "tracking.h"
 #include "image.h"
 #include "memwatch.h"
 #include "log.h"
@@ -357,6 +358,7 @@ int main(int argc, char **argv)
             app_redraw();
         }
         http_pump();
+        tracking_tick();
         { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
         image_pump();
         image_frame_tick();

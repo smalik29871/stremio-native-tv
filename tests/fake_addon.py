@@ -152,6 +152,28 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
+        # Trakt stand-in: a device code, accepted on the second poll; scrobbles are logged
+        if p.startswith("/trakt/"):
+            q = p[6:]
+            if self.headers.get("trakt-api-key") != "cid":
+                return self.send(403, b"{}")
+            if q == "/oauth/device/code":
+                return self.send(200, json.dumps({"device_code": "dev1", "user_code": "ABCD1234", "verification_url": "https://trakt.tv/activate", "expires_in": 600, "interval": 1}).encode())
+            if q == "/oauth/device/token":
+                H.trakt_polls = getattr(H, "trakt_polls", 0) + 1
+                if H.trakt_polls < 2:
+                    return self.send(400, b"{}")
+                return self.send(200, json.dumps({"access_token": "tok1", "refresh_token": "ref1", "expires_in": 7776000}).encode())
+            if q.startswith("/scrobble/"):
+                if self.headers.get("Authorization") != "Bearer tok1":
+                    return self.send(401, b"{}")
+                with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                    f.write(b"trakt " + q.encode() + b" " + body + b"\n")
+                return self.send(201, b"{}")
+        if p.startswith("/simkl/sync/history"):
+            with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                f.write(b"simkl history " + body + b"\n")
+            return self.send(201, b"{}")
         if p.endswith("/chat/completions"):   # a stand-in for any OpenAI-compatible model
             try:
                 req = json.loads(body.decode("utf-8"))
@@ -220,6 +242,20 @@ class H(BaseHTTPRequestHandler):
         # only a torrent (FAKE_TORRENT_HASH, seeded on this machine) and an uncached TorBox
         # entry; later answers add a cached TorBox copy, as when TorBox catches up.
         # /p2ponly/...: the same addon while TorBox never catches up.
+        if p.startswith("/trakt/sync/watchlist"):
+            return self.send(200, json.dumps([{"type": "movie", "movie": {"title": "The Shawshank Redemption", "year": 1994, "ids": {"imdb": "tt0111161"}}},
+                                              {"type": "show", "show": {"title": "Breaking Bad", "year": 2008, "ids": {"imdb": "tt0903747"}}}]).encode())
+        if p.startswith("/trakt/recommendations/"):
+            shows = "/shows" in p
+            return self.send(200, json.dumps([{"title": "Breaking Bad" if shows else "Fight Club", "year": 2008 if shows else 1999,
+                                               "ids": {"imdb": "tt0903747" if shows else "tt0137523"}}]).encode())
+        if p.startswith("/simkl/oauth/pin/"):
+            return self.send(200, json.dumps({"result": "OK", "access_token": "stok"}).encode())
+        if p.startswith("/simkl/oauth/pin"):
+            return self.send(200, json.dumps({"result": "OK", "user_code": "SIM12", "verification_url": "https://simkl.com/pin", "expires_in": 900, "interval": 1}).encode())
+        if p.startswith("/mdblist/"):
+            return self.send(200, json.dumps({"title": "x", "ratings": [{"source": "imdb", "value": 9.3}, {"source": "tomatoes", "value": 91},
+                                                                       {"source": "metacritic", "value": 82}, {"source": "letterboxd", "value": 4.5}, {"source": "tmdb", "value": None}]}).encode())
         if p.startswith("/p2p/") or p.startswith("/p2ponly/"):
             only = p.startswith("/p2ponly/")
             p = p[8:] if only else p[4:]
