@@ -1813,3 +1813,57 @@ void app_shutdown(void)
     library_items_free(g_app.library, g_app.n_library);
     free(g_app.auth_key); free(g_app.user_email); free(g_app.streaming_server);
 }
+
+/* ---- settings backup ---- */
+static int backup_skips(const char *key)
+{
+    static const char *const SKIP[] = { "authKey", "accounts", "user", "tvCaps", "setupDone", NULL };
+    for (int i = 0; SKIP[i]; i++) if (strcmp(key, SKIP[i]) == 0) return 1;
+    return 0;
+}
+
+char *app_backup_settings(void)
+{
+    app_save_prefs();   /* every preference in the store, not only the ones changed so far */
+    cJSON *root = store_root(), *out = cJSON_CreateObject(), *it;
+    if (!out) return NULL;
+    cJSON_AddStringToObject(out, "_backup", "stremio-native-tv");
+    cJSON_AddStringToObject(out, "_version", SNTV_APP_VERSION);
+    cJSON_ArrayForEach(it, root) if (it->string && !backup_skips(it->string)) cJSON_AddItemToObject(out, it->string, cJSON_Duplicate(it, 1));
+    char *j = cJSON_PrintUnformatted(out);
+    cJSON_Delete(out);
+    return j;
+}
+
+int app_restore_settings(const char *json)
+{
+    cJSON *in = cJSON_Parse(json), *it;
+    const cJSON *tag = in ? cJSON_GetObjectItemCaseSensitive(in, "_backup") : NULL;
+    if (!cJSON_IsString(tag) || strcmp(tag->valuestring, "stremio-native-tv") != 0) { cJSON_Delete(in); return -1; }
+    int n = 0;
+    cJSON_ArrayForEach(it, in) {
+        if (!it->string || it->string[0] == '_' || backup_skips(it->string)) continue;
+        store_set_json(it->string, cJSON_Duplicate(it, 1));
+        n++;
+    }
+    cJSON_Delete(in);
+    store_save();
+    load_prefs();
+    LOGI("settings: restored %d from a backup", n);
+    return n;
+}
+
+void app_play_link(const char *url)
+{
+    MetaPreview m = { 0 };
+    const char *slash = strrchr(url, '/');
+    char name[160];
+    snprintf(name, sizeof name, "%s", slash && slash[1] ? slash + 1 : url);
+    char *q = strchr(name, '?'); if (q) *q = 0;
+    m.id = (char *)"link"; m.type = (char *)"movie"; m.name = name;
+    PlayCandidate *c = calloc(1, sizeof *c);
+    c->url = strdup(url);
+    c->label = strdup("Link");
+    LOGI("app: playing a link from %.60s", url);
+    app_push(screen_player_create(&m, "trailer:link", name, c, 1, 0, 0, NULL, NULL));
+}

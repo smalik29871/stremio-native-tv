@@ -23,6 +23,8 @@ static char g_title[96], g_hint[300], g_current[600];
 static char g_pending[600]; static int g_has_pending;
 static char g_file_slot[16];   /* "start" / "end" while a recording may be uploaded */
 static volatile int g_quit;
+static char *g_backup;            /* settings offered for download while the backup page is open */
+static char *g_restore; static int g_restore_open;   /* settings sent back from the phone */
 
 static void html_escape(const char *s, char *out, size_t n)
 {
@@ -250,12 +252,58 @@ static int queue_frame(int fd, const char *req)
     return 1;
 }
 
+/* Settings backup: GET /backup.json while the TV offers one; POST /restore takes one back. */
+static int handle_backup(int fd, char *req, ssize_t n)
+{
+    if (strncmp(req, "GET /backup.json", 16) == 0) {
+        SDL_LockMutex(g_lock);
+        char *b = g_backup ? strdup(g_backup) : NULL;
+        SDL_UnlockMutex(g_lock);
+        if (!b) { respond(fd, "404 Not Found", "<p>Open Settings > Back up or restore on the TV first."); return 1; }
+        char head[300];
+        snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Disposition: attachment; filename=stremio-tv-settings.json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", strlen(b));
+        send_all(fd, head, strlen(head));
+        send_all(fd, b, strlen(b));
+        free(b);
+        return 1;
+    }
+    if (strncmp(req, "POST /restore", 13) != 0) return 0;
+    char *body = strstr(req, "\r\n\r\n");
+    const char *cl = ci_find(req, "Content-Length:");
+    long clen = cl ? atol(cl + 15) : 0;
+    SDL_LockMutex(g_lock); int open = g_restore_open; SDL_UnlockMutex(g_lock);
+    if (!body || clen <= 0 || clen > 256 * 1024 || !open) { respond(fd, "409 Conflict", "<p>Open Settings > Back up or restore on the TV, then send it again."); return 1; }
+    body += 4;
+    long have = n - (body - req);
+    char *buf = malloc((size_t)clen + 1);
+    if (!buf) return 1;
+    memcpy(buf, body, (size_t)(have < clen ? have : clen));
+    while (have < clen) { ssize_t m = recv(fd, buf + have, (size_t)(clen - have), 0); if (m <= 0) break; have += m; }
+    buf[have < clen ? have : clen] = 0;
+    /* the form posts text=<urlencoded json> */
+    char *v = strstr(buf, "text="), *json = NULL;
+    if (v) { size_t L = strlen(v + 5) + 1; json = malloc(L); if (json) url_decode(v + 5, json, L); }
+    free(buf);
+    char page[1000];
+    if (json && json[0] == '{') {
+        SDL_LockMutex(g_lock); free(g_restore); g_restore = json; SDL_UnlockMutex(g_lock);
+        snprintf(page, sizeof page, "%s<h1>Sent to the TV</h1><p class=ok>The TV is restoring these settings. You can close this page.</p>", PAGE_HEAD);
+        respond(fd, "200 OK", page);
+    } else {
+        free(json);
+        snprintf(page, sizeof page, "%s<h1>That is not a settings backup</h1><p>Choose the stremio-tv-settings.json file this page saved before.</p>", PAGE_HEAD);
+        respond(fd, "400 Bad Request", page);
+    }
+    return 1;
+}
+
 static int handle(int fd, const struct sockaddr_in *peer)
 {
     char req[8192];
     ssize_t n = recv(fd, req, sizeof req - 1, 0);
     if (n <= 0) return 0;
     req[n] = 0;
+    if (handle_backup(fd, req, n)) return 0;
     if (strncmp(req, "GET /frame?", 11) == 0) {
         if (peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK) && queue_frame(fd, req)) return 1;
         respond_text(fd, "404 Not Found", "no previews here");
@@ -314,6 +362,16 @@ static int handle(int fd, const struct sockaddr_in *peer)
         SDL_UnlockMutex(g_lock);
         html_escape(title, et, sizeof et);
         snprintf(page, sizeof page, "%s<h1>Sent to the TV</h1><p class=ok>%s is filled in. You can close this page.</p>", PAGE_HEAD, et);
+        respond(fd, "200 OK", page);
+        return 0;
+    }
+    SDL_LockMutex(g_lock); int backup_open = g_restore_open; SDL_UnlockMutex(g_lock);
+    if (backup_open) {
+        snprintf(page, sizeof page, "%s<h1>Back up your TV's settings</h1><p>Themes, home rows, subtitle and source choices, breaks. Not your Stremio sign-in.</p>"
+                 "<a href=/backup.json download><button type=button>Save a backup to this phone</button></a>"
+                 "<h1 style='margin-top:34px'>Restore a backup</h1><p>Choose a stremio-tv-settings.json saved before.</p>"
+                 "<form method=post action=/restore id=f><input type=file accept='.json,application/json' id=file><textarea name=text id=t hidden></textarea><button type=submit>Restore on the TV</button></form>"
+                 "<script>document.getElementById('file').onchange=function(e){var r=new FileReader();r.onload=function(){document.getElementById('t').value=r.result};r.readAsText(e.target.files[0])}</script>", PAGE_HEAD);
         respond(fd, "200 OK", page);
         return 0;
     }
@@ -451,4 +509,23 @@ int phone_take(char *out, size_t n)
     if (g_has_pending) { snprintf(out, n, "%s", g_pending); g_has_pending = 0; got = 1; }
     SDL_UnlockMutex(g_lock);
     return got;
+}
+
+void phone_offer_backup(const char *json)
+{
+    if (!g_lock) return;
+    SDL_LockMutex(g_lock);
+    free(g_backup); g_backup = json ? strdup(json) : NULL;
+    g_restore_open = json != NULL;
+    if (!json) { free(g_restore); g_restore = NULL; }
+    SDL_UnlockMutex(g_lock);
+}
+
+char *phone_take_restore(void)
+{
+    if (!g_lock) return NULL;
+    SDL_LockMutex(g_lock);
+    char *r = g_restore; g_restore = NULL;
+    SDL_UnlockMutex(g_lock);
+    return r;
 }

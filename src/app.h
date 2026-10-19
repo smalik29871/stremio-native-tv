@@ -224,6 +224,12 @@ const char *app_art_poster(const MetaPreview *p, char *buf, size_t n);
 void app_save_prefs(void);
 /* A source with these needs played fine (worked=1) or failed; persists the TV profile. */
 void app_tv_learn(unsigned needs, int worked);
+/* Settings backup without the sign-in or what this TV learned (malloc'd JSON), and back:
+ * returns how many settings were restored, -1 when the text is not a backup. */
+char *app_backup_settings(void);
+int  app_restore_settings(const char *json);
+/* Plays a direct video link (sent from a phone); nothing is saved against a title. */
+void app_play_link(const char *url);
 void app_note_frame(float ms);          /* feeds the Auto effects level */
 void app_redraw(void);                  /* request a frame even when idle */
 void app_library_flush(int force);

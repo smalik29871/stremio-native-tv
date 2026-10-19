@@ -196,6 +196,9 @@ grep -q 'detail: franchise -> tt1002' "$OUT/detail_franchise.log" || { echo "the
 run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
 run settings_rules 380 "left,down,down,down,down,down,ok,up,ok,t:largest,down,down,down,down,left,ok,right" HOME="$(home_with rules '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"CAM, 3D"}')"
 run streams_rules 240 "right,ok,down,down,ok" HOME="$(home_with rules2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"web-dl","preflight":0}')"
+run settings_tvcap 380 "left,down,down,down,down,down,ok,up,ok,t:this tv can,down,down,down,down,left,ok,ok" HOME="$(home_with tvcap '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvCaps":{"dts":[0,2],"hevc":[5,0]}}')"
+run settings_backup 420 "left,down,down,down,down,down,ok,up,ok,t:back up,down,down,down,down,left,ok,ok"
+grep -q "settings: found Back up or restore settings" "$OUT/settings_backup.log" || { echo "Back up or restore is not in Settings"; grep settings "$OUT/settings_backup.log"; exit 1; }
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)
 run transition_zoom 34 "right,ok" SNTV_NO_TRANSITIONS= SNTV_FRAME_DT=0.016

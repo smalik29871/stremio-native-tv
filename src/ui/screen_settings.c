@@ -47,7 +47,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_ASK_PROFILE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -58,7 +58,7 @@ static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio account", "Torrents",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
     "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
 #define SEC_H 70.0f
@@ -104,7 +104,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_PLAYBACK:
         SEC(SEC_EPISODES); ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP;
-        SEC(SEC_PLAYER); ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS;
+        SEC(SEC_PLAYER); ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; ids[n++] = IT_PLAY_LINK;
         break;
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG:
@@ -114,7 +114,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_SOURCES:
         SEC(SEC_RANKING); ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO;
-        ids[n++] = IT_SRC_SIZE; ids[n++] = IT_SRC_HDR; ids[n++] = IT_SRC_CACHED; ids[n++] = IT_SRC_EXCLUDE;
+        ids[n++] = IT_SRC_SIZE; ids[n++] = IT_SRC_HDR; ids[n++] = IT_SRC_CACHED; ids[n++] = IT_SRC_EXCLUDE; ids[n++] = IT_TVCAP;
         SEC(SEC_STARTING); ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT;
         SEC(SEC_FALLBACK); ids[n++] = IT_P2P;
         break;
@@ -122,7 +122,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
-        SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; ids[n++] = IT_MEMORY;
+        SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
         break;
     case CAT_KEYS:
         SEC(SEC_META); ids[n++] = IT_TMDB;
@@ -177,6 +177,9 @@ static const char *row_title(int id)
     case IT_SRC_HDR: return "HDR and Dolby Vision";
     case IT_SRC_CACHED: return "Only cached or direct sources";
     case IT_SRC_EXCLUDE: return "Words to avoid in source names";
+    case IT_TVCAP: return "What this TV can play";
+    case IT_PLAY_LINK: return "Play a link from your phone";
+    case IT_BACKUP: return "Back up or restore settings";
     case IT_PREFLIGHT: return "Check sources before recommending";
     case IT_SCRUB: return "Show the picture while seeking";
     case IT_THUMBS: return "Home helper (optional)";
@@ -251,6 +254,9 @@ static const char *row_desc(int id)
     case IT_SRC_SIZE: return "Bigger files stay in the list but are never picked for you.";
     case IT_SRC_HDR: return "Avoid sources this screen shows badly. They stay in the list.";
     case IT_SRC_CACHED: return "Torrents that need a download first are never picked for you.";
+    case IT_PLAY_LINK: return "Send a video link from your phone and it plays here.";
+    case IT_BACKUP: return "Save your settings to your phone, or bring a backup back.";
+    case IT_TVCAP: return "4K, HEVC, AV1, Dolby Vision, DTS and TrueHD: what plays here, learned from what you watch.";
     case IT_SRC_EXCLUDE: return "Comma-separated, e.g. CAM, HDTS, 3D. Matching sources are never picked.";
     case IT_PREFLIGHT: return "Makes sure a link answers before it is recommended.";
     case IT_AUTO_REC: return "Skips the list and starts the best match.";
@@ -438,6 +444,11 @@ static const char *edit_hint(int which);
 static void update(Screen *s, float dt)
 {
     Settings *st = s->st;
+    if (st->edit == EDIT_BACKUP) {
+        char *json = phone_take_restore();
+        if (json) { int n = app_restore_settings(json); free(json); app_toast(n > 0 ? "Settings restored from your phone (%d)" : "That backup could not be read", n); finish_edit(st, 0); app_redraw(); }
+        return;
+    }
     if (st->edit != EDIT_NONE) {   /* text sent from the phone fills the field and saves */
         char got[600];
         if (phone_take(got, sizeof got)) { snprintf(st->kb.text, sizeof st->kb.text, "%.255s", got); app_toast("Received from your phone"); finish_edit(st, 1); app_redraw(); }
@@ -603,6 +614,18 @@ static void draw(Screen *s)
     s_x = COL_X0 + (COL_X1 - COL_X0) * e;
     s_r = SNTV_UI_W - THEME_MARGIN + (COL_R1 - (SNTV_UI_W - THEME_MARGIN)) * e;
 
+    if (st->edit == EDIT_BACKUP) {   /* no typing: the phone does it all */
+        float x = COL_X0;
+        font_draw(edit_title(st->edit), x, 100, FONT_L | FONT_B, THEME_TEXT);
+        font_draw_wrapped(edit_hint(st->edit), x, 156, FONT_S, THEME_TEXT_DIM, 1100, 2);
+        if (st->qr_ready) {
+            ui_qr(st->qr, x, 260, 320);
+            font_draw(st->phone_url, x + 360, 270, FONT_M | FONT_B, THEME_TEXT);
+            font_draw_wrapped("Open this on a phone on the same network. A restored backup applies at once.", x + 360, 320, FONT_S, THEME_TEXT_DIM, 640, 3);
+        } else font_draw("The phone page is not available on this network.", x, 280, FONT_S, THEME_TEXT_DIM);
+        font_draw("Back closes", x, 640, FONT_S, THEME_TEXT_MUTED);
+        return;
+    }
     if (st->edit != EDIT_NONE) {
         const char *title = edit_title(st->edit), *hint = edit_hint(st->edit);
         float x = COL_X0;
@@ -688,6 +711,9 @@ static void draw(Screen *s)
         case IT_SRC_SIZE: if (g_app.src_max_gb) snprintf(v, sizeof v, "Up to %d GB", g_app.src_max_gb); else snprintf(v, sizeof v, "Any size"); draw_row(y, ICON_SPEED, "Largest file to pick", v, foc, KIND_CHOICE, 0); break;
         case IT_SRC_HDR: draw_row(y, ICON_TV, "HDR and Dolby Vision", g_app.src_hdr == 2 ? "Avoid HDR" : g_app.src_hdr == 1 ? "Avoid Dolby Vision" : "Any", foc, KIND_CHOICE, 0); break;
         case IT_SRC_CACHED: draw_row(y, ICON_CHECK, "Only cached or direct sources", NULL, foc, KIND_TOGGLE, g_app.src_cached_only); break;
+        case IT_PLAY_LINK: draw_row(y, ICON_PLAY, "Play a link from your phone", NULL, foc, KIND_ACTION, 0); break;
+        case IT_BACKUP: draw_row(y, ICON_SETTINGS, "Back up or restore settings", NULL, foc, KIND_ACTION, 0); break;
+        case IT_TVCAP: draw_row(y, ICON_TV, "What this TV can play", NULL, foc, KIND_ACTION, 0); break;
         case IT_SRC_EXCLUDE: draw_row(y, ICON_CLOSE, "Words to avoid in source names", g_app.src_exclude[0] ? g_app.src_exclude : "None  \xC2\xB7  OK to add, e.g. CAM, HDTS, 3D", foc, KIND_ACTION, 0); break;
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
         case IT_SCRUB: draw_row(y, ICON_PLAY, "Show the picture while seeking", NULL, foc, KIND_TOGGLE, g_app.live_scrub); break;
@@ -841,13 +867,16 @@ static const char *edit_title(int which)
 {
     if (which == EDIT_SEARCH) return "Find a setting";
     return which == EDIT_AI_KEY ? "AI API key" : which == EDIT_AI_BASE ? "AI endpoint (OpenAI-compatible)" : which == EDIT_AI_MODEL ? "AI model"
+         : which == EDIT_PLAY_LINK ? "Play a link" : which == EDIT_BACKUP ? "Back up or restore settings"
          : which == EDIT_EXCLUDE ? "Words to avoid in source names" : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_TMDB ? "TMDB API key"
          : which == EDIT_LOCATION ? "Your location" : which == EDIT_BR_AUDIO ? "Audio at the start of a break" : which == EDIT_BR_END ? "Audio at the end of a break" : "Addon manifest URL";
 }
 static const char *edit_hint(int which)
 {
     if (which == EDIT_SEARCH) return "A word from its name or from what it does: subtitle, clock, black, PIN, trailer\xE2\x80\xA6";
-    return which == EDIT_EXCLUDE ? "Comma-separated, e.g. CAM, HDTS, 3D, HC. Sources with any of them in their name are never picked for you. Empty removes the rule."
+    return which == EDIT_PLAY_LINK ? "A direct video link (MP4, MKV, M3U8). Scan the code to paste it on your phone; it plays at once."
+         : which == EDIT_BACKUP ? "Scan the code with your phone: save a backup there, or send one back to restore it on this TV. Your Stremio sign-in is not included."
+         : which == EDIT_EXCLUDE ? "Comma-separated, e.g. CAM, HDTS, 3D, HC. Sources with any of them in their name are never picked for you. Empty removes the rule."
          : which == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
          : which == EDIT_THUMBS ? "Optional: tools/thumbs/server.py on a computer or NAS, e.g. http://192.168.1.10:11480. The TV already decodes seek previews and saves YouTube links; set this only to use the computer instead. Empty turns it off."
          : which == EDIT_TMDB ? "Free at themoviedb.org > Settings > API (the v3 key, 32 characters). Empty removes it."
@@ -1001,6 +1030,38 @@ static void find_setting(Settings *st, const char *q)
     app_push(screen_options_create("Find a setting", sub, items, g_found.n, on_found, NULL));
 }
 
+/* What this TV can play: each format the source ranking cares about, what the app
+ * believes and why (seen playing, seen failing, or LG's tables for this webOS). */
+static void on_tv_caps(int choice, void *user)
+{
+    (void)user;
+    if (choice != 1) return;
+    memset(g_app.tv.ok, 0, sizeof g_app.tv.ok);
+    memset(g_app.tv.fail, 0, sizeof g_app.tv.fail);
+    store_set_json("tvCaps", cJSON_CreateObject());
+    store_save();
+    app_toast("Forgotten: sources are ranked by LG's tables again");
+}
+
+static void show_tv_caps(void)
+{
+    static const char *const LABEL[TVCAP_COUNT] = { "DTS audio", "Dolby TrueHD audio", "AV1 video", "Dolby Vision", "HEVC (H.265) video", "4K resolution" };
+    static const int ORDER[TVCAP_COUNT] = { TVCAP_4K, TVCAP_HEVC, TVCAP_AV1, TVCAP_DV, TVCAP_DTS, TVCAP_TRUEHD };
+    char body[1400]; size_t o = 0;
+    for (int k = 0; k < TVCAP_COUNT; k++) {
+        int c = ORDER[k], ok = quality_cap_ok(&g_app.tv, c), seen_ok = g_app.tv.ok[c], seen_fail = g_app.tv.fail[c];
+        char why[96];
+        if (seen_ok || seen_fail) snprintf(why, sizeof why, "played %d time%s, failed %d", seen_ok, seen_ok == 1 ? "" : "s", seen_fail);
+        else snprintf(why, sizeof why, g_app.tv.webos_major ? "not seen yet: LG's tables for webOS %d" : "not seen yet", g_app.tv.webos_major);
+        o += (size_t)snprintf(body + o, sizeof body - o, "%s  \xC2\xB7  %s  (%s)\n", LABEL[c], ok ? "plays" : "avoided", why);
+        if (o >= sizeof body) break;
+    }
+    if (o < sizeof body) snprintf(body + o, sizeof body - o, "\nSources that need something avoided rank lower but stay in the list. A format that plays fine later is trusted again.");
+    static const char *const items[] = { "Close", "Forget what this TV learned" };
+    static const int icons[] = { ICON_CLOSE, ICON_RELOAD };
+    app_push(screen_options_create_ex("What this TV can play", NULL, body, items, icons, 2, on_tv_caps, NULL));
+}
+
 static void begin_edit(Settings *st, int which)
 {
     st->edit = which;
@@ -1010,18 +1071,20 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_TMDB ? (g_app.tmdb_key ? g_app.tmdb_key : "")
                   : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "http://")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
-                  : which == EDIT_SEARCH ? "" : which == EDIT_EXCLUDE ? g_app.src_exclude
+                  : which == EDIT_SEARCH || which == EDIT_BACKUP ? "" : which == EDIT_PLAY_LINK ? "https://" : which == EDIT_EXCLUDE ? g_app.src_exclude
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "https://") : "https://");
     input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
     if (which == EDIT_BR_AUDIO || which == EDIT_BR_END) phone_accept_file(which == EDIT_BR_AUDIO ? "start" : "end");
     phone_qr_make(st);
+    if (which == EDIT_BACKUP) { input_text(0); char *j = app_backup_settings(); phone_offer_backup(j ? j : "{}"); free(j); }
 }
 
 static void find_setting(Settings *st, const char *q);
 
 static void finish_edit(Settings *st, int save)
 {
+    if (st->edit == EDIT_BACKUP) phone_offer_backup(NULL);
     if (st->edit == EDIT_SEARCH) {   /* the keyboard goes first: the matches open over the list */
         char q[sizeof st->kb.text];
         snprintf(q, sizeof q, "%s", st->kb.text);
@@ -1041,6 +1104,11 @@ static void finish_edit(Settings *st, int save)
             store_set_str("streamingServer", g_app.streaming_server);
             store_save();
             app_toast(n ? "Streaming server saved" : "Streaming server cleared");
+        } else if (st->edit == EDIT_PLAY_LINK) {
+            char *v = st->kb.text;
+            while (*v == ' ') v++;
+            if (strncmp(v, "http://", 7) == 0 || strncmp(v, "https://", 8) == 0) { if (strlen(v) > 9) app_play_link(v); }
+            else app_toast("That is not a video link (it starts with http)");
         } else if (st->edit == EDIT_EXCLUDE) {
             char *v = st->kb.text;
             while (*v == ' ' || *v == ',') v++;
@@ -1235,6 +1303,7 @@ static int key(Screen *s, KeyAction a)
 {
     Settings *st = s->st;
     app_redraw();
+    if (st->edit == EDIT_BACKUP) { if (a == KEY_BACK || a == KEY_OK) finish_edit(st, 0); return 1; }
     if (st->edit != EDIT_NONE) {
         if (a == KEY_BACK) { finish_edit(st, 0); return 1; }
         if (a == KEY_BACKSPACE) { keyboard_key(&st->kb, KEY_BACKSPACE); return 1; }
@@ -1289,6 +1358,9 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_THUMBS) begin_edit(st, EDIT_THUMBS);
         else if (id == IT_TMDB) begin_edit(st, EDIT_TMDB);
         else if (id == IT_SRC_EXCLUDE) begin_edit(st, EDIT_EXCLUDE);
+        else if (id == IT_TVCAP) show_tv_caps();
+        else if (id == IT_PLAY_LINK) begin_edit(st, EDIT_PLAY_LINK);
+        else if (id == IT_BACKUP) begin_edit(st, EDIT_BACKUP);
         else if (id == IT_AI_KEY) begin_edit(st, EDIT_AI_KEY);
         else if (id == IT_AI_BASE) begin_edit(st, EDIT_AI_BASE);
         else if (id == IT_AI_MODEL) { app_toast("Asking %s for its models\xE2\x80\xA6", AI_PROVIDER_NAMES[g_app.ai_provider]); ai_list_models(on_models, NULL); }

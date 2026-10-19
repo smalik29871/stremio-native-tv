@@ -19,4 +19,8 @@ void phone_accept_file(const char *slot);
 int phone_local_url(const char *rel, char *out, size_t n);
 /* "sntv-sound://x.mp3" -> a URL the media pipeline can open; other URLs are copied unchanged. */
 const char *phone_resolve_sound(const char *url, char *out, size_t n);
+/* Settings backup: while json is set the phone page offers it for download and takes
+ * a backup back; NULL closes both. phone_take_restore() returns a sent backup (malloc'd). */
+void phone_offer_backup(const char *json);
+char *phone_take_restore(void);
 #endif
