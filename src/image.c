@@ -39,6 +39,8 @@ typedef struct Img {
     int need_net;          /* the decoder found no disk copy: fetch it */
     unsigned char *encoded; size_t encoded_len;
     unsigned char *pixels;
+    int up_row;            /* rows already on the GPU, while a big picture goes up in bands */
+    struct Img *unext;     /* the band-upload queue */
     struct Img *next;      /* hash chain */
     struct Img *qnext;     /* decode/done queues */
 } Img;
@@ -356,13 +358,43 @@ int image_failed(const char *url)
     return i && i->state == IMG_FAILED;
 }
 
+/* At most ~1 MB reaches the GPU in a frame: on a TV a 1280 px backdrop (3.7 MB) sent
+ * at once took a whole frame, so big pictures go up in bands over a few frames and
+ * show when complete. */
+enum { UPLOAD_BUDGET = 1u << 20 };
+static Img *g_upload_q;   /* main thread only */
+
+static void upload_done(Img *i)
+{
+    perf_mark("first picture");
+    i->bytes = (size_t)i->w * i->h * 4;
+    if (i->flags & IMAGE_MIPMAP) i->bytes += i->bytes / 3;
+    g_total_bytes += i->bytes;
+    free(i->pixels);
+    i->pixels = NULL;
+    i->state = IMG_READY;
+    i->ready_at = g_clock;
+}
+
 void image_pump(void)
 {
+    size_t uploaded = 0;
+    while (g_upload_q && uploaded < UPLOAD_BUDGET) {   /* the bands of pictures already going up */
+        Img *i = g_upload_q;
+        size_t row = (size_t)i->w * 4;
+        int n = (int)((UPLOAD_BUDGET - uploaded) / row);
+        if (n < 16) n = 16;
+        if (n > i->h - i->up_row) n = i->h - i->up_row;
+        gfx_texture_update_rows(i->tex, i->pixels + (size_t)i->up_row * row, i->w, i->up_row, n);
+        i->up_row += n;
+        uploaded += (size_t)n * row;
+        if (i->up_row >= i->h) { g_upload_q = i->unext; upload_done(i); }
+    }
+    if (uploaded >= UPLOAD_BUDGET) { evict_if_needed(); return; }
     SDL_LockMutex(g_lock);
     Img *done = g_done_q;
     g_done_q = NULL;
     SDL_UnlockMutex(g_lock);
-    size_t uploaded = 0;
     while (done) {
         Img *i = done;
         done = i->qnext;
@@ -373,24 +405,22 @@ void image_pump(void)
             i->req = http_request_async_ex(i->url, &ARTWORK, on_http, i);
             continue;
         }
-        if (i->pixels) {
+        if (i->pixels && !(i->flags & IMAGE_MIPMAP) && (size_t)i->w * i->h * 4 > UPLOAD_BUDGET) {
+            i->tex = gfx_texture_rgba(NULL, i->w, i->h);   /* allocated now, filled band by band */
+            i->up_row = 0;
+            i->unext = NULL;
+            Img **t = &g_upload_q;
+            while (*t) t = &(*t)->unext;
+            *t = i;
+        } else if (i->pixels) {
             i->tex = (i->flags & IMAGE_MIPMAP) ? gfx_texture_rgba_mip(i->pixels, i->w, i->h) : gfx_texture_rgba(i->pixels, i->w, i->h);
-            perf_mark("first picture");
-            i->bytes = (size_t)i->w * i->h * 4;
-            if (i->flags & IMAGE_MIPMAP) i->bytes += i->bytes / 3;
-            g_total_bytes += i->bytes;
-            free(i->pixels);
-            i->pixels = NULL;
-            i->state = IMG_READY;
-            i->ready_at = g_clock;
+            upload_done(i);
             uploaded += i->bytes;
         } else {
             i->state = IMG_FAILED;
         }
         SDL_LockMutex(g_lock); g_pending_decodes--; SDL_UnlockMutex(g_lock);
-        /* Cap the bytes sent to the GPU per frame: a few posters, or one backdrop (3.7 MB
-         * at 1280 px), so a burst of artwork doesn't drop frames on a TV. */
-        if (uploaded >= (3u << 20) && done) {
+        if (uploaded >= UPLOAD_BUDGET && done) {   /* the rest next frame */
             SDL_LockMutex(g_lock);
             Img *tail = done;
             while (tail->qnext) tail = tail->qnext;
@@ -409,7 +439,7 @@ size_t image_cache_bytes(void) { return g_total_bytes; }
 int image_busy(void)
 {
     SDL_LockMutex(g_lock);
-    int busy = g_pending_decodes > 0 || g_done_q != NULL;
+    int busy = g_pending_decodes > 0 || g_done_q != NULL || g_upload_q != NULL;
     SDL_UnlockMutex(g_lock);
     return busy;
 }

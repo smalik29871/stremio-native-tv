@@ -769,10 +769,10 @@ int youtube_player_urls(const char *answer, const char *id, char out[][4608], in
     if (!j) { if (max > 0 && answer && !strncmp(answer, "http", 4)) { youtube_player_url(answer, out[0], 4608); n = 1; } return n; }
     const cJSON *d = cJSON_GetObjectItemCaseSensitive(j, "dash");
     const cJSON *h = cJSON_GetObjectItemCaseSensitive(j, "hls"), *f = cJSON_GetObjectItemCaseSensitive(j, "file");
-    /* DASH failed twice running on this TV: the playlist first, DASH again every fifth time */
+    /* DASH failed on this TV (webOS 10 answers 100): the playlist first, DASH again every tenth time */
     int plays = store_get_int("ytPlays", 0) + 1;
     store_set_int("ytPlays", plays);
-    int hls_first = cJSON_IsString(h) && store_get_int("ytDashFails", 0) >= 2 && plays % 5;
+    int hls_first = cJSON_IsString(h) && store_get_int("ytDashFails", 0) >= 1 && plays % 10;
     if (hls_first && n < max) { youtube_player_url(h->valuestring, out[n++], 4608); LOGI("youtube: %s playlist first (DASH failed here before)", id); }
     if (d && n < max) {
         const cJSON *video = cJSON_GetObjectItemCaseSensitive(d, "video"), *audio = cJSON_GetObjectItemCaseSensitive(d, "audio"), *rp;

@@ -80,5 +80,6 @@ unsigned gfx_texture_rgba_mip(const uint8_t *px, int w, int h);
 unsigned gfx_texture_alpha(const uint8_t *px, int w, int h);
 void     gfx_texture_destroy(unsigned tex);
 void     gfx_texture_update(unsigned tex, const uint8_t *px, int w, int h);   /* same size, RGBA: animated pictures */
+void     gfx_texture_update_rows(unsigned tex, const uint8_t *rows, int w, int y0, int n);   /* RGBA rows y0..y0+n-1 */
 
 #endif

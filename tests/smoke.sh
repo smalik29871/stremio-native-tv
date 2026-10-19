@@ -72,8 +72,8 @@ grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not f
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
 grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/3 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.mpd" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
-# DASH failed twice on this TV: the playlist goes first (DASH again every fifth time)
-run detail_trailer_hls_first 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer_hls '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ytDashFails":2}')"
+# DASH failed on this TV: the playlist goes first (DASH again every tenth time)
+run detail_trailer_hls_first 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer_hls '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ytDashFails":1}')"
 grep -q "youtube: dQw4w9WgXcQ playlist first (DASH failed here before)" "$OUT/detail_trailer_hls_first.log" && grep -q "player: candidate 1/3 .* -> http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_hls_first.log" \
   || { echo "a TV where DASH fails did not start with the playlist"; grep -E "youtube|player: candidate" "$OUT/detail_trailer_hls_first.log"; exit 1; }
 # no trailer from the addon: TMDB's, a file with no playlist, fetched in YouTube's &range= pieces
