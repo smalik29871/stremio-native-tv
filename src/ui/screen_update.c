@@ -66,7 +66,7 @@ static void draw(Screen *s)
         snprintf(line, sizeof line, "%.200s", u->status);
         font_draw_center(line, cx, y, FONT_S, THEME_DANGER);
         font_draw_center("The Homebrew Channel can install it: Stremio (native) > Update.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
-        font_draw_center("OK: open the Homebrew Channel   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        font_draw_center("Open it from the Home screen   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
     } else {
         ui_spinner(cx, y + 10, 26);
         font_draw_center(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
@@ -80,7 +80,7 @@ static int key(Screen *s, KeyAction a)
     if (a == KEY_OK) {
         if (!u->started) start(u);
         else if (u->state == 2) g_app.quit = 1;
-        else if (u->state == -1 && video_open_app("org.webosbrew.hbchannel") != 0) app_toast("Open the Homebrew Channel from the Home screen");
+        else if (u->state == -1) app_toast("Open the Homebrew Channel from the Home screen to update");   /* webOS won't let an app open another */
         return 1;
     }
     if (a == KEY_BACK && (!u->started || u->state == 2 || u->state == -1)) {

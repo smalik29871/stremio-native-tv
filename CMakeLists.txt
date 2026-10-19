@@ -130,7 +130,6 @@ add_executable(stremio-tv
   src/audio.c
   src/breaks.c
   src/phone.c
-  src/alarmtest.c
   src/perfstat.c
   src/memwatch.c
   ${SNTV_UI_SRC}

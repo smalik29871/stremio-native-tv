@@ -68,16 +68,5 @@ int  video_install_update(const char *ipk_url, const char *sha256, const char *a
 /* What the installer said last ("Downloading…  42%"), and its state:
  * 0 nothing asked, 1 working, 2 finished, -1 failed (out has the reason). */
 int  video_install_status(char *out, size_t n);
-/* Opens another app (the Homebrew Channel, when this TV won't let us ask its installer).
- * 0 when the request went out. */
-int  video_open_app(const char *app_id);
-/* The same with launch parameters (a JSON object, e.g. {"contentTarget":"v=ID"}). */
-int  video_open_app_params(const char *app_id, const char *params_json);
-/* Any webOS service: the reply (or each, with "subscribe") lands in slot `tag` for
- * video_luna_reply. 0 when the call went out; -1 off a TV. */
-int  video_luna_call(const char *uri, const char *payload_json, int tag);
-/* The newest reply for `tag` (copied), how many came, 0 none yet. */
-int  video_luna_reply(int tag, char *out, size_t n);
-enum { LUNA_TAG_MAX = 12 };
 
 #endif

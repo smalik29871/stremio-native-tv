@@ -250,9 +250,9 @@ static void on_http(HttpResponse *r, void *user)
         i->state = IMG_FAILED;
         return;
     }
-    i->encoded = malloc(r->len);
-    memcpy(i->encoded, r->body, r->len);
+    i->encoded = (uint8_t *)r->body;   /* taken over, not copied: up to a few MB on the main thread */
     i->encoded_len = r->len;
+    r->body = NULL; r->len = 0;
     i->from_disk = 0;
     enqueue_decode(i);
 }
@@ -362,7 +362,7 @@ void image_pump(void)
     Img *done = g_done_q;
     g_done_q = NULL;
     SDL_UnlockMutex(g_lock);
-    int uploads = 0;
+    size_t uploaded = 0;
     while (done) {
         Img *i = done;
         done = i->qnext;
@@ -383,13 +383,14 @@ void image_pump(void)
             i->pixels = NULL;
             i->state = IMG_READY;
             i->ready_at = g_clock;
-            uploads++;
+            uploaded += i->bytes;
         } else {
             i->state = IMG_FAILED;
         }
         SDL_LockMutex(g_lock); g_pending_decodes--; SDL_UnlockMutex(g_lock);
-        /* Cap uploads per frame so a burst of posters doesn't stall input on a slow GPU. */
-        if (uploads >= 4 && done) {
+        /* Cap the bytes sent to the GPU per frame: a few posters, or one backdrop (3.7 MB
+         * at 1280 px), so a burst of artwork doesn't drop frames on a TV. */
+        if (uploaded >= (3u << 20) && done) {
             SDL_LockMutex(g_lock);
             Img *tail = done;
             while (tail->qnext) tail = tail->qnext;

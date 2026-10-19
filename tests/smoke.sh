@@ -62,7 +62,7 @@ run detail_more_like 320 "wait,ok,down,down,down,ok" HOME="$(home_with about_mor
 grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "More like this did not open the title"; grep detail "$OUT/detail_more_like.log"; exit 1; }
 run detail_about_series 300 "right,ok,down,down,down"
 run detail_trailer_app 320 "wait,ok,right,ok,wait,wait,wait,wait" HOME="$(home_with trailer_app "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9
-grep -q "video(null): open app youtube.leanback.v4" "$OUT/detail_trailer_app.log" || { echo "a refused trailer did not open the YouTube app"; grep -E "detail|youtube" "$OUT/detail_trailer_app.log"; exit 1; }
+grep -q "detail: trailer for .* failed" "$OUT/detail_trailer_app.log" && ! grep -q "open app" "$OUT/detail_trailer_app.log" || { echo "a refused trailer did not say so"; grep -E "detail|youtube" "$OUT/detail_trailer_app.log"; exit 1; }
 run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
@@ -72,6 +72,10 @@ grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not f
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
 grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/3 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.mpd" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
+# DASH failed twice on this TV: the playlist goes first (DASH again every fifth time)
+run detail_trailer_hls_first 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer_hls '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ytDashFails":2}')"
+grep -q "youtube: dQw4w9WgXcQ playlist first (DASH failed here before)" "$OUT/detail_trailer_hls_first.log" && grep -q "player: candidate 1/3 .* -> http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_hls_first.log" \
+  || { echo "a TV where DASH fails did not start with the playlist"; grep -E "youtube|player: candidate" "$OUT/detail_trailer_hls_first.log"; exit 1; }
 # no trailer from the addon: TMDB's, a file with no playlist, fetched in YouTube's &range= pieces
 run detail_trailer_file 360 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_file '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/notrailer/manifest.json SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 grep -q "youtube: fileOnly001 streams as a file" "$OUT/detail_trailer_file.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_file.log" \
@@ -255,7 +259,7 @@ BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"
 run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
-run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
+run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 # no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
 if [ -n "${FAKE_TORRENT_HASH:-}" ]; then
 run p2p_playing 420 "right,ok,down,down,ok,ok" HOME="$(home_with p2p1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=1
@@ -282,7 +286,7 @@ run progress_merge 200 "right" HOME="$H" SNTV_API_URL="http://127.0.0.1:$PORT"
 grep -q '"_id":"tt0903747".*"timeOffset":2000000' "$FAKE_PUT_LOG" || { echo "newer local progress was not kept and resent"; exit 1; }
 run break_video 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:8765"}')" SNTV_NOW=12:00
 # a YouTube link typed into Settings is saved by the TV itself (QuickJS runs the solver), then plays at the break with no helper
-run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
+run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
 grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
 run break_yt_play 300 "right,ok,down,down,ok,ok" HOME="$OUT/home_brkyt" SNTV_NOW=12:00
 grep -q "break: playing http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_play.log" || { echo "saved YouTube recording not played"; grep break "$OUT/break_yt_play.log"; exit 1; }
@@ -310,10 +314,10 @@ grep -q "update: installing" "$OUT/update_prompt.log" && { echo "it installed wi
 ASR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":0,"breakMethod":1,"breakAsr":1,"breakLat":"43.676","breakLon":"-79.485","breakCity":"Toronto","breakLead":5,"breaksEverywhere":1}'
 run island_update 900 "$(printf 'wait,%.0s' $(seq 1 35))back" HOME="$(home_with islu '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 run update_refused 1700 "${W}ok,wait,wait,wait,ok" HOME="$(home_with upd3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
-grep -q "video(null): open app org.webosbrew.hbchannel" "$OUT/update_refused.log" || { echo "a refused update did not offer the Homebrew Channel"; grep update "$OUT/update_refused.log"; exit 1; }
-run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
+grep -q "toast: Open the Homebrew Channel from the Home screen to update" "$OUT/update_refused.log" || { echo "a refused update did not point to the Homebrew Channel"; grep -E "update|toast" "$OUT/update_refused.log"; exit 1; }
+run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
 run break_media_length 230 "right,ok,down,down,ok,ok" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
-run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
+run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
 run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_autosync 520 "right,ok,down,down,ok,ok,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,ok,ok" SNTV_FAKE_START=200
@@ -338,13 +342,6 @@ run ambient_fire 400 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with fire '{"prefSub
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 grep -q "ambient: fireplace video 1/3" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.mpd (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }
-# Take breaks > Test TV interruption: both ways armed, replies shown; then a launch by the alarm
-run settings_interrupt 3500 "left,down,down,down,down,down,ok,up,ok,t:interruption,down,down,down,down,left,ok,ok,right,ok,wait,wait,ok,down,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok" HOME="$(home_with interrupt "$ABOUT_HOME")" SNTV_ALARM_SECONDS=2 SNTV_FAKE_LUNA='{"returnValue":true,"activityId":42}'
-grep -q "alarmtest: armed for .* (scheduler calls sent / sent)" "$OUT/settings_interrupt.log" && grep -q 'luna://com.webos.applicationManager/launch {"id":"org.stremio.nativetv","params":{"sntvAlarm":"B"' "$OUT/settings_interrupt.log" \
-  || { echo "the interruption test did not arm both ways"; grep -E "alarmtest|luna" "$OUT/settings_interrupt.log"; exit 1; }
-run settings_interrupt_hit 200 "" HOME="$OUT/home_interrupt" SNTV_LAUNCH_PARAMS='{"sntvAlarm":"A","due":1}'
-grep -q "alarmtest: launched by path A (a fresh start)" "$OUT/settings_interrupt_hit.log" && grep -q "launches" "$OUT/home_interrupt/.local/share/stremio/nativetv/settings.json" \
-  || { echo "a launch by the alarm was not recorded"; grep alarmtest "$OUT/settings_interrupt_hit.log"; exit 1; }
 # Clock faces: every one draws (flip, analog, words, rings, nixie, stacked), and the island's styles
 for f in 1 2 3 4 5 6; do
   run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f}")"

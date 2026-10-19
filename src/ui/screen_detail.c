@@ -94,24 +94,12 @@ static void trailer_play_saved(const char *name, const MetaPreview *meta)
     app_push(screen_player_create(meta, vid, title, c, 1, 0, 0, NULL, NULL));
 }
 
-/* YouTube refuses the TV's own download now and then ("sign in to confirm you're not a
- * bot"); the TV's YouTube app is signed in and trusted, so the trailer opens there. */
-static int trailer_in_youtube_app(const char *yt)
-{
-    char params[160];
-    snprintf(params, sizeof params, "{\"contentTarget\":\"https://www.youtube.com/tv?v=%s\"}", yt);
-    if (video_open_app_params("youtube.leanback.v4", params) != 0) return 0;
-    LOGI("detail: trailer %s opened in the YouTube app", yt);
-    return 1;
-}
-
 static void on_trailer(const char *name, const char *error, void *user)
 {
     (void)user;
     g_trailer.busy = 0;
     if (!name) {
         LOGW("detail: trailer for %s failed: %s", g_trailer.id, error ? error : "?");
-        if (g_trailer.yt[0] && trailer_in_youtube_app(g_trailer.yt)) return;
         app_toast("The trailer could not be fetched%s%s", error ? ": " : "", error ? error : "");
         return;
     }

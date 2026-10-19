@@ -291,8 +291,8 @@ static void absolute(const char *base, const char *ref, char *out, size_t n)
 }
 
 /* HLS playlists: every link inside (qualities, audio tracks, pieces) is sent through
- * this proxy, so YouTube sees the User-Agent it issued them to; in the master playlist,
- * variants under 720p are left out when better ones exist, so it starts sharp */
+ * this proxy, so YouTube sees the User-Agent it issued them to; the master playlist keeps
+ * only the tallest variants the TV takes: given a ladder, the player starts low and stays */
 static void yt_playlist(YtJob *j)
 {
     HttpResponse r;
@@ -303,8 +303,13 @@ static void yt_playlist(YtJob *j)
     char base[4096]; snprintf(base, sizeof base, "%s", j->url);
     char *q = strchr(base, '?'); if (q) *q = 0;
     char *sl = strrchr(base, '/'); if (sl) sl[1] = 0;
-    int high = 0;
-    for (const char *c = strstr(r.body, "RESOLUTION="); c; c = strstr(c + 1, "RESOLUTION=")) { const char *x = strchr(c, 'x'); if (x && atoi(x + 1) >= 720) high = 1; }
+    int best = 0, lowest = 0, cap_h = youtube_quality_cap();
+    for (const char *c = strstr(r.body, "RESOLUTION="); c; c = strstr(c + 1, "RESOLUTION=")) {
+        const char *x = strchr(c, 'x'); int h = x ? atoi(x + 1) : 0;
+        if (h > 0 && h <= cap_h && h > best) best = h;
+        if (h > 0 && (!lowest || h < lowest)) lowest = h;
+    }
+    if (!best) best = lowest;   /* nothing within the cap: the smallest there is */
     size_t cap = r.len * 3 + 65536, o2 = 0;
     char *out = malloc(cap);
     int skip_next = 0;
@@ -315,9 +320,9 @@ static void yt_playlist(YtJob *j)
         snprintf(line, sizeof line, "%.*s", (int)(l < sizeof line - 1 ? l : sizeof line - 1), p);
         size_t ll = strlen(line); if (ll && line[ll - 1] == '\r') line[--ll] = 0;
         p = nl ? nl + 1 : NULL;
-        if (high && !strncmp(line, "#EXT-X-STREAM-INF", 17)) {
+        if (best && !strncmp(line, "#EXT-X-STREAM-INF", 17)) {
             const char *res = strstr(line, "RESOLUTION="), *x = res ? strchr(res, 'x') : NULL;
-            if (x && atoi(x + 1) < 720) { skip_next = 1; continue; }
+            if (x && atoi(x + 1) != best) { skip_next = 1; continue; }
         }
         char emit[9000];
         if (!line[0]) emit[0] = 0;
@@ -763,6 +768,12 @@ int youtube_player_urls(const char *answer, const char *id, char out[][4608], in
     int n = 0;
     if (!j) { if (max > 0 && answer && !strncmp(answer, "http", 4)) { youtube_player_url(answer, out[0], 4608); n = 1; } return n; }
     const cJSON *d = cJSON_GetObjectItemCaseSensitive(j, "dash");
+    const cJSON *h = cJSON_GetObjectItemCaseSensitive(j, "hls"), *f = cJSON_GetObjectItemCaseSensitive(j, "file");
+    /* DASH failed twice running on this TV: the playlist first, DASH again every fifth time */
+    int plays = store_get_int("ytPlays", 0) + 1;
+    store_set_int("ytPlays", plays);
+    int hls_first = cJSON_IsString(h) && store_get_int("ytDashFails", 0) >= 2 && plays % 5;
+    if (hls_first && n < max) { youtube_player_url(h->valuestring, out[n++], 4608); LOGI("youtube: %s playlist first (DASH failed here before)", id); }
     if (d && n < max) {
         const cJSON *video = cJSON_GetObjectItemCaseSensitive(d, "video"), *audio = cJSON_GetObjectItemCaseSensitive(d, "audio"), *rp;
         double dur = cJSON_GetObjectItemCaseSensitive(d, "duration") ? cJSON_GetObjectItemCaseSensitive(d, "duration")->valuedouble : 0;
@@ -790,8 +801,7 @@ int youtube_player_urls(const char *answer, const char *id, char out[][4608], in
         }
         free(buf);
     }
-    const cJSON *h = cJSON_GetObjectItemCaseSensitive(j, "hls"), *f = cJSON_GetObjectItemCaseSensitive(j, "file");
-    if (cJSON_IsString(h) && n < max) youtube_player_url(h->valuestring, out[n++], 4608);
+    if (!hls_first && cJSON_IsString(h) && n < max) youtube_player_url(h->valuestring, out[n++], 4608);
     if (cJSON_IsString(f) && n < max) youtube_player_url(f->valuestring, out[n++], 4608);
     cJSON_Delete(j);
     return n;

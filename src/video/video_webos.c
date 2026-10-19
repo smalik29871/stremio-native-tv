@@ -762,22 +762,6 @@ static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
     return 1;
 }
 
-int video_open_app(const char *app_id) { return video_open_app_params(app_id, NULL); }
-
-int video_open_app_params(const char *app_id, const char *params_json)
-{
-    if (!g_bus || !L.Call) return -1;
-    char payload[600];
-    if (params_json) snprintf(payload, sizeof payload, "{\"id\":\"%s\",\"params\":%s}", app_id, params_json);
-    else snprintf(payload, sizeof payload, "{\"id\":\"%s\"}", app_id);
-    LSError e; L.ErrorInit(&e);
-    int sent = L.Call(g_bus, "luna://com.webos.applicationManager/launch", payload, NULL, NULL, NULL, &e);
-    if (!sent) ls_error_log("launch", &e);
-    L.ErrorFree(&e);
-    LOGI("update: opening %s%s", app_id, sent ? "" : " failed");
-    return sent ? 0 : -1;
-}
-
 int video_install_update(const char *ipk_url, const char *sha256, const char *app_id)
 {
     if (!g_bus || !L.Call) return -1;
@@ -872,47 +856,4 @@ void video_select_track(TrackKind kind, int index)
     snprintf(extra, sizeof extra, "\"type\":\"%s\",\"index\":%d", kind == TRACK_AUDIO ? "audio" : "text", index);
     media_call_id("selectTrack", extra);
     if (kind == TRACK_TEXT) subtitle_style_send();
-}
-
-/* ---- any service, for the TV interruption test (alarmtest.c) ---- */
-static char g_luna[LUNA_TAG_MAX][1024]; static int g_luna_n[LUNA_TAG_MAX];
-static pthread_mutex_t g_luna_lock = PTHREAD_MUTEX_INITIALIZER;
-
-static int on_luna(LSHandle *sh, LSMessage *msg, void *ctx)
-{
-    (void)sh;
-    int tag = (int)(intptr_t)ctx;
-    const char *payload = L.MessageGetPayload(msg);
-    pthread_mutex_lock(&g_luna_lock);
-    snprintf(g_luna[tag], sizeof g_luna[tag], "%s", payload ? payload : "");
-    g_luna_n[tag]++;
-    pthread_mutex_unlock(&g_luna_lock);
-    LOGI("luna reply [%d]: %.300s", tag, payload ? payload : "");
-    return 1;
-}
-
-int video_luna_call(const char *uri, const char *payload_json, int tag)
-{
-    if (!g_bus || !L.Call || tag < 0 || tag >= LUNA_TAG_MAX) return -1;
-    LSError e; L.ErrorInit(&e);
-    int sent = L.Call(g_bus, uri, payload_json, on_luna, (void *)(intptr_t)tag, NULL, &e);
-    if (!sent) {
-        pthread_mutex_lock(&g_luna_lock);
-        snprintf(g_luna[tag], sizeof g_luna[tag], "{\"returnValue\":false,\"errorText\":\"the call did not go out: %.200s\"}", e.message ? e.message : "?");
-        g_luna_n[tag]++;
-        pthread_mutex_unlock(&g_luna_lock);
-        ls_error_log(uri, &e);
-    } else L.ErrorFree(&e);
-    LOGI("luna call %s %.300s%s", uri, payload_json, sent ? "" : " (not sent)");
-    return sent ? 0 : -1;
-}
-
-int video_luna_reply(int tag, char *out, size_t n)
-{
-    if (tag < 0 || tag >= LUNA_TAG_MAX) return 0;
-    pthread_mutex_lock(&g_luna_lock);
-    snprintf(out, n, "%s", g_luna[tag]);
-    int c = g_luna_n[tag];
-    pthread_mutex_unlock(&g_luna_lock);
-    return c;
 }

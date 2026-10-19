@@ -722,6 +722,7 @@ static cJSON *rep_of(const cJSON *f)
 
 static int g_q_cap = 1080, g_q_av1, g_q_4k;
 void youtube_set_quality(int res_cap, int av1_ok, int uhd_ok) { g_q_cap = res_cap > 0 ? res_cap : 1080; g_q_av1 = av1_ok; g_q_4k = uhd_ok; }
+int youtube_quality_cap(void) { return !g_q_4k && g_q_cap > 1080 ? 1080 : g_q_cap; }
 
 static cJSON *dash_pick(const cJSON *adaptive, double length_s)
 {

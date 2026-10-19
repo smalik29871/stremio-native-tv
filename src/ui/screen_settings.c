@@ -18,7 +18,6 @@
 #include "../store.h"
 #include "../tracking.h"
 #include "../opensubs.h"
-#include "../alarmtest.h"
 #include "../platform/platform.h"
 #include "../video/video.h"
 #include "font.h"
@@ -52,7 +51,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
-       IT_BR_TEST, IT_BR_INTERRUPT, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
+       IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
@@ -134,7 +133,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
         break;
     case CAT_BREAKS:
-        SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_INTERRUPT; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
+        SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
         if (g_app.break_sched == BRK_ISLAM) { ids[n++] = IT_BR_METHOD; ids[n++] = IT_BR_ASR; }
         ids[n++] = IT_BR_WHERE;
         SEC(SEC_BR_PLACE); ids[n++] = IT_BR_LOCATION; ids[n++] = IT_BR_DETECT; ids[n++] = IT_BR_TODAY;
@@ -206,7 +205,6 @@ static const char *row_title(int id)
     case IT_TRANSITIONS: return "Animated screen changes";
     case IT_PIP: return "Picture-in-picture";
     case IT_BR_TEST: return "Try a break now";
-    case IT_BR_INTERRUPT: return "Test TV interruption in 60 seconds";
     case IT_BR_ON: return "Take breaks";
     case IT_BR_SCHED: return "Break schedule";
     case IT_BR_METHOD: return "Calculation method";
@@ -788,7 +786,6 @@ static void draw(Screen *s)
         }
         case IT_TRANSITIONS: draw_row(y, ICON_SPARK, "Animated screen changes", NULL, foc, KIND_TOGGLE, g_app.transitions); break;
         case IT_PIP: draw_row(y, ICON_ASPECT, "Picture-in-picture", NULL, foc, KIND_TOGGLE, g_app.pip_enabled); break;
-        case IT_BR_INTERRUPT: draw_row(y, ICON_CLOCK, "Test TV interruption in 60 seconds", alarmtest_armed() ? "Armed  \xC2\xB7  OK for results or to cancel" : "Can Stremio come to the front from another app? OK, then switch away", foc, KIND_ACTION, 0); break;
         case IT_BR_TEST: draw_row(y, ICON_PLAY, "Try a break now", "See and hear what a break looks like", foc, KIND_ACTION, 0); break;
         case IT_BR_ON: draw_row(y, ICON_CLOCK, "Take breaks", NULL, foc, KIND_TOGGLE, g_app.breaks_on); break;
         case IT_BR_SCHED: draw_row(y, ICON_CALENDAR, "Schedule", BRK_SCHED_NAMES[g_app.break_sched], foc, KIND_CHOICE, 0); break;
@@ -1109,23 +1106,6 @@ static void tracking_row_ok(Settings *st, int svc)
 }
 
 /* Stage 1 of breaks over other apps: arm, then leave Stremio; the sheet shows what webOS said. */
-static void on_interrupt(int choice, void *user)
-{
-    (void)user;
-    if (choice != 1) return;
-    if (alarmtest_armed()) { alarmtest_cancel(); app_toast("TV interruption test cancelled"); }
-    else { alarmtest_arm(60); app_toast("Armed: switch to YouTube, live TV or HDMI now. Stremio should appear in 60 s"); }
-}
-
-static void show_interrupt_test(void)
-{
-    char body[1400];
-    alarmtest_report(body, sizeof body);
-    static const char *const arm[] = { "Close", "Arm the 60 s test" }, *const cancel[] = { "Close", "Cancel the test" };
-    static const int icons[] = { ICON_CLOSE, ICON_CLOCK };
-    app_push(screen_options_create_ex("Test TV interruption", "Results so far", body, alarmtest_armed() ? cancel : arm, icons, 2, on_interrupt, NULL));
-}
-
 /* What this TV can play: each format the source ranking cares about, what the app
  * believes and why (seen playing, seen failing, or LG's tables for this webOS). */
 static void on_tv_caps(int choice, void *user)
@@ -1402,7 +1382,7 @@ static int adjust(Settings *st, int id, int dir)
         break;
     }
     case IT_BR_WHERE: g_app.breaks_everywhere = !g_app.breaks_everywhere; break;
-    case IT_BR_INTERRUPT: case IT_BR_TEST: case IT_BR_LOCATION: case IT_BR_DETECT: case IT_BR_TODAY: case IT_BR_AUDIO: case IT_BR_END: return 1;
+    case IT_BR_TEST: case IT_BR_LOCATION: case IT_BR_DETECT: case IT_BR_TODAY: case IT_BR_AUDIO: case IT_BR_END: return 1;
     case IT_PIN_SETTINGS: case IT_HIDE_ADULT: case IT_PIN: case IT_THUMBS: return 1;   /* OK (with the PIN) changes these */
     case IT_OLED: g_app.oled = !g_app.oled; break;
     case IT_ASK_PROFILE: g_app.ask_profile = !g_app.ask_profile; break;
@@ -1510,7 +1490,6 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_AI_KEY) begin_edit(st, EDIT_AI_KEY);
         else if (id == IT_AI_BASE) begin_edit(st, EDIT_AI_BASE);
         else if (id == IT_AI_MODEL) { app_toast("Asking %s for its models\xE2\x80\xA6", AI_PROVIDER_NAMES[g_app.ai_provider]); ai_list_models(on_models, NULL); }
-        else if (id == IT_BR_INTERRUPT) show_interrupt_test();
         else if (id == IT_BR_TEST) breaks_fire_now(g_app.break_sched == BRK_ISLAM ? "Maghrib" : "Break", "This is how a break looks; OK continues", g_app.break_sched == BRK_ISLAM ? BRK_KIND_PRAYER : BRK_KIND_TEST);
         else if (id == IT_BR_LOCATION) begin_edit(st, EDIT_LOCATION);
         else if (id == IT_BR_DETECT) breaks_detect_location();

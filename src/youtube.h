@@ -27,6 +27,7 @@ int youtube_player_urls(const char *answer, const char *id, char out[][4608], in
 
 /* What this TV takes: the resolution cap, AV1, 4K (from Settings and what it learned). */
 void youtube_set_quality(int res_cap, int av1_ok, int uhd_ok);
+int  youtube_quality_cap(void);   /* the tallest picture this TV takes (1080 without 4K) */
 /* The User-Agent of the YouTube app a googlevideo link was issued to. */
 const char *youtube_ua_for(const char *url);
 

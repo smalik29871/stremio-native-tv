@@ -1140,6 +1140,10 @@ static void fail_over(Player *p, const char *why)
     double resume = vi.position > 5 ? vi.position : 0;
     if (!p->learned) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
     if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
+    if (vi.position < 5 && strstr(p->cands[p->cur].url, "/sounds/yt-") && strstr(p->cands[p->cur].url, ".mpd")) {   /* this TV and YouTube's DASH */
+        store_set_int("ytDashFails", store_get_int("ytDashFails", 0) + 1);
+        LOGW("player: YouTube DASH did not start (%s); %d time(s) running", why, store_get_int("ytDashFails", 0));
+    }
     health_record(p, HEALTH_FAIL);
     int next = next_candidate(p);
     if (next >= 0) {
@@ -1489,6 +1493,8 @@ static void update(Screen *s, float dt)
     else if (g_app.clock_mode != 2 && time(NULL) / 60 != p->clock_minute) { p->clock_minute = time(NULL) / 60; app_redraw(); }
     p->since_report += dt;
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
+    if (vi.state == VIDEO_PLAYING && vi.position > 2 && store_get_int("ytDashFails", 0) && strstr(p->cands[p->cur].url, "/sounds/yt-") && strstr(p->cands[p->cur].url, ".mpd"))
+        store_set_int("ytDashFails", 0);   /* DASH plays here after all */
     if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0); }
     p->seek_decay -= dt;
     if (p->seek_decay <= 0) p->seek_steps = 0;
