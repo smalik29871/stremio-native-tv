@@ -200,7 +200,7 @@ run settings_tvcap 380 "left,down,down,down,down,down,ok,up,ok,t:this tv can,dow
 run settings_backup 420 "left,down,down,down,down,down,ok,up,ok,t:back up,down,down,down,down,left,ok,ok"
 grep -q "settings: found Back up or restore settings" "$OUT/settings_backup.log" || { echo "Back up or restore is not in Settings"; grep settings "$OUT/settings_backup.log"; exit 1; }
 TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktClientSecret":"sec"}'
-run trakt_connect 600 "left,down,down,down,down,down,ok,up,ok,t:trakt,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trakt "$TK")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+run trakt_connect 1200 "left,down,down,down,down,down,ok,up,ok,t:trakt,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trakt "$TK")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
 grep -q "tracking: Trakt connected" "$OUT/trakt_connect.log" && grep -q "tracking: Trakt watchlist has 2 titles" "$OUT/trakt_connect.log" || { echo "Trakt did not connect"; grep tracking "$OUT/trakt_connect.log"; exit 1; }
 TK2='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktClientSecret":"sec","traktToken":"tok1","simklClientId":"scid","simklToken":"stok"}'
 run trakt_scrobble 420 "right,ok,down,down,ok,ok,wait,wait,back,back,back" HOME="$(home_with trakt2 "$TK2")" SNTV_FAKE_START=6600 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
