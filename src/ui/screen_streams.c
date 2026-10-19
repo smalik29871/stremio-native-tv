@@ -775,7 +775,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
         RaceReq *q = malloc(sizeof *q);
         q->idx = i; q->round = g_race_round;
         r->pending++;
-        HttpOptions o = { .range_bytes = 2, .timeout_s = 6, .no_json_accept = 1 };
+        HttpOptions o = { .range_bytes = 2, .timeout_s = 3, .no_json_accept = 1 };   /* none answering costs 3 s at most, then they play in order */
         http_request_async_ex(c[i].url, &o, on_race, q);
     }
     LOGI("streams: racing %d sources", r->pending);
