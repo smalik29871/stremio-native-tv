@@ -66,6 +66,8 @@ void gfx_tex_blur(unsigned tex, float x, float y, float w, float h, float u0, fl
 void gfx_set_translate(float dx, float dy);
 /* Multiplies the alpha of everything drawn afterwards (1 = as drawn). */
 void gfx_set_alpha(float a);
+/* Scales everything drawn afterwards by s about (cx, cy) (zoom transitions); 1 = off. */
+void gfx_set_scale(float s, float cx, float cy);
 void gfx_clip_push(float x, float y, float w, float h);
 void gfx_clip_pop(void);
 

@@ -24,6 +24,7 @@ static int g_draw_w, g_draw_h;
 static float g_scale, g_off_x, g_off_y, g_aa;
 static float g_tx, g_ty;   /* UI-space translation */
 static float g_alpha = 1;  /* fades everything drawn (a row leaving the screen) */
+static float g_zs = 1, g_zx, g_zy;   /* scale about (g_zx, g_zy), applied before the translation */
 static Vtx g_v[MAXQ * 4];
 static int g_nq, g_calls, g_last_calls;
 static GLuint g_cur_tex;
@@ -232,13 +233,13 @@ static void push(const float px[4], const float py[4], const float uv[8], const 
     static const float LX[4] = { 0, 1, 0, 1 }, LY[4] = { 0, 0, 1, 1 };
     Vtx *v = &g_v[g_nq * 4];
     for (int i = 0; i < 4; i++) {
-        v[i].x = px[i] + g_tx; v[i].y = py[i] + g_ty;
+        v[i].x = g_zx + (px[i] - g_zx) * g_zs + g_tx; v[i].y = g_zy + (py[i] - g_zy) * g_zs + g_ty;
         v[i].u = uv[i * 2]; v[i].v = uv[i * 2 + 1];
         v[i].lx = LX[i]; v[i].ly = LY[i];
         v[i].r = (GLubyte)(c[i] >> 24); v[i].g = (GLubyte)(c[i] >> 16); v[i].b = (GLubyte)(c[i] >> 8);
         v[i].a = g_alpha < 1 ? (GLubyte)((c[i] & 0xFF) * g_alpha + 0.5f) : (GLubyte)c[i];
-        v[i].sx = sx; v[i].sy = sy; v[i].rad = rad; v[i].soft = soft;
-        v[i].mode = (float)mode; v[i].extra = extra;
+        v[i].sx = sx * g_zs; v[i].sy = sy * g_zs; v[i].rad = rad * g_zs; v[i].soft = soft * g_zs;
+        v[i].mode = (float)mode; v[i].extra = mode == 4 || mode == 6 ? extra * g_zs : extra;   /* inset and ring width are lengths */
     }
     g_nq++;
 }
@@ -366,11 +367,12 @@ static void apply_clip(void)
 
 void gfx_set_translate(float dx, float dy) { if (dx != g_tx || dy != g_ty) { flush(); g_tx = dx; g_ty = dy; } }
 void gfx_set_alpha(float a) { g_alpha = a < 0 ? 0 : a > 1 ? 1 : a; }
+void gfx_set_scale(float s, float cx, float cy) { if (s != g_zs || cx != g_zx || cy != g_zy) { flush(); g_zs = s; g_zx = cx; g_zy = cy; } }
 
 void gfx_clip_push(float x, float y, float w, float h)
 {
     flush();
-    x += g_tx; y += g_ty;
+    x = g_zx + (x - g_zx) * g_zs + g_tx; y = g_zy + (y - g_zy) * g_zs + g_ty; w *= g_zs; h *= g_zs;
     if (g_nclip >= 8) return;
     int px = (int)(g_off_x + x * g_scale), py = (int)(g_off_y + y * g_scale);
     int pw = (int)(w * g_scale + 0.5f), ph = (int)(h * g_scale + 0.5f);
