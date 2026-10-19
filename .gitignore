@@ -6,3 +6,4 @@ tests/out/
 *.wgt
 local.properties
 ffmpeg-host/
+build2/
