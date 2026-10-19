@@ -48,7 +48,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -115,7 +115,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_FALLBACK); ids[n++] = IT_P2P;
         break;
     case CAT_INTERFACE:
-        SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_OLED;
+        SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
         SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; ids[n++] = IT_MEMORY;
@@ -170,6 +170,8 @@ static const char *row_desc(int id)
     case IT_P2P: return "When TorBox has no cached copy. Peers see your IP while it plays.";
     case IT_THEME: return "Colours, type and how focus looks.";
     case IT_OLED: return "No grey behind the screens; kind to OLED panels.";
+    case IT_BG: return "A tint for the screens behind the artwork.";
+    case IT_ACCENT: return "Focus, highlights and progress.";
     case IT_HOME_STYLE: return "How much room the focused title's artwork takes.";
     case IT_CARD_DETAILS: return "Rating, runtime and synopsis after a moment on a card.";
     case IT_HIDE_WATCHED: return "Films and series you finished leave the catalog rows.";
@@ -337,7 +339,7 @@ static void draw_categories(const Settings *st, float e)
 static PreviewKind preview_for(int id)
 {
     switch (id) {
-    case IT_THEME: case IT_ACCENT: return PV_THEME;
+    case IT_THEME: case IT_ACCENT: case IT_BG: return PV_THEME;
     case IT_HOME_STYLE: return PV_HOME_STYLE;
     case IT_SUBS_SIZE: case IT_SUBS_STYLE: return PV_SUBS;
     case IT_CLOCK: return PV_CLOCK;
@@ -595,14 +597,18 @@ static void draw(Screen *s)
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_THEME: draw_row(y, ICON_PALETTE, "Theme", THEME_NAMES[g_app.theme], foc, KIND_CHOICE, 0); break;
         case IT_CARD_DETAILS: draw_row(y, ICON_INFO, "Show details when a card stays focused", NULL, foc, KIND_TOGGLE, g_app.card_details); break;
-        case IT_ACCENT: {
-            draw_row(y, ICON_PALETTE, "Accent colour", THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], foc, KIND_CHOICE, 0);
-            /* the six swatches, the current one framed */
-            float sx = s_r - 470, sy = y + 23;
-            for (int i = 0; i < THEME_ACCENTS; i++) {
-                float bx = sx + i * 34;
-                if (i == g_app.theme_accent) gfx_rrect_ring(bx - 3, sy - 3, 30, 30, theme_pill_r(30), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
-                gfx_rrect(bx, sy, 24, 24, theme_pill_r(24), theme_accent_swatch(g_app.theme, i));
+        case IT_ACCENT: case IT_BG: {
+            /* the swatches sit on the help line, the current one framed */
+            int bg = id == IT_BG, n = bg ? THEME_BGS : THEME_ACCENTS, cur = bg ? g_app.theme_bg : g_app.theme_accent;
+            s_desc = " ";
+            draw_row(y, ICON_PALETTE, bg ? "Background" : "Accent colour", bg ? THEME_BG_NAMES[g_app.theme][cur] : THEME_ACCENT_NAMES[g_app.theme][cur], foc, KIND_CHOICE, 0);
+            float sz = bg ? 26 : 18, step = bg ? 40 : 28, sx = s_x + 92, sy = y + (ROW_H - 12) / 2 + 6;
+            for (int i = 0; i < n; i++) {
+                float bx = sx + i * step;
+                Color c = bg ? theme_bg_swatch(g_app.theme, i) : theme_accent_swatch(g_app.theme, i);
+                if (i == cur) gfx_rrect_ring(bx - 3, sy - 3, sz + 6, sz + 6, theme_pill_r(sz + 6), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
+                gfx_rrect(bx, sy, bg ? sz * 1.4f : sz, sz, theme_pill_r(sz), c);
+                if (bg) gfx_rrect_ring(bx, sy, sz * 1.4f, sz, theme_pill_r(sz), 1, COLOR_ALPHA(foc ? THEME_ON_FOCUS : THEME_TEXT, 0x50));
             }
             break;
         }
@@ -859,13 +865,17 @@ static int adjust(Settings *st, int id, int dir)
     case IT_THEME:
         g_app.theme = (g_app.theme + dir + THEME_COUNT) % THEME_COUNT;
         g_app.theme_accent = 0;
-        theme_apply(g_app.theme, g_app.theme_accent);
+        theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
         theme_load_fonts(g_app.theme);
         break;
     case IT_CARD_DETAILS: g_app.card_details = !g_app.card_details; break;
     case IT_ACCENT:
         g_app.theme_accent = (g_app.theme_accent + dir + THEME_ACCENTS) % THEME_ACCENTS;
-        theme_apply(g_app.theme, g_app.theme_accent);
+        theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
+        break;
+    case IT_BG:
+        g_app.theme_bg = (g_app.theme_bg + dir + THEME_BGS) % THEME_BGS;
+        theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
         break;
     case IT_HOME_STYLE: g_app.home_style = (g_app.home_style + dir + HOME_STYLE_COUNT) % HOME_STYLE_COUNT; break;
     case IT_HIDE_WATCHED: g_app.hide_watched = !g_app.hide_watched; break;

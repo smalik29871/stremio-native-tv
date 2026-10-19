@@ -149,6 +149,7 @@ static void dev_hooks(SDL_Window *win, int frame)
 }
 
 static int g_seen_keyup, g_ok_down, g_ok_long;
+static int g_backgrounded;   /* hidden or sent to the background (not just an overlay over us) */
 static Uint32 g_ok_t0;
 
 /* One key to the top screen, with the corner player's keys first. */
@@ -231,7 +232,7 @@ int main(int argc, char **argv)
     if (gfx_init(win) != 0) return 1;
     /* the saved theme picks the typefaces; app_init applies its colours */
     int theme = store_get_int("theme", THEME_SIGNAL);
-    theme_apply(theme, store_get_int("themeAccent", 0));
+    theme_apply(theme, store_get_int("themeAccent", 0), store_get_int("themeBg", 0));
     font_set_cache_dir(dir);
     if (theme_load_fonts(theme) != 0) {
         LOGE("no usable font found");
@@ -281,25 +282,38 @@ int main(int argc, char **argv)
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
                 if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
-            } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST || e.window.event == SDL_WINDOWEVENT_HIDDEN || e.window.event == SDL_WINDOWEVENT_MINIMIZED)) {
+            } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                /* An overlay took the remote (the TV's own settings, volume, input list):
+                 * the app is still on screen, so the video plays on. Progress is saved in
+                 * case it turns into Home after all. */
+                LOGI("window: focus lost (overlay), playback continues");
+                player_save_progress();
+                app_library_flush(1);
+                store_save();
+                store_flush();
+            } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_HIDDEN || e.window.event == SDL_WINDOWEVENT_MINIMIZED)) {
+                LOGI("window: %s, pausing", e.window.event == SDL_WINDOWEVENT_HIDDEN ? "hidden" : "minimized");
                 player_save_progress();   /* Home or another app: webOS may end us without notice later */
                 video_app_background();
+                g_backgrounded = 1;
                 app_library_flush(1);
                 store_save();
                 store_flush();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
-                video_app_foreground();
+                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; }
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
                 mem_emergency();
             } else if (e.type == SDL_APP_WILLENTERBACKGROUND) {
                 player_save_progress();
                 video_app_background();
+                g_backgrounded = 1;
                 app_library_flush(1);
                 store_save();
                 store_flush();   /* on flash before webOS may end us */
             } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
                 video_app_foreground();
+                g_backgrounded = 0;
                 app_redraw();
             }
             app_redraw();

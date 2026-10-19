@@ -1403,7 +1403,9 @@ static void load_prefs(void)
     if (g_app.theme < 0 || g_app.theme >= THEME_COUNT) g_app.theme = THEME_SIGNAL;
     g_app.theme_accent = store_get_int("themeAccent", 0);
     if (g_app.theme_accent < 0 || g_app.theme_accent >= THEME_ACCENTS) g_app.theme_accent = 0;
-    theme_apply(g_app.theme, g_app.theme_accent);
+    g_app.theme_bg = store_get_int("themeBg", 0);
+    if (g_app.theme_bg < 0 || g_app.theme_bg >= THEME_BGS) g_app.theme_bg = 0;
+    theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
     g_app.card_details = store_get_int("cardDetails", 1);
     g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
     g_app.quality_mode = store_get_int("qualityMode", QUAL_ADDON_ORDER);
@@ -1476,6 +1478,7 @@ void app_save_prefs(void)
     store_set_int("oled", g_app.oled);
     store_set_int("theme", g_app.theme);
     store_set_int("themeAccent", g_app.theme_accent);
+    store_set_int("themeBg", g_app.theme_bg);
     store_set_int("cardDetails", g_app.card_details);
     store_set_int("ambientMinutes", g_app.ambient_minutes);
     store_set_int("qualityMode", g_app.quality_mode);

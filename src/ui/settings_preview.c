@@ -112,6 +112,7 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
     case PV_NONE: case PV_COUNT: return;
     case PV_THEME: {
         screen(sx, sy, sw, sh);
+        gfx_rrect(sx + 1, sy + 1, sw - 2, sh - 2, R_KEY, THEME_BG);   /* the chosen background */
         ui_row_header(1, "Popular", NULL, 24, sx + 24, sy + 22, sx + sw - 24, 1);
         float cw = (sw - 48 - 4 * 18) / 5, ch = cw * 1.5f, cy = sy + 80;
         int li = 0;
@@ -121,10 +122,10 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
                 const LibraryItem *c = &g_app.library[li++];
                 if (!c->removed && c->poster && *c->poster) it = c;
             }
-            static const char *const NAMES[] = { "Dune", "Up", "Heat", "Her", "Drive" };
+            static const char *const NAMES[] = { "Dune", "Up", "Heat", "Her", "Jaws" };
             ui_card(it ? it->poster : NULL, sx + 24 + i * (cw + 18), cy, cw, ch, i == 1, 0, it ? NULL : NAMES[i], CARD_MIP);
         }
-        snprintf(t, sizeof t, "%s  \xC2\xB7  %s", THEME_NAMES[g_app.theme], THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent]);
+        snprintf(t, sizeof t, "%s  \xC2\xB7  %s  \xC2\xB7  %s", THEME_NAMES[g_app.theme], THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], THEME_BG_NAMES[g_app.theme][g_app.theme_bg]);
         label(t, x + w / 2, base, 1);
         return;
     }

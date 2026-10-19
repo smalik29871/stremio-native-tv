@@ -72,7 +72,7 @@ typedef struct App {
     int subs_always;           /* 0: subtitles only when the audio is in another language */
     int clock_mode;            /* player clock: 0 12-hour, 1 24-hour, 2 off */
     int oled;                  /* pure black background */
-    int theme, theme_accent;   /* THEME_* and its accent index (ui/theme.h) */
+    int theme, theme_accent, theme_bg;   /* THEME_*, its accent and background indexes (ui/theme.h) */
     int card_details;          /* a focused card opens a details panel after a moment */
     float ok_hold;             /* OK held on a long-press screen: 0 not held, else 0..1 toward options (1 = release opens them) */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */

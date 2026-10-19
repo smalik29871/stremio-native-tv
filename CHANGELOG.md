@@ -37,6 +37,13 @@ and fixes to focus and player keys found in a review against Nuvio.
   is open; OK lands a pending seek and Back cancels it; Down below the buttons hides the
   controls; Down on the Up Next card brings the controls; a held OK presses once.
 - **Up Next.** OK on the card plays the next episode (it used to pause).
+- **More colours.** Ten accent colours per theme (four new in each), and a new
+  **Background** setting with four tints per theme (Signal: Graphite, Navy, Forest, Plum;
+  Marquee: Ink, Sepia, Velvet, Night; Glass: Dusk, Aurora, Rose, Slate; Metro: Black,
+  Charcoal, Midnight, Wine), shown in the preview as you pick.
+- **The TV's own Settings button no longer pauses the video.** Its overlay only takes
+  the remote; the app is still on screen, so playback carries on (progress is saved).
+  Leaving for Home or another app still pauses. Window events are written to the log.
 
 ## 0.8.8
 

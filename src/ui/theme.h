@@ -17,7 +17,8 @@
 enum { THEME_SIGNAL, THEME_MARQUEE, THEME_GLASS, THEME_METRO, THEME_COUNT };
 enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_GLASS, FOCUS_TILE };
 enum { ROWHEAD_NUMBERED, ROWHEAD_KICKER, ROWHEAD_PLAIN, ROWHEAD_METRO };
-#define THEME_ACCENTS 6
+#define THEME_ACCENTS 10
+#define THEME_BGS 4   /* background tints per theme */
 
 typedef struct Theme {
     int id, accent_idx;
@@ -41,11 +42,13 @@ typedef struct Theme {
 extern Theme g_theme;
 extern const char *const THEME_NAMES[THEME_COUNT];
 extern const char *const THEME_ACCENT_NAMES[THEME_COUNT][THEME_ACCENTS];
+extern const char *const THEME_BG_NAMES[THEME_COUNT][THEME_BGS];
 
-void  theme_apply(int id, int accent_idx);
+void  theme_apply(int id, int accent_idx, int bg_idx);
 /* Loads the theme's typefaces (no-op when they are already loaded); -1 when no font works. */
 int   theme_load_fonts(int id);
 Color theme_accent_swatch(int id, int accent_idx);
+Color theme_bg_swatch(int id, int bg_idx);
 /* Corner radius for a control of height h (pills are capsules only in themes that want them). */
 float theme_pill_r(float h);
 
