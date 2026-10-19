@@ -1,12 +1,13 @@
 /* Diagnostics: the app's own log on screen, for TVs where nobody can reach the
  * log file. Tabs filter to playback lines, problems (warnings and errors) or
- * everything; Blue switches to the previous run (useful after a crash); OK
+ * everything, and Speed shows how fast this TV runs the app; Blue switches to the previous run (useful after a crash); OK
  * shows a QR code with the device details and the lines up to the cursor, so
  * the log can be scanned with a phone and pasted into a bug report. */
 #include "../app.h"
 #include "../log.h"
 #include "../video/video.h"
 #include "../platform/platform.h"
+#include "../perfstat.h"
 #include "qrcodegen.h"
 #include "font.h"
 #include "theme.h"
@@ -16,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { TAB_PLAYBACK, TAB_PROBLEMS, TAB_ALL, TAB_COUNT };
+enum { TAB_PLAYBACK, TAB_PROBLEMS, TAB_ALL, TAB_SPEED, TAB_COUNT };
 #define LIST_Y 300.0f
 #define ROW_H 36.0f
 #define LIST_ROWS 15
@@ -212,7 +213,7 @@ static void draw(Screen *s)
     font_draw_fit(d->system, x, 172, FONT_S, THEME_TEXT_MUTED, w);
 
     /* tabs */
-    static const char *TABS[TAB_COUNT] = { "Playback", "Problems", "Everything" };
+    static const char *TABS[TAB_COUNT] = { "Playback", "Problems", "Everything", "Speed" };
     float tx = x;
     for (int i = 0; i < TAB_COUNT; i++) {
         int sel = d->tab == i;
@@ -228,8 +229,24 @@ static void draw(Screen *s)
     const char *hint = "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
     font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
 
-    /* list */
     float lh = ROW_H, list_h = LIST_ROWS * lh;
+    if (d->tab == TAB_SPEED) {   /* the measurements, not the log */
+        char rep[2048];
+        perf_report(rep, sizeof rep);
+        gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, R_PANEL, RGBA(0x00, 0x00, 0x00, 0x40));
+        float ly = LIST_Y + 8;
+        for (char *p = rep, *e; *p && ly < LIST_Y + list_h; p = e + (*e ? 1 : 0), ly += 44) {
+            e = strchr(p, '\n'); if (!e) e = p + strlen(p);
+            char one[300]; snprintf(one, sizeof one, "%.*s", (int)(e - p), p);
+            font_draw_fit(one, x + 10, ly, (one[0] == ' ' ? FONT_S | FONT_ALT : FONT_S | FONT_B), one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20);
+        }
+        font_draw("A whole frame over 17 ms is a dropped frame at 60 Hz. The figures are also in the log (Everything) for the QR code.", x, LIST_Y + list_h + 30, FONT_XS, THEME_TEXT_MUTED);
+        app_redraw();   /* the numbers keep moving */
+        if (d->show_qr) draw_qr_overlay(d);
+        return;
+    }
+
+    /* list */
     gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, R_PANEL, RGBA(0x00, 0x00, 0x00, 0x40));
     if (!d->n_vis) {
         const char *msg = d->previous ? "No log from a previous session." : d->tab == TAB_PROBLEMS ? "No warnings or errors so far." : "Nothing logged here yet.";
@@ -266,6 +283,18 @@ static void draw(Screen *s)
     if (d->show_qr) draw_qr_overlay(d);
 }
 
+/* The Speed figures into the log, so the QR code on the other tabs carries them. */
+static void log_speed(Diag *d)
+{
+    char rep[2048];
+    perf_report(rep, sizeof rep);
+    for (char *p = rep, *e; *p; p = e + (*e ? 1 : 0)) {
+        e = strchr(p, '\n'); if (!e) e = p + strlen(p);
+        LOGI("speed: %.*s", (int)(e - p), p);
+    }
+    (void)d;
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Diag *d = s->st;
@@ -279,8 +308,8 @@ static int key(Screen *s, KeyAction a)
     case KEY_DOWN: if (d->cursor < d->n_vis - 1) d->cursor++; d->follow = d->cursor >= d->n_vis - 1; return 1;
     case KEY_REWIND: d->cursor = d->cursor > LIST_ROWS ? d->cursor - LIST_ROWS : 0; d->follow = 0; return 1;
     case KEY_FORWARD: d->cursor = d->cursor + LIST_ROWS < d->n_vis ? d->cursor + LIST_ROWS : (d->n_vis ? d->n_vis - 1 : 0); return 1;
-    case KEY_LEFT: d->tab = (d->tab + TAB_COUNT - 1) % TAB_COUNT; d->follow = 1; refilter(d); return 1;
-    case KEY_RIGHT: d->tab = (d->tab + 1) % TAB_COUNT; d->follow = 1; refilter(d); return 1;
+    case KEY_LEFT: d->tab = (d->tab + TAB_COUNT - 1) % TAB_COUNT; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1;
+    case KEY_RIGHT: d->tab = (d->tab + 1) % TAB_COUNT; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1;
     case KEY_BLUE: case KEY_YELLOW: d->previous = !d->previous; d->follow = 1; reload(d); return 1;
     case KEY_OK: if (d->n_vis) { build_qr(d); d->show_qr = 1; } return 1;
     default: return 0;

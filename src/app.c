@@ -1,4 +1,5 @@
 #include "app.h"
+#include "perfstat.h"
 #include "lists.h"
 #include "memwatch.h"
 #include "sysinfo.h"
@@ -280,6 +281,7 @@ static void apply_collection_json(const char *json, int from_cache)
     app_redraw();
     if (!from_cache) cache_addon_collection(json);
     LOGI("addons: %d loaded%s", n, from_cache ? " (cache)" : "");
+    perf_mark(from_cache ? "addons (cache)" : "addons");
 }
 
 /* Which account a reply was asked for: one signed in since then drops it (a profile picked

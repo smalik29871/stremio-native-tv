@@ -8,6 +8,7 @@
 #include "http.h"
 #include "tracking.h"
 #include "alarmtest.h"
+#include "perfstat.h"
 #include "image.h"
 #include "memwatch.h"
 #include "log.h"
@@ -248,6 +249,7 @@ int main(int argc, char **argv)
     SDL_GL_SetSwapInterval(1);
 
     if (gfx_init(win) != 0) return 1;
+    perf_mark("window");
     /* the saved theme picks the typefaces; app_init applies its colours */
     int theme = store_get_int("theme", THEME_SIGNAL);
     theme_apply(theme, store_get_int("themeAccent", 0), store_get_int("themeBg", 0));
@@ -256,6 +258,7 @@ int main(int argc, char **argv)
         LOGE("no usable font found");
         return 1;
     }
+    perf_mark("fonts");
     if (http_init() != 0) LOGE("network unavailable: libcurl missing");
     image_init(dir, image_budget());
     audio_init();
@@ -286,6 +289,7 @@ int main(int argc, char **argv)
                 }
             }
             else if (e.type == SDL_KEYDOWN) {
+                perf_key();
                 KeyAction a = input_map(&e);
                 g_app.last_input = g_app.time;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
@@ -400,6 +404,9 @@ int main(int argc, char **argv)
             Uint32 swap_at = SDL_GetTicks();
             gfx_end_frame();
             Uint32 end = SDL_GetTicks(), spent = end - now;
+            perf_frame(top ? top->name : "none", (float)(swap_at - now), (float)spent);
+            perf_mark("first frame");
+            perf_shown();
             app_note_frame((float)spent);
             if (frame == 120) LOGI("perf: %d draw calls, %u ms frame", gfx_draw_calls(), spent);
             /* A swap that waited for the display already paced the frame; sleeping on top of

@@ -1,4 +1,5 @@
 #include "image.h"
+#include "perfstat.h"
 #include "src/webp/decode.h"
 #include "http.h"
 #include "log.h"
@@ -374,6 +375,7 @@ void image_pump(void)
         }
         if (i->pixels) {
             i->tex = (i->flags & IMAGE_MIPMAP) ? gfx_texture_rgba_mip(i->pixels, i->w, i->h) : gfx_texture_rgba(i->pixels, i->w, i->h);
+            perf_mark("first picture");
             i->bytes = (size_t)i->w * i->h * 4;
             if (i->flags & IMAGE_MIPMAP) i->bytes += i->bytes / 3;
             g_total_bytes += i->bytes;

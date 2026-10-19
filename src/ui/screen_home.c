@@ -3,6 +3,7 @@
  * progress), My Library, and one row per addon catalog. Everything eases;
  * rows are served from the disk cache first and refreshed in the background. */
 #include "../app.h"
+#include "../perfstat.h"
 #include "../lists.h"
 #include "../tracking.h"
 #include "../http.h"
@@ -166,6 +167,7 @@ static void build_library_row(Row *r)
     r->metas = calloc((size_t)n + 1, sizeof(MetaPreview));
     for (int i = 0; i < n; i++) r->metas[i] = preview_from_item(sorted[i]);
     r->n = n;
+    if (n > 0) perf_mark("first row");
     if (keep[0]) for (int i = 0; i < n; i++) if (r->metas[i].id && strcmp(r->metas[i].id, keep) == 0) { r->focus = i; break; }
     if (r->focus >= n) r->focus = n ? n - 1 : 0;
     free(sorted);
@@ -236,6 +238,7 @@ static void apply_metas(Row *row, MetaPreview *m, int n)
     if (!row->n && n) row->arrived_at = g_app.time;
     meta_previews_free(row->metas, row->n);
     row->metas = m; row->n = n;
+    if (n > 0) { perf_mark("first row"); perf_mark("first catalog"); }
     for (int i = 0; i < n && i < 6; i++) app_ambient_offer(&m[i]);
     if (focused) { for (int i = 0; i < n; i++) if (strcmp(m[i].id, focused) == 0) row->focus = i; free(focused); }
     if (row->focus >= n) row->focus = n ? n - 1 : 0;
