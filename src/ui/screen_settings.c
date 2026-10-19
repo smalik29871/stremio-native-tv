@@ -890,7 +890,7 @@ static const char *edit_title(int which)
 static const char *edit_hint(int which)
 {
     if (which == EDIT_SEARCH) return "A word from its name or from what it does: subtitle, clock, black, PIN, trailer\xE2\x80\xA6";
-    return which == EDIT_TRAKT_APP ? "Create an app at developer.trakt.tv/apps (type Development, redirect http://localhost), then enter its Client ID, a space, and its Client Secret."
+    return which == EDIT_TRAKT_APP ? "Create an app at developer.trakt.tv/apps (type Development, redirect http://localhost), then enter its Client ID (and, for older apps that have one, a space and the Client Secret)."
          : which == EDIT_SIMKL_APP ? "Create an app at simkl.com/settings/developer (redirect http://localhost) and enter its Client ID."
          : which == EDIT_MDBLIST ? "Free at mdblist.com > Preferences > API key. Empty removes it."
          : which == EDIT_PLAY_LINK ? "A direct video link (MP4, MKV, M3U8). Scan the code to paste it on your phone; it plays at once."
@@ -1171,8 +1171,7 @@ static void finish_edit(Settings *st, int save)
                 app_toast(n ? "SimKL app saved: OK on SimKL connects" : "SimKL app removed");
             } else {
                 char *sp = strchr(v, ' ');
-                if (n && !sp) app_toast("Enter the Client ID, a space, then the Client Secret");
-                else {
+                {
                     if (sp) { *sp++ = 0; while (*sp == ' ') sp++; }
                     tracking_set_app(TRACK_TRAKT, v, sp);
                     app_toast(n ? "Trakt app saved: OK on Trakt connects" : "Trakt app removed");

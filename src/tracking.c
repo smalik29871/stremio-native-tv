@@ -48,7 +48,7 @@ static const char *trakt_secret(void)
 }
 static const char *token(int svc) { const char *t = store_get_str(K_TOKEN[svc], ""); return t ? t : ""; }
 
-int tracking_configured(int svc) { return tracking_app_id(svc)[0] && (svc != TRACK_TRAKT || trakt_secret()[0]); }
+int tracking_configured(int svc) { return tracking_app_id(svc)[0] != 0; }   /* Trakt apps made today have no secret (PKCE) */
 int tracking_connected(int svc) { return tracking_configured(svc) && token(svc)[0]; }
 
 void tracking_set_app(int svc, const char *id, const char *secret)
@@ -122,7 +122,7 @@ static void poll(int svc)
         cJSON *b = cJSON_CreateObject();
         cJSON_AddStringToObject(b, "code", si->device);
         cJSON_AddStringToObject(b, "client_id", tracking_app_id(svc));
-        cJSON_AddStringToObject(b, "client_secret", trakt_secret());
+        if (trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
         char *body = cJSON_PrintUnformatted(b);
         cJSON_Delete(b);
         char hdr[300]; headers_for(svc, hdr, sizeof hdr);
@@ -213,7 +213,7 @@ static void refresh_trakt(void)
     cJSON *b = cJSON_CreateObject();
     cJSON_AddStringToObject(b, "refresh_token", rt);
     cJSON_AddStringToObject(b, "client_id", tracking_app_id(TRACK_TRAKT));
-    cJSON_AddStringToObject(b, "client_secret", trakt_secret());
+    if (trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
     cJSON_AddStringToObject(b, "redirect_uri", "http://localhost");   /* what the app registers; the device sign-in itself needs none */
     cJSON_AddStringToObject(b, "grant_type", "refresh_token");
     char *body = cJSON_PrintUnformatted(b);
