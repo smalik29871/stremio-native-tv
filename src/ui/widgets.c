@@ -234,7 +234,7 @@ void ui_background(Color tint)
         if (tex) { ui_backdrop_blur(tex, iw, ih, 1); return; }
     }
     gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H * 0.6f, COLOR_ALPHA(t, g_app.fx_light ? 0x18 : 0x26), COLOR_ALPHA(t, 0));
-    if (g_theme.glass || g_theme.frost) gfx_gradient_h(0, SNTV_UI_H * 0.35f, SNTV_UI_W, SNTV_UI_H * 0.65f, COLOR_ALPHA(color_lerp(t, RGBA(0x40, 0x60, 0xFF, 0xFF), 0.5f), 0), COLOR_ALPHA(color_lerp(t, RGBA(0x40, 0x60, 0xFF, 0xFF), 0.5f), 0x22));
+    if (g_theme.glass || g_theme.frost) gfx_gradient_h(0, SNTV_UI_H * 0.35f, SNTV_UI_W, SNTV_UI_H * 0.65f, COLOR_ALPHA(color_lerp(t, g_theme.haze, 0.5f), 0), COLOR_ALPHA(color_lerp(t, g_theme.haze, 0.5f), g_theme.id == THEME_SUNSET ? 0x40 : 0x22));
 }
 
 void ui_panel(float x, float y, float w, float h, float r, Color fill)
@@ -353,7 +353,7 @@ static void focus_over(float x, float y, float w, float h, float r, float a)
     switch (g_theme.focus_style) {
     case FOCUS_FRAME: gfx_rrect_ring(x, y, w, h, r, 5, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a))); break;
     case FOCUS_LIGHTBAR: gfx_rrect_ring(x, y, w, h, r, 2, COLOR_ALPHA(THEME_TEXT, (int)(0xC0 * a))); break;
-    case FOCUS_MIST: gfx_rrect_ring(x, y, w, h, r, 3, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0xF0 * a))); break;   /* just a bright rim */
+    case FOCUS_MIST: gfx_rrect_ring(x, y, w, h, r, 3, COLOR_ALPHA(g_theme.id == THEME_SUNSET ? THEME_ACCENT : RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0xF0 * a))); break;   /* just a bright rim */
     case FOCUS_GLASS:   /* a bright rim and a sheen across the top */
         gfx_rrect_grad_v(x, y, w, h * 0.45f, r, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0x30 * a)), COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0));
         gfx_rrect_ring(x, y, w, h, r, 2.5f, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0xE0 * a)));

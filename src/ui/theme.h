@@ -14,7 +14,7 @@
  *           (the blur is a low mip of a texture already loaded, not a blur pass).
  *   Metro   flat colour tiles, big light type, square corners, a white tile border
  *           as focus, lowercase headings. */
-enum { THEME_SIGNAL, THEME_MARQUEE, THEME_GLASS, THEME_METRO, THEME_MIST, THEME_COUNT };
+enum { THEME_SIGNAL, THEME_MARQUEE, THEME_GLASS, THEME_METRO, THEME_MIST, THEME_SUNSET, THEME_COUNT };
 enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_GLASS, FOCUS_TILE, FOCUS_MIST };
 enum { ROWHEAD_NUMBERED, ROWHEAD_KICKER, ROWHEAD_PLAIN, ROWHEAD_METRO };
 #define THEME_ACCENTS 10
@@ -34,7 +34,8 @@ typedef struct Theme {
     int upper_titles;     /* titles and labels in capitals */
     int mono_meta;        /* "2012 / 95 MIN" metadata in the mono face */
     int glass;            /* panels are frosted glass; screens sit on blurred artwork */
-    int frost;            /* Mist: Glass's look without the blur (a highlight line per panel) */
+    int frost;            /* Mist, Sunset: Glass's look without the blur (a highlight line per panel) */
+    Color haze;           /* the colour the background drifts to across the bottom (glass, frost) */
     int lower_headings;   /* row and section headings in lowercase (Metro) */
     int ticks;            /* timelines carry tick marks */
     int glow;             /* soft ambient light behind screens */

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.4
+
+- **Two new themes.** *Mist*: Glass's rounded shapes, soft colours and white focus on a
+  lighter slate background, without the blurred artwork, panel sheen or shadows, so it
+  draws less and moves quicker. *Sunset*: warm plum with a sunset haze across the bottom,
+  coral, gold and flamingo accents, built just as lightly. Settings > Interface > Theme.
+- **The resume card with the arrow keys.** Up from the top of Home focuses the island's
+  resume card; OK opens the title ready to resume, Down or Back go back to the rows. The
+  blue key still works.
+
 ## 0.10.3
 
 - **The clock island says when an update is out:** a dot and "Update 0.10.x" beside the
