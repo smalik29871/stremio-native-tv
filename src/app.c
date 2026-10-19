@@ -11,6 +11,7 @@
 #include "ui/font.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
+#include "ui/screen_options.h"
 #include "cJSON.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -899,7 +900,7 @@ void app_library_dismiss_continue(const MetaPreview *meta)
 
 /* ---- updates ---- */
 char g_update_version[16], g_update_url[600], g_update_sha256[80];
-static int g_update_offered;   /* the countdown was shown this run (Back means: later) */
+static int g_update_offered;   /* the question was asked this run (Later means: at the next start) */
 static int g_update_manual;    /* a check the viewer asked for: say the result */
 
 static int version_newer(const char *a, const char *b)   /* a > b, dotted numbers */
@@ -928,7 +929,8 @@ static void on_repo(HttpResponse *r, void *user)
         snprintf(g_update_url, sizeof g_update_url, "%s", cJSON_IsString(url) ? url->valuestring : "");
         snprintf(g_update_sha256, sizeof g_update_sha256, "%s", cJSON_IsString(sha) ? sha->valuestring : "");
         LOGI("update: %s available (running %s)", v->valuestring, SNTV_APP_VERSION);
-        if ((manual || !g_app.auto_update) && strcmp(store_get_str("updateToldFor", ""), v->valuestring) != 0) {
+        if (manual) g_update_offered = 0;   /* asked for it: the question comes at once */
+        if (!g_app.auto_update && strcmp(store_get_str("updateToldFor", ""), v->valuestring) != 0) {
             app_toast("Version %s is ready: Settings > About > Update", v->valuestring);
             store_set_str("updateToldFor", v->valuestring); store_save();
         }
@@ -953,9 +955,28 @@ static int quiet_moment(void)
 {
     const Screen *top = app_top();
     if (!top || g_app.pip) return 0;
-    static const char *const BUSY[] = { "player", "break", "welcome", "login", "update", "pin", NULL };
+    static const char *const BUSY[] = { "player", "break", "welcome", "login", "update", "pin", "options", NULL };
     for (int i = 0; BUSY[i]; i++) if (!strcmp(top->name, BUSY[i])) return 0;
     return g_app.time - g_app.last_input > 2;   /* not in the middle of pressing keys */
+}
+
+static void on_update_answer(int choice, void *user)
+{
+    (void)user;
+    if (choice == 0) { LOGI("update: the viewer said update now"); app_push(screen_update_create(0)); }
+    else LOGI("update: the viewer said later");
+}
+
+/* The question, at a quiet moment: nothing installs unless the viewer says so. */
+static void ask_to_update(void)
+{
+    static const char *const ITEMS[] = { "Update now", "Later" };
+    static const int ICONS[] = { ICON_RELOAD, ICON_CLOCK };
+    char sub[80], body[300];
+    snprintf(sub, sizeof sub, "Version %s  \xC2\xB7  you have %s", g_update_version, SNTV_APP_VERSION);
+    snprintf(body, sizeof body, "It takes about half a minute. The app closes while the Homebrew Channel installs it; "
+             "open it again afterwards. Later asks again the next time the app starts (Settings > About > Update any time).");
+    app_push(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL));
 }
 
 void app_update_check(float dt)
@@ -965,7 +986,7 @@ void app_update_check(float dt)
     t += dt;
     if (g_update_version[0] && g_update_url[0] && g_update_sha256[0] && g_app.auto_update && !g_update_offered && quiet_moment()) {
         g_update_offered = 1;
-        app_push(screen_update_create(10));
+        ask_to_update();
         return;
     }
     if (t < next) return;

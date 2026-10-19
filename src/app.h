@@ -97,7 +97,7 @@ typedef struct App {
     int addon_wait;            /* seconds auto-play waits for slow addons; 99 = all of them */
     int src_audio_lang;        /* rank sources that mention the preferred audio language higher */
     int p2p_fallback;          /* torrents play on this TV (torrent.h) when no streaming server is set */
-    int auto_update;           /* install new releases by itself at a quiet moment */
+    int auto_update;           /* ask when a new release is out (else a notice only) */
     int break_video;           /* show the video of a break recording full screen */
     /* take breaks (breaks.h) */
     int breaks_on, break_sched, break_method, break_asr_hanafi;
@@ -170,8 +170,8 @@ void app_library_dismiss_continue(const MetaPreview *meta);   /* drop from Conti
 /* Links that failed to play are remembered for six hours and sorted last. */
 void app_link_failed(const char *url);
 /* 20 s after start, then every 6 hours: is there a newer release in the Homebrew
- * Channel repo? With auto-update on, it is installed at the next quiet moment (nothing
- * playing) after a countdown the viewer can cancel (screen_update_create). */
+ * Channel repo? At the next quiet moment (nothing playing) the viewer is asked; it
+ * installs only on "Update now" (screen_update_create), or from Settings > About. */
 void app_update_check(float dt);
 void app_update_check_now(void);
 extern char g_update_version[16];   /* "" or the newer version */

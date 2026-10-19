@@ -10,7 +10,7 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.8.7.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.8.8.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
@@ -26,12 +26,12 @@ account API**: the same account, addons, Library and Continue Watching as the of
    ```
 3. Back in the app list, install **Stremio (native)**.
 
-**Updates install themselves.** The app checks this repository at start and every six
-hours. When a new release is out it waits until nothing is playing, shows a 10-second
-countdown (Back postpones it to the next start), and asks the Homebrew Channel's own
-installer (`org.webosbrew.hbchannel.service/install`) to download the package, check its
+**Updates, when you say so.** The app checks this repository at start and every six
+hours. When a new release is out it waits until nothing is playing and asks: *Update now*
+or *Later* (it asks again at the next start). Update now has the Homebrew Channel's own
+installer (`org.webosbrew.hbchannel.service/install`) download the package, check its
 SHA-256 and install it. webOS closes the app while it installs; open it again afterwards.
-Settings > About has *Update* (check or install now) and *Update automatically*.
+Settings > About has *Update* (check or install now) and *Ask me when an update is out*.
 The release files must stay publicly downloadable for this, as for the Homebrew Channel:
 a private repository's release files need a GitHub login that a TV does not have.
 
@@ -190,8 +190,7 @@ clock and end time, the first-run setup, the OLED theme. The Nuvio port
 ([nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy)): cache-first
 Home, Automatic/Full/Light effects, spoiler blur, QR sign-in, skip intro and credits
 Up Next, the exported-window / ACB split, dlopen'd curl, the log file. Left out on
-purpose for stability: an in-app updater (the Homebrew Channel updates it), FFmpeg
-transcoding, libass, trailers, the Samsung .NET host, Trakt/Simkl/debrid integrations
+purpose for stability: FFmpeg transcoding, libass, trailers, the Samsung .NET host, Trakt/Simkl/debrid integrations
 (those are Stremio addons) and a plugin engine. See `docs/ROADMAP.md`.
 
 ## Settings at a glance

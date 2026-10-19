@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.8
+
+- **Updates ask first.** When a new release is out, the app waits until nothing is
+  playing and shows a popup: *Update now* or *Later*. Nothing installs until you choose
+  Update now (0.8.7 started by itself after a 10-second countdown). Later asks again the
+  next time the app starts.
+- **Settings > About > Update** still checks or installs right away; *Ask me when an
+  update is out* turns the popup off (you then get a short notice instead).
+
 ## 0.8.7
 
 - **Updates install themselves.** The app checks for a new release at start and every

@@ -169,7 +169,7 @@ static const char *row_desc(int id)
     case IT_AMBIENT: return "Backdrops drift with a big clock when the remote is quiet.";
     case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
     case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";
-    case IT_AUTO_UPDATE: return "At a quiet moment with a countdown, never while something plays.";
+    case IT_AUTO_UPDATE: return "A popup at a quiet moment: Update now or Later. Never while something plays.";
     case IT_BR_ON: return "Playback pauses at the times below.";
     case IT_BR_SCHED: return "Where break times come from.";
     case IT_BR_METHOD: return "The angles that set Fajr and Isha.";
@@ -491,7 +491,7 @@ static void draw(Screen *s)
             draw_row(y, ICON_RELOAD, "Update", v, foc, KIND_ACTION, 0);
             break;
         }
-        case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Update automatically", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
+        case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Ask me when an update is out", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
         case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         default:
