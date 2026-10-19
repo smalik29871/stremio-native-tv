@@ -119,7 +119,8 @@ struct Player {
     int up_next_dismissed;
 
     int menu, menu_focus;
-    int bar_focus, bar_index;  /* Down moves from the seek bar to the button row */
+    int bar_focus, bar_id;     /* Down moves from the seek bar to the button row; the button by BTN_* id */
+    int skip_focus;            /* Up from the timeline focused the Skip button (the controls are up) */
     float play_flash;          /* big centre icon after play/pause */
     int flash_icon;
 };
@@ -1133,7 +1134,7 @@ static void update(Screen *s, float dt)
     autosync_tick(p);
     xl_tick(p, dt, vi.position);
     skip_fetch(p, &vi);
-    if (g_app.skip_mode == 1) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
+    if (g_app.skip_mode == 1 && vi.state == VIDEO_PLAYING && !p->menu) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
 
     if (p->pip) {   /* no Up Next card in the corner: finish quietly and hand the plane back */
         if (vi.state == VIDEO_ENDED || error_final(p, &vi)) {
@@ -1150,6 +1151,7 @@ static void update(Screen *s, float dt)
     double credits = skip_credits_start(p->skip, p->n_skip);
     int at_credits = credits > 60 && vi.duration > 0 && credits < vi.duration - 10 && vi.position >= credits && vi.position < vi.duration - 1;
     int near_end = vi.duration > 120 && vi.position > vi.duration - 45;
+    if (p->up_next_dismissed && !at_credits && !near_end) p->up_next_dismissed = 0;   /* seeked back out of the window */
     if (p->next_video_id && (at_credits || near_end) && !p->up_next_shown && !p->up_next_dismissed) {
         p->up_next_shown = 1;
         p->next_at = at_credits && !near_end ? credits + 20 : vi.duration;
@@ -1172,10 +1174,10 @@ static void update(Screen *s, float dt)
     p->was_buffering = vi.buffering;
     if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
     if (p->up_next_shown && p->next_video_id && g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at
-        && vi.state == VIDEO_PLAYING) { go_up_next(p); return; }
+        && vi.state == VIDEO_PLAYING && !p->menu) { go_up_next(p); return; }   /* never under an open menu */
     if (p->up_next_shown && vi.position < credits - 5 && credits > 60 && !near_end) p->up_next_shown = 0;   /* seeked back */
     if (vi.state == VIDEO_ENDED) {
-        if (p->next_video_id && g_app.autoplay_next) { go_up_next(p); return; }
+        if (p->next_video_id && g_app.autoplay_next) { if (!p->menu) go_up_next(p); return; }
         p->finished = 1;
         report(p, 1);
         app_pop();
@@ -1399,18 +1401,19 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
 
 static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay)
 {
-    (void)p;
+    int lit = !overlay || p->skip_focus;   /* OK skips: hidden controls, or Up focused it */
     const char *label = s->kind == SKIP_RECAP ? "Skip recap" : "Skip intro";
     float h = 72, w = ui_pill_width(label, 1, h);
     float x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 330 : SNTV_UI_H - 200;
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, h / 2, 30, RGBA(0, 0, 0, 0x90));
-    ui_pill(label, 1, ICON_NEXT, x, y, h, PILL_PRIMARY, 1);
+    ui_pill(label, 1, ICON_NEXT, x, y, h, lit ? PILL_PRIMARY : PILL_SECONDARY, lit);
     /* time left in the segment, as a thin line under the button */
     float k = (float)((vi->position - s->start) / (s->end - s->start));
     if (k < 0) k = 0;
     if (k > 1) k = 1;
     gfx_rrect(x + h / 2, y + h + 10, (w - h) * (1 - k), 4, 2, COLOR_ALPHA(THEME_TEXT, 0x90));
-    font_draw("OK", x - font_measure("OK", FONT_XS | FONT_B) - 16, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
+    const char *keyname = lit ? "OK" : "Up";
+    font_draw(keyname, x - font_measure(keyname, FONT_XS | FONT_B) - 16, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
 }
 
 static void url_host(const char *url, char *out, size_t n)
@@ -1486,15 +1489,23 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     return k;
 }
 
+/* Where the focused button is in the row; Play when that button is gone (episode buttons come and go). */
+static int bar_pos(const Player *p, const int *ids, int n)
+{
+    for (int i = 0; i < n; i++) if (ids[i] == p->bar_id) return i;
+    for (int i = 0; i < n; i++) if (ids[i] == BTN_PLAY) return i;
+    return 0;
+}
+
 /* Round icon buttons; the focused one opens into a labelled pill (like the TV apps people know). */
 static void draw_bar(Player *p, float x, float y)
 {
     int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
     int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
-    if (p->bar_index >= n) p->bar_index = n - 1;
+    int at = bar_pos(p, ids, n);
     const float d = 56, gap = 14;
     for (int i = 0; i < n; i++) {
-        int foc = p->bar_focus && i == p->bar_index;
+        int foc = p->bar_focus && i == at;
         int primary = ids[i] == BTN_PLAY || ids[i] == BTN_NEXT;
         if (foc && ids[i] == BTN_NEXT) {
             float w = font_measure("Getting it ready", FONT_S | FONT_B) + d + 28;
@@ -1533,8 +1544,8 @@ static void bar_activate(Player *p, const VideoInfo *vi)
 {
     int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
     int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
-    if (p->bar_index >= n) return;
-    switch (ids[p->bar_index]) {
+    if (!n) return;
+    switch (ids[bar_pos(p, ids, n)]) {
     case BTN_PREV: if (p->prev_video_id) go_to_video(p, p->prev_video_id, p->prev_title); return;
     case BTN_PLAY:
         if (vi->state == VIDEO_PLAYING) video_pause(); else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
@@ -2021,6 +2032,7 @@ static void seek_by(Player *p, double base)
     if (vi.duration > 0 && target > vi.duration - 1) target = vi.duration - 1;
     p->seek_target = target;
     p->seek_commit = 0.35f;   /* coalesce rapid presses into one seek */
+    if (g_app.time < p->overlay_until) show_overlay(p);   /* the controls stay while seeking */
     p->seek_flash = g_app.time + 0.35f; p->seek_flash_dir = base < 0 ? -1 : 1;
     if (g_app.live_scrub && g_app.time - p->last_live_seek > 0.33f) {   /* the picture follows while the key is held */
         p->last_live_seek = g_app.time;
@@ -2064,21 +2076,36 @@ static int key(Screen *s, KeyAction a)
         int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
         int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
         switch (a) {
-        case KEY_LEFT: if (p->bar_index > 0) p->bar_index--; show_overlay(p); return 1;
-        case KEY_RIGHT: if (p->bar_index < n - 1) p->bar_index++; show_overlay(p); return 1;
+        case KEY_LEFT: { int i = bar_pos(p, ids, n); if (i > 0) p->bar_id = ids[i - 1]; show_overlay(p); return 1; }
+        case KEY_RIGHT: { int i = bar_pos(p, ids, n); if (i < n - 1) p->bar_id = ids[i + 1]; show_overlay(p); return 1; }
         case KEY_UP: case KEY_BACK: p->bar_focus = 0; show_overlay(p); return 1;
-        case KEY_DOWN: show_overlay(p); return 1;
+        case KEY_DOWN: p->bar_focus = 0; p->overlay_until = 0; app_redraw(); return 1;   /* below the buttons: hide the controls */
         case KEY_OK: bar_activate(p, &vi); return 1;
         default: break;   /* play/pause, colours and the rest work as usual */
         }
     }
     if (a == KEY_OK && p->up_next_shown && p->next_video_id) { go_up_next(p); return 1; }   /* the card's Play now */
-    if (a == KEY_OK && g_app.skip_mode == 0) { const SkipSeg *sk = skippable(p, &vi); if (sk) { do_skip(p, sk); show_overlay(p); return 1; } }
+    /* Skip: OK while the controls are hidden and the video plays, or once Up has focused the
+     * button; with the controls up OK is play/pause like everywhere else */
+    {
+        const SkipSeg *sk = g_app.skip_mode == 0 ? skippable(p, &vi) : NULL;
+        if (!sk || !overlay_on) p->skip_focus = 0;
+        if (sk && a == KEY_OK && (p->skip_focus || (!overlay_on && vi.state == VIDEO_PLAYING))) { p->skip_focus = 0; do_skip(p, sk); show_overlay(p); return 1; }
+        if (sk && overlay_on && !p->bar_focus && a == KEY_UP && !p->skip_focus) { p->skip_focus = 1; show_overlay(p); return 1; }
+        if (p->skip_focus && (a == KEY_DOWN || a == KEY_BACK)) { p->skip_focus = 0; show_overlay(p); return 1; }
+    }
+    /* a seek waiting to land: OK lands it now, Back puts the playhead back */
+    if (p->seek_commit > 0 && a == KEY_OK) { p->seek_commit = 0; video_seek(p->seek_target); show_overlay(p); return 1; }
+    if (p->seek_commit > 0 && a == KEY_BACK) { p->seek_commit = 0; app_toast("Seek cancelled"); show_overlay(p); return 1; }
+    if (a == KEY_DOWN && p->up_next_shown && p->next_video_id && !p->bar_focus) {   /* put the card away for the controls */
+        p->up_next_shown = 0; p->up_next_dismissed = 1; p->bar_focus = 1; show_overlay(p); return 1;
+    }
     if (a == KEY_BACK && p->up_next_shown && p->next_video_id) {   /* dismiss the card, keep watching */
         p->up_next_shown = 0; p->up_next_dismissed = 1; app_redraw(); return 1;
     }
     switch (a) {
     case KEY_OK: case KEY_PLAY_PAUSE:
+        p->bar_id = BTN_PLAY;
         if (vi.state == VIDEO_PLAYING) video_pause(); else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
         show_overlay(p);
         return 1;
@@ -2150,6 +2177,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
 {
     Screen *s = calloc(1, sizeof *s);
     Player *p = calloc(1, sizeof *p);
+    p->bar_id = BTN_PLAY;
     meta_preview_copy(&p->meta, meta);
     p->video_id = strdup(video_id);
     p->title = strdup(title ? title : meta->name);

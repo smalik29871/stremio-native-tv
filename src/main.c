@@ -261,6 +261,7 @@ int main(int argc, char **argv)
                 g_app.last_input = g_app.time;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) continue;
+                if (a == KEY_OK && e.key.repeat) continue;   /* a held OK presses once (no double play, no OK landing on the next screen) */
                 /* On screens that offer a long press, OK waits for the release (or the hold).
                  * Remotes that never send releases keep the old instant OK. */
                 if (a == KEY_OK && g_seen_keyup && top && top->long_ok && !(g_app.pip && g_pip_focus)) {
