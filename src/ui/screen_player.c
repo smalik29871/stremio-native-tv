@@ -1392,6 +1392,9 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
         if (t < 1) gfx_rrect_ring(gx - t * 8, gy - t * 8, 120 + t * 16, 40 + t * 16, 20 + t * 8, 2.5f, COLOR_ALPHA(go, (int)(220 * (1 - t))));
     }
     font_draw_center(what, gx + 60, gy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ON_LIGHT);
+    /* OK is the button's key: framed like a focused control, with the key named beside it */
+    gfx_rrect_ring(gx - 5, gy - 5, 130, 50, R_PANEL + 4, 2.5f, THEME_TEXT);
+    font_draw("OK", gx - 16 - font_measure("OK", FONT_XS | FONT_B), gy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
 }
 
 static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay)
@@ -2069,6 +2072,7 @@ static int key(Screen *s, KeyAction a)
         default: break;   /* play/pause, colours and the rest work as usual */
         }
     }
+    if (a == KEY_OK && p->up_next_shown && p->next_video_id) { go_up_next(p); return 1; }   /* the card's Play now */
     if (a == KEY_OK && g_app.skip_mode == 0) { const SkipSeg *sk = skippable(p, &vi); if (sk) { do_skip(p, sk); show_overlay(p); return 1; } }
     if (a == KEY_BACK && p->up_next_shown && p->next_video_id) {   /* dismiss the card, keep watching */
         p->up_next_shown = 0; p->up_next_dismissed = 1; app_redraw(); return 1;

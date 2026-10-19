@@ -58,6 +58,9 @@ run player_cue 300 "right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "right,ok,down,down,ok,ok,right,right,right" SNTV_FAKE_DURATION=1
 run upnext_card 300 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run upnext_auto 380 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+# OK on the card is its Play now (autoplay off, so only the key can start the next episode)
+run upnext_ok 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_ok '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
+[ "$(grep -c 'player: candidate' "$OUT/upnext_ok.log")" -ge 2 ] || { echo "OK on the Up Next card did not start the next episode"; grep player "$OUT/upnext_ok.log"; exit 1; }
 # next episode's sources still arriving (the /slow addon answers 6 s late): the Up Next
 # button and the control bar's Next button fill as a loader
 SLOW="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/slow/manifest.json"

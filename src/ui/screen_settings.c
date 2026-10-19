@@ -23,6 +23,7 @@
 #include "theme.h"
 #include "widgets.h"
 #include "screen_options.h"
+#include "settings_preview.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,7 +61,13 @@ enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATI
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
 #define SEC_H 70.0f
-#define COL_X 560.0f
+/* Choosing a category the rows start at COL_X0; inside one the category list shrinks
+ * to its icons, the rows move left to COL_X1..COL_R1 and a preview panel takes the
+ * right side from PREV_X. */
+#define COL_X0 560.0f
+#define COL_X1 250.0f
+#define COL_R1 1170.0f
+#define PREV_X 1226.0f
 #define ROWS_TOP 230.0f
 
 typedef struct {
@@ -72,6 +79,7 @@ typedef struct {
     Keyboard kb;
     float scroll, scroll_target;
     float pane_t; int pane_cat;   /* rows slide in when the category changes */
+    float wide_t;                 /* 0 choosing a category .. 1 inside one (preview shown) */
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* type on your phone */
     HomeRowDef rows[MAX_ROWS]; int n_rows; int rows_seen;
     char accounts[8][128]; int n_accounts;
@@ -204,12 +212,20 @@ static void cycle_lang(char *code, size_t n, int dir)
 
 typedef enum { KIND_ACTION, KIND_TOGGLE, KIND_CHOICE, KIND_MOVABLE } RowKind;
 
+static float s_x = COL_X0, s_r = SNTV_UI_W - THEME_MARGIN;   /* the rows' left and right edges this frame */
 static const char *s_desc;   /* help line of the row being drawn (set per row in draw) */
+/* what the focused row drew, for the preview panel */
+static char s_ftitle[200], s_fvalue[300]; static Icon s_ficon; static int s_fkind, s_fon;
 static int s_chevron;        /* actions end in an arrow, except addons (their arrows move them) */
 
 static void draw_row(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on)
 {
-    float x = COL_X, w = SNTV_UI_W - THEME_MARGIN - COL_X, h = ROW_H - 12;
+    float x = s_x, w = s_r - s_x, h = ROW_H - 12;
+    if (focused) {
+        snprintf(s_ftitle, sizeof s_ftitle, "%s", title);
+        snprintf(s_fvalue, sizeof s_fvalue, "%s", value ? value : "");
+        s_ficon = icon; s_fkind = kind; s_fon = on;
+    }
     if (focused && !g_app.fx_light) gfx_shadow(x, y + 6, w, h, R_PANEL, 24, RGBA(0, 0, 0, 0x80));
     if (focused) ui_focus_under(x, y, w, h, R_PANEL, 1);
     gfx_rrect(x, y, w, h, R_PANEL, focused ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x0F));
@@ -219,8 +235,10 @@ static void draw_row(float y, Icon icon, const char *title, const char *value, i
     /* an action's value is its second line (unless it has help of its own), with an arrow at the end */
     const char *sub = s_desc;
     if (kind == KIND_ACTION && !sub && value) { sub = value; value = NULL; }
-    float text_w = kind == KIND_ACTION ? (value ? w * 0.55f - 92 : w - 200) : w - 440;
     float th = font_height(FONT_S | FONT_B), dh = font_height(FONT_XS);
+    float right = kind == KIND_TOGGLE ? 130 : kind == KIND_MOVABLE ? 300 : kind == KIND_CHOICE ? font_measure(value, FONT_S | FONT_B) + 110
+                : value ? (font_measure(value, FONT_XS) < w * 0.45f - 90 ? font_measure(value, FONT_XS) : w * 0.45f - 90) + 80 : 60;
+    float text_w = w - 92 - right - 16;
     if (sub) {
         float ty = y + (h - th - dh - 4) / 2;
         font_draw_fit(title, x + 92, ty, FONT_S | FONT_B, fg, text_w);
@@ -254,10 +272,10 @@ static void draw_row(float y, Icon icon, const char *title, const char *value, i
 static void draw_section(float y, const char *name)
 {
     char up[96]; ui_upper(name, up, sizeof up);
-    float x = COL_X + 4, base = y + SEC_H - 34;
+    float x = s_x + 4, base = y + SEC_H - 34;
     font_draw_tracked(up, x, base, FONT_XS | FONT_B, THEME_ACCENT, 1.5f);
     float tw = font_measure_tracked(up, FONT_XS | FONT_B, 1.5f);
-    gfx_rect(x + tw + 20, base + font_height(FONT_XS | FONT_B) / 2, SNTV_UI_W - THEME_MARGIN - (x + tw + 20), 1, THEME_LINE);
+    gfx_rect(x + tw + 20, base + font_height(FONT_XS | FONT_B) / 2, s_r - (x + tw + 20), 1, THEME_LINE);
 }
 
 static void finish_edit(Settings *st, int save);
@@ -281,32 +299,131 @@ static void update(Screen *s, float dt)
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 12);
     if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_light ? 1 : 0; }
     if (st->pane_t < 1) { st->pane_t += dt * 5; if (st->pane_t > 1) st->pane_t = 1; app_redraw(); }
+    float want = st->zone == 1 && st->edit == EDIT_NONE ? 1.0f : 0.0f;
+    if (g_app.fx_light || !g_app.transitions) st->wide_t = want;
+    else if (st->wide_t != want) {
+        st->wide_t += (want > st->wide_t ? 1 : -1) * dt * 6;
+        if (st->wide_t < 0) st->wide_t = 0;
+        if (st->wide_t > 1) st->wide_t = 1;
+        app_redraw();
+    }
 }
 
-static void draw_categories(const Settings *st)
+static void draw_categories(const Settings *st, float e)
 {
-    font_draw("Settings", THEME_MARGIN, 100, FONT_XL | FONT_B, THEME_TEXT);
+    font_draw("Settings", THEME_MARGIN, 100, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * (1 - e))));
     for (int i = 0; i < CAT_COUNT; i++) {
-        float y = ROWS_TOP + i * 76, w = COL_X - THEME_MARGIN - 70, h = 64;
+        float y = ROWS_TOP + i * 76, h = 64, w = (COL_X0 - THEME_MARGIN - 70) * (1 - e) + 72 * e;
         int foc = st->zone == 0 && st->cat == i, act = st->cat == i;
         if (foc) { ui_focus_under(THEME_MARGIN, y, w, h, theme_pill_r(h), 1); gfx_rrect(THEME_MARGIN, y, w, h, theme_pill_r(h), THEME_FOCUS); }
-        else if (act) gfx_rrect(THEME_MARGIN, y, w, h, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x16));
-        Color fg = foc ? THEME_ON_FOCUS : act ? THEME_TEXT : THEME_TEXT_DIM;
+        else if (act) gfx_rrect(THEME_MARGIN, y, w, h, R_PANEL, e > 0.5f ? COLOR_ALPHA(THEME_ACCENT, 0x30) : COLOR_ALPHA(THEME_TEXT, 0x16));
+        Color fg = foc ? THEME_ON_FOCUS : act ? (e > 0.5f ? THEME_ACCENT : THEME_TEXT) : THEME_TEXT_DIM;
         ui_icon(CAT_ICONS[i], THEME_MARGIN + 36, y + h / 2, 26, fg);
+        if (e >= 1) continue;   /* collapsed: icons only */
+        gfx_set_alpha(1 - e);
+        gfx_clip_push(THEME_MARGIN, y, w, h);
         font_draw(CAT_NAMES[i], THEME_MARGIN + 70, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
         if (i == CAT_ADDONS) { char c[16]; snprintf(c, sizeof c, "%d", g_app.n_addons); font_draw(c, THEME_MARGIN + w - 24 - font_measure(c, FONT_XS | FONT_B), y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, foc ? COLOR_ALPHA(THEME_BG, 0xA8) : THEME_TEXT_MUTED); }
+        gfx_clip_pop();
+        gfx_set_alpha(1);
     }
+}
+
+static PreviewKind preview_for(int id)
+{
+    switch (id) {
+    case IT_THEME: case IT_ACCENT: return PV_THEME;
+    case IT_HOME_STYLE: return PV_HOME_STYLE;
+    case IT_SUBS_SIZE: case IT_SUBS_STYLE: return PV_SUBS;
+    case IT_CLOCK: return PV_CLOCK;
+    case IT_CARD_DETAILS: return PV_CARD_DETAILS;
+    case IT_HIDE_WATCHED: return PV_HIDE_WATCHED;
+    case IT_BLUR: return PV_BLUR;
+    case IT_FX: return PV_FX;
+    case IT_OLED: return PV_OLED;
+    case IT_RES_CAP: return PV_RES_CAP;
+    case IT_QUALITY: return PV_QUALITY;
+    case IT_SKIP: return PV_SKIP;
+    case IT_AUTOPLAY: return PV_AUTOPLAY;
+    case IT_PIP: return PV_PIP;
+    case IT_SCRUB: return PV_SCRUB;
+    case IT_AMBIENT: return PV_AMBIENT;
+    case IT_TRANSITIONS: return PV_TRANSITIONS;
+    case IT_PREF_AUDIO: return PV_LANG_AUDIO;
+    case IT_PREF_SUBS: case IT_SUBS_WHEN: return PV_LANG_SUBS;
+    case IT_BR_ON: case IT_BR_LEAD: case IT_BR_TEST: case IT_BR_SCHED: case IT_BR_WHERE: return PV_BREAK;
+    default: return PV_NONE;
+    }
+}
+
+/* A key and what it does, as a small keycap and a label; returns the x after it. */
+static float key_hint(const char *cap, const char *what, float x, float y)
+{
+    /* cap NULL: the Left and Right arrows */
+    float cw = cap ? font_measure(cap, FONT_XS | FONT_B) + 20 : 56, h = 32;
+    gfx_rrect(x, y, cw, h, R_KEY, COLOR_ALPHA(THEME_TEXT, 0x1C));
+    if (cap) font_draw_center(cap, x + cw / 2, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT);
+    else { ui_icon(ICON_CHEVRON_LEFT, x + 18, y + h / 2, 18, THEME_TEXT); ui_icon(ICON_CHEVRON_RIGHT, x + cw - 18, y + h / 2, 18, THEME_TEXT); }
+    font_draw(what, x + cw + 10, y + (h - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_DIM);
+    return x + cw + 10 + font_measure(what, FONT_XS) + 26;
+}
+
+/* Beside the rows: what the focused setting does, drawn, then its name, help, value and keys. */
+static void draw_panel(const Settings *st, const int *ids, int n, float e)
+{
+    if (st->zone != 1 || st->focus < 0 || st->focus >= n || IS_SEC(ids[st->focus])) return;
+    int id = ids[st->focus];
+    float x = PREV_X + 60 * (1 - e), y = 120, w = SNTV_UI_W - THEME_MARGIN - PREV_X, h = SNTV_UI_H - 80 - y;
+    gfx_set_alpha(e);
+    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0A));
+    PreviewKind kind = preview_for(id);
+    float ih = 470;
+    if (kind != PV_NONE) settings_preview_draw(kind, x, y + 8, w, ih);
+    else {   /* no drawing for this one: its icon, large */
+        gfx_circle(x + w / 2, y + ih / 2, 96, COLOR_ALPHA(THEME_ACCENT, 0x1C));
+        ui_icon(s_ficon, x + w / 2, y + ih / 2, 96, THEME_ACCENT);
+    }
+    float tx = x + 32, tw = w - 64, ty = y + ih + 28;
+    const char *sec = NULL;
+    for (int i = st->focus; i >= 0 && !sec; i--) if (IS_SEC(ids[i])) sec = SEC_NAMES[ids[i] - IT_SEC_BASE];
+    char crumb[160], up[160];
+    snprintf(crumb, sizeof crumb, "%s%s%s", CAT_NAMES[st->cat], sec ? "  \xC2\xB7  " : "", sec ? sec : "");
+    ui_upper(crumb, up, sizeof up);
+    font_draw_tracked(up, tx, ty, FONT_XS | FONT_B, THEME_ACCENT, 1.2f);
+    ty += 40;
+    int lines = font_draw_wrapped(s_ftitle, tx, ty, FONT_M | FONT_B, THEME_TEXT, tw, 2);
+    ty += (lines > 0 ? lines : 1) * (font_height(FONT_M | FONT_B) + 6) + 10;
+    const char *help = row_desc(id);
+    if (help) {
+        int hl = font_draw_wrapped(help, tx, ty, FONT_S, THEME_TEXT_DIM, tw, 3);
+        ty += (hl > 0 ? hl : 1) * (font_height(FONT_S) + 6) + 14;
+    }
+    const char *now = s_fkind == KIND_TOGGLE ? (s_fon ? "On" : "Off") : s_fvalue[0] ? s_fvalue : NULL;
+    if (now && ty < y + h - 110) {
+        font_draw("Now", tx, ty, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        font_draw_wrapped(now, tx + 70, ty - 2, FONT_S | FONT_B, THEME_TEXT, tw - 70, 2);
+    }
+    float ky = y + h - 56, kx = tx;
+    if (s_fkind == KIND_CHOICE) kx = key_hint(NULL, "Change", kx, ky);
+    else if (s_fkind == KIND_TOGGLE) kx = key_hint("OK", "Switch", kx, ky);
+    else if (s_fkind == KIND_MOVABLE) { kx = key_hint("OK", "Show or hide", kx, ky); kx = key_hint(NULL, "Move", kx, ky); }
+    else kx = key_hint("OK", "Open", kx, ky);
+    key_hint("Back", "Categories", kx, ky);
+    gfx_set_alpha(1);
 }
 
 static void draw(Screen *s)
 {
     Settings *st = s->st;
     ui_background(0);
-    draw_categories(st);
+    float e = st->wide_t * st->wide_t * (3 - 2 * st->wide_t);   /* smoothstep */
+    draw_categories(st, e);
+    s_x = COL_X0 + (COL_X1 - COL_X0) * e;
+    s_r = SNTV_UI_W - THEME_MARGIN + (COL_R1 - (SNTV_UI_W - THEME_MARGIN)) * e;
 
     if (st->edit != EDIT_NONE) {
         const char *title = edit_title(st->edit), *hint = edit_hint(st->edit);
-        float x = COL_X;
+        float x = COL_X0;
         font_draw(title, x, 100, FONT_L | FONT_B, THEME_TEXT);
         font_draw(hint, x, 156, FONT_S, THEME_TEXT_DIM);
         gfx_rrect(x, 210, keyboard_width(), 76, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x18));
@@ -326,17 +443,17 @@ static void draw(Screen *s)
     }
 
     /* pane header */
-    font_draw(CAT_NAMES[st->cat], COL_X, 100, FONT_L | FONT_B, THEME_TEXT);
-    font_draw_wrapped(CAT_DESC[st->cat], COL_X, 156, FONT_S, THEME_TEXT_DIM, SNTV_UI_W - THEME_MARGIN - COL_X, 2);
+    font_draw(CAT_NAMES[st->cat], s_x, 100, FONT_L | FONT_B, THEME_TEXT);
+    font_draw_wrapped(CAT_DESC[st->cat], s_x, 156, FONT_S, THEME_TEXT_DIM, s_r - s_x, 2);
     if (st->cat == CAT_ABOUT) {
         char info[300];
         char mem[160]; mem_describe(mem, sizeof mem);
         snprintf(info, sizeof info, "Version %s  \xC2\xB7  %s  \xC2\xB7  %zu MB artwork in memory  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name(), image_cache_bytes() >> 20, mem);
-        font_draw_fit(info, COL_X, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED, SNTV_UI_W - THEME_MARGIN - COL_X);
+        font_draw_fit(info, s_x, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
         char tv[300];
         if (g_update_version[0]) snprintf(tv, sizeof tv, "Version %s is available: Update above installs it", g_update_version);
         else snprintf(tv, sizeof tv, "TV profile: %s", "learned from what played here; Diagnostics shows it");
-        font_draw_fit(tv, COL_X, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED, SNTV_UI_W - THEME_MARGIN - COL_X);
+        font_draw_fit(tv, s_x, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
     }
 
     static const char *FX_NAMES[] = { "Automatic", "Full", "Light" };
@@ -346,7 +463,7 @@ static void draw(Screen *s)
     int ids[MAX_ROWS + 8];
     int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
     if (st->focus >= n) st->focus = n ? n - 1 : 0;
-    gfx_clip_push(COL_X - 40, ROWS_TOP - 20, SNTV_UI_W - COL_X + 40, SNTV_UI_H - ROWS_TOP + 20);
+    gfx_clip_push(s_x - 40, ROWS_TOP - 20, s_r - s_x + 80, SNTV_UI_H - ROWS_TOP + 20);
     { float e = 1 - (1 - st->pane_t) * (1 - st->pane_t); gfx_set_translate(40 * (1 - e), 0); }
     float y = ROWS_TOP - st->scroll;
     for (int i = 0; i < n; y += row_h(ids[i]), i++) {
@@ -463,7 +580,7 @@ static void draw(Screen *s)
         case IT_ACCENT: {
             draw_row(y, ICON_PALETTE, "Accent colour", THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], foc, KIND_CHOICE, 0);
             /* the six swatches, the current one framed */
-            float sx = SNTV_UI_W - THEME_MARGIN - 470, sy = y + 23;
+            float sx = s_r - 470, sy = y + 23;
             for (int i = 0; i < THEME_ACCENTS; i++) {
                 float bx = sx + i * 34;
                 if (i == g_app.theme_accent) gfx_rrect_ring(bx - 3, sy - 3, 30, 30, theme_pill_r(30), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
@@ -509,7 +626,7 @@ static void draw(Screen *s)
                     if (a->flag_protected) strncat(v, "  \xC2\xB7  built-in", sizeof v - strlen(v) - 1);
                 }
                 draw_row(y, ICON_LIBRARY, title, v, foc, KIND_ACTION, 0);
-                if (foc) { ui_icon(ICON_CHEVRON_LEFT, SNTV_UI_W - THEME_MARGIN - 90, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 56, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); }
+                if (foc) { ui_icon(ICON_CHEVRON_LEFT, s_r - 90, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); ui_icon(ICON_CHEVRON_RIGHT, s_r - 56, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); }
             } else if (id >= IT_ROWS_BASE) {
                 const HomeRowDef *d = &st->rows[id - IT_ROWS_BASE];
                 char pos[32]; snprintf(pos, sizeof pos, "%d of %d", id - IT_ROWS_BASE + 1, st->n_rows);
@@ -519,42 +636,7 @@ static void draw(Screen *s)
     }
     gfx_set_translate(0, 0);
     gfx_clip_pop();
-    if (st->zone == 1 && st->cat != CAT_ABOUT) font_draw("Back: categories", SNTV_UI_W - THEME_MARGIN - font_measure("Back: categories", FONT_XS), 110, FONT_XS, THEME_TEXT_MUTED);
-
-    /* live preview of the theme and accent: a row of cards with the second focused */
-    if (st->zone == 1 && n && (ids[st->focus] == IT_THEME || ids[st->focus] == IT_ACCENT)) {
-        float band = 400, top = SNTV_UI_H - 330;
-        gfx_gradient_v(0, SNTV_UI_H - band, SNTV_UI_W, band - 330, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
-        gfx_rect(0, top, SNTV_UI_W, 330, THEME_BG);
-        char cap[160]; snprintf(cap, sizeof cap, "PREVIEW  \xC2\xB7  %s  \xC2\xB7  %s", THEME_NAMES[g_app.theme], THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent]);
-        font_draw(cap, COL_X, top + 6, FONT_XS | FONT_B, THEME_TEXT_MUTED);
-        ui_row_header(1, "Popular movies", NULL, 24, COL_X, top + 44, SNTV_UI_W - THEME_MARGIN, 1);
-        /* posters from the library when there are some, named placeholders otherwise */
-        static const char *const NAMES[] = { "Dune", "Arrival", "Heat", "Alien", "Drive", "Up", "Her" };
-        float cw = 128, ch = 192, gap = 26;
-        int li = 0;
-        for (int i = 0; i < 7; i++) {
-            float x = COL_X + i * (cw + gap);
-            if (x + cw > SNTV_UI_W - THEME_MARGIN) break;
-            const LibraryItem *it = NULL;
-            while (li < g_app.n_library && !it) {
-                const LibraryItem *c = &g_app.library[li++];
-                if (!c->removed && c->poster && *c->poster) it = c;
-            }
-            ui_card(it ? it->poster : NULL, x, top + 100, cw, ch, i == 1 ? 1.0f : 0.0f, 0, it ? it->name : NAMES[i], CARD_MIP);
-        }
-        { float bw = 150, bx = SNTV_UI_W - THEME_MARGIN - bw; ui_pill("Play", 1, ICON_PLAY, bx, top + 6, 44, PILL_PRIMARY, 1); }
-    }
-
-    /* live preview of the subtitle look while those rows are focused */
-    if (st->zone == 1 && n && (ids[st->focus] == IT_SUBS_SIZE || ids[st->focus] == IT_SUBS_STYLE)) {
-        float band = 300;
-        gfx_gradient_v(0, SNTV_UI_H - band, SNTV_UI_W, band, COLOR_ALPHA(THEME_BG, 0), COLOR_ALPHA(THEME_BG, 0xF4));
-        gfx_rect(0, SNTV_UI_H - 200, SNTV_UI_W, 200, COLOR_ALPHA(THEME_BG, 0xF4));
-        font_draw_center("PREVIEW  \xC2\xB7  subtitles inside the video follow it too, in the TV's own lettering",
-                         SNTV_UI_W / 2, SNTV_UI_H - 190, FONT_XS | FONT_B, THEME_TEXT_MUTED);
-        ui_subtitle("Subtitles will look like this.\nTwo lines, the way films do it.", SNTV_UI_H - 40, g_app.subs_size, g_app.subs_style);
-    }
+    if (e > 0.01f) draw_panel(st, ids, n, e);
 }
 
 static const char *edit_title(int which)
