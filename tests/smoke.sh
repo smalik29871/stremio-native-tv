@@ -70,7 +70,7 @@ grep -q "settings: found Pure black (OLED) in Interface" "$OUT/settings_find_one
 run intro 70 "" SNTV_INTRO=1 SNTV_FRAME_DT=0.03 SNTV_NO_TRANSITIONS=
 grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not finish"; exit 1; }
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
-grep -q "youtube: dQw4w9WgXcQ as DASH, 2 video qualities" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/3 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.mpd" "$OUT/detail_trailer.log" \
+grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/3 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.mpd" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
 # no trailer from the addon: TMDB's, a file with no playlist, fetched in YouTube's &range= pieces
 run detail_trailer_file 360 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_file '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/notrailer/manifest.json SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
@@ -237,7 +237,14 @@ run trakt_scrobble 420 "right,ok,down,down,ok,ok,wait,wait,back,back,back" HOME=
 grep -q "tracking: Trakt start tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: Trakt stop tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: SimKL watched tt0903747" "$OUT/trakt_scrobble.log" \
   || { echo "playback was not scrobbled"; grep tracking "$OUT/trakt_scrobble.log"; exit 1; }
 run simkl_connect 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid"}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
-grep -q "tracking: SimKL connected" "$OUT/simkl_connect.log" || { echo "SimKL did not connect"; grep tracking "$OUT/simkl_connect.log"; exit 1; }
+grep -q "tracking: SimKL sign-in code SV2CODE" "$OUT/simkl_connect.log" && grep -q "tracking: SimKL connected" "$OUT/simkl_connect.log" && grep -qE '"simklRefresh":[[:space:]]*"sref"' "$OUT/home_simkl/.local/share/stremio/nativetv/settings.json" \
+  || { echo "SimKL did not connect with OAuth 2.0"; grep tracking "$OUT/simkl_connect.log"; exit 1; }
+# an app registered before AUTH V2: the PIN
+run simkl_connect_v1 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl_v1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"v1app"}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+grep -q "tracking: SimKL sign-in code SIM12" "$OUT/simkl_connect_v1.log" && grep -q "tracking: SimKL connected" "$OUT/simkl_connect_v1.log" || { echo "an old SimKL app did not fall back to the PIN"; grep tracking "$OUT/simkl_connect_v1.log"; exit 1; }
+# a week on: the token is renewed
+run simkl_refresh 150 "" HOME="$(home_with simkl_ref '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid","simklToken":"stok2","simklRefresh":"sref","simklExpires":1}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+grep -q "tracking: SimKL token renewed" "$OUT/simkl_refresh.log" || { echo "the SimKL token was not renewed"; grep tracking "$OUT/simkl_refresh.log"; exit 1; }
 run detail_mdblist 260 "wait,ok,down" HOME="$(home_with mdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"mdblistKey":"k"}')" SNTV_MDBLIST_API=http://127.0.0.1:8765/mdblist
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)

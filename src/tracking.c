@@ -19,6 +19,7 @@ static const char *trakt_api(void) { return env_or("SNTV_TRAKT_API", "https://ap
 static const char *simkl_api(void) { return env_or("SNTV_SIMKL_API", "https://api.simkl.com"); }
 /* SimKL wants every call to name the app and its version */
 #define SIMKL_APP "&app-name=stremio-native-tv&app-version=" SNTV_APP_VERSION
+#define SIMKL_FORM "Content-Type: application/x-www-form-urlencoded"
 static char g_last_err[200];
 const char *tracking_last_error(void) { return g_last_err; }
 static const char *mdb_api(void) { return env_or("SNTV_MDBLIST_API", "https://mdblist.com/api"); }
@@ -83,7 +84,7 @@ static void request(int svc, const char *url, const char *post, HttpCallback cb,
 }
 
 /* ---- signing in ---- */
-typedef struct { int active; char device[128], user_code[32]; double next, until; int interval; unsigned inflight; } SignIn;
+typedef struct { int active, v2; char device[128], user_code[32]; double next, until; int interval; unsigned inflight; } SignIn;   /* v2: SimKL's OAuth 2.0 device flow */
 static SignIn g_sign[TRACK_SERVICES];
 
 int tracking_pending(int svc) { return g_sign[svc].active; }
@@ -100,10 +101,10 @@ static void on_token(HttpResponse *r, void *user)
     const cJSON *at = cJSON_GetObjectItemCaseSensitive(j, "access_token");
     if (cJSON_IsString(at) && at->valuestring[0]) {
         store_set_str(K_TOKEN[svc], at->valuestring);
-        if (svc == TRACK_TRAKT) {
-            const cJSON *rt = cJSON_GetObjectItemCaseSensitive(j, "refresh_token"), *ex = cJSON_GetObjectItemCaseSensitive(j, "expires_in");
-            if (cJSON_IsString(rt)) store_set_str("traktRefresh", rt->valuestring);
-            if (cJSON_IsNumber(ex)) store_set_int("traktExpires", (int)(now_s() + ex->valuedouble));
+        const cJSON *rt = cJSON_GetObjectItemCaseSensitive(j, "refresh_token"), *ex = cJSON_GetObjectItemCaseSensitive(j, "expires_in");
+        if (svc == TRACK_TRAKT || si->v2) {   /* SimKL V2 tokens last a week; the refresh token renews them */
+            if (cJSON_IsString(rt)) store_set_str(svc == TRACK_TRAKT ? "traktRefresh" : "simklRefresh", rt->valuestring);
+            if (cJSON_IsNumber(ex)) store_set_int(svc == TRACK_TRAKT ? "traktExpires" : "simklExpires", (int)(now_s() + ex->valuedouble));
         }
         store_save();
         si->active = 0;
@@ -114,6 +115,18 @@ static void on_token(HttpResponse *r, void *user)
         si->active = 0;
         app_toast(r->status == 418 ? "Trakt sign-in was declined" : "The Trakt code expired; try again");
     } else if (svc == TRACK_TRAKT && r->status == 429) si->interval += 1;
+    else if (si->v2 && r->status >= 400) {   /* RFC 8628: pending and slow_down keep polling */
+        cJSON *e = cJSON_Parse(r->body ? r->body : "");
+        const cJSON *err = cJSON_GetObjectItemCaseSensitive(e, "error");
+        const char *code = cJSON_IsString(err) ? err->valuestring : "";
+        if (!strcmp(code, "slow_down")) si->interval += 5;
+        else if (strcmp(code, "authorization_pending")) {
+            si->active = 0;
+            LOGW("tracking: SimKL sign-in stopped: HTTP %ld %.200s", r->status, r->body ? r->body : "");
+            app_toast(!strcmp(code, "access_denied") ? "SimKL sign-in was declined" : !strcmp(code, "expired_token") ? "The SimKL code expired; try again" : "SimKL sign-in failed");
+        }
+        cJSON_Delete(e);
+    }
     cJSON_Delete(j);
     app_redraw();
 }
@@ -134,6 +147,14 @@ static void poll(int svc)
         HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 20 };
         si->inflight = http_request_async_ex(url, &o, on_token, (void *)(intptr_t)svc);
         free(body);
+    } else if (si->v2) {
+        snprintf(url, sizeof url, "%s/oauth2/token?app-name=stremio-native-tv&app-version=" SNTV_APP_VERSION, simkl_api());
+        char body[400], hdr[400];
+        snprintf(body, sizeof body, "grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code&client_id=%s&device_code=%s", tracking_app_id(svc), si->device);
+        headers_for(svc, hdr, sizeof hdr);
+        strncat(hdr, "\n" SIMKL_FORM, sizeof hdr - strlen(hdr) - 1);
+        HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 20 };
+        si->inflight = http_request_async_ex(url, &o, on_token, (void *)(intptr_t)svc);
     } else {
         snprintf(url, sizeof url, "%s/oauth/pin/%s?client_id=%s" SIMKL_APP, simkl_api(), si->user_code, tracking_app_id(svc));
         char hdr[300]; headers_for(svc, hdr, sizeof hdr);
@@ -156,13 +177,28 @@ int tracking_connect(int svc, char *code, size_t cn, char *url, size_t un)
         HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 15 };
         http_request_ex(u, &o, &r);
     } else {
-        snprintf(u, sizeof u, "%s/oauth/pin?client_id=%s&redirect=http%%3A%%2F%%2Flocalhost" SIMKL_APP, simkl_api(), tracking_app_id(svc));
-        HttpOptions o = { .headers = hdr, .timeout_s = 15 };
+        /* AUTH V2 (OAuth 2.0 device flow); apps registered before it only know the PIN */
+        snprintf(u, sizeof u, "%s/oauth2/device?app-name=stremio-native-tv&app-version=" SNTV_APP_VERSION, simkl_api());
+        char body[300], fh[400];
+        snprintf(body, sizeof body, "client_id=%s&scope=media%%3Aread%%20media%%3Awrite", tracking_app_id(svc));
+        snprintf(fh, sizeof fh, "%s\n" SIMKL_FORM, hdr);
+        HttpOptions o = { .post_json = body, .headers = fh, .timeout_s = 15 };
         http_request_ex(u, &o, &r);
+        cJSON *v = r.status == 200 ? cJSON_Parse(r.body) : NULL;
+        si->v2 = cJSON_IsString(cJSON_GetObjectItemCaseSensitive(v, "device_code"));
+        cJSON_Delete(v);
+        if (!si->v2) {
+            LOGI("tracking: SimKL V2 sign-in not offered (HTTP %ld), trying the PIN", r.status);
+            http_response_free(&r);
+            snprintf(u, sizeof u, "%s/oauth/pin?client_id=%s&redirect=http%%3A%%2F%%2Flocalhost" SIMKL_APP, simkl_api(), tracking_app_id(svc));
+            HttpOptions o1 = { .headers = hdr, .timeout_s = 15 };
+            http_request_ex(u, &o1, &r);
+        }
     }
     cJSON *j = r.status == 200 ? cJSON_Parse(r.body) : NULL;
     const cJSON *dc = cJSON_GetObjectItemCaseSensitive(j, "device_code"), *uc = cJSON_GetObjectItemCaseSensitive(j, "user_code");
     const cJSON *vu = cJSON_GetObjectItemCaseSensitive(j, "verification_url"), *iv = cJSON_GetObjectItemCaseSensitive(j, "interval");
+    if (!cJSON_IsString(vu)) vu = cJSON_GetObjectItemCaseSensitive(j, "verification_uri");   /* OAuth 2.0's spelling */
     const cJSON *ex = cJSON_GetObjectItemCaseSensitive(j, "expires_in");
     int ok = cJSON_IsString(uc) && (svc != TRACK_TRAKT || cJSON_IsString(dc));
     if (ok) {
@@ -196,6 +232,7 @@ void tracking_disconnect(int svc)
     g_sign[svc].active = 0;
     store_set_str(K_TOKEN[svc], NULL);
     if (svc == TRACK_TRAKT) { store_set_str("traktRefresh", NULL); store_set_int("traktExpires", 0); }
+    else { store_set_str("simklRefresh", NULL); store_set_int("simklExpires", 0); }
     store_save();
     g_version++;
 }
@@ -237,6 +274,39 @@ static void refresh_trakt(void)
     g_refreshing = 1;
     request(TRACK_TRAKT, url, body, on_refresh, NULL);
     free(body);
+}
+
+/* SimKL V2: a refresh replaces the token (the old one stops at once) */
+static int g_simkl_refreshing;
+static void on_simkl_refresh(HttpResponse *r, void *user)
+{
+    (void)user;
+    g_simkl_refreshing = 0;
+    cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
+    const cJSON *at = cJSON_GetObjectItemCaseSensitive(j, "access_token"), *rt = cJSON_GetObjectItemCaseSensitive(j, "refresh_token");
+    const cJSON *ex = cJSON_GetObjectItemCaseSensitive(j, "expires_in");
+    if (cJSON_IsString(at)) {
+        store_set_str("simklToken", at->valuestring);
+        if (cJSON_IsString(rt)) store_set_str("simklRefresh", rt->valuestring);
+        store_set_int("simklExpires", (int)(now_s() + (cJSON_IsNumber(ex) ? ex->valuedouble : 604800)));
+        store_save();
+        LOGI("tracking: SimKL token renewed");
+    } else if (r->status == 400 || r->status == 401) { LOGW("tracking: SimKL sign-in no longer valid"); tracking_disconnect(TRACK_SIMKL); }
+    cJSON_Delete(j);
+}
+
+static void refresh_simkl(void)
+{
+    const char *rt = store_get_str("simklRefresh", "");
+    if (!rt || !*rt || g_simkl_refreshing) return;
+    char url[300], body[600], hdr[400];
+    snprintf(url, sizeof url, "%s/oauth2/token?app-name=stremio-native-tv&app-version=" SNTV_APP_VERSION, simkl_api());
+    snprintf(body, sizeof body, "grant_type=refresh_token&client_id=%s&refresh_token=%s", tracking_app_id(TRACK_SIMKL), rt);
+    headers_for(TRACK_SIMKL, hdr, sizeof hdr);
+    strncat(hdr, "\n" SIMKL_FORM, sizeof hdr - strlen(hdr) - 1);
+    HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 20, .deliver = 1 };
+    g_simkl_refreshing = 1;
+    http_request_async_ex(url, &o, on_simkl_refresh, NULL);
 }
 
 /* {title, year, ids:{imdb}} as a preview; NULL id when Trakt has no IMDb id for it */
@@ -320,6 +390,7 @@ void tracking_tick(void)
         si->next = t + si->interval;
         poll(s);
     }
+    if (tracking_connected(TRACK_SIMKL)) { int se = store_get_int("simklExpires", 0); if (se && t > se - 86400) refresh_simkl(); }
     if (!tracking_connected(TRACK_TRAKT)) { if (g_n_rows[0] || g_n_rows[1]) { for (int i = 0; i < TROW_COUNT; i++) { meta_previews_free(g_rows[i], g_n_rows[i]); g_rows[i] = NULL; g_n_rows[i] = 0; } g_version++; } g_rows_at = -1; return; }
     int exp = store_get_int("traktExpires", 0);
     if (exp && t > exp - 86400) refresh_trakt();

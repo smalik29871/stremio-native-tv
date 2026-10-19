@@ -175,6 +175,25 @@ class H(BaseHTTPRequestHandler):
             with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
                 f.write(f"os download {fid}\n".encode())
             return self.send(200, json.dumps({"link": f"{BASE}/sub_matched.srt?os={fid}", "remaining": 4}).encode())
+        # SimKL AUTH V2: a form-encoded device code, pending on the first poll; "v1app" is an old app
+        if p.startswith("/simkl/oauth2/"):
+            if self.headers.get("Content-Type") != "application/x-www-form-urlencoded":
+                return self.send(415, b'{"error":"invalid_request"}')
+            form = dict(kv.split("=", 1) for kv in body.decode().split("&") if "=" in kv)
+            if p.startswith("/simkl/oauth2/device"):
+                if form.get("client_id") == "v1app":
+                    return self.send(401, b'{"error":"invalid_client","error_description":"AUTH V1 app"}')
+                if "media%3Awrite" not in form.get("scope", ""):
+                    return self.send(400, b'{"error":"invalid_scope"}')
+                return self.send(200, json.dumps({"device_code": "sdev", "user_code": "SV2CODE", "verification_uri": "https://simkl.com/activate",
+                                                  "verification_uri_complete": "https://simkl.com/activate?user_code=SV2CODE", "expires_in": 900, "interval": 1}).encode())
+            if p.startswith("/simkl/oauth2/token"):
+                if form.get("grant_type") == "refresh_token":
+                    return self.send(200, json.dumps({"access_token": "stok3", "refresh_token": "sref2", "expires_in": 604800}).encode())
+                H.simkl_polls = getattr(H, "simkl_polls", 0) + 1
+                if H.simkl_polls < 2:
+                    return self.send(400, b'{"error":"authorization_pending"}')
+                return self.send(200, json.dumps({"access_token": "stok2", "refresh_token": "sref", "expires_in": 604800, "token_type": "Bearer"}).encode())
         if p.startswith("/simkl/sync/history"):
             with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
                 f.write(b"simkl history " + body + b"\n")

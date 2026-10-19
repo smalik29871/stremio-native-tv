@@ -785,7 +785,8 @@ int youtube_player_urls(const char *answer, const char *id, char out[][4608], in
         if (f) {
             fwrite(buf, 1, len, f); fclose(f);
             char rel[96]; snprintf(rel, sizeof rel, "sounds/%s", name);
-            if (phone_local_url(rel, out[n], 4608)) { LOGI("youtube: %s as DASH, %d video qualities", id, k); n++; }
+            const cJSON *v0 = cJSON_GetArrayItem(video, 0), *vh = cJSON_GetObjectItemCaseSensitive(v0, "height"), *vf = cJSON_GetObjectItemCaseSensitive(v0, "fps");
+            if (phone_local_url(rel, out[n], 4608)) { LOGI("youtube: %s as DASH at %dp%s (%d video %s)", id, cJSON_IsNumber(vh) ? vh->valueint : 0, cJSON_IsNumber(vf) && vf->valueint > 30 ? "60" : "", k, k == 1 ? "quality" : "qualities"); n++; }
         }
         free(buf);
     }

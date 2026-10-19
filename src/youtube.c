@@ -757,6 +757,19 @@ static cJSON *dash_pick(const cJSON *adaptive, double length_s)
         }
     }
     if (!cJSON_GetArraySize(video) || !audio) { cJSON_Delete(video); cJSON_Delete(audio); return NULL; }
+    /* Only the best one: given a ladder, the TV's player starts at the bottom and, measuring
+     * the proxy's bursts, seldom climbs. Too much for the line is the fallbacks' job. */
+    int best = 0; double best_s = -1;
+    for (int i = 0; i < cJSON_GetArraySize(video); i++) {
+        const cJSON *rp = cJSON_GetArrayItem(video, i);
+        double s = cJSON_GetObjectItemCaseSensitive(rp, "height")->valuedouble * 1e9 + cJSON_GetObjectItemCaseSensitive(rp, "fps")->valuedouble * 1e6
+                 + cJSON_GetObjectItemCaseSensitive(rp, "bitrate")->valuedouble;
+        if (s > best_s) { best_s = s; best = i; }
+    }
+    cJSON *top = cJSON_DetachItemFromArray(video, best);
+    cJSON_Delete(video);
+    video = cJSON_CreateArray();
+    cJSON_AddItemToArray(video, top);
     cJSON *d = cJSON_CreateObject();
     cJSON_AddItemToObject(d, "video", video);
     cJSON_AddItemToObject(d, "audio", audio);

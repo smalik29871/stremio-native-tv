@@ -32,7 +32,7 @@ typedef struct HttpOptions {
     int deliver;            /* must reach the server: http_shutdown waits for it (watch progress) */
     const char *post_json;  /* POST this body (copied at enqueue time) */
     const char *bearer;     /* Authorization: Bearer <token> (copied) */
-    const char *headers;    /* more request headers, "Name: value" lines joined by \n (copied);
+    const char *headers;    /* more request headers, "Name: value" lines joined by \n (copied); a Content-Type here replaces JSON's;
                                a User-Agent line replaces the app's */
     HttpWorkFn work;        /* off the main thread: see above */
     HttpFreeFn free_parsed; /* frees r->parsed when the callback left it (or was cancelled) */

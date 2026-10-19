@@ -131,7 +131,8 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     Buf b = {0};
     struct curl_slist *hdrs = NULL;
     if (!opt || !opt->no_json_accept) hdrs = C.slist_append(hdrs, "Accept: application/json");
-    if (post_json) hdrs = C.slist_append(hdrs, "Content-Type: application/json");
+    int own_type = opt && opt->headers && (strstr(opt->headers, "Content-Type:") || strstr(opt->headers, "content-type:"));
+    if (post_json && !own_type) hdrs = C.slist_append(hdrs, "Content-Type: application/json");   /* else the caller's (a form, say) */
     if (opt && opt->bearer && opt->bearer[0]) { char *auth = malloc(strlen(opt->bearer) + 32); sprintf(auth, "Authorization: Bearer %s", opt->bearer); hdrs = C.slist_append(hdrs, auth); free(auth); }
     for (const char *p = opt && opt->headers ? opt->headers : ""; *p; ) {
         size_t len = strcspn(p, "\n");
