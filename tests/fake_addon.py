@@ -233,7 +233,7 @@ class H(BaseHTTPRequestHandler):
                     "streamingData": {"formats": [{"itag": 18, "height": 360, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=2&clen={media}"}]}}).encode())
             if client["clientName"] == "IOS":   # the iPhone app also offers an HLS playlist
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "OK"}, "videoDetails": {"videoId": req["videoId"], "lengthSeconds": "185"},
-                                                  "streamingData": {"hlsManifestUrl": f"{BASE}/yt/media/master.m3u8?id={req['videoId']}"}}).encode())
+                                                  "streamingData": {"hlsManifestUrl": f"{BASE}/yt/media/master.m3u8?id={req['videoId']}&c=IOS"}}).encode())
             return self.send(200, json.dumps({
                 "playabilityStatus": {"status": "OK"},
                 "videoDetails": {"videoId": req["videoId"], "title": "Adhan (fixture)", "lengthSeconds": "185"},
@@ -241,9 +241,9 @@ class H(BaseHTTPRequestHandler):
                     "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123"}],
                     "adaptiveFormats": [
                         {"itag": 137, "mimeType": "video/mp4; codecs=\"avc1.640028\"", "bitrate": 4400000, "width": 1920, "height": 1080, "fps": 30,
-                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v1080&clen={media}"},
+                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v1080&c=VISIONOS&clen={media}"},
                         {"itag": 136, "mimeType": "video/mp4; codecs=\"avc1.4d401f\"", "bitrate": 2300000, "width": 1280, "height": 720, "fps": 30,
-                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v720&clen={media}"},
+                         "initRange": {"start": "0", "end": "740"}, "indexRange": {"start": "741", "end": "1500"}, "contentLength": str(media), "url": f"{BASE}/yt/media/video.mp4?id=v720&c=VISIONOS&clen={media}"},
                         {"itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150000, "url": f"{BASE}/yt/media/opus.webm?n=abc123"},
                         {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "audioSampleRate": "44100", "contentLength": str(media),
                          "initRange": {"start": "0", "end": "631"}, "indexRange": {"start": "632", "end": "999"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={media}"},
@@ -381,8 +381,16 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, b"var yt={signatureTimestamp:20250};", "text/javascript")
         if p.startswith("/yt/media/"):   # googlevideo: only the AAC (or muxed MP4) the app should pick, in ranges
             name = p.split("?")[0].rsplit("/", 1)[1]
+            # links are bound to the app they were issued to, as googlevideo's are
+            ua = self.headers.get("User-Agent") or ""
+            if ("c=IOS" in p and "ios.youtube" not in ua) or ("c=VISIONOS" in p and "Macintosh" not in ua):
+                return self.send(403, b"")
+            if name in ("mid.m3u8", "high.m3u8"):
+                return self.send(200, b"#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg1.ts?c=IOS\n#EXT-X-ENDLIST\n", "application/vnd.apple.mpegurl")
+            if name == "seg1.ts":
+                return self.send(200, b"\x47" * 188 * 4, "video/mp2t")
             if name == "master.m3u8":   # three qualities: the app should keep the two sharp ones
-                body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=426x240\nlow.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720\nmid.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\nhigh.m3u8\n"
+                body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=426x240\nlow.m3u8?c=IOS\n#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1280x720\nmid.m3u8?c=IOS\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\nhigh.m3u8?c=IOS\n"
                 return self.send(200, body.encode(), "application/vnd.apple.mpegurl")
             if name not in ("audio.m4a", "video.mp4"):
                 return self.send(403, b"")

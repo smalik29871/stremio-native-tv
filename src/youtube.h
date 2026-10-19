@@ -27,6 +27,8 @@ int youtube_player_urls(const char *answer, const char *id, char out[][4608], in
 
 /* What this TV takes: the resolution cap, AV1, 4K (from Settings and what it learned). */
 void youtube_set_quality(int res_cap, int av1_ok, int uhd_ok);
+/* The User-Agent of the YouTube app a googlevideo link was issued to. */
+const char *youtube_ua_for(const char *url);
 
 /* What the player opens for a youtube_stream() URL: a playlist as it is, a whole file
  * through the TV's own server in YouTube's 10 MB range pieces (as Nuvio reads it). */

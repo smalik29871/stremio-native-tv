@@ -270,36 +270,75 @@ static uint64_t url_clen(const char *url)
     return c && (c == url || c[-1] == '&' || c[-1] == '?') ? strtoull(c + 5, NULL, 10) : 0;
 }
 
-/* HLS master playlist: variants under 720p left out when better ones exist, so the
- * player starts sharp instead of climbing up from 144p */
+/* YouTube's link, as this TV's proxy serves it */
+static void via_proxy(const char *abs, char *out, size_t n)
+{
+    char enc[4200], rel[4300];
+    http_url_encode(abs, enc, sizeof enc);
+    snprintf(rel, sizeof rel, "yt?u=%s", enc);
+    if (!phone_local_url(rel, out, n)) snprintf(out, n, "%s", abs);
+}
+
+static void absolute(const char *base, const char *ref, char *out, size_t n)
+{
+    if (!strncmp(ref, "http", 4)) { snprintf(out, n, "%s", ref); return; }
+    if (ref[0] == '/') {   /* from the host */
+        const char *h = strstr(base, "://"), *slash = h ? strchr(h + 3, '/') : NULL;
+        snprintf(out, n, "%.*s%s", slash ? (int)(slash - base) : (int)strlen(base), base, ref);
+        return;
+    }
+    snprintf(out, n, "%s%s", base, ref);
+}
+
+/* HLS playlists: every link inside (qualities, audio tracks, pieces) is sent through
+ * this proxy, so YouTube sees the User-Agent it issued them to; in the master playlist,
+ * variants under 720p are left out when better ones exist, so it starts sharp */
 static void yt_playlist(YtJob *j)
 {
     HttpResponse r;
-    HttpOptions o = { .timeout_s = 15, .no_json_accept = 1 };
+    char hdr[300]; snprintf(hdr, sizeof hdr, "User-Agent: %s", youtube_ua_for(j->url));
+    HttpOptions o = { .timeout_s = 15, .no_json_accept = 1, .headers = hdr };
     http_request_ex(j->url, &o, &r);
-    if (r.status != 200 || !r.body) { respond_text(j->fd, "502 Bad Gateway", "playlist"); http_response_free(&r); return; }
-    int high = 0;
-    for (const char *c = strstr(r.body, "RESOLUTION="); c; c = strstr(c + 1, "RESOLUTION=")) { const char *x = strchr(c, 'x'); if (x && atoi(x + 1) >= 720) high = 1; }
-    /* links in it are made absolute: the playlist now comes from this TV */
+    if (r.status != 200 || !r.body) { LOGW("yt proxy: playlist %ld", r.status); respond_text(j->fd, "502 Bad Gateway", "playlist"); http_response_free(&r); return; }
     char base[4096]; snprintf(base, sizeof base, "%s", j->url);
     char *q = strchr(base, '?'); if (q) *q = 0;
-    char *slash = strrchr(base, '/'); if (slash) slash[1] = 0;
-    size_t cap = r.len * 2 + 64 + strlen(base) * 64, o2 = 0;
+    char *sl = strrchr(base, '/'); if (sl) sl[1] = 0;
+    int high = 0;
+    for (const char *c = strstr(r.body, "RESOLUTION="); c; c = strstr(c + 1, "RESOLUTION=")) { const char *x = strchr(c, 'x'); if (x && atoi(x + 1) >= 720) high = 1; }
+    size_t cap = r.len * 3 + 65536, o2 = 0;
     char *out = malloc(cap);
     int skip_next = 0;
-    for (char *line = r.body; out && line && *line; ) {
-        char *nl = strchr(line, '\n');
-        size_t l = nl ? (size_t)(nl - line) + 1 : strlen(line);
-        int drop = 0;
+    char absu[4096], prox[4608], line[8192];
+    for (char *p = r.body; out && p && *p; ) {
+        char *nl = strchr(p, '\n');
+        size_t l = nl ? (size_t)(nl - p) : strlen(p);
+        snprintf(line, sizeof line, "%.*s", (int)(l < sizeof line - 1 ? l : sizeof line - 1), p);
+        size_t ll = strlen(line); if (ll && line[ll - 1] == '\r') line[--ll] = 0;
+        p = nl ? nl + 1 : NULL;
         if (high && !strncmp(line, "#EXT-X-STREAM-INF", 17)) {
             const char *res = strstr(line, "RESOLUTION="), *x = res ? strchr(res, 'x') : NULL;
-            if (x && (size_t)(x - line) < l && atoi(x + 1) < 720) { drop = 1; skip_next = 1; }
-        } else if (skip_next && line[0] != '#') { drop = 1; skip_next = 0; }
-        if (!drop) {
-            if (line[0] != '#' && line[0] != '\n' && line[0] != '\r' && strncmp(line, "http", 4) && o2 + strlen(base) + l < cap) { memcpy(out + o2, base, strlen(base)); o2 += strlen(base); }
-            if (o2 + l < cap) { memcpy(out + o2, line, l); o2 += l; }
+            if (x && atoi(x + 1) < 720) { skip_next = 1; continue; }
         }
-        line = nl ? nl + 1 : NULL;
+        char emit[9000];
+        if (!line[0]) emit[0] = 0;
+        else if (line[0] != '#') {
+            if (skip_next) { skip_next = 0; continue; }
+            absolute(base, line, absu, sizeof absu); via_proxy(absu, prox, sizeof prox);
+            snprintf(emit, sizeof emit, "%s", prox);
+        } else {
+            char *u = strstr(line, "URI=\"");   /* audio and subtitle renditions, keys */
+            if (u) {
+                char *e = strchr(u + 5, '"');
+                if (e) {
+                    char ref[4096]; snprintf(ref, sizeof ref, "%.*s", (int)(e - u - 5), u + 5);
+                    absolute(base, ref, absu, sizeof absu); via_proxy(absu, prox, sizeof prox);
+                    snprintf(emit, sizeof emit, "%.*s%s%s", (int)(u + 5 - line), line, prox, e);
+                } else snprintf(emit, sizeof emit, "%s", line);
+            } else snprintf(emit, sizeof emit, "%s", line);
+        }
+        size_t el = strlen(emit);
+        if (o2 + el + 2 >= cap) break;
+        memcpy(out + o2, emit, el); o2 += el; out[o2++] = '\n';
     }
     char head[200];
     snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", o2);
@@ -309,16 +348,30 @@ static void yt_playlist(YtJob *j)
     http_response_free(&r);
 }
 
+/* a whole small file (an HLS piece): fetched with the right User-Agent and passed on */
+static void yt_whole(YtJob *j, const char *hdr)
+{
+    HttpResponse r;
+    HttpOptions o = { .timeout_s = 30, .no_json_accept = 1, .headers = hdr };
+    http_request_ex(j->url, &o, &r);
+    if ((r.status == 200 || r.status == 206) && r.body) {
+        char head[300];
+        snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", r.content_type[0] ? r.content_type : "video/mp2t", r.len);
+        send_all(j->fd, head, strlen(head));
+        send_all(j->fd, r.body, r.len);
+    } else { LOGW("yt proxy: %ld from YouTube", r.status); respond_text(j->fd, r.status ? "502 Bad Gateway" : "504 Gateway Timeout", "YouTube refused"); }
+    http_response_free(&r);
+}
+
 static int yt_main(void *arg)
 {
     YtJob *j = arg;
     if (strstr(j->url, ".m3u8") || strstr(j->url, "/manifest/hls")) { yt_playlist(j); close(j->fd); free(j); return 0; }
     uint64_t total = url_clen(j->url);
-    char head[400];
-    if (!total) {   /* no length to cut pieces against: let the player fetch it itself */
-        snprintf(head, sizeof head, "HTTP/1.1 302 Found\r\nLocation: %.300s\r\nConnection: close\r\n\r\n", j->url);
-        send_all(j->fd, head, strlen(head));
-    } else {
+    char head[400], hdr[300];
+    snprintf(hdr, sizeof hdr, "User-Agent: %s", youtube_ua_for(j->url));
+    if (!total) yt_whole(j, hdr);   /* no length to cut pieces against: an HLS piece */
+    else {
         if (j->start >= total) j->start = 0;
         uint64_t last = j->end && j->end < total ? j->end : total - 1;   /* a DASH player asks for small ranges: send just those */
         if (j->ranged)
@@ -326,17 +379,21 @@ static int yt_main(void *arg)
                      (unsigned long long)j->start, (unsigned long long)last, (unsigned long long)total, (unsigned long long)(last + 1 - j->start));
         else
             snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\nContent-Length: %llu\r\nConnection: close\r\n\r\n", (unsigned long long)total);
-        send_all(j->fd, head, strlen(head));
         size_t ul = strlen(j->url) + 64;
         char *piece_url = malloc(ul);
         uint64_t stop = j->ranged ? last + 1 : total;
+        int sent_head = 0;
         for (uint64_t pos = j->start; pos < stop && piece_url; ) {
             uint64_t end = pos + YT_PIECE - 1 < stop - 1 ? pos + YT_PIECE - 1 : stop - 1;
             snprintf(piece_url, ul, "%s&range=%llu-%llu", j->url, (unsigned long long)pos, (unsigned long long)end);
             HttpResponse r;
-            HttpOptions o = { .timeout_s = 60, .no_json_accept = 1 };
+            HttpOptions o = { .timeout_s = 60, .no_json_accept = 1, .headers = hdr };
             http_request_ex(piece_url, &o, &r);
             int ok = (r.status == 200 || r.status == 206) && r.len > 0;
+            if (!sent_head) {   /* the first piece decides: a refusal is reported, not a cut-off stream */
+                if (!ok) { LOGW("yt proxy: YouTube answered %ld", r.status); respond_text(j->fd, r.status == 403 ? "403 Forbidden" : "502 Bad Gateway", "YouTube refused"); http_response_free(&r); break; }
+                send_all(j->fd, head, strlen(head)); sent_head = 1;
+            }
             if (ok) { ssize_t w = 0; size_t left = r.len; const char *b = r.body;
                       while (left && (w = send(j->fd, b, left, MSG_NOSIGNAL)) > 0) { b += w; left -= (size_t)w; }
                       if (left) ok = 0; }

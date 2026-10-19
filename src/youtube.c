@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <pthread.h>
 #include <dirent.h>
@@ -982,3 +983,17 @@ void youtube_stream(const char *url, YoutubeCallback cb, void *user)
     http_task_async("youtube.com", stream_task, s, on_streamed, s);
 }
 
+
+/* googlevideo links name the client they were issued to ("c=IOS"); YouTube refuses
+ * them (403) when another app's User-Agent asks */
+const char *youtube_ua_for(const char *url)
+{
+    const char *c = url ? strstr(url, "c=") : NULL;
+    while (c && c != url && c[-1] != '&' && c[-1] != '?' && c[-1] != '/') c = strstr(c + 2, "c=");
+    if (c) {
+        char name[32]; size_t l = strcspn(c + 2, "&/");
+        snprintf(name, sizeof name, "%.*s", (int)(l < 31 ? l : 31), c + 2);
+        for (size_t i = 0; i < sizeof CLIENTS / sizeof *CLIENTS; i++) if (!strcasecmp(name, CLIENTS[i].name)) return CLIENTS[i].ua;
+    }
+    return CLIENTS[0].ua;
+}
