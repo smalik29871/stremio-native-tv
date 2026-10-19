@@ -217,7 +217,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(400, b'{"error":"missing visitor id"}')
             if client["clientName"] == "TVHTML5" and req["playbackContext"]["contentPlaybackContext"].get("signatureTimestamp") != 20250:
                 return self.send(400, b'{"error":"the TV client needs the signature timestamp"}')
-            if client["clientName"] == "VISIONOS" and req["videoId"].startswith("tv"):   # the bot check: the app falls back to the TV client
+            if client["clientName"] in ("VISIONOS", "ANDROID", "IOS") and req["videoId"].startswith("tv"):   # the bot check: the app falls back to the TV client
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you\u2019re not a bot"}}).encode())
             media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
             if client["clientName"] == "IOS":   # the iPhone app also offers an HLS playlist
