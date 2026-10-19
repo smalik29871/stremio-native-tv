@@ -136,16 +136,9 @@ static void on_trailer_stream(const char *url, const char *error, void *user)
     if (!top || strcmp(top->name, "detail") != 0 || strcmp(((Detail *)top->st)->preview.id, g_trailer.id) != 0) return;
     const MetaPreview *meta = &((Detail *)top->st)->preview;
     PlayCandidate *c = calloc(1, sizeof *c);
-    /* a whole file goes through the TV's own server in 10 MB pieces, as Nuvio fetches it;
-     * a playlist's pieces are small already */
-    char local[4600], enc[4200];
-    int playlist = strstr(url, ".m3u8") || strstr(url, "/manifest/");
-    if (!playlist && strlen(url) < 3000) {
-        char rel[4300];
-        http_url_encode(url, enc, sizeof enc);
-        snprintf(rel, sizeof rel, "yt?u=%s", enc);
-        if (phone_local_url(rel, local, sizeof local)) url = local;
-    }
+    char local[4600];
+    youtube_player_url(url, local, sizeof local);
+    url = local;
     c->url = strdup(url);
     c->label = strdup("Trailer");
     char vid[160], title[200];

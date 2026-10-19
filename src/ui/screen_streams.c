@@ -2,6 +2,7 @@
 #include "../lang.h"
 #include "../http.h"
 #include "../log.h"
+#include "../youtube.h"
 #include "../probe.h"
 #include "../store.h"
 #include "../torrent.h"
@@ -716,9 +717,40 @@ int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c
 /* Build the fallback list: the chosen stream first, then other playable ones (same
  * binge group preferred), capped so a bad addon can't stall for ages. The best P2P
  * source rides along last, so TorBox being down still ends in something that plays. */
+/* A YouTube video from an addon (YouTubio, trailer addons): streamed the way Nuvio
+ * plays YouTube, then opened like any other source. */
+static struct { int busy; MetaPreview meta; char video_id[160], title[300]; } g_yt;
+static void on_yt_stream(const char *url, const char *error, void *user)
+{
+    (void)user;
+    g_yt.busy = 0;
+    if (!url) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); meta_preview_free(&g_yt.meta); return; }
+    PlayCandidate *c = calloc(1, sizeof *c);
+    char local[4600];
+    youtube_player_url(url, local, sizeof local);
+    c->url = strdup(local);
+    c->label = strdup("YouTube");
+    LOGI("streams: YouTube video for %s streaming", g_yt.video_id);
+    app_push(screen_player_create(&g_yt.meta, g_yt.video_id, g_yt.title, c, 1, 0, 0, NULL, NULL));
+    meta_preview_free(&g_yt.meta);
+}
+
+static void play_yt(Streams *st, const Stream *s)
+{
+    if (g_yt.busy) { app_toast("Getting the video from YouTube\xE2\x80\xA6"); return; }
+    g_yt.busy = 1;
+    meta_preview_copy(&g_yt.meta, &st->meta);
+    snprintf(g_yt.video_id, sizeof g_yt.video_id, "%s", st->video_id);
+    snprintf(g_yt.title, sizeof g_yt.title, "%s%s%s", st->meta.name, st->video_title ? "  -  " : "", st->video_title ? st->video_title : "");
+    char url[80]; snprintf(url, sizeof url, "https://www.youtube.com/watch?v=%s", s->yt_id);
+    app_toast("Getting the video from YouTube\xE2\x80\xA6");
+    youtube_stream(url, on_yt_stream, NULL);
+}
+
 static void play_from(Streams *st, int index)
 {
     if (app_pip_claim(st->video_id)) return;
+    if (st->items[index].yt_id && !st->items[index].url) { play_yt(st, &st->items[index]); return; }
     char reason[160];
     char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
     if (!url) { app_toast("%s", reason); return; }

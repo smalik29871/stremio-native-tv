@@ -3,6 +3,7 @@
 #include "store.h"
 #include "frames.h"
 #include "http.h"
+#include "youtube.h"
 #include <sys/stat.h>
 #include <SDL.h>
 #include <stdio.h>
@@ -603,4 +604,15 @@ char *phone_take_restore(void)
     char *r = g_restore; g_restore = NULL;
     SDL_UnlockMutex(g_lock);
     return r;
+}
+
+/* youtube.h: a YouTube file goes through /yt in 10 MB range pieces; a playlist as it is */
+void youtube_player_url(const char *u, char *out, size_t n)
+{
+    snprintf(out, n, "%s", u);
+    if (strstr(u, ".m3u8") || strstr(u, "/manifest/") || strlen(u) > 3000) return;
+    char enc[4200], rel[4300];
+    http_url_encode(u, enc, sizeof enc);
+    snprintf(rel, sizeof rel, "yt?u=%s", enc);
+    if (!phone_local_url(rel, out, n)) snprintf(out, n, "%s", u);
 }
