@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
 enum { BTN_PLAY, BTN_RESTART, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
@@ -719,6 +720,22 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
     }
 }
 
+/* Anime counts episodes from the first across seasons (One Piece's 1100th): the
+ * number beside the season's own, for anime past its first season. 0 when not shown. */
+static int anime_absolute(const Detail *d, const MetaVideo *v)
+{
+    if (v->season < 2 || v->episode < 1) return 0;
+    int anime = 0;
+    for (int i = 0; i < d->preview.genres.n; i++) if (strcasecmp(d->preview.genres.v[i], "anime") == 0) anime = 1;
+    if (!anime) return 0;
+    int before = 0;
+    for (int i = 0; i < d->meta.n_videos; i++) {
+        const MetaVideo *o = &d->meta.videos[i];
+        if (o->season >= 1 && o->season < v->season && o->episode >= 1) before++;
+    }
+    return before ? before + v->episode : 0;
+}
+
 static void draw_series(Detail *d, const LibraryItem *li, float x)
 {
     /* season tabs */
@@ -773,7 +790,9 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
             if (is_cur && li->duration && li->time_offset) ui_progress(x2 + 16, y2 + h2 - 18, w2 - 32, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
             if (foc) { gfx_circle(x2 + w2 / 2, y2 + h2 / 2, 34, RGBA(0, 0, 0, 0x80)); ui_icon(ICON_PLAY, x2 + w2 / 2 + 3, y2 + h2 / 2, 30, THEME_TEXT); }
             char lbl[256];
-            if (v->episode >= 0) snprintf(lbl, sizeof lbl, "E%d  %s", v->episode, v->title ? v->title : "");
+            int absn = anime_absolute(d, v);
+            if (v->episode >= 0 && absn) snprintf(lbl, sizeof lbl, "E%d  \xC2\xB7  #%d  %s", v->episode, absn, v->title ? v->title : "");
+            else if (v->episode >= 0) snprintf(lbl, sizeof lbl, "E%d  %s", v->episode, v->title ? v->title : "");
             else snprintf(lbl, sizeof lbl, "%s", v->title ? v->title : "Episode");
             float ly = RAIL_Y + EP_H + 16 + (foc ? 12 : 0);
             font_draw_fit(lbl, px, ly, FONT_S | FONT_B, foc || d->area != AREA_EPISODES ? THEME_TEXT : THEME_TEXT_DIM, EP_W);

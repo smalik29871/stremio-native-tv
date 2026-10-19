@@ -84,6 +84,12 @@ int main(void)
     CHECK(skip_parse_kitsu_mal(j) == 21);
     free(j);
     CHECK(skip_parse_kitsu_mal("{\"data\":[]}") == 0);
+    CHECK(skip_parse_arm_mal("[{\"anilist\":21,\"myanimelist\":21,\"imdb\":\"tt0388629\"}]") == 21);
+    CHECK(skip_parse_arm_mal("[{\"myanimelist\":21},{\"myanimelist\":21}]") == 21);
+    CHECK(skip_parse_arm_mal("[{\"myanimelist\":16498},{\"myanimelist\":20958}]") == 0);   /* one per season */
+    CHECK(skip_parse_arm_mal("[{\"anidb\":1}]") == 0);
+    CHECK(skip_parse_arm_mal("[]") == 0);
+    CHECK(skip_parse_arm_mal("not json") == 0);
 
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("skip: all checks passed\n");
