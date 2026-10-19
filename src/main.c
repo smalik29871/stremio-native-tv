@@ -168,6 +168,11 @@ static void dispatch_key(KeyAction a)
 {
     Screen *top = app_top();
     if (intro_active()) { intro_skip(); return; }   /* a key during the launch animation only ends it */
+    if (island_has_focus()) {   /* the resume card has the focus */
+        if (a == KEY_OK || a == KEY_LONG_OK) island_focus_key(1);
+        else if (a == KEY_DOWN || a == KEY_BACK || a == KEY_LEFT) island_focus_key(0);
+        return;
+    }
     if (a == KEY_OK || a == KEY_LONG_OK) g_app.press_at = g_app.time;
     if (a == KEY_BLUE && top && !g_app.pip) {   /* Blue on a browsing screen opens the title the island offers to resume */
         static const char *const BROWSE[] = { "home", "explore", "library", "calendar", "search" };

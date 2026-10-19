@@ -83,6 +83,9 @@ run upnext_ok 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,wait,ok" SN
 # leaving a video mid-way: the island offers it back on Home, and Blue opens it
 run island_resume 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume.log" || { echo "Blue did not open the title left mid-way"; grep -i "island\|player" "$OUT/island_resume.log"; exit 1; }
+run island_resume_up 540 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with island_up '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "island: resume tt0903747" "$OUT/island_resume_up.log" || { echo "Up and OK did not open the resume card"; grep -i "island" "$OUT/island_resume_up.log"; exit 1; }
+run island_resume_focus 500 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up" SNTV_FAKE_START=200 HOME="$(home_with island_f '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 [ "$(grep -c 'player: candidate' "$OUT/upnext_ok.log")" -ge 2 ] || { echo "OK on the Up Next card did not start the next episode"; grep player "$OUT/upnext_ok.log"; exit 1; }
 # next episode's sources still arriving (the /slow addon answers 6 s late): the Up Next
 # button and the control bar's Next button fill as a loader

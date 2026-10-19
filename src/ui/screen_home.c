@@ -11,6 +11,7 @@
 #include "widgets.h"
 #include "screen_options.h"
 #include "rail.h"
+#include "island.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -694,7 +695,7 @@ static int key(Screen *s, KeyAction a)
         switch (a) {
         case KEY_LEFT: if (n) { h->feat = (h->feat + n - 1) % n; h->feat_timer = 0; } return 1;
         case KEY_RIGHT: if (n) { h->feat = (h->feat + 1) % n; h->feat_timer = 0; } return 1;
-        case KEY_UP: return 1;
+        case KEY_UP: island_take_focus(); return 1;   /* the resume card, when it is up there */
         case KEY_DOWN: { int r = next_visible(h, -1, 1); if (r >= 0) move_focus(h, r, -1); return 1; }
         case KEY_OK: { const MetaPreview *m = hero_item(h); if (m) app_push(screen_detail_create(m)); return 1; }
         case KEY_BACK: open_rail(h); return 1;
@@ -719,6 +720,7 @@ static int key(Screen *s, KeyAction a)
         int n = next_visible(h, h->focus_row, -1);
         if (n < 0 && g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->prev_row = h->focus_row; h->prev_col = r->focus; h->prev_t = h->focus_t; h->focus_row = FOCUS_SHOWCASE; return 1; }
         if (n >= 0) move_focus(h, n, -1);   /* the top row is the top: the rail is to the left */
+        else island_take_focus();           /* ...unless the resume card is up there */
         return 1;
     }
     case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) { move_focus(h, n, -1); return 1; } h->nudge_at = g_app.time; h->nudge_dir = 2; return 1; }
