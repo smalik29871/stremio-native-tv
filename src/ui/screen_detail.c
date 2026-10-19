@@ -407,13 +407,26 @@ static void draw(Screen *s)
     if (!series) { if (d->ask_open) draw_ask(d); return; }
 
     /* season tabs */
-    float sy = RAIL_Y - 84, sx = x;
-    for (int i = 0; i < d->n_seasons; i++) {
+    float sy = RAIL_Y - 84, sx = x, avail = SNTV_UI_W - THEME_MARGIN - x;
+    /* many seasons: the strip starts late enough for the selected one to show */
+    int start = 0;
+    for (;;) {
+        float used = 0;
+        for (int i = start; i <= d->season_idx && i < d->n_seasons; i++) {
+            char l2[32];
+            if (d->seasons[i] == 0) snprintf(l2, sizeof l2, "Specials"); else snprintf(l2, sizeof l2, "Season %d", d->seasons[i]);
+            used += font_measure(l2, FONT_S | FONT_B) + 52;
+        }
+        if (used <= avail - 60 || start >= d->season_idx) break;
+        start++;
+    }
+    if (start > 0) { ui_icon(ICON_CHEVRON_LEFT, sx + 10, sy + 26, 22, THEME_TEXT_MUTED); sx += 34; }
+    for (int i = start; i < d->n_seasons; i++) {
         char lbl[32];
         if (d->seasons[i] == 0) snprintf(lbl, sizeof lbl, "Specials"); else snprintf(lbl, sizeof lbl, "Season %d", d->seasons[i]);
         int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel;
         float w = font_measure(lbl, FONT_S | FONT_B) + 44;
-        if (sx + w > SNTV_UI_W - THEME_MARGIN) break;
+        if (sx + w > SNTV_UI_W - THEME_MARGIN) { ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 10, sy + 26, 22, THEME_TEXT_MUTED); break; }
         if (foc) gfx_rrect(sx, sy, w, 52, theme_pill_r(52), THEME_FOCUS);
         else if (sel) gfx_rrect(sx, sy, w, 52, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x2C));
         font_draw(lbl, sx + 22, sy + (52 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : sel ? THEME_TEXT : THEME_TEXT_MUTED);
@@ -626,7 +639,14 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
-static void resume(Screen *s) { Detail *d = s->st; load_resume(d); app_redraw(); }
+static void resume(Screen *s)
+{
+    Detail *d = s->st;
+    int was = btn_at(d, d->btn);   /* a resume point can add "From the start": keep the same button */
+    load_resume(d);
+    for (int i = 0; i < n_buttons_d(d); i++) if (btn_at(d, i) == was) { d->btn = i; break; }
+    app_redraw();
+}
 
 static void destroy(Screen *s)
 {

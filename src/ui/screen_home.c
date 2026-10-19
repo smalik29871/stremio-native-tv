@@ -46,6 +46,8 @@ typedef struct {
     Row **rows; int n_rows;
     int focus_row;            /* -1 = nav bar */
     int focus_nav;
+    int rail_from;            /* the row (or FOCUS_SHOWCASE) the rail was opened from */
+    float exit_ask;           /* time Back was pressed on the rail; a second Back soon after leaves */
     float scroll_y;
     int addons_seen, library_seen, rows_seen, watched_seen;
     float focus_t;            /* 0..1 grow-in of the focused card */
@@ -122,6 +124,8 @@ static MetaPreview preview_from_item(const LibraryItem *li)
 
 static void build_library_row(Row *r)
 {
+    char keep[160] = "";   /* the focused title, found again after the re-sort */
+    if (r->focus < r->n && r->metas[r->focus].id) snprintf(keep, sizeof keep, "%s", r->metas[r->focus].id);
     meta_previews_free(r->metas, r->n);
     r->metas = NULL; r->n = 0;
     if (!g_app.n_library) return;
@@ -143,6 +147,7 @@ static void build_library_row(Row *r)
     r->metas = calloc((size_t)n + 1, sizeof(MetaPreview));
     for (int i = 0; i < n; i++) r->metas[i] = preview_from_item(sorted[i]);
     r->n = n;
+    if (keep[0]) for (int i = 0; i < n; i++) if (r->metas[i].id && strcmp(r->metas[i].id, keep) == 0) { r->focus = i; break; }
     if (r->focus >= n) r->focus = n ? n - 1 : 0;
     free(sorted);
 }
@@ -158,6 +163,10 @@ static Row *new_row(int kind, const char *title)
 static void rebuild_rows(Home *h)
 {
     Row **old = h->rows; int n_old = h->n_rows;
+    /* rows can be reordered or hidden: the focus follows its row, not its position */
+    char keep[200] = "", keep_rail[200] = "";
+    if (h->focus_row >= 0 && h->focus_row < n_old) snprintf(keep, sizeof keep, "%s", old[h->focus_row]->key);
+    if (h->rail_from >= 0 && h->rail_from < n_old) snprintf(keep_rail, sizeof keep_rail, "%s", old[h->rail_from]->key);
     HomeRowDef defs[160];
     int nd = app_home_rows(defs, 160);
     h->rows = calloc((size_t)nd + 1, sizeof(Row *));
@@ -177,6 +186,10 @@ static void rebuild_rows(Home *h)
     }
     for (int i = 0; i < n_old; i++) row_free(old[i]);
     free(old);
+    for (int i = 0; i < h->n_rows; i++) {
+        if (keep[0] && strcmp(h->rows[i]->key, keep) == 0) h->focus_row = i;
+        if (keep_rail[0] && strcmp(h->rows[i]->key, keep_rail) == 0) h->rail_from = i;
+    }
     if (h->focus_row >= h->n_rows) h->focus_row = h->n_rows - 1;
     h->addons_seen = g_app.addons_version;
     h->rows_seen = g_app.home_rows_version;
@@ -599,6 +612,24 @@ static void move_focus(Home *h, int row, int col)
     h->focus_t = 0;
 }
 
+/* Focus to the rail, remembering where it came from so Right (or coming back) returns there. */
+static void open_rail(Home *h)
+{
+    h->rail_from = h->focus_row;
+    h->focus_nav = RAIL_HOME;
+    move_focus(h, -1, -1);
+}
+
+/* Back to the content after the rail: the row it was opened from when that is still there. */
+static void close_rail(Home *h)
+{
+    if (h->rail_from == FOCUS_SHOWCASE && g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->focus_row = FOCUS_SHOWCASE; return; }
+    int n = h->rail_from >= 0 && h->rail_from < h->n_rows && row_visible(h->rows[h->rail_from]) ? h->rail_from : -1;
+    if (n < 0 && g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->focus_row = FOCUS_SHOWCASE; return; }
+    if (n < 0) n = next_visible(h, -1, 1);
+    if (n >= 0) move_focus(h, n, -1);
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Home *h = s->st;
@@ -610,22 +641,23 @@ static int key(Screen *s, KeyAction a)
         switch (a) {
         case KEY_LEFT: if (n) { h->feat = (h->feat + n - 1) % n; h->feat_timer = 0; } return 1;
         case KEY_RIGHT: if (n) { h->feat = (h->feat + 1) % n; h->feat_timer = 0; } return 1;
-        case KEY_UP: h->focus_row = -1; return 1;
+        case KEY_UP: return 1;
         case KEY_DOWN: { int r = next_visible(h, -1, 1); if (r >= 0) move_focus(h, r, -1); return 1; }
         case KEY_OK: { const MetaPreview *m = hero_item(h); if (m) app_push(screen_detail_create(m)); return 1; }
-        case KEY_BACK: h->focus_row = -1; h->focus_nav = RAIL_HOME; return 1;
+        case KEY_BACK: open_rail(h); return 1;
         default: return 1;
         }
     }
     if (h->focus_row == -1) {   /* the side rail */
         int r = rail_key(a, &h->focus_nav, RAIL_HOME);
-        if (r == 2) {   /* Right: back into the content */
-            if (g_app.home_style == HOME_SHOWCASE && featured_count(h)) h->focus_row = FOCUS_SHOWCASE;
-            else { int n = next_visible(h, -1, 1); if (n >= 0) move_focus(h, n, -1); }
+        if (r == 2) { close_rail(h); return 1; }   /* Right, or OK on Home: back into the content */
+        if (r == 1) return 1;
+        if (a == KEY_BACK) {   /* leaving the app takes a second Back */
+            if (h->exit_ask > 0 && g_app.time - h->exit_ask < 2.5f) { g_app.quit = 1; return 1; }
+            h->exit_ask = g_app.time;
+            app_toast("Press Back again to leave");
             return 1;
         }
-        if (r == 1) return 1;
-        if (a == KEY_BACK) { g_app.quit = 1; return 1; }
         return 0;
     }
     Row *r = h->rows[h->focus_row];
@@ -633,25 +665,33 @@ static int key(Screen *s, KeyAction a)
     case KEY_UP: {
         int n = next_visible(h, h->focus_row, -1);
         if (n < 0 && g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->prev_row = h->focus_row; h->prev_col = r->focus; h->prev_t = h->focus_t; h->focus_row = FOCUS_SHOWCASE; return 1; }
-        move_focus(h, n >= 0 ? n : -1, -1); return 1;
+        if (n >= 0) move_focus(h, n, -1);   /* the top row is the top: the rail is to the left */
+        return 1;
     }
     case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) { move_focus(h, n, -1); return 1; } return 0; }
     case KEY_LEFT:
         if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1);
-        else { h->focus_nav = RAIL_HOME; move_focus(h, -1, -1); }   /* first card: the rail */
+        else open_rail(h);   /* first card: the rail */
         return 1;
     case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
     case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
     case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (r->focus < r->n) screen_options_for_title(&r->metas[r->focus]); return 1;
     case KEY_BACK:
         if (h->focus_row != next_visible(h, -1, 1) || r->focus > 0) { r->focus = 0; move_focus(h, next_visible(h, -1, 1), 0); return 1; }
-        h->focus_nav = RAIL_HOME; move_focus(h, -1, -1);   /* then the rail; Back there leaves the app */
+        open_rail(h);   /* then the rail; two Backs there leave the app */
         return 1;
     default: return 0;
     }
 }
 
-static void resume(Screen *s) { (void)s; app_redraw(); }
+/* Back from a section or screen opened from the rail: the focus returns to the content. */
+static void resume(Screen *s)
+{
+    Home *h = s->st;
+    if (h->focus_row == -1 && h->landed) close_rail(h);
+    h->focus_nav = RAIL_HOME;
+    app_redraw();
+}
 
 static void destroy(Screen *s)
 {

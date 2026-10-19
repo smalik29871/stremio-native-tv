@@ -240,12 +240,12 @@ static int key(Screen *s, KeyAction a)
             app_push(screen_detail_create(&p));   /* the detail copies what it needs */
         }
         return 1;
-    case KEY_BACK: app_pop(); return 1;
+    case KEY_BACK: c->rail_focus = RAIL_CALENDAR; return 1;   /* the rail; Back there goes Home */
     default: return 0;
     }
 }
 
-static void resume(Screen *s) { (void)s; app_redraw(); }
+static void resume(Screen *s) { Calendar *c = s->st; c->rail_focus = -1; app_redraw(); }
 
 static void destroy(Screen *s)
 {

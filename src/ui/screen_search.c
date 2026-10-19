@@ -30,6 +30,7 @@ struct Search {
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* or type on the phone */
     MetaPreview *results; int n;
     int grid_focus;
+    int want_results;         /* a search was asked for: focus moves to the results when they arrive */
     float debounce;
     int dirty;
     unsigned generation;      /* increments per query; stale replies are dropped */
@@ -129,6 +130,7 @@ static void on_result(HttpResponse *r, void *user)
             if (dup) meta_preview_free(&metas[i]); else s->results[s->n++] = metas[i];
         }
         free(metas);
+        if (s->want_results && s->n && !s->typing && s->focus_grid == 0) { s->focus_grid = 1; s->grid_focus = 0; s->focus_t = 0; s->want_results = 0; }
     }
     app_redraw();
     free(p);
@@ -367,6 +369,7 @@ static int key_typing(Search *s, KeyAction a)
         close_keyboard(s);
         s->dirty = 0; run_query(s);
         if (s->n) { s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
+        else s->want_results = 1;
     }
     return 1;
 }
@@ -384,7 +387,7 @@ static int key(Screen *sc, KeyAction a)
         switch (a) {
         case KEY_OK: open_keyboard(s); return 1;
         case KEY_DOWN:
-            if (s->n) { s->focus_grid = 1; s->grid_focus = 0; s->focus_t = 0; }
+            if (s->n) { s->focus_grid = 1; if (s->grid_focus >= s->n) s->grid_focus = 0; s->focus_t = 0; }
             else if (!s->kb.text[0] && s->n_recent) { s->focus_grid = 2; s->recent_focus = 0; }
             return 1;
         case KEY_BACKSPACE: open_keyboard(s); return key_typing(s, a);
@@ -402,6 +405,7 @@ static int key(Screen *sc, KeyAction a)
             if (s->recent_focus == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return 1; }
             keyboard_init(&s->kb, 0, s->recent[s->recent_focus]);
             s->dirty = 0; s->focus_grid = 0; run_query(s);
+            s->want_results = 1;   /* the results take the focus when they come */
             return 1;
         default: return 1;
         }
@@ -410,7 +414,10 @@ static int key(Screen *sc, KeyAction a)
     case KEY_LEFT: if (s->grid_focus % COLS) s->grid_focus--; return 1;
     case KEY_RIGHT: if (s->grid_focus % COLS < COLS - 1 && s->grid_focus + 1 < s->n) s->grid_focus++; return 1;
     case KEY_UP: if (s->grid_focus >= COLS) s->grid_focus -= COLS; else s->focus_grid = 0; return 1;
-    case KEY_DOWN: if (s->grid_focus + COLS < s->n) { s->grid_focus += COLS; return 1; } return 0;
+    case KEY_DOWN:
+        if (s->grid_focus + COLS < s->n) { s->grid_focus += COLS; return 1; }
+        if (s->grid_focus / COLS < (s->n - 1) / COLS) { s->grid_focus = s->n - 1; return 1; }   /* a short last row */
+        return 0;
     case KEY_OK: if (s->grid_focus < s->n) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[s->grid_focus])); } return 1;
     case KEY_BACK: s->focus_grid = 0; return 1;
     default: return 0;

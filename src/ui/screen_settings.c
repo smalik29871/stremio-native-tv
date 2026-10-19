@@ -80,6 +80,7 @@ typedef struct {
     float scroll, scroll_target;
     float pane_t; int pane_cat;   /* rows slide in when the category changes */
     float wide_t;                 /* 0 choosing a category .. 1 inside one (preview shown) */
+    int cat_focus[CAT_COUNT];     /* the row each category had focused, for coming back */
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* type on your phone */
     HomeRowDef rows[MAX_ROWS]; int n_rows; int rows_seen;
     char accounts[8][128]; int n_accounts;
@@ -614,7 +615,7 @@ static void draw(Screen *s)
         default:
             if (id >= IT_ACCT_BASE) {
                 char t[160]; snprintf(t, sizeof t, "Switch to %s", st->accounts[id - IT_ACCT_BASE]);
-                draw_row(y, ICON_USER, t, "Saved sign-in  \xC2\xB7  OK switches  \xC2\xB7  Left forgets it", foc, KIND_ACTION, 0);
+                draw_row(y, ICON_USER, t, "Saved sign-in  \xC2\xB7  OK to switch or forget", foc, KIND_ACTION, 0);
             } else if (id >= IT_ADDON_BASE) {
                 const Addon *a = &g_app.addons[id - IT_ADDON_BASE];
                 char title[200];
@@ -909,10 +910,7 @@ static int adjust(Settings *st, int id, int dir)
     }
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     default:
-        if (id >= IT_ACCT_BASE) {
-            if (dir < 0) { app_forget_account(id - IT_ACCT_BASE); app_toast("Saved sign-in forgotten"); }
-            return 1;
-        }
+        if (id >= IT_ACCT_BASE) return 0;   /* switching and forgetting are behind OK */
         if (id >= IT_ADDON_BASE) {
             int i = id - IT_ADDON_BASE;
             if (app_move_addon(i, dir)) st->focus += dir;
@@ -930,6 +928,13 @@ static int adjust(Settings *st, int id, int dir)
     app_save_prefs();
     breaks_settings_changed();
     return 1;
+}
+
+static void on_account_choice(int c, void *user)
+{
+    int i = *(int *)user;
+    if (c == 0) app_switch_account(i);
+    else if (c == 1) { app_forget_account(i); app_toast("Saved sign-in forgotten"); }
 }
 
 static void after_pin_clear(int ok, void *user) { (void)user; if (ok) { app_set_parental_pin(NULL); app_toast("PIN removed"); } }
@@ -951,7 +956,12 @@ static int key(Screen *s, KeyAction a)
         switch (a) {
         case KEY_UP: if (st->cat > 0) { st->cat--; st->focus = 0; st->scroll = 0; } return 1;
         case KEY_DOWN: if (st->cat < CAT_COUNT - 1) { st->cat++; st->focus = 0; st->scroll = 0; } return 1;
-        case KEY_RIGHT: case KEY_OK: { int f = focusable(ids, n, 0, 1); if (f >= 0) { st->zone = 1; st->focus = f; } return 1; }
+        case KEY_RIGHT: case KEY_OK: {   /* back to the row this category had */
+            int f = focusable(ids, n, st->cat_focus[st->cat] < n ? st->cat_focus[st->cat] : 0, 1);
+            if (f < 0) f = focusable(ids, n, 0, 1);
+            if (f >= 0) { st->zone = 1; st->focus = f; }
+            return 1;
+        }
         case KEY_BACK: app_pop(); return 1;
         default: return 0;
         }
@@ -965,9 +975,12 @@ static int key(Screen *s, KeyAction a)
     switch (a) {
     case KEY_UP: { int f = focusable(ids, n, st->focus - 1, -1); if (f >= 0) st->focus = f; st->confirm_remove = -1; return 1; }
     case KEY_DOWN: { int f = focusable(ids, n, st->focus + 1, 1); if (f >= 0) { st->focus = f; st->confirm_remove = -1; return 1; } return 0; }
-    case KEY_LEFT: if (!adjust(st, id, -1)) st->zone = 0; return 1;
+    case KEY_LEFT:   /* choices and reorderable rows take Left; elsewhere it goes back to the categories */
+        if ((s_fkind == KIND_CHOICE || s_fkind == KIND_MOVABLE || (id >= IT_ADDON_BASE && id < IT_ACCT_BASE)) && adjust(st, id, -1)) return 1;
+        st->cat_focus[st->cat] = st->focus; st->zone = 0;
+        return 1;
     case KEY_RIGHT: adjust(st, id, 1); return 1;
-    case KEY_BACK: st->zone = 0; st->confirm_remove = -1; return 1;
+    case KEY_BACK: st->cat_focus[st->cat] = st->focus; st->zone = 0; st->confirm_remove = -1; return 1;
     case KEY_OK:
         if (id == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Signed out"); } else app_push(screen_login_create()); }
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
@@ -991,7 +1004,13 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_PIN) { if (g_app.parental_pin[0]) app_push(screen_pin_create("Remove the parental PIN", 0, after_pin_clear, NULL)); else app_push(screen_pin_create("Parental PIN", 1, NULL, NULL)); }
         else if (id == IT_PIN_SETTINGS) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.pin_settings));
         else if (id == IT_HIDE_ADULT) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.hide_adult));
-        else if (id >= IT_ACCT_BASE) app_switch_account(id - IT_ACCT_BASE);
+        else if (id >= IT_ACCT_BASE) {
+            static const char *const ITEMS[] = { "Switch to this account", "Forget this sign-in" };
+            static const int ICONS[] = { ICON_USER, ICON_CLOSE };
+            static int which;
+            which = id - IT_ACCT_BASE;
+            app_push(screen_options_create_ex(st->accounts[which], "Saved sign-in", NULL, ITEMS, ICONS, 2, on_account_choice, &which));
+        }
         else if (id == IT_SETUP) app_push(screen_welcome_create());
         else if (id >= IT_ADDON_BASE) {
             int idx = id - IT_ADDON_BASE;

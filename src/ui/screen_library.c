@@ -43,6 +43,8 @@ static MetaPreview preview_of(const LibraryItem *li)
 
 static void build(Library *l)
 {
+    char keep[160] = "";   /* the focused title, found again after the re-sort */
+    if (l->focus < l->n && l->items[l->focus].id) snprintf(keep, sizeof keep, "%s", l->items[l->focus].id);
     meta_previews_free(l->items, l->n); free(l->src);
     l->items = NULL; l->src = NULL; l->n = 0;
     const LibraryItem **pick = calloc((size_t)g_app.n_library + 1, sizeof *pick);
@@ -67,6 +69,7 @@ static void build(Library *l)
     l->items = calloc((size_t)n + 1, sizeof(MetaPreview));
     for (int i = 0; i < n; i++) l->items[i] = preview_of(pick[i]);
     l->src = pick; l->n = n;
+    if (keep[0] && l->built_filter == l->filter) for (int i = 0; i < n; i++) if (l->items[i].id && strcmp(l->items[i].id, keep) == 0) { l->focus = i; break; }
     if (l->focus >= n) l->focus = n ? n - 1 : 0;
     l->seen_version = g_app.library_version; l->built_filter = l->filter; l->built_sort = l->sort;
 }
@@ -168,6 +171,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_DOWN:
         if (l->zone == Z_FILTERS) { if (l->n) l->zone = Z_GRID; }
         else if (l->focus + COLS < l->n) { l->focus += COLS; l->focus_t = 0; }
+        else if (l->focus / COLS < (l->n - 1) / COLS) { l->focus = l->n - 1; l->focus_t = 0; }   /* a short last row */
         else return 0;
         return 1;
     case KEY_LEFT:
@@ -185,13 +189,13 @@ static int key(Screen *s, KeyAction a)
     case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (l->zone == Z_GRID && l->focus < l->n) { screen_options_for_title(&l->items[l->focus]); return 1; } return a != KEY_LONG_OK;
     case KEY_BACK:
         if (l->zone == Z_GRID) { l->zone = Z_FILTERS; l->pill_focus = l->filter; return 1; }
-        app_pop();
+        l->rail_focus = RAIL_LIBRARY;   /* then the rail; Back there goes Home */
         return 1;
     default: return 0;
     }
 }
 
-static void resume(Screen *s) { (void)s; app_redraw(); }
+static void resume(Screen *s) { Library *l = s->st; l->rail_focus = -1; app_redraw(); }
 
 static void destroy(Screen *s)
 {

@@ -52,7 +52,7 @@ int rail_key(KeyAction a, int *focus, int active)
     case KEY_DOWN: if (*focus < RAIL_COUNT - 1) (*focus)++; app_redraw(); return 1;
     case KEY_RIGHT: app_redraw(); return 2;
     case KEY_BACK: return 0;
-    case KEY_OK: rail_go(active, *focus); return 1;
+    case KEY_OK: if (*focus == active) { app_redraw(); return 2; } rail_go(active, *focus); return 1;   /* OK on this section: back to it */
     case KEY_LEFT: return 1;
     default: return 0;
     }

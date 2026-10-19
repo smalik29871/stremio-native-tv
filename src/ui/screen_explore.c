@@ -108,8 +108,8 @@ static void build_cats(Explore *e)
             if (strcmp(cat->type, e->types[e->type_i]) != 0 || !usable(cat) || (g_app.hide_adult && g_app.addons[a].manifest.bh_adult)) continue;
             e->cats[e->n_cats].addon = a; e->cats[e->n_cats].catalog = c; e->n_cats++;
         }
-    if (e->cat_i >= e->n_cats) e->cat_i = 0;
-    e->genre_i = 0;
+    e->cat_i = e->cat_focus = 0;   /* a new type has its own lists */
+    e->genre_i = e->genre_focus = 0;
 }
 
 static void reset_items(Explore *e)
@@ -322,16 +322,18 @@ static int key(Screen *s, KeyAction a)
     switch (a) {
     case KEY_UP:
         if (e->zone == Z_GRID && e->focus >= COLS) { e->focus -= COLS; e->focus_t = 0; return 1; }
-        if (e->zone == Z_GRID) e->zone = ng ? Z_GENRES : Z_CATS;
+        if (e->zone == Z_GRID) e->zone = ng ? Z_GENRES : e->n_cats ? Z_CATS : Z_TYPES;
         else if (e->zone == Z_GENRES) e->zone = Z_CATS;
         else if (e->zone == Z_CATS) e->zone = Z_TYPES;
+        if (e->zone == Z_CATS) e->cat_focus = e->cat_i;   /* land on the applied pill, not the last one browsed */
+        if (e->zone == Z_GENRES) e->genre_focus = e->genre_i;
         return 1;
     case KEY_DOWN:
-        if (e->zone == Z_TYPES) e->zone = e->n_cats ? Z_CATS : Z_GRID;
+        if (e->zone == Z_TYPES) e->zone = e->n_cats ? Z_CATS : e->n ? Z_GRID : Z_TYPES;
         else if (e->zone == Z_CATS) e->zone = ng ? Z_GENRES : (e->n ? Z_GRID : Z_CATS);
         else if (e->zone == Z_GENRES) { if (e->n) e->zone = Z_GRID; }
         else if (e->focus + COLS < e->n) { e->focus += COLS; e->focus_t = 0; }
-        else if (e->n && !e->done) { e->focus = e->n - 1; e->focus_t = 0; }
+        else if (e->n && e->focus / COLS < (e->n - 1) / COLS) { e->focus = e->n - 1; e->focus_t = 0; }   /* a short last row */
         if (e->zone == Z_CATS) e->cat_focus = e->cat_i;
         if (e->zone == Z_GENRES) e->genre_focus = e->genre_i;
         return 1;
@@ -353,15 +355,15 @@ static int key(Screen *s, KeyAction a)
         else if (e->zone == Z_GRID) { if (e->focus < e->n) app_push(screen_detail_create(&e->items[e->focus])); }
         else e->zone = Z_CATS;
         return 1;
-    case KEY_BACK:
+    case KEY_BACK:   /* grid, then the filters, then the rail; Back there goes Home */
         if (e->zone == Z_GRID) { e->zone = Z_TYPES; return 1; }
-        app_pop();
+        e->rail_focus = RAIL_EXPLORE;
         return 1;
     default: return 0;
     }
 }
 
-static void resume(Screen *s) { (void)s; app_redraw(); }
+static void resume(Screen *s) { Explore *e = s->st; e->rail_focus = -1; app_redraw(); }   /* back from a rail target: the content */
 
 static void destroy(Screen *s)
 {

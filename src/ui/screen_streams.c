@@ -230,10 +230,15 @@ static void sort_items(Streams *st)
             if (s->probe && s->probe->bit_depth > 8 && s->probe->vcodec == CODEC_AVC) s->score -= 500;   /* 10-bit H.264: no TV decodes it */
         }
     }
+    /* the focused source stays focused while answers and checks re-order the list */
+    const char *keep_url = st->focus >= 0 && st->focus < st->n ? st->items[st->focus].url : NULL;
+    const char *keep_hash = st->focus >= 0 && st->focus < st->n ? st->items[st->focus].info_hash : NULL;
     for (int i = 1; i < st->n; i++)
         for (int j = i; j > 0 && rank(st, &st->items[j]) < rank(st, &st->items[j - 1]); j--) {
             Stream t = st->items[j]; st->items[j] = st->items[j - 1]; st->items[j - 1] = t;
         }
+    if (keep_url || keep_hash)
+        for (int i = 0; i < st->n; i++) if (st->items[i].url == keep_url && st->items[i].info_hash == keep_hash) { st->focus = i; break; }
 }
 
 static void play_from(Streams *st, int index);
