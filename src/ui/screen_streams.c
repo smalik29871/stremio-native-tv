@@ -4,6 +4,7 @@
 #include "../log.h"
 #include "../probe.h"
 #include "../store.h"
+#include "../torrent.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -96,9 +97,17 @@ static int has_audio_lang(const Stream *s)
     return 0;
 }
 
+/* A torrent this TV plays itself (no streaming server set): the fallback. */
+static int is_p2p(const Stream *s)
+{
+    return s->info_hash && !s->url && !(g_app.streaming_server && *g_app.streaming_server) && g_app.p2p_fallback && torrent_engine_available();
+}
+
 static long rank(const Streams *st, const Stream *s)
 {
     long r = g_app.quality_mode == QUAL_ADDON_ORDER ? s->addon_order * 10L : (200000L - s->score) * 10L + s->addon_order;
+    if (is_p2p(s)) r += 5000000L;                      /* after every cached or direct link */
+    if (s->tags.cached < 0) r += 6000000L;             /* needs a debrid download first: after P2P */
     if (!playable(s)) r += 100000000L;
     if (is_notice(s)) r += 200000000L;
     if (s->url && app_link_dead(s->url)) r += 20000000L;
@@ -199,9 +208,11 @@ static void why_not_sharper(const Streams *st, int rec, char *out, size_t n)
 static int recommended(const Streams *st)
 {
     int best = -1;
-    for (int i = 0; i < st->n; i++)
-        if (playable(&st->items[i]) && st->items[i].probe_state != 4 && (best < 0 || st->items[i].score > st->items[best].score)) best = i;
-    return best >= 0 && st->items[best].score > -500 ? best : -1;
+    for (int pass = 0; pass < 2 && best < 0; pass++)   /* P2P only when nothing else plays */
+        for (int i = 0; i < st->n; i++)
+            if (playable(&st->items[i]) && st->items[i].probe_state != 4 && st->items[i].score > -500 && is_p2p(&st->items[i]) == pass
+                && (best < 0 || st->items[i].score > st->items[best].score)) best = i;
+    return best;
 }
 
 static void sort_items(Streams *st)
@@ -587,7 +598,9 @@ static void draw(Screen *s)
         float bx = draw_badges(sm, x + w - 24, ry + 18);
         font_draw_fit(line1[0] ? line1 : "Stream", ax, ry + 60, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 48);
         font_draw_fit(line2, ax, ry + 98, FONT_XS, ok ? THEME_TEXT_DIM : THEME_TEXT_MUTED, w - 48);
-        const char *flag = sm->info_hash ? (g_app.streaming_server ? NULL : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
+        char p2p[48];
+        if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this TV"); }
+        const char *flag = sm->info_hash ? (g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
         if (st->autoplay_group && sm->binge_group && strcmp(sm->binge_group, st->autoplay_group) == 0) flag = "Same release";
         if (flag) {
             Color fc = !ok ? THEME_DANGER : THEME_OK;
@@ -639,16 +652,41 @@ static void remember_resume(Streams *st, const char *url)
     store_save();
 }
 
-/* Build the fallback list: the chosen stream first, then other playable ones
- * (same binge group preferred), capped so a bad addon can't stall for ages. */
+int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c)
+{
+    char why[8];
+    char *u = app_stream_playable_url(s, why, sizeof why);
+    if (!u) return 0;
+    char label[200], l1[120], detail[200], rel[200];
+    first_line(s->name, l1, sizeof l1);
+    snprintf(label, sizeof label, "%s%s%s", s->addon_name ? s->addon_name : "", l1[0] ? " - " : "", l1);
+    quality_summary(&s->tags, quality_runtime_minutes(meta->runtime), detail, sizeof detail);
+    first_line(s->title ? s->title : s->description ? s->description : s->filename, rel, sizeof rel);
+    memset(c, 0, sizeof *c);
+    c->url = u;
+    c->label = strdup(label);
+    c->binge_group = s->binge_group ? strdup(s->binge_group) : NULL;
+    c->filename = s->filename ? strdup(s->filename) : NULL;
+    c->detail = detail[0] ? strdup(detail) : NULL;
+    c->release = rel[0] ? strdup(rel) : NULL;
+    c->addon_order = s->addon_order;
+    c->video_size = s->video_size;
+    c->needs = quality_needs(&s->tags);
+    c->res = s->tags.res;
+    return 1;
+}
+
+/* Build the fallback list: the chosen stream first, then other playable ones (same
+ * binge group preferred), capped so a bad addon can't stall for ages. The best P2P
+ * source rides along last, so TorBox being down still ends in something that plays. */
 static void play_from(Streams *st, int index)
 {
     if (app_pip_claim(st->video_id)) return;
     char reason[160];
     char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
     if (!url) { app_toast("%s", reason); return; }
-    PlayCandidate *c = calloc((size_t)st->n + 1, sizeof *c);
-    int n = 0;
+    PlayCandidate *c = calloc((size_t)st->n + 2, sizeof *c);
+    int n = 0, p2p = 0;
     const char *group = st->items[index].binge_group;
     for (int pass = 0; pass < 3 && n < 6; pass++)
         for (int i = 0; i < st->n && n < 6; i++) {
@@ -656,26 +694,11 @@ static void play_from(Streams *st, int index)
             if (pass > 0 && i == index) continue;
             if (pass == 1 && !(group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0)) continue;
             if (pass == 2 && group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0) continue;
-            char why[8];
-            char *u = i == index ? strdup(url) : app_stream_playable_url(&st->items[i], why, sizeof why);
-            if (!u) continue;
-            char label[200], l1[120];
-            first_line(st->items[i].name, l1, sizeof l1);
-            snprintf(label, sizeof label, "%s%s%s", st->items[i].addon_name, l1[0] ? " - " : "", l1);
-            c[n].url = u;
-            c[n].label = strdup(label);
-            c[n].binge_group = st->items[i].binge_group ? strdup(st->items[i].binge_group) : NULL;
-            c[n].filename = st->items[i].filename ? strdup(st->items[i].filename) : NULL;
-            char detail[200], rel[200];
-            quality_summary(&st->items[i].tags, quality_runtime_minutes(st->meta.runtime), detail, sizeof detail);
-            first_line(st->items[i].title ? st->items[i].title : st->items[i].description ? st->items[i].description : st->items[i].filename, rel, sizeof rel);
-            c[n].detail = detail[0] ? strdup(detail) : NULL;
-            c[n].release = rel[0] ? strdup(rel) : NULL;
-            c[n].addon_order = st->items[i].addon_order;
-            c[n].video_size = st->items[i].video_size;
-            c[n].needs = quality_needs(&st->items[i].tags);
-            n++;
+            if (streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p |= is_p2p(&st->items[i]); n++; }
         }
+    for (int i = 0; i < st->n && !p2p; i++)
+        if (is_p2p(&st->items[i]) && streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p = 1; n++; }
+    if (torrent_engine_url_is(c[0].url)) torrent_engine_start(0);   /* warm up while the player opens */
     LibraryItem *li = app_library_find(st->meta.id);
     double start = (li && li->video_id && strcmp(li->video_id, st->video_id) == 0) ? li->time_offset / 1000.0 : 0;
     remember_resume(st, url);
@@ -685,6 +708,65 @@ static void play_from(Streams *st, int index)
     char next_id[128] = "", next_title[200] = "";
     int has_next = app_next_video(st->meta.id, st->video_id, next_id, sizeof next_id, next_title, sizeof next_title);
     app_push(screen_player_create(&st->meta, st->video_id, title, c, n, 0, start, has_next ? next_id : NULL, has_next ? next_title : NULL));
+}
+
+/* ---- a quiet lookup for the player ---- */
+
+static struct {
+    MetaPreview meta;
+    Stream *items; int n, pending;
+    unsigned generation;
+    float started;
+    StreamsLookupCb cb; void *user;
+} g_look;
+
+static void lookup_finish(void)
+{
+    StreamsLookupCb cb = g_look.cb;
+    void *user = g_look.user;
+    Streams tmp;   /* ranked exactly like the Sources screen */
+    memset(&tmp, 0, sizeof tmp);
+    tmp.meta = g_look.meta; tmp.items = g_look.items; tmp.n = g_look.n;
+    sort_items(&tmp);
+    g_look.cb = NULL;
+    if (cb) cb(g_look.items, g_look.n, user);
+    streams_lookup_cancel();
+}
+
+static void on_lookup(HttpResponse *r, void *user)
+{
+    Pending *p = user;
+    if (p->generation != g_look.generation || !g_look.cb) { free(p); return; }
+    g_look.pending--;
+    absorb(&g_look.items, &g_look.n, r, p->addon);
+    free(p);
+    if (!g_look.pending) lookup_finish();
+}
+
+void streams_lookup_cancel(void)
+{
+    g_look.generation++;
+    streams_free(g_look.items, g_look.n);
+    g_look.items = NULL; g_look.n = 0; g_look.pending = 0; g_look.cb = NULL;
+    meta_preview_free(&g_look.meta);
+    memset(&g_look.meta, 0, sizeof g_look.meta);
+}
+
+void streams_lookup(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user)
+{
+    streams_lookup_cancel();
+    meta_preview_copy(&g_look.meta, meta);
+    g_look.cb = cb; g_look.user = user;
+    g_look.started = g_app.time;
+    g_look.generation += 1000;
+    query_addons(meta->type, video_id, NULL, g_look.generation, on_lookup, &g_look.pending, NULL);
+    if (!g_look.pending) lookup_finish();
+}
+
+/* Called from the player's update: an addon that never answers does not hold the rest. */
+void streams_lookup_tick(void)
+{
+    if (g_look.cb && g_app.time - g_look.started > 15) lookup_finish();
 }
 
 static int key(Screen *s, KeyAction a)

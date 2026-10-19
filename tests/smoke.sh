@@ -10,8 +10,18 @@ mkdir -p "$OUT"
 PORT=8765
 export FAKE_PUT_LOG="$OUT/datastore_put.log" FAKE_LIBRARY="$ROOT/tests/fixtures/library.json"   # the fake Stremio account
 rm -f "$FAKE_PUT_LOG"
+# P2P: the app's engine (tools/torrentd.sh builds it next to the app) and a local seeder of a test video
+SEEDER=""
+if [ -x "$BUILD/torrentd" ]; then
+  "$BUILD/torrentd" -seed "$ROOT/tests/fixtures/media/seek_h264.mkv" -seed-port 6990 > "$OUT/seeder.out" 2>/dev/null & SEEDER=$!
+  for i in $(seq 1 50); do [ -s "$OUT/seeder.out" ] && break; sleep 0.1; done
+  export FAKE_TORRENT_HASH="$(head -1 "$OUT/seeder.out")" SNTV_TORRENT_PEERS=127.0.0.1:6990
+  [ -n "$FAKE_TORRENT_HASH" ] || { echo "the test seeder did not start (port 6990 busy?)"; exit 1; }
+else
+  echo "skip: P2P runs (build the engine: tools/torrentd.sh host $BUILD/torrentd)"
+fi
 python3 -I "$ROOT/tests/fake_addon.py" $PORT & SRV=$!
-trap 'kill $SRV 2>/dev/null || true' EXIT
+trap 'kill $SRV ${SEEDER:-} 2>/dev/null || true' EXIT
 sleep 0.5
 export NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
 export SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json"
@@ -133,6 +143,15 @@ run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,ok,ok" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
+# no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
+if [ -n "${FAKE_TORRENT_HASH:-}" ]; then
+run p2p_playing 420 "right,ok,down,down,ok,ok" HOME="$(home_with p2p1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=1
+grep -q "still no cached copy; staying on P2P" "$OUT/p2p_playing.log" || { echo "P2P did not keep playing without a cached copy"; grep -E "player|p2p" "$OUT/p2p_playing.log"; exit 1; }
+run settings_p2p 400 "left,down,down,down,down,down,ok,down,down,down,down,right,down,down,down,down,down,down" HOME="$(home_with p2pset '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run p2p_switch 700 "right,ok,down,down,ok,ok" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
+grep -q "candidate 1/.* -> http://127.0.0.1:11490/$FAKE_TORRENT_HASH/0" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
+  && grep -q "TorBox has it again" "$OUT/p2p_switch.log" || { echo "P2P fallback or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
+fi
 # progress reaches the account as the app closes mid-film, dated the way stremio-core reads it
 run progress_sync 400 "right,ok,down,down,ok,ok" HOME="$(home_with sync '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
 python3 -I - "$FAKE_PUT_LOG" <<'PY' || { echo "progress did not reach the account"; exit 1; }

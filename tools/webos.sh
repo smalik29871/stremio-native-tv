@@ -17,10 +17,11 @@ cmake -S "$ROOT" -B "$B" -DSNTV_PLATFORM=webos -DSNTV_BUILD_TESTS=OFF -DCMAKE_BU
       -DCMAKE_TOOLCHAIN_FILE="$WEBOS_TOOLCHAIN_FILE" -DSNTV_TMDB_BUILTIN_KEY="${TMDB_API_KEY:-}" -DSNTV_FFMPEG_PREFIX="$FF"
 cmake --build "$B" -j"$(nproc)"
 "${WEBOS_TOOLCHAIN}/bin/arm-webos-linux-gnueabi-strip" "$B/stremio-tv" || true
+bash "$ROOT/tools/torrentd.sh" webos "$B/torrentd"   # the P2P fallback engine (Go, static)
 case "${1:-}" in
   --ipk|--install)
     STAGE="$B/ipk-stage"; rm -rf "$STAGE"; mkdir -p "$STAGE"
-    cp "$B/stremio-tv" "$STAGE/"
+    cp "$B/stremio-tv" "$B/torrentd" "$STAGE/"
     cp "$ROOT/deploy/webos/appinfo.json" "$STAGE/"
     cp "$ROOT/deploy/webos/"*.png "$STAGE/" 2>/dev/null || true
     cp -r "$ROOT/assets" "$STAGE/"

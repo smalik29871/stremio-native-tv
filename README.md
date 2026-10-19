@@ -10,11 +10,11 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.8.4.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.8.5.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 115 scripted scenarios against a fake addon. See *What is verified* below.
+> 118 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -214,10 +214,17 @@ Play/Pause brings it back, Stop closes it).
 
 ## Torrents, servers and previews
 
-- **Torrent streams** need Stremio's streaming server (`server.js`), which TVs cannot run.
-  Streams that only carry an `infoHash` show a *needs server* badge until you set the
-  **Streaming server** URL in Settings > Account (any computer on your LAN running Stremio
-  or the service, usually port 11470). Debrid addons return plain HTTPS URLs and need nothing.
+- **Torrents are the fallback, played on the TV.** Debrid addons (TorBox, Real-Debrid...)
+  return plain HTTPS links and come first. A source that is only a torrent (`infoHash`)
+  plays through a small engine bundled with the app (`tools/torrentd`, Go, built on
+  anacrolix/torrent): a separate process on `127.0.0.1:11490` that speaks the Stremio
+  streaming server's URLs, keeps pieces in a capped RAM buffer (96 MB on small TVs, 192 MB
+  otherwise; nothing is written to the TV's storage), caps uploads at 256 KB/s and stops
+  when nothing plays. P2P sources rank after every cached or direct link and before
+  uncached debrid ones; when TorBox fails, the player reaches the P2P source after two
+  tries. While P2P plays, the player asks the addons every two minutes and switches to a
+  cached copy at least as sharp as soon as one appears, at the same position. Settings >
+  Sources turns it off; a **Streaming server** URL (Settings > Account) replaces it.
 - **YouTube links** for break recordings are handled on the TV, the way yt-dlp does it:
   with a visitor id from the video's page, it asks as YouTube's visionOS app (no player
   script, no proof-of-origin token), then as YouTube's TV app or embedded player, whose
@@ -297,7 +304,7 @@ from the channel.
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (115 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (118 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
@@ -355,6 +362,8 @@ compiled into the binary except the optional TMDB key a CI secret provides.
 FFmpeg 7.1.1 (LGPL 2.1; built from its source by `tools/ffmpeg.sh` with only the H.264 and
 HEVC decoders, no GPL parts, and linked statically: this repository has everything needed
 to rebuild the app against a changed FFmpeg),
+the P2P engine's Go modules (anacrolix/torrent and its dependencies, MPL 2.0, MIT, BSD;
+fetched by `go build` at the versions pinned in `tools/torrentd/go.sum`),
 `stb_truetype` and `stb_image` (public domain) keep their own licences in place. The
 YouTube solver in `assets/yt` is yt-dlp/ejs 0.8.0 (Unlicense; it bundles meriyah, ISC,
 and astring, MIT, with their licences in the file header). The fonts in `assets/fonts` (Inter, Space

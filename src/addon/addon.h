@@ -79,6 +79,7 @@ typedef struct Stream {
     int file_idx;               /* -1 when absent */
     int not_web_ready;
     char *binge_group, *filename;
+    char *trackers;             /* "tr=<enc>&tr=<enc>" from "sources" (tracker:...), for torrents */
     uint64_t video_size;
     char *addon_name;           /* filled by the aggregator, not the parser */
     int addon_order;            /* position of that addon in the user's list */

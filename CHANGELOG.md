@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.5
+
+- **P2P fallback for TorBox, on the TV itself.** When TorBox has no cached copy of a
+  title (or TorBox is down), torrent sources from your addons now play on the TV through
+  a small engine bundled with the app. Nothing to host and nothing to pay: it keeps the
+  stream in a RAM buffer (96 MB on small TVs, 192 MB otherwise; nothing is written to the
+  TV's storage), caps uploads at 256 KB/s and stops by itself when nothing plays.
+  - These sources show a *P2P* badge with their seeders and rank after every cached or
+    direct link. Uncached TorBox entries ("needs a download first") now rank after them,
+    because they cannot play yet.
+  - If TorBox links keep failing, the player goes to the P2P source after two tries.
+  - While it plays, the source line shows peers and speed.
+  - Peers see your IP address while a P2P source plays. Settings > Sources turns the
+    fallback off.
+- **Back to TorBox when it has the title again.** While a P2P source plays, the player
+  asks your addons every two minutes; as soon as one offers a cached copy at least as
+  sharp, it switches to it at the same position, says so, and frees the P2P buffer. If
+  that copy fails, P2P is next in line again.
+- Torrent sources to play P2P need an addon that lists them, such as Torrentio added a
+  second time without a debrid key.
+- The app is about 6.5 MB larger (the engine).
+
 ## 0.8.4
 
 - **Subtitle size, style, position and timing reach subtitles inside the file.** The

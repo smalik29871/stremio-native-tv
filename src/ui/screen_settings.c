@@ -9,6 +9,7 @@
 #include "../memwatch.h"
 #include "../phone.h"
 #include "../youtube.h"
+#include "../torrent.h"
 #include "qrcodegen.h"
 #include "../suntimes.h"
 #include "../image.h"
@@ -33,7 +34,7 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "What happens while a video plays.",
     "Pause for what matters: prayer times computed for your place, a stretch, bedtime, or your own times. A banner warns first; playback continues by itself.",
     "Preferred languages and how subtitles look.",
-    "How sources are ranked and checked for this TV.",
+    "How sources are ranked and checked for this TV. P2P fallback plays a torrent here when TorBox has no cached copy (peers see your IP while it plays) and goes back to TorBox once it has one.",
     "The look of the app.",
     "Which rows Home shows, and in what order. OK shows or hides a row, Left/Right moves it.",
     "Installed addons, in the order they answer. Left/Right moves an addon; the order is kept in your account.",
@@ -44,7 +45,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE,
        IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -81,7 +82,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_PLAYBACK: ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP; ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; break;
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG: ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL; ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; break;
-    case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT; break;
+    case CAT_SOURCES: ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO; ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT; ids[n++] = IT_P2P; break;
     case CAT_INTERFACE: ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_OLED; ids[n++] = IT_AMBIENT; ids[n++] = IT_BLUR; ids[n++] = IT_MEMORY; break;
     case CAT_KEYS: ids[n++] = IT_TMDB; ids[n++] = IT_AI_PROVIDER;
         if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
@@ -246,6 +247,7 @@ static void draw(Screen *s)
         case IT_SUBS_STYLE: draw_row(y, ICON_SUBS, "Subtitle style", SUBS_STYLE_NAMES[g_app.subs_style], foc, KIND_CHOICE, 0); break;
         case IT_SUBS_SYNC: draw_row(y, ICON_SUBS, "Auto-sync subtitles to the file", NULL, foc, KIND_TOGGLE, g_app.subs_autosync); break;
         case IT_BR_VIDEO: draw_row(y, ICON_PLAY, "Show the video (YouTube and video recordings)", NULL, foc, KIND_TOGGLE, g_app.break_video); break;
+        case IT_P2P: draw_row(y, ICON_SWAP, "P2P fallback on this TV", NULL, foc, KIND_TOGGLE, g_app.p2p_fallback); break;
         case IT_SRC_AUDIO: { char la[96]; snprintf(la, sizeof la, "Sources in my audio language first%s%s%s", lang_known(g_app.pref_audio) ? " (" : "", lang_known(g_app.pref_audio) ? lang_display(g_app.pref_audio) : "", lang_known(g_app.pref_audio) ? ")" : ""); draw_row(y, ICON_AUDIO, la, NULL, foc, KIND_TOGGLE, g_app.src_audio_lang); break; }
         case IT_ADDON_WAIT: if (g_app.addon_wait >= 99) snprintf(v, sizeof v, "Every addon"); else snprintf(v, sizeof v, "%d s", g_app.addon_wait); draw_row(y, ICON_CLOCK, "Autoplay waits for slow addons", v, foc, KIND_CHOICE, 0); break;
         case IT_SUBS_XL: draw_row(y, ICON_STAR, "Translate with AI when nobody offers my language", NULL, foc, KIND_TOGGLE, g_app.subs_autotranslate); break;
@@ -624,6 +626,7 @@ static int adjust(Settings *st, int id, int dir)
         }
         break;
     case IT_SRC_AUDIO: g_app.src_audio_lang = !g_app.src_audio_lang; break;
+    case IT_P2P: g_app.p2p_fallback = !g_app.p2p_fallback; if (!g_app.p2p_fallback) torrent_engine_stop(); break;
     case IT_ADDON_WAIT: { static const int L[] = { 3, 5, 8, 15, 30, 99 }; int k = 2; for (int i = 0; i < 6; i++) if (L[i] == g_app.addon_wait) k = i; g_app.addon_wait = L[(k + dir + 6) % 6]; break; }
     case IT_AI_PROVIDER: g_app.ai_provider = (g_app.ai_provider + dir + AI_PROVIDER_COUNT) % AI_PROVIDER_COUNT; break;
     case IT_MEMORY: {

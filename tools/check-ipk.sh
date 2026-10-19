@@ -24,6 +24,10 @@ for lib in $NEEDED; do
     *) fail "unexpected hard dependency $lib (load it with dlopen instead)";;
   esac
 done
+ENGINE="$APPDIR/torrentd"   # the P2P engine: ARM, executable, and needing no library at all
+[ -x "$ENGINE" ] || fail "torrentd missing or not executable"
+"$TC/bin/arm-webos-linux-gnueabi-readelf" -h "$ENGINE" | grep -q "Machine:.*ARM" || fail "torrentd is not ARM"
+if "$TC/bin/arm-webos-linux-gnueabi-readelf" -d "$ENGINE" 2>/dev/null | grep -q NEEDED; then fail "torrentd must be static"; fi
 NEWEST=$("$TC/bin/arm-webos-linux-gnueabi-objdump" -T "$BIN" | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -V | tail -1)
 echo "newest glibc symbol: $NEWEST"
 [ "$(printf '%s\n2.12\n' "$NEWEST" | sort -V | tail -1)" = "2.12" ] || fail "needs glibc $NEWEST, newer than webOS 3"

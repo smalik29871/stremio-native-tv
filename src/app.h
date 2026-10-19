@@ -33,6 +33,7 @@ typedef struct PlayCandidate {
     int addon_order;            /* the addon's place in the user's list */
     uint64_t video_size;
     unsigned needs;             /* TVCAP_* bits this source depends on (quality.h) */
+    int res;                    /* vertical resolution from the source's name, 0 unknown */
 } PlayCandidate;
 
 enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
@@ -95,6 +96,7 @@ typedef struct App {
     int subs_autotranslate;    /* AI: translate when nobody offers the preferred language */
     int addon_wait;            /* seconds auto-play waits for slow addons; 99 = all of them */
     int src_audio_lang;        /* rank sources that mention the preferred audio language higher */
+    int p2p_fallback;          /* torrents play on this TV (torrent.h) when no streaming server is set */
     int break_video;           /* show the video of a break recording full screen */
     /* take breaks (breaks.h) */
     int breaks_on, break_sched, break_method, break_asr_hanafi;
@@ -264,6 +266,15 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id);
 /* Share of addons that have answered that prefetch, 0..1 (1 = ready to start at once);
  * -1 when none is running or it went stale. */
 float streams_prefetch_progress(const char *video_id);
+/* Every addon's sources for this video, ranked as the Sources screen would, handed to
+ * `cb` once all answered (or after 15 s). One lookup at a time: a new one, or cancel,
+ * drops the previous. The player uses it to leave P2P when TorBox has the title again. */
+typedef void (*StreamsLookupCb)(const Stream *items, int n, void *user);
+void streams_lookup(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user);
+void streams_lookup_cancel(void);
+void streams_lookup_tick(void);
+/* A player candidate for one of those sources (0 when it cannot play here). */
+int  streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *out);
 
 /* Titles with artwork worth showing in the screensaver (library + catalog rows). */
 typedef struct AmbientItem { char id[64], name[128], background[512]; } AmbientItem;

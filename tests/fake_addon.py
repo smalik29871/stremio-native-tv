@@ -70,6 +70,7 @@ SRT = "1\n00:00:00,500 --> 00:00:09,000\nHello from the <i>fake</i> subtitle add
 for _i, _t in enumerate((30.2, 47.9, 61.0, 83.4, 99.1, 120.7, 141.3)):   # later cues so timing alignment has something to vote on
     SRT += "\n%d\n00:%02d:%02d,%03d --> 00:%02d:%02d,000\nCue %d\n" % (_i + 3, _t // 60, _t % 60, round((_t % 1) * 1000), (_t + 2) // 60, (_t + 2) % 60, _i + 3)
 STREAMS = load("streams.json")
+P2P_ASKED = {}   # /p2p/ stream requests per video
 MEDIA_DIR = os.path.join(FIX, "media")
 for _s in STREAMS["streams"]:
     if _s.get("url", "").startswith("https://cdn.example.com"):
@@ -212,6 +213,27 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         # /slow/...: a second, stream-only addon that answers after FAKE_SLOW_S seconds for
         # ids containing FAKE_SLOW_ID (the next episode, so the loader has something to show)
+        # /p2p/...: an addon like Torrentio next to TorBox. The first answer for a video has
+        # only a torrent (FAKE_TORRENT_HASH, seeded on this machine) and an uncached TorBox
+        # entry; later answers add a cached TorBox copy, as when TorBox catches up.
+        # /p2ponly/...: the same addon while TorBox never catches up.
+        if p.startswith("/p2p/") or p.startswith("/p2ponly/"):
+            only = p.startswith("/p2ponly/")
+            p = p[8:] if only else p[4:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.p2p", name="Torrent Addon")).encode())
+            if p.startswith("/stream/"):
+                key = ("only:" if only else "") + p.split("?")[0]
+                P2P_ASKED[key] = P2P_ASKED.get(key, 0) + 1
+                streams = [{"name": "Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\U0001F464 25 \U0001F4BE 155 KB",
+                            "infoHash": os.environ.get("FAKE_TORRENT_HASH", "0" * 40).upper(), "fileIdx": 0,
+                            "sources": ["tracker:udp://127.0.0.1:1/announce", "dht:" + os.environ.get("FAKE_TORRENT_HASH", "")]},
+                           {"name": "[TB download] Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\u23F3 needs a download",
+                            "url": f"{BASE}/video/never_cached.mkv"}]
+                if P2P_ASKED[key] > 1 and not only:
+                    streams.insert(0, {"name": "[TB+] Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\u26A1 cached",
+                                       "url": f"{BASE}/video/sample_h264_aac.mkv"})
+                return self.send(200, json.dumps({"streams": streams}).encode())
         if p.startswith("/slow/"):
             p = p[5:]
             if p == "/manifest.json":

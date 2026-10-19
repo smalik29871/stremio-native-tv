@@ -2,6 +2,7 @@
 #include "memwatch.h"
 #include "sysinfo.h"
 #include "tidy.h"
+#include "torrent.h"
 #include "youtube.h"
 #include "http.h"
 #include "log.h"
@@ -1001,9 +1002,10 @@ char *app_stream_playable_url(const Stream *s, char *reason, size_t n)
         return strdup(s->url);   /* rtmp/ftp: let the pipeline decide */
     }
     if (s->info_hash) {
-        if (!g_app.streaming_server || !*g_app.streaming_server) {
-            snprintf(reason, n, "Torrent streams need a Stremio streaming server (Settings)");
-            return NULL;
+        if (!g_app.streaming_server || !*g_app.streaming_server) {   /* P2P on this TV, the fallback */
+            char *u = g_app.p2p_fallback ? torrent_engine_url(s->info_hash, s->file_idx, s->trackers) : NULL;
+            if (!u) snprintf(reason, n, g_app.p2p_fallback ? "Torrent streams need a Stremio streaming server (Settings)" : "P2P on this TV is off (Settings > Sources)");
+            return u;
         }
         char buf[1024];
         /* server.js convention: /{infoHash}/{fileIdx}; -1 lets the server pick the largest file */
@@ -1358,8 +1360,10 @@ static void load_prefs(void)
     g_app.addon_wait = store_get_int("addonWait", 8);
     g_app.break_video = store_get_int("breakVideo", 1);
     g_app.src_audio_lang = store_get_int("srcAudioLang", 1);
+    g_app.p2p_fallback = store_get_int("p2pFallback", 1);
     dead_load();
     g_app.low_memory = g_app.memory_mode == 1 || (g_app.memory_mode == 0 && mem_small_tv());   /* main.c calls mem_apply_mode() once images exist */
+    torrent_engine_set_cache_mb(g_app.low_memory ? 96 : 192);   /* the P2P engine's RAM for pieces */
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
     app_tidy(12000);   /* after start-up, off the main thread */
@@ -1424,6 +1428,7 @@ void app_save_prefs(void)
     store_set_int("addonWait", g_app.addon_wait);
     store_set_int("breakVideo", g_app.break_video);
     store_set_int("srcAudioLang", g_app.src_audio_lang);
+    store_set_int("p2pFallback", g_app.p2p_fallback);
     store_set_str("prefAudio", g_app.pref_audio);
     store_set_str("prefSubs", g_app.pref_subs);
     store_save();
@@ -1661,6 +1666,7 @@ void app_shutdown(void)
 {
     app_pip_close();
     while (g_app.depth) { Screen *s = g_app.stack[--g_app.depth]; if (s->destroy) s->destroy(s); }
+    torrent_engine_stop();
     app_library_flush(1);   /* after the player had its last say */
     free_addons();
     library_items_free(g_app.library, g_app.n_library);

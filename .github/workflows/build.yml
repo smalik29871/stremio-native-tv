@@ -43,6 +43,12 @@ jobs:
           cmake --build build -j"$(nproc)"
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
+      - uses: actions/setup-go@v5   # the P2P engine (tools/torrentd)
+        with:
+          go-version-file: tools/torrentd/go.mod
+          cache-dependency-path: tools/torrentd/go.sum
+      - name: P2P engine tests
+        run: cd tools/torrentd && go vet ./... && go test ./...
 
   webos:
     name: LG webOS package
@@ -70,6 +76,10 @@ jobs:
         with:
           path: build-webos/ffmpeg
           key: ffmpeg-webos-${{ env.WEBOS_SDK_SHA256 }}-${{ hashFiles('tools/ffmpeg.sh') }}
+      - uses: actions/setup-go@v5   # the P2P engine (tools/torrentd)
+        with:
+          go-version-file: tools/torrentd/go.mod
+          cache-dependency-path: tools/torrentd/go.sum
       - name: Build .ipk
         env:
           WEBOS_TOOLCHAIN: /home/runner/webos-sdk/arm-webos-linux-gnueabi_sdk-buildroot

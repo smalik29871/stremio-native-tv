@@ -7,6 +7,7 @@
 #include "../image.h"
 #include "../frames.h"
 #include "../phone.h"
+#include "../torrent.h"
 #include "../lang.h"
 #include "../log.h"
 #include "../probe.h"
@@ -48,6 +49,9 @@ struct Player {
     char *video_id, *title;
     PlayCandidate *cands; int n_cands, cur;
     int tries;
+    float p2p_recheck_in;     /* playing P2P: when to ask the addons again whether TorBox has it */
+    float p2p_stats_in; unsigned p2p_stats_gen;
+    char p2p_status[96];      /* "P2P  ·  14 peers  ·  3.2 MB/s" */
     char *next_video_id, *next_title;
     char *prev_video_id, *prev_title;
 
@@ -845,9 +849,27 @@ static void start_candidate(Player *p, int idx, double start)
     p->subs_auto_done = 0;
     p->load_started = g_app.time;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
+    p->p2p_status[0] = 0;
+    if (torrent_engine_url_is(p->cands[idx].url)) {
+        if (!torrent_engine_start(3000)) LOGW("player: the P2P engine did not answer");
+        const char *e = getenv("SNTV_P2P_RECHECK");   /* tests */
+        p->p2p_recheck_in = e ? (float)atof(e) : 120;
+        p->p2p_stats_in = 0;
+        app_toast("No cached copy: playing P2P on this TV. It switches back when TorBox has it.");
+    }
     if (video_load(p->cands[idx].url, p->title, start) != 0) app_toast("Could not start playback");
     push_sub_style(p);   /* re-sent by the backend once the new pipeline has loaded */
     show_overlay(p);
+}
+
+/* The source to try after this one fails, or -1. After two failures in a row (TorBox
+ * down, its links dead) it goes straight to the P2P fallback when there is one. */
+static int next_candidate(const Player *p)
+{
+    for (int i = p->cur + 1; p->tries >= 2 && i < p->n_cands; i++)
+        if (torrent_engine_url_is(p->cands[i].url)) return i;
+    if (p->cur + 1 < p->n_cands && (p->tries < 3 || torrent_engine_url_is(p->cands[p->cur + 1].url))) return p->cur + 1;
+    return -1;
 }
 
 static void fail_over(Player *p, const char *why)
@@ -857,10 +879,11 @@ static void fail_over(Player *p, const char *why)
     double resume = vi.position > 5 ? vi.position : 0;
     if (!p->learned) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
     if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
-    if (p->cur + 1 < p->n_cands && p->tries < 3) {
+    int next = next_candidate(p);
+    if (next >= 0) {
         p->tries++;
-        app_toast("%s. Trying the next source...", why);
-        start_candidate(p, p->cur + 1, resume);
+        app_toast(torrent_engine_url_is(p->cands[next].url) ? "%s. Trying P2P on this TV..." : "%s. Trying the next source...", why);
+        start_candidate(p, next, resume);
     } else {
         p->error_handled = 1;   /* stay on the error screen */
     }
@@ -984,6 +1007,89 @@ static void set_rate(Player *p, int idx)
     app_toast(idx == RATE_NORMAL ? "Normal speed" : "Speed %gx", RATES[idx]);
 }
 
+/* ---- P2P fallback: how it goes, and back to TorBox when it can ---------------------- */
+
+typedef struct { Player *owner; unsigned gen; } P2pReq;
+
+static void on_p2p_stats(HttpResponse *r, void *user)
+{
+    P2pReq *q = user;
+    Player *p = q->owner;
+    unsigned gen = q->gen;
+    free(q);
+    if (p != g_live || gen != p->p2p_stats_gen || p->cur >= p->n_cands || !torrent_engine_url_is(p->cands[p->cur].url)) return;
+    cJSON *root = r->status == 200 ? cJSON_Parse(r->body) : NULL;
+    const char *hash = p->cands[p->cur].url + strlen("http://127.0.0.1:11490/");
+    const cJSON *t;
+    cJSON_ArrayForEach(t, cJSON_GetObjectItemCaseSensitive(root, "torrents")) {
+        const cJSON *h = cJSON_GetObjectItemCaseSensitive(t, "hash");
+        if (!cJSON_IsString(h) || strncmp(h->valuestring, hash, 40)) continue;
+        int peers = cJSON_GetObjectItemCaseSensitive(t, "peers") ? cJSON_GetObjectItemCaseSensitive(t, "peers")->valueint : 0;
+        double bps = cJSON_GetObjectItemCaseSensitive(t, "downBps") ? cJSON_GetObjectItemCaseSensitive(t, "downBps")->valuedouble : 0;
+        int info = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "haveInfo"));
+        if (!info) snprintf(p->p2p_status, sizeof p->p2p_status, "P2P  \xC2\xB7  finding peers (%d)", peers);
+        else snprintf(p->p2p_status, sizeof p->p2p_status, "P2P  \xC2\xB7  %d peer%s  \xC2\xB7  %.1f MB/s", peers, peers == 1 ? "" : "s", bps / 1e6);
+        static float logged;
+        if (g_app.time - logged > 30) { logged = g_app.time; LOGI("p2p: %d peers, %.1f MB/s, %s", peers, bps / 1e6, info ? "streaming" : "waiting for the file list"); }
+        app_redraw();
+    }
+    if (root) cJSON_Delete(root);
+}
+
+/* Switch to `s` (a cached copy) where the P2P one is now; P2P stays next in line. */
+static void leave_p2p(Player *p, const Stream *s)
+{
+    PlayCandidate c;
+    if (!streams_candidate(&p->meta, s, &c)) return;
+    VideoInfo vi;
+    video_info(&vi);
+    char *old = strdup(p->cands[p->cur].url);
+    p->cands = realloc(p->cands, sizeof *p->cands * (size_t)(p->n_cands + 1));
+    memmove(&p->cands[p->cur + 1], &p->cands[p->cur], sizeof *p->cands * (size_t)(p->n_cands - p->cur));
+    p->cands[p->cur] = c;
+    p->n_cands++;
+    LOGI("player: TorBox has it again, leaving P2P at %.0f s for %s", vi.position, c.label);
+    app_toast("TorBox has it again: switched back to the cached copy");
+    p->tries = 0;
+    start_candidate(p, p->cur, vi.position);
+    torrent_engine_drop(old);   /* its RAM goes now; it comes back if TorBox fails */
+    free(old);
+}
+
+static void on_p2p_recheck(const Stream *items, int n, void *user)
+{
+    Player *p = user;
+    if (p != g_live || p->finished || p->cur >= p->n_cands || !torrent_engine_url_is(p->cands[p->cur].url)) return;
+    int want = p->cands[p->cur].res;
+    for (int i = 0; i < n; i++) {   /* ranked best first: the first cached copy at least as sharp */
+        const Stream *s = &items[i];
+        if (!s->url || strncmp(s->url, "http", 4) || s->tags.cached <= 0 || app_link_dead(s->url)) continue;
+        if (want && s->tags.res && s->tags.res < want) continue;
+        leave_p2p(p, s);
+        return;
+    }
+    LOGI("player: still no cached copy; staying on P2P");
+}
+
+static void p2p_tick(Player *p, const VideoInfo *vi, float dt)
+{
+    if (p->cur >= p->n_cands || !torrent_engine_url_is(p->cands[p->cur].url)) return;
+    streams_lookup_tick();
+    if ((p->p2p_stats_in -= dt) <= 0) {
+        p->p2p_stats_in = 3;
+        P2pReq *q = malloc(sizeof *q);
+        q->owner = p; q->gen = ++p->p2p_stats_gen;
+        HttpOptions o = { .timeout_s = 3 };
+        http_request_async_ex("http://127.0.0.1:11490/stats.json", &o, on_p2p_stats, q);
+    }
+    if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED) return;
+    if ((p->p2p_recheck_in -= dt) <= 0) {
+        const char *e = getenv("SNTV_P2P_RECHECK");
+        p->p2p_recheck_in = e ? (float)atof(e) : 120;
+        streams_lookup(&p->meta, p->video_id, on_p2p_recheck, p);
+    }
+}
+
 static void update(Screen *s, float dt)
 {
     Player *p = s->st;
@@ -995,6 +1101,7 @@ static void update(Screen *s, float dt)
     if (vi.state != VIDEO_PAUSED && p->paused_since != 0) p->paused_since = 0;
     if (vi.state == VIDEO_PAUSED && g_app.time - p->paused_since < 1.3f) app_redraw();   /* the info panel fades in */
     if (vi.state == VIDEO_PLAYING && !p->rate_applied && p->rate_idx != RATE_NORMAL) { video_set_rate(RATES[p->rate_idx]); p->rate_applied = 1; }
+    p2p_tick(p, &vi, dt);
     if (p->bar_focus && g_app.time >= p->overlay_until && vi.state != VIDEO_PAUSED) p->bar_focus = 0;
     else if (g_app.clock_mode != 2 && time(NULL) / 60 != p->clock_minute) { p->clock_minute = time(NULL) / 60; app_redraw(); }
     p->since_report += dt;
@@ -1487,7 +1594,7 @@ static void draw_video_area(Player *p, float x, float y, float w, float h)
 /* every candidate has failed and the error card is up */
 static int error_final(const Player *p, const VideoInfo *vi)
 {
-    return vi->state == VIDEO_ERROR && p->error_handled && (p->cur + 1 >= p->n_cands || p->tries >= 3);
+    return vi->state == VIDEO_ERROR && p->error_handled && next_candidate(p) < 0;
 }
 
 /* What is on: title, episode, year and runtime, synopsis, cast. Shown once playback has
@@ -1632,6 +1739,7 @@ static void draw(Screen *s)
             font_draw_fit(p->title, THEME_MARGIN, 56, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
             float cx = THEME_MARGIN;
             if (p->cands[p->cur].label) { font_draw_fit(p->cands[p->cur].label, cx, 114, FONT_S, THEME_TEXT_DIM, 700); cx += font_measure(p->cands[p->cur].label, FONT_S) + 20; }
+            if (p->p2p_status[0]) { font_draw(p->p2p_status, cx, 114, FONT_S | FONT_B, THEME_ACCENT2); cx += font_measure(p->p2p_status, FONT_S | FONT_B) + 20; }
             char res[32], aud[48];
             media_badges(p, &vi, res, sizeof res, aud, sizeof aud);
             if (res[0]) cx += ui_chip(res, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT) + 10;
@@ -2014,6 +2122,8 @@ static void destroy(Screen *s)
 {
     Player *p = s->st;
     report(p, 1);   /* the app closing with the film on: the last position still counts */
+    streams_lookup_cancel();
+    if (p->cur < p->n_cands) torrent_engine_drop(p->cands[p->cur].url);
     if (g_live == p) g_live = NULL;
     p->gen++;
     video_stop();

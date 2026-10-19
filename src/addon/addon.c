@@ -514,6 +514,17 @@ int addon_parse_streams(const char *json, Stream **out, int *n)
         s->title = jstr(it, "title");
         s->description = jstr(it, "description");
         s->file_idx = jint(it, "fileIdx", -1);
+        const cJSON *src, *sources = cJSON_GetObjectItemCaseSensitive(it, "sources");
+        char tr[2048] = "";
+        size_t used = 0;
+        cJSON_ArrayForEach(src, sources) {   /* "tracker:udp://...": the torrent's own trackers */
+            if (!cJSON_IsString(src) || strncmp(src->valuestring, "tracker:", 8) != 0) continue;
+            char enc[600];
+            http_url_encode(src->valuestring + 8, enc, sizeof enc);
+            if (used + strlen(enc) + 5 >= sizeof tr) break;
+            used += (size_t)snprintf(tr + used, sizeof tr - used, "%str=%s", used ? "&" : "", enc);
+        }
+        if (used) s->trackers = strdup(tr);
         const cJSON *bh = cJSON_GetObjectItemCaseSensitive(it, "behaviorHints");
         if (cJSON_IsObject(bh)) {
             s->not_web_ready = jbool(bh, "notWebReady");
@@ -523,7 +534,7 @@ int addon_parse_streams(const char *json, Stream **out, int *n)
             if (cJSON_IsNumber(vs)) s->video_size = (uint64_t)vs->valuedouble;
         }
         if (s->url || s->yt_id || s->info_hash || s->external_url) (*n)++;
-        else { free(s->url); free(s->yt_id); free(s->info_hash); free(s->external_url); free(s->name); free(s->title); free(s->description); free(s->binge_group); free(s->filename); memset(s, 0, sizeof *s); }
+        else { free(s->url); free(s->yt_id); free(s->info_hash); free(s->external_url); free(s->name); free(s->title); free(s->description); free(s->binge_group); free(s->filename); free(s->trackers); memset(s, 0, sizeof *s); }
     }
     cJSON_Delete(root);
     *out = arr;
@@ -536,7 +547,7 @@ void streams_free(Stream *s, int n)
         free(s[i].url); free(s[i].yt_id); free(s[i].info_hash); free(s[i].external_url);
         free(s[i].name); free(s[i].title); free(s[i].description);
         free(s[i].binge_group); free(s[i].filename); free(s[i].addon_name);
-        free(s[i].probe);
+        free(s[i].trackers); free(s[i].probe);
     }
     if (n) free(s);
 }

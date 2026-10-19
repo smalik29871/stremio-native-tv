@@ -49,6 +49,7 @@ add_library(sntv_core STATIC
   src/youtube.c
   src/frames.c
   src/tidy.c
+  src/torrent.c
   src/suntimes.c
   src/lang.c
   src/trackmem.c
