@@ -78,6 +78,6 @@ int  video_open_app_params(const char *app_id, const char *params_json);
 int  video_luna_call(const char *uri, const char *payload_json, int tag);
 /* The newest reply for `tag` (copied), how many came, 0 none yet. */
 int  video_luna_reply(int tag, char *out, size_t n);
-enum { LUNA_TAG_MAX = 8 };
+enum { LUNA_TAG_MAX = 12 };
 
 #endif

@@ -3,6 +3,7 @@
  * Test TV interruption arms two ways at once, 60 s ahead:
  *   A  the TV's own scheduler (Activity Manager) launching Stremio with {"sntvAlarm":"A"}
  *   B  Stremio's own timer asking webOS to launch Stremio with {"sntvAlarm":"B"}
+ *      (under both of the application manager's names)
  * Every reply webOS gives, and every launch that carries an alarm (a fresh start or a
  * relaunch of the running app), is kept in the store ("alarmTest") and shown on screen,
  * so one photo tells what this TV allows. */
@@ -20,7 +21,9 @@
 #include <time.h>
 
 #define APP_ID "org.stremio.nativetv"
-enum { T_AM = 0, T_PALM = 1, T_REG_NATIVE = 2, T_REG_APP = 3, T_CANCEL = 4, T_LAUNCH_B = 5 };
+enum { T_AM = 0, T_PALM = 1, T_REG_NATIVE = 2, T_REG_APP = 3, T_CANCEL = 4, T_LAUNCH_B = 5,
+       T_LAUNCH_B2 = 6,   /* the same launch under the newer service name */
+       T_DETAILS = 7 };   /* did the scheduled activity run? */
 
 static int g_seen[LUNA_TAG_MAX];
 static char g_fresh[512];   /* launch parameters this process started with */
@@ -116,7 +119,7 @@ void alarmtest_cancel(void)
 {
     cJSON *s = state();
     const char *id = str(s, "activityId");
-    if (*id) { char pl[96]; snprintf(pl, sizeof pl, "{\"activityId\":%s}", id); video_luna_call("luna://com.webos.service.activitymanager/cancel", pl, T_CANCEL); }
+    if (*id) { char pl[96]; snprintf(pl, sizeof pl, "{\"activityId\":%s}", id); video_luna_call("luna://com.palm.activitymanager/cancel", pl, T_CANCEL); }
     cJSON_DeleteItemFromObjectCaseSensitive(s, "cancelled"); cJSON_AddTrueToObject(s, "cancelled");
     save(s);
     LOGI("alarmtest: cancelled");
@@ -135,8 +138,9 @@ void alarmtest_tick(void)
         if (n == g_seen[tag]) continue;
         g_seen[tag] = n;
         cJSON *s = state();
-        static const char *const KEY[] = { "reply_scheduler", "reply_scheduler_palm", "reply_register_native", "reply_register_app", "reply_cancel", "reply_launch_b" };
-        if (tag < 6) set_str(s, KEY[tag], reply);
+        static const char *const KEY[] = { "reply_scheduler", "reply_scheduler_palm", "reply_register_native", "reply_register_app", "reply_cancel",
+                                           "reply_launch_b", "reply_launch_b2", "reply_details" };
+        if (tag < (int)(sizeof KEY / sizeof KEY[0])) set_str(s, KEY[tag], reply);
         if (tag == T_AM || tag == T_PALM) {
             cJSON *j = cJSON_Parse(reply);
             const cJSON *id = cJSON_GetObjectItemCaseSensitive(j, "activityId");
@@ -159,6 +163,16 @@ void alarmtest_tick(void)
         char pl[200]; snprintf(pl, sizeof pl, "{\"id\":\"" APP_ID "\",\"params\":{\"sntvAlarm\":\"B\",\"due\":%.0f}}", due);
         LOGI("alarmtest: path B fires");
         video_luna_call("luna://com.webos.applicationManager/launch", pl, T_LAUNCH_B);
+        video_luna_call("luna://com.webos.service.applicationmanager/launch", pl, T_LAUNCH_B2);
+    }
+    /* 20 s after the set time: ask the scheduler what became of the activity */
+    s = store_get_json("alarmTest");
+    if (due > 0 && time(NULL) >= due + 20 && !num(s, "details_sent") && *str(s, "activityId")) {
+        cJSON *w = state();
+        char pl[96]; snprintf(pl, sizeof pl, "{\"activityId\":%s}", str(w, "activityId"));
+        set_num(w, "details_sent", (double)time(NULL));
+        save(w);
+        video_luna_call("luna://com.palm.activitymanager/getDetails", pl, T_DETAILS);
     }
 }
 
@@ -181,8 +195,13 @@ void alarmtest_report(char *out, size_t n)
     line(out, n, &o, "Armed %s, set for %s\n", ta, td);
     if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(s, "cancelled"))) line(out, n, &o, "%s%s(cancelled)\n", "", "");
     line(out, n, &o, "A scheduler: %.140s%s\n", *str(s, "reply_scheduler") ? str(s, "reply_scheduler") : "no reply", "");
+    if (*str(s, "reply_details")) line(out, n, &o, "A afterwards: %.160s%s\n", str(s, "reply_details"), "");
     line(out, n, &o, "A (palm name): %.140s%s\n", *str(s, "reply_scheduler_palm") ? str(s, "reply_scheduler_palm") : "no reply", "");
-    if (bs) { localtime_r(&bs, &lt); strftime(tb, sizeof tb, "%H:%M:%S", &lt); line(out, n, &o, "B timer fired at %s: %.120s\n", tb, *str(s, "reply_launch_b") ? str(s, "reply_launch_b") : "no reply"); }
+    if (bs) {
+        localtime_r(&bs, &lt); strftime(tb, sizeof tb, "%H:%M:%S", &lt);
+        line(out, n, &o, "B timer fired at %s: %.120s\n", tb, *str(s, "reply_launch_b") ? str(s, "reply_launch_b") : "no reply");
+        line(out, n, &o, "B (newer name): %.120s%s\n", *str(s, "reply_launch_b2") ? str(s, "reply_launch_b2") : "no reply", "");
+    }
     else line(out, n, &o, "B timer: %s%s\n", time(NULL) < due ? "waiting" : "did not fire (Stremio was not running)", "");
     line(out, n, &o, "Relaunch events: %.100s%s\n", *str(s, "reply_register_native") ? str(s, "reply_register_native") : *str(s, "reply_register_app") ? str(s, "reply_register_app") : "no reply", "");
     const cJSON *l = cJSON_GetObjectItemCaseSensitive(s, "launches"), *it;
