@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.5
+
+- **Explore's list and genre rows scroll properly.** Moving along a long row no longer
+  snaps it back to the start: it stays put while the focused pill is in view and moves
+  just enough to keep it there.
+
 ## 0.10.4
 
 - **Two new themes.** *Mist*: Glass's rounded shapes, soft colours and white focus on a

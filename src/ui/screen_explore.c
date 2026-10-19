@@ -353,7 +353,7 @@ static void draw_pills(float x, float y, float maxw, const char **labels, int n,
     (void)dt_unused;
     float px = 0, fx = 0, fw = 0;
     for (int i = 0; i < n; i++) { float w = ui_pill_width(labels[i], 0, 52); if (i == focus_i) { fx = px; fw = w; } px += w + 12; }
-    float want = 0;
+    float want = *scroll;   /* stays put while the focused pill is in view */
     if (focused && fx + fw - *scroll > maxw) want = fx + fw - maxw;
     if (focused && fx - *scroll < 0) want = fx;
     if (focused) *scroll = want;
