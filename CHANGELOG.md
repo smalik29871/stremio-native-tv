@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.15
+
+- **YouTube in more ways.** Before YouTube's own playlist, the app now tries its own
+  byte-range playlist made from YouTube's separate video and audio (up to 4K where the
+  TV takes it) and DASH with every piece listed. It remembers which ways don't start on
+  this TV and tries them later, every tenth video again.
+- **Seek previews keep up.** While seeking, one preview is decoded at a time and the
+  nearest picture already decoded shows meanwhile; previews the TV was too busy for are
+  asked again instead of being lost.
+- **Card details make room.** After a moment on a card it widens with the rating,
+  runtime and synopsis, and the cards beside it slide aside instead of being covered.
+- **Smoother Home.** Big pictures reach the screen in bands, about 1 MB a frame.
+
 ## 0.10.14
 
 - **YouTube starts sharp.** On TVs where YouTube's DASH stream doesn't play, the
