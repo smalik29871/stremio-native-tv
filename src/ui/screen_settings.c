@@ -890,8 +890,8 @@ static const char *edit_title(int which)
 static const char *edit_hint(int which)
 {
     if (which == EDIT_SEARCH) return "A word from its name or from what it does: subtitle, clock, black, PIN, trailer\xE2\x80\xA6";
-    return which == EDIT_TRAKT_APP ? "Create an app at trakt.tv/oauth/applications (redirect: urn:ietf:wg:oauth:2.0:oob), then enter its Client ID, a space, and its Client Secret."
-         : which == EDIT_SIMKL_APP ? "Create an app at simkl.com/settings/developer (redirect: urn:ietf:wg:oauth:2.0:oob) and enter its Client ID."
+    return which == EDIT_TRAKT_APP ? "Create an app at developer.trakt.tv/apps (type Development, redirect http://localhost), then enter its Client ID, a space, and its Client Secret."
+         : which == EDIT_SIMKL_APP ? "Create an app at simkl.com/settings/developer (redirect http://localhost) and enter its Client ID."
          : which == EDIT_MDBLIST ? "Free at mdblist.com > Preferences > API key. Empty removes it."
          : which == EDIT_PLAY_LINK ? "A direct video link (MP4, MKV, M3U8). Scan the code to paste it on your phone; it plays at once."
          : which == EDIT_BACKUP ? "Scan the code with your phone: save a backup there, or send one back to restore it on this TV. Your Stremio sign-in is not included."

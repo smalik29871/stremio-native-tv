@@ -214,7 +214,7 @@ static void refresh_trakt(void)
     cJSON_AddStringToObject(b, "refresh_token", rt);
     cJSON_AddStringToObject(b, "client_id", tracking_app_id(TRACK_TRAKT));
     cJSON_AddStringToObject(b, "client_secret", trakt_secret());
-    cJSON_AddStringToObject(b, "redirect_uri", "urn:ietf:wg:oauth:2.0:oob");
+    cJSON_AddStringToObject(b, "redirect_uri", "http://localhost");   /* what the app registers; the device sign-in itself needs none */
     cJSON_AddStringToObject(b, "grant_type", "refresh_token");
     char *body = cJSON_PrintUnformatted(b);
     cJSON_Delete(b);
