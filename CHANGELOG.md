@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.11
+
+- **YouTube plays again.** YouTube links only work for the YouTube app they were issued
+  to; the TV's proxy now fetches each one as that app (YouTube answered "403" before).
+  The HLS playlist, its qualities, audio and pieces all go through the proxy too. A
+  refusal is reported at once, so the next way to play it starts sooner.
+
 ## 0.10.10
 
 - **YouTube in high quality.** Trailers and YouTube streams now play YouTube's separate
