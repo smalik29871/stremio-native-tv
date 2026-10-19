@@ -9,6 +9,7 @@
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -123,7 +124,9 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
                 if (!c->removed && c->poster && *c->poster) it = c;
             }
             static const char *const NAMES[] = { "Dune", "Up", "Heat", "Her", "Jaws" };
+            ui_card_capture(0);
             ui_card(it ? it->poster : NULL, sx + 24 + i * (cw + 18), cy, cw, ch, i == 1, 0, it ? NULL : NAMES[i], CARD_MIP);
+            ui_card_capture(1);
         }
         snprintf(t, sizeof t, "%s  \xC2\xB7  %s  \xC2\xB7  %s", THEME_NAMES[g_app.theme], THEME_ACCENT_NAMES[g_app.theme][g_app.theme_accent], THEME_BG_NAMES[g_app.theme][g_app.theme_bg]);
         label(t, x + w / 2, base, 1);
@@ -304,10 +307,25 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         return;
     }
     case PV_AMBIENT: {
-        art(sx, sy, sw, sh, R_KEY, 0, 0);
-        gfx_rrect_grad_h(sx, sy, sw * 0.7f, sh, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0xB0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0));
         ui_clock_text(0, t, sizeof t);
-        font_draw(t, sx + 30, sy + sh - 30 - font_height(FONT_XL | FONT_B), FONT_XL | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+        gfx_rrect(sx, sy, sw, sh, R_KEY, RGBA(0, 0, 0, 0xFF));
+        gfx_clip_push(sx, sy, sw, sh);
+        if (g_app.ambient_style == AMBIENT_WALL) {
+            float tw = (sw - 50) / 3, th = tw * 0.5625f;
+            for (int r = 0; r < 4; r++) for (int c = 0; c < 3; c++) art(sx + 12 + c * (tw + 13) + (r & 1 ? tw * 0.25f : 0) - tw * 0.12f, sy + 12 + r * (th + 13) - 20, tw, th, 6, r * 3 + c, 0);
+            gfx_rect(sx, sy, sw, sh, RGBA(0, 0, 0, 0x50));
+        } else if (g_app.ambient_style == AMBIENT_ARTWORK) {
+            art(sx, sy, sw, sh, R_KEY, 0, 0);
+            gfx_rrect_grad_h(sx, sy, sw * 0.7f, sh, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0xB0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0));
+        }
+        gfx_clip_pop();
+        if (g_app.ambient_style == AMBIENT_CLOCK) font_draw_center(t, sx + sw / 2, sy + (sh - font_height(FONT_XL | FONT_B)) / 2, FONT_XL | FONT_B, RGBA(0xE8, 0xE8, 0xEE, 0xFF));
+        else if (g_app.ambient_style == AMBIENT_LOGO) {
+            float p = fmodf(g_app.time * 0.15f, 1.0f), q = fmodf(g_app.time * 0.11f, 1.0f);
+            float lx = sx + 20 + (sw - 110) * (p < 0.5f ? p * 2 : 2 - p * 2), ly = sy + 20 + (sh - 110) * (q < 0.5f ? q * 2 : 2 - q * 2);
+            ui_mark(lx, ly, 70);
+            app_redraw();
+        } else font_draw(t, sx + 30, sy + sh - 30 - font_height(FONT_XL | FONT_B), FONT_XL | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
         if (g_app.ambient_minutes) snprintf(t, sizeof t, "After %d min with the remote quiet", g_app.ambient_minutes);
         else snprintf(t, sizeof t, "Off: the screen stays as it is");
         caption(t, x, base + 6, w);

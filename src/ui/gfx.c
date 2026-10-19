@@ -361,7 +361,7 @@ void gfx_video_hole(float x, float y, float w, float h)
 
 /* ---- clipping (stack of 8) ---- */
 static struct { int x, y, w, h; } g_clip[8];
-static int g_nclip;
+static int g_nclip, g_clip_over;   /* pushes past the stack's depth, so pops stay balanced */
 
 static void apply_clip(void)
 {
@@ -384,7 +384,7 @@ void gfx_clip_push(float x, float y, float w, float h)
     flush();
     x = g_zx + (x - g_zx) * g_zs + g_tx; y = g_zy + (y - g_zy) * g_zs + g_ty; w *= g_zs; h *= g_zs;
     x = g_lx + (x - g_lx) * g_ls + g_ltx; y = g_ly + (y - g_ly) * g_ls + g_lty; w *= g_ls; h *= g_ls;
-    if (g_nclip >= 8) return;
+    if (g_nclip >= 8) { g_clip_over++; return; }
     int px = (int)(g_off_x + x * g_scale), py = (int)(g_off_y + y * g_scale);
     int pw = (int)(w * g_scale + 0.5f), ph = (int)(h * g_scale + 0.5f);
     int gy = g_draw_h - (py + ph);
@@ -403,6 +403,7 @@ void gfx_clip_push(float x, float y, float w, float h)
 void gfx_clip_pop(void)
 {
     flush();
+    if (g_clip_over) { g_clip_over--; return; }
     if (g_nclip) g_nclip--;
     apply_clip();
 }

@@ -48,7 +48,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -118,7 +118,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
-        SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; ids[n++] = IT_MEMORY;
+        SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; ids[n++] = IT_MEMORY;
         break;
     case CAT_KEYS:
         SEC(SEC_META); ids[n++] = IT_TMDB;
@@ -178,7 +178,8 @@ static const char *row_desc(int id)
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
     case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
     case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
-    case IT_AMBIENT: return "Backdrops drift with a big clock when the remote is quiet.";
+    case IT_AMBIENT: return "When the remote has been quiet this long.";
+    case IT_AMBIENT_STYLE: return "Artwork, a wall of posters, a big clock, or the logo drifting.";
     case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
     case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";
     case IT_AUTO_UPDATE: return "A popup at a quiet moment: Update now or Later. Never while something plays.";
@@ -199,11 +200,36 @@ static const char *row_desc(int id)
 
 static float row_h(int id) { return IS_SEC(id) ? SEC_H : ROW_H; }
 
+/* What Left/Right do on a row, known from its id (keys must not depend on what was drawn). */
+static int row_takes_left(int id)
+{
+    if (id >= IT_ROWS_BASE && id < IT_ACCT_BASE) return 1;   /* home rows and addons move */
+    switch (id) {
+    case IT_PREF_AUDIO: case IT_PREF_SUBS: case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_ADDON_WAIT: case IT_SKIP:
+    case IT_SUBS_WHEN: case IT_CLOCK: case IT_QUALITY: case IT_RES_CAP: case IT_AI_PROVIDER: case IT_MEMORY:
+    case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
+    case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
+    case IT_BR_WHERE: case IT_THEME: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE:
+        return 1;
+    default: return 0;   /* switches and actions: Left goes back to the categories */
+    }
+}
+
 /* Focus never rests on a heading: the next focusable row from i in direction dir, or -1. */
 static int focusable(const int *ids, int n, int i, int dir)
 {
     for (; i >= 0 && i < n; i += dir) if (!IS_SEC(ids[i])) return i;
     return -1;
+}
+
+/* The rows changed under the focus (a row went away): move it to the nearest row, never a heading. */
+static void fix_focus(Settings *st, const int *ids, int n)
+{
+    if (st->zone != 1) return;
+    if (st->focus < n && st->focus >= 0 && !IS_SEC(ids[st->focus])) return;
+    int f = focusable(ids, n, st->focus < n ? (st->focus < 0 ? 0 : st->focus) : n - 1, 1);
+    st->focus = f >= 0 ? f : focusable(ids, n, n - 1, -1);
+    if (st->focus < 0) { st->zone = 0; st->focus = 0; }
 }
 
 static const char *lang_name(const char *code) { return code[0] ? lang_display(code) : "Off"; }
@@ -295,6 +321,7 @@ static void update(Screen *s, float dt)
     if (st->edit == EDIT_NONE) {   /* keep the focused row inside the pane, two rows from its foot */
         int ids[MAX_ROWS + 8];
         int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
+        fix_focus(st, ids, n);
         float yf = 0;
         for (int i = 0; i < n && i < st->focus; i++) yf += row_h(ids[i]);
         float t = yf - (SNTV_UI_H - ROWS_TOP - 2.5f * ROW_H);
@@ -354,7 +381,7 @@ static PreviewKind preview_for(int id)
     case IT_AUTOPLAY: return PV_AUTOPLAY;
     case IT_PIP: return PV_PIP;
     case IT_SCRUB: return PV_SCRUB;
-    case IT_AMBIENT: return PV_AMBIENT;
+    case IT_AMBIENT: case IT_AMBIENT_STYLE: return PV_AMBIENT;
     case IT_TRANSITIONS: return PV_TRANSITIONS;
     case IT_PREF_AUDIO: return PV_LANG_AUDIO;
     case IT_PREF_SUBS: case IT_SUBS_WHEN: return PV_LANG_SUBS;
@@ -487,8 +514,8 @@ static void draw(Screen *s)
     { float e = 1 - (1 - st->pane_t) * (1 - st->pane_t); gfx_set_translate(40 * (1 - e), 0); }
     float y = ROWS_TOP - st->scroll;
     for (int i = 0; i < n; y += row_h(ids[i]), i++) {
-        if (y + ROW_H < ROWS_TOP - 20 || y > SNTV_UI_H) continue;
         int foc = st->zone == 1 && st->focus == i;
+        if (!foc && (y + ROW_H < ROWS_TOP - 20 || y > SNTV_UI_H)) continue;   /* the focused row always draws (the clip hides it), so the panel describes it */
         int id = ids[i];
         char v[300];
         if (IS_SEC(id)) { draw_section(y, SEC_NAMES[id - IT_SEC_BASE]); continue; }
@@ -623,6 +650,7 @@ static void draw(Screen *s)
             if (g_app.ambient_minutes) snprintf(v, sizeof v, "After %d min", g_app.ambient_minutes); else snprintf(v, sizeof v, "Off");
             draw_row(y, ICON_TV, "Screensaver", v, foc, KIND_CHOICE, 0);
             break;
+        case IT_AMBIENT_STYLE: draw_row(y, ICON_TV, "Screensaver style", AMBIENT_STYLE_NAMES[g_app.ambient_style], foc, KIND_CHOICE, 0); break;
         case IT_BLUR: draw_row(y, ICON_EYE, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
         case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log, device info, QR export", foc, KIND_ACTION, 0); break;
         case IT_UPDATE: {
@@ -936,6 +964,7 @@ static int adjust(Settings *st, int id, int dir)
         break;
     }
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
+    case IT_AMBIENT_STYLE: g_app.ambient_style = (g_app.ambient_style + dir + AMBIENT_STYLE_COUNT) % AMBIENT_STYLE_COUNT; break;
     default:
         if (id >= IT_ACCT_BASE) return 0;   /* switching and forgetting are behind OK */
         if (id >= IT_ADDON_BASE) {
@@ -993,17 +1022,14 @@ static int key(Screen *s, KeyAction a)
         default: return 0;
         }
     }
-    if (st->focus >= n || IS_SEC(ids[st->focus])) {   /* the rows changed under the focus */
-        int f = focusable(ids, n, st->focus < n ? st->focus : n - 1, 1);
-        st->focus = f >= 0 ? f : focusable(ids, n, n - 1, -1);
-    }
-    if (!n || st->focus < 0) { st->zone = 0; st->focus = 0; return 1; }
+    fix_focus(st, ids, n);   /* the rows may have changed under the focus */
+    if (!n || st->zone == 0) { st->zone = 0; st->focus = 0; return 1; }
     int id = ids[st->focus];
     switch (a) {
     case KEY_UP: { int f = focusable(ids, n, st->focus - 1, -1); if (f >= 0) st->focus = f; st->confirm_remove = -1; return 1; }
     case KEY_DOWN: { int f = focusable(ids, n, st->focus + 1, 1); if (f >= 0) { st->focus = f; st->confirm_remove = -1; return 1; } return 0; }
     case KEY_LEFT:   /* choices and reorderable rows take Left; elsewhere it goes back to the categories */
-        if ((s_fkind == KIND_CHOICE || s_fkind == KIND_MOVABLE || (id >= IT_ADDON_BASE && id < IT_ACCT_BASE)) && adjust(st, id, -1)) return 1;
+        if (row_takes_left(id) && adjust(st, id, -1)) return 1;
         st->cat_focus[st->cat] = st->focus; st->zone = 0;
         return 1;
     case KEY_RIGHT: adjust(st, id, 1); return 1;

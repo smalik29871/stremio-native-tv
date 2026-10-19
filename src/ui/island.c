@@ -43,7 +43,7 @@ void island_resume(const MetaPreview *meta, const char *line, int minutes_left)
 
 int island_key_blue(void)
 {
-    if (!I.has_resume || g_app.time - I.resume_at > RESUME_FOR) return 0;
+    if (!I.has_resume || g_app.time - I.resume_at > RESUME_FOR || I.kind != IS_RESUME) return 0;   /* only what is on show */
     MetaPreview m = I.resume;
     memset(&I.resume, 0, sizeof I.resume);
     I.has_resume = 0;

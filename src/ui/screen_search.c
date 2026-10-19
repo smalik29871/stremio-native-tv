@@ -194,6 +194,7 @@ static int looks_like_a_request(const char *q)
 static void run_query(Search *s)
 {
     const char *q = s->kb.text;
+    s->want_results = 0;   /* the caller asks again when this search should take the focus */
     if (strcmp(q, s->last_query) == 0) return;
     snprintf(s->last_query, sizeof s->last_query, "%s", q);
     s->generation++;
@@ -216,7 +217,7 @@ static void run_query(Search *s)
 
 static void open_keyboard(Search *s)
 {
-    s->typing = 1; s->focus_grid = 0;
+    s->typing = 1; s->focus_grid = 0; s->want_results = 0;
     input_text(1);
     phone_prompt("Search", "Type a title, a person, or what you feel like watching", s->kb.text);
     char url[96]; uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];

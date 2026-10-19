@@ -37,6 +37,8 @@ typedef struct PlayCandidate {
 } PlayCandidate;
 
 enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
+enum { AMBIENT_ARTWORK, AMBIENT_WALL, AMBIENT_CLOCK, AMBIENT_LOGO, AMBIENT_STYLE_COUNT };
+extern const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT];
 extern const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT];
 
 typedef struct App {
@@ -76,6 +78,7 @@ typedef struct App {
     int card_details;          /* a focused card opens a details panel after a moment */
     float ok_hold;             /* OK held on a long-press screen: 0 not held, else 0..1 toward options (1 = release opens them) */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */
+    int ambient_style;         /* AMBIENT_ARTWORK, _WALL, _CLOCK, _LOGO */
     int quality_mode;          /* QUAL_*: how sources are ranked */
     int res_cap;               /* 2160, 1080 or 720 */
     int auto_recommended;      /* play the recommended source without asking */

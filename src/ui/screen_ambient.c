@@ -25,7 +25,11 @@ typedef struct {
     float fade;           /* 0..1 while the previous image fades out */
     float shown_at;       /* g_app.time the current image appeared */
     int cur_ready;
+    float wall_y;         /* Poster wall: how far the wall has drifted up */
+    float lx, ly, lvx, lvy;   /* Floating logo: position and velocity */
 } Ambient;
+
+#define LOGO_S 150.0f
 
 static void collect(Ambient *a)
 {
@@ -76,7 +80,16 @@ static void update(Screen *s, float dt)
 {
     Ambient *a = s->st;
     app_redraw();
-    if (!a->n) return;
+    if (g_app.ambient_style == AMBIENT_LOGO) {   /* drifts and bounces off the edges */
+        a->lx += a->lvx * dt; a->ly += a->lvy * dt;
+        if (a->lx < 40) { a->lx = 40; a->lvx = -a->lvx; }
+        if (a->ly < 40) { a->ly = 40; a->lvy = -a->lvy; }
+        if (a->lx > SNTV_UI_W - 40 - LOGO_S) { a->lx = SNTV_UI_W - 40 - LOGO_S; a->lvx = -a->lvx; }
+        if (a->ly > SNTV_UI_H - 40 - LOGO_S) { a->ly = SNTV_UI_H - 40 - LOGO_S; a->lvy = -a->lvy; }
+        return;
+    }
+    if (g_app.ambient_style == AMBIENT_WALL) { a->wall_y += dt * 18; return; }
+    if (g_app.ambient_style == AMBIENT_CLOCK || !a->n) return;
     a->t += dt;
     if (a->fade > 0) { a->fade -= dt / FADE_S; if (a->fade < 0) a->fade = 0; }
     int w, h;
@@ -110,6 +123,31 @@ static void draw_backdrop(const AmbientItem *it, float k, int dir, float alpha)
     gfx_tex_uv(tex, 0, 0, SNTV_UI_W, SNTV_UI_H, nu0, nv0, nu0 + uw, nv0 + vh, RGBA(255, 255, 255, (int)(255 * alpha)));
 }
 
+static void clock_text(const struct tm *tmv, char *clock, size_t n)
+{
+    if (g_app.clock_mode == 1) snprintf(clock, n, "%02d:%02d", tmv->tm_hour, tmv->tm_min);
+    else snprintf(clock, n, "%d:%02d", tmv->tm_hour % 12 ? tmv->tm_hour % 12 : 12, tmv->tm_min);
+}
+
+/* Poster wall: the artwork as tiles, four across, drifting slowly up and wrapping round. */
+static void draw_wall(Ambient *a)
+{
+    if (!a->n) return;
+    const float gap = 28, cols = 4, tw = (SNTV_UI_W - gap * (cols + 1)) / cols, th = tw * 0.5625f, step = th + gap;
+    int first_row = (int)(a->wall_y / step);
+    float off = a->wall_y - first_row * step;
+    for (int r = 0; r < 6; r++)
+        for (int c = 0; c < (int)cols; c++) {
+            int idx = ((first_row + r) * (int)cols + c) % a->n;
+            float x = gap + c * (tw + gap) + (r & 1 ? tw * 0.25f : 0) - tw * 0.12f, y = gap + r * step - off;
+            int iw, ih;
+            unsigned tex = image_get(a->items[idx].background, &iw, &ih);
+            if (tex) gfx_rtex_uv(tex, x, y, tw, th, 10, 0, 0, 1, 1, RGBA(170, 170, 170, 255), 0);
+            else if (!image_failed(a->items[idx].background)) gfx_rrect(x, y, tw, th, 10, RGBA(0x1A, 0x1A, 0x20, 0xFF));   /* still coming */
+        }
+    gfx_gradient_v(0, 0, SNTV_UI_W, 300, RGBA(0, 0, 0, 0xD0), RGBA(0, 0, 0, 0));
+}
+
 static void draw(Screen *s)
 {
     Ambient *a = s->st;
@@ -119,8 +157,24 @@ static void draw(Screen *s)
     localtime_r(&now, &tmv);
     /* burn-in guard: a different offset every minute */
     float sx = (float)((tmv.tm_min % 5) - 2) * 7, sy = (float)(((tmv.tm_min / 5) % 3) - 1) * 7;
+    char big[16];
+    clock_text(&tmv, big, sizeof big);
+    if (g_app.ambient_style == AMBIENT_CLOCK) {   /* a big clock on black, wandering a little every minute */
+        char date[64]; strftime(date, sizeof date, "%A, %B %-d", &tmv);
+        float cx = SNTV_UI_W / 2 + sx * 8, cy = SNTV_UI_H / 2 - 90 + sy * 8;
+        font_draw_center(big, cx, cy, FONT_HUGE | FONT_B, RGBA(0xE8, 0xE8, 0xEE, 0xFF));
+        font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 10, FONT_M, RGBA(0x90, 0x90, 0x98, 0xFF));
+        return;
+    }
+    if (g_app.ambient_style == AMBIENT_LOGO) {
+        ui_mark(a->lx, a->ly, LOGO_S);
+        float cw = font_measure(big, FONT_L | FONT_B);
+        font_draw(big, SNTV_UI_W - THEME_MARGIN - cw + sx, SNTV_UI_H - 110 + sy, FONT_L | FONT_B, RGBA(0x90, 0x90, 0x98, 0xFF));
+        return;
+    }
+    if (g_app.ambient_style == AMBIENT_WALL) draw_wall(a);
 
-    if (a->n) {
+    if (a->n && g_app.ambient_style == AMBIENT_ARTWORK) {
         const AmbientItem *cur = &a->items[a->cur];
         float k = a->t / SLOT_S;
         if (k > 1) k = 1;
@@ -133,8 +187,7 @@ static void draw(Screen *s)
     }
 
     char clock[16], date[64];
-    if (g_app.clock_mode == 1) snprintf(clock, sizeof clock, "%02d:%02d", tmv.tm_hour, tmv.tm_min);
-    else snprintf(clock, sizeof clock, "%d:%02d", tmv.tm_hour % 12 ? tmv.tm_hour % 12 : 12, tmv.tm_min);
+    snprintf(clock, sizeof clock, "%s", big);
     strftime(date, sizeof date, "%A, %B %-d", &tmv);
     float cw = font_measure(clock, FONT_TITLE | FONT_B);
     float cx = SNTV_UI_W - THEME_MARGIN - cw + sx, cy = 64 + sy;
@@ -166,7 +219,8 @@ Screen *screen_ambient_create(void)
     Ambient *a = calloc(1, sizeof *a);
     collect(a);
     a->shown_at = g_app.time;
-    LOGI("ambient: screensaver with %d backdrops", a->n);
+    a->lx = SNTV_UI_W * 0.3f; a->ly = SNTV_UI_H * 0.35f; a->lvx = 90; a->lvy = 64;
+    LOGI("ambient: %s screensaver with %d backdrops", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n);
     s->name = "ambient"; s->st = a;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
     return s;

@@ -41,6 +41,22 @@ and fixes to focus and player keys found in a review against Nuvio.
   **Background** setting with four tints per theme (Signal: Graphite, Navy, Forest, Plum;
   Marquee: Ink, Sepia, Velvet, Night; Glass: Dusk, Aurora, Rose, Slate; Metro: Black,
   Charcoal, Midnight, Wine), shown in the preview as you pick.
+- **Sign-in and settings survive power-offs on webOS 10.** Newer TVs run the app as its
+  own user, for whom every folder it tried was read-only or in RAM, so everything was
+  lost when the TV powered off ("store: … is in RAM" in Diagnostics). The app now also
+  tries the developer partition and internal storage, both on flash.
+- **Screensaver styles:** Artwork (as before), Poster wall, Clock (big and dim, kind to
+  OLED panels) and Floating logo, with a preview in Settings > Interface.
+- **Fixes from a final sweep** (code review plus every scripted run under address and
+  undefined-behaviour sanitizers): a heap read past the end in the font baker when a
+  face lacks glyphs in several ranges (stb_truetype, patched); OK kept working on remotes
+  that never send key releases; the sources list no longer moves its focus by itself
+  while addons answer; a seek waiting to land beats Up Next and Skip for OK, and Back
+  puts the picture back even with live preview; a stale Up Next card no longer turns OK
+  into "next episode" after rewinding; Settings acts on the focused row's own kind
+  (not the last one drawn) and never leaves focus on a heading; the first-run setup no
+  longer zooms out of the corner; Blue opens only a Resume card that is on show; stored
+  settings out of range are reset instead of indexing past a list.
 - **The TV's own Settings button no longer pauses the video.** Its overlay only takes
   the remote; the app is still on screen, so playback carries on (progress is saved).
   Leaving for Home or another app still pauses. Window events are written to the log.

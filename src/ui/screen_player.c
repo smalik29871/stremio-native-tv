@@ -66,6 +66,7 @@ struct Player {
     int finished, up_next_shown, up_next_accepted;
     int seek_steps; float seek_decay;
     double seek_target; float seek_commit;   /* debounced seek while the key repeats */
+    double seek_origin;                      /* where the playhead was when the seek began (Back returns there) */
     float load_started;
     int error_handled;
 
@@ -1176,7 +1177,7 @@ static void update(Screen *s, float dt)
     if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
     if (p->up_next_shown && p->next_video_id && g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at
         && vi.state == VIDEO_PLAYING && !p->menu) { go_up_next(p); return; }   /* never under an open menu */
-    if (p->up_next_shown && vi.position < credits - 5 && credits > 60 && !near_end) p->up_next_shown = 0;   /* seeked back */
+    if (p->up_next_shown && !at_credits && !near_end) p->up_next_shown = 0;   /* seeked back out of its window (with or without markers) */
     if (vi.state == VIDEO_ENDED) {
         if (p->next_video_id && g_app.autoplay_next) { if (!p->menu) go_up_next(p); return; }
         p->finished = 1;
@@ -2027,6 +2028,7 @@ static void seek_by(Player *p, double base)
     p->seek_steps++;
     p->seek_decay = 0.6f;
     double step = base * (p->seek_steps > 8 ? 6 : p->seek_steps > 4 ? 3 : 1);
+    if (p->seek_commit <= 0) p->seek_origin = vi.position;
     double from = p->seek_commit > 0 ? p->seek_target : vi.position;
     double target = from + step;
     if (target < 0) target = 0;
@@ -2091,11 +2093,17 @@ static int key(Screen *s, KeyAction a)
         case KEY_LEFT: { int i = bar_pos(p, ids, n); if (i > 0) p->bar_id = ids[i - 1]; show_overlay(p); return 1; }
         case KEY_RIGHT: { int i = bar_pos(p, ids, n); if (i < n - 1) p->bar_id = ids[i + 1]; show_overlay(p); return 1; }
         case KEY_UP: case KEY_BACK: p->bar_focus = 0; show_overlay(p); return 1;
-        case KEY_DOWN: p->bar_focus = 0; p->overlay_until = 0; app_redraw(); return 1;   /* below the buttons: hide the controls */
+        case KEY_DOWN:   /* below the buttons: hide the controls (paused, they stay; so does the focus) */
+            if (vi.state == VIDEO_PAUSED) return 1;
+            p->bar_focus = 0; p->overlay_until = 0; app_redraw(); return 1;
         case KEY_OK: bar_activate(p, &vi); return 1;
         default: break;   /* play/pause, colours and the rest work as usual */
         }
     }
+    /* a seek waiting to land comes first: OK lands it now, Back puts the playhead back
+     * (live scrub may already have moved the picture) */
+    if (p->seek_commit > 0 && a == KEY_OK) { p->seek_commit = 0; video_seek(p->seek_target); show_overlay(p); return 1; }
+    if (p->seek_commit > 0 && a == KEY_BACK) { p->seek_commit = 0; if (g_app.live_scrub) video_seek(p->seek_origin); app_toast("Seek cancelled"); show_overlay(p); return 1; }
     if (a == KEY_OK && p->up_next_shown && p->next_video_id) { go_up_next(p); return 1; }   /* the card's Play now */
     /* Skip: OK while the controls are hidden and the video plays, or once Up has focused the
      * button; with the controls up OK is play/pause like everywhere else */
@@ -2106,9 +2114,6 @@ static int key(Screen *s, KeyAction a)
         if (sk && overlay_on && !p->bar_focus && a == KEY_UP && !p->skip_focus) { p->skip_focus = 1; show_overlay(p); return 1; }
         if (p->skip_focus && (a == KEY_DOWN || a == KEY_BACK)) { p->skip_focus = 0; show_overlay(p); return 1; }
     }
-    /* a seek waiting to land: OK lands it now, Back puts the playhead back */
-    if (p->seek_commit > 0 && a == KEY_OK) { p->seek_commit = 0; video_seek(p->seek_target); show_overlay(p); return 1; }
-    if (p->seek_commit > 0 && a == KEY_BACK) { p->seek_commit = 0; app_toast("Seek cancelled"); show_overlay(p); return 1; }
     if (a == KEY_DOWN && p->up_next_shown && p->next_video_id && !p->bar_focus) {   /* put the card away for the controls */
         p->up_next_shown = 0; p->up_next_dismissed = 1; p->bar_focus = 1; show_overlay(p); return 1;
     }

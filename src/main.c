@@ -64,6 +64,16 @@ static const char *data_dir(void)
     snprintf(dir, sizeof dir, "%s/.%s", home ? home : "/tmp", SNTV_APP_ID);
     mkdir(dir, 0755);
     if (dir_writable(dir) && !in_ram(dir)) return dir;
+    /* webOS 10 runs apps as their own user, for whom all of the above is read-only or in
+     * RAM; the developer partition (on flash, kept by Homebrew TVs) and internal storage
+     * still take writes and survive power-offs */
+    static const char *const FLASH[] = { "/media/developer/temp", "/media/internal" };
+    for (size_t i = 0; i < sizeof FLASH / sizeof FLASH[0]; i++) {
+        snprintf(dir, sizeof dir, "%s/%s%s", FLASH[i], i ? "." : "", SNTV_APP_ID);
+        mkdir(FLASH[i], 0755);
+        mkdir(dir, 0755);
+        if (dir_writable(dir) && !in_ram(dir)) return dir;
+    }
     if (ram[0]) { snprintf(dir, sizeof dir, "%s", ram); return dir; }
     if (dir_writable(dir)) return dir;
     snprintf(dir, sizeof dir, "/tmp/%s", SNTV_APP_ID);
@@ -269,7 +279,9 @@ int main(int argc, char **argv)
                 g_app.last_input = g_app.time;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) continue;
-                if (a == KEY_OK && e.key.repeat) continue;   /* a held OK presses once (no double play, no OK landing on the next screen) */
+                /* a held OK presses once (no double play, no OK landing on the next screen); remotes
+                 * that never send releases look like a held key forever, so only those that do */
+                if (a == KEY_OK && e.key.repeat && g_seen_keyup) continue;
                 /* On screens that offer a long press, OK waits for the release (or the hold).
                  * Remotes that never send releases keep the old instant OK. */
                 if (a == KEY_OK && g_seen_keyup && top && top->long_ok && !(g_app.pip && g_pip_focus)) {

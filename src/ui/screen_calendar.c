@@ -136,7 +136,7 @@ static void ask_all(Calendar *c)
             break;
         }
     }
-    qsort(c->items, (size_t)c->n, sizeof(CalItem), cmp_items);
+    if (c->n > 1) qsort(c->items, (size_t)c->n, sizeof(CalItem), cmp_items);
     /* start on today (or the first future day) */
     for (int i = 0; i < c->n; i++) if (c->items[i].day >= c->today) { c->focus = i; break; }
 }

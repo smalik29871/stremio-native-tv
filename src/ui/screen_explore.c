@@ -108,8 +108,10 @@ static void build_cats(Explore *e)
             if (strcmp(cat->type, e->types[e->type_i]) != 0 || !usable(cat) || (g_app.hide_adult && g_app.addons[a].manifest.bh_adult)) continue;
             e->cats[e->n_cats].addon = a; e->cats[e->n_cats].catalog = c; e->n_cats++;
         }
-    e->cat_i = e->cat_focus = 0;   /* a new type has its own lists */
-    e->genre_i = e->genre_focus = 0;
+    if (e->cat_i >= e->n_cats) e->cat_i = 0;
+    if (e->cat_focus >= e->n_cats) e->cat_focus = e->cat_i;
+    e->genre_i = 0;
+    if (e->genre_focus > 0) e->genre_focus = 0;
 }
 
 static void reset_items(Explore *e)
@@ -338,13 +340,13 @@ static int key(Screen *s, KeyAction a)
         if (e->zone == Z_GENRES) e->genre_focus = e->genre_i;
         return 1;
     case KEY_LEFT:
-        if (e->zone == Z_TYPES) { if (e->type_i > 0) { e->type_i--; build_cats(e); reset_items(e); } else e->rail_focus = RAIL_EXPLORE; }
+        if (e->zone == Z_TYPES) { if (e->type_i > 0) { e->type_i--; e->cat_i = e->cat_focus = 0; build_cats(e); reset_items(e); } else e->rail_focus = RAIL_EXPLORE; }
         else if (e->zone == Z_CATS) { if (e->cat_focus > 0) e->cat_focus--; else e->rail_focus = RAIL_EXPLORE; }
         else if (e->zone == Z_GENRES) { if (e->genre_focus > 0) e->genre_focus--; else e->rail_focus = RAIL_EXPLORE; }
         else if (e->focus % COLS) { e->focus--; e->focus_t = 0; } else e->rail_focus = RAIL_EXPLORE;
         return 1;
     case KEY_RIGHT:
-        if (e->zone == Z_TYPES) { if (e->type_i + 1 < e->n_types) { e->type_i++; build_cats(e); reset_items(e); } }
+        if (e->zone == Z_TYPES) { if (e->type_i + 1 < e->n_types) { e->type_i++; e->cat_i = e->cat_focus = 0; build_cats(e); reset_items(e); } }   /* a new type has its own lists */
         else if (e->zone == Z_CATS) { if (e->cat_focus + 1 < e->n_cats) e->cat_focus++; }
         else if (e->zone == Z_GENRES) { if (e->genre_focus + 1 < ng) e->genre_focus++; }
         else if (e->focus % COLS < COLS - 1 && e->focus + 1 < e->n) { e->focus++; e->focus_t = 0; }

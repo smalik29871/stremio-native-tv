@@ -62,7 +62,7 @@ static void by_age_and_size(const char *dir, const char *suffix, time_t now, lon
 {
     int n;
     Entry *v = list(dir, &n);
-    qsort(v, (size_t)n, sizeof *v, newest_first);
+    if (n > 1) qsort(v, (size_t)n, sizeof *v, newest_first);   /* an empty folder lists NULL */
     long long kept = 0;
     for (int i = 0; i < n; i++) {
         if (suffix && !ends_with(v[i].name, suffix)) continue;

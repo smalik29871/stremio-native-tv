@@ -11,6 +11,9 @@
 #include "ui/font.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
+#include "ai.h"
+#include "breaks.h"
+#include "suntimes.h"
 #include "ui/screen_options.h"
 #include "cJSON.h"
 #include <stdarg.h>
@@ -30,7 +33,7 @@ float ui_ease(float from, float to, float *vel, float dt, float speed)
     if (vel) {
         /* a critically damped spring, solved exactly for the step: it eases in as well as
          * out, never overshoots, and a new target mid-flight keeps the speed it had */
-        float w = speed * 0.75f, x = from - to, step = dt > 0.05f ? 0.05f : dt;
+        float w = speed * 0.75f, x = from - to, step = dt;   /* exact for any step: slow TVs keep the timing */
         float e = SDL_expf(-w * step), c = (*vel + w * x) * step;
         float v = to + (x + c) * e, nv = (*vel - w * c) * e;
         if ((to > from && v > to) || (to < from && v < to)) { v = to; nv = 0; }
@@ -51,7 +54,7 @@ float ui_ease(float from, float to, float *vel, float dt, float speed)
 
 static struct { Screen *from; int owned, dir; float t; int active; int zoom; float rect[4]; } g_trans;
 /* The card each pushed screen opened out of (so Back can shrink it back into it). */
-static struct { int has; float r[4]; } g_origin[12];
+static struct { int has; float r[4]; } g_origin[sizeof g_app.stack / sizeof g_app.stack[0]];
 
 static int transitional(const Screen *s)
 {
@@ -153,7 +156,7 @@ void app_push(Screen *s)
     Screen *old = app_top();
     int d = g_app.depth;
     /* opened with OK on a card drawn this moment: grow out of that card */
-    g_origin[d].has = g_app.time - g_app.card_at < 0.12f && g_app.time - g_app.press_at < 0.12f;
+    g_origin[d].has = g_app.time - g_app.card_at < 0.12f && g_app.time - g_app.press_at < 0.12f && g_app.card_rect[2] > 0 && g_app.card_rect[3] > 0;
     if (g_origin[d].has) memcpy(g_origin[d].r, g_app.card_rect, sizeof g_origin[d].r);
     g_app.stack[g_app.depth++] = s;
     trans_begin(old, 0, 1, g_origin[d].has ? g_origin[d].r : NULL);
@@ -1408,6 +1411,8 @@ static void load_prefs(void)
     theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
     g_app.card_details = store_get_int("cardDetails", 1);
     g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
+    g_app.ambient_style = store_get_int("ambientStyle", AMBIENT_ARTWORK);
+    if (g_app.ambient_style < 0 || g_app.ambient_style >= AMBIENT_STYLE_COUNT) g_app.ambient_style = AMBIENT_ARTWORK;
     g_app.quality_mode = store_get_int("qualityMode", QUAL_ADDON_ORDER);
     if (g_app.quality_mode < 0 || g_app.quality_mode >= QUAL_MODE_COUNT) g_app.quality_mode = QUAL_ADDON_ORDER;
     g_app.res_cap = store_get_int("resCap", 2160);
@@ -1433,6 +1438,17 @@ static void load_prefs(void)
     g_app.break_lead_min = store_get_int("breakLead", 5);
     g_app.break_len_min = store_get_int("breakLen", 10);
     g_app.break_sound = store_get_int("breakSound", 0);
+    /* an old or hand-edited settings file must not index past a list */
+#define CLAMP_PREF(v, n, def) do { if ((v) < 0 || (v) >= (n)) (v) = (def); } while (0)
+    CLAMP_PREF(g_app.fx_setting, 3, FX_AUTO);
+    CLAMP_PREF(g_app.subs_size, 4, 1);
+    CLAMP_PREF(g_app.home_style, HOME_STYLE_COUNT, HOME_CINEMATIC);
+    CLAMP_PREF(g_app.ai_provider, AI_PROVIDER_COUNT, 0);
+    CLAMP_PREF(g_app.memory_mode, 3, 0);
+    CLAMP_PREF(g_app.break_sched, BRK_SCHED_COUNT, 0);
+    CLAMP_PREF(g_app.break_method, SUN_METHOD_COUNT, 0);
+    CLAMP_PREF(g_app.break_sound, 3, 0);
+#undef CLAMP_PREF
     g_app.break_health_min = store_get_int("breakHealth", 0);
     g_app.break_health_len = store_get_int("breakHealthLen", 3);
     g_app.break_bed = store_get_int("breakBed", -1);
@@ -1481,6 +1497,7 @@ void app_save_prefs(void)
     store_set_int("themeBg", g_app.theme_bg);
     store_set_int("cardDetails", g_app.card_details);
     store_set_int("ambientMinutes", g_app.ambient_minutes);
+    store_set_int("ambientStyle", g_app.ambient_style);
     store_set_int("qualityMode", g_app.quality_mode);
     store_set_int("resCap", g_app.res_cap);
     store_set_int("autoRecommended", g_app.auto_recommended);
@@ -1673,6 +1690,7 @@ void play_candidates_free(PlayCandidate *c, int n)
 /* ---- shared widgets -------------------------------------------------------- */
 
 const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
+const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo" };
 
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
 {
@@ -1743,6 +1761,7 @@ void ui_format_time(double s, char *out, size_t n)
 void app_init(void)
 {
     memset(&g_app, 0, sizeof g_app);
+    g_app.press_at = g_app.card_at = -1e9f;   /* no OK and no focused card yet: the first screens slide */
     const char *k = store_get_str("authKey", NULL);
     const char *e = store_get_str("email", NULL);
     const char *srv = store_get_str("streamingServer", NULL);

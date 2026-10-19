@@ -29,6 +29,7 @@ struct Streams {
     Stream *items; int n;
     int pending, n_reqs;
     int focus;
+    int moved;                /* the viewer has moved the focus: from then on it follows its source */
     float scroll, scroll_target;
     int autoplayed;
     float started;
@@ -231,8 +232,9 @@ static void sort_items(Streams *st)
         }
     }
     /* the focused source stays focused while answers and checks re-order the list */
-    const char *keep_url = st->focus >= 0 && st->focus < st->n ? st->items[st->focus].url : NULL;
-    const char *keep_hash = st->focus >= 0 && st->focus < st->n ? st->items[st->focus].info_hash : NULL;
+    int keep = st->moved && st->focus >= 0 && st->focus < st->n;   /* untouched, the focus stays on the top */
+    const char *keep_url = keep ? st->items[st->focus].url : NULL;
+    const char *keep_hash = keep ? st->items[st->focus].info_hash : NULL;
     for (int i = 1; i < st->n; i++)
         for (int j = i; j > 0 && rank(st, &st->items[j]) < rank(st, &st->items[j - 1]); j--) {
             Stream t = st->items[j]; st->items[j] = st->items[j - 1]; st->items[j - 1] = t;
@@ -779,11 +781,12 @@ static int key(Screen *s, KeyAction a)
     Streams *st = s->st;
     switch (a) {
     case KEY_UP:
+        st->moved = 1;
         if (st->focus > 0) st->focus--;
         else if (st->focus == 0 && recommended(st) >= 0) st->focus = -1;
         app_redraw();
         return 1;
-    case KEY_DOWN: if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
+    case KEY_DOWN: st->moved = 1; if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
     case KEY_OK:
         if (st->focus == -1) { int r = recommended(st); if (r >= 0) play_from(st, r); return 1; }
         if (st->focus < st->n) play_from(st, st->focus);

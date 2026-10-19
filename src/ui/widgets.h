@@ -67,6 +67,9 @@ void ui_brand(float x, float y, float size);
 #define CARD_TRUE_COLOUR 4   /* never printed in two tones (episode stills, people) */
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim,
              const char *fallback_title, int card_flags);
+/* Off while drawing cards that are only pictures (Settings previews): screens open out of
+ * the last focused card, which must be one the viewer can press. */
+void ui_card_capture(int on);
 /* Details on a focused card: after the card has been focused for PEEK_DWELL seconds a
  * panel slides open beside it. Step from update() (it asks for the full details then),
  * draw from draw() (reads caches only). t is how far the panel is open, 0..1. */
