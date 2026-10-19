@@ -66,7 +66,7 @@ grep -q "settings: found Pure black (OLED) in Interface" "$OUT/settings_find_one
 run intro 70 "" SNTV_INTRO=1 SNTV_FRAME_DT=0.03 SNTV_NO_TRANSITIONS=
 grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not finish"; exit 1; }
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
-grep -q "detail: trailer for tt0111161 from yt-dQw4w9WgXcQ-video.mp4" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/1 Trailer" "$OUT/detail_trailer.log" \
+grep -q "youtube: dQw4w9WgXcQ playlist from the IOS client" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/1 Trailer" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
 LIBF="$OUT/home_trailer/.local/share/stremio/nativetv/library.json"
 [ ! -f "$LIBF" ] || ! grep -q tt0111161 "$LIBF" || { echo "watching the trailer saved progress for the film"; exit 1; }

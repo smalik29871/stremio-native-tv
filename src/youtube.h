@@ -18,6 +18,10 @@ int youtube_saved(const char *url, int want_video, char *name, size_t n, int *is
 typedef void (*YoutubeCallback)(const char *name, const char *error, void *user);
 void youtube_save(const char *url, int video, YoutubeCallback cb, void *user);
 
+/* A URL the player can open now (an HLS playlist or an MP4 with sound), asked the
+ * way Nuvio asks; `cb` gets it as `name`, or NULL and a reason. Nothing is saved. */
+void youtube_stream(const char *url, YoutubeCallback cb, void *user);
+
 /* The solver alone: yt-dlp's jsc() input as JSON in, its output JSON out (malloc'ed),
  * or NULL with the reason in err. Blocking; runs QuickJS on a thread with a big stack. */
 char *youtube_solve(const char *input_json, char *err, size_t n);

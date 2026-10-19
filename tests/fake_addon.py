@@ -188,7 +188,7 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/yt/youtubei/v1/player"):   # YouTube's TV app asking for a video
             req = json.loads(body.decode("utf-8"))
             client = req.get("context", {}).get("client", {})
-            known = {"VISIONOS": "101", "TVHTML5": "7", "WEB_EMBEDDED_PLAYER": "56"}
+            known = {"VISIONOS": "101", "ANDROID": "3", "IOS": "5", "TVHTML5": "7", "WEB_EMBEDDED_PLAYER": "56"}
             if known.get(client.get("clientName")) != self.headers.get("X-YouTube-Client-Name"):
                 return self.send(400, b'{"error":"unknown client"}')
             if self.headers.get("X-Goog-Visitor-Id") != "vis123" or client.get("visitorData") != "vis123":
@@ -198,6 +198,9 @@ class H(BaseHTTPRequestHandler):
             if client["clientName"] == "VISIONOS" and req["videoId"].startswith("tv"):   # the bot check: the app falls back to the TV client
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you\u2019re not a bot"}}).encode())
             media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
+            if client["clientName"] == "IOS":   # the iPhone app also offers an HLS playlist
+                return self.send(200, json.dumps({"playabilityStatus": {"status": "OK"}, "videoDetails": {"videoId": req["videoId"], "lengthSeconds": "185"},
+                                                  "streamingData": {"hlsManifestUrl": f"{BASE}/yt/media/master.m3u8?id={req['videoId']}"}}).encode())
             return self.send(200, json.dumps({
                 "playabilityStatus": {"status": "OK"},
                 "videoDetails": {"videoId": req["videoId"], "title": "Adhan (fixture)", "lengthSeconds": "185"},

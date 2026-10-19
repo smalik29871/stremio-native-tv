@@ -21,10 +21,16 @@ typedef struct {
     const char *name, *version, *ua, *make, *model, *os, *os_version;
     int id, needs_js;
     int embedded;   /* asks as a player embedded on another site */
+    const char *platform; int sdk;   /* the phone apps: "MOBILE", Android's SDK level */
 } Client;
 static const Client CLIENTS[] = {
     { "VISIONOS", "1.02", "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
-      "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", 101, 0, 0 },
+      "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", 101, 0, 0, NULL, 0 },
+    /* YouTube's phone apps, as Nuvio asks them: plain URLs, and iOS adds an HLS playlist */
+    { "ANDROID", "20.10.35", "com.google.android.youtube/20.10.35 (Linux; U; Android 14; en_US) gzip",
+      NULL, NULL, "Android", "14", 3, 0, 0, "MOBILE", 34 },
+    { "IOS", "20.10.1", "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)",
+      NULL, "iPhone16,2", "iPhone", "17.4.0.21E219", 5, 0, 0, "MOBILE", 0 },
     { "TVHTML5", "7.20260707.07.00", "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
       NULL, NULL, NULL, NULL, 7, 1, 0 },
     { "WEB_EMBEDDED_PLAYER", "2.20260708.00.00", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -564,12 +570,12 @@ static cJSON *player_request(const Client *c, const char *video_id, const char *
     cJSON_AddStringToObject(cl, "clientName", c->name);
     cJSON_AddStringToObject(cl, "clientVersion", c->version);
     cJSON_AddStringToObject(cl, "userAgent", c->ua);
-    if (c->make) {
-        cJSON_AddStringToObject(cl, "deviceMake", c->make);
-        cJSON_AddStringToObject(cl, "deviceModel", c->model);
-        cJSON_AddStringToObject(cl, "osName", c->os);
-        cJSON_AddStringToObject(cl, "osVersion", c->os_version);
-    }
+    if (c->make) cJSON_AddStringToObject(cl, "deviceMake", c->make);
+    if (c->model) cJSON_AddStringToObject(cl, "deviceModel", c->model);
+    if (c->os) cJSON_AddStringToObject(cl, "osName", c->os);
+    if (c->os_version) cJSON_AddStringToObject(cl, "osVersion", c->os_version);
+    if (c->platform) cJSON_AddStringToObject(cl, "platform", c->platform);
+    if (c->sdk) cJSON_AddNumberToObject(cl, "androidSdkVersion", c->sdk);
     cJSON_AddStringToObject(cl, "hl", "en");
     cJSON_AddStringToObject(cl, "timeZone", "UTC");
     cJSON_AddNumberToObject(cl, "utcOffsetMinutes", 0);
@@ -606,6 +612,61 @@ static cJSON *player_request(const Client *c, const char *video_id, const char *
     return resp;
 }
 
+/* The watch page, as a browser opens it: a visitor id (YouTube distrusts requests
+ * without one) and the current player version. */
+static void watch_page(const char *id, char *visitor, size_t vn, char *player_id, size_t pn)
+{
+    char url[300], headers[600];
+    HttpResponse page;
+    snprintf(url, sizeof url, "%s/watch?v=%s&bpctr=9999999999&has_verified=1", base_url(), id);
+    snprintf(headers, sizeof headers, "User-Agent: %s\nAccept-Language: en-US,en;q=0.9\nCookie: SOCS=CAI; PREF=hl=en&tz=UTC", CLIENTS[4].ua);
+    if (!get(url, headers, 20, &page)) LOGW("youtube: the watch page answered %ld %s", page.status, page.status ? "" : page.error);
+    cJSON *cfg = page.body ? page_config(page.body) : cJSON_CreateObject();
+    if (page.body && player_id) player_id_in(page.body, player_id, pn);
+    http_response_free(&page);
+    const cJSON *vd = cJSON_GetObjectItemCaseSensitive(cfg, "VISITOR_DATA");
+    if (!cJSON_IsString(vd)) vd = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cfg, "INNERTUBE_CONTEXT"), "client"), "visitorData");
+    if (cJSON_IsString(vd)) snprintf(visitor, vn, "%s", vd->valuestring);
+    cJSON_Delete(cfg);
+    if (!visitor[0]) LOGW("youtube: no visitor id from the watch page");
+}
+
+/* Streaming without a download, as Nuvio plays trailers: the clients that need no
+ * script, the HLS master playlist when one is offered (every quality, audio with it),
+ * else the tallest file with video and audio together. */
+static void stream_task(HttpResponse *r, void *arg)
+{
+    Save *s = arg;
+    char visitor[256] = "", why[300] = "";
+    watch_page(s->id, visitor, sizeof visitor, NULL, 0);
+    char *hls = NULL, *best = NULL; int best_h = -1;
+    for (size_t i = 0; i < sizeof CLIENTS / sizeof *CLIENTS; i++) {
+        const Client *c = &CLIENTS[i];
+        if (c->needs_js) continue;
+        char this_why[300] = "";
+        cJSON *resp = player_request(c, s->id, visitor[0] ? visitor : NULL, 0, this_why, sizeof this_why);
+        if (!why[0]) snprintf(why, sizeof why, "%s", this_why);
+        const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
+        const cJSON *m = cJSON_GetObjectItemCaseSensitive(sd, "hlsManifestUrl"), *f;
+        if (!hls && cJSON_IsString(m) && m->valuestring[0]) { hls = strdup(m->valuestring); LOGI("youtube: %s playlist from the %s client", s->id, c->name); }
+        cJSON_ArrayForEach(f, cJSON_GetObjectItemCaseSensitive(sd, "formats")) {
+            const cJSON *u = cJSON_GetObjectItemCaseSensitive(f, "url"), *mt = cJSON_GetObjectItemCaseSensitive(f, "mimeType");
+            const cJSON *h = cJSON_GetObjectItemCaseSensitive(f, "height");
+            if (!cJSON_IsString(u) || (cJSON_IsString(mt) && !strstr(mt->valuestring, "video/mp4"))) continue;
+            int hh = cJSON_IsNumber(h) ? h->valueint : 0;
+            if (hh > best_h) { free(best); best = strdup(u->valuestring); best_h = hh; }
+        }
+        cJSON_Delete(resp);
+        if (hls) break;
+    }
+    const char *pick = hls ? hls : best;
+    if (pick) {
+        LOGI("youtube: %s streams as %s", s->id, hls ? "HLS" : "a progressive file");
+        r->status = 200; r->body = strdup(pick); r->len = strlen(pick);
+    } else fail(r, "%.250s", why[0] ? why : "YouTube offered nothing to stream");
+    free(hls); free(best);
+}
+
 static void save_task(HttpResponse *r, void *arg)
 {
     Save *s = arg;
@@ -614,21 +675,8 @@ static void save_task(HttpResponse *r, void *arg)
     snprintf(dir, sizeof dir, "%s/yt", store_dir()); mkdir(dir, 0755);
     snprintf(dir, sizeof dir, "%s/sounds", store_dir()); mkdir(dir, 0755);
 
-    /* 1. the watch page, as a browser opens it: a visitor id (YouTube distrusts requests
-     *    without one) and the current player version */
-    HttpResponse page;
-    snprintf(url, sizeof url, "%s/watch?v=%s&bpctr=9999999999&has_verified=1", base, s->id);
-    snprintf(headers, sizeof headers, "User-Agent: %s\nAccept-Language: en-US,en;q=0.9\nCookie: SOCS=CAI; PREF=hl=en&tz=UTC", CLIENTS[2].ua);
-    if (!get(url, headers, 20, &page)) LOGW("youtube: the watch page answered %ld %s", page.status, page.status ? "" : page.error);
-    cJSON *cfg = page.body ? page_config(page.body) : cJSON_CreateObject();
     char player_id[32] = "", visitor[256] = "";
-    if (page.body) player_id_in(page.body, player_id, sizeof player_id);
-    http_response_free(&page);
-    const cJSON *vd = cJSON_GetObjectItemCaseSensitive(cfg, "VISITOR_DATA");
-    if (!cJSON_IsString(vd)) vd = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cfg, "INNERTUBE_CONTEXT"), "client"), "visitorData");
-    if (cJSON_IsString(vd)) snprintf(visitor, sizeof visitor, "%s", vd->valuestring);
-    cJSON_Delete(cfg);
-    if (!visitor[0]) LOGW("youtube: no visitor id from the watch page");
+    watch_page(s->id, visitor, sizeof visitor, player_id, sizeof player_id);
 
     /* 2. each client in turn until one may play it */
     const Client *c = NULL;
@@ -754,4 +802,25 @@ void youtube_save(const char *url, int video, YoutubeCallback cb, void *user)
     s->video = video; s->cb = cb; s->user = user;
     LOGI("youtube: saving %s (%s) on the TV", id, video ? "video" : "audio");
     http_task_async("youtube.com", save_task, s, on_saved, s);
+}
+
+static void on_streamed(HttpResponse *r, void *user)
+{
+    Save *s = user;
+    const char *u = r->status == 200 && r->body && r->body[0] ? r->body : NULL;
+    if (!u) LOGW("youtube: %s cannot stream: %s", s->id, r->error);
+    if (s->cb) s->cb(u, u ? NULL : r->error[0] ? r->error : "it cannot be streamed", s->user);
+    free(s);
+}
+
+void youtube_stream(const char *url, YoutubeCallback cb, void *user)
+{
+    char id[16];
+    if (!youtube_video_id(url, id)) { if (cb) cb(NULL, "not a YouTube video link", user); return; }
+    Save *s = calloc(1, sizeof *s);
+    snprintf(s->url, sizeof s->url, "%s", url);
+    snprintf(s->id, sizeof s->id, "%s", id);
+    s->cb = cb; s->user = user;
+    LOGI("youtube: asking to stream %s", id);
+    http_task_async("youtube.com", stream_task, s, on_streamed, s);
 }

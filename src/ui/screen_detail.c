@@ -121,6 +121,31 @@ static void on_trailer(const char *name, const char *error, void *user)
     app_redraw();
 }
 
+/* Streamed first, as Nuvio plays trailers; a refused stream falls back to the download. */
+static void on_trailer_stream(const char *url, const char *error, void *user)
+{
+    (void)user;
+    if (!url) {
+        LOGW("detail: trailer stream for %s refused (%s); downloading it", g_trailer.id, error ? error : "?");
+        char yurl[96]; trailer_url(g_trailer.yt, yurl, sizeof yurl);
+        youtube_save(yurl, 1, on_trailer, NULL);
+        return;
+    }
+    g_trailer.busy = 0;
+    Screen *top = app_top();
+    if (!top || strcmp(top->name, "detail") != 0 || strcmp(((Detail *)top->st)->preview.id, g_trailer.id) != 0) return;
+    const MetaPreview *meta = &((Detail *)top->st)->preview;
+    PlayCandidate *c = calloc(1, sizeof *c);
+    c->url = strdup(url);
+    c->label = strdup("Trailer");
+    char vid[160], title[200];
+    snprintf(vid, sizeof vid, "trailer:%s", meta->id);
+    snprintf(title, sizeof title, "%s  -  Trailer", meta->name ? meta->name : "");
+    LOGI("detail: trailer for %s streaming", meta->id);
+    app_push(screen_player_create(meta, vid, title, c, 1, 0, 0, NULL, NULL));
+    app_redraw();
+}
+
 static void trailer_play(Detail *d)
 {
     if (!d->meta.trailer_yt) return;
@@ -132,7 +157,7 @@ static void trailer_play(Detail *d)
     snprintf(g_trailer.yt, sizeof g_trailer.yt, "%s", d->meta.trailer_yt);
     g_trailer.busy = 1;
     LOGI("detail: fetching the trailer for %s (%s)", d->preview.id, d->meta.trailer_yt);
-    youtube_save(url, 1, on_trailer, NULL);
+    youtube_stream(url, on_trailer_stream, NULL);
 }
 
 static void ask_clear(Detail *d)
