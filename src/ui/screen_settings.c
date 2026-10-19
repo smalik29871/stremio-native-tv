@@ -368,7 +368,7 @@ static void draw(Screen *s)
             draw_row(y, ICON_RELOAD, "Update", v, foc, KIND_ACTION, 0);
             break;
         }
-        case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Update automatically when nothing is playing", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
+        case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Ask me when an update is out", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
         case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         default:

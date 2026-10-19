@@ -188,10 +188,12 @@ run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wa
 run options_yellow 200 "right,right,right,yellow"
 run search_recent 200 "search,down,down" HOME="$(home_with recent '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"recentSearches":["breaking bad","midnight harbor","something about prison and hope"]}')"
 run offline_update 220 "right" SNTV_FAKE_OFFLINE=1 SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
-# a new release: at a quiet moment the countdown comes up, then the Homebrew Channel installs it
-run update_countdown 600 "" HOME="$(home_with upd1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
-run update_install 1000 "" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json SNTV_UPDATE_COUNTDOWN=0.5 SNTV_FAKE_INSTALL=1
-[ "$(grep -c "update: 9.9.9 available" "$OUT/update_install.log")" = 1 ] && grep -q "update: installing 9.9.9 from http://127.0.0.1:8765/org.stremio.nativetv_9.9.9_arm.ipk" "$OUT/update_install.log" && grep -q "update: 9.9.9 installed" "$OUT/update_install.log" || { echo "the update did not install"; grep update "$OUT/update_install.log"; exit 1; }
+# a new release: at a quiet moment the app asks; Update now hands it to the Homebrew Channel
+run update_prompt 600 "" HOME="$(home_with upd1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+W=$(printf 'wait,%.0s' $(seq 1 40))
+run update_install 1600 "${W}ok" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json SNTV_FAKE_INSTALL=1
+grep -q "update: installing" "$OUT/update_prompt.log" && { echo "it installed without being asked"; exit 1; }
+[ "$(grep -c "update: 9.9.9 available" "$OUT/update_install.log")" = 1 ] && grep -q "update: the viewer said update now" "$OUT/update_install.log" && grep -q "update: installing 9.9.9 from http://127.0.0.1:8765/org.stremio.nativetv_9.9.9_arm.ipk" "$OUT/update_install.log" && grep -q "update: 9.9.9 installed" "$OUT/update_install.log" || { echo "the update did not install"; grep update "$OUT/update_install.log"; exit 1; }
 ASR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":0,"breakMethod":1,"breakAsr":1,"breakLat":"43.676","breakLon":"-79.485","breakCity":"Toronto","breakLead":5,"breaksEverywhere":1}'
 run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
 run break_media_length 230 "right,ok,down,down,ok,ok" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6

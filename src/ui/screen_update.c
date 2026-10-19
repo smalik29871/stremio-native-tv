@@ -1,6 +1,6 @@
-/* Updating the app: a countdown (Back means not now; it asks again at the next start),
- * then the Homebrew Channel downloads, checks and installs the new version, and the
- * system closes the app while it does. OK starts at once. */
+/* Updating the app, once the viewer said Update now (the popup, or Settings > About >
+ * Update): the Homebrew Channel downloads, checks and installs the new version, and the
+ * system closes the app while it does. An optional countdown comes first (OK skips it). */
 #include "../app.h"
 #include "../log.h"
 #include "../store.h"
