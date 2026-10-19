@@ -160,10 +160,11 @@ grep -q "profiles: switching" "$OUT/profiles_back.log" && { echo "Back on Who's 
 run list_save 300 "wait,yellow,down,down,ok,ok,wait,up" HOME="$(home_with lists "$ABOUT_HOME")"
 grep -q "toast: Saved to Favourites" "$OUT/list_save.log" || { echo "Save to a list did not save"; grep -E "toast|list" "$OUT/list_save.log"; exit 1; }
 grep -q '"lists"' "$OUT/home_lists/.local/share/stremio/nativetv/settings.json" || { echo "the list was not stored"; exit 1; }
-LIGHTER="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/lighter/manifest.json"
-run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$ABOUT_HOME")"
+NO_PREFLIGHT='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'   # the names decide (the test file itself is 180p)
+LIGHTER="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/manifest.json"   # its 2160p copy plays first
+run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
 grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
-run player_lighter_ok 820 "right,ok,down,down,ok,ok$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$ABOUT_HOME")"
+run player_lighter_ok 820 "right,ok,down,down,ok,ok$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
 grep -q "player: switching to the lighter source [0-9]" "$OUT/player_lighter_ok.log" || { echo "OK did not take the lighter source"; grep player "$OUT/player_lighter_ok.log"; exit 1; }
 run library_stats 280 "left,down,down,down,ok,up,right,right,right,right,ok"
 run calendar 300 "left,down,down,down,down,ok"
