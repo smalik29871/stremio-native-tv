@@ -10,7 +10,7 @@ pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware 
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
 
-> **v0.8.8.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.9.0.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
@@ -49,7 +49,8 @@ They show the default Signal theme.
 
 | | |
 |---|---|
-| ![Marquee](docs/screenshots/home_marquee.jpg) **Marquee theme** | ![Duotone](docs/screenshots/home_duotone.jpg) **Duotone theme** |
+| ![Marquee](docs/screenshots/home_marquee.jpg) **Marquee theme** | ![Glass](docs/screenshots/home_glass.jpg) **Glass theme** |
+| ![Metro](docs/screenshots/home_metro.jpg) **Metro theme** | ![Settings](docs/screenshots/settings.jpg) **Settings, with a live preview of each setting** |
 | ![Home](docs/screenshots/home.jpg) **Home, Cinematic style** | ![Showcase](docs/screenshots/home_showcase.jpg) **Home, Showcase style** |
 | ![Explore](docs/screenshots/explore.jpg) **Explore: catalogs, genres, endless grid** | ![Library](docs/screenshots/library.jpg) **Library with filters and sort** |
 | ![Detail](docs/screenshots/detail_tmdb.jpg) **Title page with cast and age rating** | ![Episodes](docs/screenshots/episodes.jpg) **Seasons and episodes** |
@@ -58,20 +59,29 @@ They show the default Signal theme.
 | ![Paused](docs/screenshots/player_paused_tmdb.jpg) **Paused: what you are watching** | ![Subtitles](docs/screenshots/player_autosync.jpg) **Subtitles: matched files first, auto-synced** |
 | ![Translate](docs/screenshots/player_translate.jpg) **Subtitles translated by AI** | ![Stats](docs/screenshots/player_stats.jpg) **Stats for nerds** |
 | ![Break](docs/screenshots/break_screen.jpg) **Take breaks: a calm pause** | ![Calendar](docs/screenshots/calendar.jpg) **Calendar of your series** |
-| ![Settings](docs/screenshots/settings.jpg) **Settings** | ![Phone](docs/screenshots/settings_phone.jpg) **Type keys and URLs from your phone** |
+| ![Phone](docs/screenshots/settings_phone.jpg) **Type keys and URLs from your phone** | |
 | ![PIN](docs/screenshots/pin_pad.jpg) **Parental PIN** | ![QR sign-in](docs/screenshots/login_qr.jpg) **Sign in with a QR code** |
 | ![Screensaver](docs/screenshots/ambient.jpg) **Screensaver** | ![Diagnostics](docs/screenshots/diagnostics_qr.jpg) **Diagnostics: the log as a QR code** |
 
 ## What it does
 
 ### Look
-- **Three themes**, switched in Settings > Interface, six accent colours each:
+- **Four themes**, switched in Settings > Interface, six accent colours each:
   **Signal** (default: graphite, lime, sharp corners, a solid accent frame for focus,
   capital titles, mono metadata, numbered rows), **Marquee** (warm ink and parchment,
-  amber, condensed display titles, a light bar under the focused card) and **Duotone**
-  (artwork in two tones that turns to colour when focused). All flat, no blur, so they
-  cost less to draw. The Stremio logo keeps its own colours in every theme. See
-  `docs/OVERHAUL.md` for the plan behind them.
+  amber, condensed display titles, a light bar under the focused card), **Glass**
+  (frosted panels over the artwork, a white focus glow) and **Metro** (flat colour
+  tiles, big light lowercase headings, a white tile border for focus). Glass blurs by
+  sampling a small mip of artwork already loaded, so it costs one textured quad. The
+  Stremio logo keeps its own colours in every theme. See `docs/OVERHAUL.md`.
+- **Clock island**: the clock in the corner grows into notices, progress and a *Resume*
+  card for the title you just left (Blue opens it), then shrinks back to the time.
+- **Motion**: titles open out of the card you chose and shrink back into it on Back;
+  rows scroll on a spring; cards dip on OK, nudge at the end of a row and rise in one
+  after another when a row arrives. All of it is clipping, scale and fade per vertex:
+  no offscreen buffers, and Light effects turns it off.
+- **Settings with previews**: rows grouped under headings with a line of help each, and
+  beside them a drawing of what the focused setting changes, redrawn as you change it.
 - **Details on focus**: rest on a poster and a panel slides open beside it with the
   rating, year, runtime, genres, synopsis and your Library state (can be turned off).
 
@@ -342,7 +352,9 @@ src/
   audio.c/.h           SDL chime
   addon/               Stremio addon protocol and account API
   ui/theme.c           runtime themes (Signal, Marquee, Glass, Metro): tokens, accents, fonts per theme
-  ui/gfx.c             batched GLES2 renderer: SDF rounded rects, rings, shadows, lines, duotone, video hole
+  ui/island.c          the clock island: clock, notices, progress, the resume card
+  ui/settings_preview.c the drawings beside the Settings rows
+  ui/gfx.c             batched GLES2 renderer: SDF rounded rects, rings, shadows, lines, per-vertex scale and a transition layer, video hole
   ui/font.c            stb_truetype atlases cached on disk, alternate face, UTF-8, ellipsis, wrap
   ui/widgets.c         icons, pills, chips, toggles, cards, skeletons, backdrops, ambient light, clock
   ui/rail.c            side navigation

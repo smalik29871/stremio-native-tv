@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.9.0
+
+A polish release: a richer Settings, two new themes, a clock island, smoother motion
+and fixes to focus and player keys found in a review against Nuvio.
+
+- **Settings, explained and previewed.** Rows are grouped under headings (Languages,
+  Subtitle look, Look, Motion, Updates…) with a line of help under each one. Inside a
+  category the list shrinks to its icons and a panel beside the rows draws what the
+  focused setting changes (home layouts, subtitle look, clock, card details, hidden
+  watched titles, blurred stills, effects, OLED black, resolution limit, source order and
+  checks, addon wait, skip intro, autoplay, picture-in-picture, seeking, screensaver,
+  transitions, breaks, languages, memory, subtitle sync, P2P, updates, the PIN), then
+  its name, help, current value and keys. Switches stay readable on the focused row.
+- **Themes: Glass and Metro.** Duotone is replaced by **Glass** (frosted panels over the
+  last artwork, a white focus glow) and **Metro** is new (flat colour tiles, square
+  corners, a white tile border for focus, light lowercase headings in Open Sans). A
+  saved Duotone choice opens Glass.
+- **Clock island.** The clock pill grows into notices (they used to pop up at the
+  bottom), progress, and a *Resume · 32 min left* card for the title you just left mid-way;
+  Blue opens it from Home, Explore, Library, Calendar or Search.
+- **Motion.** Titles open out of the card you pressed and shrink back into it on Back;
+  rows scroll on a spring that eases in and out; the focused card dips on OK; the end of
+  a row nudges; cards rise in one after another when a row arrives; the Settings preview
+  rises into place. No offscreen buffers; Light effects turns it all off.
+- **Focus.** Right from the side menu returns to the row you left, and coming back from a
+  section puts focus on the content (the menu used to stay open, so the next Back closed
+  the app); leaving takes two Backs. Back goes content, filters, then the side menu on
+  Explore, Library and Calendar too. Focus follows its item when lists re-sort (sources,
+  Continue Watching, Library, Home rows). Search results take the focus when they
+  arrive. Settings: Left goes back to the categories except on choices; each category
+  remembers its row; forgetting a saved sign-in asks first. Season tabs scroll.
+- **Player keys.** OK skips the intro only while the controls are hidden (Up focuses the
+  Skip button otherwise); the button row starts on Play and remembers its button, so the
+  first Down then OK no longer starts the previous episode; autoplay waits while a menu
+  is open; OK lands a pending seek and Back cancels it; Down below the buttons hides the
+  controls; Down on the Up Next card brings the controls; a held OK presses once.
+- **Up Next.** OK on the card plays the next episode (it used to pause).
+
 ## 0.8.8
 
 - **Updates ask first.** When a new release is out, the app waits until nothing is

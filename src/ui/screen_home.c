@@ -39,6 +39,7 @@ typedef struct Row {
     unsigned req;
     int focus;
     float scroll_x, scroll_xv;   /* position and spring velocity */
+    float arrived_at;             /* when titles first replaced the placeholders (cards rise in) */
     char url[1024];
 } Row;
 
@@ -214,6 +215,7 @@ static void apply_metas(Row *row, MetaPreview *m, int n)
     drop_watched(&m, &n);
     if (g_app.low_memory && n > 40) { for (int i = 40; i < n; i++) meta_preview_free(&m[i]); n = 40; }   /* memory saver: shorter rows */
     char *focused = row->n && row->focus < row->n ? strdup(row->metas[row->focus].id) : NULL;
+    if (!row->n && n) row->arrived_at = g_app.time;
     meta_previews_free(row->metas, row->n);
     row->metas = m; row->n = n;
     for (int i = 0; i < n && i < 6; i++) app_ambient_offer(&m[i]);
@@ -487,7 +489,7 @@ static float nudge(const Home *h, int axis)
     return -18 * (h->nudge_dir > 0 ? 1 : -1) * k * k * (3 - 2 * k);
 }
 
-static void draw_row(Home *h, int ri, float y)
+static void draw_row(Home *h, int ri, float y, float alpha)
 {
     Row *r = h->rows[ri];
     int focused_row = h->focus_row == ri;
@@ -514,13 +516,18 @@ static void draw_row(Home *h, int ri, float y)
             int is_focus = focused_row && r->focus == j;
             int is_prev = h->prev_row == ri && h->prev_col == j && !is_focus;
             if ((pass == 1) != (is_focus || is_prev)) continue;
+            /* titles just arrived: each card rises and fades in a beat after the one before */
+            float k = (g_app.time - r->arrived_at - (j - first) * 0.04f) / 0.3f, ce = 1;
+            if (k < 1 && !g_app.fx_light) { ce = k < 0 ? 0 : 1 - (1 - k) * (1 - k) * (1 - k); app_redraw(); }
+            gfx_set_alpha(alpha * ce);
+            float ry = cy + 22 * (1 - ce);
             float f = is_focus ? (g_app.fx_light ? 1.0f : h->focus_t) : is_prev ? h->prev_t : 0;
             float dim = focused_row ? 0 : 0.45f;
             const MetaPreview *m = &r->metas[j];
             if (r->kind == ROW_CONTINUE) {
                 const char *bg = app_art_background(m, buf, sizeof buf);
-                ui_card(bg, px, cy, cw, ch, f, dim, m->name, 0);
-                float sc = ui_focus_scale(f), w2 = cw * sc, h2 = ch * sc, x2 = px - (w2 - cw) / 2, y2 = cy - (h2 - ch) / 2 - ui_focus_lift(f);
+                ui_card(bg, px, ry, cw, ch, f, dim, m->name, 0);
+                float sc = ui_focus_scale(f), w2 = cw * sc, h2 = ch * sc, x2 = px - (w2 - cw) / 2, y2 = ry - (h2 - ch) / 2 - ui_focus_lift(f);
                 /* label + progress inside the card; the shade takes the card's own corners
                  * (a clipped square one showed past them) */
                 gfx_rrect_grad_v(x2, y2 + h2 * 0.45f, w2, h2 * 0.55f, R_CARD, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
@@ -535,7 +542,7 @@ static void draw_row(Home *h, int ri, float y)
                 if (sub[0]) font_draw(sub, x2 + 20, y2 + h2 - 48, FONT_XS, THEME_TEXT_DIM);
                 if (li && li->duration) ui_progress(x2 + 20, y2 + h2 - 18, w2 - 40, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
             } else {
-                ui_card(app_art_poster(m, buf, sizeof buf), px, cy, cw, ch, f, dim, m->name, 0);
+                ui_card(app_art_poster(m, buf, sizeof buf), px, ry, cw, ch, f, dim, m->name, 0);
             }
             if (is_focus && r->kind != ROW_CONTINUE) { m_peek = m; px_peek = px; f_peek = f; }
             if (is_focus && g_app.ok_hold > 0) {   /* holding OK: the hint takes the line under the card */
@@ -547,6 +554,7 @@ static void draw_row(Home *h, int ri, float y)
                               COLOR_ALPHA(THEME_TEXT, (int)(255 * f)), cw * sc);
             }
         }
+    gfx_set_alpha(alpha);
     if (m_peek) {   /* over the neighbours, after both passes */
         float sc = ui_focus_scale(f_peek), w2 = cw * sc, h2 = ch * sc;
         ui_peek_draw(&h->peek, m_peek, px_peek - (w2 - cw) / 2, cy - (h2 - ch) / 2 - ui_focus_lift(f_peek), w2, h2, LX, SNTV_UI_W - 40);
@@ -592,7 +600,7 @@ static void draw(Screen *s)
         a = a < 1 ? a * a : 1;   /* a thin strip left at the edge is all but invisible */
         if (a > 0.01f && y < SNTV_UI_H) {
             gfx_set_alpha(a);
-            draw_row(h, i, y);
+            draw_row(h, i, y, a);
             gfx_set_alpha(1);
         }
         y += rh;

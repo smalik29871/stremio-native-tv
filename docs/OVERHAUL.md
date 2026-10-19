@@ -14,6 +14,11 @@ Everything here is measured on the desktop preview under Xvfb (screenshots per
 theme, frame-time counters) before it is trusted, and confirmed on the LG QNED
 that already runs the app.
 
+> **Update (0.9.0):** Duotone was replaced by **Glass** (frosted panels over blurred
+> artwork, the blur being a low mip of a texture already loaded) and **Metro** (flat
+> tiles, light lowercase headings, Open Sans) was added; the tables below describe the
+> first three themes as planned.
+
 ## 1. Design direction
 
 ### Why change
