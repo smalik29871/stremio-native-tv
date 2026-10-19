@@ -873,3 +873,46 @@ void video_select_track(TrackKind kind, int index)
     media_call_id("selectTrack", extra);
     if (kind == TRACK_TEXT) subtitle_style_send();
 }
+
+/* ---- any service, for the TV interruption test (alarmtest.c) ---- */
+static char g_luna[LUNA_TAG_MAX][1024]; static int g_luna_n[LUNA_TAG_MAX];
+static pthread_mutex_t g_luna_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int on_luna(LSHandle *sh, LSMessage *msg, void *ctx)
+{
+    (void)sh;
+    int tag = (int)(intptr_t)ctx;
+    const char *payload = L.MessageGetPayload(msg);
+    pthread_mutex_lock(&g_luna_lock);
+    snprintf(g_luna[tag], sizeof g_luna[tag], "%s", payload ? payload : "");
+    g_luna_n[tag]++;
+    pthread_mutex_unlock(&g_luna_lock);
+    LOGI("luna reply [%d]: %.300s", tag, payload ? payload : "");
+    return 1;
+}
+
+int video_luna_call(const char *uri, const char *payload_json, int tag)
+{
+    if (!g_bus || !L.Call || tag < 0 || tag >= LUNA_TAG_MAX) return -1;
+    LSError e; L.ErrorInit(&e);
+    int sent = L.Call(g_bus, uri, payload_json, on_luna, (void *)(intptr_t)tag, NULL, &e);
+    if (!sent) {
+        pthread_mutex_lock(&g_luna_lock);
+        snprintf(g_luna[tag], sizeof g_luna[tag], "{\"returnValue\":false,\"errorText\":\"the call did not go out: %.200s\"}", e.message ? e.message : "?");
+        g_luna_n[tag]++;
+        pthread_mutex_unlock(&g_luna_lock);
+        ls_error_log(uri, &e);
+    } else L.ErrorFree(&e);
+    LOGI("luna call %s %.300s%s", uri, payload_json, sent ? "" : " (not sent)");
+    return sent ? 0 : -1;
+}
+
+int video_luna_reply(int tag, char *out, size_t n)
+{
+    if (tag < 0 || tag >= LUNA_TAG_MAX) return 0;
+    pthread_mutex_lock(&g_luna_lock);
+    snprintf(out, n, "%s", g_luna[tag]);
+    int c = g_luna_n[tag];
+    pthread_mutex_unlock(&g_luna_lock);
+    return c;
+}

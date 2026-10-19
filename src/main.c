@@ -7,6 +7,7 @@
 #include "ui/intro.h"
 #include "http.h"
 #include "tracking.h"
+#include "alarmtest.h"
 #include "image.h"
 #include "memwatch.h"
 #include "log.h"
@@ -198,7 +199,6 @@ static void dispatch_key(KeyAction a)
 
 int main(int argc, char **argv)
 {
-    (void)argc; (void)argv;
     int frame = 0;
 #ifdef SNTV_PLATFORM_WEBOS
     /* Without these the remote's Back/Exit keys never reach the app. Must be set before the window exists. */
@@ -261,6 +261,7 @@ int main(int argc, char **argv)
     audio_init();
     phone_start();
     if (video_init(win) != 0) LOGW("video backend failed to initialise");
+    alarmtest_start(argc, argv);   /* launch parameters and relaunch events (the TV interruption test) */
     LOGI("video backend: %s", video_backend_name());
     app_init();
     mem_apply_mode();
@@ -359,6 +360,7 @@ int main(int argc, char **argv)
         }
         http_pump();
         tracking_tick();
+        alarmtest_tick();
         { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
         image_pump();
         image_frame_tick();

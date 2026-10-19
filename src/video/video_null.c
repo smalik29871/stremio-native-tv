@@ -135,3 +135,20 @@ void video_select_track(TrackKind kind, int index)
 
 int video_open_app(const char *app_id) { LOGI("video(null): open app %s", app_id); return 0; }
 int video_open_app_params(const char *app_id, const char *params_json) { LOGI("video(null): open app %s %s", app_id, params_json ? params_json : ""); return 0; }
+
+/* Off a TV there is no bus: SNTV_FAKE_LUNA (tests) answers every call with itself. */
+static char g_luna[LUNA_TAG_MAX][1024]; static int g_luna_n[LUNA_TAG_MAX];
+int video_luna_call(const char *uri, const char *payload_json, int tag)
+{
+    const char *fake = getenv("SNTV_FAKE_LUNA");
+    LOGI("video(null): luna %s %s", uri, payload_json ? payload_json : "");
+    if (!fake || tag < 0 || tag >= LUNA_TAG_MAX) return -1;
+    snprintf(g_luna[tag], sizeof g_luna[tag], "%s", fake); g_luna_n[tag]++;
+    return 0;
+}
+int video_luna_reply(int tag, char *out, size_t n)
+{
+    if (tag < 0 || tag >= LUNA_TAG_MAX) return 0;
+    snprintf(out, n, "%s", g_luna[tag]);
+    return g_luna_n[tag];
+}

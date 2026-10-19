@@ -100,3 +100,6 @@ void video_select_track(TrackKind kind, int index) { js_track_select((int)kind, 
 
 int video_open_app(const char *app_id) { (void)app_id; return -1; }
 int video_open_app_params(const char *app_id, const char *params_json) { (void)app_id; (void)params_json; return -1; }
+
+int video_luna_call(const char *uri, const char *payload_json, int tag) { (void)uri; (void)payload_json; (void)tag; return -1; }
+int video_luna_reply(int tag, char *out, size_t n) { (void)tag; if (n) out[0] = 0; return 0; }
