@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.10.8
+
+- **Trailers play like Nuvio's.** The TV asks YouTube as its phone apps do and streams the
+  trailer at once (the HLS playlist when there is one) instead of downloading it first.
+  If YouTube refuses, the download and then the TV's YouTube app take over.
+- **Subtitles stay in sync.** Matching a subtitle to the file now also corrects frame-rate
+  drift (23.976 / 24 / 25 fps releases) and cuts (a scene missing from one cut). A timing
+  fix you make by hand is remembered for that subtitle file and comes back next time.
+- **Source rules.** Settings > Sources: the largest file to pick, avoid HDR or Dolby
+  Vision, cached sources only, and words to avoid (CAM, HDTS, 3D). Sources that break a
+  rule stay in the list, marked, but are never picked for you.
+- **Franchises in order.** A film's title page lists its whole series by release date
+  (TMDB collections), the current one marked; OK opens another.
+- **What this TV can play.** Settings > Sources shows which formats play here and why,
+  and can forget what it learned.
+- **From your phone.** Play a video link sent from your phone, and back up or restore
+  your settings through the phone page (your Stremio sign-in is not included).
+- **Trakt, SimKL, MDBList.** Trakt signs in with a code, scrobbles what you watch and
+  adds your watchlist and recommendations as Home rows. SimKL adds what you finish to
+  your history. MDBList adds Rotten Tomatoes, Metacritic and Letterboxd scores to
+  title pages. The app ids can be built in or entered in Settings > API keys.
+
 ## 0.10.7
 
 - **Trailers when YouTube says "sign in".** YouTube sometimes refuses the TV's own
