@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.10
+
+- **YouTube in high quality.** Trailers and YouTube streams now play YouTube's separate
+  video and audio together through a DASH manifest the TV serves itself: up to 4K in AV1
+  when this TV decodes it, else 1080p H.264, with several qualities to step down to on a
+  slow connection. The playlist (HLS) comes next and now starts at 720p or above instead
+  of climbing from 144p; the 360p file is the last resort.
+- The TV's YouTube proxy sends exactly the byte ranges the player asks for.
+
 ## 0.10.9
 
 - **Never stuck on a dead source.** A source that stops mid-film is replaced at the same
