@@ -444,6 +444,34 @@ float streams_prefetch_progress(const char *video_id)
     return (float)(g_pre.total - g_pre.pending) / (float)g_pre.total;
 }
 
+static void on_warm_next(HttpResponse *r, void *user)
+{
+    (void)user;
+    LOGI("streams: next episode's file warmed (%ld, %zu KB)", r->status, r->len / 1024);
+}
+
+int streams_prefetch_warm(const char *video_id, const char *binge_group)
+{
+    if (streams_prefetch_progress(video_id) < 1 || !g_pre.n) return 0;
+    Streams st;
+    memset(&st, 0, sizeof st);
+    st.items = g_pre.items; st.n = g_pre.n;
+    sort_items(&st);   /* the order the Sources screen will have */
+    int pick = -1;
+    for (int pass = 0; pass < 2 && pick < 0; pass++)
+        for (int i = 0; i < g_pre.n && pick < 0; i++) {
+            const Stream *s = &g_pre.items[i];
+            if (!s->url || strncmp(s->url, "http", 4) || !playable(s) || is_notice(s)) continue;
+            if (pass == 0 && !(binge_group && s->binge_group && !strcmp(binge_group, s->binge_group))) continue;
+            pick = i;
+        }
+    if (pick < 0) return 0;
+    LOGI("streams: warming the next episode's file (%s)", g_pre.items[pick].addon_name ? g_pre.items[pick].addon_name : "addon");
+    HttpOptions o = { .range_bytes = 2u << 20, .timeout_s = 20, .no_json_accept = 1 };
+    http_request_async_ex(g_pre.items[pick].url, &o, on_warm_next, NULL);
+    return 1;
+}
+
 /* Take over a prefetch for this episode. 1 when there was one. */
 static int adopt_prefetch(Streams *st)
 {

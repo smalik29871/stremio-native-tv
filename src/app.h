@@ -84,6 +84,7 @@ typedef struct App {
     int subs_style;            /* SUBS_STYLE_* for addon subtitles */
     int autoplay_next;         /* Up Next at the credits */
     int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
+    int night_mode;            /* quieter, larger subtitles: 0 off, 1 from 11 pm to 6 am, 2 always */
     int subs_always;           /* 0: subtitles only when the audio is in another language */
     int clock_mode;            /* player clock: 0 12-hour, 1 24-hour, 2 off */
     int island_style;          /* ISLAND_*: how the clock in the corner looks */
@@ -319,6 +320,10 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id);
 /* Share of addons that have answered that prefetch, 0..1 (1 = ready to start at once);
  * -1 when none is running or it went stale. */
 float streams_prefetch_progress(const char *video_id);
+/* The prefetch has every answer: the first megabytes of the source Up Next will most
+ * likely play (the same binge group first) are fetched, so the server and any debrid
+ * link are warm when it starts. 1 when a file was asked for. */
+int streams_prefetch_warm(const char *video_id, const char *binge_group);
 /* Every addon's sources for this video, ranked as the Sources screen would, handed to
  * `cb` once all answered (or after 15 s). One lookup at a time: a new one, or cancel,
  * drops the previous. The player uses it to leave P2P when TorBox has the title again. */

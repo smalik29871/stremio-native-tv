@@ -114,6 +114,13 @@ static void parse_details(Slot *s, const char *json)
             snprintf(s->info.trailer_yt, sizeof s->info.trailer_yt, "%s", key->valuestring);
             break;
         }
+    const cJSON *kws = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "keywords"), "keywords"), *kw;
+    s->info.stinger = 0;
+    if (!tv && cJSON_IsArray(kws)) cJSON_ArrayForEach(kw, kws) {
+        const cJSON *id = cJSON_GetObjectItemCaseSensitive(kw, "id");
+        if (cJSON_IsNumber(id) && id->valueint == 179431) s->info.stinger |= 1;   /* "duringcreditsstinger" */
+        if (cJSON_IsNumber(id) && id->valueint == 179430) s->info.stinger |= 2;   /* "aftercreditsstinger" */
+    }
     s->info.tmdb_id = s->tmdb_id;
     cJSON_Delete(root);
     s->info.state = 2;
@@ -124,7 +131,7 @@ static void details_url(const Slot *s, int with_key, char *out, size_t n)
 {
     int tv = strcmp(s->type, "series") == 0;
     snprintf(out, n, "%s/%s/%d?append_to_response=%s%s%s", api_base(), tv ? "tv" : "movie", s->tmdb_id,
-             tv ? "aggregate_credits,content_ratings,videos" : "credits,release_dates,videos", with_key ? "&api_key=" : "", with_key ? api_key() : "");
+             tv ? "aggregate_credits,content_ratings,videos" : "credits,release_dates,videos,keywords", with_key ? "&api_key=" : "", with_key ? api_key() : "");
 }
 
 static void on_details(HttpResponse *r, void *user)

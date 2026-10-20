@@ -102,6 +102,7 @@ static VideoInfo g_info;
 static double g_pending_seek = -1;
 static int g_autoplayed, g_paused_by_user;
 static int g_muted;
+static int g_volume = 100;
 static unsigned g_load_count;
 static int g_screen_w = 1920, g_screen_h = 1080;   /* drawable / panel pixels */
 static SDL_Rect g_disp = { 0, 0, 1920, 1080 };
@@ -664,6 +665,7 @@ int video_load(const char *url, const char *title, double start)
     video_stop();
     g_load_count++;
     g_muted = 0;
+    g_volume = 100;
     SDL_LockMutex(g_lock);
     int tv = g_info.tracks_version, wv = g_info.warning_version;
     memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1;
@@ -706,7 +708,14 @@ void video_set_rate(double rate)
 void video_set_muted(int muted)
 {
     g_muted = muted;
-    media_call_id("setVolume", muted ? "\"volume\":0" : "\"volume\":100");
+    char v[24]; snprintf(v, sizeof v, "\"volume\":%d", muted ? 0 : g_volume);
+    media_call_id("setVolume", v);
+}
+
+void video_set_volume(int percent)
+{
+    g_volume = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+    if (!g_muted) video_set_muted(0);
 }
 
 unsigned video_load_count(void) { return g_load_count; }
@@ -827,7 +836,7 @@ void video_update(void)
     if (restyle) subtitle_style_send();
     if (loaded) {
         g_autoplayed = 1;
-        if (g_muted) media_call_id("setVolume", "\"volume\":0");   /* before the first sound */
+        if (g_muted || g_volume < 100) video_set_muted(g_muted);   /* before the first sound */
         if (seek > 0) video_seek(seek);
         video_play();
     } else if (loading && SDL_GetTicks() - started > 40000) {

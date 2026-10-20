@@ -45,6 +45,8 @@ void video_stop(void);
 void video_set_rate(double rate);
 /* Silence the video playing or loading now; every video_load starts with sound. */
 void video_set_muted(int muted);
+/* Loudness of the video, 0-100 (night mode); every video_load starts at 100. */
+void video_set_volume(int percent);
 /* Counts every video_load: whoever loaded can tell whether the video is still theirs. */
 unsigned video_load_count(void);
 void video_update(void);                 /* poll backend events; main thread */

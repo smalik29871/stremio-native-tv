@@ -37,10 +37,11 @@
 #include <time.h>
 
 enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
+#define MAX_MARKS 20
 enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_SOURCES, MENU_EPISODES };
 /* Subtitles menu rows: the controls first, then Off and the tracks */
 enum { SUB_CHOOSE, SUB_TIMING, SUB_SIZE, SUB_STYLE, SUB_POS, SUB_SYNC, SUB_OFF, SUB_TRACKS };
-enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_STATS, BTN_COUNT };
+enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
 static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen", "Zoom" };
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
@@ -59,6 +60,13 @@ struct Player {
     uint64_t tried;                         /* sources already started here (bit per index, first 64) */
     int started;                            /* this source has shown a picture (the clock moved) */
     float veil;                             /* the title's artwork over the screen until the first picture, then fading */
+    double away_s;                          /* how long since this title was last watched (0 unknown) */
+    float catchup_until;                    /* the "previously" card shows until then (g_app.time); -1 waits for the picture */
+    char catchup_head[200], catchup_text[600];
+    int cast_open, cast_focus;
+    int scenes_open, scenes_focus;          /* the Scenes rail: card 0 marks the moment, then chapters / every 5 min / marks */
+    double marks[MAX_MARKS]; int n_marks;   /* moments the viewer marked in this video, seconds */              /* Info: who's in this, over the picture */
+    double replay_until; int replay_subs;   /* Blue replayed the last 10 s, until here; subtitles went on for it */
     char tb_error[160];                     /* TorBox could not open the current source (nothing was loaded to fail) */
     unsigned own_load;                      /* video_load_count() of this player's last load */
     int thumbs_warm;                        /* a first seek preview asked for, so the keyframe index is ready before the first seek */
@@ -91,6 +99,7 @@ struct Player {
     unsigned sub_req;
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
     int assign_second;        /* the subtitles menu picks for the second slot */
+    int second_done;          /* the show's second language put on (or nothing to do) */
     int forced_checked;       /* looked for a forced track in the audio language */
     /* OpenSubtitles-style file hash -> subtitles matched to this exact file -> auto-sync */
     int hash_state;           /* 0 not started, 1 head, 2 tail, 3 known, 4 unavailable */
@@ -131,6 +140,9 @@ struct Player {
     char audio_lang[16]; int audio_lang_known;
     time_t clock_minute;
     int prefetched;           /* next episode's streams requested */
+    int next_warmed;          /* and the start of its likely file fetched */
+    int night, night_applied; long night_minute; unsigned night_load;   /* night mode on; the volume set for this load */
+    int stinger_noted;        /* "stay for the scene after the credits" said */
     float prefetch_tried;     /* when; a stale or empty prefetch is retried after a while */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
@@ -167,7 +179,14 @@ static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_
 #define PAUSE_REST 6.0f   /* seconds paused and untouched before the controls step aside */
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
+static void instant_replay(Player *p, double pos);
+static void night_tick(Player *p, const VideoInfo *vi);
+static int scenes_list(const Player *p, double duration, double *t, int *kind, int n);
+static int scene_now(const Player *p, double pos);
+static void marks_load(Player *p);
 static void push_sub_style(const Player *p);
+/* Night mode draws subtitles a size larger */
+static int sub_size(const Player *p) { return g_app.subs_size + (p->night && g_app.subs_size < 3); }
 static int pick_forced(Player *p);
 static void autosync_tick(Player *p);
 static void xl_stop(Player *p);
@@ -611,6 +630,38 @@ static void remember_audio(Player *p, const VideoTrack *t)
     trackmem_set(memory_key(p), t->lang, NULL, SUBS_SRC_ANY);
     snprintf(p->audio_lang, sizeof p->audio_lang, "%s", t->lang);
     p->audio_lang_known = 1;
+}
+
+/* Second subtitles stay on for the rest of the show (learning a language with both on
+ * screen): {"secondSubs": {"<series>": "fr"}}. NULL forgets. */
+static void remember_second(Player *p, const char *lang)
+{
+    const char *key = memory_key(p);
+    if (!key) return;
+    cJSON *all = cJSON_Duplicate(store_get_json("secondSubs"), 1);
+    if (!cJSON_IsObject(all)) { cJSON_Delete(all); all = cJSON_CreateObject(); }
+    cJSON_DeleteItemFromObjectCaseSensitive(all, key);
+    if (lang && lang_known(lang)) cJSON_AddStringToObject(all, key, lang);
+    store_set_json("secondSubs", all);
+    store_save();
+    p->second_done = 1;
+}
+
+/* The show has second subtitles on: the same language again, once its files arrive. */
+static void second_auto(Player *p)
+{
+    if (p->second_done || !p->subs_auto_done) return;
+    const char *key = memory_key(p);
+    const cJSON *lang = key ? cJSON_GetObjectItemCaseSensitive(store_get_json("secondSubs"), key) : NULL;
+    if (!cJSON_IsString(lang)) { p->second_done = 1; return; }
+    for (int i = 0; i < p->n_addon_subs; i++)
+        if (i != p->active_addon_sub && lang_same(p->addon_subs[i].lang, lang->valuestring)) {
+            p->second_done = 1;
+            select_addon_sub_slot(p, i, 1);
+            LOGI("player: second subtitles %s (on for this show)", lang->valuestring);
+            return;
+        }
+    if (p->subs_pending == 0 || g_app.time - p->load_started > 20) p->second_done = 1;
 }
 
 static void remember_subs(Player *p, const char *lang, SubsSource src)
@@ -1682,12 +1733,18 @@ static void update(Screen *s, float dt)
             p->learned = 1;
         }
     }
-    if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) auto_select_tracks(p);
+    if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
+    night_tick(p, &vi);
 
     if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    if (p->catchup_until < 0 && p->started) p->catchup_until = g_app.time + 12;
+    if (p->replay_until > 0 && vi.state == VIDEO_PLAYING && vi.position >= p->replay_until + 1) {
+        if (p->replay_subs) { select_addon_sub(p, -1); video_select_track(TRACK_TEXT, -1); p->embedded_text_sel = -1; LOGI("player: replay over, subtitles off again"); }
+        p->replay_until = 0; p->replay_subs = 0;
+    }
     if (p->veil > 0 && (p->started || error_final(p, &vi))) { p->veil -= dt * 2.5f; if (p->veil < 0) p->veil = 0; app_redraw(); }
     else if (p->veil > 0) app_redraw();   /* its progress line moves */
     /* the first seek would wait seconds for the keyframe index: read it now, once playback
@@ -1741,6 +1798,15 @@ static void update(Screen *s, float dt)
     double credits = skip_credits_start(p->skip, p->n_skip);
     int at_credits = credits > 60 && vi.duration > 0 && credits < vi.duration - 10 && vi.position >= credits && vi.position < vi.duration - 1;
     int near_end = vi.duration > 120 && vi.position > vi.duration - 45;
+    const TmdbInfo *tmi = p->trailer ? NULL : tmdb_get(p->meta.id, p->meta.type);
+    int stinger = tmi ? tmi->stinger : 0;
+    if (stinger && !p->stinger_noted && vi.state == VIDEO_PLAYING && vi.duration > 600
+        && (credits > 60 ? vi.position >= credits : vi.position > vi.duration - 420)) {   /* the credits start (or roughly, without markers) */
+        p->stinger_noted = 1;
+        LOGI("player: the film has a scene %s the credits", stinger == 1 ? "during" : stinger == 2 ? "after" : "during and after");
+        app_toast(stinger == 1 ? "Keep watching: there is a scene during the credits" : "Keep watching: there is a scene after the credits");
+    }
+    if (stinger) at_credits = 0;   /* Up Next waits for the very end, after the scene */
     if (p->up_next_dismissed && !at_credits && !near_end) p->up_next_dismissed = 0;   /* seeked back out of the window */
     if (p->next_video_id && (at_credits || near_end) && !p->up_next_shown && !p->up_next_dismissed) {
         p->up_next_shown = 1;
@@ -1760,6 +1826,9 @@ static void update(Screen *s, float dt)
         p->prefetch_tried = g_app.time;
         streams_prefetch(&p->meta, p->next_video_id);
     }
+    if (p->next_video_id && !p->next_warmed && vi.duration > 0 && vi.position > vi.duration - 600 && vi.state == VIDEO_PLAYING && !vi.buffering
+        && (vi.buffer_ahead < 0 || vi.buffer_ahead > 30))   /* never at this video's expense */
+        p->next_warmed = streams_prefetch_warm(p->next_video_id, p->cands[p->cur].binge_group);
     next_progress_update(p, dt);
     if (fabs(vi.position - p->pos_seen) > 3 + dt * 4 || p->seek_commit > 0) p->jumped_at = g_app.time;   /* seeking, or just sought */
     p->pos_seen = vi.position;
@@ -1799,10 +1868,10 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     const char *text2 = p->track2_loaded ? subs_at(&p->track2, vi->position) : NULL;
     float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
     if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
-    if (text) ui_subtitle(text, bottom, g_app.subs_size, g_app.subs_style);
+    if (text) ui_subtitle(text, bottom, sub_size(p), g_app.subs_style);
     if (text2) {   /* the second language sits above the first (or where it would be) */
-        float lift = text ? font_height(ui_subtitle_font(g_app.subs_size)) * 1.04f * 2 + 24 : 0;
-        ui_subtitle(text2, bottom - lift, g_app.subs_size > 0 ? g_app.subs_size - 1 : 0, g_app.subs_style);
+        float lift = text ? font_height(ui_subtitle_font(sub_size(p))) * 1.04f * 2 + 24 : 0;
+        ui_subtitle(text2, bottom - lift, sub_size(p) > 0 ? sub_size(p) - 1 : 0, g_app.subs_style);
     }
 }
 
@@ -2310,6 +2379,7 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Sources", p->n_cands);
     if (!p->trailer) { ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP; }   /* a trailer has no sources or episodes */
     if (n_eps > 1 && !p->trailer) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
+    if (!p->trailer && vi.duration > 0) { ids[k] = BTN_SCENES; labels[k] = "Scenes"; icons[k++] = ICON_CLOCK; }
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
     return k;
 }
@@ -2438,9 +2508,25 @@ static void bar_activate(Player *p, const VideoInfo *vi)
         break;
     }
     case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;
+    case BTN_SCENES: p->scenes_open = 1; p->scenes_focus = scene_now(p, vi->position); p->overlay_until = 0; LOGI("player: scenes rail (%d)", scenes_list(p, vi->duration, NULL, NULL, 0)); break;
     case BTN_STATS: p->stats = !p->stats; break;
     }
     show_overlay(p);
+}
+
+/* How the source is holding up: where it comes from and how far ahead it has loaded,
+ * amber when that runs low. */
+static void draw_health(const Player *p, const VideoInfo *vi, float x)
+{
+    if (x > 1300 || p->trailer || vi->buffer_ahead < 0 || !p->started) return;
+    const PlayCandidate *c = &p->cands[p->cur];
+    const char *from = p->p2p_status[0] ? NULL : strstr(c->badges, "CACHED") ? "Cached" : !strncmp(c->url, "http", 4) ? "Direct" : NULL;
+    char text[48];
+    if (vi->buffering) snprintf(text, sizeof text, "%s%sLoading", from ? from : "", from ? "  \xC2\xB7  " : "");
+    else snprintf(text, sizeof text, "%s%s%.0f s ahead", from ? from : "", from ? "  \xC2\xB7  " : "", vi->buffer_ahead);
+    int low = vi->buffering || vi->buffer_ahead < 10;
+    Color amber = RGBA(0xF5, 0xA6, 0x23, 0xFF);
+    ui_chip(text, x, 110, low ? COLOR_ALPHA(amber, 0x40) : COLOR_ALPHA(THEME_TEXT, 0x22), low ? amber : THEME_TEXT);
 }
 
 /* "1080p" and "Dolby Digital+ 5.1" from what the file (or the pipeline) says. */
@@ -2485,6 +2571,234 @@ static void draw_video_area(Player *p, float x, float y, float w, float h)
     (void)p;
     gfx_video_hole(x, y, w, h);
 #endif
+}
+
+/* "Previously": the episode before this one, while the picture starts and a little after;
+ * OK or Back puts it away. */
+/* ---- scenes and marked moments ------------------------------------------------- */
+
+/* Marked moments live in the settings, per video: {"marks": {"<video id>": [secs, ...]}} */
+static void marks_load(Player *p)
+{
+    const cJSON *all = store_get_json("marks"), *a = cJSON_GetObjectItemCaseSensitive(all, p->video_id), *v;
+    p->n_marks = 0;
+    cJSON_ArrayForEach(v, a) if (cJSON_IsNumber(v) && p->n_marks < MAX_MARKS) p->marks[p->n_marks++] = v->valuedouble;
+}
+
+static void marks_save(Player *p)
+{
+    cJSON *all = cJSON_Duplicate(store_get_json("marks"), 1);
+    if (!cJSON_IsObject(all)) { cJSON_Delete(all); all = cJSON_CreateObject(); }
+    cJSON_DeleteItemFromObjectCaseSensitive(all, p->video_id);
+    while (cJSON_GetArraySize(all) >= 100) cJSON_DeleteItemFromArray(all, 0);   /* the oldest videos go */
+    if (p->n_marks) {
+        cJSON *a = cJSON_CreateArray();
+        for (int i = 0; i < p->n_marks; i++) cJSON_AddItemToArray(a, cJSON_CreateNumber((int)p->marks[i]));
+        cJSON_AddItemToObject(all, p->video_id, a);
+    }
+    store_set_json("marks", all);
+    store_save();
+}
+
+static void mark_moment(Player *p, double t)
+{
+    for (int i = 0; i < p->n_marks; i++) if (fabs(p->marks[i] - t) < 5) { app_toast("Already marked"); return; }
+    if (p->n_marks == MAX_MARKS) { memmove(p->marks, p->marks + 1, sizeof p->marks[0] * (MAX_MARKS - 1)); p->n_marks--; }
+    int i = p->n_marks++;
+    for (; i > 0 && p->marks[i - 1] > t; i--) p->marks[i] = p->marks[i - 1];
+    p->marks[i] = t;
+    marks_save(p);
+    char at[16]; ui_format_time(t, at, sizeof at);
+    LOGI("player: moment marked at %.0f s", t);
+    app_toast("Marked %s. It is in Scenes", at);
+}
+
+/* The rail's cards after the first ("Mark this moment"): the chapters when the file has
+ * them, else every 5 minutes, with the marked moments among them, in time order. Fills
+ * t/kind (0 scene, 1 marked) up to n; returns how many there are. */
+#define MAX_SCENES 64
+static int scenes_list(const Player *p, double duration, double *t, int *kind, int n)
+{
+    double tt[MAX_SCENES]; int kk[MAX_SCENES], c = 0;
+    if (p->probe && p->probe->n_chapters >= 2)
+        for (int i = 0; i < p->probe->n_chapters && c < MAX_SCENES - MAX_MARKS; i++) { tt[c] = p->probe->chapters[i].start_s; kk[c++] = 0; }
+    else
+        for (double x = 0; x < duration - 30 && c < MAX_SCENES - MAX_MARKS; x += 300) { tt[c] = x; kk[c++] = 0; }
+    for (int i = 0; i < p->n_marks; i++) { tt[c] = p->marks[i]; kk[c++] = 1; }
+    for (int i = 1; i < c; i++)
+        for (int j = i; j > 0 && tt[j] < tt[j - 1]; j--) { double a = tt[j]; tt[j] = tt[j - 1]; tt[j - 1] = a; int b = kk[j]; kk[j] = kk[j - 1]; kk[j - 1] = b; }
+    for (int i = 0; i < c && i < n; i++) { t[i] = tt[i]; kind[i] = kk[i]; }
+    return c;
+}
+
+/* The card the rail opens on: the scene playing now */
+static int scene_now(const Player *p, double pos)
+{
+    double t[MAX_SCENES]; int kind[MAX_SCENES];
+    VideoInfo vi; video_info(&vi);
+    int n = scenes_list(p, vi.duration, t, kind, MAX_SCENES), k = 0;
+    for (int i = 0; i < n; i++) if (t[i] <= pos + 0.5) k = i + 1;
+    return k;
+}
+
+static void draw_scenes(Player *p, const VideoInfo *vi)
+{
+    if (!p->scenes_open || p->menu) return;
+    double t[MAX_SCENES]; int kind[MAX_SCENES];
+    int n = scenes_list(p, vi->duration, t, kind, MAX_SCENES) + 1;
+    if (p->scenes_focus >= n) p->scenes_focus = n - 1;
+    const float cw = 320, ch = 180, step = 344, h = 380;
+    float x = 0, y = SNTV_UI_H - h, w = SNTV_UI_W;
+    gfx_gradient_v(x, y - 120, w, 120, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xD8));
+    gfx_rect(x, y, w, h, RGBA(0, 0, 0, 0xD8));
+    font_draw("Scenes", THEME_MARGIN, y + 20, FONT_M | FONT_B, THEME_TEXT);
+    const char *hint = "OK  Go there   /   Back  Close";
+    font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + 28, FONT_XS, THEME_TEXT_MUTED);
+    int fit = (int)((w - 2 * THEME_MARGIN + 24) / step), first = p->scenes_focus - fit / 2;
+    if (first > n - fit) first = n - fit;
+    if (first < 0) first = 0;
+    for (int i = first; i < n && i < first + fit; i++) {
+        float cx = THEME_MARGIN + (i - first) * step, cy = y + 80;
+        int foc = i == p->scenes_focus;
+        if (foc) gfx_rrect_ring(cx - 6, cy - 6, cw + 12, ch + 12, R_CARD + 6, 4, THEME_FOCUS);
+        char label[64], at[16];
+        if (i == 0) {
+            gfx_rrect(cx, cy, cw, ch, R_CARD, COLOR_ALPHA(THEME_TEXT, 0x18));
+            ui_icon(ICON_PLUS, cx + cw / 2, cy + ch / 2 - 10, 44, THEME_TEXT);
+            ui_format_time(vi->position, at, sizeof at);
+            font_draw_center("Mark this moment", cx + cw / 2, cy + ch + 14, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM);
+            font_draw_center(at, cx + cw / 2, cy + ch + 44, FONT_XS, THEME_TEXT_MUTED);
+            continue;
+        }
+        double st = t[i - 1];
+        int iw = 0, ih = 0;
+        unsigned tex = foc ? seek_thumb(p, st + 2, &iw, &ih, 0) : aperture_cached_frame(p, st + 2, &iw, &ih);
+        gfx_rrect(cx, cy, cw, ch, R_CARD, THEME_BG2);
+        if (tex && iw > 0 && ih > 0) {
+            float dw = cw, dh = dw * ih / iw;
+            if (dh > ch) { dh = ch; dw = dh * iw / ih; }
+            gfx_tex(tex, cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh, RGBA(255, 255, 255, foc ? 255 : 170));
+        }
+        if (kind[i - 1]) { gfx_circle(cx + 24, cy + 24, 9, THEME_ACCENT); }
+        int playing = vi->position >= st && (i == n - 1 || vi->position < t[i]);
+        if (playing) gfx_rect(cx, cy + ch - 4, cw, 4, THEME_ACCENT);
+        ui_format_time(st, at, sizeof at);
+        int k = chapter_at(p, st);
+        if (kind[i - 1]) snprintf(label, sizeof label, "Marked");
+        else if (k >= 0 && p->probe->chapters[k].name[0]) snprintf(label, sizeof label, "%s", p->probe->chapters[k].name);
+        else snprintf(label, sizeof label, "Scene %d", i);
+        float lw = font_measure(label, FONT_XS | FONT_B); if (lw > cw) lw = cw;
+        font_draw_fit(label, cx + (cw - lw) / 2, cy + ch + 14, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, cw);
+        font_draw_center(at, cx + cw / 2, cy + ch + 44, FONT_XS, playing ? THEME_ACCENT : THEME_TEXT_MUTED);
+    }
+}
+
+static int scenes_key(Player *p, KeyAction a, const VideoInfo *vi)
+{
+    double t[MAX_SCENES]; int kind[MAX_SCENES];
+    int n = scenes_list(p, vi->duration, t, kind, MAX_SCENES) + 1;
+    switch (a) {
+    case KEY_LEFT: if (p->scenes_focus > 0) p->scenes_focus--; break;
+    case KEY_RIGHT: if (p->scenes_focus + 1 < n) p->scenes_focus++; break;
+    case KEY_OK:
+        if (p->scenes_focus == 0) { mark_moment(p, vi->position); break; }
+        p->scenes_open = 0;
+        LOGI("player: scene at %.0f s", t[p->scenes_focus - 1]);
+        video_seek(t[p->scenes_focus - 1]);
+        show_overlay(p);
+        break;
+    case KEY_YELLOW:   /* a marked moment goes */
+        if (p->scenes_focus > 0 && kind[p->scenes_focus - 1]) {
+            for (int i = 0; i < p->n_marks; i++)
+                if (p->marks[i] == t[p->scenes_focus - 1]) { memmove(p->marks + i, p->marks + i + 1, sizeof p->marks[0] * (p->n_marks - i - 1)); p->n_marks--; break; }
+            marks_save(p);
+            app_toast("Mark removed");
+        }
+        break;
+    case KEY_UP: break;
+    default: p->scenes_open = 0; break;
+    }
+    app_redraw();
+    return 1;
+}
+
+/* The cast for the drawer: TMDB's (photos and characters) when there is a key, else the
+ * names the addon listed. */
+static int cast_n(const Player *p, const TmdbInfo **tm)
+{
+    *tm = tmdb_get(p->meta.id, p->meta.type);
+    if (*tm && (*tm)->n_cast) return (*tm)->n_cast;
+    *tm = NULL;
+    return p->meta.cast.n > 12 ? 12 : p->meta.cast.n;
+}
+
+static void cast_person(const Player *p, const TmdbInfo *tm, int i, const char **name, const char **role, const char **photo)
+{
+    if (tm) { *name = tm->cast[i].name; *role = tm->cast[i].character; *photo = tm->cast[i].photo[0] ? tm->cast[i].photo : NULL; return; }
+    *name = p->meta.cast.v[i];
+    *role = i < p->meta.cast_roles.n ? p->meta.cast_roles.v[i] : "";
+    *photo = i < p->meta.cast_photos.n && p->meta.cast_photos.v[i][0] ? p->meta.cast_photos.v[i] : NULL;
+}
+
+static void fit_center(const char *t, float cx, float y, int fs, Color c, float max_w)
+{
+    float w = font_measure(t, fs);
+    if (w > max_w) w = max_w;
+    font_draw_fit(t, cx - w / 2, y, fs, c, max_w);
+}
+
+static void draw_cast(Player *p)
+{
+    const TmdbInfo *tm;
+    int n = cast_n(p, &tm);
+    if (!p->cast_open || !n || p->menu) return;
+    if (p->cast_focus >= n) p->cast_focus = n - 1;
+    const float d = 132, step = 214, h = 360;
+    float x = THEME_MARGIN, y = SNTV_UI_H - h - 40, w = SNTV_UI_W - 2 * THEME_MARGIN;
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
+    font_draw("Who's in this", x + 40, y + 28, FONT_M | FONT_B, THEME_TEXT);
+    const char *hint = "Left / Right  Browse   /   Info  Close";
+    font_draw(hint, x + w - 40 - font_measure(hint, FONT_XS), y + 36, FONT_XS, THEME_TEXT_MUTED);
+    int fit = (int)((w - 80) / step), first = p->cast_focus - fit + 1 > 0 ? p->cast_focus - fit + 1 : 0;
+    for (int i = first; i < n && i < first + fit; i++) {
+        const char *name, *role, *photo;
+        cast_person(p, tm, i, &name, &role, &photo);
+        int foc = i == p->cast_focus;
+        float cx = x + 40 + (i - first) * step + step / 2, cy = y + 96 + d / 2, r = d / 2;
+        if (foc) gfx_rrect_ring(cx - r - 6, cy - r - 6, 2 * r + 12, 2 * r + 12, r + 6, 4, THEME_FOCUS);
+        int pw = 0, ph = 0;
+        unsigned tex = photo ? image_get(photo, &pw, &ph) : 0;
+        if (tex && pw > 0 && ph > 0) {
+            float ia = (float)pw / ph, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+            if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 3; v1 = v0 + ia; }   /* faces sit high */
+            gfx_rtex_uv(tex, cx - r, cy - r, 2 * r, 2 * r, r, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
+        } else {
+            gfx_circle(cx, cy, r, COLOR_ALPHA(THEME_TEXT, 0x1C));
+            char ini[3] = { name[0], 0, 0 };
+            const char *sp = strrchr(name, ' ');
+            if (sp && sp[1]) ini[1] = sp[1];
+            font_draw_center(ini, cx, cy - font_height(FONT_L | FONT_B) / 2, FONT_L | FONT_B, THEME_TEXT_DIM);
+        }
+        fit_center(name, cx, cy + r + 18, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, step - 16);
+        if (role && *role) fit_center(role, cx, cy + r + 50, FONT_XS, THEME_TEXT_MUTED, step - 16);
+    }
+}
+
+static void draw_catchup(Player *p)
+{
+    float left = p->catchup_until - g_app.time;
+    if (left <= 0 || p->menu) return;
+    float k = left < 0.6f ? left / 0.6f : 1;
+    float x = THEME_MARGIN, y = 150, w = 820;
+    int lines = font_draw_wrapped(p->catchup_text, 0, 0, FONT_S, 0, w - 64, 4);   /* measure only */
+    float h = 112 + lines * font_height(FONT_S);
+    gfx_set_alpha(k);
+    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xE8));
+    font_draw_fit(p->catchup_head, x + 32, y + 26, FONT_XS | FONT_B, THEME_ACCENT, w - 64);
+    font_draw_wrapped(p->catchup_text, x + 32, y + 62, FONT_S, THEME_TEXT, w - 64, 4);
+    font_draw("OK  Hide", x + 32, y + h - 38, FONT_XS, THEME_TEXT_MUTED);
+    gfx_set_alpha(1);
+    app_redraw();
 }
 
 /* every candidate has failed and the error card is up */
@@ -2633,6 +2947,7 @@ static void draw(Screen *s)
     draw_subtitle(p, &vi);
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
+    if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */
     if (error_final(p, &vi)) {
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
         float w = 900, h = 360, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
@@ -2656,6 +2971,10 @@ static void draw(Screen *s)
         else snprintf(b, sizeof b, "%s", what);
         font_draw_shadow(b, SNTV_UI_W / 2 - font_measure(b, FONT_S | FONT_B) / 2, SNTV_UI_H / 2 + 60, FONT_S | FONT_B, THEME_TEXT, RGBA(0, 0, 0, 0xA0));
     }
+
+    draw_catchup(p);
+    draw_cast(p);
+    draw_scenes(p, &vi);
 
     /* centre play/pause flash */
     float flash = p->play_flash - g_app.time;
@@ -2704,7 +3023,8 @@ static void draw(Screen *s)
             media_badges(p, &vi, res, sizeof res, aud, sizeof aud);
             if (res[0]) cx += ui_chip(res, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT) + 10;
             if (aud[0]) cx += ui_chip(aud, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT) + 10;
-            if (!res[0] && !aud[0] && vi.codec[0] && cx < 1200) ui_chip(vi.codec, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT);
+            if (!res[0] && !aud[0] && vi.codec[0] && cx < 1200) cx += ui_chip(vi.codec, cx, 110, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT) + 10;
+            draw_health(p, &vi, cx);
         } else draw_paused_info(p, &vi, info_k);
         float chip_y = 62;
         if (g_app.clock_mode != 2) {   /* "2:52 PM  |  ends at 3:40" */
@@ -2751,6 +3071,8 @@ static void draw(Screen *s)
                 gfx_rect(bx + bw * (float)(p->skip[i].start / vi.duration), ty + th + 6, bw * (float)((e - p->skip[i].start) / vi.duration), 3,
                          p->skip[i].kind == SKIP_CREDITS ? COLOR_ALPHA(THEME_TEXT, 0x50) : COLOR_ALPHA(THEME_ACCENT2, 0xC0));
             }
+            for (int i = 0; i < p->n_marks; i++)   /* the viewer's marked moments */
+                gfx_circle(bx + bw * (float)(p->marks[i] / vi.duration), ty - 12, 5, THEME_ACCENT);
             if (p->probe)   /* chapter marks */
                 for (int i = 1; i < p->probe->n_chapters; i++) {
                     float cxp = bx + bw * (float)(p->probe->chapters[i].start_s / vi.duration);
@@ -2810,7 +3132,7 @@ static void draw(Screen *s)
     float card_top = 0;
     if (p->up_next_shown && p->next_video_id && !p->menu) { draw_up_next(p, &vi, overlay); card_top = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240; }
     else if (p->lighter_to >= 0 && !p->menu) { draw_lighter(p, overlay); card_top = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 200; }
-    const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu ? skippable(p, &vi) : NULL;
+    const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu && !p->cast_open && !p->scenes_open ? skippable(p, &vi) : NULL;
     if (sk) draw_skip_button(p, sk, &vi, overlay, card_top);
     if (p->menu) draw_menu(p);
 }
@@ -2940,7 +3262,7 @@ static int source_rows(const Player *p, int *rows)
  * (the app draws addon subtitles itself, straight from g_app). */
 static void push_sub_style(const Player *p)
 {
-    video_subtitle_style(g_app.subs_size, g_app.subs_style, g_app.subs_pos, (int)(p->embedded_offset * 1000));
+    video_subtitle_style(sub_size(p), g_app.subs_style, g_app.subs_pos, (int)(p->embedded_offset * 1000));
 }
 
 static void adjust_subs(Player *p, int row, int dir)
@@ -3095,9 +3417,10 @@ static void menu_activate(Player *p)
         return;
     }
     p->subs_auto_done = 1; p->subs_user = 1;   /* the viewer decided; stop auto-selecting */
+    p->replay_subs = 0;                         /* and a replay leaves them as they are */
     f -= SUB_OFF;
     if (f == 0) {
-        if (p->assign_second) { select_addon_sub_slot(p, -1, 1); return; }
+        if (p->assign_second) { select_addon_sub_slot(p, -1, 1); remember_second(p, NULL); return; }
         select_addon_sub(p, -1); p->embedded_text_sel = -1; video_select_track(TRACK_TEXT, -1); remember_subs(p, NULL, SUBS_SRC_ANY); return;
     }
     f--;
@@ -3112,7 +3435,7 @@ static void menu_activate(Player *p)
     int ng = sorted_subs(p, order);
     if (f < ng) {
         int idx = order[f];
-        if (p->assign_second) { select_addon_sub_slot(p, p->active_addon_sub2 == idx ? -1 : idx, 1); return; }
+        if (p->assign_second) { int on = p->active_addon_sub2 != idx; select_addon_sub_slot(p, on ? idx : -1, 1); remember_second(p, on ? p->addon_subs[idx].lang : NULL); return; }
         select_addon_sub(p, idx);
         remember_subs(p, p->addon_subs[idx].lang, SUBS_SRC_ADDON);
         return;
@@ -3177,6 +3500,19 @@ static int key(Screen *s, KeyAction a)
         show_overlay(p);
         return 1;
     }
+    if (p->scenes_open && !p->menu) return scenes_key(p, a, &vi);
+    if (p->cast_open && !p->menu) {
+        const TmdbInfo *tm;
+        int n = cast_n(p, &tm);
+        if (a == KEY_LEFT && p->cast_focus > 0) p->cast_focus--;
+        else if (a == KEY_RIGHT && p->cast_focus + 1 < n) p->cast_focus++;
+        else if (a == KEY_INFO || a == KEY_BACK || a == KEY_OK || a == KEY_DOWN || !n) p->cast_open = 0;
+        else if (a != KEY_LEFT && a != KEY_RIGHT && a != KEY_UP) { p->cast_open = 0; goto keys; }
+        app_redraw();
+        return 1;
+    }
+keys:
+    if (p->catchup_until > g_app.time && !p->menu && (a == KEY_OK || a == KEY_BACK)) { p->catchup_until = 0; app_redraw(); return 1; }   /* puts "Previously" away */
     if (p->menu == MENU_SOURCES) return sources_key(p, a);
     if (p->menu) {
         int rows = menu_rows(p);
@@ -3263,9 +3599,16 @@ static int key(Screen *s, KeyAction a)
         return 1;
     case KEY_UP: p->bar_focus = 0; show_overlay(p); return 1;
     case KEY_DOWN: p->bar_focus = 1; show_overlay(p); return 1;
-    case KEY_INFO: case KEY_MENU: show_overlay(p); return 1;
+    case KEY_INFO: {
+        const TmdbInfo *tm;
+        if (!p->trailer && cast_n(p, &tm) > 0) { p->cast_open = 1; p->cast_focus = 0; p->overlay_until = 0; LOGI("player: cast drawer (%d people)", cast_n(p, &tm)); app_redraw(); return 1; }
+        show_overlay(p);
+        return 1;
+    }
+    case KEY_MENU: show_overlay(p); return 1;
     case KEY_GREEN: if (p->next_video_id) go_up_next(p); return 1;
     case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
+    case KEY_BLUE: instant_replay(p, vi.position); return 1;
     case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->cur + 1, vi.position); } return 1;
     case KEY_BACK:
         if (g_app.pip_enabled && !p->trailer && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
@@ -3309,6 +3652,82 @@ static void destroy(Screen *s)
     free(s);
 }
 
+/* Coming back after a while: the film resumes a little earlier (10 s after a day, 30 s
+ * after a week) so the moment comes back with it, and a series opens with a card about
+ * the episode before this one (after two days). SNTV_AWAY_S (tests) stands in for the gap. */
+/* Blue: "what did they say?" Ten seconds back, with subtitles on for those ten seconds
+ * when they were off; they go again once the playhead passes where Blue was pressed. */
+static void instant_replay(Player *p, double pos)
+{
+    if (p->active_addon_sub < 0 && p->embedded_text_sel < 0 && !p->replay_subs) {
+        const char *lang = g_app.pref_subs[0] ? g_app.pref_subs : p->audio_lang_known ? p->audio_lang : "en";
+        p->replay_subs = pick_subs(p, lang, SUBS_SRC_ANY) || (p->audio_lang_known && pick_subs(p, p->audio_lang, SUBS_SRC_ANY));
+    }
+    if (pos > p->replay_until) p->replay_until = pos;   /* pressed again: back to where the first press was */
+    video_seek(pos > 10 ? pos - 10 : 0);
+    LOGI("player: replay from %.0f s%s", pos, p->replay_subs ? " with subtitles" : "");
+    app_toast(p->replay_subs ? "Replaying with subtitles" : "Replaying the last 10 seconds");
+    show_overlay(p);
+}
+
+static int night_now(void)
+{
+    if (g_app.night_mode != 1) return g_app.night_mode == 2;
+    time_t t = time(NULL);
+    struct tm tm;
+    localtime_r(&t, &tm);
+    return tm.tm_hour >= 23 || tm.tm_hour < 6;
+}
+
+/* Night mode: quieter and larger subtitles. Checked each minute, and the volume again
+ * after every load (each starts at full volume). */
+static void night_tick(Player *p, const VideoInfo *vi)
+{
+    long minute = (long)(time(NULL) / 60);
+    if (minute != p->night_minute) {
+        p->night_minute = minute;
+        int n = !p->trailer && night_now();
+        if (n != p->night) {
+            p->night = n;
+            p->night_load = 0;
+            push_sub_style(p);
+            LOGI("player: night mode %s", n ? "on" : "off");
+            if (p->started) app_toast(n ? "Night mode: quieter, with larger subtitles" : "Night mode off");
+        }
+    }
+    if ((p->night || p->night_applied) && p->night_load != video_load_count() && vi->state != VIDEO_IDLE) {
+        p->night_load = video_load_count();
+        p->night_applied = p->night;
+        video_set_volume(p->night ? 60 : 100);
+    }
+}
+
+static double welcome_back(Player *p, double start)
+{
+    const LibraryItem *li = app_library_find(p->meta.id);
+    const char *fake = getenv("SNTV_AWAY_S");
+    if (fake) p->away_s = atof(fake);
+    else if (li && li->last_watched_ms > 0) p->away_s = (double)time(NULL) - li->last_watched_ms / 1000.0;
+    double back = p->away_s >= 7 * 86400 ? 30 : p->away_s >= 86400 ? 10 : 0;
+    if (back && start > back + 5) {
+        LOGI("player: away %.0f days, resuming %.0f s earlier", p->away_s / 86400, back);
+        start -= back;
+    }
+    if (p->away_s >= 2 * 86400 && p->prev_video_id) {
+        int n = 0;
+        const MetaVideo *eps = app_videos(p->meta.id, &n);
+        for (int i = 0; i < n; i++) {
+            if (strcmp(eps[i].id, p->prev_video_id) || !eps[i].overview || !*eps[i].overview) continue;
+            snprintf(p->catchup_head, sizeof p->catchup_head, "Previously  \xC2\xB7  %s", p->prev_title ? p->prev_title : "the last episode");
+            snprintf(p->catchup_text, sizeof p->catchup_text, "%s", eps[i].overview);
+            p->catchup_until = -1;   /* shown once the picture is up */
+            LOGI("player: previously card for %s", p->prev_video_id);
+            break;
+        }
+    }
+    return start;
+}
+
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,
                              PlayCandidate *cands, int n_cands, int start_index, double start_s,
                              const char *next_video_id, const char *next_title)
@@ -3340,6 +3759,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     g_live = p;
     s->name = "player"; s->st = p;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);
     query_addon_subs(p);
     return s;

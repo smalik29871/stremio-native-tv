@@ -76,6 +76,7 @@ void video_play(void) { if (g_player && player_start(g_player) == PLAYER_ERROR_N
 void video_pause(void) { if (g_player && player_pause(g_player) == PLAYER_ERROR_NONE) g_info.state = VIDEO_PAUSED; }
 void video_seek(double s) { if (g_player) { player_set_play_position(g_player, (int)(s * 1000), true, NULL, NULL); g_info.position = s; } }
 void video_set_rate(double r) { if (g_player) player_set_playback_rate(g_player, (float)r); }
+void video_set_volume(int v) { if (g_player) player_set_volume(g_player, v / 100.0f, v / 100.0f); }
 void video_set_muted(int m) { if (g_player) player_set_mute(g_player, m); }
 unsigned video_load_count(void) { return g_load_count; }
 

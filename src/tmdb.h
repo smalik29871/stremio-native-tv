@@ -13,6 +13,7 @@ typedef struct TmdbInfo {
     int collection_id;      /* the franchise the film belongs to, 0 none */
     char trailer_yt[16];    /* a YouTube trailer TMDB lists (official first), "" none */
     char collection[96];
+    int stinger;            /* a scene during (1) or after (2) the credits, both 3; films, from TMDB's keywords */
 } TmdbInfo;
 
 /* A franchise's films in release order (TMDB collections). */

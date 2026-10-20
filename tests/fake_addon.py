@@ -614,7 +614,7 @@ class H(BaseHTTPRequestHandler):
             else:
                 body = {"videos": {"results": [{"site": "YouTube", "type": "Teaser", "key": "teaserOnly1", "official": True},
                                                {"site": "YouTube", "type": "Trailer", "key": "fileOnly001", "official": True}]},
-                        "belongs_to_collection": {"id": 10, "name": "Fake Saga Collection"}, "credits": {"cast": cast}, "release_dates": {"results": [{"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}]}}
+                        "belongs_to_collection": {"id": 10, "name": "Fake Saga Collection"}, "keywords": {"keywords": [{"id": 179430, "name": "aftercreditsstinger"}]}, "credits": {"cast": cast}, "release_dates": {"results": [{"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}]}}
             return self.send(200, json.dumps(body).encode(), "application/json")
         if p.startswith("/tmdbimg/"):
             i = int(p.rsplit("/p", 1)[1].split(".")[0]) if "/p" in p else 0

@@ -1684,6 +1684,8 @@ static void load_prefs(void)
     g_app.subs_style = store_get_int("subsStyle", 0);
     if (g_app.subs_style < 0 || g_app.subs_style > 3) g_app.subs_style = 0;
     g_app.autoplay_next = store_get_int("autoplayNext", 1);
+    g_app.night_mode = store_get_int("nightMode", 0);
+    if (g_app.night_mode < 0 || g_app.night_mode > 2) g_app.night_mode = 0;
     g_app.skip_mode = store_get_int("skipMode", 0);
     if (g_app.skip_mode < 0 || g_app.skip_mode > 2) g_app.skip_mode = 0;
     g_app.subs_always = store_get_int("subsAlways", 0);
@@ -1788,6 +1790,7 @@ void app_save_prefs(void)
     store_set_int("subsStyle", g_app.subs_style);
     store_set_int("autoplayNext", g_app.autoplay_next);
     store_set_int("skipMode", g_app.skip_mode);
+    store_set_int("nightMode", g_app.night_mode);
     store_set_int("subsAlways", g_app.subs_always);
     store_set_int("clockMode", g_app.clock_mode);
     store_set_int("islandStyle", g_app.island_style);
@@ -1879,7 +1882,7 @@ static struct { char *meta_id; MetaVideo *videos; int n; } g_videos;
 void app_remember_videos(const char *meta_id, const MetaVideo *videos, int n)
 {
     free(g_videos.meta_id);
-    for (int i = 0; i < g_videos.n; i++) { free(g_videos.videos[i].id); free(g_videos.videos[i].title); free(g_videos.videos[i].thumbnail); }
+    for (int i = 0; i < g_videos.n; i++) { free(g_videos.videos[i].id); free(g_videos.videos[i].title); free(g_videos.videos[i].thumbnail); free(g_videos.videos[i].overview); }
     free(g_videos.videos);
     g_videos.meta_id = strdup(meta_id);
     g_videos.videos = calloc((size_t)n + 1, sizeof(MetaVideo));
@@ -1888,6 +1891,7 @@ void app_remember_videos(const char *meta_id, const MetaVideo *videos, int n)
         g_videos.videos[i].id = strdup(videos[i].id);
         g_videos.videos[i].title = videos[i].title ? strdup(videos[i].title) : NULL;
         g_videos.videos[i].thumbnail = videos[i].thumbnail ? strdup(videos[i].thumbnail) : NULL;
+        g_videos.videos[i].overview = videos[i].overview ? strdup(videos[i].overview) : NULL;   /* the player's "Previously" card */
         g_videos.videos[i].season = videos[i].season;
         g_videos.videos[i].episode = videos[i].episode;
     }

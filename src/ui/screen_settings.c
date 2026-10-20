@@ -53,7 +53,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -108,7 +108,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_PLAYBACK:
         SEC(SEC_EPISODES); ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP;
-        SEC(SEC_PLAYER); ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; if (g_app.clock_mode != 2) ids[n++] = IT_ISLAND_STYLE; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; ids[n++] = IT_PLAY_LINK;
+        SEC(SEC_PLAYER); ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; if (g_app.clock_mode != 2) ids[n++] = IT_ISLAND_STYLE; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; ids[n++] = IT_NIGHT; ids[n++] = IT_PLAY_LINK;
         break;
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG:
@@ -173,6 +173,7 @@ static const char *row_title(int id)
     case IT_SUBS_XL: return "Translate with AI when nobody offers my language";
     case IT_AUTOPLAY: return "Play next episode automatically";
     case IT_SKIP: return "Skip intros and recaps";
+    case IT_NIGHT: return "Night mode";
     case IT_SUBS_WHEN: return "Turn subtitles on";
     case IT_CLOCK: return "Clock";
     case IT_ISLAND_STYLE: return "Clock style";
@@ -256,6 +257,7 @@ static const char *row_desc(int id)
     case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
     case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
     case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
+    case IT_NIGHT: return "Videos play quieter and subtitles one size larger, so late viewing stays easy to follow without waking anyone.";
     case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
     case IT_CLOCK: return "In the corner of every screen; hidden while a video plays.";
     case IT_ISLAND_STYLE: return "Just the time, the day too, seconds, or a small dial beside it.";
@@ -329,7 +331,7 @@ static int row_takes_left(int id)
 {
     if (id >= IT_ROWS_BASE && id < IT_ACCT_BASE) return 1;   /* home rows and addons move */
     switch (id) {
-    case IT_PREF_AUDIO: case IT_PREF_SUBS: case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_ADDON_WAIT: case IT_SKIP:
+    case IT_PREF_AUDIO: case IT_PREF_SUBS: case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_ADDON_WAIT: case IT_SKIP: case IT_NIGHT:
     case IT_SUBS_WHEN: case IT_CLOCK: case IT_ISLAND_STYLE: case IT_CLOCK_FACE: case IT_QUALITY: case IT_RES_CAP: case IT_SRC_SIZE: case IT_SRC_HDR: case IT_AI_PROVIDER: case IT_MEMORY:
     case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
     case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
@@ -730,6 +732,7 @@ static void draw(Screen *s)
         case IT_SUBS_XL: draw_row(y, ICON_SPARK, "Translate with AI when nobody offers my language", NULL, foc, KIND_TOGGLE, g_app.subs_autotranslate); break;
         case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
         case IT_SKIP: draw_row(y, ICON_NEXT, "Skip intros and recaps", SKIP_NAMES[g_app.skip_mode], foc, KIND_CHOICE, 0); break;
+        case IT_NIGHT: draw_row(y, ICON_MOON, "Night mode", g_app.night_mode == 2 ? "Always" : g_app.night_mode ? "11 pm to 6 am" : "Off", foc, KIND_CHOICE, 0); break;
         case IT_SUBS_WHEN: draw_row(y, ICON_GLOBE, "Turn subtitles on", g_app.subs_always ? "Always" : "Only for other languages", foc, KIND_CHOICE, 0); break;
         case IT_CLOCK: draw_row(y, ICON_CLOCK, "Clock", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0); break;
         case IT_ISLAND_STYLE: draw_row(y, ICON_CLOCK, "Clock style", ISLAND_STYLE_NAMES[g_app.island_style], foc, KIND_CHOICE, 0); break;
@@ -1342,6 +1345,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_FX: g_app.fx_setting = (FxLevel)(((int)g_app.fx_setting + dir + 3) % 3); break;
     case IT_AUTOPLAY: g_app.autoplay_next = !g_app.autoplay_next; break;
     case IT_SKIP: g_app.skip_mode = (g_app.skip_mode + dir + 3) % 3; break;
+    case IT_NIGHT: g_app.night_mode = (g_app.night_mode + dir + 3) % 3; break;
     case IT_SUBS_WHEN: g_app.subs_always = !g_app.subs_always; break;
     case IT_CLOCK: g_app.clock_mode = (g_app.clock_mode + dir + 3) % 3; break;
     case IT_ISLAND_STYLE: g_app.island_style = (g_app.island_style + dir + ISLAND_STYLE_COUNT) % ISLAND_STYLE_COUNT; break;

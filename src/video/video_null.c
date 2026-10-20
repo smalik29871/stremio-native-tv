@@ -48,6 +48,7 @@ void video_pause(void) { if (g.state == VIDEO_PLAYING) g.state = VIDEO_PAUSED; }
 void video_seek(double s) { g.position = s < 0 ? 0 : s; if (g.duration && g.position > g.duration) g.position = g.duration; }
 void video_stop(void) { g.state = VIDEO_IDLE; }
 void video_set_rate(double r) { g_rate = r; }
+void video_set_volume(int v) { LOGI("video(null): volume %d", v); }
 void video_set_muted(int m) { if (m != g_muted) LOGI("video(null): %s", m ? "muted" : "sound on"); g_muted = m; }
 unsigned video_load_count(void) { return (unsigned)g_loads; }
 void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }

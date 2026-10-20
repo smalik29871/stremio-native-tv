@@ -461,6 +461,36 @@ grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" &
 # resting on a title page asks for its sources ahead: Play opens on them
 run detail_prefetch 900 "wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait" HOME="$(home_with prefetch "$ABOUT_HOME")"
 grep -q "streams: using [0-9]* prefetched sources for tt0111161" "$OUT/detail_prefetch.log" || { echo "the title page did not prefetch its sources"; grep streams "$OUT/detail_prefetch.log"; exit 1; }
+# The player's extras. Back after days away: "Previously" with the last episode's summary, and a little earlier than where it stopped
+PL='{"prefSubs":"eng","subsAlways":1,"setupDone":1}'
+run player_previously 330 "right,ok,down,down,right,ok,ok,wait,wait" SNTV_AWAY_S=200000 HOME="$(home_with prev "$PL")"
+grep -q "player: previously card for tt0903747:1:1" "$OUT/player_previously.log" || { echo "no Previously card after days away"; grep player "$OUT/player_previously.log"; exit 1; }
+run player_away 600 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,back,back,back,back,wait,blue,wait,wait" SNTV_AWAY_S=700000 SNTV_FAKE_START=200 HOME="$(home_with away "$PL")"
+grep -q "player: away 8 days, resuming 30 s earlier" "$OUT/player_away.log" && grep -q "player: candidate 1/1 Resume @17[01]s" "$OUT/player_away.log" || { echo "a week away did not resume earlier"; grep player "$OUT/player_away.log"; exit 1; }
+# Blue: the last 10 s again, with subtitles on for them when they were off
+run player_replay 600 "right,ok,down,down,right,ok,ok,wait,wait,wait,wait,wait,blue" HOME="$(home_with replay '{"prefSubs":"","setupDone":1}')"
+grep -q "player: replay from [0-9]* s with subtitles" "$OUT/player_replay.log" && grep -q "player: replay over, subtitles off again" "$OUT/player_replay.log" \
+  || { echo "the instant replay did not bring subtitles for its 10 s"; grep -E "replay|subs" "$OUT/player_replay.log"; exit 1; }
+# Info: who is in it
+run player_cast 420 "right,ok,down,down,right,ok,ok,wait,wait,wait,info,right" HOME="$(home_with pcast "$PL")"
+grep -q "player: cast drawer (3 people)" "$OUT/player_cast.log" || { echo "Info did not show the cast"; grep player "$OUT/player_cast.log"; exit 1; }
+# Scenes: the rail from the bar, and a moment marked there is kept for the video
+run player_scenes 640 "right,ok,down,down,right,ok,ok,wait,wait,wait,down,right,right,right,right,right,right,right,right,ok,left,left,left,ok,wait,wait" HOME="$(home_with scenes "$PL")"
+grep -q "player: scenes rail (3)" "$OUT/player_scenes.log" && grep -q "player: moment marked at [0-9]* s" "$OUT/player_scenes.log" \
+  && grep -q '"marks":{"tt0903747:1:2":\[' "$OUT/home_scenes/.local/share/stremio/nativetv/settings.json" \
+  || { echo "the Scenes rail did not mark a moment"; grep -E "scene|marked" "$OUT/player_scenes.log"; exit 1; }
+# the last minutes: the next episode's likely file is fetched ahead
+run player_warm_next 600 "right,ok,down,down,right,ok,ok" SNTV_FAKE_DURATION=1200 SNTV_FAKE_START=900 HOME="$(home_with warmnext "$PL")"
+grep -q "streams: next episode's file warmed (206" "$OUT/player_warm_next.log" || { echo "the next episode's file was not warmed"; grep streams "$OUT/player_warm_next.log"; exit 1; }
+# a film with a scene after the credits says so (TMDB's keywords)
+run player_stinger 400 "right,right,ok,wait,ok,ok,wait,wait" SNTV_FAKE_DURATION=3600 SNTV_FAKE_START=3300 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg \
+  HOME="$(home_with stinger '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
+grep -q "player: the film has a scene after the credits" "$OUT/player_stinger.log" || { echo "the after-credits scene was not mentioned"; grep -E "tmdb|player" "$OUT/player_stinger.log"; exit 1; }
+# second subtitles stay on for the show; night mode plays quieter
+run player_second_subs 400 "right,ok,down,down,right,ok,ok,wait,wait,wait" HOME="$(home_with second '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"secondSubs":{"tt0903747":"spa"}}')"
+grep -q "player: second subtitles spa (on for this show)" "$OUT/player_second_subs.log" || { echo "the show's second subtitles did not come back"; grep -E "subtitles|subs:" "$OUT/player_second_subs.log"; exit 1; }
+run player_night 330 "right,ok,down,down,right,ok,ok,wait,wait" HOME="$(home_with night '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"nightMode":2}')"
+grep -q "player: night mode on" "$OUT/player_night.log" && grep -q "video(null): volume 60" "$OUT/player_night.log" || { echo "night mode did not lower the volume"; grep -E "night|volume" "$OUT/player_night.log"; exit 1; }
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }

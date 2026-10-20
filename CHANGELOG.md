@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- **Back after a while**: resuming something left more than a day ago starts 10 s
+  earlier (30 s after a week), and a series left for two days or more opens with a
+  "Previously" card holding the last episode's summary (OK or Back puts it away).
+- **Blue replays the last 10 seconds**, with subtitles switched on for just those
+  seconds when they were off; they go off again once you are past where you pressed.
+- **Info shows who's in it**: a strip of the cast with photos and characters over the
+  picture, while it keeps playing (TMDB's cast with a key, else the addon's).
+- **Scenes** on the control bar: a rail of the file's chapters (or every 5 minutes)
+  with previews; OK jumps there. Its first card marks the current moment, and marked
+  moments stay with the video, show as dots on the timeline, and Yellow removes one.
+- A health chip next to the quality: where the source plays from (Cached, Direct) and
+  how many seconds are loaded ahead, amber when that runs low.
+- In the last ten minutes, once the next episode's sources are in, the first
+  megabytes of the one Up Next will most likely play are fetched, so it starts faster.
+- Films with a scene during or after the credits (TMDB's keywords) say so when the
+  credits start, and Up Next waits for the very end.
+- Second subtitles chosen for a show come back on by themselves for its other
+  episodes, for watching with two languages.
+- **Night mode** (Settings > Playback): Off, 11 pm to 6 am, or Always. Videos play
+  quieter and subtitles one size larger.
+
 ## 0.10.29
 
 - Add the selectable Aperture prototype: charcoal and ivory editorial Home and
