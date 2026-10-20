@@ -443,6 +443,11 @@ run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)
 run ambient 200 "" SNTV_AMBIENT_SECONDS=1
 run ambient_fire 400 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with fire '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2}')"
+# the drawn scenes: Aurora, Rainy window, Now showing, Warp
+for st in 5:Aurora 6:Rainy 7:Now 8:Warp; do
+  run ambient_scene${st%%:*} 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with scene${st%%:*} "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":${st%%:*},\"ambientMinutes\":2}")"
+  grep -q "ambient: ${st#*:}[a-z ]* screensaver" "$OUT/ambient_scene${st%%:*}.log" || { echo "the ${st#*:} screensaver did not start"; grep ambient "$OUT/ambient_scene${st%%:*}.log"; exit 1; }
+done
 # your own video on TorBox: the picker lists the videos, the pick is kept, the fireplace plays it through TorBox's permanent link
 TB="SNTV_TORBOX_API=http://127.0.0.1:$PORT/torbox"
 run torbox_pick 600 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,down,ok,wait,down,ok" "$TB" HOME="$(home_with tbpick '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"torboxKey":"tbkey"}')"
