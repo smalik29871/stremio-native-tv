@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.21
+
+- **Trailers from IMDb, in 1080p.** For any title IMDb knows, the Trailer button now
+  plays IMDb's own trailer: plain 1080p files with lower qualities behind, no YouTube
+  and no bot check. When IMDb has none, the YouTube trailer plays as before. The button
+  shows on every IMDb title.
+- **1080p shown as 1080p.** The player's badge read cinema-wide 1080p films (1920x800)
+  as 720p; it goes by width too now.
+
 ## 0.10.20
 
 - **YouTube test in Diagnostics.** A new YouTube tab asks for a known video the way
