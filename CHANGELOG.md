@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.30
 
 - **Aperture now matches its design mockups**, set in a new serif (DM Serif Display):
   Home opens on full-bleed artwork with the title in large serif capitals, the year /
