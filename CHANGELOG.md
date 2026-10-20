@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.10.16
+
+- **Home appears at once.** The pictures of the first screen are kept, so Home opens
+  with its artwork in place and refreshes behind it.
+- **Continue Watching from every device.** Resume points from the Stremio account and
+  from Trakt are pulled in on start, when the TV wakes and every 15 minutes; the
+  newer one wins.
+- **Next episode from the same release.** While an episode plays, the next one's
+  source is picked from the same release group and addon when there is one, so audio,
+  subtitles and quality stay the same.
+- **Search in groups.** Results come under Movies and Series (AI picks first), each
+  group on its own rows; the closest match still leads.
+- **Find more sources while watching.** The player's Sources panel asks every addon
+  without stopping the video; new sources join the list.
+- **A source that never starts gives way.** A source stuck loading or buffering at the
+  start moves on after 45 s; a torrent with no peers after 25 s. Sources above the
+  current one are tried too.
+- **Steady seeking.** Every press is 10 s and a quick double press 20 s; holding no
+  longer speeds up to minutes.
+- **Prayer times that match local apps.** Calculation method Auto picks the country's
+  own authority (ISNA in North America, Diyanet in Turkey, Umm al-Qura in Saudi
+  Arabia...). Thirteen more methods, Asr corrected by up to two minutes in the north,
+  and short summer nights handled as prayer apps do.
+- **Fixes.** Showcase Home showed no rows on a fresh profile; Compact repeated a title
+  line and scrolled past its end; player panels showed the wrong title (Sources said
+  Subtitle style); Skip intro covered the buffering card; source badges vanished on
+  the focused row; the Done key, the break clock and the clock pill's notices are
+  easier to read.
+
 ## 0.10.15
 
 - **YouTube in more ways.** Before YouTube's own playlist, the app now tries its own
