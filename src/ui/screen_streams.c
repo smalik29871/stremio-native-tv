@@ -955,7 +955,7 @@ static void play_from(Streams *st, int index)
     char next_id[128] = "", next_title[200] = "";
     int has_next = app_next_video(st->meta.id, st->video_id, next_id, sizeof next_id, next_title, sizeof next_title);
     /* no race for the next episode's same-release source: it plays as matched */
-    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st) && !same_release(st, &st->items[index]) && !is_mine(&st->items[index]));   /* your own copy: no race either */
+    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st) && !same_release(st, &st->items[index]) && !is_mine(&st->items[index]) && !from_torbox(&st->items[index]));   /* TorBox's copy: no race either */
 }
 
 /* ---- a quiet lookup for the player ---- */
