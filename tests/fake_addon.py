@@ -361,6 +361,16 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [{"name": "Lighter\n2160p", "title": "Movie.2024.2160p.WEB-DL", "url": first["url"] + "?q=2160"},
                                                               {"name": "Lighter\n480p", "title": "Movie.2024.480p.WEB-DL", "url": first["url"] + "?q=480"}]}).encode())
             return self.send(404, b"{}")
+        if p.startswith("/many/"):   # a debrid-sized answer: more playable copies than the player is handed
+            p = p[5:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.many", name="Many Addon",
+                                                      resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                first = STREAMS["streams"][0]
+                return self.send(200, json.dumps({"streams": [{"name": f"Many\n{r}p", "title": f"Movie.2024.{r}p.WEB-DL.Copy{i}", "url": first["url"] + f"?many={i}"}
+                                                              for i, r in enumerate([1080, 1080, 720, 720, 1080, 480, 720, 1080, 480, 720])]}).encode())
+            return self.send(404, b"{}")
         if p.startswith("/slow/"):
             p = p[5:]
             if p == "/manifest.json":

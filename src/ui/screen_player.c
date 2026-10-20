@@ -103,6 +103,7 @@ struct Player {
     /* fallback: what the viewer had on, carried to the next source */
     char keep_audio[8]; int keep_sub_kind, keep_sub_idx; char keep_sub_lang[8];   /* kind: 0 none, 1 addon file, 2 file track, 3 off */
     unsigned char dead[16];                 /* sources found not to answer */
+    int more_state;                         /* every addon asked from the Sources panel: 0 not yet, 1 asking, 2 answered */
     int warm_idx, warm_state; float warm_at, warm_s;   /* the next source, checked while this one plays (state 0 -, 1 asking, 2 answers) */
     float drain_at[6], drain_v[6]; int drain_n; float drain_t;   /* seconds buffered ahead, sampled */
     int reask_count; float reask_at; double reask_pos;   /* every source failed: the addons asked again */
@@ -1225,6 +1226,46 @@ static void on_reask(const Stream *items, int n, void *user)
     start_candidate(p, 0, p->reask_pos);
 }
 
+static void cand_drop(PlayCandidate *c)
+{
+    free(c->url); free(c->label); free(c->binge_group); free(c->filename); free(c->detail); free(c->release);
+}
+
+/* "Find more sources": every addon's answer joins the panel's list while the video plays on. */
+static void on_more_sources(const Stream *items, int n, void *user)
+{
+    Player *p = user;
+    if (p != g_live || p->finished || p->more_state != 1) return;
+    p->more_state = 2;
+    int first = p->n_cands, added = 0;
+    for (int i = 0; i < n && p->n_cands < 64; i++) {
+        PlayCandidate c;
+        if (!streams_candidate(&p->meta, &items[i], &c)) continue;
+        int dup = 0;
+        for (int j = 0; j < p->n_cands && !dup; j++) dup = strcmp(p->cands[j].url, c.url) == 0;
+        if (dup) { cand_drop(&c); continue; }
+        PlayCandidate *grown = realloc(p->cands, sizeof *grown * (size_t)(p->n_cands + 1));
+        if (!grown) { cand_drop(&c); break; }
+        p->cands = grown; p->cands[p->n_cands++] = c; added++;
+    }
+    LOGI("player: every addon asked from the Sources panel: %d more source%s", added, added == 1 ? "" : "s");
+    if (!added) { app_toast("No other sources found"); app_redraw(); return; }
+    if (p->menu == MENU_SOURCES && p->menu_focus == first) {   /* the focus moves from the Find row to the first new one */
+        int view[64], nv = source_view(p, view);
+        for (int k = 0; k < nv; k++) if (view[k] == first) { p->menu_focus = k; break; }
+    }
+    app_redraw();
+}
+
+static void find_more_sources(Player *p)
+{
+    if (p->trailer || p->more_state == 1) return;
+    if (p->reask_at < 0) { app_toast("Already asking the addons"); return; }
+    p->more_state = 1;
+    LOGI("player: asking every addon for more sources, playback continues");
+    streams_lookup(&p->meta, p->video_id, on_more_sources, p);
+}
+
 static void fallback_tick(Player *p, const VideoInfo *vi)
 {
     if (p->trailer || p->finished) return;
@@ -1289,9 +1330,9 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     /* 5. nothing left to try: ask the addons again, twice at most */
     if (vi->state == VIDEO_ERROR && p->error_handled && next_candidate(p) < 0 && p->reask_count < 2) {
         if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 8); LOGI("player: every source failed; asking the addons again shortly"); app_toast("No source plays right now. Asking the addons again in a few seconds"); }
-        else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; streams_lookup(&p->meta, p->video_id, on_reask, p); }
+        else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; if (p->more_state == 1) p->more_state = 0; streams_lookup(&p->meta, p->video_id, on_reask, p); }
     }
-    if (p->reask_at < 0) streams_lookup_tick();
+    if (p->reask_at < 0 || p->more_state == 1) streams_lookup_tick();
 }
 
 static void go_to_video(Player *p, const char *video_id, const char *video_title)
@@ -1492,7 +1533,7 @@ static void p2p_tick(Player *p, const VideoInfo *vi, float dt)
         http_request_async_ex("http://127.0.0.1:11490/stats.json", &o, on_p2p_stats, q);
     }
     if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED) return;
-    if ((p->p2p_recheck_in -= dt) <= 0) {
+    if ((p->p2p_recheck_in -= dt) <= 0 && p->more_state != 1) {   /* not over the Sources panel's own lookup */
         const char *e = getenv("SNTV_P2P_RECHECK");
         p->p2p_recheck_in = e ? (float)atof(e) : 120;
         streams_lookup(&p->meta, p->video_id, on_p2p_recheck, p);
@@ -1726,7 +1767,9 @@ static void draw_menu(Player *p)
             }
             ROW(c->detail ? c->detail : name, c->release ? c->release : host, view[k] == p->cur);
         }
-        ROW("Browse all sources", "Every addon again, with the recommendation for this TV", 0);
+        if (p->more_state == 2) ROW("Open the Sources page", "Every source with its details; this video stops", 0);
+        else if (p->more_state == 1) ROW("Asking every addon\xE2\x80\xA6", "The video keeps playing", 0);
+        else ROW("Find more sources", "Asks every addon; the video keeps playing", 0);
         gfx_clip_pop();
         gfx_set_translate(0, 0);
         return;
@@ -2638,7 +2681,7 @@ static int key(Screen *s, KeyAction a)
             return 1;
         }
         case KEY_OK:
-            if (p->menu == MENU_SOURCES && p->menu_focus == p->n_cands) { browse_sources(p); return 1; }
+            if (p->menu == MENU_SOURCES && p->menu_focus == p->n_cands) { if (p->more_state == 2) browse_sources(p); else find_more_sources(p); return 1; }
             { int was = p->menu; int keep = (was == MENU_AUDIO && p->menu_focus == 0) || (was == MENU_SUBS && (p->menu_focus < SUB_OFF || p->assign_second
                                              || (xl_available(p) && p->menu_focus == menu_rows(p) - 1)));
               menu_activate(p); if (p->menu == was && !keep) p->menu = MENU_NONE; show_overlay(p); return 1; }

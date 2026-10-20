@@ -195,6 +195,11 @@ grep -q "toast: Saved to Favourites" "$OUT/list_save.log" || { echo "Save to a l
 grep -q '"lists"' "$OUT/home_lists/.local/share/stremio/nativetv/settings.json" || { echo "the list was not stored"; exit 1; }
 NO_PREFLIGHT='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'   # the names decide (the test file itself is 180p)
 LIGHTER="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/manifest.json"   # its 2160p copy plays first
+# Sources panel > Find more sources: every addon is asked while the video plays on, and the new ones join the list
+run player_more_sources 600 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok,down,down,down,down,down,down,down,ok,wait,wait,wait,wait" \
+  "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with more_src "$NO_PREFLIGHT")"
+grep -q "player: every addon asked from the Sources panel: 5 more sources" "$OUT/player_more_sources.log" && [ "$(grep -c "streams: #1 score" "$OUT/player_more_sources.log")" -eq 1 ] \
+  || { echo "Find more sources did not add sources while playing"; grep -E "player: (every|asking)" "$OUT/player_more_sources.log"; exit 1; }
 run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
 # fallbacks: a source that dies mid-film is replaced at the same moment with the same subtitles;
 # the next source is checked while playing; a draining buffer moves to a lighter copy first;
