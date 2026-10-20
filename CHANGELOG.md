@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.22
+
+- **Your own videos from TorBox.** Add your TorBox API key in Settings > API keys, then
+  "Choose from my TorBox" under the fireplace video and the break recording lists the
+  videos in your TorBox. A pick plays through TorBox's permanent link, which always
+  forwards to a fresh copy, at full quality; nothing expires and your key is never
+  stored inside the link.
+
 ## 0.10.21
 
 - **Trailers from IMDb, in 1080p.** For any title IMDb knows, the Trailer button now
