@@ -234,7 +234,8 @@ void ui_background(Color tint)
         if (tex) { ui_backdrop_blur(tex, iw, ih, 1); return; }
     }
     gfx_gradient_v(0, 0, SNTV_UI_W, SNTV_UI_H * 0.6f, COLOR_ALPHA(t, g_app.fx_light ? 0x18 : 0x26), COLOR_ALPHA(t, 0));
-    if (g_theme.glass || g_theme.frost) gfx_gradient_h(0, SNTV_UI_H * 0.35f, SNTV_UI_W, SNTV_UI_H * 0.65f, COLOR_ALPHA(color_lerp(t, g_theme.haze, 0.5f), 0), COLOR_ALPHA(color_lerp(t, g_theme.haze, 0.5f), g_theme.id == THEME_SUNSET ? 0x40 : 0x22));
+    /* the haze rises from the bottom: faded in from nothing, so no edge crosses the screen */
+    if (g_theme.glass || g_theme.frost) gfx_gradient_v(0, SNTV_UI_H * 0.3f, SNTV_UI_W, SNTV_UI_H * 0.7f, COLOR_ALPHA(color_lerp(t, g_theme.haze, 0.5f), 0), COLOR_ALPHA(color_lerp(t, g_theme.haze, 0.5f), g_theme.id == THEME_SUNSET ? 0x40 : 0x22));
 }
 
 void ui_panel(float x, float y, float w, float h, float r, Color fill)
