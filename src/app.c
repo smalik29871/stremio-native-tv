@@ -274,6 +274,11 @@ static void apply_collection_json(const char *json, int from_cache)
         }
         return;
     }
+    if (!from_cache && n == 0 && g_app.n_addons > 0) {   /* an empty answer never wipes a working collection */
+        LOGW("addons: the account answered with no addons; keeping the %d already here", g_app.n_addons);
+        free(addons);
+        return;
+    }
     free_addons();
     g_app.addons = addons;
     g_app.n_addons = n;
@@ -289,14 +294,23 @@ static void apply_collection_json(const char *json, int from_cache)
  * while the last one's library or addons were still on their way). */
 static uintptr_t g_account_gen = 1;
 
+/* A failed collection is asked again: a TV often starts the app before its network is up */
+static float g_addons_retry_in = -1;
+static int g_addons_tries;
+
 static void on_collection(HttpResponse *r, void *user)
 {
     if ((uintptr_t)user != g_account_gen) { LOGI("addons: a reply for the previous account, dropped"); return; }
     g_app.addons_loading = 0;
     if (r->status != 200) {
         snprintf(g_app.addons_error, sizeof g_app.addons_error, "addon collection: %s", r->error[0] ? r->error : "HTTP error");
+        g_addons_retry_in = g_addons_tries < 6 ? (float)(3 << g_addons_tries) : 120;   /* 3, 6, 12 ... seconds, then every 2 minutes */
+        g_addons_tries++;
+        LOGW("addons: the collection failed (%ld %s); asking again in %.0f s", r->status, r->error, g_addons_retry_in);
+        app_redraw();
         return;
     }
+    g_addons_tries = 0;
     apply_collection_json(r->body, 0);
 }
 
@@ -1104,6 +1118,15 @@ static void ask_to_update(void)
 
 void app_update_check(float dt)
 {
+    if (g_addons_retry_in > 0 && (g_addons_retry_in -= dt) <= 0) {
+        g_addons_retry_in = -1;
+        if (g_app.auth_key) {
+            g_app.addons_loading = 1;
+            char *body = api_body_addon_collection_get(g_app.auth_key);
+            http_request_async(api_url_addon_collection_get(), body, on_collection, (void *)g_account_gen);
+            free(body);
+        }
+    }
     static float t, next = -1;
     if (next < 0) next = getenv("SNTV_UPDATE_URL") ? 1 : 20;   /* tests check at once */
     t += dt;

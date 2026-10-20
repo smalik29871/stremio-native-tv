@@ -59,7 +59,8 @@ typedef struct {
     char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
     /* About */
     float scroll, scroll_v, age, facts_h;
-    char pre_id[160]; float pre_since;   /* the video whose sources are asked ahead, and since when it has been the one */
+    char pre_id[160]; float pre_since;
+    int meta_wait, addons_seen;   /* details asked again once the addons have come in */   /* the video whose sources are asked ahead, and since when it has been the one */
     int cast_focus, sim_focus, fr_focus, fr_opening; unsigned fr_gen;
     float cast_x, sim_x, fr_x;
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
@@ -394,7 +395,19 @@ static void fetch_meta(Detail *d)
         d->req = http_request_async(url, NULL, on_meta, d);
         return;
     }
-    snprintf(d->error, sizeof d->error, "No installed addon provides details for this title");
+    if (g_app.addons_loading || !g_app.n_addons) {   /* the addons are still on their way (or failed): ask again when they come */
+        d->meta_wait = 1; d->addons_seen = g_app.addons_version; d->loading = 1;
+        LOGI("detail: no addon for %s yet (%d loaded%s); waiting", d->preview.id, g_app.n_addons, g_app.addons_loading ? ", loading" : "");
+    }
+    if (!strncmp(d->preview.id, "tt", 2) && d->preview.type) {   /* Cinemeta knows every IMDb title: details still show */
+        char url[512];
+        snprintf(url, sizeof url, "https://v3-cinemeta.strem.io/meta/%s/%s.json", d->preview.type, d->preview.id);
+        d->loading = 1;
+        d->req = http_request_async(url, NULL, on_meta, d);
+        LOGI("detail: no installed addon for %s's details; asking Cinemeta", d->preview.id);
+        return;
+    }
+    if (!d->meta_wait) snprintf(d->error, sizeof d->error, "No installed addon provides details for this title");
 }
 
 static int ep_watched(const Detail *d, int k, const LibraryItem *li, int cur_idx)
@@ -555,6 +568,7 @@ static void update(Screen *s, float dt)
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
     if (d->ask_open) { d->ask_t = ui_ease(d->ask_t * 100, 100, NULL, dt, 14) / 100; if (d->ask_t < 0.999f || d->ask_req) app_redraw(); }
     if (d->loading) app_redraw();
+    if (d->meta_wait && !d->has_meta && d->addons_seen != g_app.addons_version && !d->req) { d->meta_wait = 0; d->error[0] = 0; fetch_meta(d); }
     {   /* the sources Play would open, asked once the focus rests: they are in by the press */
         const char *pre = NULL;
         if (d->has_meta && d->age > 0.8f) {
