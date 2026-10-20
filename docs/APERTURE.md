@@ -57,9 +57,8 @@ bash tests/aperture-smoke.sh build
 The smoke script uses an isolated fixture profile and checks the current native
 screen and expected playback/pause state before capture. It covers Home, Details, Sources, Player, pause/rest,
 subtitle/audio drawers, seek cancellation, Back to Home, transitions, and
-Light effects with low memory. Captures go to `tests/out/aperture/`; CI uploads
-them as `aperture-native-preview`. Existing unit tests and the webOS package build
-remain in CI. The desktop backend simulates video; physical webOS playback, remote
+Light effects with low memory. Captures go to `tests/out/aperture/` (run it locally;
+CI runs the unit tests, including the theme contracts, and builds the webOS package). The desktop backend simulates video; physical webOS playback, remote
 repeat timing, and GPU performance still need a device run.
 
 The full Linux build, the unit tests (including the theme contracts), this journey and
