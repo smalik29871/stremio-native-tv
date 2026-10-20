@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.25
+
+- **The account repair always finishes.** 0.10.24 saved nothing back to your account
+  when one of your addons didn't answer, so the official apps stayed broken. Now an addon
+  that doesn't answer keeps its place with empty lists (reinstall it to use it again),
+  the rest get their full manifests, and the whole list is saved. The TV says when the
+  repair is saved, and says so when saving fails.
+
 ## 0.10.24
 
 - **Your account's addons repaired.** When you installed, removed or moved an addon,

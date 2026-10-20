@@ -253,7 +253,8 @@ class H(BaseHTTPRequestHandler):
                 f.write(body + b"\n")
             return self.send(200, b'{"result":{"success":true}}')
         if p == "/api/addonCollectionGet" and b"brokenkey" in body and not getattr(H, "repaired", False):
-            return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": {"id": MANIFEST["id"], "name": MANIFEST["name"], "version": MANIFEST["version"]}, "flags": {}}]}}).encode())
+            return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": {"id": MANIFEST["id"], "name": MANIFEST["name"], "version": MANIFEST["version"]}, "flags": {}},
+                                                              {"transportUrl": "http://127.0.0.1:1/gone/manifest.json", "manifest": {"id": "org.gone", "name": "Gone", "version": "1.0.0"}, "flags": {}}]}}).encode())
         if p == "/api/addonCollectionGet":   # the account's addons: this fake one
             return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": MANIFEST, "flags": {}}]}}).encode())
         if p == "/api/datastoreGet":   # the account's library (FAKE_LIBRARY), as the Stremio API answers

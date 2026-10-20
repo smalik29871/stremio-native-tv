@@ -309,7 +309,10 @@ static void on_repair_saved(HttpResponse *r, void *user)
     cJSON *root = r->body ? cJSON_Parse(r->body) : NULL;
     int ok = r->status == 200 && root && !cJSON_GetObjectItemCaseSensitive(root, "error");
     if (ok) { LOGI("addons: the account's collection is repaired"); app_toast("Your account's addons were repaired"); }
-    else LOGW("addons: saving the repaired collection failed (%ld %.200s)", r->status, r->body ? r->body : r->error);
+    else {
+        LOGW("addons: saving the repaired collection failed (%ld %.200s)", r->status, r->body ? r->body : r->error);
+        app_toast("Your account's addons could not be saved (%ld); it tries again next start", r->status);
+    }
     cJSON_Delete(root);
 }
 
@@ -321,7 +324,7 @@ static void repair_done(Repair *rp)
         char *txt = cJSON_PrintUnformatted(rp->root);
         apply_collection_json(txt, 0);   /* this app has them back at once */
         free(txt);
-        if (!rp->failed && g_app.auth_key) {
+        if (g_app.auth_key) {
             cJSON *o = cJSON_CreateObject();
             cJSON_AddStringToObject(o, "type", "AddonCollectionSet");
             cJSON_AddStringToObject(o, "authKey", g_app.auth_key);
@@ -331,7 +334,8 @@ static void repair_done(Repair *rp)
             http_request_async(api_url_addon_collection_set(), body, on_repair_saved, NULL);
             free(body);
             LOGI("addons: saving the repaired collection (%d addons) to the account", cJSON_GetArraySize(addons));
-        } else if (rp->failed) LOGW("addons: %d manifest(s) could not be fetched; the account is left as it is for now", rp->failed);
+            if (rp->failed) app_toast("%d addon%s did not answer: reinstall %s to use %s again", rp->failed, rp->failed == 1 ? "" : "s", rp->failed == 1 ? "it" : "them", rp->failed == 1 ? "it" : "them");
+        }
     }
     cJSON_Delete(rp->root);
     free(rp);
@@ -345,11 +349,19 @@ static void on_repair_manifest(HttpResponse *r, void *user)
     free(u);
     cJSON *m = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
     if (addon_manifest_complete(m)) cJSON_ReplaceItemInObjectCaseSensitive(d, "manifest", m);
-    else {
+    else {   /* the addon does not answer: its entry is completed with empty lists, so every app reads the account again */
         cJSON_Delete(m);
         rp->failed++;
         const cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
-        LOGW("addons: no manifest from %s (%ld)", cJSON_IsString(t) ? t->valuestring : "?", r->status);
+        LOGW("addons: no manifest from %s (%ld); keeping it with empty lists", cJSON_IsString(t) ? t->valuestring : "?", r->status);
+        cJSON *old = cJSON_GetObjectItemCaseSensitive(d, "manifest");
+        if (!cJSON_IsObject(old)) { old = cJSON_CreateObject(); cJSON_ReplaceItemInObjectCaseSensitive(d, "manifest", old); }
+        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "id"))) cJSON_AddStringToObject(old, "id", cJSON_IsString(t) ? t->valuestring : "unknown.addon");
+        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "name"))) cJSON_AddStringToObject(old, "name", "Addon");
+        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "version"))) cJSON_AddStringToObject(old, "version", "0.0.0");
+        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "description"))) cJSON_AddStringToObject(old, "description", "");
+        static const char *const LISTS[] = { "types", "resources", "catalogs" };
+        for (int i = 0; i < 3; i++) if (!cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(old, LISTS[i]))) cJSON_AddItemToObject(old, LISTS[i], cJSON_CreateArray());
     }
     if (--rp->remaining == 0) repair_done(rp);
 }
