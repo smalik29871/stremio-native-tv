@@ -490,31 +490,35 @@ static void on_collection(HttpResponse *r, void *user)
     apply_collection_json(r->body, 0);
 }
 
-/* Default (logged-out) addons: fetch each manifest, assemble a collection. */
-typedef struct { int remaining; cJSON *addons; } DefaultsCtx;
+/* Default (logged-out) addons: fetch each manifest, assemble a collection in the
+ * listed order, whichever answers first (Home's rows and the Sources tabs follow it). */
+enum { DEFAULTS_MAX = 64 };
+typedef struct { int remaining, n; cJSON *slot[DEFAULTS_MAX]; } DefaultsCtx;
+typedef struct { DefaultsCtx *ctx; int i; char *url; } DefaultReq;
 
 static void on_default_manifest(HttpResponse *r, void *user)
 {
-    DefaultsCtx *ctx = ((void **)user)[0];
-    char *url = ((void **)user)[1];
-    free(user);
+    DefaultReq *q = user;
+    DefaultsCtx *ctx = q->ctx;
     cJSON *m = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     if (m) {
         cJSON *d = cJSON_CreateObject();
-        cJSON_AddStringToObject(d, "transportUrl", url);
+        cJSON_AddStringToObject(d, "transportUrl", q->url);
         cJSON_AddItemToObject(d, "manifest", m);
         cJSON *f = cJSON_AddObjectToObject(d, "flags");
         cJSON_AddBoolToObject(f, "official", 1);
         cJSON_AddBoolToObject(f, "protected", 1);
-        cJSON_AddItemToArray(ctx->addons, d);
+        ctx->slot[q->i] = d;
     } else {
-        LOGW("addons: default manifest %s failed (%ld %s)", url, r->status, r->error);
+        LOGW("addons: default manifest %s failed (%ld %s)", q->url, r->status, r->error);
     }
-    free(url);
+    free(q->url);
+    free(q);
     if (--ctx->remaining == 0) {
         cJSON *root = cJSON_CreateObject();
         cJSON *res = cJSON_AddObjectToObject(root, "result");
-        cJSON_AddItemToObject(res, "addons", ctx->addons);
+        cJSON *addons = cJSON_AddArrayToObject(res, "addons");
+        for (int i = 0; i < ctx->n; i++) if (ctx->slot[i]) cJSON_AddItemToArray(addons, ctx->slot[i]);
         char *txt = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
         g_app.addons_loading = 0;
@@ -524,42 +528,37 @@ static void on_default_manifest(HttpResponse *r, void *user)
     }
 }
 
+static void request_default(DefaultsCtx *ctx, const char *url)
+{
+    DefaultReq *q = malloc(sizeof *q);
+    q->ctx = ctx; q->i = ctx->n++; q->url = strdup(url);
+    http_request_async(url, NULL, on_default_manifest, q);
+}
+
 static void load_default_addons(void)
 {
     DefaultsCtx *ctx = calloc(1, sizeof *ctx);
-    ctx->addons = cJSON_CreateArray();
+    const char *urls[DEFAULTS_MAX];
+    int n = 0;
+    char *copy = NULL;
     /* SNTV_DEFAULT_ADDONS="url1,url2" replaces the built-in defaults (used by tests/smoke.sh). */
     const char *override = getenv("SNTV_DEFAULT_ADDONS");
     if (override && *override) {
-        char *copy = strdup(override);
-        for (char *tok = strtok(copy, ","); tok; tok = strtok(NULL, ",")) ctx->remaining++;
-        free(copy);
         copy = strdup(override);
-        for (char *tok = strtok(copy, ","); tok; tok = strtok(NULL, ",")) {
-            void **u = malloc(2 * sizeof(void *));
-            u[0] = ctx; u[1] = strdup(tok);
-            http_request_async(tok, NULL, on_default_manifest, u);
+        for (char *tok = strtok(copy, ","); tok && n < DEFAULTS_MAX; tok = strtok(NULL, ",")) urls[n++] = tok;
+    } else {
+        for (int i = 0; STREMIO_DEFAULT_ADDON_URLS[i] && n < DEFAULTS_MAX; i++) urls[n++] = STREMIO_DEFAULT_ADDON_URLS[i];
+        /* Keep user-installed addons from a previous logged-out session. */
+        cJSON *extra = store_get_json("local_addons");
+        for (int i = 0; cJSON_IsArray(extra) && i < cJSON_GetArraySize(extra) && n < DEFAULTS_MAX; i++) {
+            cJSON *e = cJSON_GetArrayItem(extra, i);
+            if (cJSON_IsString(e)) urls[n++] = e->valuestring;
         }
-        free(copy);
-        return;
     }
-    /* Keep user-installed addons from a previous logged-out session. */
-    cJSON *extra = store_get_json("local_addons");
-    int n_extra = cJSON_IsArray(extra) ? cJSON_GetArraySize(extra) : 0;
-    for (int i = 0; STREMIO_DEFAULT_ADDON_URLS[i]; i++) ctx->remaining++;
-    ctx->remaining += n_extra;
-    for (int i = 0; STREMIO_DEFAULT_ADDON_URLS[i]; i++) {
-        void **u = malloc(2 * sizeof(void *));
-        u[0] = ctx; u[1] = strdup(STREMIO_DEFAULT_ADDON_URLS[i]);
-        http_request_async(STREMIO_DEFAULT_ADDON_URLS[i], NULL, on_default_manifest, u);
-    }
-    for (int i = 0; i < n_extra; i++) {
-        cJSON *e = cJSON_GetArrayItem(extra, i);
-        if (!cJSON_IsString(e)) { ctx->remaining--; continue; }
-        void **u = malloc(2 * sizeof(void *));
-        u[0] = ctx; u[1] = strdup(e->valuestring);
-        http_request_async(e->valuestring, NULL, on_default_manifest, u);
-    }
+    if (!n) { free(copy); free(ctx); g_app.addons_loading = 0; return; }
+    ctx->remaining = n;   /* all counted before the first answer can land */
+    for (int i = 0; i < n; i++) request_default(ctx, urls[i]);
+    free(copy);
 }
 
 void app_load_addons(void)

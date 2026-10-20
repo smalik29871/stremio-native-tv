@@ -526,7 +526,7 @@ run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"
 grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }
 # Clock faces: every one draws (flip, analog, words, rings, nixie, stacked), and the island's styles
-for f in 1 2 3 4 5 6; do
+for f in 1 2 3 4 5 6 7 8 9 10 11 12; do
   run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f}")"
   grep -q "ambient: Clock screensaver with [0-9]* backdrops, face " "$OUT/ambient_face$f.log" && ! grep -q "no big clock digits" "$OUT/ambient_face$f.log" || { echo "clock face $f did not draw"; grep -E "ambient|font" "$OUT/ambient_face$f.log"; exit 1; }
 done

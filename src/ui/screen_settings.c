@@ -262,7 +262,7 @@ static const char *row_desc(int id)
     case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
     case IT_CLOCK: return "In the corner of every screen; hidden while a video plays.";
     case IT_ISLAND_STYLE: return "Just the time, the day too, seconds, or a small dial beside it.";
-    case IT_CLOCK_FACE: return "Digital, flip cards, a dial, words, rings, nixie tubes or stacked digits.";
+    case IT_CLOCK_FACE: return "Digital, flip cards, a dial, words, rings, nixie tubes, stacked digits, an LED alarm clock, dot matrix, neon, rolling drums, planets in orbit or the sky of the hour.";
     case IT_SCRUB: return "The picture follows the timeline while you seek.";
     case IT_PREF_AUDIO: return "Picked by itself when a video has it.";
     case IT_PREF_SUBS: return "Picked by itself from the video and your addons.";

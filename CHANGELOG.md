@@ -11,9 +11,18 @@
     your titles go up one after another, with what's new ("2 new episodes are out") or
     where you left off.
   - **Warp**: flying through a starfield past drifting nebulae.
-- **The paused panel sits lower**: the title, synopsis and cast rest just above the
-  paused line, not at the top with an empty band beneath.
-- The Sources panel's addon tabs follow your addon order, not whichever answered first.
+- **Six new clock faces** for the Clock screensaver: **Segment** (a red LED alarm clock,
+  the unlit segments faintly there, a PM lamp), **Dot matrix** (amber LEDs like a
+  departure board, the seconds running along the bottom), **Neon** (a pink sign on a
+  brick wall that now and then flickers), **Rolling** (odometer drums, the seconds rolling
+  over), **Orbit** (the hour, minute and second as planets round a glowing sun) and
+  **Daylight** (the sky of the hour, dawn to night, with the sun or moon crossing it).
+- **The paused panel says more and sits lower**: it rests just above the paused line,
+  shows this episode's own synopsis, the genres, the picture's quality (4K, 1080p, HDR,
+  Dolby Vision) and what's up next; the paused line adds when it would end if played on.
+- Signed out, the default addons keep their listed order instead of the order their
+  manifests answered in, so Home's rows and the Sources panel's addon tabs no longer
+  change places between launches.
 - **The remote's Play key resumes playback** on LG TVs whose remote reports Play only by
   its key position (Pause worked, Play did nothing). Keys the app doesn't recognise are
   now written to the log (Settings > Diagnostics) so any other button can be mapped.

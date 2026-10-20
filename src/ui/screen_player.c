@@ -2889,7 +2889,6 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         font_draw("Info  Cast", x + bw + 24 + 68, by + (bh - font_height(FONT_S)) / 2, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
         return;
     }
-    (void)vi;
     int a = (int)(255 * k);
     float x = THEME_MARGIN, maxw = 1000;
     char buf[512];
@@ -2903,11 +2902,17 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     const TmdbInfo *tm = tmdb_get(p->meta.id, p->meta.type);
     int n_cast = tm && tm->n_cast ? tm->n_cast : p->meta.cast.n;
     int has_meta = (p->meta.imdb_rating && *p->meta.imdb_rating) || (tm && tm->cert[0]) || p->meta.release_info || p->meta.runtime;
+    const char *about = p->meta.description;
+    int nv;
+    const MetaVideo *vids = app_videos(p->meta.id, &nv);
+    for (int i = 0; i < nv && p->video_id; i++)
+        if (!strcmp(vids[i].id, p->video_id) && vids[i].overview && *vids[i].overview) { about = vids[i].overview; break; }   /* this episode, not the show */
+    const char *next = p->next_video_id && p->next_title && !p->trailer ? p->next_title : NULL;
     /* measured first, so the block ends just above the paused line whatever it holds */
     float need = 44 + (logo_h > 0 ? logo_h + 22 : font_draw_wrapped(p->meta.name, x, 0, title_fs, 0, maxw, 2) * font_height(title_fs) + 14)
                + (ep ? font_height(FONT_M | FONT_B) + 12 : 0) + (has_meta ? 50 : 0)
-               + (p->meta.description ? font_draw_wrapped(p->meta.description, x, 0, FONT_S, 0, maxw, 4) * font_height(FONT_S) + 26 : 0)
-               + (n_cast ? 36 + 64 : 0);
+               + (about ? font_draw_wrapped(about, x, 0, FONT_S, 0, maxw, 4) * font_height(FONT_S) + 26 : 0)
+               + (n_cast ? 36 + 64 : 0) + (next ? 58 : 0);
     float y = SNTV_UI_H - 230 - need;
     if (y < 110) y = 110;
     y += (1 - k) * 16;
@@ -2925,15 +2930,29 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     if (p->meta.imdb_rating && *p->meta.imdb_rating) mx += ui_imdb(p->meta.imdb_rating, mx, y) + 6;
     if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, (int)(0x70 * k)), COLOR_ALPHA(THEME_TEXT, a)) + 8;
     const char *parts[3]; int np = 0;
+    char genres[96] = "";
+    for (int i = 0; i < p->meta.genres.n && i < 2; i++)
+        snprintf(genres + strlen(genres), sizeof genres - strlen(genres), "%s%s", i ? " / " : "", p->meta.genres.v[i]);
     if (p->meta.release_info) parts[np++] = p->meta.release_info;
     if (p->meta.runtime) parts[np++] = p->meta.runtime;
+    if (genres[0]) parts[np++] = genres;
     for (int i = 0; i < np; i++) {
         if (mx > x) mx = ui_dot_sep(mx, y, COLOR_ALPHA(THEME_TEXT_MUTED, a));
         font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
         mx += font_measure(parts[i], FONT_S | FONT_B);
     }
+    /* what is on screen: the picture's size, and HDR when the source is */
+    const char *res = vi->height >= 2000 ? "4K" : vi->height >= 1000 ? "1080p" : vi->height >= 700 ? "720p" : NULL;
+    const char *badges = p->n_cands ? p->cands[p->cur].badges : "";
+    const char *hdr = strstr(badges, "DOLBY") || strstr(badges, "DV") ? "Dolby Vision" : strstr(badges, "HDR") ? "HDR" : NULL;
+    for (int i = 0; i < 2; i++) {
+        const char *q = i ? hdr : res;
+        if (!q) continue;
+        mx += 14;
+        mx += ui_chip_outline(q, mx, y, COLOR_ALPHA(THEME_TEXT, (int)(0x70 * k)), COLOR_ALPHA(THEME_TEXT, a)) - 6;
+    }
     if (np || mx > x) y += 50;
-    if (p->meta.description) y += font_draw_wrapped(p->meta.description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
+    if (about) y += font_draw_wrapped(about, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
     if (n_cast && y < SNTV_UI_H - 300) {
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
         y += 36;
@@ -2963,6 +2982,12 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             else font_draw(name, tx, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
             cx += w + 12;
         }
+        y += 64;
+    }
+    if (next) {
+        y += 22;
+        font_draw("UP NEXT", x, y + 4, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+        font_draw_fit(next, x + font_measure("UP NEXT", FONT_XS | FONT_B) + 18, y, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT, a), maxw - 140);
     }
 }
 
@@ -3078,10 +3103,17 @@ static void draw(Screen *s)
         gfx_gradient_v(0, SNTV_UI_H - 240, SNTV_UI_W, 240, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xB0));
     }
     if (p->rest_t > 0.001f) {   /* lean-back: what is paused and how much is left, where the bar was */
-        char pos[32], rem[32], line[96];
+        char pos[32], rem[32], line[128];
         ui_format_time(shown_pos, pos, sizeof pos);
         ui_format_time(vi.duration - shown_pos, rem, sizeof rem);
-        if (vi.duration > 0) snprintf(line, sizeof line, "%s  \xC2\xB7  %s left", pos, rem); else snprintf(line, sizeof line, "%s", pos);
+        if (vi.duration > 0) {   /* and when it would end if played on now */
+            time_t end = time(NULL) + (time_t)(vi.duration - shown_pos);
+            struct tm et; localtime_r(&end, &et);
+            char at[16];
+            if (g_app.clock_mode == 1) snprintf(at, sizeof at, "%02d:%02d", et.tm_hour, et.tm_min);
+            else snprintf(at, sizeof at, "%d:%02d %s", et.tm_hour % 12 ? et.tm_hour % 12 : 12, et.tm_min, et.tm_hour < 12 ? "AM" : "PM");
+            snprintf(line, sizeof line, "%s  \xC2\xB7  %s left  \xC2\xB7  ends at %s", pos, rem, at);
+        } else snprintf(line, sizeof line, "%s", pos);
         int ra = (int)(255 * p->rest_t);
         float ix = bx, iy = by - 4;
         gfx_rrect(ix, iy - 4, 6, 40, 3, COLOR_ALPHA(THEME_TEXT, ra));
