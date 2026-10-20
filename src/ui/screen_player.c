@@ -2153,7 +2153,13 @@ static void media_badges(const Player *p, const VideoInfo *vi, char *res, size_t
 {
     res[0] = aud[0] = 0;
     int h = vi->height > 0 ? vi->height : p->probe ? p->probe->height : 0;
-    if (h >= 2000) snprintf(res, rn, "4K"); else if (h > 0) snprintf(res, rn, "%dp", h >= 1000 ? 1080 : h >= 700 ? 720 : h);
+    int w = vi->height > 0 ? vi->width : p->probe ? p->probe->width : 0;
+    /* by width too: a cinema-wide 1080p film is 1920x800, not 720p (as probe.c reads it) */
+    if (h >= 2000 || w >= 3800) snprintf(res, rn, "4K");
+    else if (h >= 1400 || w >= 2500) snprintf(res, rn, "1440p");
+    else if (h >= 1000 || w >= 1900) snprintf(res, rn, "1080p");
+    else if (h >= 700 || w >= 1200) snprintf(res, rn, "720p");
+    else if (h > 0) snprintf(res, rn, "%dp", h);
     if (p->probe && p->probe->hdr) snprintf(res + strlen(res), rn - strlen(res), "%s%s", res[0] ? "  " : "", p->probe->hdr == 2 ? "Dolby Vision" : "HDR");
     if (p->probe && p->probe->acodec != AUDIO_UNKNOWN) {
         static const char *A[] = { "", "AAC", "Dolby Digital", "Dolby Digital+", "DTS", "TrueHD", "Audio" };
