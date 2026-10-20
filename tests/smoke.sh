@@ -157,7 +157,7 @@ run diagnostics_speed 700 "left,down,down,down,down,down,ok,down,down,down,down,
 grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -q "speed:   home " "$OUT/diagnostics_speed.log" \
   || { echo "the Speed tab did not measure"; grep speed: "$OUT/diagnostics_speed.log"; exit 1; }
 run diagnostics_filter 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,left,left"
-run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,wait"
+run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,ok"
 run diagnostics_prev_qr 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,blue,ok"
 run settings_more 340 "left,down,down,down,down,down,ok,down,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
@@ -221,7 +221,7 @@ run profiles 160 "right,ok" HOME="$(home_with profiles "$PROFILES")" SNTV_API_UR
 grep -q "profiles: switching" "$OUT/profiles.log" || { echo "choosing a profile did not switch accounts"; grep -E "profiles|account" "$OUT/profiles.log"; exit 1; }
 run profiles_back 160 "back" HOME="$(home_with profiles_back "$PROFILES")" SNTV_API_URL="http://127.0.0.1:$PORT"
 grep -q "profiles: switching" "$OUT/profiles_back.log" && { echo "Back on Who's watching switched accounts"; exit 1; }
-run list_save 300 "wait,yellow,down,down,ok,wait,wait,up" HOME="$(home_with lists "$ABOUT_HOME")"
+run list_save 300 "wait,yellow,down,down,ok,ok,wait,up" HOME="$(home_with lists "$ABOUT_HOME")"
 grep -q "toast: Saved to Favourites" "$OUT/list_save.log" || { echo "Save to a list did not save"; grep -E "toast|list" "$OUT/list_save.log"; exit 1; }
 grep -q '"lists"' "$OUT/home_lists/.local/share/stremio/nativetv/settings.json" || { echo "the list was not stored"; exit 1; }
 NO_PREFLIGHT='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'   # the names decide (the test file itself is 180p)
@@ -299,7 +299,7 @@ if grep -q "^SNTV_FFMPEG_PREFIX:PATH=." "$BUILD/CMakeCache.txt" 2>/dev/null; the
     || { echo "fast seeking starved the previews"; grep -E "frames|frame\?t" "$OUT/player_seek_fast.log" | head; exit 1; }
 else echo "skip: seek previews decoded on the TV (build FFmpeg: tools/ffmpeg.sh)"; fi
 run settings_parental 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right"
-run pin_pad 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,wait,right,ok"
+run pin_pad 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,ok,right,ok"
 run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"parentalPin":"1234","pinSettings":1}')"
 run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_with accts '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"accounts":[{"email":"other@example.com","key":"k"}]}')"
 TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
