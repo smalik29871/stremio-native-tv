@@ -469,7 +469,7 @@ AW_HOME="$(home_with away "$PL")"; cp "$ROOT/tests/fixtures/library.json" "$AW_H
 run player_away 700 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" HOME="$AW_HOME"
 grep -q "player: away [0-9]* days, resuming 30 s earlier" "$OUT/player_away.log" && grep -q "player: candidate 1/1 .* @1470s" "$OUT/player_away.log" || { echo "a week away did not resume earlier"; grep player "$OUT/player_away.log"; exit 1; }
 # Blue: the last 10 s again, with subtitles on for them when they were off
-run player_replay 600 "right,ok,down,down,right,ok,ok,wait,wait,wait,wait,wait,blue" HOME="$(home_with replay '{"prefSubs":"","setupDone":1}')"
+run player_replay 900 "right,ok,down,down,right,ok,ok,wait,wait,wait,wait,wait,blue,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with replay '{"prefSubs":"","setupDone":1}')"
 grep -q "player: replay from [0-9]* s with subtitles" "$OUT/player_replay.log" && grep -q "player: replay over, subtitles off again" "$OUT/player_replay.log" \
   || { echo "the instant replay did not bring subtitles for its 10 s"; grep -E "replay|subs" "$OUT/player_replay.log"; exit 1; }
 # Info: who is in it
