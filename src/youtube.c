@@ -613,7 +613,8 @@ static cJSON *player_request(const Client *c, const char *video_id, const char *
         cJSON_Delete(resp);
         resp = NULL;
     }
-    LOGI("youtube: %s client: %s", c->name, resp ? "OK" : why);
+    if (resp) LOGI("youtube: %s client: OK", c->name);
+    else LOGW("youtube: %s client refused: %s", c->name, why);   /* in Problems: why the sharp ways are missing */
     return resp;
 }
 
@@ -891,8 +892,11 @@ static cJSON *dash_from_tv(const char *id)
     if (!tv || !player_id[0]) { LOGW("youtube: no player version for the TV client"); return NULL; }
     char *player_js = NULL;
     int sts = player_sts(player_id, &player_js);
+    if (!sts) LOGW("youtube: no signature timestamp for player %s", player_id);
     cJSON *resp = player_request(tv, id, visitor[0] ? visitor : NULL, sts, NULL, why, sizeof why);
     const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
+    if (resp && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")))
+        LOGW("youtube: the TV client offered no separate video and audio%s", cJSON_GetObjectItemCaseSensitive(sd, "serverAbrStreamingUrl") ? " (SABR only)" : "");
     cJSON *adaptive = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats"), 1);
     const cJSON *ls = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
     double length_s = cJSON_IsString(ls) ? atof(ls->valuestring) : 0;
@@ -905,6 +909,11 @@ static cJSON *dash_from_tv(const char *id)
         if (u) { cJSON_AddStringToObject(f, "url", u); free(u); }
     }
     cJSON *d = adaptive ? dash_pick(adaptive, length_s) : NULL;
+    if (adaptive && cJSON_GetArraySize(adaptive) && !d) {
+        int drm = 0;
+        cJSON_ArrayForEach(f, adaptive) drm += cJSON_GetObjectItemCaseSensitive(f, "drmFamilies") != NULL;
+        LOGW("youtube: none of the TV client's %d formats fits this TV%s", cJSON_GetArraySize(adaptive), drm ? " (copy-protected)" : "");
+    }
     cJSON *parts[2] = { d ? cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(d, "video"), 0) : NULL, d ? cJSON_GetObjectItemCaseSensitive(d, "audio") : NULL };
     for (int k = 0; k < 2 && d; k++) {
         cJSON *rp = parts[k];
@@ -979,6 +988,8 @@ static void stream_task(HttpResponse *r, void *arg)
         }
         /* only visionOS's: the phone apps' files want a proof-of-origin token (403 without);
          * when visionOS has none, the TV app's are asked for below */
+        if (resp && !strcmp(c->name, "VISIONOS") && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")))
+            LOGW("youtube: %s the visionOS client offered no separate video and audio", s->id);
         if (!adaptive && !strcmp(c->name, "VISIONOS") && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")) > 0) {
             adaptive = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats"), 1);
             ad_from = c->name;
