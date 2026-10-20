@@ -10,6 +10,8 @@ int  image_init(const char *cache_dir, size_t budget_bytes);
 /* A cache folder used before (deleted on the loader's thread). Call before image_init. */
 void image_drop_old_cache(const char *dir);
 void image_set_budget(size_t budget_bytes);   /* evicts down to it at once */
+/* The largest side a decoded picture keeps (0: the platform's); the memory saver lowers it. */
+void image_set_max_dim(int px);
 void image_shutdown(void);
 /* Returns a texture id, or 0 while loading/failed. Requests the image on first call.
  * `age` (optional) receives frames since the texture became ready, for fade-ins. */

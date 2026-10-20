@@ -189,8 +189,12 @@ plays offline, shown full screen if it is a video), and playback continues where
 - An **Automatic effects level** measures the TV and drops to Light when it cannot keep up.
 - A **memory saver** that watches the TV: on a small set (under 2 GB) it is on from the
   start; on any set it turns itself on when free memory gets tight (fewer rows and
-  posters kept, artwork budget cut), and off again once there is room. It also answers
-  the system's low-memory warning. Settings > Interface shows why it is on.
+  posters kept, artwork budget cut, posters decoded at half size), and off again once
+  there is room. While a video fills the screen on such a TV the artwork cache shrinks
+  further so the decoder has room, and freed memory is handed back to the system. It
+  also answers the system's low-memory warning. Settings > Interface shows why it is on.
+- **Shared connections**: the network workers share DNS answers and TLS sessions, so a
+  server one of them has reached is resumed by the others without a full handshake.
 - **libcurl via `dlopen`**, because LG ships `libcurl.so.5` and the SDK ships `.so.4`.
 - **Diagnostics** on the TV itself: the app's log by tab, the previous session's log
   after a crash, and a QR code that carries the lines to your phone.

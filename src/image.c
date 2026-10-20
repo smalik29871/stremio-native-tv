@@ -51,6 +51,7 @@ enum { BUCKETS = 1024, DISK_CACHE_MAX_BYTES = 96 * 1024 * 1024, DISK_FILE_MAX = 
 #define DISK_KEEP_FREE (200LL * 1024 * 1024)
 static Img *g_buckets[BUCKETS];
 static size_t g_total_bytes, g_budget = SNTV_IMAGE_CACHE_BYTES;
+static volatile int g_max_dim = SNTV_IMAGE_MAX_DIM;   /* read by the decoders */
 static unsigned g_clock;
 static char g_cache_dir[1024];
 static char g_old_cache_dir[1024];   /* where the cache was before: emptied once */
@@ -227,7 +228,7 @@ static int decoder_main(void *arg)
                 SDL_UnlockMutex(g_lock);
                 if (trim) trim_disk_cache();
             }
-            px = shrink(px, &w, &h, i->flags & IMAGE_MIPMAP ? 512 : SNTV_IMAGE_MAX_DIM);
+            px = shrink(px, &w, &h, i->flags & IMAGE_MIPMAP ? 512 : g_max_dim);
             i->tint = average_tint(px, w, h);
             if (i->flags & IMAGE_MIPMAP) px = to_pot(px, &w, &h);
             i->pixels = px; i->w = w; i->h = h;
@@ -549,6 +550,7 @@ static void trim_disk_cache(void)
 }
 
 static void evict_if_needed(void);
+void image_set_max_dim(int px) { g_max_dim = px > 0 ? px : SNTV_IMAGE_MAX_DIM; }
 void image_set_budget(size_t budget_bytes) { if (budget_bytes) g_budget = budget_bytes; evict_if_needed(); }
 
 int image_init(const char *cache_dir, size_t budget_bytes)

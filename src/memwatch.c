@@ -8,6 +8,9 @@
 #include "image.h"
 #include "log.h"
 #include <stdio.h>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -54,11 +57,30 @@ size_t mem_normal_budget(void)
     return 192u << 20;
 }
 
+/* Freed memory goes back to the system; glibc otherwise keeps it for the app. */
+static void give_back(void)
+{
+#ifdef __GLIBC__
+    malloc_trim(0);
+#endif
+}
+
+static int g_playing;   /* a video fills the screen: the artwork cache shrinks for the decoder */
+
+static size_t budget(int low, int reason)
+{
+    size_t b = low ? (reason == WHY_TIGHT ? 32u << 20 : 48u << 20) : mem_normal_budget();
+    if (g_playing && b > (24u << 20)) b = 24u << 20;
+    return b;
+}
+
 static void apply(int low, int reason)
 {
     if (g_app.low_memory == low && g_reason == reason) return;
     g_app.low_memory = low; g_reason = reason;
-    image_set_budget(low ? (reason == WHY_TIGHT ? 32u << 20 : 48u << 20) : mem_normal_budget());
+    image_set_budget(budget(low, reason));
+    image_set_max_dim(low ? 960 : 0);   /* posters at half size, still sharper than their cards */
+    if (low) give_back();
     LOGI("memory saver %s (%s): %ld MB total, %ld MB available, app %ld MB", low ? "on" : "off", mem_reason_text(),
          g_last.total_kb / 1024, g_last.avail_kb / 1024, g_last.rss_kb / 1024);
     app_redraw();
@@ -96,10 +118,22 @@ void mem_tick(float dt)
     }
 }
 
+void mem_playback(int playing)
+{
+    /* only where room is short: elsewhere the posters stay for the way back */
+    playing = playing && (g_app.low_memory || mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb) >= 1);
+    if (playing == g_playing) return;
+    g_playing = playing;
+    image_set_budget(budget(g_app.low_memory, g_reason));
+    if (playing) give_back();
+    LOGI("memory: %s", playing ? "artwork trimmed while the video plays" : "artwork budget back after the video");
+}
+
 void mem_emergency(void)
 {
     LOGW("low-memory warning from the system");
     image_set_budget(16u << 20);
+    give_back();
     if (g_app.memory_mode != 2 && g_reason != WHY_CHOSEN) { apply(1, WHY_TIGHT); g_tight_runs = 6; if (!g_toasted++) app_toast("Memory is tight: keeping fewer rows and posters"); }
 }
 

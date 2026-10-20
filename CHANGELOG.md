@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Faster on old TVs**: the network workers now share DNS answers and TLS sessions
+  (a server one has reached is resumed by the others without a new handshake, the
+  slowest part of a request on an old TV's CPU), keep DNS answers for ten minutes and
+  keep idle connections alive for reuse.
+- **Memory optimizer**: with the memory saver on (1 GB TVs, or when memory runs short)
+  posters decode at half size, about a quarter of the memory each and still sharper than
+  their cards; while a video fills the screen the artwork cache drops to 24 MB so the
+  TV's decoder has room, and comes back after; freed memory is returned to the system
+  instead of being kept by the app. TVs with room keep everything as before.
 - Aperture shows a title's tagline from TMDB (with a TMDB key) on the Home hero and the
   title page, as its mockups do: "Fear can hold you prisoner. Hope can set you free."
 - Aperture's artwork drifts slowly across the hero and the title page (a minute each

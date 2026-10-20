@@ -496,7 +496,7 @@ int main(int argc, char **argv)
         app_library_flush(0);
         mem_tick(dt);
         app_update_check(dt);
-        { const Screen *t = app_top(); app_library_tick(g_app.pip || (t && strcmp(t->name, "player") == 0)); }
+        { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }

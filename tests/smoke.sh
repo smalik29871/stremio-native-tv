@@ -508,6 +508,11 @@ PAL_HOME="$(home_with palette '{"theme":7,"lookStreaming":1,"themeAccent":0,"the
 run settings_palette 380 "wait,left,down,down,down,down,down,ok,wait,down,down,down,down,down,right,down,right" HOME="$PAL_HOME"
 tr -d ' \t\n' < "$PAL_HOME/.local/share/stremio/nativetv/settings.json" | grep -q '"themeAccent":4,"themeBg":1' \
   || { echo "the palette did not set the accent and background"; grep -o '"theme[A-Za-z]*":[0-9]*' "$PAL_HOME/.local/share/stremio/nativetv/settings.json"; exit 1; }
+# a 1 GB TV: the saver is on from the start, and the artwork cache shrinks while a video fills the screen
+run memory_playback 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,back,back,back,wait,wait" SNTV_FAKE_MEM=1000000,500000 HOME="$(home_with memplay "$PL")"
+grep -q "memory saver on (small TV)" "$OUT/memory_playback.log" && grep -q "memory: artwork trimmed while the video plays" "$OUT/memory_playback.log" \
+  && grep -q "memory: artwork budget back after the video" "$OUT/memory_playback.log" \
+  || { echo "the memory saver did not trim during playback"; grep -E "memory" "$OUT/memory_playback.log"; exit 1; }
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }

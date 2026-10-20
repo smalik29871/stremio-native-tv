@@ -20,6 +20,8 @@ enum {
     OPT_POSTFIELDSIZE = 60, OPT_SSL_VERIFYPEER = 64, OPT_CONNECTTIMEOUT = 78,
     OPT_NOSIGNAL = 99, OPT_ACCEPT_ENCODING = 10102, OPT_MAXREDIRS = 68,
     OPT_RANGE = 10007, OPT_HEADERFUNCTION = 20079, OPT_HEADERDATA = 10029,
+    OPT_SHARE = 10100, OPT_DNS_CACHE_TIMEOUT = 92, OPT_TCP_KEEPALIVE = 213,
+    SHOPT_SHARE = 1, SHOPT_LOCKFUNC = 3, SHOPT_UNLOCKFUNC = 4, LOCK_DNS = 3, LOCK_SSL_SESSION = 4,
     INFO_RESPONSE_CODE = 0x200002,
     GLOBAL_DEFAULT = 3,
 };
@@ -37,6 +39,9 @@ static struct {
     const char *(*easy_strerror)(CURLcode);
     struct curl_slist *(*slist_append)(struct curl_slist *, const char *);
     void (*slist_free_all)(struct curl_slist *);
+    void *(*share_init)(void);   /* optional: an old libcurl without it shares nothing */
+    int (*share_setopt)(void *, int, ...);
+    void *share;
 } C;
 
 static int load_curl(void)
@@ -64,7 +69,27 @@ static int load_curl(void)
     SYM(slist_append, "curl_slist_append");
     SYM(slist_free_all, "curl_slist_free_all");
 #undef SYM
+    *(void **)&C.share_init = dlsym(C.lib, "curl_share_init");
+    *(void **)&C.share_setopt = dlsym(C.lib, "curl_share_setopt");
     return 0;
+}
+
+/* The workers share DNS answers and TLS sessions: a host one of them has met is
+ * resumed by the others without a full handshake, which is most of a request's time
+ * on an old TV's CPU. */
+static SDL_mutex *g_share_lock[8];
+static void share_lock(CURL *h, int data, int access, void *u) { (void)h; (void)access; (void)u; SDL_LockMutex(g_share_lock[data & 7]); }
+static void share_unlock(CURL *h, int data, void *u) { (void)h; (void)u; SDL_UnlockMutex(g_share_lock[data & 7]); }
+
+static void share_init(void)
+{
+    if (!C.share_init || !C.share_setopt || !(C.share = C.share_init())) return;
+    for (int i = 0; i < 8; i++) g_share_lock[i] = SDL_CreateMutex();
+    C.share_setopt(C.share, SHOPT_LOCKFUNC, share_lock);
+    C.share_setopt(C.share, SHOPT_UNLOCKFUNC, share_unlock);
+    C.share_setopt(C.share, SHOPT_SHARE, LOCK_DNS);
+    C.share_setopt(C.share, SHOPT_SHARE, LOCK_SSL_SESSION);
+    LOGI("http: workers share DNS answers and TLS sessions");
 }
 
 /* ---- blocking request ---------------------------------------------------- */
@@ -161,6 +186,9 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     C.easy_setopt(h, OPT_LOW_SPEED_LIMIT, 1L);
     C.easy_setopt(h, OPT_LOW_SPEED_TIME, 15L);
     C.easy_setopt(h, OPT_ACCEPT_ENCODING, "");
+    if (C.share) C.easy_setopt(h, OPT_SHARE, C.share);
+    C.easy_setopt(h, OPT_DNS_CACHE_TIMEOUT, 600L);
+    C.easy_setopt(h, OPT_TCP_KEEPALIVE, 1L);
     if (post_json) {
         C.easy_setopt(h, OPT_POST, 1L);
         C.easy_setopt(h, OPT_POSTFIELDS, post_json);
@@ -396,6 +424,7 @@ int http_init(void)
 {
     if (load_curl() != 0) return -1;
     C.global_init(GLOBAL_DEFAULT);
+    share_init();
     g_qlock = SDL_CreateMutex();
     g_qcond = SDL_CreateCond();
     for (int i = 0; i < WORKERS; i++)
