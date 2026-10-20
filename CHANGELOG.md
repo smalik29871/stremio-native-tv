@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.17
+
+- **Updates install again.** On webOS 10 the artwork cache sat where the TV unpacks
+  app updates and could fill it, so an update failed with "ipk extraction failure".
+  The cache now lives on the TV's internal storage (the old one is deleted), and
+  wherever it is it always leaves 200 MB free.
+
 ## 0.10.16
 
 - **Home appears at once.** The pictures of the first screen are kept, so Home opens
