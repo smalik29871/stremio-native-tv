@@ -808,20 +808,36 @@ float ui_chip(const char *text, float x, float y, Color bg, Color fg)
     return w;
 }
 
+static size_t utf8_len(const char *s)
+{
+    unsigned char c = (unsigned char)*s;
+    size_t n = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+    for (size_t i = 1; i < n; i++) if (((unsigned char)s[i] & 0xC0) != 0x80) return i;
+    return n;
+}
+
 void ui_portrait(const char *photo, const char *name, float x, float y, float w, float h, float r, int initials_font)
 {
+    if (w <= 0 || h <= 0) return;
     int iw = 0, ih = 0;
     unsigned tex = photo ? image_get(photo, &iw, &ih) : 0;
     if (tex && iw > 0 && ih > 0) {
-        float ia = (float)iw / ih, ta = w / h, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-        if (ia > ta) { u0 = (1 - ta / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia / ta) / 3; v1 = v0 + ia / ta; }
+        float u0, v0, u1, v1;
+        cover_uv(iw, ih, w, h, &u0, &v0, &u1, &v1);
+        float span = v1 - v0;
+        v0 = (1 - span) / 3; v1 = v0 + span;   /* faces sit high */
         gfx_rtex_uv(tex, x, y, w, h, r, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
         return;
     }
     gfx_rrect(x, y, w, h, r, COLOR_ALPHA(THEME_TEXT, 0x1C));
-    char ini[3] = { name && *name ? name[0] : '?', 0, 0 };
-    const char *sp = name ? strrchr(name, ' ') : NULL;
-    if (sp && sp[1]) ini[1] = sp[1];
+    char ini[16] = "?";
+    if (name && *name) {   /* first letters of the first and last names, whole UTF-8 characters */
+        const char *sp = strrchr(name, ' ');
+        size_t a = utf8_len(name), b = sp && sp[1] ? utf8_len(sp + 1) : 0;
+        memcpy(ini, name, a);
+        memcpy(ini + a, sp ? sp + 1 : "", b);
+        ini[a + b] = 0;
+    }
     font_draw_center(ini, x + w / 2, y + h / 2 - font_height(initials_font) / 2, initials_font, THEME_TEXT_DIM);
 }
 

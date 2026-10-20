@@ -772,19 +772,7 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
                 cast_at(d, tm, i, &name, &role, &photo);
                 float sc = ui_focus_scale(foc ? f : 0), r = r0 * sc, ccx = ix + r0 + 4, ccy = rowy + r0;
                 if (foc) gfx_rrect_ring(ccx - r, ccy - r, 2 * r, 2 * r, r, 4, THEME_FOCUS);
-                int pw0 = 0, ph0 = 0;
-                unsigned ptex = photo ? image_get(photo, &pw0, &ph0) : 0;
-                if (ptex && pw0 > 0 && ph0 > 0) {
-                    float ia = (float)pw0 / ph0, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-                    if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 3; v1 = v0 + ia; }   /* faces sit high */
-                    gfx_rtex_uv(ptex, ccx - r, ccy - r, 2 * r, 2 * r, r, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
-                } else {
-                    gfx_circle(ccx, ccy, r, COLOR_ALPHA(THEME_TEXT, 0x1C));
-                    char ini[3] = { name[0], 0, 0 };
-                    const char *sp = strrchr(name, ' ');
-                    if (sp && sp[1]) ini[1] = sp[1];
-                    font_draw_center(ini, ccx, ccy - font_height(FONT_L | FONT_B) / 2, FONT_L | FONT_B, THEME_TEXT_DIM);
-                }
+                ui_portrait(photo, name, ccx - r, ccy - r, 2 * r, 2 * r, r, FONT_L | FONT_B);
                 float ty = rowy + CAST_D + 16;
                 draw_center_fit(name, ccx, ty, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CAST_STEP - 14);
                 if (role && *role) draw_center_fit(role, ccx, ty + 30, FONT_XS, THEME_TEXT_MUTED, CAST_STEP - 14);
@@ -842,6 +830,7 @@ static void draw_aperture_cast(const Detail *d, const TmdbInfo *tm, float x, flo
         const char *name, *role, *photo;
         cast_at(d, tm, i, &name, &role, &photo);
         float px = x + i * (w + gap), py = y + 34;
+        gfx_rect(px, py, w, h, THEME_BG2);
         ui_portrait(photo, name, px, py, w, h, 2, FONT_L | FONT_ALT);
         font_draw_fit(name, px, py + h + 12, FONT_XS, THEME_TEXT_DIM, w);
     }

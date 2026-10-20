@@ -2918,9 +2918,9 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             int pw = 0, ph = 0;
             unsigned ptex = photo ? image_get(photo, &pw, &ph) : 0;
             float r = hh / 2 - 6;
-            if (ptex && pw > 0) {   /* a round photo, cropped to a square */
+            if (ptex && pw > 0 && ph > 0) {   /* a round photo, cropped to a square, faces high as elsewhere */
                 float ia = (float)pw / ph, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-                if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 2; v1 = 1 - v0; }
+                if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 3; v1 = v0 + ia; }
                 gfx_rtex_uv(ptex, cx + 6, y + 6, 2 * r, 2 * r, r, u0, v0, u1, v1, RGBA(255, 255, 255, a), 0);
             } else {
                 gfx_circle(cx + 6 + r, y + 6 + r, r, COLOR_ALPHA(THEME_ACCENT, a));
