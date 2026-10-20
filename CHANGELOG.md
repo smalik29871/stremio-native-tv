@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.34
 
 - **Episodes play straight away** from a series' page: the main button reads "Play S1 E1"
   (the episode in focus below it) and starts it, and OK on an episode card starts that
