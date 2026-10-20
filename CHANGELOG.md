@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.18
+
+- **Sign-in survives Developer Mode's cache clearing.** On webOS 10 the app kept its
+  sign-in and settings in the developer partition's temp folder, which the installer
+  uses and Developer Mode's "clear cache" empties. They now live on the TV's internal
+  storage; the first start moves them over by itself.
+
 ## 0.10.17
 
 - **Updates install again.** On webOS 10 the artwork cache sat where the TV unpacks
