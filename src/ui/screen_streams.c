@@ -544,6 +544,7 @@ static void update(Screen *s, float dt)
         checks_done = !g_app.preflight || (!st->probe_inflight && st->probes_started >= 1) || g_app.time - st->started > 5;
     if ((g_app.auto_recommended || st->play_now) && !st->chaining && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6))) {
         int r = recommended(st);
+        for (int i = 0; r < 0 && st->play_now && i < st->n; i++) if (playable(&st->items[i])) r = i;   /* asked to play: the top source that can, the player falls back from there */
         if (r >= 0) {
             st->auto_rec_done = 1;
             app_toast("Playing the recommended source. Back returns to the list.");
