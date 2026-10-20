@@ -38,6 +38,13 @@ const char *youtube_ua_for(const char *url);
  * through the TV's own server in YouTube's 10 MB range pieces (as Nuvio reads it). */
 void youtube_player_url(const char *stream_url, char *out, size_t n);
 
+/* The Diagnostics test: each way to get a video, asked for one video, and what came of
+ * it. ok: -1 not known yet, 0 refused, 1 works, 2 not needed. */
+enum { YT_TEST_STEPS = 6 };   /* visionOS client, its files, TV client, its files, playlist, file */
+typedef struct { int ok[YT_TEST_STEPS]; char what[YT_TEST_STEPS][200]; char best[96]; } YoutubeTest;
+void youtube_test(const char *id, YoutubeCallback cb, void *user);
+const YoutubeTest *youtube_test_report(void);
+
 /* The solver alone: yt-dlp's jsc() input as JSON in, its output JSON out (malloc'ed),
  * or NULL with the reason in err. Blocking; runs QuickJS on a thread with a big stack. */
 char *youtube_solve(const char *input_json, char *err, size_t n);

@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <dirent.h>
+#include <stdarg.h>
 
 /* The YouTube apps the TV pretends to be, in order (values from yt-dlp 2026.08.19). The
  * visionOS app is yt-dlp's default: its formats need neither the player script nor a
@@ -832,6 +833,24 @@ static cJSON *sidx_of(const cJSON *rep)
     return out;
 }
 
+/* ---- the Diagnostics test: what each way gave, for one video ---------------------- */
+
+static YoutubeTest g_test;
+static char g_test_id[16];
+
+static void tset(const char *id, int step, int ok, const char *fmt, ...)
+{
+    if (!g_test_id[0] || strcmp(id, g_test_id) != 0) return;   /* only the video under test */
+    va_list ap; va_start(ap, fmt);
+    char t[sizeof g_test.what[0]];
+    vsnprintf(t, sizeof t, fmt, ap);
+    va_end(ap);
+    memcpy(g_test.what[step], t, sizeof t);
+    g_test.ok[step] = ok;
+}
+
+const YoutubeTest *youtube_test_report(void) { return &g_test; }
+
 /* YouTube serves a link's first bytes to anyone and refuses the rest when it wants a
  * proof-of-origin token: ask for 1 KB from the middle. 1 when the file will play. */
 static int gvs_open(const char *url, long *status)
@@ -854,13 +873,69 @@ static int gvs_open(const char *url, long *status)
     return ok;
 }
 
-static int dash_open(const cJSON *dash, const char *who, const char *id)
+static int dash_open(const cJSON *dash, const char *who, const char *id, int step)
 {
     const cJSON *v = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(dash, "video"), 0), *a = cJSON_GetObjectItemCaseSensitive(dash, "audio");
     const cJSON *vu = cJSON_GetObjectItemCaseSensitive(v, "url"), *au = cJSON_GetObjectItemCaseSensitive(a, "url");
+    const cJSON *h = cJSON_GetObjectItemCaseSensitive(v, "height");
     long st = 0;
     int ok = cJSON_IsString(vu) && cJSON_IsString(au) && gvs_open(vu->valuestring, &st) && gvs_open(au->valuestring, &st);
     if (!ok) LOGW("youtube: %s refused the %s client's separate video and audio (%ld)", id, who, st);
+    if (ok) tset(id, step, 1, "%.0fp video and audio open", cJSON_IsNumber(h) ? h->valuedouble : 0);
+    else tset(id, step, 0, "refused by YouTube (%ld)%s", st, st == 403 ? ": it wants a proof-of-origin token" : "");
+    return ok;
+}
+
+/* A playlist entry as a full address: relative ones sit beside the playlist. */
+static void hls_ref(const char *list_url, const char *ref, size_t n, char *out, size_t on)
+{
+    if (!strncmp(ref, "http", 4)) { snprintf(out, on, "%.*s", (int)n, ref); return; }
+    const char *q = strchr(list_url, '?'), *slash = list_url;
+    for (const char *c = list_url; *c && (!q || c < q); c++) if (*c == '/') slash = c;
+    snprintf(out, on, "%.*s/%.*s", (int)(slash - list_url), list_url, (int)n, ref);
+}
+
+/* The playlist as the player would take it: the master, its sharpest variant, 1 KB of a
+ * piece. 1 when it plays; the height it offers in *h. */
+static int hls_open(const char *master, int *h, char *why, size_t wn)
+{
+    char hdr[400];
+    snprintf(hdr, sizeof hdr, "User-Agent: %s", youtube_ua_for(master));
+    HttpResponse r;
+    HttpOptions o = { .timeout_s = 10, .no_json_accept = 1, .headers = hdr };
+    http_request_ex(master, &o, &r);
+    if (r.status != 200 || !r.body) { snprintf(why, wn, "the playlist was refused (%ld)", r.status); http_response_free(&r); return 0; }
+    char best[2048] = ""; int best_h = 0, next_h = 0;
+    for (char *l = r.body, *e; l && *l; l = e ? e + 1 : NULL) {
+        e = strchr(l, '\n');
+        size_t n = e ? (size_t)(e - l) : strlen(l);
+        if (n && l[n - 1] == '\r') n--;
+        const char *res = n > 18 && !strncmp(l, "#EXT-X-STREAM-INF", 17) ? strstr(l, "RESOLUTION=") : NULL;
+        if (res && res < l + n) { const char *x = strchr(res, 'x'); next_h = x && x < l + n ? atoi(x + 1) : 0; }
+        else if (n && l[0] != '#' && next_h >= best_h) { best_h = next_h; hls_ref(master, l, n, best, sizeof best); }
+    }
+    http_response_free(&r);
+    *h = best_h;
+    if (!best[0]) { snprintf(why, wn, "the playlist listed no qualities"); return 0; }
+    snprintf(hdr, sizeof hdr, "User-Agent: %s", youtube_ua_for(best));
+    o.headers = hdr;
+    http_request_ex(best, &o, &r);
+    char seg[2048] = "";
+    for (char *l = r.status == 200 ? r.body : NULL, *e; l && *l; l = e ? e + 1 : NULL) {
+        e = strchr(l, '\n');
+        size_t n = e ? (size_t)(e - l) : strlen(l);
+        if (n && l[n - 1] == '\r') n--;
+        if (n && l[0] != '#') { hls_ref(best, l, n, seg, sizeof seg); break; }
+    }
+    long vst = r.status;
+    http_response_free(&r);
+    if (!seg[0]) { snprintf(why, wn, "the %dp list was refused (%ld)", best_h, vst); return 0; }
+    snprintf(hdr, sizeof hdr, "User-Agent: %s\nRange: bytes=0-1023", youtube_ua_for(seg));
+    o.headers = hdr;
+    http_request_ex(seg, &o, &r);
+    int ok = (r.status == 200 || r.status == 206) && r.len > 0;
+    if (!ok) snprintf(why, wn, "its pieces were refused (%ld)%s", r.status, r.status == 403 ? ": it wants a proof-of-origin token" : "");
+    http_response_free(&r);
     return ok;
 }
 
@@ -889,14 +964,19 @@ static cJSON *dash_from_tv(const char *id)
     char visitor[256] = "", player_id[32] = "", why[300] = "", dir[560];
     snprintf(dir, sizeof dir, "%s/yt", store_dir()); mkdir(dir, 0755);
     watch_page(id, visitor, sizeof visitor, player_id, sizeof player_id);
-    if (!tv || !player_id[0]) { LOGW("youtube: no player version for the TV client"); return NULL; }
+    if (!tv || !player_id[0]) { LOGW("youtube: no player version for the TV client"); tset(id, 2, 0, "YouTube's player version was not found"); return NULL; }
     char *player_js = NULL;
     int sts = player_sts(player_id, &player_js);
     if (!sts) LOGW("youtube: no signature timestamp for player %s", player_id);
     cJSON *resp = player_request(tv, id, visitor[0] ? visitor : NULL, sts, NULL, why, sizeof why);
+    tset(id, 2, resp != NULL, "%s", resp ? "answered" : why);
     const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
     if (resp && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")))
-        LOGW("youtube: the TV client offered no separate video and audio%s", cJSON_GetObjectItemCaseSensitive(sd, "serverAbrStreamingUrl") ? " (SABR only)" : "");
+    {
+        int sabr = cJSON_GetObjectItemCaseSensitive(sd, "serverAbrStreamingUrl") != NULL;
+        LOGW("youtube: the TV client offered no separate video and audio%s", sabr ? " (SABR only)" : "");
+        tset(id, 3, 0, "none offered%s", sabr ? " (only YouTube's new SABR streaming, which the TV's player can't use)" : "");
+    }
     cJSON *adaptive = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats"), 1);
     const cJSON *ls = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
     double length_s = cJSON_IsString(ls) ? atof(ls->valuestring) : 0;
@@ -913,6 +993,7 @@ static cJSON *dash_from_tv(const char *id)
         int drm = 0;
         cJSON_ArrayForEach(f, adaptive) drm += cJSON_GetObjectItemCaseSensitive(f, "drmFamilies") != NULL;
         LOGW("youtube: none of the TV client's %d formats fits this TV%s", cJSON_GetArraySize(adaptive), drm ? " (copy-protected)" : "");
+        tset(id, 3, 0, "none fit this TV%s", drm ? ": all copy-protected" : "");
     }
     cJSON *parts[2] = { d ? cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(d, "video"), 0) : NULL, d ? cJSON_GetObjectItemCaseSensitive(d, "audio") : NULL };
     for (int k = 0; k < 2 && d; k++) {
@@ -927,7 +1008,7 @@ static cJSON *dash_from_tv(const char *id)
         char *n = q ? param(q + 1, "n") : NULL, *n2 = NULL, *sig2 = NULL, err[400] = "";
         char *media = strdup(url);
         int ok = solve(player_id, &player_js, n && *n ? n : NULL, sig, &n2, &sig2, err, sizeof err);
-        if (!ok && sig) { LOGW("youtube: the TV client's signature was not solved: %.200s", err); cJSON_Delete(d); d = NULL; }
+        if (!ok && sig) { LOGW("youtube: the TV client's signature was not solved: %.200s", err); tset(id, 3, 0, "the link puzzle was not solved: %.120s", err); cJSON_Delete(d); d = NULL; }
         else {
             if (n2) { char *m = with_n(media, n2); free(media); media = m; }
             if (sig2) {
@@ -988,8 +1069,11 @@ static void stream_task(HttpResponse *r, void *arg)
         }
         /* only visionOS's: the phone apps' files want a proof-of-origin token (403 without);
          * when visionOS has none, the TV app's are asked for below */
-        if (resp && !strcmp(c->name, "VISIONOS") && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")))
+        if (!strcmp(c->name, "VISIONOS")) tset(s->id, 0, resp != NULL, "%s", resp ? "answered" : this_why);
+        if (resp && !strcmp(c->name, "VISIONOS") && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats"))) {
             LOGW("youtube: %s the visionOS client offered no separate video and audio", s->id);
+            tset(s->id, 1, 0, "none offered for this video");
+        }
         if (!adaptive && !strcmp(c->name, "VISIONOS") && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")) > 0) {
             adaptive = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats"), 1);
             ad_from = c->name;
@@ -1005,10 +1089,10 @@ static void stream_task(HttpResponse *r, void *arg)
     cJSON *dash = adaptive ? dash_pick(adaptive, length_s) : NULL;
     /* the token-free clients change: when YouTube refuses these files, ask as the TV app;
      * when it refuses that too, go straight to the playlist instead of two failed starts */
-    if (dash && !dash_open(dash, ad_from, s->id)) { cJSON_Delete(dash); dash = NULL; }
+    if (dash && !dash_open(dash, ad_from, s->id, 1)) { cJSON_Delete(dash); dash = NULL; }
     if (!dash && !getenv("SNTV_YT_NO_TV")) {
         dash = dash_from_tv(s->id);
-        if (dash && !dash_open(dash, "TV", s->id)) { cJSON_Delete(dash); dash = NULL; }
+        if (dash && !dash_open(dash, "TV", s->id, 3)) { cJSON_Delete(dash); dash = NULL; }
     }
     if (dash) {   /* the piece index of both, for the byte-range playlist and the SegmentList */
         cJSON *v0 = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(dash, "video"), 0), *au = cJSON_GetObjectItemCaseSensitive(dash, "audio");
@@ -1019,6 +1103,24 @@ static void stream_task(HttpResponse *r, void *arg)
     }
     if (hls) cJSON_AddStringToObject(out, "hls", hls);
     char *file = best ? reachable_mirror(best) : NULL;
+    if (g_test_id[0] && !strcmp(s->id, g_test_id)) {   /* the Diagnostics test: the rest of the ways, and the verdict */
+        if (g_test.ok[1] == -1) tset(s->id, 1, 0, "not offered");
+        if (g_test.ok[2] == -1) { tset(s->id, 2, 2, "not needed"); tset(s->id, 3, 2, "not needed"); }
+        if (g_test.ok[3] == -1) tset(s->id, 3, 0, "not offered");
+        int hh = 0; char why2[200] = "";
+        int hok = hls && hls_open(hls, &hh, why2, sizeof why2);
+        if (hok) tset(s->id, 4, 1, "up to %dp, plays", hh);
+        else tset(s->id, 4, 0, "%s", hls ? why2 : "none offered");
+        tset(s->id, 5, file != NULL, "%s", file ? "available (360p at most)" : "none");
+        const cJSON *v0 = dash ? cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(dash, "video"), 0) : NULL;
+        const cJSON *vh = cJSON_GetObjectItemCaseSensitive(v0, "height");
+        if (dash) snprintf(g_test.best, sizeof g_test.best, "%.0fp, from the %s", cJSON_IsNumber(vh) ? vh->valuedouble : 0, g_test.ok[1] == 1 ? "visionOS client" : "TV app client");
+        else if (hok) snprintf(g_test.best, sizeof g_test.best, "%dp, from YouTube's playlist", hh);
+        else if (file) snprintf(g_test.best, sizeof g_test.best, "360p, from the file with sound");
+        else snprintf(g_test.best, sizeof g_test.best, "nothing plays");
+        LOGI("youtube test: visionOS %s | its files %s | TV %s | its files %s | playlist %s | file %s => %s",
+             g_test.what[0], g_test.what[1], g_test.what[2], g_test.what[3], g_test.what[4], g_test.what[5], g_test.best);
+    }
     if (file) cJSON_AddStringToObject(out, "file", file);
     LOGI("youtube: %s streams as %s%s%s", s->id, dash ? "DASH, " : "", hls ? "HLS, " : "", file ? "a file" : "nothing else");
     if (dash || hls || file) { r->status = 200; r->body = cJSON_PrintUnformatted(out); r->len = strlen(r->body); }
@@ -1171,6 +1273,15 @@ static void on_streamed(HttpResponse *r, void *user)
     if (!u) LOGW("youtube: %s cannot stream: %s", s->id, r->error);
     if (s->cb) s->cb(u, u ? NULL : r->error[0] ? r->error : "it cannot be streamed", s->user);
     free(s);
+}
+
+void youtube_test(const char *id, YoutubeCallback cb, void *user)
+{
+    memset(&g_test, 0, sizeof g_test);
+    for (int i = 0; i < YT_TEST_STEPS; i++) g_test.ok[i] = -1;
+    snprintf(g_test_id, sizeof g_test_id, "%s", id);
+    char url[80]; snprintf(url, sizeof url, "https://www.youtube.com/watch?v=%s", id);
+    youtube_stream(url, cb, user);
 }
 
 void youtube_stream(const char *url, YoutubeCallback cb, void *user)

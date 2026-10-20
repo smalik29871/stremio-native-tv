@@ -131,6 +131,11 @@ run search_groups 320 "search,t:re,right,right,right,right,right,right,right,rig
 grep -q "search: grouped 2 movies, 1 series, 0 other" "$OUT/search_groups.log" || { echo "search results were not grouped by type"; grep search "$OUT/search_groups.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
 run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
+# Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it
+run diagnostics_youtube 1000 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,right,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,ok,wait,wait"
+grep -q "youtube test: visionOS answered | its files 1080p video and audio open | TV not needed | its files not needed | playlist up to 1080p, plays | file available (360p at most) => 1080p, from the visionOS client" "$OUT/diagnostics_youtube.log" \
+  && grep -q "player: candidate 1/4 YouTube test - best" "$OUT/diagnostics_youtube.log" \
+  || { echo "the YouTube test did not report or play"; grep -E "youtube|player: candidate" "$OUT/diagnostics_youtube.log"; exit 1; }
 # Diagnostics > Speed: startup milestones, key-to-screen time and frame cost per screen
 run diagnostics_speed 700 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,wait,right,wait"
 grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -q "speed:   home " "$OUT/diagnostics_speed.log" \

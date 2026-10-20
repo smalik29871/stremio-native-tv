@@ -8,6 +8,7 @@
 #include "../video/video.h"
 #include "../platform/platform.h"
 #include "../perfstat.h"
+#include "../youtube.h"
 #include "qrcodegen.h"
 #include "font.h"
 #include "theme.h"
@@ -17,7 +18,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { TAB_PLAYBACK, TAB_PROBLEMS, TAB_ALL, TAB_SPEED, TAB_COUNT };
+enum { TAB_PLAYBACK, TAB_PROBLEMS, TAB_ALL, TAB_SPEED, TAB_YOUTUBE, TAB_COUNT };
+/* Big Buck Bunny (Blender Foundation), up to 4K: always there, never age- or region-locked */
+#define YT_TEST_ID "aqz-KE-bpKQ"
 #define LIST_Y 300.0f
 #define ROW_H 36.0f
 #define LIST_ROWS 15
@@ -35,7 +38,11 @@ typedef struct {
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
     int qr_ok, qr_lines;
     char system[256];
+    int yt_state, yt_focus;          /* YouTube test: 0 not run, 1 running, 2 done; 0 Run, 1 Play */
+    char *yt_answer;                 /* what the test found to play, for Play */
 } Diag;
+
+static Diag *g_diag_live;   /* the screen a YouTube test answers to */
 
 static int contains_ci(const char *hay, const char *needle)
 {
@@ -213,7 +220,7 @@ static void draw(Screen *s)
     font_draw_fit(d->system, x, 172, FONT_S, THEME_TEXT_MUTED, w);
 
     /* tabs */
-    static const char *TABS[TAB_COUNT] = { "Playback", "Problems", "Everything", "Speed" };
+    static const char *TABS[TAB_COUNT] = { "Playback", "Problems", "Everything", "Speed", "YouTube" };
     float tx = x;
     for (int i = 0; i < TAB_COUNT; i++) {
         int sel = d->tab == i;
@@ -226,10 +233,40 @@ static void draw(Screen *s)
     float sw = font_measure(sess, FONT_S | FONT_B) + 48;
     gfx_rrect(tx + 20, 222, sw, 54, R_PANEL, d->previous ? RGBA(0x3B, 0x82, 0xF6, 0xFF) : THEME_SURFACE);
     font_draw(sess, tx + 44, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
-    const char *hint = "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
+    const char *hint = d->tab == TAB_YOUTUBE ? "Left/Right tabs   \xC2\xB7   Up/Down buttons   \xC2\xB7   OK: run or play"
+                                             : "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
     font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
 
     float lh = ROW_H, list_h = LIST_ROWS * lh;
+    if (d->tab == TAB_YOUTUBE) {   /* each way to get a YouTube video, tried on this TV and network */
+        const YoutubeTest *t = youtube_test_report();
+        static const char *const STEP[YT_TEST_STEPS] = { "visionOS app: asked for the video", "visionOS app: high-quality files",
+            "TV app: asked for the video", "TV app: high-quality files", "YouTube's own playlist", "File with sound (last resort)" };
+        gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, R_PANEL, RGBA(0x00, 0x00, 0x00, 0x40));
+        float by = LIST_Y + 8, bx = x + 10;
+        const char *run = d->yt_state == 1 ? "Testing\xE2\x80\xA6" : d->yt_state == 2 ? "Run the test again" : "Run the test";
+        bx += ui_pill(run, 1, ICON_RELOAD, bx, by, 60, PILL_SECONDARY, d->yt_focus == 0) + 16;
+        if (d->yt_answer) ui_pill("Play the test video", 1, ICON_PLAY, bx, by, 60, PILL_SECONDARY, d->yt_focus == 1);
+        if (d->yt_state == 1) { ui_spinner(x + w - 30, by + 30, 14); app_redraw(); }
+        float ry = by + 90;
+        for (int i = 0; i < YT_TEST_STEPS; i++, ry += 52) {
+            int ok = d->yt_state ? t->ok[i] : -1;
+            Color c = ok == 1 ? THEME_OK : ok == 0 ? THEME_DANGER : THEME_TEXT_MUTED;
+            if (ok == 1) ui_icon(ICON_CHECK, x + 22, ry + 14, 24, c);
+            else if (ok == 0) ui_icon(ICON_CLOSE, x + 22, ry + 14, 22, c);
+            else gfx_circle(x + 22, ry + 14, 5, c);
+            font_draw(STEP[i], x + 52, ry, FONT_S | FONT_B, THEME_TEXT);
+            const char *what = ok == -1 ? (d->yt_state == 1 ? "\xE2\x80\xA6" : "") : t->what[i];
+            font_draw_fit(what, x + 560, ry + 2, FONT_S, ok == 0 ? THEME_DANGER : THEME_TEXT_DIM, w - 580);
+        }
+        if (d->yt_state == 2) {
+            char best[160]; snprintf(best, sizeof best, "Best on this TV now: %s", t->best);
+            font_draw(best, x + 10, ry + 16, FONT_M | FONT_B, THEME_TEXT);
+        }
+        font_draw("Tests the Big Buck Bunny video the way trailers are fetched. The result also goes to the log (Everything) for the QR code.",
+                  x, LIST_Y + list_h + 30, FONT_XS, THEME_TEXT_MUTED);
+        return;
+    }
     if (d->tab == TAB_SPEED) {   /* the measurements, not the log */
         char rep[2048];
         perf_report(rep, sizeof rep);
@@ -295,10 +332,49 @@ static void log_speed(Diag *d)
     (void)d;
 }
 
+static void on_yt_test(const char *answer, const char *error, void *user)
+{
+    (void)user;
+    Diag *d = g_diag_live;
+    if (!d) return;
+    d->yt_state = 2;
+    free(d->yt_answer);
+    d->yt_answer = answer ? strdup(answer) : NULL;
+    if (!answer) LOGW("youtube test: nothing to play (%s)", error ? error : "?");
+    app_redraw();
+}
+
+static void yt_play(Diag *d)
+{
+    static char urls[YT_PLAY_URLS][4608];
+    int nu = youtube_player_urls(d->yt_answer, YT_TEST_ID, urls, YT_PLAY_URLS);
+    if (!nu) { app_toast("The test video could not be opened"); return; }
+    PlayCandidate *c = calloc((size_t)nu, sizeof *c);
+    for (int i = 0; i < nu; i++) {   /* the same order a trailer plays in */
+        c[i].url = strdup(urls[i]);
+        char lbl[48]; snprintf(lbl, sizeof lbl, "YouTube test - %s", i == 0 ? "best" : i == nu - 1 ? "last" : "next");
+        c[i].label = strdup(lbl);
+    }
+    MetaPreview m; memset(&m, 0, sizeof m);
+    m.id = (char *)"yttest"; m.type = (char *)"movie"; m.name = (char *)"YouTube test";
+    app_push(screen_player_create(&m, "trailer:yttest", "YouTube test  -  Big Buck Bunny", c, nu, 0, 0, NULL, NULL));
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Diag *d = s->st;
     app_redraw();
+    if (d->tab == TAB_YOUTUBE && !d->show_qr) {
+        switch (a) {
+        case KEY_UP: d->yt_focus = 0; return 1;
+        case KEY_DOWN: if (d->yt_answer) d->yt_focus = 1; return 1;
+        case KEY_OK:
+            if (d->yt_focus == 1 && d->yt_answer) { yt_play(d); return 1; }
+            if (d->yt_state != 1) { d->yt_state = 1; free(d->yt_answer); d->yt_answer = NULL; LOGI("youtube test: starting"); youtube_test(YT_TEST_ID, on_yt_test, NULL); }
+            return 1;
+        default: break;
+        }
+    }
     if (d->show_qr) {
         if (a == KEY_BACK || a == KEY_OK) { d->show_qr = 0; return 1; }
         return 1;
@@ -319,6 +395,8 @@ static int key(Screen *s, KeyAction a)
 static void destroy(Screen *s)
 {
     Diag *d = s->st;
+    if (g_diag_live == d) g_diag_live = NULL;
+    free(d->yt_answer);
     free(d->lines);
     free(d->vis);
     free(d);
@@ -335,6 +413,7 @@ Screen *screen_diagnostics_create(int playback_only)
     LOGI("diagnostics: %s, %s, %s", SNTV_APP_VERSION, video_backend_name(), d->system);
     reload(d);
     s->name = "diagnostics"; s->st = d;
+    g_diag_live = d;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
     return s;
 }
