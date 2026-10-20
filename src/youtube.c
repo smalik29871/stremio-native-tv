@@ -977,7 +977,9 @@ static void stream_task(HttpResponse *r, void *arg)
                 free(best); best = strdup(u->valuestring); best_score = score; best_n = has_n; best_mp4 = mp4;
             }
         }
-        if (!adaptive && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")) > 0) {   /* the first client's, visionOS first as Nuvio prefers */
+        /* only visionOS's: the phone apps' files want a proof-of-origin token (403 without);
+         * when visionOS has none, the TV app's are asked for below */
+        if (!adaptive && !strcmp(c->name, "VISIONOS") && cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")) > 0) {
             adaptive = cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats"), 1);
             ad_from = c->name;
             const cJSON *ad = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
@@ -993,7 +995,7 @@ static void stream_task(HttpResponse *r, void *arg)
     /* the token-free clients change: when YouTube refuses these files, ask as the TV app;
      * when it refuses that too, go straight to the playlist instead of two failed starts */
     if (dash && !dash_open(dash, ad_from, s->id)) { cJSON_Delete(dash); dash = NULL; }
-    if (!dash && adaptive && !getenv("SNTV_YT_NO_TV")) {
+    if (!dash && !getenv("SNTV_YT_NO_TV")) {
         dash = dash_from_tv(s->id);
         if (dash && !dash_open(dash, "TV", s->id)) { cJSON_Delete(dash); dash = NULL; }
     }
