@@ -21,6 +21,11 @@
 /* Results sit beside the keyboard while typing and use the full width once it closes. */
 enum { COLS_TYPING = 3, COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, FIELD_Y = 140, FIELD_H = 76 };
 
+/* Results are grouped by type, each group under its own heading and starting a new row. */
+enum { SECT_MAX = 4, SECT_H = 56 };
+typedef struct { int row, col; } Cell;
+typedef struct { int first_row, n; const char *label; } Section;
+
 typedef struct Search Search;
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; } Pending;
 
@@ -44,6 +49,10 @@ struct Search {
     int pick_rank[16];               /* the assistant's order for those, so they stay in it */
     char ai_note[160];
     char recent[10][96]; int n_recent, recent_focus;   /* shown while the field is empty */
+    Cell *cell; int cell_cap;        /* where each result sits, from place() */
+    float *row_y; int *row_first, n_rows, rows_cap;
+    Section sect[SECT_MAX]; int n_sect;
+    int groups_logged;
 };
 
 static Search *g_person_live;   /* the screen a filmography lookup answers to */
@@ -79,7 +88,7 @@ static void recent_add(Search *s, const char *q)
 static void clear_results(Search *s)
 {
     meta_previews_free(s->results, s->n);
-    s->results = NULL; s->n = 0; s->grid_focus = 0; s->n_picks = 0;
+    s->results = NULL; s->n = 0; s->grid_focus = 0; s->n_picks = 0; s->groups_logged = 0;
 }
 
 static int same_title(const char *a, const char *b)
@@ -92,6 +101,81 @@ static int same_title(const char *a, const char *b)
         a++; b++;
     }
     return !*b && (!*a || *a == ' ' || *a == ':' || *a == '(');
+}
+
+/* 0 movies, 1 series, 2 anything else */
+static int kind_of(const MetaPreview *m)
+{
+    if (m->type && strcmp(m->type, "movie") == 0) return 0;
+    if (m->type && (strcmp(m->type, "series") == 0 || strcmp(m->type, "anime") == 0)) return 1;
+    return 2;
+}
+
+/* Puts the results after the AI picks in groups by type. A group's place is where its best
+ * result was, so the closest match still leads; the order inside a group is kept. */
+static void regroup(Search *s)
+{
+    if (s->n - s->n_picks < 2) return;
+    const char *focused = s->grid_focus < s->n ? s->results[s->grid_focus].id : NULL;
+    MetaPreview *tmp = malloc(sizeof *tmp * (size_t)s->n);
+    if (!tmp) return;
+    int order[3], n_order = 0, k = 0, count[3] = {0};
+    for (int i = s->n_picks; i < s->n; i++) {
+        int g = kind_of(&s->results[i]), seen = 0;
+        for (int j = 0; j < n_order; j++) seen |= order[j] == g;
+        if (!seen) order[n_order++] = g;
+        count[g]++;
+    }
+    for (int j = 0; j < n_order; j++)
+        for (int i = s->n_picks; i < s->n; i++) if (kind_of(&s->results[i]) == order[j]) tmp[k++] = s->results[i];
+    memcpy(&s->results[s->n_picks], tmp, sizeof *tmp * (size_t)k);
+    free(tmp);
+    if (focused) for (int i = 0; i < s->n; i++) if (s->results[i].id == focused) { s->grid_focus = i; break; }
+    int key = count[0] * 10000 + count[1] * 100 + count[2];
+    if (n_order > 1 && key != s->groups_logged) {
+        s->groups_logged = key;
+        LOGI("search: grouped %d movie%s, %d series, %d other", count[0], count[0] == 1 ? "" : "s", count[1], count[2]);
+    }
+}
+
+/* Rows and headings for the results: a heading per group once there is more than one. */
+static void place(Search *s, int nc)
+{
+    if (s->n > s->cell_cap) { s->cell_cap = s->n + 32; s->cell = realloc(s->cell, sizeof *s->cell * (size_t)s->cell_cap); }
+    if (s->n + SECT_MAX > s->rows_cap) {
+        s->rows_cap = s->n + SECT_MAX + 32;
+        s->row_y = realloc(s->row_y, sizeof *s->row_y * (size_t)s->rows_cap);
+        s->row_first = realloc(s->row_first, sizeof *s->row_first * (size_t)s->rows_cap);
+    }
+    static const char *names[] = { "Movies", "Series", "More" };
+    s->n_sect = 0;
+    for (int i = 0; i < s->n; i++) {
+        const char *label = i < s->n_picks ? "AI picks" : names[kind_of(&s->results[i])];
+        if (!s->n_sect || s->sect[s->n_sect - 1].label != label) {
+            if (s->n_sect == SECT_MAX) { s->sect[s->n_sect - 1].n++; continue; }
+            s->sect[s->n_sect++] = (Section){ 0, 0, label };
+        }
+        s->sect[s->n_sect - 1].n++;
+    }
+    int headed = s->n_sect > 1, i = 0;
+    float y = 0;
+    s->n_rows = 0;
+    for (int k = 0; k < s->n_sect; k++) {
+        s->sect[k].first_row = s->n_rows;
+        if (headed) y += SECT_H;
+        for (int j = 0; j < s->sect[k].n; j++, i++) {
+            if (j % nc == 0) { s->row_first[s->n_rows] = i; s->row_y[s->n_rows++] = y; y += CELL_H + 80; }
+            s->cell[i] = (Cell){ s->n_rows - 1, j % nc };
+        }
+    }
+    s->row_first[s->n_rows] = s->n;
+}
+
+/* The result in a row closest to a column. */
+static int in_row(const Search *s, int row, int col)
+{
+    int n = s->row_first[row + 1] - s->row_first[row];
+    return s->row_first[row] + (col < n ? col : n - 1);
 }
 
 static void on_result(HttpResponse *r, void *user)
@@ -120,6 +204,7 @@ static void on_result(HttpResponse *r, void *user)
                 } else if (dup < 0) meta_preview_free(&metas[i]);
             }
             free(metas);
+            regroup(s);
         }
         app_redraw();
         free(p);
@@ -133,6 +218,7 @@ static void on_result(HttpResponse *r, void *user)
             if (dup) meta_preview_free(&metas[i]); else s->results[s->n++] = metas[i];
         }
         free(metas);
+        regroup(s);
         if (s->want_results && s->n && !s->typing && s->focus_grid == 0) { s->focus_grid = 1; s->grid_focus = 0; s->focus_t = 0; s->want_results = 0; }
     }
     app_redraw();
@@ -238,6 +324,13 @@ static void close_keyboard(Search *s)
 
 static int cols(const Search *s) { return s->typing ? COLS_TYPING : COLS; }
 
+static int headed_row(const Search *s, int row)
+{
+    if (s->n_sect < 2) return 0;
+    for (int k = 0; k < s->n_sect; k++) if (s->sect[k].first_row == row) return 1;
+    return 0;
+}
+
 static void update(Screen *sc, float dt)
 {
     Search *s = sc->st;
@@ -249,8 +342,14 @@ static void update(Screen *sc, float dt)
         app_toast("Received from your phone");
         app_redraw();
     }
-    int row = s->grid_focus / cols(s);
-    float target = (row > 1 ? row - 1 : 0) * (float)(CELL_H + 80);
+    place(s, cols(s));
+    int row = s->grid_focus < s->n ? s->cell[s->grid_focus].row : 0;
+    /* keep the row above in view, and the heading over it */
+    float target = row > 1 ? s->row_y[row - 1] - (headed_row(s, row - 1) ? SECT_H : 0) : 0;
+    if (s->grid_focus < s->n) {   /* and all of the focused row (headings push it lower) */
+        float see = SNTV_UI_H - (FIELD_Y + FIELD_H + 40 + 60), bottom = s->row_y[row] + CELL_H + 80 - see;
+        if (target < bottom) target = bottom;
+    }
     s->grid_scroll = ui_ease(s->grid_scroll, target, NULL, dt, 14);
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
     ui_peek_step(&s->peek, s->focus_grid == 1 && s->grid_focus < s->n ? &s->results[s->grid_focus] : NULL, dt);
@@ -337,18 +436,26 @@ static void draw(Screen *sc)
     }
     gfx_clip_push(gx - 30, gy + 40, grid_w + 60, SNTV_UI_H - gy - 40);
     float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
+    place(s, nc);
+    if (s->n_sect > 1)
+        for (int k = 0; k < s->n_sect; k++) {
+            float hy = gy + 60 + s->row_y[s->sect[k].first_row] - SECT_H - s->grid_scroll;
+            if (hy > SNTV_UI_H || hy + SECT_H < gy) continue;
+            char h[64]; snprintf(h, sizeof h, "%s  \xC2\xB7  %d", s->sect[k].label, s->sect[k].n);
+            font_draw(h, gx, hy + 6, FONT_M | FONT_B, THEME_TEXT);
+        }
     /* details open on the focused card: the others in its row slide aside to make room */
     float room = 0; int room_right = 1, room_row = -1;
     if (s->focus_grid == 1 && s->grid_focus < s->n) {
         float sc = ui_focus_scale(g_app.fx_light ? 1.0f : s->focus_t), w2 = CELL_W * sc;
-        float fx = gx + (s->grid_focus % nc) * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
+        float fx = gx + s->cell[s->grid_focus].col * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
         room = ui_peek_room(&s->peek, &s->results[s->grid_focus], fx, w2, CELL_H * sc, gx - 30, gx + grid_w + 30, &room_right);
-        room_row = s->grid_focus / nc;
+        room_row = s->cell[s->grid_focus].row;
     }
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < s->n; i++) {
-            int r = i / nc, c = i % nc;
-            float px = gx + c * (CELL_W + CELL_GAP), py = gy + 60 + r * row_h - s->grid_scroll;
+            int r = s->cell[i].row, c = s->cell[i].col;
+            float px = gx + c * (CELL_W + CELL_GAP), py = gy + 60 + s->row_y[r] - s->grid_scroll;
             if (room > 0 && r == room_row && (room_right ? i > s->grid_focus : i < s->grid_focus)) px += room_right ? room : -room;
             if (py > SNTV_UI_H || py + row_h < gy) continue;
             int foc = s->focus_grid == 1 && s->grid_focus == i;
@@ -423,13 +530,14 @@ static int key(Screen *sc, KeyAction a)
         default: return 1;
         }
     }
+    place(s, COLS);
+    Cell at = s->grid_focus < s->n ? s->cell[s->grid_focus] : (Cell){ 0, 0 };
     switch (a) {
-    case KEY_LEFT: if (s->grid_focus % COLS) s->grid_focus--; return 1;
-    case KEY_RIGHT: if (s->grid_focus % COLS < COLS - 1 && s->grid_focus + 1 < s->n) s->grid_focus++; return 1;
-    case KEY_UP: if (s->grid_focus >= COLS) s->grid_focus -= COLS; else s->focus_grid = 0; return 1;
-    case KEY_DOWN:
-        if (s->grid_focus + COLS < s->n) { s->grid_focus += COLS; return 1; }
-        if (s->grid_focus / COLS < (s->n - 1) / COLS) { s->grid_focus = s->n - 1; return 1; }   /* a short last row */
+    case KEY_LEFT: if (at.col) s->grid_focus--; return 1;
+    case KEY_RIGHT: if (s->grid_focus + 1 < s->n && s->cell[s->grid_focus + 1].row == at.row) s->grid_focus++; return 1;
+    case KEY_UP: if (at.row) s->grid_focus = in_row(s, at.row - 1, at.col); else s->focus_grid = 0; return 1;
+    case KEY_DOWN:   /* into the next row or group, the nearest card when it is short */
+        if (at.row + 1 < s->n_rows) { s->grid_focus = in_row(s, at.row + 1, at.col); return 1; }
         return 0;
     case KEY_OK: if (s->grid_focus < s->n) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[s->grid_focus])); } return 1;
     case KEY_BACK: s->focus_grid = 0; return 1;
@@ -455,6 +563,7 @@ static void destroy(Screen *sc)
     if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
     close_keyboard(s);
+    free(s->cell); free(s->row_y); free(s->row_first);
     free(s);
     free(sc);
 }
@@ -496,6 +605,7 @@ static void on_person_titles(const MetaPreview *titles, int n, void *user)
     clear_results(s);
     s->results = calloc((size_t)n + 1, sizeof *s->results);
     for (int i = 0; i < n; i++) meta_preview_copy(&s->results[s->n++], &titles[i]);
+    regroup(s);
     snprintf(s->ai_note, sizeof s->ai_note, "Films and series with %s", s->kb.text);
     s->want_results = 1;
     LOGI("search: %d titles with %s", n, s->kb.text);

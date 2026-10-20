@@ -414,11 +414,15 @@ static void update(Screen *s, float dt)
         for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_LIST) build_library_row(h->rows[i]);
         h->lists_seen = lists_version();
     }
-    int fetched = 0;
+    int fetched = 0, nth_catalog = 0;
     for (int i = 0; i < h->n_rows && fetched < 4; i++) {
         int reach = g_app.low_memory ? 1 : 3, first = g_app.low_memory ? 3 : 5;
-        int near = h->focus_row < 0 ? i < first : (i >= h->focus_row - 1 && i <= h->focus_row + reach);
-        if (near && !h->rows[i]->requested && h->rows[i]->kind == ROW_CATALOG) { fetch_row(h->rows[i]); fetched++; }
+        int cat = h->rows[i]->kind == ROW_CATALOG;
+        /* nothing focused yet: the first catalogs, counted past empty library and list rows
+         * (Showcase waits for them to place its focus) */
+        int near = h->focus_row < 0 ? cat && nth_catalog < first : (i >= h->focus_row - 1 && i <= h->focus_row + reach);
+        nth_catalog += cat;
+        if (near && !h->rows[i]->requested && cat) { fetch_row(h->rows[i]); fetched++; }
     }
     if (h->focus_row >= 0 && (h->focus_row >= h->n_rows || !row_visible(h->rows[h->focus_row]))) {
         int n = next_visible(h, h->focus_row, 1);
@@ -442,6 +446,12 @@ static void update(Screen *s, float dt)
 
     float y = 0;
     for (int i = 0; i < h->n_rows && i < h->focus_row; i++) if (row_visible(h->rows[i])) y += row_h(h->rows[i]);
+    if (g_app.home_style == HOME_COMPACT) {   /* no further than the last row resting on the bottom: no empty screen below it */
+        float total = 0;
+        for (int i = 0; i < h->n_rows; i++) if (row_visible(h->rows[i])) total += row_h(h->rows[i]);
+        float most = total - (SNTV_UI_H - rows_y() - 24);
+        if (y > most) y = most > 0 ? most : 0;
+    }
     h->scroll_y = ui_ease(h->scroll_y, h->focus_row < 0 ? 0 : y, &h->scroll_yv, dt, 14);
     {
         const MetaPreview *pm = NULL;
@@ -665,7 +675,7 @@ static void draw(Screen *s)
         ui_text_scrim(1100, bh);
         draw_hero(h, hero);
         if (g_app.home_style == HOME_SHOWCASE) draw_showcase_controls(h);
-    } else if (hero) {   /* Compact: one line about the focused title, the rows take the screen */
+    } else if (hero && !g_app.card_details) {   /* Compact: one line about the focused title (the card details say it otherwise) */
         char line[300];
         const char *type = hero->type ? (strcmp(hero->type, "series") == 0 ? "Series" : strcmp(hero->type, "movie") == 0 ? "Movie" : hero->type) : "";
         snprintf(line, sizeof line, "%s%s%s%s%s%s%s", hero->name ? hero->name : "", hero->release_info ? "   \xC2\xB7   " : "", hero->release_info ? hero->release_info : "",

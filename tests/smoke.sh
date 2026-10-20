@@ -116,6 +116,9 @@ run upnext_credits 300 "right,ok,down,down,ok,ok" SNTV_FAKE_START=2999 HOME="$(h
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run search_keyboard 200 "search,ok" SNTV_PHONE_HOST=192.168.1.20
+# movies and series come back in their own groups; Down moves into the next group
+run search_groups 320 "search,t:re,right,right,right,right,right,right,right,right,right,right,right,down"
+grep -q "search: grouped 2 movies, 1 series, 0 other" "$OUT/search_groups.log" || { echo "search results were not grouped by type"; grep search "$OUT/search_groups.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
 run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
 # Diagnostics > Speed: startup milestones, key-to-screen time and frame cost per screen
