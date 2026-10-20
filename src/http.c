@@ -240,14 +240,16 @@ static unsigned g_next_id = 1;
 
 static int worker_main(void *arg)
 {
-    (void)arg;
+    /* the first two take artwork before API calls: twenty addons answering slowly at
+     * launch would otherwise hold every picture back */
+    int art_first = (int)(intptr_t)arg < 2;
     CURL *h = C.easy_init();
     for (;;) {
         SDL_LockMutex(g_qlock);
         while (!g_pending && !g_artwork && !g_quit) SDL_CondWait(g_qcond, g_qlock);
         if (g_quit) { SDL_UnlockMutex(g_qlock); if (h) C.easy_cleanup(h); return 0; }
         Job *j;
-        if (g_pending) {
+        if (g_pending && !(art_first && g_artwork)) {
             j = g_pending;
             g_pending = j->next;
             if (!g_pending) g_pending_tail = NULL;
@@ -391,7 +393,7 @@ int http_init(void)
     g_qlock = SDL_CreateMutex();
     g_qcond = SDL_CreateCond();
     for (int i = 0; i < WORKERS; i++)
-        g_workers[i] = SDL_CreateThread(worker_main, "http", NULL);
+        g_workers[i] = SDL_CreateThread(worker_main, "http", (void *)(intptr_t)i);
     return 0;
 }
 

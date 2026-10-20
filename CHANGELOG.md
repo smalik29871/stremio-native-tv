@@ -7,6 +7,11 @@
   repair kept it with empty lists and the official apps stopped asking it for
   subtitles. Its manifest is now written out in full, and accounts repaired by 0.10.25
   are fixed again on the next start.
+- **Pictures sooner at launch.** Home's artwork no longer waits behind your addons'
+  answers: two of the network workers take pictures first, so twenty-odd addons
+  answering slowly at launch don't hold every poster back. A third decoder joins, and
+  tidying the artwork cache (reading thousands of file dates) waits until the launch
+  has settled instead of taking a decoder away while Home is filling in.
 
 ## 0.10.25
 

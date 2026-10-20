@@ -56,7 +56,7 @@ static char g_cache_dir[1024];
 static char g_old_cache_dir[1024];   /* where the cache was before: emptied once */
 static int g_pending_decodes;
 
-enum { DECODERS = 2 };
+enum { DECODERS = 3 };
 static SDL_Thread *g_decoder[DECODERS];
 static SDL_mutex *g_lock;
 static SDL_cond *g_cond;
@@ -171,11 +171,26 @@ static const HttpOptions ARTWORK = { .no_json_accept = 1, .background = 1 };
 
 static int decoder_main(void *arg)
 {
-    if (arg && g_old_cache_dir[0]) drop_dir(g_old_cache_dir);
-    if (arg && g_cache_dir[0]) trim_disk_cache();   /* the first decoder tidies the disk cache, off the main thread */
+    /* the first decoder tidies the disk cache once the launch has settled (20 s, or the
+     * first quiet moment after): reading thousands of file dates on a TV's flash would
+     * otherwise hold Home's pictures back */
+    int tidy = arg != NULL;
+    Uint32 born = SDL_GetTicks(), after = 20000;
+    const char *ta = getenv("SNTV_TIDY_AFTER_S");   /* tests: at once */
+    if (ta) after = (Uint32)(atof(ta) * 1000);
     for (;;) {
         SDL_LockMutex(g_lock);
-        while (!g_decode_q && !g_quit) SDL_CondWait(g_cond, g_lock);
+        while (!g_decode_q && !g_quit) {
+            if (tidy && SDL_GetTicks() - born >= after) break;
+            if (tidy) SDL_CondWaitTimeout(g_cond, g_lock, 1000); else SDL_CondWait(g_cond, g_lock);
+        }
+        if (tidy && !g_quit && (!g_decode_q || SDL_GetTicks() - born > after + 40000) && SDL_GetTicks() - born >= after) {
+            tidy = 0;
+            SDL_UnlockMutex(g_lock);
+            if (g_old_cache_dir[0]) drop_dir(g_old_cache_dir);
+            if (g_cache_dir[0]) trim_disk_cache();
+            continue;
+        }
         if (g_quit) { SDL_UnlockMutex(g_lock); return 0; }
         Img *i = g_decode_q;
         g_decode_q = i->qnext;

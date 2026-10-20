@@ -230,7 +230,7 @@ LIGHTER="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http:/
 DH="$(home_with diskfull '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"; mkdir -p "$DH/.local/share/stremio/nativetv/img"
 for i in $(seq 1 20); do head -c 1048576 /dev/zero > "$DH/.local/share/stremio/nativetv/img/$(printf '%016x' "$i").img"; done
 FREE_MB=$(df -m --output=avail "$DH" | tail -1)
-run disk_full 120 "" HOME="$DH" SNTV_DISK_KEEP_FREE_MB=$((FREE_MB + 10))
+run disk_full 120 "" HOME="$DH" SNTV_DISK_KEEP_FREE_MB=$((FREE_MB + 10)) SNTV_TIDY_AFTER_S=0
 grep -q "image: .* MB free on the cache's drive; artwork cache kept to" "$OUT/disk_full.log" && [ "$(ls "$DH/.local/share/stremio/nativetv/img" | wc -l)" -lt 15 ] \
   || { echo "the artwork cache did not make room on a full drive"; grep image "$OUT/disk_full.log"; exit 1; }
 # webOS 10: sign-in kept in the developer partition's temp folder moves to internal storage
