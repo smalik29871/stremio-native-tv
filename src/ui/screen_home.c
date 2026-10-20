@@ -73,7 +73,7 @@ typedef struct {
 } Home;
 
 static void move_focus(Home *h, int row, int col);
-static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : g_app.home_style == HOME_SHOWCASE ? 660.0f : ROWS_Y; }
+static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : g_theme.id == THEME_APERTURE ? 654.0f : g_app.home_style == HOME_SHOWCASE ? 660.0f : ROWS_Y; }
 
 /* ---- row geometry ---- */
 
@@ -489,7 +489,7 @@ static void update(Screen *s, float dt)
         h->hero_fade = 0;
         h->hero_text_t = 0;
     }
-    if (hero && settled && g_app.home_style != HOME_COMPACT && !strcmp(hero->id, h->hero_id))
+    if (g_theme.id != THEME_APERTURE && hero && settled && g_app.home_style != HOME_COMPACT && !strcmp(hero->id, h->hero_id))
         bgtrailer_want(h->hero_id, SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f), 4.0f);
 
     /* prefetch around the focus and the start of the next row */
@@ -513,6 +513,20 @@ static void draw_showcase_controls(const Home *h);
 
 static void draw_hero(Home *h, const MetaPreview *p)
 {
+    if (g_theme.id == THEME_APERTURE) {
+        float k = g_app.fx_light ? 1 : h->hero_text_t;
+        float ax = 930 - 20 * k;
+        ui_aperture_art(h->hero_bg, ax, 124, SNTV_UI_W - THEME_MARGIN - ax, 442, g_app.fx_light ? 1 : h->hero_fade);
+        font_draw_tracked("APERTURE  /  YOUR EVENING, IN FOCUS", LX, 124, FONT_XS, THEME_TEXT_DIM, 1.2f);
+        ui_hero_title(p->name, LX, 384, 680, THEME_TEXT);
+        const char *parts[3] = { p->release_info, p->runtime, p->genres.n ? p->genres.v[0] : p->type };
+        ui_meta_line(parts, 3, LX, 408, THEME_TEXT_DIM);
+        if (p->description) font_draw_wrapped(p->description, LX, 460, FONT_S, THEME_TEXT_DIM, 660, 2);
+        gfx_rect(LX, 558, 44, 3, THEME_ACCENT);
+        font_draw("OK  Discover this title", LX + 62, 546, FONT_S, THEME_TEXT);
+        font_draw("A collection of possibilities. One at a time.", ax, 590, FONT_XS, THEME_TEXT_MUTED);
+        return;
+    }
     float k = g_app.fx_light ? 1.0f : h->hero_text_t;
     int a = (int)(255 * k);
     float x = LX, y = 168 + (1 - k) * 18;
@@ -666,7 +680,14 @@ static void draw(Screen *s)
     const MetaPreview *hero = shown_hero(h);
     ui_background(hero ? image_tint(h->hero_bg) : 0);
 
-    if (hero && g_app.home_style != HOME_COMPACT) {
+    if (hero && g_app.home_style != HOME_COMPACT && g_theme.id == THEME_APERTURE) {
+        draw_hero(h, hero);
+        if (g_app.home_style == HOME_SHOWCASE) {
+            /* The existing carousel remains reachable with Up and Left/Right. */
+            gfx_rect(LX, 534, 690, 84, THEME_BG);
+            draw_showcase_controls(h);
+        }
+    } else if (hero && g_app.home_style != HOME_COMPACT) {
         int iw, ih, pw, ph;
         float fade = g_app.fx_light ? 1.0f : h->hero_fade;
         unsigned prev = h->hero_prev_bg[0] && fade < 1 ? image_get(h->hero_prev_bg, &pw, &ph) : 0;

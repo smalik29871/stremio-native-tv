@@ -961,6 +961,53 @@ static int chapter_at(const Player *p, double pos)
     return k;
 }
 
+/* Neighbouring frames must already be cached. Only seek_thumb at the selected
+ * time may schedule a decode: scrubbing never launches five TV decoders. */
+static unsigned aperture_cached_frame(const Player *p, double t, int *w, int *h)
+{
+    if (p->cur >= p->n_cands || !p->cands[p->cur].url || strncmp(p->cands[p->cur].url, "http", 4)) return 0;
+    char enc[1600], url[2048], rel[1800];
+    http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
+    long sec = (long)(t / 10) * 10;
+    if (g_app.thumb_server && *g_app.thumb_server)
+        snprintf(url, sizeof url, "%s/frame?url=%s&t=%ld", g_app.thumb_server, enc, sec);
+    else {
+        snprintf(rel, sizeof rel, "frame?t=%ld&w=384&u=%s", sec, enc);
+        if (!phone_local_url(rel, url, sizeof url)) return 0;
+    }
+    return image_peek(url, w, h);
+}
+
+static void draw_aperture_filmstrip(Player *p, const VideoInfo *vi, double pos, float by)
+{
+    int span = g_app.low_memory ? 0 : 2;
+    float total = 344 + span * 2 * (230 + 16), x = (SNTV_UI_W - total) / 2;
+    float bottom = by - 96;
+    gfx_gradient_v(0, by - 410, SNTV_UI_W, 350, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xD0));
+    for (int i = -span; i <= span; i++) {
+        double t = pos + i * 10;
+        float w = i == 0 ? 344 : 230, h = w * 9 / 16;
+        if (t < 0 || t > vi->duration) { x += w + 16; continue; }
+        int iw = 0, ih = 0;
+        unsigned tex = i == 0 ? seek_thumb(p, t, &iw, &ih, 0) : aperture_cached_frame(p, t, &iw, &ih);
+        gfx_rect(x, bottom - h, w, h, THEME_BG2);
+        if (tex && iw > 0 && ih > 0) {
+            /* Letterbox previews; never stretch a decoded frame. */
+            float dw = w, dh = dw * ih / iw;
+            if (dh > h) { dh = h; dw = dh * iw / ih; }
+            gfx_tex(tex, x + (w - dw) / 2, bottom - h + (h - dh) / 2, dw, dh, RGBA(255, 255, 255, i == 0 ? 255 : 150));
+        } else if (i == 0) font_draw_center("Preview unavailable", x + w / 2, bottom - h / 2, FONT_XS, THEME_TEXT_DIM);
+        char label[32]; ui_format_time(t, label, sizeof label);
+        font_draw_center(label, x + w / 2, bottom + 18, FONT_XS, i == 0 ? THEME_TEXT : THEME_TEXT_DIM);
+        if (i == 0) {
+            gfx_rect(x, bottom + 5, w, 3, THEME_ACCENT);
+            int ch = chapter_at(p, t);
+            if (ch >= 0) font_draw_fit(p->probe->chapters[ch].name, x, bottom - h - 34, FONT_XS, THEME_TEXT, w);
+        }
+        x += w + 16;
+    }
+}
+
 /* ---- skip markers ------------------------------------------------------------- */
 
 static void skip_done(Player *p, int n, const char *from)
@@ -1933,16 +1980,25 @@ static void draw_menu(Player *p)
 {
     if (p->menu == MENU_SOURCES) { draw_sources_panel(p); return; }
     float w = 600, x = SNTV_UI_W - w - 40, y = 40, h = SNTV_UI_H - 80;
-    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; }
+    int aperture = g_theme.id == THEME_APERTURE;
+    if (aperture) { w = 640; x = SNTV_UI_W - w; y = 0; h = SNTV_UI_H; }
+    if (p->menu_seen != p->menu) {
+        p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0;
+        if (getenv("SNTV_SCREENSHOT")) LOGI("UI check: player drawer=%d", p->menu);
+    }
     if (p->menu_t < 1) { p->menu_t += 0.09f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
     { float e = 1 - (1 - p->menu_t) * (1 - p->menu_t); gfx_set_translate((w + 60) * (1 - e), 0); }
-    if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
-    ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
+    if (!g_app.fx_light && !aperture) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
+    ui_panel(x, y, w, h, R_PANEL, aperture ? THEME_PANEL : COLOR_ALPHA(THEME_PANEL, 0xF0));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
     static const char *TITLES[] = { "", "Audio", "Subtitles", "Sources", "Episodes" };   /* by MENU_ */
     static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SWAP, ICON_LIST };
     ui_icon(ICONS[p->menu], x + 56, y + 62, 40, THEME_TEXT);
     font_draw(TITLES[p->menu], x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
+    if (aperture) {
+        gfx_rect(x, y + 42, 3, 40, THEME_ACCENT);
+        font_draw("Back  Close drawer", x + 40, y + h - 40, FONT_XS, THEME_TEXT_DIM);
+    }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
     int order[MAX_ADDON_SUBS];
@@ -1969,16 +2025,17 @@ static void draw_menu(Player *p)
                         : 0;
     float step = p->menu == MENU_SOURCES ? 100 : 78;   /* a source row carries its badges and file name */
     float focus_y = 120 + sections_before * 40 + p->menu_focus * step;
-    float scroll = focus_y + step > h - 60 ? focus_y + step - (h - 60) : 0;
+    float bottom = h - (aperture ? 100 : 60);
+    float scroll = focus_y + step > bottom ? focus_y + step - bottom : 0;
     float ry = y + 120 - scroll;
     int row = 0;
-    gfx_clip_push(x, y + 104, w, h - 120);
+    gfx_clip_push(x, y + 104, w, h - (aperture ? 180 : 120));
     #define SECTION(t) do { font_draw(t, x + 40, ry + 6, FONT_XS | FONT_B, THEME_TEXT_MUTED); ry += 40; } while (0)
     const char *row_thumb = NULL;   /* set before a ROW to show a picture at its left */
     #define ROW(label, sub, on) do { \
         int foc_ = p->menu_focus == row; const char *sub_ = (sub); float lx_ = x + 50 + (row_thumb ? 118 : 0); \
         if (ry + 70 > y + 100 && ry < y + h - 16) { \
-        if (foc_) gfx_rrect(x + 24, ry, w - 48, 70, R_KEY, THEME_FOCUS); \
+        if (foc_) { gfx_rrect(x + 24, ry, w - 48, 70, R_KEY, THEME_FOCUS); if (aperture) gfx_rect(x + 24, ry + 8, 3, 54, THEME_ACCENT); } \
         else if (on) gfx_rrect(x + 24, ry, w - 48, 70, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); \
         if (row_thumb) ui_draw_thumb(row_thumb, x + 40, ry + 6, 104, 58, 0, COLOR_ALPHA(THEME_TEXT, 0x14)); \
         Color fg_ = foc_ ? THEME_ON_FOCUS : THEME_TEXT; \
@@ -2271,6 +2328,23 @@ static void draw_bar(Player *p, float x, float y)
     int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
     int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
     int at = bar_pos(p, ids, n);
+    if (g_theme.id == THEME_APERTURE) {
+        const float step = 92;
+        for (int i = 0; i < n; i++) {
+            int foc = p->bar_focus && i == at;
+            float cx = x + i * step + 28;
+            ui_icon(icons[i], cx, y + 24, 26, foc ? THEME_TEXT : THEME_TEXT_DIM);
+            if (ids[i] == BTN_NEXT && next_progress(p) >= 0 && next_progress(p) < 1)
+                ui_progress(cx - 22, y + 44, 44, 2, next_progress(p), THEME_TEXT_DIM);
+            if (foc) {
+                gfx_rect(cx - 22, y + 52, 44, 3, THEME_ACCENT);
+                font_draw_fit(labels[i], x, y - 32, FONT_XS, THEME_TEXT, 900);
+            }
+        }
+        const char *hint = p->bar_focus ? "OK  Select   /   Up  Timeline" : "Down  Controls";
+        font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + 12, FONT_XS, THEME_TEXT_DIM);
+        return;
+    }
     const float d = 56, gap = 14;
     for (int i = 0; i < n; i++) {
         int foc = p->bar_focus && i == at;
@@ -2464,6 +2538,23 @@ static void draw_veil(Player *p, const VideoInfo *vi)
  * been paused for a moment, in the top-left where the title normally sits. */
 static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
 {
+    if (g_theme.id == THEME_APERTURE) {
+        int a = (int)(255 * k);
+        float x = THEME_MARGIN, y = 190;
+        gfx_gradient_h(0, 110, 1250, 560, RGBA(0, 0, 0, (int)(0xC0 * k)), RGBA(0, 0, 0, 0));
+        font_draw_tracked("PAUSED  /  TAKE YOUR TIME", x, y, FONT_XS, COLOR_ALPHA(THEME_TEXT_DIM, a), 1.5f);
+        ui_hero_title(p->meta.name, x, y + 244, 1000, COLOR_ALPHA(THEME_TEXT, a));
+        const char *ep = strstr(p->title, "  -  ");
+        if (ep) font_draw_fit(ep + 5, x, y + 272, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), 1000);
+        char pos[32], dur[32], line[96];
+        ui_format_time(vi->position, pos, sizeof pos);
+        ui_format_time(vi->duration, dur, sizeof dur);
+        snprintf(line, sizeof line, "%s  /  %s", pos, vi->duration > 0 ? dur : "--:--");
+        font_draw(line, x, y + 320, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
+        gfx_rect(x, y + 388, 44, 3, COLOR_ALPHA(THEME_ACCENT, a));
+        font_draw("OK  Resume", x + 62, y + 374, FONT_S, COLOR_ALPHA(THEME_TEXT, a));
+        return;
+    }
     (void)vi;
     int a = (int)(255 * k);
     float x = THEME_MARGIN, y = 150 - (1 - k) * 16, maxw = 1000;
@@ -2568,7 +2659,7 @@ static void draw(Screen *s)
 
     /* centre play/pause flash */
     float flash = p->play_flash - g_app.time;
-    if (vi.state == VIDEO_PAUSED || flash > 0) {
+    if ((vi.state == VIDEO_PAUSED && g_theme.id != THEME_APERTURE) || flash > 0) {
         float a = vi.state == VIDEO_PAUSED ? 1.0f - p->rest_t : flash / 0.6f;
         float r = 70 + (1 - a) * 20 * (vi.state != VIDEO_PAUSED);
         gfx_circle(SNTV_UI_W / 2, SNTV_UI_H / 2, r, RGBA(0, 0, 0, (int)(0x80 * a)));
@@ -2602,7 +2693,9 @@ static void draw(Screen *s)
         int info = vi.state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time - p->paused_since > 0.4f && !p->menu;
         float info_k = info ? (g_app.time - p->paused_since - 0.4f) / 0.5f : 0;
         if (info_k > 1) info_k = 1;
-        if (!info) {
+        if (!info && g_theme.id == THEME_APERTURE) {
+            font_draw_fit(p->title, THEME_MARGIN, 56, FONT_S, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
+        } else if (!info) {
             font_draw_fit(p->title, THEME_MARGIN, 56, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
             float cx = THEME_MARGIN;
             if (p->cands[p->cur].label) { font_draw_fit(p->cands[p->cur].label, cx, 114, FONT_S, THEME_TEXT_DIM, 700); cx += font_measure(p->cands[p->cur].label, FONT_S) + 20; }
@@ -2624,7 +2717,7 @@ static void draw(Screen *s)
             font_draw(text, tx + 22, 47 + (th2 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
             chip_y = 112;
         }
-        if (p->n_cands > 1) {
+        if (p->n_cands > 1 && g_theme.id != THEME_APERTURE) {
             char c[48]; snprintf(c, sizeof c, "Source %d of %d", p->cur + 1, p->n_cands);
             ui_chip(c, SNTV_UI_W - THEME_MARGIN - font_measure(c, FONT_XS | FONT_B) - 24, chip_y, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT);
         }
@@ -2648,7 +2741,7 @@ static void draw(Screen *s)
     }
     if (p->rest_t > 0.001f) gfx_set_alpha(1 - p->rest_t);   /* the controls step aside */
     if (overlay || bar_only) {
-        float th = p->seek_commit > 0 ? 12 : 8, ty = by - th / 2;
+        float th = g_theme.id == THEME_APERTURE ? 3 : p->seek_commit > 0 ? 12 : 8, ty = by - th / 2;
         gfx_rrect(bx, ty, bw, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
         if (vi.duration > 0) {
             if (vi.buffer_percent > 0) gfx_rrect(bx, ty, bw * vi.buffer_percent / 100.0f, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
@@ -2664,11 +2757,13 @@ static void draw(Screen *s)
                     gfx_rect(cxp - 1.5f, ty - 6, 3, th + 12, COLOR_ALPHA(THEME_TEXT, 0x70));
                 }
             float fw = bw * (float)(shown_pos / vi.duration);
-            if (fw > th) gfx_rrect_grad_h(bx, ty, fw, th, th / 2, THEME_ACCENT, THEME_ACCENT2);
+            if (fw > th) gfx_rrect_grad_h(bx, ty, fw, th, th / 2, g_theme.id == THEME_APERTURE ? THEME_TEXT : THEME_ACCENT, g_theme.id == THEME_APERTURE ? THEME_TEXT : THEME_ACCENT2);
             float kx = bx + fw;
-            if (!g_app.fx_light) gfx_shadow(kx - 14, by - 14, 28, 28, R_PANEL, 14, COLOR_ALPHA(THEME_ACCENT2, 0xB0));
-            gfx_circle(kx, by, p->seek_commit > 0 ? 16 : 12, THEME_TEXT);
-            if (p->seek_commit > 0) {
+            if (!g_app.fx_light && g_theme.id != THEME_APERTURE) gfx_shadow(kx - 14, by - 14, 28, 28, R_PANEL, 14, COLOR_ALPHA(THEME_ACCENT2, 0xB0));
+            gfx_circle(kx, by, g_theme.id == THEME_APERTURE ? 5 : p->seek_commit > 0 ? 16 : 12, g_theme.id == THEME_APERTURE ? THEME_ACCENT : THEME_TEXT);
+            if (p->seek_commit > 0 && g_theme.id == THEME_APERTURE) {
+                draw_aperture_filmstrip(p, &vi, shown_pos, by);
+            } else if (p->seek_commit > 0) {
                 char t[32]; ui_format_time(shown_pos, t, sizeof t);
                 int ch = chapter_at(p, shown_pos);
                 const char *cname = ch >= 0 && p->probe->chapters[ch].name[0] ? p->probe->chapters[ch].name : NULL;

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add the selectable Aperture prototype: charcoal and ivory editorial Home and
+  title pages, compact source comparisons, quiet player controls, a pause title
+  card, cached seek filmstrip, and subtitle/audio side drawers. Existing themes,
+  remote actions, playback, and saved theme IDs are preserved.
+- Add theme contract tests and a fixture-backed native journey with screenshot
+  artifacts, including Back navigation, reduced motion, and low-memory seeking.
+
 ## 0.10.28
 
 - **A new Sources sheet during playback**, laid out after nuvio-native-legacy's: a tall
