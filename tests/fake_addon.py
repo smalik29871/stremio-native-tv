@@ -152,6 +152,17 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
+        # IMDb's GraphQL stand-in: /imdbgql has no trailer for anything, /imdbgql/with has one in three qualities
+        if p.startswith("/imdbgql"):
+            if not p.startswith("/imdbgql/with"):
+                return self.send(200, json.dumps({"data": {"title": {"latestTrailer": None}}}).encode())
+            q = json.loads(body.decode("utf-8") or "{}")
+            if "latestTrailer" not in q.get("query", "") or not str(q.get("variables", {}).get("id", "")).startswith("tt"):
+                return self.send(400, b'{"errors":[{"message":"bad query"}]}')
+            vids = [{"videoDefinition": "DEF_480p", "videoMimeType": "MP4", "url": f"{BASE}/video/sample_h264_aac.mp4?imdb=480"},
+                    {"videoDefinition": "DEF_1080p", "videoMimeType": "MP4", "url": f"{BASE}/video/sample_h264_aac.mp4?imdb=1080"},
+                    {"videoDefinition": "DEF_AUTO", "videoMimeType": "M3U8", "url": f"{BASE}/yt/media/master.m3u8?imdb=auto"}]
+            return self.send(200, json.dumps({"data": {"title": {"latestTrailer": {"id": "vi123", "playbackURLs": vids}}}}).encode())
         # Trakt stand-in: a device code, accepted on the second poll; scrobbles are logged
         if p.startswith("/trakt/"):
             q = p[6:]

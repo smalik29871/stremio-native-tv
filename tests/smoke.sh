@@ -27,6 +27,7 @@ export NO_PROXY=127.0.0.1 no_proxy=127.0.0.1
 export SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json"
 export SNTV_LINK_API="http://127.0.0.1:$PORT/link"
 export SNTV_INTRODB_API="http://127.0.0.1:$PORT/introdb"
+export SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql"   # a fake IMDb with no trailers: YouTube's are used
 export SNTV_YT_BASE="http://127.0.0.1:$PORT/yt"   # a fake YouTube: TV config, player, formats, ranged media
 export SNTV_YT_SOLVER_URL="http://127.0.0.1:$PORT/yt/ejs"   # the "newest solver" download: refused, so the bundled one is all there is
 export SNTV_NO_TRANSITIONS=1   # screenshots land mid-animation otherwise; transition_push turns them back on
@@ -72,6 +73,11 @@ grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not f
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
 grep -q "youtube: dQw4w9WgXcQ as a byte-range playlist at 1080p (10 pieces)" "$OUT/detail_trailer.log" && grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality, pieces listed)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/4 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
+# IMDb has the trailer: its 1080p MP4 plays first, its playlist and 480p behind it, no YouTube asked
+run detail_trailer_imdb 400 "wait,ok,right,ok,wait,wait,wait,wait" HOME="$(home_with trailer_imdb "$ABOUT_HOME")" SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql/with"
+grep -q "detail: trailer for tt0111161 from IMDb (3 qualities, best 1080p)" "$OUT/detail_trailer_imdb.log" && grep -q "player: candidate 1/3 IMDb - 1080p" "$OUT/detail_trailer_imdb.log" \
+  && ! grep -q "youtube: asking to stream" "$OUT/detail_trailer_imdb.log" \
+  || { echo "the IMDb trailer did not play first"; grep -E "detail|youtube|player: candidate" "$OUT/detail_trailer_imdb.log"; exit 1; }
 # YouTube wants a token for the visionOS client's files: the TV app's are solved and tested instead
 run detail_trailer_tv 1500 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_tv "$ABOUT_HOME")" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/pot/manifest.json"
 grep -q "youtube: potPOT00001 refused the VISIONOS client's separate video and audio (403)" "$OUT/detail_trailer_tv.log" && grep -q "youtube: potPOT00001 separate video and audio from the TV client" "$OUT/detail_trailer_tv.log" \

@@ -63,15 +63,18 @@ typedef struct {
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
 } Detail;
 
+/* A trailer from YouTube, or from IMDb for any title it knows (its id starts "tt") */
+static int has_trailer(const Detail *d) { return d->meta.trailer_yt || !strncmp(d->preview.id, "tt", 2); }
+
 /* the visible buttons in order: Play/Resume, [From the start], [Trailer], Library */
 static int btn_at(const Detail *d, int pos)
 {
     if (pos == 0) return BTN_PLAY;
     if (d->resume_label[0]) { if (pos == 1) return BTN_RESTART; pos--; }
-    if (d->meta.trailer_yt) { if (pos == 1) return BTN_TRAILER; pos--; }
+    if (has_trailer(d)) { if (pos == 1) return BTN_TRAILER; pos--; }
     return BTN_LIBRARY;
 }
-static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + (d->meta.trailer_yt ? 1 : 0); }
+static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + (has_trailer(d) ? 1 : 0); }
 
 /* ---- the trailer: fetched from YouTube once, then played from the TV ---- */
 
@@ -140,19 +143,93 @@ static void on_trailer_stream(const char *url, const char *error, void *user)
     app_redraw();
 }
 
-static void trailer_play(Detail *d)
+static void trailer_youtube(Detail *d)
 {
-    if (!d->meta.trailer_yt) return;
-    char url[96], name[80]; int is_video = 0;
+    char url[96];
     trailer_url(d->meta.trailer_yt, url, sizeof url);
-    if (youtube_saved(url, 1, name, sizeof name, &is_video) && is_video) { trailer_play_saved(name, &d->preview); return; }
-    if (g_trailer.busy) { app_toast(strcmp(g_trailer.id, d->preview.id) == 0 ? "Getting the trailer\xE2\x80\xA6" : "Another trailer is on its way; one at a time"); return; }
-    snprintf(g_trailer.id, sizeof g_trailer.id, "%s", d->preview.id);
     snprintf(g_trailer.yt, sizeof g_trailer.yt, "%s", d->meta.trailer_yt);
     g_trailer.busy = 1;
     LOGI("detail: fetching the trailer for %s (%s)", d->preview.id, d->meta.trailer_yt);
     youtube_set_quality(g_app.res_cap, quality_cap_ok(&g_app.tv, TVCAP_AV1), quality_cap_ok(&g_app.tv, TVCAP_4K));
     youtube_stream(url, on_trailer_stream, NULL);
+}
+
+/* IMDb's own trailer: direct MP4s up to 1080p (and an HLS playlist), with no YouTube
+ * in the way. IMDb's public GraphQL API, as the IMDb Trailers add-ons for Kodi ask it. */
+static int imdb_rank(const char *def, const char *mime)
+{
+    int mp4 = mime && !strcmp(mime, "MP4");
+    if (!def) return 0;
+    if (!strcmp(def, "DEF_1080p")) return mp4 ? 60 : 0;
+    if (!strcmp(def, "DEF_AUTO") || (mime && !strcmp(mime, "M3U8"))) return 50;
+    if (!strcmp(def, "DEF_720p")) return mp4 ? 40 : 0;
+    if (!strcmp(def, "DEF_480p")) return mp4 ? 30 : 0;
+    if (!strcmp(def, "DEF_SD")) return mp4 ? 20 : 0;
+    return 0;
+}
+
+static void on_imdb_trailer(HttpResponse *r, void *user)
+{
+    (void)user;
+    Screen *top = app_top();
+    Detail *d = top && !strcmp(top->name, "detail") && !strcmp(((Detail *)top->st)->preview.id, g_trailer.id) ? top->st : NULL;
+    cJSON *root = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
+    const cJSON *video = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(
+                             cJSON_GetObjectItemCaseSensitive(root, "data"), "title"), "latestTrailer"), "playbackURLs");
+    struct { const char *url; int rank; } got[8]; int n = 0;
+    const cJSON *u;
+    cJSON_ArrayForEach(u, video) {
+        const cJSON *def = cJSON_GetObjectItemCaseSensitive(u, "videoDefinition"), *mime = cJSON_GetObjectItemCaseSensitive(u, "videoMimeType"), *url = cJSON_GetObjectItemCaseSensitive(u, "url");
+        int rk = imdb_rank(cJSON_IsString(def) ? def->valuestring : NULL, cJSON_IsString(mime) ? mime->valuestring : NULL);
+        if (rk && cJSON_IsString(url) && n < 8) { got[n].url = url->valuestring; got[n].rank = rk; n++; }
+    }
+    for (int i = 1; i < n; i++) for (int j = i; j > 0 && got[j].rank > got[j - 1].rank; j--) { __typeof__(got[0]) t = got[j]; got[j] = got[j - 1]; got[j - 1] = t; }
+    if (!n) {
+        LOGI("detail: no IMDb trailer for %s (%ld)%s", g_trailer.id, r->status, d && d->meta.trailer_yt ? "; YouTube's then" : "");
+        if (d && d->meta.trailer_yt) trailer_youtube(d);
+        else { g_trailer.busy = 0; if (d) app_toast("No trailer found for this title"); }
+        cJSON_Delete(root);
+        return;
+    }
+    g_trailer.busy = 0;
+    if (!d) { cJSON_Delete(root); return; }
+    PlayCandidate *c = calloc((size_t)n, sizeof *c);
+    for (int i = 0; i < n; i++) {   /* sharpest first; the player falls back down the list */
+        c[i].url = strdup(got[i].url);
+        char lbl[48]; snprintf(lbl, sizeof lbl, "IMDb - %s", got[i].rank == 60 ? "1080p" : got[i].rank == 50 ? "adaptive" : got[i].rank == 40 ? "720p" : got[i].rank == 30 ? "480p" : "SD");
+        c[i].label = strdup(lbl);
+        c[i].res = got[i].rank == 60 ? 1080 : got[i].rank == 40 ? 720 : got[i].rank == 30 ? 480 : 0;
+    }
+    cJSON_Delete(root);
+    char vid[160], title[200];
+    snprintf(vid, sizeof vid, "trailer:%s", d->preview.id);
+    snprintf(title, sizeof title, "%s  -  Trailer", d->preview.name ? d->preview.name : "");
+    LOGI("detail: trailer for %s from IMDb (%d qualit%s, best %s)", d->preview.id, n, n == 1 ? "y" : "ies", c[0].label + 7);
+    app_push(screen_player_create(&d->preview, vid, title, c, n, 0, 0, NULL, NULL));
+    app_redraw();
+}
+
+static void trailer_play(Detail *d)
+{
+    if (!has_trailer(d)) return;
+    char url[96], name[80]; int is_video = 0;
+    if (d->meta.trailer_yt) {
+        trailer_url(d->meta.trailer_yt, url, sizeof url);
+        if (youtube_saved(url, 1, name, sizeof name, &is_video) && is_video) { trailer_play_saved(name, &d->preview); return; }
+    }
+    if (g_trailer.busy) { app_toast(strcmp(g_trailer.id, d->preview.id) == 0 ? "Getting the trailer\xE2\x80\xA6" : "Another trailer is on its way; one at a time"); return; }
+    snprintf(g_trailer.id, sizeof g_trailer.id, "%s", d->preview.id);
+    if (strncmp(d->preview.id, "tt", 2) != 0) { trailer_youtube(d); return; }
+    /* IMDb first: sharp and plain files; YouTube when IMDb has none */
+    g_trailer.busy = 1;
+    char imdb[32]; snprintf(imdb, sizeof imdb, "%.*s", (int)strcspn(d->preview.id, ":"), d->preview.id);
+    char body[400];
+    snprintf(body, sizeof body, "{\"query\":\"query($id: ID!){title(id:$id){latestTrailer{id playbackURLs{videoDefinition videoMimeType url}}}}\",\"variables\":{\"id\":\"%s\"}}", imdb);
+    const char *api = getenv("SNTV_IMDB_API");
+    HttpOptions o = { .post_json = body, .timeout_s = 12,
+                      .headers = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36\nReferer: https://www.imdb.com/\nOrigin: https://www.imdb.com" };
+    LOGI("detail: asking IMDb for the trailer of %s", imdb);
+    http_request_async_ex(api && *api ? api : "https://graphql.prod.api.imdb.a2z.com/", &o, on_imdb_trailer, NULL);
 }
 
 static void ask_clear(Detail *d)
@@ -886,7 +963,7 @@ static void draw(Screen *s)
     float bx2 = x + bw + 18;
     int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
     if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
-    if (d->meta.trailer_yt) {
+    if (has_trailer(d)) {
         int getting = g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
         bx2 += ui_pill(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", 1, ICON_TV, bx2, by, 72, PILL_SECONDARY, cur == BTN_TRAILER) + 18;
     }
