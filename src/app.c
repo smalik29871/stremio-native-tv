@@ -118,7 +118,7 @@ static void draw_zoom(Screen *under, Screen *page, float k)
 void app_draw_screen(Screen *top, float dt)
 {
     if (!g_trans.active) { if (top && top->draw) top->draw(top); return; }
-    g_trans.t += dt / (g_trans.zoom ? 0.34f : 0.26f);
+    g_trans.t += dt / (g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.34f : 0.26f);
     if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) top->draw(top); return; }
     float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
     float W = SNTV_UI_W;

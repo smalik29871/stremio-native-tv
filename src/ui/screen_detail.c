@@ -579,7 +579,7 @@ static void update(Screen *s, float dt)
         if (pre && strcmp(pre, d->pre_id)) { snprintf(d->pre_id, sizeof d->pre_id, "%s", pre); d->pre_since = g_app.time; }
         else if (pre && g_app.time - d->pre_since > 0.8f) streams_prefetch(&d->preview, pre);
     }
-    if (d->scroll < 60 && !d->ask_open) bgtrailer_want(d->preview.id, SNTV_UI_H, 2.5f);   /* not under About, where the backdrop dims */
+    if (g_theme.id != THEME_APERTURE && d->scroll < 60 && !d->ask_open) bgtrailer_want(d->preview.id, SNTV_UI_H, 2.5f);   /* Aperture uses a quiet artwork window */
     /* prefetch upcoming thumbnails */
     for (int k = d->ep_focus; k < d->n_eps && k < d->ep_focus + 6; k++) {
         const char *t = d->meta.videos[d->ep_index[k]].thumbnail;
@@ -887,11 +887,14 @@ static void draw(Screen *s)
     if (bg) ui_set_ambient_art(bg);
     ui_background(image_tint(bg));
     int iw, ih;
-    unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
+    unsigned bgt = bg && g_theme.id != THEME_APERTURE ? image_get(bg, &iw, &ih) : 0;
     int series = d->meta.n_videos > 0;
     float k = g_app.fx_light ? 1.0f : d->intro;
     float tv = bgtrailer_shown(d->preview.id);   /* the trailer playing behind the artwork */
-    if (bgt || tv > 0) {
+    if (g_theme.id == THEME_APERTURE) {
+        ui_aperture_art(bg, 1000, 100, SNTV_UI_W - 1000 - THEME_MARGIN, series ? 450 : 680, 1);
+        font_draw_tracked("APERTURE  /  TITLE", THEME_MARGIN, 50, FONT_XS, THEME_TEXT_DIM, 1.5f);
+    } else if (bgt || tv > 0) {
         ui_backdrop_fades(1250, series ? 420 : 560, SNTV_UI_H);
         ui_backdrop_video(tv, SNTV_UI_H);
         ui_backdrop_image(bgt, iw, ih, k * (1 - tv), SNTV_UI_H);
@@ -906,9 +909,10 @@ static void draw(Screen *s)
 
     /* movies sit lower and more cinematic; series leave room for the episode rail */
     float x = THEME_MARGIN, y = (series || d->loading ? 84 : 250) + (1 - k) * 24, col_w = 1000;
+    if (g_theme.id == THEME_APERTURE) { y = series || d->loading ? 84 : 164; col_w = 820; }
     int a = (int)(255 * k);
     const char *logo = app_art_logo(&d->preview, lbuf, sizeof lbuf);
-    unsigned ltex = logo ? image_get(logo, &iw, &ih) : 0;
+    unsigned ltex = logo && g_theme.id != THEME_APERTURE ? image_get(logo, &iw, &ih) : 0;
     if (ltex && ih > 0) {
         float w = 640, h = w * ih / iw;
         if (h > 180) { h = 180; w = h * iw / ih; }
@@ -946,7 +950,7 @@ static void draw(Screen *s)
             y += 54;
         }
         if (d->preview.description)
-            y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : 5) * font_height(FONT_S) + 26;
+            y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : g_theme.id == THEME_APERTURE ? 3 : 5) * font_height(FONT_S) + 26;
     }
     if (d->loading) { ui_spinner(x + 26, y + 30, 22); y += 70; }
     if (d->error[0]) { font_draw(d->error, x, y, FONT_S, THEME_DANGER); y += 44; }

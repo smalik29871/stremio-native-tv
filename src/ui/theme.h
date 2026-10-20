@@ -16,9 +16,12 @@
  *           as focus, lowercase headings.
  *   Streaming  the look of the big streaming apps: near-black, plain sentence-case
  *           type, softly rounded cards that grow inside a white outline, white
- *           buttons with black text when focused, grey ones when not. */
-enum { THEME_SIGNAL, THEME_MARQUEE, THEME_GLASS, THEME_METRO, THEME_MIST, THEME_SUNSET, THEME_STREAM, THEME_COUNT };
-enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_GLASS, FOCUS_TILE, FOCUS_MIST, FOCUS_OUTLINE };
+ *           buttons with black text when focused, grey ones when not.
+ *   Aperture charcoal and ivory editorial compositions, still artwork windows,
+ *           small coral focus markers and quiet playback controls. */
+/* Append IDs so existing saved preferences keep their meaning. */
+enum { THEME_SIGNAL, THEME_MARQUEE, THEME_GLASS, THEME_METRO, THEME_MIST, THEME_SUNSET, THEME_STREAM, THEME_APERTURE, THEME_COUNT };
+enum { FOCUS_FRAME, FOCUS_LIGHTBAR, FOCUS_GLASS, FOCUS_TILE, FOCUS_MIST, FOCUS_OUTLINE, FOCUS_APERTURE };
 enum { ROWHEAD_NUMBERED, ROWHEAD_KICKER, ROWHEAD_PLAIN, ROWHEAD_METRO };
 #define THEME_ACCENTS 10
 #define THEME_ACCENT_ART THEME_ACCENTS   /* the accent index past the swatches: the artwork's own colour */

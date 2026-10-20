@@ -347,6 +347,9 @@ void ui_focus_under(float x, float y, float w, float h, float r, float a)
 {
     if (a <= 0.01f) return;
     switch (g_theme.focus_style) {
+    case FOCUS_APERTURE:
+        gfx_rect(x, y + h + 7, w < 48 ? w : 48, 3, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a)));
+        break;
     case FOCUS_FRAME:
         gfx_rrect(x + 10 * a, y + 10 * a, w, h, r, COLOR_ALPHA(THEME_ACCENT, (int)(0x66 * a)));
         break;
@@ -373,6 +376,9 @@ static void focus_over(float x, float y, float w, float h, float r, float a)
 {
     if (a <= 0.01f) return;
     switch (g_theme.focus_style) {
+    case FOCUS_APERTURE:
+        gfx_rrect_ring(x, y, w, h, r, 1, COLOR_ALPHA(THEME_TEXT, (int)(0xA0 * a)));
+        break;
     case FOCUS_FRAME: gfx_rrect_ring(x, y, w, h, r, 5, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a))); break;
     case FOCUS_LIGHTBAR: gfx_rrect_ring(x, y, w, h, r, 2, COLOR_ALPHA(THEME_TEXT, (int)(0xC0 * a))); break;
     case FOCUS_MIST: gfx_rrect_ring(x, y, w, h, r, 3, COLOR_ALPHA(g_theme.id == THEME_SUNSET ? THEME_ACCENT : RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0xF0 * a))); break;   /* just a bright rim */
@@ -478,7 +484,7 @@ int ui_hero_title(const char *text, float x, float bottom, float maxw, Color c)
     if (!text) return 0;
     char up[512];
     if (g_theme.upper_titles) ui_upper(text, up, sizeof up); else snprintf(up, sizeof up, "%s", text);
-    int big = title_font(FONT_TITLE | FONT_B), small = title_font(FONT_XL | FONT_B);
+    int big = title_font((g_theme.id == THEME_APERTURE ? FONT_HUGE : FONT_TITLE) | FONT_B), small = title_font(FONT_XL | FONT_B);
     int fs = font_measure(up, big) > maxw ? small : big;
     int lines = font_draw_wrapped(up, 0, 0, fs, 0, maxw, 2);
     float y = bottom - lines * font_height(fs);
@@ -595,7 +601,7 @@ int ui_hold_hint(float x, float y, float w)
 
 void ui_peek_step(Peek *p, const MetaPreview *m, float dt)
 {
-    if (!g_app.card_details || !m || !m->id) { p->id[0] = 0; p->t = 0; return; }
+    if (g_theme.id == THEME_APERTURE || !g_app.card_details || !m || !m->id) { p->id[0] = 0; p->t = 0; return; }
     if (strcmp(p->id, m->id) != 0) {
         snprintf(p->id, sizeof p->id, "%s", m->id);
         p->since = g_app.time;
@@ -966,13 +972,25 @@ void ui_brand(float x, float y, float s)
  * Marquee lifts toward its light bar, Glass swells most, Metro barely. */
 float ui_focus_scale(float focus)
 {
-    float k = g_theme.focus_style == FOCUS_GLASS || g_theme.focus_style == FOCUS_OUTLINE ? 0.08f : g_theme.focus_style == FOCUS_MIST ? 0.05f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.04f;
+    float k = g_theme.focus_style == FOCUS_APERTURE ? 0.015f : g_theme.focus_style == FOCUS_GLASS || g_theme.focus_style == FOCUS_OUTLINE ? 0.08f : g_theme.focus_style == FOCUS_MIST ? 0.05f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.04f;
     float s = 1.0f + k * focus, t = g_app.time - g_app.press_at;
     if (focus > 0.5f && t >= 0 && t < 0.2f && !g_app.fx_light) {   /* OK pressed: a quick dip and back */
         s *= 1.0f - 0.05f * sinf(3.14159f * t / 0.2f);
         app_redraw();
     }
     return s;
+}
+
+void ui_aperture_art(const char *url, float x, float y, float w, float h, float alpha)
+{
+    int iw = 0, ih = 0;
+    unsigned tex = url && *url ? image_get(url, &iw, &ih) : 0;
+    gfx_rect(x, y, w, h, THEME_BG2);
+    if (tex && iw > 0 && ih > 0) {
+        float u0, v0, u1, v1;
+        cover_uv(iw, ih, w, h, &u0, &v0, &u1, &v1);
+        gfx_rtex_uv(tex, x, y, w, h, 2, u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * alpha)), 0);
+    }
 }
 
 static int g_card_capture = 1;

@@ -18,6 +18,8 @@ void ui_icon(Icon icon, float cx, float cy, float size, Color c);
 /* Full-screen background: base colour plus slow ambient glows tinted by `tint`
  * (pass 0 for the default accent). The tint eases between calls. */
 void ui_background(Color tint);
+/* One cropped artwork quad, using the existing bounded image cache. */
+void ui_aperture_art(const char *url, float x, float y, float w, float h, float alpha);
 /* Cover-fit backdrop anchored right, with cinematic left + bottom fades. alpha 0..1.
  * ui_backdrop = image + fades; the split versions allow cross-fading two images. */
 void ui_backdrop(unsigned tex, int iw, int ih, float alpha, float left_fade_to, float bottom_fade_from);

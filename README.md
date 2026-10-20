@@ -66,6 +66,10 @@ They show the default Signal theme.
 ## What it does
 
 ### Look
+- **Aperture prototype**: an optional charcoal/ivory editorial theme with artwork
+  windows, restrained coral focus markers, quiet playback controls, pause title
+  cards, a cached seek filmstrip, and subtitle/audio drawers. Select it in
+  Settings > Interface > Theme. See [the native prototype guide](docs/APERTURE.md).
 - **Four themes**, switched in Settings > Interface, six accent colours each:
   **Signal** (default: graphite, lime, sharp corners, a solid accent frame for focus,
   capital titles, mono metadata, numbered rows), **Marquee** (warm ink and parchment,

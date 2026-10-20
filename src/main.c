@@ -213,6 +213,19 @@ static void dev_hooks(SDL_Window *win, int frame)
     const char *fr = getenv("SNTV_SCREENSHOT_FRAMES");
     int target = fr ? atoi(fr) : 120;
     if (frame != target) return;
+    Screen *top = app_top();
+    const char *expected = getenv("SNTV_EXPECT_SCREEN");
+    if (expected && (!top || strcmp(top->name, expected))) {
+        LOGE("UI check: expected %s, got %s", expected, top ? top->name : "none");
+        exit(2);
+    }
+    LOGI("UI check: screen=%s theme=%s", top ? top->name : "none", THEME_NAMES[g_theme.id]);
+    const char *expected_video = getenv("SNTV_EXPECT_VIDEO");
+    if (expected_video && *expected_video) {
+        VideoInfo vi; video_info(&vi);
+        VideoState state = !strcmp(expected_video, "paused") ? VIDEO_PAUSED : VIDEO_PLAYING;
+        if (vi.state != state) { LOGE("UI check: expected video %s, got state %d", expected_video, vi.state); exit(2); }
+    }
     int w, h;
     SDL_GL_GetDrawableSize(win, &w, &h);
     unsigned char *px = malloc((size_t)w * h * 4);
@@ -322,7 +335,7 @@ int main(int argc, char **argv)
     if (gfx_init(win) != 0) return 1;
     perf_mark("window");
     /* the saved theme picks the typefaces; app_init applies its colours */
-    if (!store_get_int("lookStreaming", 0)) {   /* 0.10.23: everyone moves to the Streaming look once; the old themes stay in Settings */
+    if (!store_get_int("lookStreaming", 0) && store_get_int("theme", THEME_STREAM) != THEME_APERTURE) {   /* preserve an explicitly selected prototype */
         store_set_int("lookStreaming", 1);
         store_set_int("theme", THEME_STREAM); store_set_int("themeAccent", 0); store_set_int("themeBg", 0);
         LOGI("theme: switched to the Streaming look");

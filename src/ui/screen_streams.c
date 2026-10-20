@@ -634,9 +634,84 @@ float streams_draw_badges(const char *list, float x, float y, float max_w, int f
     return x;
 }
 
+static void aperture_source_summary(const Stream *sm, double runtime, char *out, size_t n)
+{
+    char desc[180];
+    if (sm->probe_state == 2 && sm->probe) {
+        probe_describe(sm->probe, desc, sizeof desc);
+        snprintf(out, n, "Checked file  /  %s", desc);
+    } else {
+        quality_summary(&sm->tags, runtime, desc, sizeof desc);
+        snprintf(out, n, "%s  /  %s", sm->probe_state == 1 ? "Checking file" : "From source name", desc[0] ? desc : "Format unknown");
+    }
+}
+
+static void draw_aperture(Streams *st)
+{
+    char buf[512], line[300];
+    ui_background(0);
+    font_draw_tracked("APERTURE  /  SOURCES", THEME_MARGIN, 50, FONT_XS, THEME_TEXT_DIM, 1.5f);
+    ui_aperture_art(app_art_poster(&st->meta, buf, sizeof buf), THEME_MARGIN, 120, 360, 540, 1);
+    font_draw_wrapped(st->meta.name, THEME_MARGIN, 696, FONT_L | FONT_B, THEME_TEXT, 420, 2);
+    if (st->video_title) font_draw_fit(st->video_title, THEME_MARGIN, 812, FONT_S, THEME_TEXT_DIM, 420);
+    font_draw("Back  Return to title", THEME_MARGIN, 960, FONT_XS, THEME_TEXT_DIM);
+    float x = LIST_X, w = SNTV_UI_W - THEME_MARGIN - x;
+    font_draw("Find your picture.", x, 92, FONT_L | FONT_B, THEME_TEXT);
+    snprintf(line, sizeof line, "%d sources  /  %d addons searching", st->n, st->pending);
+    font_draw(st->n || st->pending ? line : "No sources. Check your stream addons in Settings.", x, 150, FONT_S, THEME_TEXT_DIM);
+    if (st->pending) ui_spinner(x + w - 28, 140, 18);
+    if (!st->n && st->pending) {
+        for (int i = 0; i < 4; i++) ui_skeleton(x, LIST_Y + i * ROW_H, w, ROW_H - 14, R_PANEL);
+        return;
+    }
+    int rec = recommended(st);
+    double runtime = quality_runtime_minutes(st->meta.runtime);
+    float list_y = LIST_Y;
+    if (rec >= 0) {
+        const Stream *sm = &st->items[rec];
+        int foc = st->focus == -1;
+        gfx_rect(x, LIST_Y, w, REC_H - 16, foc ? THEME_FOCUS : THEME_BG2);
+        if (foc) ui_focus_under(x, LIST_Y, w, REC_H - 16, R_PANEL, 1);
+        Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
+        font_draw_tracked("RECOMMENDED FOR THIS TV", x + 28, LIST_Y + 18, FONT_XS, fg, 1);
+        first_line(sm->name, line, sizeof line);
+        font_draw_fit(line[0] ? line : sm->addon_name, x + 28, LIST_Y + 49, FONT_M | FONT_B, fg, w - 230);
+        aperture_source_summary(sm, runtime, line, sizeof line);
+        font_draw_fit(line, x + 28, LIST_Y + 96, FONT_XS, fg, w - 230);
+        ui_icon(ICON_PLAY, x + w - 66, LIST_Y + 67, 28, fg);
+        list_y += REC_H;
+    }
+    gfx_clip_push(x - 8, list_y - 8, w + 16, SNTV_UI_H - list_y - 44);
+    QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
+    for (int i = 0; i < st->n; i++) {
+        float y = list_y + i * ROW_H - st->scroll;
+        if (y + ROW_H < list_y || y > SNTV_UI_H) continue;
+        const Stream *sm = &st->items[i];
+        int foc = st->focus == i, ok = playable(sm);
+        gfx_rect(x, y + ROW_H - 10, w, 1, THEME_LINE);
+        if (foc) { gfx_rect(x, y, w, ROW_H - 18, THEME_SURFACE); gfx_rect(x - 7, y + 20, 3, 40, THEME_ACCENT); }
+        first_line(sm->name, line, sizeof line);
+        font_draw_fit(line[0] ? line : "Stream", x + 24, y + 16, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 270);
+        font_draw_fit(sm->addon_name, x + w - 230, y + 22, FONT_XS, THEME_TEXT_DIM, 210);
+        aperture_source_summary(sm, runtime, line, sizeof line);
+        const char *warn[1];
+        const char *note = !ok ? "Cannot play on this TV" : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
+            : sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85 ? "Too fast for this link"
+            : quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 1) ? warn[0] : sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
+        font_draw_fit(note ? note : line, x + 24, y + 62, FONT_XS, note ? THEME_DANGER : THEME_TEXT_DIM, w - 48);
+        if (foc) {
+            const char *file = sm->filename ? sm->filename : sm->description ? sm->description : sm->title;
+            first_line(file, line, sizeof line);
+            font_draw_fit(line, x + 24, y + 96, FONT_XS, THEME_TEXT_MUTED, w - 48);
+        }
+    }
+    gfx_clip_pop();
+}
+
 static void draw(Screen *s)
 {
     Streams *st = s->st;
+    if (g_theme.id == THEME_APERTURE) { draw_aperture(st); return; }
     char buf[512];
     const char *bg = app_art_background(&st->meta, buf, sizeof buf);
     ui_background(image_tint(bg));
