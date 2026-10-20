@@ -299,6 +299,7 @@ int main(int argc, char **argv)
                 perf_key();
                 KeyAction a = input_map(&e);
                 g_app.last_input = g_app.time;
+                g_app.key_repeat = e.key.repeat != 0;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) continue;
                 /* a held OK presses once (no double play, no OK landing on the next screen); remotes

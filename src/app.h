@@ -123,7 +123,8 @@ typedef struct App {
     int auto_update;           /* ask when a new release is out (else a notice only) */
     int break_video;           /* show the video of a break recording full screen */
     /* take breaks (breaks.h) */
-    int breaks_on, break_sched, break_method, break_asr_hanafi;
+    int breaks_on, break_sched, break_method, break_asr_hanafi;   /* break_method -1: by location */
+    char break_country[4];     /* where the location lookup placed the TV ("CA"), for the method */
     int break_lead_min, break_len_min, break_sound;   /* sound: 0 chime, 1 custom audio, 2 silent */
     char *break_audio, *break_end;                    /* URLs played at the start and the end */
     int break_health_min, break_health_len, break_bed, break_custom[3], breaks_everywhere;
@@ -131,6 +132,7 @@ typedef struct App {
     int home_rows_version;     /* bumped when rows are reordered or hidden */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
+    int key_repeat;            /* the key being handled is auto-repeat from a held key */
 
     /* perf */
     int frames_measured; float frame_ms_sum, frame_ms_worst;

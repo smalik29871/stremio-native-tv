@@ -69,7 +69,7 @@ struct Player {
     float since_report;
     double last_reported;
     int finished, up_next_shown, up_next_accepted;
-    int seek_steps; float seek_decay;
+    float seek_last_press;                  /* g_app.time of the last seek press (not a repeat) */
     double seek_target; float seek_commit;   /* debounced seek while the key repeats */
     double seek_origin;                      /* where the playhead was when the seek began (Back returns there) */
     float load_started;
@@ -96,7 +96,7 @@ struct Player {
     /* AI translation of the active addon file into the preferred language, a batch at a time, playhead first */
     int xl_on, xl_hinted; char xl_lang[8]; unsigned char *xl_done; int xl_n_done, xl_fails; unsigned xl_req; unsigned xl_gen; int xl_from, xl_count; float xl_wait;
     float seek_flash; int seek_flash_dir;   /* the ±10 s mark flashes on the side that seeks */
-    int seek_flash_step;                    /* seconds the last press moved (grows while the key is held) */
+    int seek_flash_step;                    /* seconds the last press moved (double on a double press) */
     float rest_t;                           /* paused and left alone: the controls fade, the title stays */
     int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
     int tracked;                            /* Trakt was told this one started */
@@ -1525,8 +1525,6 @@ static void update(Screen *s, float dt)
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
     if (vi.state == VIDEO_PLAYING && vi.position > 2 && !p->yt_noted) { p->yt_noted = 1; youtube_note_result(p->cands[p->cur].url, 1); }
     if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0); }
-    p->seek_decay -= dt;
-    if (p->seek_decay <= 0) p->seek_steps = 0;
     if (p->seek_commit > 0) { p->seek_commit -= dt; if (p->seek_commit <= 0) video_seek(p->seek_target); }
 
     if (vi.tracks_version != p->last_tracks_version) { p->last_tracks_version = vi.tracks_version; app_redraw(); }
@@ -2571,15 +2569,12 @@ static void seek_by(Player *p, double base)
 {
     VideoInfo vi;
     video_info(&vi);
-    p->seek_steps++;
-    p->seek_decay = 0.6f;
-    /* held: bigger steps the longer the key stays down, never more than a 60th of the
-     * video per press (a short episode is not crossed in three presses) */
-    double step = base * (p->seek_steps > 16 ? 12 : p->seek_steps > 8 ? 6 : p->seek_steps > 4 ? 3 : 1);
-    double cap = vi.duration > 0 ? vi.duration / 60 : 0;
-    if (cap < fabs(base)) cap = fabs(base);
-    if (step > cap) step = cap;
-    if (step < -cap) step = -cap;
+    /* a steady step a press, held or not; a quick second press goes twice as far */
+    double step = base;
+    if (!g_app.key_repeat) {
+        if (g_app.time - p->seek_last_press < 0.4f && p->seek_flash_dir == (base < 0 ? -1 : 1)) step = base * 2;
+        p->seek_last_press = g_app.time;
+    }
     p->seek_flash_step = (int)(fabs(step) + 0.5);
     if (p->seek_commit <= 0) p->seek_origin = vi.position;
     double from = p->seek_commit > 0 ? p->seek_target : vi.position;

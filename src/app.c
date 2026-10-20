@@ -1516,7 +1516,9 @@ static void load_prefs(void)
     g_app.memory_mode = store_get_int("memoryMode", 0);
     g_app.breaks_on = store_get_int("breaksOn", 0);
     g_app.break_sched = store_get_int("breakSched", 0);
-    g_app.break_method = store_get_int("breakMethod", 0);
+    { int old = store_get_int("breakMethod", 0);   /* before Auto, 0 was just the default */
+      g_app.break_method = store_get_int("breakMethodV2", old ? old : -1); }
+    snprintf(g_app.break_country, sizeof g_app.break_country, "%s", store_get_str("breakCountry", ""));
     g_app.break_asr_hanafi = store_get_int("breakAsr", 0);
     g_app.break_lead_min = store_get_int("breakLead", 5);
     g_app.break_len_min = store_get_int("breakLen", 10);
@@ -1529,7 +1531,6 @@ static void load_prefs(void)
     CLAMP_PREF(g_app.ai_provider, AI_PROVIDER_COUNT, 0);
     CLAMP_PREF(g_app.memory_mode, 3, 0);
     CLAMP_PREF(g_app.break_sched, BRK_SCHED_COUNT, 0);
-    CLAMP_PREF(g_app.break_method, SUN_METHOD_COUNT, 0);
     CLAMP_PREF(g_app.break_sound, 3, 0);
 #undef CLAMP_PREF
     g_app.break_health_min = store_get_int("breakHealth", 0);
@@ -1606,7 +1607,9 @@ void app_save_prefs(void)
     store_set_int("memoryMode", g_app.memory_mode);
     store_set_int("breaksOn", g_app.breaks_on);
     store_set_int("breakSched", g_app.break_sched);
-    store_set_int("breakMethod", g_app.break_method);
+    if (g_app.break_method < -1 || g_app.break_method >= SUN_METHOD_COUNT) g_app.break_method = -1;
+    store_set_int("breakMethodV2", g_app.break_method);
+    store_set_str("breakCountry", g_app.break_country[0] ? g_app.break_country : NULL);
     store_set_int("breakAsr", g_app.break_asr_hanafi);
     store_set_int("breakLead", g_app.break_lead_min);
     store_set_int("breakLen", g_app.break_len_min);

@@ -45,6 +45,14 @@ int breaks_minute_now(void) { struct tm t = now_tm(); return t.tm_hour * 60 + t.
 double breaks_tz_hours(void) { struct tm t = now_tm(); return t.tm_gmtoff / 3600.0; }
 int breaks_location_known(void) { return g_app.break_lat != 0 || g_app.break_lon != 0; }
 
+int breaks_method(void)
+{
+    if (g_app.break_method >= 0 && g_app.break_method < SUN_METHOD_COUNT) return g_app.break_method;
+    int m = sun_method_for_country(g_app.break_country);
+    if (m < 0) m = breaks_location_known() ? sun_method_for_place(g_app.break_lat, g_app.break_lon) : SUN_MWL;
+    return m;
+}
+
 static int hm(double hours) { if (isnan(hours)) return -1; int m = (int)floor(hours * 60 + 0.5); return ((m % 1440) + 1440) % 1440; }
 
 static void add(BreakEvent *out, int *n, int max, const char *name, const char *detail, int minute, int kind)
@@ -64,7 +72,7 @@ int breaks_today(BreakEvent *out, int max)
     struct tm t = now_tm();
     SunDay d; int have_sun = 0;
     if (breaks_location_known()) {
-        sun_compute(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, g_app.break_lat, g_app.break_lon, breaks_tz_hours(), g_app.break_method, g_app.break_asr_hanafi, &d);
+        sun_compute(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, g_app.break_lat, g_app.break_lon, breaks_tz_hours(), breaks_method(), g_app.break_asr_hanafi, &d);
         have_sun = 1;
     }
     switch (g_app.break_sched) {
@@ -137,6 +145,7 @@ void breaks_set_location(double lat, double lon, const char *city)
 {
     g_app.break_lat = lat; g_app.break_lon = lon;
     snprintf(g_app.break_city, sizeof g_app.break_city, "%s", city ? city : "");
+    g_app.break_country[0] = 0;   /* typed coordinates: the method comes from the map */
     app_save_prefs();
     B.day_key = -1;
 }
@@ -150,8 +159,11 @@ static void on_ipapi(HttpResponse *r, void *user)
     cJSON *root = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const cJSON *lat = root ? cJSON_GetObjectItemCaseSensitive(root, "lat") : NULL, *lon = root ? cJSON_GetObjectItemCaseSensitive(root, "lon") : NULL;
     const cJSON *city = root ? cJSON_GetObjectItemCaseSensitive(root, "city") : NULL;
+    const cJSON *cc = root ? cJSON_GetObjectItemCaseSensitive(root, "countryCode") : NULL;
     if (cJSON_IsNumber(lat) && cJSON_IsNumber(lon)) {
         breaks_set_location(lat->valuedouble, lon->valuedouble, cJSON_IsString(city) ? city->valuestring : "");
+        if (cJSON_IsString(cc)) { snprintf(g_app.break_country, sizeof g_app.break_country, "%s", cc->valuestring); app_save_prefs(); }
+        LOGI("breaks: prayer times by %s", SUN_METHOD_NAMES[breaks_method()]);
         app_toast("Location: %s (%.2f, %.2f)", g_app.break_city[0] ? g_app.break_city : "found", lat->valuedouble, lon->valuedouble);
         LOGI("breaks: location from the internet %.3f, %.3f %s", lat->valuedouble, lon->valuedouble, g_app.break_city);
     } else { app_toast("Could not find the location; enter it by hand"); LOGW("breaks: ip-api %ld %s", r->status, r->error); }
@@ -164,7 +176,7 @@ void breaks_detect_location(void)
     if (B.detecting) return;
     B.detecting = 1;
     const char *base = getenv("SNTV_IPAPI");
-    http_request_async(base && *base ? base : "http://ip-api.com/json/?fields=status,city,lat,lon", NULL, on_ipapi, NULL);
+    http_request_async(base && *base ? base : "http://ip-api.com/json/?fields=status,city,countryCode,lat,lon", NULL, on_ipapi, NULL);
 }
 int breaks_detecting(void) { return B.detecting; }
 

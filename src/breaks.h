@@ -15,6 +15,8 @@ typedef struct BreakEvent { char name[48]; char detail[64]; int minute; int kind
 int  breaks_today(BreakEvent *out, int max);          /* sorted by minute */
 void breaks_describe_today(char *out, size_t n);      /* "Fajr 5:38 · Dhuhr 12:24 · ..." */
 int  breaks_location_known(void);
+/* The prayer time method in use: the chosen one, or the local authority's for the location. */
+int  breaks_method(void);
 void breaks_set_location(double lat, double lon, const char *city);
 void breaks_detect_location(void);                     /* asks ip-api.com (or SNTV_IPAPI) once */
 int  breaks_detecting(void);

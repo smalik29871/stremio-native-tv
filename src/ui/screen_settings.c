@@ -299,7 +299,7 @@ static const char *row_desc(int id)
     case IT_AUTO_UPDATE: return "A popup at a quiet moment: Update now or Later. Never while something plays.";
     case IT_BR_ON: return "Playback pauses at the times below.";
     case IT_BR_SCHED: return "Where break times come from.";
-    case IT_BR_METHOD: return "The angles that set Fajr and Isha.";
+    case IT_BR_METHOD: return "Auto follows your country's own authority.";
     case IT_BR_WHERE: return "Only during videos, or while browsing too.";
     case IT_BR_LEAD: return "A banner warns this long before a break.";
     case IT_BR_LEN: return "How long playback stays paused.";
@@ -789,7 +789,13 @@ static void draw(Screen *s)
         case IT_BR_TEST: draw_row(y, ICON_PLAY, "Try a break now", "See and hear what a break looks like", foc, KIND_ACTION, 0); break;
         case IT_BR_ON: draw_row(y, ICON_CLOCK, "Take breaks", NULL, foc, KIND_TOGGLE, g_app.breaks_on); break;
         case IT_BR_SCHED: draw_row(y, ICON_CALENDAR, "Schedule", BRK_SCHED_NAMES[g_app.break_sched], foc, KIND_CHOICE, 0); break;
-        case IT_BR_METHOD: draw_row(y, ICON_COMPASS, "Calculation method", SUN_METHOD_NAMES[g_app.break_method], foc, KIND_CHOICE, 0); break;
+        case IT_BR_METHOD: {
+            char mv[96];
+            if (g_app.break_method < 0) snprintf(mv, sizeof mv, "Auto \xC2\xB7 %s", SUN_METHOD_NAMES[breaks_method()]);
+            else snprintf(mv, sizeof mv, "%s", SUN_METHOD_NAMES[g_app.break_method]);
+            draw_row(y, ICON_COMPASS, "Calculation method", mv, foc, KIND_CHOICE, 0);
+            break;
+        }
         case IT_BR_ASR: draw_row(y, ICON_COMPASS, "Asr", g_app.break_asr_hanafi ? "Hanafi (later)" : "Standard (Shafi, Maliki, Hanbali)", foc, KIND_CHOICE, 0); break;
         case IT_BR_LOCATION:
             if (breaks_location_known()) snprintf(v, sizeof v, "%.3f, %.3f%s%s", g_app.break_lat, g_app.break_lon, g_app.break_city[0] ? "  \xC2\xB7  " : "", g_app.break_city);
@@ -1362,7 +1368,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_TMDB: case IT_AI_KEY: case IT_AI_BASE: case IT_AI_MODEL: case IT_SRC_EXCLUDE: return 1;
     case IT_BR_ON: g_app.breaks_on = !g_app.breaks_on; break;
     case IT_BR_SCHED: g_app.break_sched = (g_app.break_sched + dir + BRK_SCHED_COUNT) % BRK_SCHED_COUNT; break;
-    case IT_BR_METHOD: g_app.break_method = (g_app.break_method + dir + SUN_METHOD_COUNT) % SUN_METHOD_COUNT; break;
+    case IT_BR_METHOD: g_app.break_method = (g_app.break_method + 1 + dir + SUN_METHOD_COUNT + 1) % (SUN_METHOD_COUNT + 1) - 1; break;   /* Auto, then each method */
     case IT_BR_ASR: g_app.break_asr_hanafi = !g_app.break_asr_hanafi; break;
     case IT_BR_LEAD: g_app.break_lead_min = step_move(BR_LEADS, N_OF(BR_LEADS), g_app.break_lead_min, 3, dir); break;
     case IT_BR_LEN: g_app.break_len_min = step_move(BR_LENS, N_OF(BR_LENS), g_app.break_len_min, 4, dir); break;

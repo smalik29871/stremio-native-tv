@@ -5,7 +5,13 @@
 #ifndef SNTV_SUNTIMES_H
 #define SNTV_SUNTIMES_H
 
-enum { SUN_MWL, SUN_ISNA, SUN_EGYPT, SUN_MAKKAH, SUN_KARACHI, SUN_TEHRAN, SUN_JAFARI, SUN_METHOD_COUNT };
+enum { SUN_MWL, SUN_ISNA, SUN_EGYPT, SUN_MAKKAH, SUN_KARACHI, SUN_TEHRAN, SUN_JAFARI,   /* stored by number: add at the end */
+       SUN_DUBAI, SUN_KUWAIT, SUN_QATAR, SUN_SINGAPORE, SUN_UOIF, SUN_TURKEY, SUN_RUSSIA, SUN_JAKIM, SUN_KEMENAG,
+       SUN_TUNISIA, SUN_ALGERIA, SUN_MOROCCO, SUN_JORDAN, SUN_METHOD_COUNT };
+/* The method the local authority of a country uses ("TR", "GB"...), or -1 when unknown. */
+int sun_method_for_country(const char *cc);
+/* The same guessed from coordinates alone (a rough map of countries). */
+int sun_method_for_place(double lat, double lon);
 extern const char *const SUN_METHOD_NAMES[SUN_METHOD_COUNT];
 
 typedef struct SunDay {
