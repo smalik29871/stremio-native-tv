@@ -256,7 +256,22 @@ int main(int argc, char **argv)
     /* the network and the artwork loader first: what Home showed last time is read from
      * the disk cache and decoded on its threads while the fonts load */
     if (http_init() != 0) LOGE("network unavailable: libcurl missing");
-    image_init(dir, image_budget());
+    {   /* artwork off the developer partition: the installer unpacks updates there, and a
+         * full cache there makes the next update fail ("ipk extraction failure") */
+        char cache[1024];
+        snprintf(cache, sizeof cache, "%s", dir);
+        if (!strncmp(dir, "/media/developer/", 17)) {
+            char alt[1024];
+            snprintf(alt, sizeof alt, "/media/internal/.%s", SNTV_APP_ID);
+            mkdir(alt, 0755);
+            if (dir_writable(alt) && !in_ram(alt)) {
+                snprintf(cache, sizeof cache, "%s", alt);
+                char old[1100]; snprintf(old, sizeof old, "%s/img", dir);
+                image_drop_old_cache(old);
+            }
+        }
+        image_init(cache, image_budget());
+    }
     {
         const cJSON *first = store_get_json("homeFirstView"), *u;
         int n = 0;

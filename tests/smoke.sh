@@ -195,6 +195,13 @@ grep -q "toast: Saved to Favourites" "$OUT/list_save.log" || { echo "Save to a l
 grep -q '"lists"' "$OUT/home_lists/.local/share/stremio/nativetv/settings.json" || { echo "the list was not stored"; exit 1; }
 NO_PREFLIGHT='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'   # the names decide (the test file itself is 180p)
 LIGHTER="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/manifest.json"   # its 2160p copy plays first
+# a nearly full drive: the artwork cache shrinks so the TV (and the next update) keeps room
+DH="$(home_with diskfull '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"; mkdir -p "$DH/.local/share/stremio/nativetv/img"
+for i in $(seq 1 20); do head -c 1048576 /dev/zero > "$DH/.local/share/stremio/nativetv/img/$(printf '%016x' "$i").img"; done
+FREE_MB=$(df -m --output=avail "$DH" | tail -1)
+run disk_full 120 "" HOME="$DH" SNTV_DISK_KEEP_FREE_MB=$((FREE_MB + 10))
+grep -q "image: .* MB free on the cache's drive; artwork cache kept to" "$OUT/disk_full.log" && [ "$(ls "$DH/.local/share/stremio/nativetv/img" | wc -l)" -lt 15 ] \
+  || { echo "the artwork cache did not make room on a full drive"; grep image "$OUT/disk_full.log"; exit 1; }
 # Sources panel > Find more sources: every addon is asked while the video plays on, and the new ones join the list
 run player_more_sources 600 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok,down,down,down,down,down,down,down,ok,wait,wait,wait,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with more_src "$NO_PREFLIGHT")"

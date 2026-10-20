@@ -17,6 +17,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <unistd.h>
 #include <dirent.h>
 #include <time.h>
 #include <utime.h>
@@ -46,10 +48,12 @@ typedef struct Img {
 } Img;
 
 enum { BUCKETS = 1024, DISK_CACHE_MAX_BYTES = 96 * 1024 * 1024, DISK_FILE_MAX = 2 * 1024 * 1024 };
+#define DISK_KEEP_FREE (200LL * 1024 * 1024)
 static Img *g_buckets[BUCKETS];
 static size_t g_total_bytes, g_budget = SNTV_IMAGE_CACHE_BYTES;
 static unsigned g_clock;
 static char g_cache_dir[1024];
+static char g_old_cache_dir[1024];   /* where the cache was before: emptied once */
 static int g_pending_decodes;
 
 enum { DECODERS = 2 };
@@ -158,6 +162,7 @@ static unsigned char *to_pot(unsigned char *px, int *w, int *h)
 }
 
 static void trim_disk_cache(void);
+static void drop_dir(const char *dir);
 static int read_disk(Img *i);
 static size_t g_disk_written;   /* bytes added to the disk cache since it was last trimmed */
 /* Pictures this TV makes (seek previews): never on disk, they would push the posters out. */
@@ -166,6 +171,7 @@ static const HttpOptions ARTWORK = { .no_json_accept = 1, .background = 1 };
 
 static int decoder_main(void *arg)
 {
+    if (arg && g_old_cache_dir[0]) drop_dir(g_old_cache_dir);
     if (arg && g_cache_dir[0]) trim_disk_cache();   /* the first decoder tidies the disk cache, off the main thread */
     for (;;) {
         SDL_LockMutex(g_lock);
@@ -461,7 +467,28 @@ int image_busy(void)
     return busy;
 }
 
-/* Trim the disk cache to DISK_CACHE_MAX_BYTES by deleting the oldest files. */
+void image_drop_old_cache(const char *dir) { snprintf(g_old_cache_dir, sizeof g_old_cache_dir, "%s", dir); }
+
+static void drop_dir(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    int n = 0;
+    while ((e = readdir(d))) {
+        if (!strstr(e->d_name, ".img")) continue;
+        char path[1300];
+        snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
+        n += remove(path) == 0;
+    }
+    closedir(d);
+    rmdir(dir);
+    if (n) LOGI("image: emptied the old artwork cache %s (%d files)", dir, n);
+}
+
+/* Trim the disk cache to DISK_CACHE_MAX_BYTES by deleting the oldest files, and further
+ * when its drive gets full: it always leaves DISK_KEEP_FREE for the rest of the TV
+ * (an app update unpacks into the same storage). */
 static void trim_disk_cache(void)
 {
     DIR *d = opendir(g_cache_dir);
@@ -484,7 +511,17 @@ static void trim_disk_cache(void)
         n++;
     }
     closedir(d);
-    while (total > DISK_CACHE_MAX_BYTES && n > 0) {
+    long long limit = DISK_CACHE_MAX_BYTES;
+    struct statvfs vs;
+    if (statvfs(g_cache_dir, &vs) == 0) {
+        long long free_b = (long long)vs.f_bavail * (long long)vs.f_frsize;
+        const char *kf = getenv("SNTV_DISK_KEEP_FREE_MB");   /* tests: a nearly full drive */
+        long long keep = kf ? atoll(kf) << 20 : DISK_KEEP_FREE;
+        long long room = total + free_b - keep;   /* what the cache may hold and still leave that free */
+        if (room < limit) limit = room > 0 ? room : 0;
+        if (limit < DISK_CACHE_MAX_BYTES) LOGI("image: %lld MB free on the cache's drive; artwork cache kept to %lld MB", free_b >> 20, limit >> 20);
+    }
+    while (total > limit && n > 0) {
         int oldest = 0;
         for (int i = 1; i < n; i++) if (files[i].mtime < files[oldest].mtime) oldest = i;
         char path[1300];
