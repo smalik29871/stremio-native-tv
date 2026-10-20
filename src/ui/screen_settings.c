@@ -53,7 +53,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -123,7 +123,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_FALLBACK); ids[n++] = IT_P2P;
         break;
     case CAT_INTERFACE:
-        SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
+        SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_PALETTE; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
         SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
@@ -229,6 +229,7 @@ static const char *row_title(int id)
     case IT_BR_WHERE: return "Breaks apply";
     case IT_AUTO_REC: return "Play the recommended source automatically";
     case IT_THEME: return "Theme";
+    case IT_PALETTE: return "Colour palette";
     case IT_ACCENT: return "Accent colour";
     case IT_BG: return "Background";
     case IT_CARD_DETAILS: return "Show details when a card stays focused";
@@ -295,6 +296,7 @@ static const char *row_desc(int id)
     case IT_OLED: return "No grey behind the screens; kind to OLED panels.";
     case IT_ASK_PROFILE: return "The saved accounts as profiles when the app opens.";
     case IT_BG: return "A tint for the screens behind the artwork.";
+    case IT_PALETTE: return "An accent and a background that go together. Accent and Background below mix your own.";
     case IT_ACCENT: return "Focus, highlights and progress.";
     case IT_HOME_STYLE: return "How much room the focused title's artwork takes.";
     case IT_CARD_DETAILS: return "After a moment on a card it widens with the rating, runtime and synopsis; the cards beside it make room.";
@@ -335,7 +337,7 @@ static int row_takes_left(int id)
     case IT_SUBS_WHEN: case IT_CLOCK: case IT_ISLAND_STYLE: case IT_CLOCK_FACE: case IT_QUALITY: case IT_RES_CAP: case IT_SRC_SIZE: case IT_SRC_HDR: case IT_AI_PROVIDER: case IT_MEMORY:
     case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
     case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
-    case IT_BR_WHERE: case IT_THEME: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE:
+    case IT_BR_WHERE: case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE:
         return 1;
     default: return 0;   /* switches and actions: Left goes back to the categories */
     }
@@ -562,7 +564,7 @@ static void draw_categories(const Settings *st, float e)
 static PreviewKind preview_for(int id)
 {
     switch (id) {
-    case IT_THEME: case IT_ACCENT: case IT_BG: return PV_THEME;
+    case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: return PV_THEME;
     case IT_HOME_STYLE: return PV_HOME_STYLE;
     case IT_SUBS_SIZE: case IT_SUBS_STYLE: return PV_SUBS;
     case IT_CLOCK: case IT_ISLAND_STYLE: return PV_CLOCK;
@@ -615,7 +617,7 @@ static void draw_panel(const Settings *st, const int *ids, int n, float e)
     int id = ids[st->focus];
     float x = PREV_X + 60 * (1 - e), y = 120, w = SNTV_UI_W - THEME_MARGIN - PREV_X, h = SNTV_UI_H - 80 - y;
     gfx_set_alpha(e);
-    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0A));
+    if (g_theme.id != THEME_APERTURE) gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0A));   /* Aperture's preview sits on the page */
     PreviewKind kind = preview_for(id);
     float ih = 470, pt = 1 - (1 - st->panel_t) * (1 - st->panel_t) * (1 - st->panel_t);
     gfx_set_alpha(e * pt);   /* a new setting's drawing rises into place */
@@ -871,6 +873,23 @@ static void draw(Screen *s)
         case IT_AUTO_TRAILER:   /* Aperture's artwork windows stay still */
             draw_row(y, ICON_PLAY, "Trailers play on their own", g_app.theme == THEME_APERTURE ? "Not in the Aperture theme" : g_app.auto_trailers == 2 ? "With sound" : g_app.auto_trailers ? "Muted" : "Off", foc, KIND_CHOICE, 0);
             break;
+        case IT_PALETTE: {   /* each palette as its background with the accent across it, the current one framed */
+            int cur = theme_palette_index(g_app.theme_accent, g_app.theme_bg);
+            char name[80];
+            if (cur >= 0) snprintf(name, sizeof name, "%s on %s", theme_accent_name(g_app.theme, THEME_PALETTE[cur][0]), THEME_BG_NAMES[g_app.theme][THEME_PALETTE[cur][1]]);
+            else snprintf(name, sizeof name, "Your own mix");
+            s_desc = " ";
+            draw_row(y, ICON_PALETTE, "Colour palette", name, foc, KIND_CHOICE, 0);
+            float sw = 40, sh = 24, step = 52, sx = s_x + 92, sy = y + (ROW_H - 12) / 2 + 4;
+            for (int i = 0; i < THEME_PALETTES; i++) {
+                float bx = sx + i * step;
+                if (i == cur) gfx_rrect_ring(bx - 3, sy - 3, sw + 6, sh + 6, 5, 2.5f, foc && g_theme.id != THEME_APERTURE ? THEME_ON_FOCUS : THEME_TEXT);
+                gfx_rrect(bx, sy, sw, sh, 3, theme_bg_swatch(g_app.theme, THEME_PALETTE[i][1]));
+                gfx_rrect(bx + 6, sy + sh / 2 - 3, sw - 12, 6, 3, theme_accent_swatch(g_app.theme, THEME_PALETTE[i][0]));
+                gfx_rrect_ring(bx, sy, sw, sh, 3, 1, COLOR_ALPHA(THEME_TEXT, 0x40));
+            }
+            break;
+        }
         case IT_ACCENT: case IT_BG: {
             /* the swatches sit on the help line, the current one framed */
             int bg = id == IT_BG, n = bg ? THEME_BGS : THEME_ACCENTS + 1, cur = bg ? g_app.theme_bg : g_app.theme_accent;
@@ -1391,6 +1410,14 @@ static int adjust(Settings *st, int id, int dir)
         break;
     case IT_CARD_DETAILS: g_app.card_details = !g_app.card_details; break;
     case IT_AUTO_TRAILER: g_app.auto_trailers = (g_app.auto_trailers + dir + 3) % 3; break;
+    case IT_PALETTE: {   /* from a mix of one's own, Right starts at the first palette */
+        int cur = theme_palette_index(g_app.theme_accent, g_app.theme_bg);
+        int next = cur < 0 ? (dir > 0 ? 0 : THEME_PALETTES - 1) : (cur + dir + THEME_PALETTES) % THEME_PALETTES;
+        g_app.theme_accent = THEME_PALETTE[next][0];
+        g_app.theme_bg = THEME_PALETTE[next][1];
+        theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
+        break;
+    }
     case IT_ACCENT:
         g_app.theme_accent = (g_app.theme_accent + dir + THEME_ACCENTS + 1) % (THEME_ACCENTS + 1);   /* the last is the artwork's colour */
         theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);

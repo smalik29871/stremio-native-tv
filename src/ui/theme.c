@@ -239,6 +239,14 @@ void theme_apply(int id, int accent_idx, int bg_idx)
     g_theme = t;
 }
 
+const unsigned char THEME_PALETTE[THEME_PALETTES][2] = { { 0, 0 }, { 4, 1 }, { 2, 2 }, { 3, 3 }, { 5, 1 }, { 1, 3 } };
+
+int theme_palette_index(int accent_idx, int bg_idx)
+{
+    for (int i = 0; i < THEME_PALETTES; i++) if (THEME_PALETTE[i][0] == accent_idx && THEME_PALETTE[i][1] == bg_idx) return i;
+    return -1;
+}
+
 const char *theme_accent_name(int id, int accent_idx)
 {
     if (accent_idx == THEME_ACCENT_ART) return "From the artwork";

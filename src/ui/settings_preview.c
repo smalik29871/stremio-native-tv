@@ -106,6 +106,40 @@ static void lang_carousel(const char *code, Icon icon, float x, float y, float w
     ui_icon(ICON_CHEVRON_RIGHT, x + w - 20, cy + 32, 24, THEME_TEXT_MUTED);
 }
 
+/* Aperture's theme preview, as its mockup draws it: a small Home with the title over
+ * the artwork and the tab bar under it, then the palettes, the one in use framed. */
+static void aperture_live(float x, float y, float w, float h)
+{
+    font_draw("Live preview", x + 24, y + 4, FONT_M, THEME_TEXT);
+    font_draw("See changes before you leave.", x + 24, y + 44, FONT_XS, THEME_TEXT_DIM);
+    float cx = x + 24, cy = y + 88, cw = w - 48, bar = 70, ch = h - 88 - 80, ah = ch - bar;
+    gfx_rect(cx, cy, cw, ch, THEME_BG);
+    art(cx, cy, cw, ah, 0, 1, 0);
+    gfx_gradient_h(cx, cy, cw * 0.6f, ah, COLOR_ALPHA(THEME_BG, 0xD0), COLOR_ALPHA(THEME_BG, 0));
+    const char *name = "Lunar Tide";
+    for (int i = 0; i < g_app.n_library; i++) if (!g_app.library[i].removed && g_app.library[i].name && *g_app.library[i].name) { name = g_app.library[i].name; break; }
+    ui_serif_title(name, cx + 22, cy + ah - 22, cw * 0.62f, FONT_TITLE, 2, THEME_TEXT);
+    static const Icon ICONS[] = { ICON_HOME, ICON_SEARCH, ICON_LIBRARY, ICON_SETTINGS };
+    static const char *const TABS[] = { "Home", "Search", "Library", "Settings" };
+    float tw = cw / 4;
+    for (int i = 0; i < 4; i++) {
+        float tx = cx + i * tw + tw / 2, ty = cy + ah + 10;
+        Color c = i == 0 ? THEME_TEXT : THEME_TEXT_DIM;
+        ui_icon(ICONS[i], tx, ty + 16, 24, c);
+        font_draw_center(TABS[i], tx, ty + 32, FONT_XS, c);
+        if (i == 0) gfx_rect(tx - 22, ty + 56, 44, 3, THEME_ACCENT);
+    }
+    gfx_rrect_ring(cx, cy, cw, ch, 2, 1.5f, THEME_LINE);
+    int cur = theme_palette_index(g_app.theme_accent, g_app.theme_bg);
+    float pw = 64, ph = 40, gap = 16, px = x + (w - THEME_PALETTES * pw - (THEME_PALETTES - 1) * gap) / 2, py = y + h - 56;
+    for (int i = 0; i < THEME_PALETTES; i++, px += pw + gap) {
+        if (i == cur) { gfx_rrect_ring(px - 4, py - 4, pw + 8, ph + 8, 5, 2.5f, THEME_TEXT); gfx_rect(px, py + ph + 8, pw, 3, THEME_ACCENT); }
+        gfx_rrect(px, py, pw, ph, 3, theme_bg_swatch(THEME_APERTURE, THEME_PALETTE[i][1]));
+        gfx_rrect(px + 10, py + ph / 2 - 4, pw - 20, 8, 4, theme_accent_swatch(THEME_APERTURE, THEME_PALETTE[i][0]));
+        gfx_rrect_ring(px, py, pw, ph, 3, 1, COLOR_ALPHA(THEME_TEXT, 0x40));
+    }
+}
+
 void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
 {
     float sx = x + 24, sw = w - 48, sh = h - 90, sy = y + 16;   /* the screen most previews draw on */
@@ -114,6 +148,7 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
     switch (kind) {
     case PV_NONE: case PV_COUNT: return;
     case PV_THEME: {
+        if (g_theme.id == THEME_APERTURE) { aperture_live(x, y, w, h); return; }
         screen(sx, sy, sw, sh);
         gfx_rrect(sx + 1, sy + 1, sw - 2, sh - 2, R_KEY, THEME_BG);   /* the chosen background */
         ui_row_header(1, "Popular", NULL, 24, sx + 24, sy + 22, sx + sw - 24, 1);

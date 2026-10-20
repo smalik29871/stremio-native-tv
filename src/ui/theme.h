@@ -60,6 +60,10 @@ void  theme_apply(int id, int accent_idx, int bg_idx);
 int   theme_load_fonts(int id);
 Color theme_accent_swatch(int id, int accent_idx);
 Color theme_bg_swatch(int id, int bg_idx);
+/* Ready-made pairs of an accent and a background (indices into the theme's own lists). */
+#define THEME_PALETTES 6
+extern const unsigned char THEME_PALETTE[THEME_PALETTES][2];
+int   theme_palette_index(int accent_idx, int bg_idx);   /* -1 for a mix of one's own */
 /* Corner radius for a control of height h (pills are capsules only in themes that want them). */
 float theme_pill_r(float h);
 /* With the artwork accent chosen: the accent and what derives from it follow `tint`

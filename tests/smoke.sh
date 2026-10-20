@@ -503,6 +503,11 @@ NE_HOME2="$(home_with newep2 "$PL")"; cp "$ROOT/tests/fixtures/library_newep.jso
 run newep_dismiss 2000 "${NE_WAIT}yellow,down,ok,wait" HOME="$NE_HOME2"
 tr -d ' \t\n' < "$NE_HOME2/.local/share/stremio/nativetv/settings.json" | grep -q '"newEpSeen":{"tt0903747":"tt0903747:2:3"}' \
   || { echo "removing the new episode from Continue Watching was not kept"; grep -E "newep|toast" "$OUT/newep_dismiss.log"; exit 1; }
+# a colour palette sets the accent and the background together
+PAL_HOME="$(home_with palette '{"theme":7,"lookStreaming":1,"themeAccent":0,"themeBg":0,"setupDone":1,"autoTrailers":0,"prefSubs":"eng","subsAlways":1}')"
+run settings_palette 380 "wait,left,down,down,down,down,down,ok,wait,down,down,down,down,down,right,down,right" HOME="$PAL_HOME"
+tr -d ' \t\n' < "$PAL_HOME/.local/share/stremio/nativetv/settings.json" | grep -q '"themeAccent":4,"themeBg":1' \
+  || { echo "the palette did not set the accent and background"; grep -o '"theme[A-Za-z]*":[0-9]*' "$PAL_HOME/.local/share/stremio/nativetv/settings.json"; exit 1; }
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Colour palettes** (Settings > Interface > Look): six ready-made pairs of an accent and
+  a background, switched with Left/Right and shown as swatches on the row; Accent and
+  Background below still mix your own. In Aperture the preview beside them follows its
+  mockup: "Live preview", a small Home with the title over the artwork and the tab bar,
+  and the palettes as tiles with the one in use framed.
+
 ## 0.10.31
 
 - Fix an out-of-bounds read when a title from an addon ends partway through a UTF-8
