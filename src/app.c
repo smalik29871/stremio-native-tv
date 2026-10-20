@@ -5,6 +5,7 @@
 #include "sysinfo.h"
 #include "tidy.h"
 #include "torrent.h"
+#include "torbox.h"
 #include "youtube.h"
 #include "http.h"
 #include "tracking.h"
@@ -1179,6 +1180,7 @@ char *app_stream_playable_url(const Stream *s, char *reason, size_t n)
         return strdup(s->url);   /* rtmp/ftp: let the pipeline decide */
     }
     if (s->info_hash) {
+        if (torbox_hash_cached(s->info_hash)) return torbox_hash_link(s->info_hash, s->file_idx);   /* TorBox's copy, not peers */
         if (!g_app.streaming_server || !*g_app.streaming_server) {   /* P2P on this TV, the fallback */
             char *u = g_app.p2p_fallback ? torrent_engine_url(s->info_hash, s->file_idx, s->trackers) : NULL;
             if (!u) snprintf(reason, n, g_app.p2p_fallback ? "Torrent streams need a Stremio streaming server (Settings)" : "P2P on this TV is off (Settings > Sources)");
@@ -1239,6 +1241,7 @@ void app_work_streams(HttpResponse *r, const char *url)
     if (addon_parse_streams(r->body, &ps->s, &ps->n) != 0) { free(ps); return; }
     for (int i = 0; i < ps->n; i++)
         quality_parse(ps->s[i].name, ps->s[i].title, ps->s[i].description, ps->s[i].filename, ps->s[i].video_size, &ps->s[i].tags);
+    torbox_mark_streams(ps->s, ps->n);   /* torrents TorBox has cached play from it */
     r->parsed = ps;
 }
 void app_free_streams(void *parsed) { ParsedStreams *ps = parsed; if (!ps) return; streams_free(ps->s, ps->n); free(ps); }
@@ -1254,6 +1257,7 @@ unsigned app_fetch_streams(const char *url, HttpCallback cb, void *user)
 {
     HttpOptions o = { 0 };
     o.work = app_work_streams;
+    torbox_enabled();   /* hands the key to the network thread's TorBox check */
     o.free_parsed = app_free_streams;
     return http_request_async_ex(url, &o, cb, user);
 }
@@ -1490,8 +1494,8 @@ static void load_prefs(void)
     g_app.clock_face = store_get_int("clockFace", CLOCKFACE_DIGITAL);
     if (g_app.clock_face < 0 || g_app.clock_face >= CLOCKFACE_COUNT) g_app.clock_face = CLOCKFACE_DIGITAL;
     g_app.oled = store_get_int("oled", 0);
-    g_app.theme = store_get_int("theme", THEME_SIGNAL);
-    if (g_app.theme < 0 || g_app.theme >= THEME_COUNT) g_app.theme = THEME_SIGNAL;
+    g_app.theme = store_get_int("theme", THEME_STREAM);
+    if (g_app.theme < 0 || g_app.theme >= THEME_COUNT) g_app.theme = THEME_STREAM;
     g_app.theme_accent = store_get_int("themeAccent", 0);
     if (g_app.theme_accent < 0 || g_app.theme_accent > THEME_ACCENT_ART) g_app.theme_accent = 0;
     g_app.theme_bg = store_get_int("themeBg", 0);
@@ -1935,11 +1939,18 @@ int app_restore_settings(const char *json)
 
 void app_play_link(const char *url)
 {
-    MetaPreview m = { 0 };
     const char *slash = strrchr(url, '/');
     char name[160];
     snprintf(name, sizeof name, "%s", slash && slash[1] ? slash + 1 : url);
     char *q = strchr(name, '?'); if (q) *q = 0;
+    app_play_named(url, name);
+}
+
+void app_play_named(const char *url, const char *title)
+{
+    MetaPreview m = { 0 };
+    char name[256];
+    snprintf(name, sizeof name, "%s", title);
     m.id = (char *)"link"; m.type = (char *)"movie"; m.name = name;
     PlayCandidate *c = calloc(1, sizeof *c);
     c->url = strdup(url);

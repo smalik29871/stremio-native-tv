@@ -8,6 +8,7 @@
 #include "../frames.h"
 #include "../phone.h"
 #include "../torrent.h"
+#include "../torbox.h"
 #include "../lang.h"
 #include "../log.h"
 #include "../probe.h"
@@ -1084,6 +1085,29 @@ static void browse_sources(Player *p)
 
 /* ---- playback / fallback ------------------------------------------------------ */
 
+static void start_candidate(Player *p, int idx, double start);
+static void fail_over(Player *p, const char *why);
+
+/* A torrent TorBox has cached: its link comes from TorBox when the source's turn comes */
+typedef struct { Player *owner; int idx; double start; char *link; } TbReq;
+
+static void on_torbox_open(const char *url, const char *error, void *user)
+{
+    TbReq *q = user;
+    Player *p = q->owner;
+    int current = p == g_live && !p->finished && q->idx == p->cur && !strcmp(p->cands[q->idx].url, q->link);
+    if (current && url) {
+        free(p->cands[q->idx].url);
+        p->cands[q->idx].url = strdup(url);
+        start_candidate(p, q->idx, q->start);
+    } else if (current) {
+        LOGW("player: source %d not from TorBox: %s", q->idx + 1, error ? error : "?");
+        fail_over(p, error ? error : "TorBox could not open it");
+    }
+    free(q->link);
+    free(q);
+}
+
 static void start_candidate(Player *p, int idx, double start)
 {
     p->cur = idx;
@@ -1106,12 +1130,21 @@ static void start_candidate(Player *p, int idx, double start)
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     p->p2p_status[0] = 0;
+    if (torbox_is_hash_link(p->cands[idx].url)) {
+        p->error_handled = 1;   /* nothing to watch over until TorBox answers */
+        TbReq *q = malloc(sizeof *q);
+        q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url);
+        torbox_open_hash(p->cands[idx].url, on_torbox_open, q);
+        show_overlay(p);
+        return;
+    }
     if (torrent_engine_url_is(p->cands[idx].url)) {
         if (!torrent_engine_start(3000)) LOGW("player: the P2P engine did not answer");
         const char *e = getenv("SNTV_P2P_RECHECK");   /* tests */
         p->p2p_recheck_in = e ? (float)atof(e) : 120;
         p->p2p_stats_in = 0;
         app_toast("No cached copy: playing P2P on this TV. It switches back when TorBox has it.");
+        torbox_queue_hash(p->cands[idx].url + strlen("http://127.0.0.1:11490/"));   /* your TorBox fetches it meanwhile */
     }
     if (video_load(p->cands[idx].url, p->title, start) != 0) app_toast("Could not start playback");
     push_sub_style(p);   /* re-sent by the backend once the new pipeline has loaded */
@@ -1523,7 +1556,8 @@ static void on_p2p_recheck(const Stream *items, int n, void *user)
     int want = p->cands[p->cur].res;
     for (int i = 0; i < n; i++) {   /* ranked best first: the first cached copy at least as sharp */
         const Stream *s = &items[i];
-        if (!s->url || strncmp(s->url, "http", 4) || s->tags.cached <= 0 || app_link_dead(s->url)) continue;
+        int tb = !s->url && torbox_hash_cached(s->info_hash);   /* your TorBox finished the torrent */
+        if (!tb && (!s->url || strncmp(s->url, "http", 4) || s->tags.cached <= 0 || app_link_dead(s->url))) continue;
         if (want && s->tags.res && s->tags.res < want) continue;
         leave_p2p(p, s);
         return;

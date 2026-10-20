@@ -871,6 +871,7 @@ static void draw(Screen *s)
         ui_backdrop_video(tv, SNTV_UI_H);
         ui_backdrop_image(bgt, iw, ih, k * (1 - tv), SNTV_UI_H);
         ui_text_scrim(1300, SNTV_UI_H);
+        if (d->scroll < 60) bgtrailer_draw_badge(d->preview.id);
     }
     if (d->scroll > 1) {   /* About reads over a darker backdrop */
         float t = d->scroll / (ABOUT_Y - 150); if (t > 1) t = 1;

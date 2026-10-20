@@ -9,6 +9,9 @@
 #include "../video/video.h"
 #include "../../vendor/cJSON.h"
 #include "gfx.h"
+#include "font.h"
+#include "theme.h"
+#include "widgets.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,6 +80,7 @@ static struct {
     float height, dwell, waited;
     float t;              /* how far the video has replaced the artwork */
     unsigned http, load;  /* the IMDb request; video_load_count() of our video, 0 none */
+    int muted;
 } B;
 
 static int ours(void) { return B.load && video_load_count() == B.load; }
@@ -118,7 +122,8 @@ static void on_trailer(const ImdbTrailer *t, int n, long status, void *user)
     if (!n) { LOGI("trailer: none from IMDb for %s (%ld)", B.id, status); B.state = BT_DONE; return; }
     place();
     video_load(t[0].url, "Trailer", 0);
-    if (g_app.auto_trailers != 2) video_set_muted(1);
+    B.muted = g_app.auto_trailers != 2;
+    if (B.muted) video_set_muted(1);
     B.load = video_load_count();
     B.state = BT_LOAD;
     LOGI("trailer: %s plays behind the artwork (%s%s)", B.id, imdb_trailer_label(t[0].rank), g_app.auto_trailers != 2 ? ", muted" : "");
@@ -175,4 +180,29 @@ void bgtrailer_frame(float dt)
     }
     default: break;
     }
+}
+
+int bgtrailer_key_sound(void)
+{
+    if (B.state != BT_PLAY || B.t < 0.5f || !ours()) return 0;
+    B.muted = !B.muted;
+    video_set_muted(B.muted);
+    LOGI("trailer: %s sound %s", B.id, B.muted ? "off" : "on");
+    app_redraw();
+    return 1;
+}
+
+void bgtrailer_draw_badge(const char *id)
+{
+    float t = bgtrailer_shown(id);
+    if (t <= 0) return;
+    const char *label = B.muted ? "Sound off  \xC2\xB7  Play/Pause turns it on" : "Sound on";
+    int fs = FONT_XS | FONT_B;
+    float h = 48, w = 24 + 28 + 12 + font_measure(label, fs) + 24, x = SNTV_UI_W - THEME_MARGIN - w, y = 96;
+    Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * t));
+    gfx_rrect(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), (int)(0x99 * t)));
+    float ix = x + 24 + 14, iy = y + h / 2;
+    ui_icon(ICON_AUDIO, ix, iy, 26, fg);
+    if (B.muted) gfx_line(ix - 14, iy - 14, ix + 14, iy + 14, 3, fg);
+    font_draw(label, x + 24 + 28 + 12, y + (h - font_height(fs)) / 2, fs, fg);
 }

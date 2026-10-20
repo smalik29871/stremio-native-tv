@@ -7,7 +7,7 @@
 
 Theme g_theme;
 
-const char *const THEME_NAMES[THEME_COUNT] = { "Signal", "Marquee", "Glass", "Metro", "Mist", "Sunset" };
+const char *const THEME_NAMES[THEME_COUNT] = { "Signal", "Marquee", "Glass", "Metro", "Mist", "Sunset", "Streaming" };
 
 const char *const THEME_ACCENT_NAMES[THEME_COUNT][THEME_ACCENTS] = {
     { "Lime", "Signal orange", "Cyan", "Magenta", "Yellow", "White", "Violet", "Mint", "Red", "Sky" },
@@ -16,6 +16,7 @@ const char *const THEME_ACCENT_NAMES[THEME_COUNT][THEME_ACCENTS] = {
     { "Cobalt", "Teal", "Magenta", "Orange", "Lime", "Crimson", "Purple", "Amber", "Emerald", "Steel" },
     { "Sky", "Blush", "Seafoam", "Honey", "Iris", "Snow", "Apricot", "Pistachio", "Orchid", "Glacier" },
     { "Coral", "Gold", "Flamingo", "Tangerine", "Lilac", "Champagne", "Ruby", "Peach", "Magenta", "Sand" },
+    { "Red", "Sky", "Royal blue", "Purple", "Gold", "White", "Green", "Orange", "Pink", "Teal" },
 };
 
 const char *const THEME_BG_NAMES[THEME_COUNT][THEME_BGS] = {
@@ -25,6 +26,7 @@ const char *const THEME_BG_NAMES[THEME_COUNT][THEME_BGS] = {
     { "Black", "Charcoal", "Midnight", "Wine" },
     { "Mist", "Dawn", "Sea", "Stone" },
     { "Plum", "Ember", "Dusk", "Wine" },
+    { "Black", "Navy", "Midnight", "Charcoal" },
 };
 
 static const Color BGS[THEME_COUNT][THEME_BGS] = {
@@ -34,6 +36,7 @@ static const Color BGS[THEME_COUNT][THEME_BGS] = {
     { RGBA(0x10, 0x10, 0x10, 0xFF), RGBA(0x1A, 0x1A, 0x1A, 0xFF), RGBA(0x0B, 0x12, 0x22, 0xFF), RGBA(0x1A, 0x0A, 0x10, 0xFF) },
     { RGBA(0x17, 0x1B, 0x25, 0xFF), RGBA(0x1E, 0x19, 0x22, 0xFF), RGBA(0x11, 0x1C, 0x20, 0xFF), RGBA(0x1C, 0x1C, 0x1F, 0xFF) },
     { RGBA(0x1C, 0x10, 0x22, 0xFF), RGBA(0x22, 0x12, 0x10, 0xFF), RGBA(0x14, 0x12, 0x26, 0xFF), RGBA(0x24, 0x0E, 0x16, 0xFF) },
+    { RGBA(0x14, 0x14, 0x14, 0xFF), RGBA(0x0F, 0x17, 0x1E, 0xFF), RGBA(0x0B, 0x0C, 0x1A, 0xFF), RGBA(0x1C, 0x1C, 0x1E, 0xFF) },
 };
 
 Color theme_bg_swatch(int id, int bg_idx)
@@ -62,6 +65,9 @@ static const Color ACCENTS[THEME_COUNT][THEME_ACCENTS] = {
     { RGBA(0xFF, 0x7A, 0x6B, 0xFF), RGBA(0xFF, 0xC4, 0x57, 0xFF), RGBA(0xFF, 0x86, 0xB4, 0xFF),
       RGBA(0xFF, 0x9A, 0x3D, 0xFF), RGBA(0xC9, 0xA2, 0xFF, 0xFF), RGBA(0xF7, 0xE7, 0xCE, 0xFF),
       RGBA(0xFF, 0x4F, 0x6E, 0xFF), RGBA(0xFF, 0xB8, 0x94, 0xFF), RGBA(0xF0, 0x5C, 0xC8, 0xFF), RGBA(0xE8, 0xC9, 0x9B, 0xFF) },
+    { RGBA(0xE5, 0x09, 0x14, 0xFF), RGBA(0x00, 0xA8, 0xE1, 0xFF), RGBA(0x2A, 0x5B, 0xFF, 0xFF),
+      RGBA(0x99, 0x4B, 0xFF, 0xFF), RGBA(0xF5, 0xC5, 0x18, 0xFF), RGBA(0xF4, 0xF4, 0xF4, 0xFF),
+      RGBA(0x1C, 0xE7, 0x83, 0xFF), RGBA(0xFF, 0x7A, 0x00, 0xFF), RGBA(0xFF, 0x3D, 0x8B, 0xFF), RGBA(0x00, 0xC2, 0xB8, 0xFF) },
 };
 
 Color theme_accent_swatch(int id, int accent_idx)
@@ -160,6 +166,16 @@ void theme_apply(int id, int accent_idx, int bg_idx)
         t.row_header = ROWHEAD_METRO;
         t.lower_headings = 1;
         break;
+    case THEME_STREAM:
+        t.bg = RGBA(0x14, 0x14, 0x14, 0xFF);
+        t.bg2 = RGBA(0x1C, 0x1C, 0x1C, 0xFF);
+        t.text = RGBA(0xFF, 0xFF, 0xFF, 0xFF);
+        t.panel = RGBA(0x20, 0x20, 0x20, 0xF8);
+        t.accent2 = t.accent;
+        t.r_card = 8; t.r_panel = 12; t.r_key = 8; t.r_pill = 8;
+        t.focus_style = FOCUS_OUTLINE;
+        t.row_header = ROWHEAD_PLAIN;
+        break;
     default:   /* Signal */
         t.bg = RGBA(0x0B, 0x0C, 0x0E, 0xFF);
         t.bg2 = RGBA(0x11, 0x13, 0x16, 0xFF);
@@ -196,6 +212,12 @@ void theme_apply(int id, int accent_idx, int bg_idx)
     t.focus = id == THEME_MARQUEE ? t.text : id == THEME_GLASS || id == THEME_MIST ? RGBA(0xF4, 0xF6, 0xFA, 0xFF) : t.accent;
     t.on_focus = id == THEME_MARQUEE || id == THEME_GLASS || id == THEME_MIST ? t.bg : t.on_accent;
     if (id == THEME_GLASS || id == THEME_MIST) { t.surface = COLOR_ALPHA(t.text, 0x16); t.surface_hi = COLOR_ALPHA(t.text, 0x2A); }
+    if (id == THEME_STREAM) {   /* white buttons with black text in focus, grey ones otherwise */
+        t.focus = RGBA(0xFF, 0xFF, 0xFF, 0xFF);
+        t.on_focus = RGBA(0x00, 0x00, 0x00, 0xFF);
+        t.surface = RGBA(0x6D, 0x6D, 0x6E, 0x50);
+        t.surface_hi = RGBA(0x6D, 0x6D, 0x6E, 0xB0);
+    }
     t.base_accent = t.accent;
     g_theme = t;
 }
@@ -235,6 +257,7 @@ static const struct { const char *regular, *bold, *alt; int alt_kind; } FONTS[TH
     { "Inter-Medium.otf", "Inter-Bold.otf", "BebasNeue-Regular.ttf", FONT_ALT_DISPLAY },
     { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
     { "OpenSans-Medium.ttf", "OpenSans-Bold.ttf", "OpenSans-Light.ttf", FONT_ALT_DISPLAY },
+    { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
     { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
     { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
 };

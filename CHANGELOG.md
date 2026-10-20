@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.10.23
+
+- **A familiar look.** A new theme, Streaming, is now the default and every install
+  moves to it once. It looks like the big streaming apps: near-black background, plain
+  sentence-case type, softly rounded cards that grow inside a white outline when
+  focused, white buttons with black text in focus and grey ones otherwise. The old
+  themes are still in Settings > Interface > Theme.
+- **Trailers play on their own.** Stay on a title for a moment (2.5 s on the title
+  page, 4 s on Home's hero) and its IMDb trailer plays behind the artwork. The artwork
+  fades into the trailer and comes back when it ends. It starts muted; Play/Pause turns
+  the sound on and off, and a badge under the clock says which. Settings > Interface >
+  "Trailers play on their own" can be Off, Muted (the default) or With sound. Play, the
+  Trailer button and the screensaver take over from it cleanly.
+- **TorBox for your sources.** With your TorBox API key set, every torrent-only source
+  is checked against TorBox's cache. The cached ones are marked "From your TorBox" and
+  play from TorBox instead of peers: instant, full speed, and nobody sees your address.
+  A torrent TorBox lacks still plays P2P, and TorBox starts downloading it so the
+  player can switch over when it's ready.
+- **My TorBox videos.** Settings > API keys > My TorBox videos lists everything in your
+  TorBox (torrents, usenet, web downloads), and OK plays it.
+- **Keys stay out of the log.** Link tokens are written as `token=***` in app.log.
+
 ## 0.10.22
 
 - **Your own videos from TorBox.** Add your TorBox API key in Settings > API keys, then

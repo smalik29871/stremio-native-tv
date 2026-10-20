@@ -4,7 +4,7 @@
     python3 tests/fake_addon.py 8765
 Serves /manifest.json, /catalog/{type}/{id}.json (with optional /{extra}.json),
 /meta/{type}/{id}.json, /stream/{type}/{id}.json and generated poster PNGs."""
-import json, os, sys, io, struct, zlib
+import json, os, re, sys, io, struct, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -152,6 +152,15 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
+        # TorBox adding a torrent (a multipart form): hashes starting "cafe" are cached (id 77), others start downloading (78)
+        if p.startswith("/torbox/torrents/createtorrent"):
+            if self.headers.get("Authorization") != "Bearer tbkey" or b"multipart/form-data" not in self.headers.get("Content-Type", "").encode():
+                return self.send(401, b'{"success":false,"error":"AUTH_ERROR"}')
+            m = re.search(rb"btih:([0-9a-fA-F]{40})", body)
+            if not m:
+                return self.send(400, b'{"success":false,"detail":"no magnet"}')
+            cached = m.group(1).lower().startswith(b"cafe")
+            return self.send(200, json.dumps({"success": True, "data": {"torrent_id": 77 if cached else 78, "hash": m.group(1).decode().lower()}}).encode())
         # IMDb's GraphQL stand-in: /imdbgql has no trailer for anything, /imdbgql/with has one in three qualities
         if p.startswith("/imdbgql"):
             if not p.startswith("/imdbgql/with"):
@@ -370,6 +379,14 @@ class H(BaseHTTPRequestHandler):
                     streams.insert(0, {"name": "[TB+] Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\u26A1 cached",
                                        "url": f"{BASE}/video/sample_h264_aac.mkv"})
                 return self.send(200, json.dumps({"streams": streams}).encode())
+        if p.startswith("/tbsrc/"):   # torrents only, no links: one TorBox has cached, one it does not
+            p = p[6:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.tbsrc", name="Torrents", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                return self.send(200, json.dumps({"streams": [
+                    {"name": "Torrents\n1080p", "title": "Movie.2024.1080p.WEB.x264.mkv", "infoHash": "CAFE" * 10, "fileIdx": 1},
+                    {"name": "Torrents\n2160p", "title": "Movie.2024.2160p.WEB.x265.mkv", "infoHash": "BEEF" * 10, "fileIdx": 0}]}).encode())
         if p.startswith("/lighter/"):   # 2160p and 480p copies of every video, for the "buffering keeps stopping" offer
             p = p[8:]
             if p == "/manifest.json":
@@ -583,6 +600,16 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, art("poster", i + 2, ""), "image/png")
         if p.startswith("/torbox/"):   # TorBox: your files (key "tbkey"), and the permanent link that forwards to one
             q = p[8:]
+            if q.startswith("torrents/checkcached"):   # hashes starting "cafe" are cached
+                if self.headers.get("Authorization") != "Bearer tbkey":
+                    return self.send(401, b'{"success":false}')
+                hashes = q.split("hash=")[1].split("&")[0].split(",") if "hash=" in q else []
+                return self.send(200, json.dumps({"success": True, "data": [{"hash": h, "name": "x", "size": 1} for h in hashes if h.startswith("cafe")]}).encode())
+            if "/mylist" in q and "id=7" in q:   # the torrents added above
+                ready = "id=77" in q
+                return self.send(200, json.dumps({"success": True, "data": {"id": 77 if ready else 78, "download_present": ready, "download_finished": ready, "files": [
+                    {"id": 0, "short_name": "Sample.txt", "mimetype": "text/plain", "size": 10},
+                    {"id": 1, "short_name": "Movie.2024.1080p.mkv", "mimetype": "video/x-matroska", "size": 2147483648}] if ready else []}}).encode())
             if "/mylist" in q:
                 if self.headers.get("Authorization") != "Bearer tbkey":
                     return self.send(401, b'{"success":false,"error":"AUTH_ERROR"}')

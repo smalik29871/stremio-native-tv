@@ -7,6 +7,7 @@
 #include "../probe.h"
 #include "../store.h"
 #include "../torrent.h"
+#include "../torbox.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -131,7 +132,7 @@ static int has_audio_lang(const Stream *s)
 /* A torrent this TV plays itself (no streaming server set): the fallback. */
 static int is_p2p(const Stream *s)
 {
-    return s->info_hash && !s->url && !(g_app.streaming_server && *g_app.streaming_server) && g_app.p2p_fallback && torrent_engine_available();
+    return s->info_hash && !s->url && !torbox_hash_cached(s->info_hash) && !(g_app.streaming_server && *g_app.streaming_server) && g_app.p2p_fallback && torrent_engine_available();
 }
 
 /* 2: the addon's own tag for the same release; 1: the same release group (and addon); 0 */
@@ -702,7 +703,7 @@ static void draw(Screen *s)
         font_draw_fit(line2, ax, ry + 98, FONT_XS, ok ? THEME_TEXT_DIM : THEME_TEXT_MUTED, w - 48);
         char p2p[48];
         if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this TV"); }
-        const char *flag = sm->info_hash ? (g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
+        const char *flag = sm->info_hash ? (!sm->url && torbox_hash_cached(sm->info_hash) ? "From your TorBox" : g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
         if (same_release(st, sm)) flag = "Same release";
         if (flag) {
             Color fc = !ok ? THEME_DANGER : THEME_OK;

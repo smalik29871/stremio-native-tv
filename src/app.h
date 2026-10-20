@@ -209,7 +209,7 @@ extern char g_update_version[16];   /* "" or the newer version */
 extern char g_update_url[600], g_update_sha256[80];   /* the package and its checksum */
 Screen *screen_update_create(int countdown_s);
 /* Your TorBox videos: pick one as the fireplace video or the break recording. */
-enum { TORBOX_FOR_FIREPLACE, TORBOX_FOR_BREAK };
+enum { TORBOX_FOR_FIREPLACE, TORBOX_FOR_BREAK, TORBOX_FOR_PLAY };
 Screen *screen_torbox_create(int target);
 int  app_link_dead(const char *url);
 
@@ -255,6 +255,7 @@ char *app_backup_settings(void);
 int  app_restore_settings(const char *json);
 /* Plays a direct video link (sent from a phone); nothing is saved against a title. */
 void app_play_link(const char *url);
+void app_play_named(const char *url, const char *name);   /* a link with a name to show */
 void app_note_frame(float ms);          /* feeds the Auto effects level */
 void app_redraw(void);                  /* request a frame even when idle */
 void app_library_flush(int force);

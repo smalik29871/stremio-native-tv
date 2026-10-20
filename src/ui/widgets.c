@@ -354,6 +354,9 @@ void ui_focus_under(float x, float y, float w, float h, float r, float a)
         gfx_rrect(x + w * 0.08f, y + h + 8, w * 0.84f, 4, 2, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a)));
         if (!g_app.fx_light) gfx_gradient_v(x + w * 0.08f, y + h + 12, w * 0.84f, 26, COLOR_ALPHA(THEME_ACCENT, (int)(0x38 * a)), COLOR_ALPHA(THEME_ACCENT, 0));
         break;
+    case FOCUS_OUTLINE:
+        if (!g_app.fx_light) gfx_shadow(x, y + 10 * a, w, h, r, 28, RGBA(0, 0, 0, (int)(0x90 * a)));
+        break;
     case FOCUS_GLASS:
         if (!g_app.fx_light) {
             gfx_shadow(x, y + 12 * a, w, h, r, 30, RGBA(0, 0, 0, (int)(0x80 * a)));
@@ -376,6 +379,9 @@ static void focus_over(float x, float y, float w, float h, float r, float a)
     case FOCUS_GLASS:   /* a bright rim and a sheen across the top */
         gfx_rrect_grad_v(x, y, w, h * 0.45f, r, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0x30 * a)), COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0));
         gfx_rrect_ring(x, y, w, h, r, 2.5f, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(0xE0 * a)));
+        break;
+    case FOCUS_OUTLINE:  /* a white outline just outside the card */
+        gfx_rrect_ring(x - 6, y - 6, w + 12, h + 12, r + 5, 4, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(255 * a)));
         break;
     default:            /* Metro: a white border inside the tile */
         gfx_rrect_ring(x + 4, y + 4, w - 8, h - 8, 0, 4, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), (int)(255 * a)));
@@ -960,7 +966,7 @@ void ui_brand(float x, float y, float s)
  * Marquee lifts toward its light bar, Glass swells most, Metro barely. */
 float ui_focus_scale(float focus)
 {
-    float k = g_theme.focus_style == FOCUS_GLASS ? 0.08f : g_theme.focus_style == FOCUS_MIST ? 0.05f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.04f;
+    float k = g_theme.focus_style == FOCUS_GLASS || g_theme.focus_style == FOCUS_OUTLINE ? 0.08f : g_theme.focus_style == FOCUS_MIST ? 0.05f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.04f;
     float s = 1.0f + k * focus, t = g_app.time - g_app.press_at;
     if (focus > 0.5f && t >= 0 && t < 0.2f && !g_app.fx_light) {   /* OK pressed: a quick dip and back */
         s *= 1.0f - 0.05f * sinf(3.14159f * t / 0.2f);

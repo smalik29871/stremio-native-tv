@@ -260,6 +260,7 @@ static void dispatch_key(KeyAction a)
         app_redraw();
         return;
     }
+    if ((a == KEY_PLAY_PAUSE || a == KEY_PLAY || a == KEY_PAUSE) && bgtrailer_key_sound()) return;   /* a trailer behind the artwork: its sound */
     if (top && top->key && top->key(top, a)) return;
     if (a == KEY_LONG_OK) { dispatch_key(KEY_OK); return; }
     if (g_app.pip && a == KEY_DOWN) { g_pip_focus = 1; app_redraw(); return; }   /* past the bottom of the screen: the corner */
@@ -321,7 +322,12 @@ int main(int argc, char **argv)
     if (gfx_init(win) != 0) return 1;
     perf_mark("window");
     /* the saved theme picks the typefaces; app_init applies its colours */
-    int theme = store_get_int("theme", THEME_SIGNAL);
+    if (!store_get_int("lookStreaming", 0)) {   /* 0.10.23: everyone moves to the Streaming look once; the old themes stay in Settings */
+        store_set_int("lookStreaming", 1);
+        store_set_int("theme", THEME_STREAM); store_set_int("themeAccent", 0); store_set_int("themeBg", 0);
+        LOGI("theme: switched to the Streaming look");
+    }
+    int theme = store_get_int("theme", THEME_STREAM);
     theme_apply(theme, store_get_int("themeAccent", 0), store_get_int("themeBg", 0));
     /* the network and the artwork loader first: what Home showed last time is read from
      * the disk cache and decoded on its threads while the fonts load */

@@ -1,4 +1,4 @@
-/* Your TorBox videos, to pick one as the fireplace video or a break's recording. */
+/* Your TorBox videos: to watch one, or to pick one as the fireplace video or a break's recording. */
 #include "../app.h"
 #include "../log.h"
 #include "../store.h"
@@ -13,7 +13,7 @@
 enum { ROW_H = 84, ROWS = 8 };
 
 typedef struct {
-    int target;              /* TORBOX_FOR_FIREPLACE or TORBOX_FOR_BREAK */
+    int target;              /* TORBOX_FOR_* */
     TorboxFile *files; int n;
     int loading, focus;
     float scroll;
@@ -47,7 +47,7 @@ static void draw(Screen *s)
     ui_background(0);
     float x = THEME_MARGIN, w = SNTV_UI_W - 2 * THEME_MARGIN, y = 150;
     font_draw("Your TorBox videos", x, 60, FONT_XL | FONT_B, THEME_TEXT);
-    font_draw(p->target == TORBOX_FOR_FIREPLACE ? "Pick one for the fireplace screensaver. It plays from TorBox at full quality, always through a fresh link."
+    font_draw(p->target == TORBOX_FOR_PLAY ? "Everything you keep on TorBox: torrents, usenet and web downloads. OK plays it here at full quality." : p->target == TORBOX_FOR_FIREPLACE ? "Pick one for the fireplace screensaver. It plays from TorBox at full quality, always through a fresh link."
                                                 : "Pick one to play at the start of each break. It plays from TorBox at full quality, always through a fresh link.",
               x, 120, FONT_S, THEME_TEXT_DIM);
     if (p->loading) { ui_spinner(SNTV_UI_W / 2, 480, 26); font_draw_center("Asking TorBox\xE2\x80\xA6", SNTV_UI_W / 2, 530, FONT_M | FONT_B, THEME_TEXT_DIM); return; }
@@ -78,6 +78,13 @@ static int key(Screen *s, KeyAction a)
     case KEY_DOWN: if (p->focus < p->n - 1) p->focus++; return 1;
     case KEY_OK:
         if (p->focus >= p->n) return 1;
+        if (p->target == TORBOX_FOR_PLAY) {
+            char url[800];
+            if (!torbox_resolve(p->files[p->focus].link, url, sizeof url)) { app_toast("Add your TorBox API key first"); return 1; }
+            LOGI("torbox: playing %s", p->files[p->focus].link);
+            app_play_named(url, p->files[p->focus].name);
+            return 1;
+        }
         if (p->target == TORBOX_FOR_FIREPLACE) {
             store_set_str("fireplaceVideo", p->files[p->focus].link); store_save();
             app_toast("Fireplace video: %s", p->files[p->focus].name);

@@ -29,13 +29,26 @@ void log_init(const char *dir)
     g_file = fopen(path, "w");
 }
 
+/* Keys in links (TorBox's "token=") never reach the log, which can be shared from Diagnostics */
+static void redact(char *line)
+{
+    for (char *p = strstr(line, "token="); p; p = strstr(p, "token=")) {
+        p += 6;
+        size_t n = strcspn(p, "&\" \t)");
+        if (n <= 3) continue;
+        memmove(p + 3, p + n, strlen(p + n) + 1);
+        memcpy(p, "***", 3);
+    }
+}
+
 void log_msg(const char *level, const char *fmt, ...)
 {
-    char line[2048];
+    char line[2048 + 8];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(line, sizeof line, fmt, ap);
     va_end(ap);
+    redact(line);
 
     time_t now = time(NULL);
     struct tm tmv;

@@ -53,7 +53,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -129,7 +129,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
         break;
     case CAT_KEYS:
-        SEC(SEC_META); ids[n++] = IT_TMDB; ids[n++] = IT_MDBLIST; ids[n++] = IT_TORBOX; ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
+        SEC(SEC_META); ids[n++] = IT_TMDB; ids[n++] = IT_MDBLIST; ids[n++] = IT_TORBOX; if (torbox_enabled()) ids[n++] = IT_TORBOX_FILES; ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
         SEC(SEC_AI); ids[n++] = IT_AI_PROVIDER;
         if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
         break;
@@ -188,6 +188,7 @@ static const char *row_title(int id)
     case IT_SIMKL: return "SimKL";
     case IT_MDBLIST: return "MDBList ratings";
     case IT_TORBOX: return "TorBox";
+    case IT_TORBOX_FILES: return "My TorBox videos";
     case IT_FIRE_TORBOX: case IT_BR_TORBOX: return "Choose from my TorBox";
     case IT_OS_KEY: return "OpenSubtitles.com";
     case IT_OS_LOGIN: return "OpenSubtitles account";
@@ -276,7 +277,8 @@ static const char *row_desc(int id)
     case IT_OS_KEY: return "Built-in subtitle search, with release names to find the subtitle made for your file's release.";
     case IT_OS_LOGIN: return "Optional: a free account allows more subtitle downloads a day.";
     case IT_MDBLIST: return "Rotten Tomatoes, Metacritic and Letterboxd scores on title pages. Free key at mdblist.com.";
-    case IT_TORBOX: return "Your own videos kept on TorBox, as the fireplace video or a break's recording, at full quality.";
+    case IT_TORBOX: return "Torrent sources TorBox has cached play from it instead of peers, and what you keep there plays here: films, the fireplace video, a break's recording.";
+    case IT_TORBOX_FILES: return "Everything in your TorBox, to watch here at full quality.";
     case IT_FIRE_TORBOX: return "A video in your TorBox as the fireplace; it plays through a fresh link each time.";
     case IT_BR_TORBOX: return "A video in your TorBox at the start of each break; it plays through a fresh link each time.";
     case IT_PLAY_LINK: return "Send a video link from your phone and it plays here.";
@@ -752,7 +754,8 @@ static void draw(Screen *s)
         }
         case IT_OS_KEY: draw_row(y, ICON_SUBS, "OpenSubtitles.com", opensubs_enabled() ? "On  \xC2\xB7  searched for every video" : "Off  \xC2\xB7  OK to add an API key", foc, KIND_ACTION, 0); break;
         case IT_OS_LOGIN: { char u[96]; if (opensubs_signed_in()) snprintf(u, sizeof u, "Signed in as %s  \xC2\xB7  OK to sign out", opensubs_user()); else snprintf(u, sizeof u, "Not signed in  \xC2\xB7  a few downloads a day"); draw_row(y, ICON_KEY, "OpenSubtitles account", u, foc, KIND_ACTION, 0); break; }
-        case IT_TORBOX: draw_row(y, ICON_PLAY, "TorBox", torbox_enabled() ? "Key set  \xC2\xB7  pick your videos for the fireplace and breaks" : "Not set  \xC2\xB7  OK to add your API key", foc, KIND_ACTION, 0); break;
+        case IT_TORBOX_FILES: draw_row(y, ICON_LIBRARY, "My TorBox videos", "Watch anything you keep there", foc, KIND_ACTION, 0); break;
+        case IT_TORBOX: draw_row(y, ICON_PLAY, "TorBox", torbox_enabled() ? "Key set  \xC2\xB7  cached torrents play from TorBox" : "Not set  \xC2\xB7  OK to add your API key", foc, KIND_ACTION, 0); break;
         case IT_FIRE_TORBOX: case IT_BR_TORBOX: draw_row(y, ICON_PLAY, "Choose from my TorBox", "Your videos, at full quality", foc, KIND_ACTION, 0); break;
         case IT_MDBLIST: draw_row(y, ICON_STAR, "MDBList ratings", mdblist_enabled() ? "Key set  \xC2\xB7  more ratings on title pages" : "Not set  \xC2\xB7  OK to add a key", foc, KIND_ACTION, 0); break;
         case IT_TVCAP: draw_row(y, ICON_TV, "What this TV can play", NULL, foc, KIND_ACTION, 0); break;
@@ -1517,6 +1520,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_FIRE_VIDEO) begin_edit(st, EDIT_FIRE_VIDEO);
         else if (id == IT_MDBLIST) begin_edit(st, EDIT_MDBLIST);
         else if (id == IT_TORBOX) begin_edit(st, EDIT_TORBOX);
+        else if (id == IT_TORBOX_FILES) app_push(screen_torbox_create(TORBOX_FOR_PLAY));
         else if (id == IT_FIRE_TORBOX) app_push(screen_torbox_create(TORBOX_FOR_FIREPLACE));
         else if (id == IT_BR_TORBOX) app_push(screen_torbox_create(TORBOX_FOR_BREAK));
         else if (id == IT_OS_KEY) begin_edit(st, EDIT_OS_KEY);
