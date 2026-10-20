@@ -50,6 +50,8 @@ float ui_icon_button(Icon icon, float cx, float cy, float radius, int focused);
 /* Small rounded badges. Returns width. */
 float ui_chip(const char *text, float x, float y, Color bg, Color fg);
 float ui_chip_outline(const char *text, float x, float y, Color line, Color fg);
+/* A person's photo cropped to the box (faces sit high), or their initials when there is none. */
+void ui_portrait(const char *photo, const char *name, float x, float y, float w, float h, float r, int initials_font);
 /* "New episode" ("3 new episodes") with a bell, its right edge at x: a series card whose show has aired more. */
 void ui_new_episodes_badge(int count, float right_x, float y);
 /* The same on a poster: a bell and the count in a small pill. */

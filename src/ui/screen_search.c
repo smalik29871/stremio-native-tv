@@ -360,7 +360,7 @@ static void update(Screen *sc, float dt)
 static void draw_field(const Search *s, float x, float y, float fw)
 {
     int foc = !s->focus_grid;
-    if (g_theme.id == THEME_APERTURE) {   /* a thin outline, brighter while it has the focus */
+    if (g_theme.id == THEME_APERTURE) {
         gfx_rrect(x, y, fw, FIELD_H, 3, COLOR_ALPHA(THEME_TEXT, 0x0C));
         gfx_rrect_ring(x, y, fw, FIELD_H, 3, foc ? 2 : 1, COLOR_ALPHA(THEME_TEXT, foc ? 0xC0 : 0x40));
     } else {

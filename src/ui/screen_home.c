@@ -527,7 +527,7 @@ static void draw_showcase_controls(const Home *h);
 
 static void draw_hero(Home *h, const MetaPreview *p)
 {
-    if (g_theme.id == THEME_APERTURE) {   /* the artwork fills the right, the title column sits on the left */
+    if (g_theme.id == THEME_APERTURE) {
         float k = g_app.fx_light ? 1 : h->hero_text_t;
         float ax = 700 - 20 * k, ah = rows_y() + 60;
         ui_aperture_art(h->hero_bg, ax, 0, SNTV_UI_W - ax, ah, g_app.fx_light ? 1 : h->hero_fade);
@@ -621,7 +621,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
     int index = 0;
     for (int i = 0; i < ri; i++) if (row_visible(h->rows[i])) index++;
     const char *source = r->kind == ROW_CATALOG && r->addon < g_app.n_addons ? g_app.addons[r->addon].manifest.name : NULL;
-    if (g_theme.id == THEME_APERTURE) {   /* a serif heading, and where you are in the row at the right */
+    if (g_theme.id == THEME_APERTURE) {
         font_draw_fit(r->title, LX, y - 8, FONT_L | FONT_ALT, focused_row ? THEME_TEXT : THEME_TEXT_DIM, SNTV_UI_W - LX - THEME_MARGIN - 200);
         if (focused_row && r->n) {
             char at[24]; snprintf(at, sizeof at, "%02d  /  %02d", r->focus + 1, r->n);
@@ -663,7 +663,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
             float f = is_focus ? (g_app.fx_light ? 1.0f : h->focus_t) : is_prev ? h->prev_t : 0;
             float dim = focused_row ? 0 : 0.45f;
             const MetaPreview *m = &r->metas[j];
-            if (g_theme.id == THEME_APERTURE) {   /* a still, its title in spaced serif capitals under it */
+            if (g_theme.id == THEME_APERTURE) {
                 ui_card(app_art_background(m, buf, sizeof buf), px, ry, cw, ch, f, dim, m->name, 0);
                 LibraryItem *li = r->kind == ROW_CONTINUE ? app_library_find(m->id) : NULL;
                 const NewEp *ne = r->kind == ROW_CONTINUE || r->kind == ROW_LIBRARY ? newep_get(m->id) : NULL;

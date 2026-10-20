@@ -63,9 +63,9 @@ struct Player {
     double away_s;                          /* how long since this title was last watched (0 unknown) */
     float catchup_until;                    /* the "previously" card shows until then (g_app.time); -1 waits for the picture */
     char catchup_head[200], catchup_text[600];
-    int cast_open, cast_focus;
+    int cast_open, cast_focus;              /* Info: who's in this, over the picture */
     int scenes_open, scenes_focus;          /* the Scenes rail: card 0 marks the moment, then chapters / every 5 min / marks */
-    double marks[MAX_MARKS]; int n_marks;   /* moments the viewer marked in this video, seconds */              /* Info: who's in this, over the picture */
+    double marks[MAX_MARKS]; int n_marks;   /* moments the viewer marked in this video, seconds */
     double replay_until; int replay_subs;   /* Blue replayed the last 10 s, until here; subtitles went on for it */
     char tb_error[160];                     /* TorBox could not open the current source (nothing was loaded to fail) */
     unsigned own_load;                      /* video_load_count() of this player's last load */
@@ -2062,7 +2062,7 @@ static void draw_menu(Player *p)
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
     static const char *TITLES[] = { "", "Audio", "Subtitles", "Sources", "Episodes" };   /* by MENU_ */
     static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SWAP, ICON_LIST };
-    if (aperture) {   /* a serif heading, no icon */
+    if (aperture) {
         font_draw(TITLES[p->menu], x + 40, y + 34, FONT_XL | FONT_ALT, THEME_TEXT);
         font_draw("Back  Close", x + 40, y + h - 40, FONT_XS, THEME_TEXT_DIM);
     } else {
@@ -2401,7 +2401,7 @@ static void draw_bar(Player *p, float x, float y)
     int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
     int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
     int at = bar_pos(p, ids, n);
-    if (g_theme.id == THEME_APERTURE) {   /* quiet icons centred under the timeline, the focused one named under it */
+    if (g_theme.id == THEME_APERTURE) {
         const float step = 112;
         float x0 = (SNTV_UI_W - (n - 1) * step) / 2;
         for (int i = 0; i < n; i++) {
@@ -2770,19 +2770,7 @@ static void draw_cast(Player *p)
         int foc = i == p->cast_focus;
         float cx = x + 40 + (i - first) * step + step / 2, cy = y + 96 + d / 2, r = d / 2;
         if (foc) gfx_rrect_ring(cx - r - 6, cy - r - 6, 2 * r + 12, 2 * r + 12, r + 6, 4, THEME_FOCUS);
-        int pw = 0, ph = 0;
-        unsigned tex = photo ? image_get(photo, &pw, &ph) : 0;
-        if (tex && pw > 0 && ph > 0) {
-            float ia = (float)pw / ph, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-            if (ia > 1) { u0 = (1 - 1 / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia) / 3; v1 = v0 + ia; }   /* faces sit high */
-            gfx_rtex_uv(tex, cx - r, cy - r, 2 * r, 2 * r, r, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
-        } else {
-            gfx_circle(cx, cy, r, COLOR_ALPHA(THEME_TEXT, 0x1C));
-            char ini[3] = { name[0], 0, 0 };
-            const char *sp = strrchr(name, ' ');
-            if (sp && sp[1]) ini[1] = sp[1];
-            font_draw_center(ini, cx, cy - font_height(FONT_L | FONT_B) / 2, FONT_L | FONT_B, THEME_TEXT_DIM);
-        }
+        ui_portrait(photo, name, cx - r, cy - r, 2 * r, 2 * r, r, FONT_L | FONT_B);
         fit_center(name, cx, cy + r + 18, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, step - 16);
         if (role && *role) fit_center(role, cx, cy + r + 50, FONT_XS, THEME_TEXT_MUTED, step - 16);
     }
@@ -2856,7 +2844,7 @@ static void draw_veil(Player *p, const VideoInfo *vi)
  * been paused for a moment, in the top-left where the title normally sits. */
 static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
 {
-    if (g_theme.id == THEME_APERTURE) {   /* the title card at the lower left: serif title, Paused, the time, Resume */
+    if (g_theme.id == THEME_APERTURE) {
         int a = (int)(255 * k);
         float x = THEME_MARGIN, y = 520;
         gfx_gradient_h(0, 300, 1300, SNTV_UI_H - 300, RGBA(0, 0, 0, (int)(0xC8 * k)), RGBA(0, 0, 0, 0));
@@ -3024,7 +3012,7 @@ static void draw(Screen *s)
         int info = vi.state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time - p->paused_since > 0.4f && !p->menu;
         float info_k = info ? (g_app.time - p->paused_since - 0.4f) / 0.5f : 0;
         if (info_k > 1) info_k = 1;
-        if (!info && g_theme.id == THEME_APERTURE) {   /* the title in spaced serif capitals, the episode under it */
+        if (!info && g_theme.id == THEME_APERTURE) {
             ui_spaced_caps(p->meta.name ? p->meta.name : p->title, THEME_MARGIN, 52, FONT_L | FONT_ALT, 6, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
             const char *ep = p->title ? strstr(p->title, "  -  ") : NULL;
             if (ep) font_draw_fit(ep + 5, THEME_MARGIN, 108, FONT_S, THEME_TEXT_DIM, SNTV_UI_W - 2 * THEME_MARGIN - 420);
@@ -3085,7 +3073,7 @@ static void draw(Screen *s)
                 gfx_rect(bx + bw * (float)(p->skip[i].start / vi.duration), ty + th + 6, bw * (float)((e - p->skip[i].start) / vi.duration), 3,
                          p->skip[i].kind == SKIP_CREDITS ? COLOR_ALPHA(THEME_TEXT, 0x50) : COLOR_ALPHA(THEME_ACCENT2, 0xC0));
             }
-            for (int i = 0; i < p->n_marks; i++)   /* the viewer's marked moments */
+            for (int i = 0; i < p->n_marks; i++)
                 gfx_circle(bx + bw * (float)(p->marks[i] / vi.duration), ty - 12, 5, THEME_ACCENT);
             if (p->probe && ap)   /* chapters as dots on the line, the current one in coral */
                 for (int i = 0; i < p->probe->n_chapters; i++) {

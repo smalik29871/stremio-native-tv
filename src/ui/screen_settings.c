@@ -542,7 +542,7 @@ static void draw_categories(const Settings *st, float e)
         float y = ROWS_TOP + i * 76, h = 64, w = (COL_X0 - THEME_MARGIN - 70) * (1 - e) + 72 * e;
         int foc = st->zone == 0 && st->cat == i && !st->search_foc, act = st->cat == i;
         int ap = g_theme.id == THEME_APERTURE;
-        if (ap) {   /* words, a coral bar beside the open one, an outline on the focused one */
+        if (ap) {
             if (act) gfx_rect(THEME_MARGIN - 16, y + 10, 4, h - 20, THEME_ACCENT);
             if (foc) gfx_rrect_ring(THEME_MARGIN, y, w, h, 3, 2, THEME_TEXT);
         } else if (foc) { ui_focus_under(THEME_MARGIN, y, w, h, theme_pill_r(h), 1); gfx_rrect(THEME_MARGIN, y, w, h, theme_pill_r(h), THEME_FOCUS); }

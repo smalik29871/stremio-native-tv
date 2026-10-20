@@ -842,19 +842,7 @@ static void draw_aperture_cast(const Detail *d, const TmdbInfo *tm, float x, flo
         const char *name, *role, *photo;
         cast_at(d, tm, i, &name, &role, &photo);
         float px = x + i * (w + gap), py = y + 34;
-        int iw = 0, ih = 0;
-        unsigned tex = photo ? image_get(photo, &iw, &ih) : 0;
-        gfx_rect(px, py, w, h, THEME_BG2);
-        if (tex && iw > 0 && ih > 0) {
-            float ia = (float)iw / ih, u0 = 0, v0 = 0, u1 = 1, v1 = 1, ta = w / h;
-            if (ia > ta) { u0 = (1 - ta / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia / ta) / 3; v1 = v0 + ia / ta; }   /* faces sit high */
-            gfx_rtex_uv(tex, px, py, w, h, 2, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
-        } else {
-            char ini[3] = { name[0], 0, 0 };
-            const char *sp = strrchr(name, ' ');
-            if (sp && sp[1]) ini[1] = sp[1];
-            font_draw_center(ini, px + w / 2, py + h / 2 - font_height(FONT_L | FONT_ALT) / 2, FONT_L | FONT_ALT, THEME_TEXT_MUTED);
-        }
+        ui_portrait(photo, name, px, py, w, h, 2, FONT_L | FONT_ALT);
         font_draw_fit(name, px, py + h + 12, FONT_XS, THEME_TEXT_DIM, w);
     }
 }
@@ -882,7 +870,7 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
         int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel;
         float w = font_measure(lbl, FONT_S | FONT_B) + 44;
         if (sx + w > SNTV_UI_W - THEME_MARGIN) { ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 10, sy + 26, 22, THEME_TEXT_MUTED); break; }
-        if (g_theme.id == THEME_APERTURE) {   /* words, the chosen one underlined in coral */
+        if (g_theme.id == THEME_APERTURE) {
             float tw = font_measure(lbl, FONT_M);
             font_draw(lbl, sx, sy + (52 - font_height(FONT_M)) / 2, FONT_M, sel ? THEME_TEXT : THEME_TEXT_MUTED);
             if (sel) gfx_rect(sx, sy + 50, tw, foc ? 4 : 3, foc ? THEME_ACCENT : COLOR_ALPHA(THEME_ACCENT, 0xB0));
@@ -958,7 +946,7 @@ static void draw(Screen *s)
     int series = d->meta.n_videos > 0;
     float k = g_app.fx_light ? 1.0f : d->intro;
     float tv = bgtrailer_shown(d->preview.id);   /* the trailer playing behind the artwork */
-    if (g_theme.id == THEME_APERTURE) {   /* the artwork fills the right and fades into the page */
+    if (g_theme.id == THEME_APERTURE) {
         float ah = series ? RAIL_Y - 110 : SNTV_UI_H;
         ui_aperture_art(bg, 700, 0, SNTV_UI_W - 700, ah, k);
         gfx_gradient_h(699, 0, 520, ah, THEME_BG, COLOR_ALPHA(THEME_BG, 0));
@@ -1000,7 +988,7 @@ static void draw(Screen *s)
     if (series && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) {
         draw_episode_info(d, li, x, y, col_w);
         y += 236;
-    } else if (g_theme.id == THEME_APERTURE) {   /* "1994 / 2h 22m / Drama", then the line it is sold on */
+    } else if (g_theme.id == THEME_APERTURE) {
         char seasons_txt[32] = "";
         if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++;
             snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); }
@@ -1042,7 +1030,7 @@ static void draw(Screen *s)
     const char *play_label = d->resume_label[0] ? d->resume_label : series ? "Episodes" : "Play";
     float by = y > 500 ? y : 500;
     if (series && by > 520) by = 520;
-    if (g_theme.id == THEME_APERTURE) {   /* an ivory primary, the rest as quiet text beside it */
+    if (g_theme.id == THEME_APERTURE) {
         int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
         float bx = x + ui_aperture_button(!strcmp(play_label, "Play") ? "Watch film" : play_label, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 1, cur == BTN_PLAY) + 48;
         if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x, by + 76, 200, 3, (float)d->resume_frac, THEME_ACCENT);

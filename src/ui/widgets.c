@@ -808,6 +808,23 @@ float ui_chip(const char *text, float x, float y, Color bg, Color fg)
     return w;
 }
 
+void ui_portrait(const char *photo, const char *name, float x, float y, float w, float h, float r, int initials_font)
+{
+    int iw = 0, ih = 0;
+    unsigned tex = photo ? image_get(photo, &iw, &ih) : 0;
+    if (tex && iw > 0 && ih > 0) {
+        float ia = (float)iw / ih, ta = w / h, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+        if (ia > ta) { u0 = (1 - ta / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia / ta) / 3; v1 = v0 + ia / ta; }
+        gfx_rtex_uv(tex, x, y, w, h, r, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
+        return;
+    }
+    gfx_rrect(x, y, w, h, r, COLOR_ALPHA(THEME_TEXT, 0x1C));
+    char ini[3] = { name && *name ? name[0] : '?', 0, 0 };
+    const char *sp = name ? strrchr(name, ' ') : NULL;
+    if (sp && sp[1]) ini[1] = sp[1];
+    font_draw_center(ini, x + w / 2, y + h / 2 - font_height(initials_font) / 2, initials_font, THEME_TEXT_DIM);
+}
+
 void ui_new_episodes_badge(int count, float right_x, float y)
 {
     char text[32];
@@ -1017,12 +1034,12 @@ void ui_aperture_art(const char *url, float x, float y, float w, float h, float 
 
 static int is_ascii(const char *s) { for (; *s; s++) if ((unsigned char)*s >= 0x80) return 0; return 1; }
 
-/* Words of `t` that fit in `maxw` at `fs`, from *p; advances *p. */
+/* The words from *p that fit in maxw at fs, into out; advances *p past them. */
 static int take_line(const char **p, int fs, float maxw, char *out, size_t n)
 {
     const char *s = *p;
     while (*s == ' ') s++;
-    size_t len = 0, best = 0;
+    size_t len = 0;
     const char *end = s;
     while (*end) {
         const char *w = end;
@@ -1030,13 +1047,12 @@ static int take_line(const char **p, int fs, float maxw, char *out, size_t n)
         size_t l = (size_t)(w - s);
         if (l >= n) break;
         memcpy(out, s, l); out[l] = 0;
-        if (best && font_measure(out, fs) > maxw) break;
-        best = l; end = w;
+        if (len && font_measure(out, fs) > maxw) break;
+        len = l; end = w;
         while (*end == ' ') end++;
-        len = l;
     }
-    if (!best) return 0;
-    memcpy(out, s, len); out[len] = 0;
+    if (!len) return 0;
+    out[len] = 0;
     *p = end;
     return 1;
 }

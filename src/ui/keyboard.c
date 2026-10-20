@@ -94,7 +94,7 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
             int sel = focused && kb->row == r && kb->col == c;
             char ch[2] = { row[c], 0 };
             if (kb->shift && ch[0] >= 'a' && ch[0] <= 'z') ch[0] = (char)(ch[0] - 32);
-            if (aperture) {   /* bare letters; the chosen one outlined and underlined in coral */
+            if (aperture) {
                 if (sel) { gfx_rrect_ring(kx + 4, ky + 2, KEY_W - 8, KEY_H - 4, 3, 2, THEME_TEXT); gfx_rect(kx + 8, ky + KEY_H - 4, KEY_W - 16, 3, THEME_ACCENT); }
                 float tw = font_measure(ch, FONT_M);
                 font_draw(ch, kx + (KEY_W - tw) / 2, ky + (KEY_H - font_height(FONT_M)) / 2, FONT_M, sel ? THEME_TEXT : THEME_TEXT_DIM);
