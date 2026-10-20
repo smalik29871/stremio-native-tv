@@ -8,6 +8,7 @@
 #include "../video/video.h"
 #include "../store.h"
 #include "../youtube.h"
+#include "../torbox.h"
 #include "clockface.h"
 #include "font.h"
 #include "gfx.h"
@@ -70,8 +71,15 @@ static void fv_start(Ambient *a)
     const char *url = store_get_str("fireplaceVideo", "");
     VideoInfo vi; video_info(&vi);
     if (!url || !*url || (vi.state != VIDEO_IDLE && vi.state != VIDEO_ENDED)) return;   /* a paused film keeps its picture */
-    char id[16];
-    if (youtube_video_id(url, id)) {
+    char id[16], tb[700];
+    if (torbox_resolve(url, tb, sizeof tb)) {   /* your own video on TorBox: its permanent link */
+        LOGI("ambient: fireplace video from TorBox");
+        snprintf(a->fv_urls[0], sizeof a->fv_urls[0], "%s", tb);
+        a->fv_n = 1; a->fv_i = 0;
+        fv_play(a);
+    } else if (torbox_is_link(url)) {
+        LOGW("ambient: the fireplace video is on TorBox, but no TorBox key is set");
+    } else if (youtube_video_id(url, id)) {
         a->fv_state = 1;
         youtube_set_quality(g_app.res_cap, quality_cap_ok(&g_app.tv, TVCAP_AV1), quality_cap_ok(&g_app.tv, TVCAP_4K));
         youtube_stream(url, on_fv, a);

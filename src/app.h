@@ -207,6 +207,9 @@ void app_update_check_now(void);
 extern char g_update_version[16];   /* "" or the newer version */
 extern char g_update_url[600], g_update_sha256[80];   /* the package and its checksum */
 Screen *screen_update_create(int countdown_s);
+/* Your TorBox videos: pick one as the fireplace video or the break recording. */
+enum { TORBOX_FOR_FIREPLACE, TORBOX_FOR_BREAK };
+Screen *screen_torbox_create(int target);
 int  app_link_dead(const char *url);
 
 /* Resolve a stream to a playable URL. Returns malloc'd string or NULL (with reason). */

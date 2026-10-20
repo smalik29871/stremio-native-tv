@@ -581,6 +581,28 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/tmdbimg/"):
             i = int(p.rsplit("/p", 1)[1].split(".")[0]) if "/p" in p else 0
             return self.send(200, art("poster", i + 2, ""), "image/png")
+        if p.startswith("/torbox/"):   # TorBox: your files (key "tbkey"), and the permanent link that forwards to one
+            q = p[8:]
+            if "/mylist" in q:
+                if self.headers.get("Authorization") != "Bearer tbkey":
+                    return self.send(401, b'{"success":false,"error":"AUTH_ERROR"}')
+                kind = q.split("/")[0]
+                if kind != "torrents":
+                    return self.send(404, b'{"success":false,"error":"NOT_FOUND"}')
+                return self.send(200, json.dumps({"success": True, "data": [
+                    {"id": 41, "name": "Fireplace 4K", "files": [
+                        {"id": 0, "short_name": "fireplace.mp4", "mimetype": "video/mp4", "size": 734003200},
+                        {"id": 1, "short_name": "readme.txt", "mimetype": "text/plain", "size": 12}]},
+                    {"id": 42, "name": "Adhan", "files": [{"id": 3, "short_name": "adhan.mkv", "mimetype": "video/x-matroska", "size": 52428800}]}]}).encode())
+            if "/requestdl" in q:
+                if "token=tbkey" not in q or "redirect=true" not in q:
+                    return self.send(403, b'{"success":false}')
+                self.send_response(302)
+                self.send_header("Location", f"{BASE}/video/sample_h264_aac.mp4?torbox=1")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            return self.send(404, b"{}")
         if p.startswith("/ipapi"):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
         if p.startswith("/thumbs/frame"):   # the seek preview server (tools/thumbs) stands in

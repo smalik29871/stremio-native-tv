@@ -12,6 +12,7 @@
 #include "../torrent.h"
 #include "qrcodegen.h"
 #include "../suntimes.h"
+#include "../torbox.h"
 #include "../image.h"
 #include "../lang.h"
 #include "../log.h"
@@ -52,7 +53,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -61,7 +62,7 @@ static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio account", "Torrents",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
     "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
 #define SEC_H 70.0f
@@ -125,10 +126,10 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
-        SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) ids[n++] = IT_FIRE_VIDEO; ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
+        SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
         break;
     case CAT_KEYS:
-        SEC(SEC_META); ids[n++] = IT_TMDB; ids[n++] = IT_MDBLIST; ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
+        SEC(SEC_META); ids[n++] = IT_TMDB; ids[n++] = IT_MDBLIST; ids[n++] = IT_TORBOX; ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
         SEC(SEC_AI); ids[n++] = IT_AI_PROVIDER;
         if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
         break;
@@ -138,7 +139,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         ids[n++] = IT_BR_WHERE;
         SEC(SEC_BR_PLACE); ids[n++] = IT_BR_LOCATION; ids[n++] = IT_BR_DETECT; ids[n++] = IT_BR_TODAY;
         SEC(SEC_BR_ALERT); ids[n++] = IT_BR_LEAD; ids[n++] = IT_BR_LEN; ids[n++] = IT_BR_SOUND;
-        if (g_app.break_sound == 1) { ids[n++] = IT_BR_AUDIO; ids[n++] = IT_BR_END; ids[n++] = IT_BR_VIDEO; }
+        if (g_app.break_sound == 1) { ids[n++] = IT_BR_AUDIO; if (torbox_enabled()) ids[n++] = IT_BR_TORBOX; ids[n++] = IT_BR_END; ids[n++] = IT_BR_VIDEO; }
         SEC(SEC_BR_MORE); ids[n++] = IT_BR_HEALTH; if (g_app.break_health_min) ids[n++] = IT_BR_HEALTH_LEN;
         ids[n++] = IT_BR_BED; ids[n++] = IT_BR_CUSTOM1; ids[n++] = IT_BR_CUSTOM2; ids[n++] = IT_BR_CUSTOM3;
         break;
@@ -186,6 +187,8 @@ static const char *row_title(int id)
     case IT_TRAKT: return "Trakt";
     case IT_SIMKL: return "SimKL";
     case IT_MDBLIST: return "MDBList ratings";
+    case IT_TORBOX: return "TorBox";
+    case IT_FIRE_TORBOX: case IT_BR_TORBOX: return "Choose from my TorBox";
     case IT_OS_KEY: return "OpenSubtitles.com";
     case IT_OS_LOGIN: return "OpenSubtitles account";
     case IT_PLAY_LINK: return "Play a link from your phone";
@@ -272,6 +275,9 @@ static const char *row_desc(int id)
     case IT_OS_KEY: return "Built-in subtitle search, with release names to find the subtitle made for your file's release.";
     case IT_OS_LOGIN: return "Optional: a free account allows more subtitle downloads a day.";
     case IT_MDBLIST: return "Rotten Tomatoes, Metacritic and Letterboxd scores on title pages. Free key at mdblist.com.";
+    case IT_TORBOX: return "Your own videos kept on TorBox, as the fireplace video or a break's recording, at full quality.";
+    case IT_FIRE_TORBOX: return "A video in your TorBox as the fireplace; it plays through a fresh link each time.";
+    case IT_BR_TORBOX: return "A video in your TorBox at the start of each break; it plays through a fresh link each time.";
     case IT_PLAY_LINK: return "Send a video link from your phone and it plays here.";
     case IT_BACKUP: return "Save your settings to your phone, or bring a backup back.";
     case IT_TVCAP: return "4K, HEVC, AV1, Dolby Vision, DTS and TrueHD: what plays here, learned from what you watch.";
@@ -744,6 +750,8 @@ static void draw(Screen *s)
         }
         case IT_OS_KEY: draw_row(y, ICON_SUBS, "OpenSubtitles.com", opensubs_enabled() ? "On  \xC2\xB7  searched for every video" : "Off  \xC2\xB7  OK to add an API key", foc, KIND_ACTION, 0); break;
         case IT_OS_LOGIN: { char u[96]; if (opensubs_signed_in()) snprintf(u, sizeof u, "Signed in as %s  \xC2\xB7  OK to sign out", opensubs_user()); else snprintf(u, sizeof u, "Not signed in  \xC2\xB7  a few downloads a day"); draw_row(y, ICON_KEY, "OpenSubtitles account", u, foc, KIND_ACTION, 0); break; }
+        case IT_TORBOX: draw_row(y, ICON_PLAY, "TorBox", torbox_enabled() ? "Key set  \xC2\xB7  pick your videos for the fireplace and breaks" : "Not set  \xC2\xB7  OK to add your API key", foc, KIND_ACTION, 0); break;
+        case IT_FIRE_TORBOX: case IT_BR_TORBOX: draw_row(y, ICON_PLAY, "Choose from my TorBox", "Your videos, at full quality", foc, KIND_ACTION, 0); break;
         case IT_MDBLIST: draw_row(y, ICON_STAR, "MDBList ratings", mdblist_enabled() ? "Key set  \xC2\xB7  more ratings on title pages" : "Not set  \xC2\xB7  OK to add a key", foc, KIND_ACTION, 0); break;
         case IT_TVCAP: draw_row(y, ICON_TV, "What this TV can play", NULL, foc, KIND_ACTION, 0); break;
         case IT_SRC_EXCLUDE: draw_row(y, ICON_CLOSE, "Words to avoid in source names", g_app.src_exclude[0] ? g_app.src_exclude : "None  \xC2\xB7  OK to add, e.g. CAM, HDTS, 3D", foc, KIND_ACTION, 0); break;
@@ -812,7 +820,8 @@ static void draw(Screen *s)
             draw_row(y, ICON_CLOCK, "Break length", v, foc, KIND_CHOICE, 0);
             break;
         case IT_BR_SOUND: { static const char *S[] = { "Soft chime", "My own recording", "Silent" }; draw_row(y, ICON_BELL, "Sound", S[g_app.break_sound], foc, KIND_CHOICE, 0); break; }
-        case IT_BR_AUDIO: draw_row(y, ICON_AUDIO, "Recording at the start", !g_app.break_audio ? "Not set  \xC2\xB7  send one from your phone, or a link (adhan, bell, chant)" : strncmp(g_app.break_audio, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_audio, foc, KIND_ACTION, 0); break;
+        case IT_BR_AUDIO: if (torbox_is_link(g_app.break_audio)) { char tb[300], nm[256]; snprintf(tb, sizeof tb, "TorBox: %s", torbox_name(g_app.break_audio, nm, sizeof nm)); draw_row(y, ICON_AUDIO, "Recording at the start", tb, foc, KIND_ACTION, 0); break; }
+            draw_row(y, ICON_AUDIO, "Recording at the start", !g_app.break_audio ? "Not set  \xC2\xB7  send one from your phone, or a link (adhan, bell, chant)" : strncmp(g_app.break_audio, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_audio, foc, KIND_ACTION, 0); break;
         case IT_BR_END: draw_row(y, ICON_AUDIO, "Recording at the end", !g_app.break_end ? "Not set  \xC2\xB7  played before playback continues (a dua, a closing bell)" : strncmp(g_app.break_end, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_end, foc, KIND_ACTION, 0); break;
         case IT_BR_HEALTH: if (g_app.break_health_min) snprintf(v, sizeof v, "Every %d min of watching", g_app.break_health_min); else snprintf(v, sizeof v, "Off"); draw_row(y, ICON_STAR, "Stretch reminder", v, foc, KIND_CHOICE, 0); break;
         case IT_BR_HEALTH_LEN: snprintf(v, sizeof v, "%d min", g_app.break_health_len); draw_row(y, ICON_STAR, "Stretch length", v, foc, KIND_CHOICE, 0); break;
@@ -860,7 +869,13 @@ static void draw(Screen *s)
             if (g_app.ambient_minutes) snprintf(v, sizeof v, "After %d min", g_app.ambient_minutes); else snprintf(v, sizeof v, "Off");
             draw_row(y, ICON_TV, "Screensaver", v, foc, KIND_CHOICE, 0);
             break;
-        case IT_FIRE_VIDEO: { const char *fv = store_get_str("fireplaceVideo", ""); draw_row(y, ICON_PLAY, "Fireplace video", fv && *fv ? fv : "Not set  \xC2\xB7  OK to add a YouTube link", foc, KIND_ACTION, 0); break; }
+        case IT_FIRE_VIDEO: {
+            const char *fv = store_get_str("fireplaceVideo", "");
+            char tb[300], nm[256];
+            if (torbox_is_link(fv)) snprintf(tb, sizeof tb, "TorBox: %s", torbox_name(fv, nm, sizeof nm));
+            draw_row(y, ICON_PLAY, "Fireplace video", torbox_is_link(fv) ? tb : fv && *fv ? fv : "Not set  \xC2\xB7  OK to add a YouTube link", foc, KIND_ACTION, 0);
+            break;
+        }
         case IT_AMBIENT_STYLE: draw_row(y, ICON_TV, "Screensaver style", AMBIENT_STYLE_NAMES[g_app.ambient_style], foc, KIND_CHOICE, 0); break;
         case IT_BLUR: draw_row(y, ICON_EYE, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
         case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log, device info, QR export", foc, KIND_ACTION, 0); break;
@@ -907,7 +922,7 @@ static const char *edit_title(int which)
     if (which == EDIT_SEARCH) return "Find a setting";
     return which == EDIT_AI_KEY ? "AI API key" : which == EDIT_AI_BASE ? "AI endpoint (OpenAI-compatible)" : which == EDIT_AI_MODEL ? "AI model"
          : which == EDIT_FIRE_VIDEO ? "Fireplace video" : which == EDIT_OS_KEY ? "OpenSubtitles.com API key" : which == EDIT_OS_LOGIN ? "OpenSubtitles account"
-         : which == EDIT_TRAKT_APP ? "Trakt app" : which == EDIT_SIMKL_APP ? "SimKL app id" : which == EDIT_MDBLIST ? "MDBList API key"
+         : which == EDIT_TRAKT_APP ? "Trakt app" : which == EDIT_SIMKL_APP ? "SimKL app id" : which == EDIT_MDBLIST ? "MDBList API key" : which == EDIT_TORBOX ? "TorBox API key"
          : which == EDIT_PLAY_LINK ? "Play a link" : which == EDIT_BACKUP ? "Back up or restore settings"
          : which == EDIT_EXCLUDE ? "Words to avoid in source names" : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_TMDB ? "TMDB API key"
          : which == EDIT_LOCATION ? "Your location" : which == EDIT_BR_AUDIO ? "Audio at the start of a break" : which == EDIT_BR_END ? "Audio at the end of a break" : "Addon manifest URL";
@@ -921,6 +936,7 @@ static const char *edit_hint(int which)
          : which == EDIT_TRAKT_APP ? "Create an app at developer.trakt.tv/apps (type Development, redirect http://localhost), then enter its Client ID (and, for older apps that have one, a space and the Client Secret)."
          : which == EDIT_SIMKL_APP ? "Create an app at simkl.com/settings/developer (redirect http://localhost) and enter its Client ID."
          : which == EDIT_MDBLIST ? "Free at mdblist.com > Preferences > API key. Empty removes it."
+         : which == EDIT_TORBOX ? "At torbox.app > Settings > API key. Scan the code to paste it from your phone. Empty removes it."
          : which == EDIT_PLAY_LINK ? "A direct video link (MP4, MKV, M3U8). Scan the code to paste it on your phone; it plays at once."
          : which == EDIT_BACKUP ? "Scan the code with your phone: save a backup there, or send one back to restore it on this TV. Your Stremio sign-in is not included."
          : which == EDIT_EXCLUDE ? "Comma-separated, e.g. CAM, HDTS, 3D, HC. Sources with any of them in their name are never picked for you. Empty removes the rule."
@@ -1154,7 +1170,7 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "http://")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
                   : which == EDIT_SEARCH || which == EDIT_BACKUP || which == EDIT_TRAKT_APP || which == EDIT_SIMKL_APP ? ""
-                  : which == EDIT_FIRE_VIDEO ? store_get_str("fireplaceVideo", "") : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "https://" : which == EDIT_EXCLUDE ? g_app.src_exclude
+                  : which == EDIT_FIRE_VIDEO ? (torbox_is_link(store_get_str("fireplaceVideo", "")) ? "" : store_get_str("fireplaceVideo", "")) : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_TORBOX ? store_get_str("torboxKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "https://" : which == EDIT_EXCLUDE ? g_app.src_exclude
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "https://") : "https://");
     input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
@@ -1210,6 +1226,13 @@ static void finish_edit(Settings *st, int save)
                 }
                 memset(st->kb.text, 0, sizeof st->kb.text);   /* the password goes no further */
             }
+        } else if (st->edit == EDIT_TORBOX) {
+            char *v = st->kb.text;
+            while (*v == ' ') v++;
+            size_t n = strlen(v);
+            while (n && v[n - 1] == ' ') v[--n] = 0;
+            store_set_str("torboxKey", n ? v : NULL); store_save();
+            app_toast(n ? "TorBox key saved: Choose from my TorBox appears under the fireplace and break recording" : "TorBox key removed");
         } else if (st->edit == EDIT_TRAKT_APP || st->edit == EDIT_SIMKL_APP || st->edit == EDIT_MDBLIST) {
             char *v = st->kb.text;
             while (*v == ' ') v++;
@@ -1489,6 +1512,9 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_PLAY_LINK) begin_edit(st, EDIT_PLAY_LINK);
         else if (id == IT_FIRE_VIDEO) begin_edit(st, EDIT_FIRE_VIDEO);
         else if (id == IT_MDBLIST) begin_edit(st, EDIT_MDBLIST);
+        else if (id == IT_TORBOX) begin_edit(st, EDIT_TORBOX);
+        else if (id == IT_FIRE_TORBOX) app_push(screen_torbox_create(TORBOX_FOR_FIREPLACE));
+        else if (id == IT_BR_TORBOX) app_push(screen_torbox_create(TORBOX_FOR_BREAK));
         else if (id == IT_OS_KEY) begin_edit(st, EDIT_OS_KEY);
         else if (id == IT_OS_LOGIN) { if (opensubs_signed_in()) { char e[8]; opensubs_login(NULL, NULL, e, sizeof e); app_toast("Signed out of OpenSubtitles"); } else begin_edit(st, EDIT_OS_LOGIN); }
         else if (id == IT_TRAKT || id == IT_SIMKL) tracking_row_ok(st, id == IT_TRAKT ? TRACK_TRAKT : TRACK_SIMKL);

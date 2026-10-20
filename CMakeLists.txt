@@ -50,6 +50,7 @@ add_library(sntv_core STATIC
   src/memlevel.c
   src/sysinfo.c
   src/youtube.c
+  src/torbox.c
   src/frames.c
   src/tidy.c
   src/torrent.c

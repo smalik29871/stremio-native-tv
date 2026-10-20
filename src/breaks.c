@@ -6,6 +6,7 @@
 #include "log.h"
 #include "suntimes.h"
 #include "youtube.h"
+#include "torbox.h"
 #include "ui/font.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
@@ -297,6 +298,10 @@ const char *breaks_media_url(const char *stored, char *out, size_t n, int *is_vi
 {
     if (is_video) *is_video = 0;
     if (!stored || !*stored) return NULL;
+    if (torbox_is_link(stored)) {   /* your own video on TorBox: its permanent link, fresh behind */
+        if (is_video) *is_video = g_app.break_video && is_video_name(stored);
+        return torbox_resolve(stored, out, n);
+    }
     if (strncmp(stored, "sntv-sound://", 13) == 0) {
         if (is_video) *is_video = g_app.break_video && is_video_name(stored);
         return phone_resolve_sound(stored, out, n);
