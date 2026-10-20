@@ -154,6 +154,7 @@ struct Player {
     int up_next_dismissed;
 
     int menu, menu_focus;
+    int src_filter, src_chip, src_on_chips;   /* Sources sheet: addon tab (0 all), focused button (0 find more, 1 close), focus zone (0 list, 1 tabs, 2 buttons) */
     int bar_focus, bar_id;     /* Down moves from the seek bar to the button row; the button by BTN_* id */
     int skip_focus;            /* Up from the timeline focused the Skip button (the controls are up) */
     float play_flash;          /* big centre icon after play/pause */
@@ -171,6 +172,11 @@ static int pick_forced(Player *p);
 static void autosync_tick(Player *p);
 static void xl_stop(Player *p);
 static int source_view(const Player *p, int *view);
+enum { SRC_ADDONS = 12 };
+static int source_addons(const Player *p, char names[SRC_ADDONS][80]);
+static int source_rows(const Player *p, int *rows);
+static int cand_res(const PlayCandidate *c);
+static int cand_group(const PlayCandidate *c);
 static void cand_addon(const PlayCandidate *c, char *out, size_t n);
 static void describe_track(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn);
 static int xl_available(Player *p);
@@ -1299,9 +1305,10 @@ static void on_more_sources(const Stream *items, int n, void *user)
     }
     LOGI("player: every addon asked from the Sources panel: %d more source%s", added, added == 1 ? "" : "s");
     if (!added) { app_toast("No other sources found"); app_redraw(); return; }
-    if (p->menu == MENU_SOURCES && p->menu_focus == first) {   /* the focus moves from the Find row to the first new one */
-        int view[64], nv = source_view(p, view);
-        for (int k = 0; k < nv; k++) if (view[k] == first) { p->menu_focus = k; break; }
+    if (p->menu == MENU_SOURCES && p->src_on_chips == 2 && p->src_chip == 0) {   /* the focus moves from Find more to the first new one */
+        p->src_filter = 0; p->src_on_chips = 0;
+        int rows[64], nr = source_rows(p, rows);
+        for (int k = 0; k < nr; k++) if (rows[k] == first) { p->menu_focus = k; break; }
     }
     app_redraw();
 }
@@ -1752,8 +1759,179 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     }
 }
 
+/* The Sources sheet during playback, after nuvio-native-legacy's: a tall card on the right,
+ * the video still playing beside it under a side veil. Quality leads: the source this TV
+ * should play first, then 4K / 1080p / 720p / the rest (HDR before SDR), the largest file
+ * first, with its size in big figures; the playing one carries a moving equaliser. */
+static void draw_sources_panel(Player *p)
+{
+    const float SW = 820, SX = SNTV_UI_W - 64 - SW, SY = 32, SH = SNTV_UI_H - SY - 48, PAD = 40;
+    const float ROW_H = 112, ROW_GAP = 4, EXTRA = 34, HEAD_H = 52;
+    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; }
+    if (p->menu_t < 1) { p->menu_t += 0.1f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
+    float e = 1 - (1 - p->menu_t) * (1 - p->menu_t);
+    gfx_gradient_h(SX - 700, 0, 700 + SW + 64, SNTV_UI_H, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x6B * e)));   /* a side veil, no full one */
+    gfx_set_alpha(e);
+    gfx_set_translate(40 * (1 - e), 0);
+    gfx_rrect(SX, SY, SW, SH, 36, RGBA(0x15, 0x16, 0x1A, 0xF6));
+    float cx = SX + PAD, cw = SW - 2 * PAD;
+
+    /* kicker: what is playing, and whether more are coming */
+    char kick[200];
+    ui_upper(p->title ? p->title : "", kick, sizeof kick);
+    font_draw_tracked(kick, cx, SY + 34, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x73), 1.5f);
+    if (p->more_state == 1) font_draw("ASKING EVERY ADDON\xE2\x80\xA6", cx + cw - font_measure("ASKING EVERY ADDON\xE2\x80\xA6", FONT_XS | FONT_B), SY + 34, FONT_XS | FONT_B, THEME_ACCENT);
+
+    /* title row, its buttons at the right: Find more, Close */
+    font_draw("Sources", cx, SY + 70, FONT_L | FONT_B, THEME_TEXT);
+    const char *find = p->more_state == 1 ? "Asking\xE2\x80\xA6" : p->more_state == 2 ? "Sources page" : "Find more";
+    float bh = 56, bw0 = font_measure(find, FONT_XS | FONT_B) + 84, bw1 = 56, bx1 = cx + cw - bw1, bx0 = bx1 - 10 - bw0, by = SY + 64;
+    for (int b = 0; b < 2; b++) {
+        int foc = p->src_on_chips == 2 && p->src_chip == b;
+        float bx = b ? bx1 : bx0, bw = b ? bw1 : bw0;
+        gfx_rrect(bx, by, bw, bh, bh / 2, foc ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x14));
+        Color fg = foc ? THEME_ON_ACCENT : THEME_TEXT;
+        if (b) ui_icon(ICON_CLOSE, bx + bw / 2, by + bh / 2, 22, fg);
+        else {
+            if (p->more_state == 1) ui_spinner(bx + 32, by + bh / 2, 10); else ui_icon(ICON_RELOAD, bx + 32, by + bh / 2, 22, fg);
+            font_draw(find, bx + 56, by + (bh - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, fg);
+        }
+    }
+
+    /* addon tabs with their counts, in a segmented track */
+    char names[SRC_ADDONS][80], label[120];
+    int na = source_addons(p, names), rows[64], n = source_rows(p, rows);
+    float ty = SY + 146, th = 56;
+    gfx_rrect(cx, ty, cw, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x0D));
+    float tw[SRC_ADDONS + 1], tx[SRC_ADDONS + 1], at = 0;
+    for (int t = 0; t <= na; t++) {
+        int count = 0;
+        for (int i = 0; i < p->n_cands; i++) { char ad[80]; cand_addon(&p->cands[i], ad, sizeof ad); count += !t || !strcmp(ad, names[t - 1]); }
+        snprintf(label, sizeof label, "%s  %d", t ? names[t - 1] : "All", count);
+        tw[t] = font_measure(label, FONT_XS | FONT_B) + 40; tx[t] = at; at += tw[t] + 6;
+    }
+    float shift = tx[p->src_filter] + tw[p->src_filter] > cw - 12 ? tx[p->src_filter] + tw[p->src_filter] - (cw - 12) : 0;
+    gfx_clip_push(cx + 6, ty, cw - 12, th);
+    for (int t = 0; t <= na; t++) {
+        int count = 0;
+        for (int i = 0; i < p->n_cands; i++) { char ad[80]; cand_addon(&p->cands[i], ad, sizeof ad); count += !t || !strcmp(ad, names[t - 1]); }
+        snprintf(label, sizeof label, "%s  %d", t ? names[t - 1] : "All", count);
+        int sel = p->src_filter == t, foc = sel && p->src_on_chips == 1;
+        float x = cx + 6 + tx[t] - shift;
+        if (sel) gfx_rrect(x, ty + 6, tw[t], 44, 22, foc ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x22));
+        font_draw(label, x + 20, ty + 6 + (44 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, foc ? THEME_ON_ACCENT : sel ? THEME_TEXT : THEME_TEXT_DIM);
+    }
+    gfx_clip_pop();
+
+    /* the list */
+    float ly = ty + th + 22, lh = SY + SH - 24 - ly;
+    if (!n) {
+        font_draw_center(p->more_state == 1 ? "Asking the addons for sources\xE2\x80\xA6" : "No sources from this addon", SX + SW / 2, ly + 140, FONT_S | FONT_B, THEME_TEXT_DIM);
+        gfx_set_translate(0, 0); gfx_set_alpha(1);
+        return;
+    }
+    /* where each row sits: a heading before each new group (not before the pinned pick) */
+    float ys[64], acc = 0;
+    int heads[64];
+    for (int k = 0; k < n; k++) {
+        int pinned = k == 0 && p->cands[rows[0]].recommended;
+        heads[k] = !pinned && (k == 0 || (k == 1 && p->cands[rows[0]].recommended) || cand_group(&p->cands[rows[k]]) != cand_group(&p->cands[rows[k - 1]]));
+        if (heads[k]) acc += HEAD_H;
+        ys[k] = acc;
+        acc += ROW_H + ROW_GAP + (!p->src_on_chips && p->menu_focus == k ? EXTRA : 0);
+    }
+    float bottom = p->src_on_chips ? 0 : ys[p->menu_focus] + ROW_H + EXTRA;   /* the focused row (and its heading) in view */
+    float scroll = bottom > lh ? bottom - lh + 8 : 0;
+    gfx_clip_push(SX + 8, ly - 4, SW - 16, lh + 8);
+    for (int k = 0; k < n; k++) {
+        const PlayCandidate *c = &p->cands[rows[k]];
+        float y = ly + ys[k] - scroll;
+        int foc = !p->src_on_chips && p->menu_focus == k, on = rows[k] == p->cur;
+        float h = ROW_H + (foc ? EXTRA : 0);
+        if (heads[k] && y - HEAD_H < ly + lh && y > ly - HEAD_H) {   /* "1080P  ·  HDR ...... 3 sources" */
+            int g = cand_group(c), cnt = 0;
+            for (int j = k; j < n && cand_group(&p->cands[rows[j]]) == g; j++) cnt++;
+            static const char *const RES[] = { "4K ULTRA HD", "1080P", "720P", "OTHER" };
+            char head[64], right[32];
+            snprintf(head, sizeof head, "%s  \xC2\xB7  %s", RES[g / 2], g % 2 ? "SDR" : "HDR");
+            snprintf(right, sizeof right, "%d source%s", cnt, cnt == 1 ? "" : "s");
+            font_draw_tracked(head, cx, y - HEAD_H + 14, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x8C), 1.2f);
+            font_draw(right, cx + cw - font_measure(right, FONT_XS), y - HEAD_H + 14, FONT_XS, THEME_TEXT_MUTED);
+            gfx_rect(cx, y - 12, cw, 1, RGBA(255, 255, 255, 0x14));
+        }
+        if (y > ly + lh || y + h < ly) continue;
+        if (foc) gfx_rrect(cx - 16, y, cw + 32, h, 22, RGBA(255, 255, 255, 0x1F));
+        float tx0 = cx, rw = 170, tw0 = cw - rw - 12, yy = y + 14;
+        /* the mark line */
+        const char *mark = on ? "PLAYING NOW" : (k == 0 && c->recommended) ? "BEST FOR THIS TV" : (rows[k] < 16 && p->dead[rows[k]]) ? "FAILED HERE" : NULL;
+        if (mark) {
+            float mx = tx0;
+            if (on) {   /* a small equaliser that moves while it plays */
+                for (int b = 0; b < 4; b++) { float v = 0.35f + 0.65f * fabsf(sinf((float)g_app.time * (3.1f + b * 1.3f) + b)); gfx_rect(mx + b * 5, yy + 16 - 14 * v, 3, 14 * v, THEME_ACCENT); }
+                mx += 28;
+                app_redraw();
+            }
+            font_draw_tracked(mark, mx, yy, FONT_XS | FONT_B, mark[0] == 'F' ? THEME_DANGER : THEME_ACCENT, 1.2f);
+            yy += 26;
+        } else yy += 8;
+        /* the name, a bolt before it when the addon has it cached */
+        char addon[80], name[160];
+        cand_addon(c, addon, sizeof addon);
+        const char *lbl = c->label ? c->label : "Source", *sep = strstr(lbl, " - ");
+        snprintf(name, sizeof name, "%s", sep ? sep + 3 : lbl);
+        int cached = strstr(c->badges, "CACHED") != NULL;
+        float nx = tx0;
+        if (cached) { ui_icon(ICON_SPARK, nx + 10, yy + 16, 20, THEME_GOLD); nx += 28; }
+        font_draw_fit(name, nx, yy, FONT_S | FONT_B, foc ? THEME_TEXT : COLOR_ALPHA(THEME_TEXT, 0xCD), tx0 + tw0 - nx);
+        yy += 38;
+        /* the quality line: "4K · HDR" in words, then the other badges */
+        char rest[96] = "", q[48];
+        int r = cand_res(c);
+        snprintf(q, sizeof q, "%s", r >= 2160 ? "4K" : r >= 1080 ? "1080p" : r >= 720 ? "720p" : r ? "SD" : "");
+        float qx = tx0;
+        if (q[0]) { font_draw(q, qx, yy, FONT_XS | FONT_B, THEME_TEXT); qx += font_measure(q, FONT_XS | FONT_B) + 10; }
+        const char *hdr = strstr(c->badges, "DOLBY") ? "DOLBY VISION" : strstr(c->badges, "HDR10+") ? "HDR10+" : strstr(c->badges, "HDR") ? "HDR" : "SDR";
+        font_draw(hdr, qx, yy, FONT_XS | FONT_B, strcmp(hdr, "SDR") ? color_lerp(THEME_ACCENT, RGBA(0xC8, 0xC0, 0xB0, 0xFF), 0.45f) : THEME_TEXT_MUTED);
+        qx += font_measure(hdr, FONT_XS | FONT_B) + 14;
+        for (const char *t = c->badges; *t; ) {   /* codec and audio as badges; resolution, HDR, cached and size are said elsewhere */
+            size_t len = strcspn(t, "|");
+            char one[32]; snprintf(one, sizeof one, "%.*s", (int)len, t);
+            int said = !strcmp(one, "4K") || strstr(one, "p") == one + strlen(one) - 1 || !strcmp(one, "SD") || !strcmp(one, "CACHED")
+                     || strstr(one, "HDR") || strstr(one, "DOLBY") || strstr(one, " GB") || strstr(one, " MB");
+            if (!said && strlen(rest) + len + 2 < sizeof rest) { if (rest[0]) strcat(rest, "|"); strcat(rest, one); }
+            t += len + (t[len] == '|');
+        }
+        if (rest[0]) streams_draw_badges(rest, qx, yy - 4, tx0 + tw0 - qx, 0);
+        /* the focused row opens to its file */
+        if (foc) {
+            const char *file = c->filename ? c->filename : c->release ? c->release : c->detail;
+            if (file) font_draw_fit(file, tx0, yy + 34, FONT_XS, RGBA(0x7D, 0x7D, 0x7D, 0xFF), tw0 + rw);
+        }
+        /* the right column: the size in big figures, the addon under it */
+        float rx = cx + cw;
+        if (c->video_size) {
+            char num[16];
+            double gb = c->video_size / 1073741824.0;
+            const char *unit = gb >= 1 ? "GB" : "MB";
+            snprintf(num, sizeof num, gb >= 1 ? "%.1f" : "%.0f", gb >= 1 ? gb : gb * 1024);
+            float uw = font_measure(unit, FONT_XS | FONT_B), nw2 = font_measure(num, FONT_M | FONT_B);
+            font_draw(unit, rx - uw, y + 30, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+            font_draw(num, rx - uw - 6 - nw2, y + 20, FONT_M | FONT_B, THEME_TEXT);
+        }
+        char under[120];
+        snprintf(under, sizeof under, "%s%s", cached ? "Cached  \xC2\xB7  " : "", addon);
+        float uw2 = font_measure(under, FONT_XS);
+        if (uw2 > rw) uw2 = rw;
+        font_draw_fit(under, rx - uw2, y + 66, FONT_XS, THEME_TEXT_DIM, rw);
+    }
+    gfx_clip_pop();
+    gfx_set_translate(0, 0);
+    gfx_set_alpha(1);
+}
+
 static void draw_menu(Player *p)
 {
+    if (p->menu == MENU_SOURCES) { draw_sources_panel(p); return; }
     float w = 600, x = SNTV_UI_W - w - 40, y = 40, h = SNTV_UI_H - 80;
     if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; }
     if (p->menu_t < 1) { p->menu_t += 0.09f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
@@ -2179,10 +2357,10 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = current_track_row(p, MENU_SUBS); break;
     case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = current_track_row(p, MENU_AUDIO); break;
     case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
-    case BTN_SOURCES: {
-        int view[64]; int n = source_view(p, view);
-        p->menu = MENU_SOURCES; p->menu_focus = 0;
-        for (int k = 0; k < n; k++) if (view[k] == p->cur) p->menu_focus = k;
+    case BTN_SOURCES: {   /* opens on All, on the source playing */
+        p->menu = MENU_SOURCES; p->menu_focus = 0; p->src_filter = 0; p->src_chip = 0; p->src_on_chips = 0;
+        int rows[64], n = source_rows(p, rows);
+        for (int k = 0; k < n; k++) if (rows[k] == p->cur) p->menu_focus = k;
         break;
     }
     case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;
@@ -2613,6 +2791,56 @@ static void cand_addon(const PlayCandidate *c, char *out, size_t n)
     snprintf(out, n, "%.*s", sep ? (int)(sep - lbl) : 0, lbl);
 }
 
+/* The addons with sources here, in the user's addon order (the Sources panel's chips) */
+static int source_addons(const Player *p, char names[SRC_ADDONS][80])
+{
+    int view[64], n = source_view(p, view), k = 0;
+    for (int i = 0; i < n; i++) {
+        char ad[80];
+        cand_addon(&p->cands[view[i]], ad, sizeof ad);
+        if (!ad[0] || (k && !strcmp(names[k - 1], ad))) continue;
+        int seen = 0;
+        for (int j = 0; j < k; j++) seen |= !strcmp(names[j], ad);
+        if (!seen && k < SRC_ADDONS) snprintf(names[k++], 80, "%s", ad);
+    }
+    return k;
+}
+
+static int cand_res(const PlayCandidate *c) { return c->res ? c->res : strstr(c->badges, "4K") ? 2160 : 0; }
+static int cand_hdr(const PlayCandidate *c) { return strstr(c->badges, "HDR") || strstr(c->badges, "DOLBY") ? 1 : 0; }
+/* The panel's groups: 4K, 1080p, 720p, the rest; HDR before SDR in each */
+static int cand_group(const PlayCandidate *c)
+{
+    int r = cand_res(c), bucket = r >= 2160 ? 0 : r >= 1080 ? 1 : r >= 720 ? 2 : 3;
+    return bucket * 2 + !cand_hdr(c);
+}
+
+/* The panel's list under its addon filter, in the order it is drawn: the source
+ * recommended for this TV first, then by group, the largest file first in each */
+static int source_rows(const Player *p, int *rows)
+{
+    int view[64], n = source_view(p, view), k = 0, best = -1;
+    char names[SRC_ADDONS][80];
+    int na = source_addons(p, names);
+    const char *only = p->src_filter > 0 && p->src_filter <= na ? names[p->src_filter - 1] : NULL;
+    for (int i = 0; i < n; i++) {
+        char ad[80];
+        cand_addon(&p->cands[view[i]], ad, sizeof ad);
+        if (only && strcmp(ad, only)) continue;
+        if (best < 0 && p->cands[view[i]].recommended) { best = view[i]; continue; }
+        rows[k++] = view[i];
+    }
+    for (int i = 1; i < k; i++)
+        for (int j = i; j > 0; j--) {
+            const PlayCandidate *a = &p->cands[rows[j]], *b = &p->cands[rows[j - 1]];
+            int ga = cand_group(a), gb = cand_group(b);
+            if (ga > gb || (ga == gb && a->video_size <= b->video_size)) break;
+            int t = rows[j]; rows[j] = rows[j - 1]; rows[j - 1] = t;
+        }
+    if (best >= 0) { memmove(rows + 1, rows, sizeof *rows * (size_t)k); rows[0] = best; k++; }
+    return k;
+}
+
 /* Size, style, position and timing reach the subtitles the TV draws from the file too
  * (the app draws addon subtitles itself, straight from g_app). */
 static void push_sub_style(const Player *p)
@@ -2671,9 +2899,61 @@ static void shift_subs(Player *p, double by)
     push_sub_style(p);
 }
 
+static void menu_activate(Player *p);
+
+/* The Sources sheet during playback, laid out like nuvio-native-legacy's: buttons (Find
+ * more, Close) over addon tabs over the list. Focus zones: 0 the list, 1 the tabs,
+ * 2 the buttons. Left/Right in the list or the tabs change the addon; Up from the top
+ * row climbs to the tabs, then the buttons; OK on a source switches to it at the same
+ * moment, the video playing meanwhile. */
+static int sources_key(Player *p, KeyAction a)
+{
+    char names[SRC_ADDONS][80];
+    int na = source_addons(p, names), rows[64], n = source_rows(p, rows);
+    switch (a) {
+    case KEY_LEFT: case KEY_RIGHT: {
+        int dir = a == KEY_RIGHT ? 1 : -1;
+        if (p->src_on_chips == 2) { int c = p->src_chip + dir; if (c >= 0 && c <= 1) p->src_chip = c; }
+        else {
+            int f = p->src_filter + dir;
+            if (f < 0 || f > na) return 1;
+            p->src_filter = f; p->menu_focus = 0;
+            LOGI("player: sources shown for %s", f ? names[f - 1] : "every addon");
+        }
+        app_redraw();
+        return 1;
+    }
+    case KEY_UP:
+        if (!p->src_on_chips && p->menu_focus > 0) p->menu_focus--;
+        else if (p->src_on_chips < 2) { p->src_on_chips++; p->src_chip = 0; }
+        app_redraw();
+        return 1;
+    case KEY_DOWN:
+        if (p->src_on_chips == 2) p->src_on_chips = 1;
+        else if (p->src_on_chips == 1) { if (n) { p->src_on_chips = 0; p->menu_focus = 0; } }
+        else if (p->menu_focus < n - 1) p->menu_focus++;
+        app_redraw();
+        return 1;
+    case KEY_OK:
+        if (p->src_on_chips == 2) {
+            if (p->src_chip == 1) { p->menu = MENU_NONE; show_overlay(p); return 1; }
+            if (p->more_state == 2) browse_sources(p); else find_more_sources(p);
+            app_redraw();
+            return 1;
+        }
+        if (p->src_on_chips == 1) { if (n) { p->src_on_chips = 0; p->menu_focus = 0; } app_redraw(); return 1; }
+        menu_activate(p);
+        p->menu = MENU_NONE;
+        show_overlay(p);
+        return 1;
+    case KEY_BACK: p->menu = MENU_NONE; show_overlay(p); return 1;
+    default: return 1;
+    }
+}
+
 static int menu_rows(Player *p)
 {
-    if (p->menu == MENU_SOURCES) return p->n_cands + 1;
+    if (p->menu == MENU_SOURCES) { int rows[64]; return source_rows(p, rows); }
     if (p->menu == MENU_EPISODES) { int n_eps = 0; app_videos(p->meta.id, &n_eps); return n_eps; }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
@@ -2686,8 +2966,8 @@ static void menu_activate(Player *p)
     if (p->menu == MENU_SOURCES) {
         VideoInfo vi;
         video_info(&vi);
-        int view[64]; source_view(p, view);
-        if (p->menu_focus < p->n_cands && view[p->menu_focus] != p->cur) { app_toast("Switching source"); start_candidate(p, view[p->menu_focus], vi.position); }
+        int rows[64], n = source_rows(p, rows);
+        if (p->menu_focus < n && rows[p->menu_focus] != p->cur) { app_toast("Switching source"); start_candidate(p, rows[p->menu_focus], vi.position); }
         return;
     }
     if (p->menu == MENU_EPISODES) {
@@ -2802,6 +3082,7 @@ static int key(Screen *s, KeyAction a)
         show_overlay(p);
         return 1;
     }
+    if (p->menu == MENU_SOURCES) return sources_key(p, a);
     if (p->menu) {
         int rows = menu_rows(p);
         switch (a) {

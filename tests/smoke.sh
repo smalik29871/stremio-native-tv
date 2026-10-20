@@ -240,10 +240,20 @@ run data_move 90 "" HOME="$MH" SNTV_FLASH_ROOTS="$MH/internal,$MH/devtemp"
 grep -q "store: data moved here from $MH/devtemp/org.stremio.nativetv" "$OUT/data_move.log" && grep -q "moved-key" "$MH/internal/.org.stremio.nativetv/settings.json" && [ ! -e "$MH/devtemp/org.stremio.nativetv" ] \
   || { echo "sign-in did not move off the developer partition"; grep -E "data dir|store" "$OUT/data_move.log"; exit 1; }
 # Sources panel > Find more sources: every addon is asked while the video plays on, and the new ones join the list
-run player_more_sources 600 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok,down,down,down,down,down,down,down,ok,wait,wait,wait,wait" \
+run player_more_sources 600 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok,up,up,up,up,up,up,up,up,up,ok,wait,wait,wait,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with more_src "$NO_PREFLIGHT")"
 grep -q "player: every addon asked from the Sources panel: 5 more sources" "$OUT/player_more_sources.log" && [ "$(grep -c "streams: #1 score" "$OUT/player_more_sources.log")" -eq 1 ] \
   || { echo "Find more sources did not add sources while playing"; grep -E "player: (every|asking)" "$OUT/player_more_sources.log"; exit 1; }
+# the Sources panel during playback (as Nuvio's): Right narrows it to one addon, OK there switches at the same moment
+run player_sources_filter 560 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok,right,right,down,ok,wait" \
+  "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with src_filter "$NO_PREFLIGHT")"
+grep -q "player: sources shown for Many Addon" "$OUT/player_sources_filter.log" && grep -q "player: candidate [0-9]*/[0-9]* Many Addon - Many @[0-9]*s" "$OUT/player_sources_filter.log" \
+  || { echo "the Sources panel's addon filter did not switch to that addon's source"; grep -E "player: (sources|candidate)" "$OUT/player_sources_filter.log"; exit 1; }
+# the Sources sheet during playback: Left/Right walk the addon tabs, Up climbs to Find more
+run player_sources_tabs 520 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok,right,right,wait" \
+  "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with src_tabs "$NO_PREFLIGHT")"
+grep -q "player: sources shown for Many Addon" "$OUT/player_sources_tabs.log" && grep -q "player: sources shown for Fake Addon" "$OUT/player_sources_tabs.log" \
+  || { echo "the Sources sheet's addon tabs did not switch"; grep -E "player: sources" "$OUT/player_sources_tabs.log"; exit 1; }
 run player_lighter 700 "right,ok,down,down,ok,ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
 # fallbacks: a source that dies mid-film is replaced at the same moment with the same subtitles;
 # the next source is checked while playing; a draining buffer moves to a lighter copy first;

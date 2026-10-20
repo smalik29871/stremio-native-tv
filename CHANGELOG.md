@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **A new Sources sheet during playback**, laid out after nuvio-native-legacy's: a tall
+  card on the right while the video keeps playing beside it. The source this TV should
+  play is pinned first, then 4K / 1080p / 720p / the rest (HDR before SDR, the largest
+  file first) under their own headings; each row shows the quality in words, its file
+  size in big figures and the addon, the playing one carries a moving equaliser, and
+  the focused row opens to show its file. Addon tabs with counts narrow it (Left/Right
+  anywhere), and Find more / Close sit at the top (Up from the first row).
+
 ## 0.10.27
 
 (0.10.26 never reached the Homebrew Channel; its changes are here.)
