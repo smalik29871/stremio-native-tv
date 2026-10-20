@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Aperture now matches its design mockups**, set in a new serif (DM Serif Display):
+  Home opens on full-bleed artwork with the title in large serif capitals, the year /
+  runtime / genre line, Watch and More details, and rows of landscape stills titled in
+  spaced serif capitals with a "02 / 14" counter. Title pages share that composition,
+  with the cast as portraits on films, season tabs underlined in coral and larger
+  numbered episodes. The player shows the title in spaced capitals, the time, a coral
+  line and the time left on one row, centred controls named under the focused one,
+  chapters as dots, and a lower-left card when paused; drawers, Search ("Find your next
+  film", borderless keys) and Settings take serif headings and an outlined focus.
 - **New episodes come back to Continue Watching**, as in Stremio's own apps: a series
   you had caught up on returns to the front of the row when an episode airs after you
   last watched, with a "New episode" (or "3 new episodes") badge, and a bell with the

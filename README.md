@@ -391,6 +391,6 @@ fetched by `go build` at the versions pinned in `tools/torrentd/go.sum`),
 `stb_truetype` and `stb_image` (public domain) keep their own licences in place. The
 YouTube solver in `assets/yt` is yt-dlp/ejs 0.8.0 (Unlicense; it bundles meriyah, ISC,
 and astring, MIT, with their licences in the file header). The fonts in `assets/fonts` (Inter, Space
-Grotesk, JetBrains Mono, Open Sans, Bebas Neue) are under the SIL Open Font License 1.1, each
+Grotesk, JetBrains Mono, Open Sans, Bebas Neue, DM Serif Display) are under the SIL Open Font License 1.1, each
 with its licence file next to it. Prayer times use the published PrayTimes.org method
 parameters, reimplemented in `src/suntimes.c` (see `docs/BREAKS.md`).

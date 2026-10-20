@@ -397,7 +397,22 @@ static int scale_of(int id, int *step)
 static char s_ftitle[200], s_fvalue[300]; static Icon s_ficon; static int s_fkind, s_fon;
 static int s_chevron;        /* actions end in an arrow, except addons (their arrows move them) */
 
+static void draw_row_body(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on);
+
+/* Aperture draws the same row unfilled: ivory type on the page, the focused one
+ * outlined and underlined in coral. */
 static void draw_row(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on)
+{
+    if (g_theme.id != THEME_APERTURE || !focused) { draw_row_body(y, icon, title, value, focused, kind, on); return; }
+    Color fo = g_theme.focus, onf = g_theme.on_focus;
+    g_theme.focus = COLOR_ALPHA(g_theme.text, 0x0C); g_theme.on_focus = g_theme.text;
+    draw_row_body(y, icon, title, value, focused, kind, on);
+    g_theme.focus = fo; g_theme.on_focus = onf;
+    float h = ROW_H - 12;
+    gfx_rrect_ring(s_x, y, s_r - s_x, h, 3, 2, THEME_TEXT);
+}
+
+static void draw_row_body(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on)
 {
     float x = s_x, w = s_r - s_x, h = ROW_H - 12;
     if (focused) {
@@ -511,7 +526,7 @@ static void update(Screen *s, float dt)
 
 static void draw_categories(const Settings *st, float e)
 {
-    font_draw("Settings", THEME_MARGIN, 100, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * (1 - e))));
+    font_draw("Settings", THEME_MARGIN, g_theme.id == THEME_APERTURE ? 86 : 100, g_theme.id == THEME_APERTURE ? FONT_XL | FONT_ALT : FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * (1 - e))));
     if (e < 1) {   /* Find a setting: under the heading, Up from the first category */
         const char *t = "Find a setting";
         float fx = THEME_MARGIN, fh = 50, fw = COL_X0 - THEME_MARGIN - 70, fy = ROWS_TOP - fh - 16;
@@ -526,9 +541,13 @@ static void draw_categories(const Settings *st, float e)
     for (int i = 0; i < CAT_COUNT; i++) {
         float y = ROWS_TOP + i * 76, h = 64, w = (COL_X0 - THEME_MARGIN - 70) * (1 - e) + 72 * e;
         int foc = st->zone == 0 && st->cat == i && !st->search_foc, act = st->cat == i;
-        if (foc) { ui_focus_under(THEME_MARGIN, y, w, h, theme_pill_r(h), 1); gfx_rrect(THEME_MARGIN, y, w, h, theme_pill_r(h), THEME_FOCUS); }
+        int ap = g_theme.id == THEME_APERTURE;
+        if (ap) {   /* words, a coral bar beside the open one, an outline on the focused one */
+            if (act) gfx_rect(THEME_MARGIN - 16, y + 10, 4, h - 20, THEME_ACCENT);
+            if (foc) gfx_rrect_ring(THEME_MARGIN, y, w, h, 3, 2, THEME_TEXT);
+        } else if (foc) { ui_focus_under(THEME_MARGIN, y, w, h, theme_pill_r(h), 1); gfx_rrect(THEME_MARGIN, y, w, h, theme_pill_r(h), THEME_FOCUS); }
         else if (act) gfx_rrect(THEME_MARGIN, y, w, h, R_PANEL, e > 0.5f ? COLOR_ALPHA(THEME_ACCENT, 0x30) : COLOR_ALPHA(THEME_TEXT, 0x16));
-        Color fg = foc ? THEME_ON_FOCUS : act ? (e > 0.5f ? THEME_ACCENT : THEME_TEXT) : THEME_TEXT_DIM;
+        Color fg = ap ? (foc || act ? THEME_TEXT : THEME_TEXT_DIM) : foc ? THEME_ON_FOCUS : act ? (e > 0.5f ? THEME_ACCENT : THEME_TEXT) : THEME_TEXT_DIM;
         ui_icon(CAT_ICONS[i], THEME_MARGIN + 36, y + h / 2, 26, fg);
         if (e >= 1) continue;   /* collapsed: icons only */
         gfx_set_alpha(1 - e);
@@ -680,7 +699,8 @@ static void draw(Screen *s)
     }
 
     /* pane header */
-    font_draw(CAT_NAMES[st->cat], s_x, 100, FONT_L | FONT_B, THEME_TEXT);
+    if (g_theme.id == THEME_APERTURE) font_draw(CAT_NAMES[st->cat], s_x, 82, FONT_XL | FONT_ALT, THEME_TEXT);
+    else font_draw(CAT_NAMES[st->cat], s_x, 100, FONT_L | FONT_B, THEME_TEXT);
     font_draw_wrapped(CAT_DESC[st->cat], s_x, 156, FONT_S, THEME_TEXT_DIM, s_r - s_x, 2);
     if (st->cat == CAT_ABOUT) {
         char info[300];

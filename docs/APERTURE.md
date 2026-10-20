@@ -29,7 +29,17 @@ codec warnings remain visible.
 | Player: Back | Return to Sources (existing PiP preference still applies) |
 | Sources: Back; Details: Back | Return to Details; return to the focused Home card |
 
-There are no additional render targets, blur shaders, fonts, or decoder instances.
+Titles are set in DM Serif Display (SIL OFL 1.1, `assets/fonts`), loaded only in this
+theme as its alternate face: baked at 24, 40, 72 and 132 px into one 2048x1024 alpha
+atlas, the 132 px hero size with ASCII only (titles with other letters step down to
+96 px, which carries Latin-1 and Extended-A). Home, title pages, the player, the
+drawers, Search and Settings follow the reference mockups: full-bleed artwork with the
+serif title column on the left, slash-separated facts, an ivory primary button with
+quiet text actions, landscape rows titled in spaced serif capitals, a coral-marked
+focus with an ivory outline, the time / coral line / time left on one row in the
+player, a lower-left pause card, and borderless keyboard keys.
+
+There are no additional render targets, blur shaders, or decoder instances.
 Artwork uses the existing bounded image cache and the renderer's cropped quad.
 The filmstrip requests only the selected frame through the existing decoder path;
 its neighbors are cache-only, so cold neighbors are placeholders until those times

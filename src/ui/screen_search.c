@@ -360,8 +360,13 @@ static void update(Screen *sc, float dt)
 static void draw_field(const Search *s, float x, float y, float fw)
 {
     int foc = !s->focus_grid;
+    if (g_theme.id == THEME_APERTURE) {   /* a thin outline, brighter while it has the focus */
+        gfx_rrect(x, y, fw, FIELD_H, 3, COLOR_ALPHA(THEME_TEXT, 0x0C));
+        gfx_rrect_ring(x, y, fw, FIELD_H, 3, foc ? 2 : 1, COLOR_ALPHA(THEME_TEXT, foc ? 0xC0 : 0x40));
+    } else {
     gfx_rrect(x, y, fw, FIELD_H, R_PANEL, COLOR_ALPHA(THEME_TEXT, foc ? 0x22 : 0x18));
     if (foc) gfx_rrect_ring(x, y, fw, FIELD_H, R_PANEL, 2, s->typing ? COLOR_ALPHA(THEME_TEXT, 0x50) : THEME_ACCENT2);
+    }
     ui_icon(ICON_SEARCH, x + 42, y + FIELD_H / 2, 30, THEME_TEXT_DIM);
     const char *tip = foc && !s->typing ? "OK to type" : NULL;
     float tip_w = tip ? font_measure(tip, FONT_XS | FONT_B) + 40 : 0;
@@ -395,7 +400,8 @@ static void draw(Screen *sc)
     char buf[512];
     const char *bg = fp ? app_art_background(fp, buf, sizeof buf) : NULL;
     ui_background(bg ? image_tint(bg) : 0);
-    font_draw("Search", THEME_MARGIN, 52, FONT_L | FONT_B, THEME_TEXT);
+    if (g_theme.id == THEME_APERTURE) font_draw("Find your next film", THEME_MARGIN, 26, FONT_XL | FONT_ALT, THEME_TEXT);
+    else font_draw("Search", THEME_MARGIN, 52, FONT_L | FONT_B, THEME_TEXT);
 
     float x = THEME_MARGIN, y = FIELD_Y; int nc = cols(s);
     float fw = s->typing ? keyboard_width() : nc * (CELL_W + CELL_GAP) - CELL_GAP;
@@ -424,7 +430,7 @@ static void draw(Screen *sc)
         float cx = gx + grid_w / 2, cy = gy + (s->typing ? 280 : 220);
         gfx_circle(cx, cy, 80, COLOR_ALPHA(THEME_TEXT, 0x10));
         ui_icon(ICON_SEARCH, cx, cy, 70, THEME_TEXT_MUTED);
-        font_draw_center(strlen(s->last_query) >= 2 ? "Nothing found" : "Find something to watch", cx, cy + 120, FONT_L | FONT_B, THEME_TEXT);
+        font_draw_center(strlen(s->last_query) >= 2 ? "Nothing found" : "Find something to watch", cx, cy + 120, g_theme.id == THEME_APERTURE ? FONT_XL | FONT_ALT : FONT_L | FONT_B, THEME_TEXT);
         font_draw_center(s->ai_note[0] ? s->ai_note : strlen(s->last_query) >= 2 ? "Try another title, or check your catalog addons." : ai_enabled() ? "Type a title, or describe it: \"something funny with robots\"." : "Results come from every catalog addon that supports search.",
                          cx, cy + 178, FONT_S, THEME_TEXT_DIM);
     } else {
@@ -465,7 +471,8 @@ static void draw(Screen *sc)
             ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
                     s->focus_grid == 1 && !foc ? 0.3f : 0, s->results[i].name, 0);
             if (i < s->n_picks) { gfx_circle(px + CELL_W - 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_STAR, px + CELL_W - 22, py + 22, 18, THEME_ACCENT2); }
-            font_draw_fit(s->results[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
+            if (g_theme.id == THEME_APERTURE) ui_spaced_caps(s->results[i].name, px, py + CELL_H + (foc ? 24 : 14), FONT_S | FONT_ALT, 3, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
+            else font_draw_fit(s->results[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
             else if (s->results[i].release_info) font_draw(s->results[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
