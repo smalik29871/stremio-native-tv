@@ -710,7 +710,7 @@ static void draw(Screen *s)
         snprintf(info, sizeof info, "Version %s  \xC2\xB7  %s  \xC2\xB7  %zu MB artwork in memory  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name(), image_cache_bytes() >> 20, mem);
         font_draw_fit(info, s_x, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
         char tv[300];
-        if (g_update_version[0]) snprintf(tv, sizeof tv, "Version %s is available: Update above installs it", g_update_version);
+        if (g_update_version[0]) snprintf(tv, sizeof tv, app_update_installs_here() ? "Version %s is available: Update above installs it" : "Version %s is available: Update above shows how", g_update_version);
         else snprintf(tv, sizeof tv, "TV profile: %s", "learned from what played here; Diagnostics shows it");
         font_draw_fit(tv, s_x, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
     }
@@ -934,7 +934,7 @@ static void draw(Screen *s)
         case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log, device info, QR export", foc, KIND_ACTION, 0); break;
         case IT_UPDATE: {
             char v[160];
-            if (g_update_version[0]) snprintf(v, sizeof v, "Version %s is ready  \xC2\xB7  OK installs it now", g_update_version);
+            if (g_update_version[0]) snprintf(v, sizeof v, app_update_installs_here() ? "Version %s is ready  \xC2\xB7  OK installs it now" : "Version %s is ready  \xC2\xB7  OK shows how to install it", g_update_version);
             else snprintf(v, sizeof v, "%s is the newest we know of  \xC2\xB7  OK checks", SNTV_APP_VERSION);
             draw_row(y, ICON_RELOAD, "Update", v, foc, KIND_ACTION, 0);
             break;

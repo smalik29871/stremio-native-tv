@@ -406,7 +406,10 @@ int main(int argc, char **argv)
                 g_app.last_input = g_app.time;
                 g_app.key_repeat = e.key.repeat != 0;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
-                if (a == KEY_NONE) continue;
+                if (a == KEY_NONE) {   /* a remote key the app doesn't know yet: what it was, for Diagnostics */
+                    if (!e.key.repeat) LOGI("input: unmapped key sym %d scancode %d", (int)e.key.keysym.sym, (int)e.key.keysym.scancode);
+                    continue;
+                }
                 /* a held OK presses once (no double play, no OK landing on the next screen); remotes
                  * that never send releases look like a held key forever, so only those that do */
                 if (a == KEY_OK && e.key.repeat && g_seen_keyup) continue;

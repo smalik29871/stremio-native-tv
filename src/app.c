@@ -1274,10 +1274,12 @@ static int quiet_moment(void)
     return g_app.time - g_app.last_input > 2;   /* not in the middle of pressing keys */
 }
 
+int app_update_installs_here(void) { return !store_get_int("updateNoInstaller", 0); }
+
 static void on_update_answer(int choice, void *user)
 {
     (void)user;
-    if (choice == 0) { LOGI("update: the viewer said update now"); app_push(screen_update_create(0)); }
+    if (choice == 0) { LOGI(app_update_installs_here() ? "update: the viewer said update now" : "update: the viewer asked how"); app_push(screen_update_create(0)); }
     else LOGI("update: the viewer said later");
 }
 
@@ -1288,6 +1290,15 @@ static void ask_to_update(void)
     static const int ICONS[] = { ICON_RELOAD, ICON_CLOCK };
     char sub[80], body[300];
     snprintf(sub, sizeof sub, "Version %s  \xC2\xB7  you have %s", g_update_version, SNTV_APP_VERSION);
+    if (!app_update_installs_here()) {   /* this TV won't let the app install: say once per version where it's done */
+        if (!strcmp(store_get_str("updateHowToldFor", ""), g_update_version)) return;
+        store_set_str("updateHowToldFor", g_update_version); store_save();
+        static const char *const HOW[] = { "Show me how", "Later" };
+        snprintf(body, sizeof body, "This TV doesn't let apps install updates themselves, so the Homebrew Channel does it: "
+                 "a minute, and your sign-in, settings and progress stay.");
+        app_push(screen_options_create_ex("An update is ready", sub, body, HOW, ICONS, 2, on_update_answer, NULL));
+        return;
+    }
     snprintf(body, sizeof body, "It takes about half a minute. The app closes while the Homebrew Channel installs it; "
              "open it again afterwards. Later asks again the next time the app starts (Settings > About > Update any time).");
     app_push(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL));

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **The remote's Play key resumes playback** on LG TVs whose remote reports Play only by
+  its key position (Pause worked, Play did nothing). Keys the app doesn't recognise are
+  now written to the log (Settings > Diagnostics) so any other button can be mapped.
+- **Updates on TVs that won't let apps install**: after the TV refuses the Homebrew
+  Channel installer once, the app stops offering an Update now that can't work. The
+  popup (once per version) and Settings > About > Update show three steps to update from
+  the Homebrew Channel instead, with OK there to try installing from the app anyway.
+
 ## 0.10.34
 
 - **Episodes play straight away** from a series' page: the main button reads "Play S1 E1"

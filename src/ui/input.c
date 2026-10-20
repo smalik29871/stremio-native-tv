@@ -30,6 +30,12 @@ KeyAction input_map(const SDL_Event *e)
     case WEBOS_SC_CH_UP:  return KEY_UP;
     case WEBOS_SC_CH_DOWN:return KEY_DOWN;
     case WEBOS_SC_GUIDE:  return KEY_INFO;
+    /* the media keys by position too: the TV's keymap can leave their symbol empty */
+    case SDL_SCANCODE_AUDIOPLAY: return KEY_PLAY;
+    case SDL_SCANCODE_PAUSE: return KEY_PAUSE;
+    case SDL_SCANCODE_AUDIOSTOP: return KEY_STOP;
+    case SDL_SCANCODE_AUDIOPREV: case SDL_SCANCODE_AUDIOREWIND: return KEY_REWIND;
+    case SDL_SCANCODE_AUDIONEXT: case SDL_SCANCODE_AUDIOFASTFORWARD: return KEY_FORWARD;
     default: break;
     }
 

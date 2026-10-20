@@ -413,6 +413,10 @@ ASR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":0,
 run island_update 900 "$(printf 'wait,%.0s' $(seq 1 35))back" HOME="$(home_with islu '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 run update_refused 1700 "${W}ok,wait,wait,wait,ok" HOME="$(home_with upd3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 grep -q "toast: Open the Homebrew Channel from the Home screen to update" "$OUT/update_refused.log" || { echo "a refused update did not point to the Homebrew Channel"; grep -E "update|toast" "$OUT/update_refused.log"; exit 1; }
+# refused once: the next launch tells how (once per version) and doesn't ask the installer unasked
+run update_refused_again 1700 "${W}ok,wait,wait" HOME="$OUT/home_upd3" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+grep -q "update: the viewer asked how" "$OUT/update_refused_again.log" && ! grep -q "update: installing" "$OUT/update_refused_again.log" \
+  || { echo "a TV that refused the installer was asked again"; grep -E "update|toast" "$OUT/update_refused_again.log"; exit 1; }
 run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
 run break_media_length 230 "right,ok,down,down,ok,wait" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
 run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
