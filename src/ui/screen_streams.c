@@ -42,6 +42,7 @@ struct Streams {
     int from_prefetch;        /* answers still arriving belong to the prefetch */
     int check_autoplay;
     int auto_rec_done;        /* the recommended source was started by itself */
+    int play_now;             /* opened to play: the recommended source starts by itself, whatever the setting */
     int probes_started, probe_inflight;
     int ranks_logged;
     unsigned probe_gen;
@@ -539,7 +540,9 @@ static void update(Screen *s, float dt)
     if (st->n && !st->chaining && (st->pending == 0 || g_app.time - st->started > 3)) probe_next(st);
     if (st->probe_inflight) app_redraw();
     int checks_done = !g_app.preflight || (!st->probe_inflight && (st->probes_started >= PROBE_MAX || g_app.time - st->started > 12));
-    if (g_app.auto_recommended && !st->chaining && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6))) {
+    if (st->play_now)   /* asked to play: the best-ranked link's check is enough */
+        checks_done = !g_app.preflight || (!st->probe_inflight && st->probes_started >= 1) || g_app.time - st->started > 5;
+    if ((g_app.auto_recommended || st->play_now) && !st->chaining && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6))) {
         int r = recommended(st);
         if (r >= 0) {
             st->auto_rec_done = 1;
@@ -1205,4 +1208,11 @@ Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title)
 {
     return screen_streams_create_chain(meta, video_id, video_title, NULL);
+}
+
+Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id, const char *video_title)
+{
+    Screen *s = screen_streams_create_chain(meta, video_id, video_title, NULL);
+    ((Streams *)s->st)->play_now = 1;
+    return s;
 }

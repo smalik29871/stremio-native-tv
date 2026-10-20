@@ -195,11 +195,11 @@ int bgtrailer_key_sound(void)
     return 1;
 }
 
-void bgtrailer_draw_badge(const char *id)
+void bgtrailer_draw_badge(const char *id, int with_key)
 {
     float t = bgtrailer_shown(id);
     if (t <= 0) return;
-    const char *label = B.muted ? "Sound off  \xC2\xB7  Play/Pause turns it on" : "Sound on";
+    const char *label = !B.muted ? "Sound on" : with_key ? "Sound off  \xC2\xB7  Play/Pause turns it on" : "Sound off";
     int fs = FONT_XS | FONT_B;
     float h = 48, w = 24 + 28 + 12 + font_measure(label, fs) + 24, x = SNTV_UI_W - THEME_MARGIN - w, y = 96;
     Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * t));

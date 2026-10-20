@@ -276,6 +276,8 @@ Screen *screen_calendar_create(void);  /* upcoming and recent episodes of librar
 Screen *screen_detail_create(const MetaPreview *preview);
 void    screen_detail_ask(const MetaPreview *preview);   /* the title page with its Ask AI panel open */
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title);
+/* The same, starting the recommended source by itself (Back returns to the list). */
+Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id, const char *video_title);
 /* The player takes ownership of `cands`. next_video_id (optional) enables Up Next. */
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,
                              PlayCandidate *cands, int n_cands, int start_index, double start_s,

@@ -946,7 +946,7 @@ static void draw(Screen *s)
         ui_backdrop_video(tv, SNTV_UI_H);
         ui_backdrop_image(bgt, iw, ih, k * (1 - tv), SNTV_UI_H);
         ui_text_scrim(1300, SNTV_UI_H);
-        if (d->scroll < 60) bgtrailer_draw_badge(d->preview.id);
+        if (d->scroll < 60) bgtrailer_draw_badge(d->preview.id, 0);
     }
     if (d->scroll > 1) {   /* About reads over a darker backdrop */
         float t = d->scroll / (ABOUT_Y - 150); if (t > 1) t = 1;
@@ -1018,12 +1018,19 @@ static void draw(Screen *s)
     if (d->error[0]) { font_draw(d->error, x, y, FONT_S, THEME_DANGER); y += 44; }
     /* actions */
     int in_lib = li && !li->removed;
-    const char *play_label = d->resume_label[0] ? d->resume_label : series ? "Episodes" : "Play";
+    char ep_label[48] = "";   /* a series plays the episode in focus straight away */
+    if (series && !d->resume_label[0] && d->n_eps) {
+        const MetaVideo *v = &d->meta.videos[d->ep_index[d->ep_focus]];
+        if (v->season >= 0 && v->episode >= 0) snprintf(ep_label, sizeof ep_label, "Play S%d E%d", v->season, v->episode);
+        else snprintf(ep_label, sizeof ep_label, "Play");
+    }
+    const char *play_label = d->resume_label[0] ? d->resume_label : ep_label[0] ? ep_label : series ? "Episodes" : "Play";
+    int plays = d->resume_label[0] || !series || ep_label[0];
     float by = y > 500 ? y : 500;
     if (series && by > 520) by = 520;
     if (g_theme.id == THEME_APERTURE) {
         int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
-        float bx = x + ui_aperture_button(!strcmp(play_label, "Play") ? "Watch film" : play_label, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 1, cur == BTN_PLAY) + 48;
+        float bx = x + ui_aperture_button(!series && !strcmp(play_label, "Play") ? "Watch film" : play_label, plays ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 1, cur == BTN_PLAY) + 48;
         if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x, by + 76, 200, 3, (float)d->resume_frac, THEME_ACCENT);
         if (d->resume_label[0]) bx += ui_aperture_button("From the start", ICON_PREV, bx, by, 0, cur == BTN_RESTART) + 44;
         if (has_trailer(d)) {
@@ -1033,7 +1040,7 @@ static void draw(Screen *s)
         ui_aperture_button(in_lib ? "In your library" : "Add to library", in_lib ? ICON_CHECK : ICON_PLUS, bx, by, 0, cur == BTN_LIBRARY);
         if (!series) draw_aperture_cast(d, tm, x, by + 130);
     } else {
-    float bw = ui_pill(play_label, 1, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
+    float bw = ui_pill(play_label, 1, plays ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
                        d->area == AREA_ACTIONS && d->btn == 0);
     if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
     float bx2 = x + bw + 18;
@@ -1057,15 +1064,19 @@ static void draw(Screen *s)
     if (d->ask_open) draw_ask(d);
 }
 
-static void open_streams_for_video(Detail *d, int video_idx)
+static void open_streams_for_video_ex(Detail *d, int video_idx, int play_now)
 {
     const MetaVideo *v = &d->meta.videos[video_idx];
     char title[200];
     if (v->season >= 0 && v->episode >= 0) snprintf(title, sizeof title, "S%d E%d  %s", v->season, v->episode, v->title ? v->title : "");
     else snprintf(title, sizeof title, "%s", v->title ? v->title : "");
     if (app_pip_claim(v->id)) return;   /* already playing in the corner */
-    app_push(screen_streams_create(&d->preview, v->id, title));
+    app_push(play_now ? screen_streams_create_play(&d->preview, v->id, title) : screen_streams_create(&d->preview, v->id, title));
 }
+
+static void open_streams_for_video(Detail *d, int video_idx) { open_streams_for_video_ex(d, video_idx, 0); }
+/* An episode chosen to watch: it starts on the recommended source */
+static void play_episode(Detail *d, int video_idx) { open_streams_for_video_ex(d, video_idx, 1); }
 
 static void focus_ep(Detail *d, int k) { if (k != d->ep_focus) { d->ep_focus = k; d->focus_t = 0; } }
 
@@ -1177,6 +1188,12 @@ static int key(Screen *s, KeyAction a)
         else screen_options_for_title(&d->preview);
         return 1;
     }
+    int play_key = a == KEY_PLAY || a == KEY_PLAY_PAUSE;
+    if (play_key) {   /* the remote's Play: the episode in focus, else what the main button does, starting at once */
+        if (d->area == AREA_EPISODES && d->n_eps) { play_episode(d, d->ep_index[d->ep_focus]); return 1; }
+        d->area = AREA_ACTIONS; d->btn = 0;
+        a = KEY_OK;
+    }
     if (d->area >= AREA_ABOUT) return about_key(d, a);
     if (d->btn >= n_buttons_d(d)) d->btn = n_buttons_d(d) - 1;
     switch (d->area) {
@@ -1199,7 +1216,7 @@ static int key(Screen *s, KeyAction a)
             }
             if (d->resume_label[0]) {
                 if (app_pip_claim(d->resume_video)) return 1;
-                if (!d->resume_url[0]) { app_push(screen_streams_create(&d->preview, d->resume_video, NULL)); return 1; }   /* starts at the saved position */
+                if (!d->resume_url[0]) { app_push(play_key ? screen_streams_create_play(&d->preview, d->resume_video, NULL) : screen_streams_create(&d->preview, d->resume_video, NULL)); return 1; }   /* starts at the saved position */
                 PlayCandidate *c = calloc(1, sizeof *c);
                 c->url = strdup(d->resume_url);
                 c->label = strdup("Resume");
@@ -1208,10 +1225,13 @@ static int key(Screen *s, KeyAction a)
                 app_push(screen_player_create(&d->preview, d->resume_video, d->preview.name, c, 1, 0, d->resume_pos, has_next ? nid : NULL, has_next ? nt : NULL));
                 return 1;
             }
-            if (series) { d->area = AREA_EPISODES; d->focus_t = 0; return 1; }
+            if (series) { if (d->n_eps) play_episode(d, d->ep_index[d->ep_focus]); return 1; }
             if (!d->has_meta && d->loading) { app_toast("Still loading details..."); return 1; }
             if (app_pip_claim(d->meta.default_video_id ? d->meta.default_video_id : d->preview.id)) return 1;
-            app_push(screen_streams_create(&d->preview, d->meta.default_video_id ? d->meta.default_video_id : d->preview.id, NULL));
+            {
+                const char *vid = d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
+                app_push(play_key ? screen_streams_create_play(&d->preview, vid, NULL) : screen_streams_create(&d->preview, vid, NULL));
+            }
             return 1;
         default: return 0;
         }
@@ -1230,7 +1250,7 @@ static int key(Screen *s, KeyAction a)
         case KEY_RIGHT: if (d->ep_focus < d->n_eps - 1) focus_ep(d, d->ep_focus + 1); return 1;
         case KEY_UP: d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_ACTIONS; return 1;
         case KEY_DOWN: d->area = AREA_ABOUT; return 1;
-        case KEY_OK: if (d->n_eps) open_streams_for_video(d, d->ep_index[d->ep_focus]); return 1;
+        case KEY_OK: if (d->n_eps) play_episode(d, d->ep_index[d->ep_focus]); return 1;
         case KEY_BACK: d->area = AREA_ACTIONS; return 1;
         default: return 0;
         }

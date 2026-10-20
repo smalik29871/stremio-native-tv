@@ -21,7 +21,7 @@ float bgtrailer_shown(const char *id);
 void bgtrailer_frame(float dt);   /* main loop, after the screen's update */
 /* Play/Pause while a trailer shows: its sound on or off (1 when it took the key). */
 int  bgtrailer_key_sound(void);
-/* The sound badge under the clock, while `id`'s trailer shows. */
-void bgtrailer_draw_badge(const char *id);
+/* The sound badge under the clock, while `id`'s trailer shows; with_key names Play/Pause as its switch. */
+void bgtrailer_draw_badge(const char *id, int with_key);
 
 #endif

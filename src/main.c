@@ -274,7 +274,7 @@ static void dispatch_key(KeyAction a)
         app_redraw();
         return;
     }
-    if ((a == KEY_PLAY_PAUSE || a == KEY_PLAY || a == KEY_PAUSE) && bgtrailer_key_sound()) return;   /* a trailer behind the artwork: its sound */
+    if ((a == KEY_PLAY_PAUSE || a == KEY_PLAY || a == KEY_PAUSE) && !(top && !strcmp(top->name, "detail")) && bgtrailer_key_sound()) return;   /* a trailer behind the artwork: its sound (a title page's Play plays the title) */
     if (top && top->key && top->key(top, a)) return;
     if (a == KEY_LONG_OK) { dispatch_key(KEY_OK); return; }
     if (g_app.pip && a == KEY_DOWN) { g_pip_focus = 1; app_redraw(); return; }   /* past the bottom of the screen: the corner */

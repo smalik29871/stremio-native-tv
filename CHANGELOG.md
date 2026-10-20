@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Episodes play straight away** from a series' page: the main button reads "Play S1 E1"
+  (the episode in focus below it) and starts it, and OK on an episode card starts that
+  one, on the recommended source. Back from the video returns to its sources; holding
+  OK on an episode still offers the list of sources.
+- **The remote's Play button plays** on a title page: the episode in focus, or what the
+  main button does (Play, Resume) for a film, starting at once. A trailer behind the
+  artwork there no longer takes the key for its sound.
+- Playing straight away waits only for the best source's link check (at most 5 s), not
+  for every check.
+
 ## 0.10.33
 
 - **Faster on old TVs**: the network workers now share DNS answers and TLS sessions

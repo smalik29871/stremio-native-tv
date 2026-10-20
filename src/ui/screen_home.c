@@ -746,7 +746,7 @@ static void draw(Screen *s)
         if (prev) ui_backdrop_image(prev, pw, ph, (1 - fade) * (1 - tv), bh);
         if (cur) ui_backdrop_image(cur, iw, ih, fade * (1 - tv), bh);
         ui_text_scrim(1100, bh);
-        bgtrailer_draw_badge(h->hero_id);
+        bgtrailer_draw_badge(h->hero_id, 1);
         draw_hero(h, hero);
         if (g_app.home_style == HOME_SHOWCASE) draw_showcase_controls(h);
     } else if (hero && !g_app.card_details) {   /* Compact: one line about the focused title (the card details say it otherwise) */
