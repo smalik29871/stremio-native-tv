@@ -301,6 +301,29 @@ static uintptr_t g_account_gen = 1;
  * Every addon's manifest is fetched again from its own URL and the collection saved back
  * whole. When one cannot be fetched, nothing is saved and it is tried again next time. */
 typedef struct { int remaining, failed; cJSON *root; uintptr_t gen; } Repair;
+
+/* Stremio's own OpenSubtitles addon still sits in many accounts on the old protocol
+ * (".../stremio/v1", no manifest.json to fetch); its manifest is written out here */
+#define OPENSUBS_LEGACY "https://opensubtitles.strem.io/stremio/v1"
+static int is_known(const char *transport_url) { return transport_url && !strncmp(transport_url, OPENSUBS_LEGACY, strlen(OPENSUBS_LEGACY)); }
+static cJSON *known_manifest(const char *transport_url)
+{
+    if (!is_known(transport_url)) return NULL;
+    return cJSON_Parse("{\"id\":\"org.stremio.opensubtitles\",\"version\":\"0.24.0\",\"name\":\"OpenSubtitles\","
+                       "\"description\":\"The official add-on for subtitles from OpenSubtitles\","
+                       "\"resources\":[{\"name\":\"subtitles\",\"types\":[\"movie\",\"series\"],\"idPrefixes\":[\"tt\"]}],"
+                       "\"types\":[\"movie\",\"series\"],\"idPrefixes\":[\"tt\"],\"catalogs\":[]}");
+}
+
+/* a descriptor every Stremio app reads back with what the addon does (0.10.25 left the
+ * old OpenSubtitles one with empty lists) */
+static int descriptor_ok(const cJSON *d)
+{
+    const cJSON *m = cJSON_GetObjectItemCaseSensitive(d, "manifest"), *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
+    if (!addon_manifest_complete(m)) return 0;
+    if (cJSON_IsString(t) && is_known(t->valuestring) && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(m, "resources"))) return 0;
+    return 1;
+}
 static int g_repairing;
 
 static void on_repair_saved(HttpResponse *r, void *user)
@@ -373,16 +396,19 @@ static int repair_collection(const char *json)
     cJSON *root = cJSON_Parse(json);
     cJSON *addons = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "result"), "addons"), *d;
     int broken = 0;
-    cJSON_ArrayForEach(d, addons) if (!addon_manifest_complete(cJSON_GetObjectItemCaseSensitive(d, "manifest"))) broken++;
+    cJSON_ArrayForEach(d, addons) if (!descriptor_ok(d)) broken++;
     if (!broken) { cJSON_Delete(root); return 0; }
     LOGW("addons: %d of the account's addons were saved without their manifest; fetching them again", broken);
     Repair *rp = calloc(1, sizeof *rp);
     rp->root = root; rp->gen = g_account_gen;
     g_repairing = 1;
-    cJSON_ArrayForEach(d, addons) if (!addon_manifest_complete(cJSON_GetObjectItemCaseSensitive(d, "manifest"))) rp->remaining++;
+    cJSON_ArrayForEach(d, addons) if (!descriptor_ok(d)) rp->remaining++;
+    rp->remaining++;   /* held until every request is out: a known manifest completes at once */
     cJSON_ArrayForEach(d, addons) {
-        if (addon_manifest_complete(cJSON_GetObjectItemCaseSensitive(d, "manifest"))) continue;
+        if (descriptor_ok(d)) continue;
         const cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
+        cJSON *known = cJSON_IsString(t) ? known_manifest(t->valuestring) : NULL;
+        if (known) { cJSON_ReplaceItemInObjectCaseSensitive(d, "manifest", known); rp->remaining--; continue; }
         void **u = malloc(2 * sizeof(void *));
         u[0] = rp; u[1] = d;
         if (!cJSON_IsString(t)) { HttpResponse none = { 0 }; on_repair_manifest(&none, u); continue; }
@@ -390,6 +416,7 @@ static int repair_collection(const char *json)
         addon_url_manifest(t->valuestring, url, sizeof url);
         http_request_async(url, NULL, on_repair_manifest, u);
     }
+    if (--rp->remaining == 0) repair_done(rp);
     return 1;
 }
 

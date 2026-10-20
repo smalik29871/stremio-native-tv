@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.26
+
+- **OpenSubtitles back in the official apps.** Stremio's own OpenSubtitles addon still
+  sits in many accounts on its old protocol, with no manifest to fetch, so 0.10.25's
+  repair kept it with empty lists and the official apps stopped asking it for
+  subtitles. Its manifest is now written out in full, and accounts repaired by 0.10.25
+  are fixed again on the next start.
+
 ## 0.10.25
 
 - **The account repair always finishes.** 0.10.24 saved nothing back to your account
