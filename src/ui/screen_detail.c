@@ -298,7 +298,8 @@ static void load_resume(Detail *d)
     ui_format_time(d->resume_pos, t, sizeof t);
     int se = 0, ep = 0;
     const char *c1 = li->video_id ? strchr(li->video_id, ':') : NULL;
-    if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(d->resume_label, sizeof d->resume_label, "Resume S%d E%d", se, ep);
+    int fresh = li->time_offset <= 1000;   /* the next episode, not started yet (kept in Continue Watching at 1 ms) */
+    if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(d->resume_label, sizeof d->resume_label, "%s S%d E%d", fresh ? "Play" : "Resume", se, ep);
     else snprintf(d->resume_label, sizeof d->resume_label, "Resume from %s", t);
 }
 

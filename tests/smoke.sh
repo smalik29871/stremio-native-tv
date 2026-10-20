@@ -90,6 +90,11 @@ run player_subs 360 "right,ok,down,down,ok,ok,down,right,right,right,ok"
 run player_audio 400 "right,ok,down,down,ok,ok,down,right,right,right,right,ok,down"
 run player_cue 300 "right,ok,down,down,ok,ok" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "right,ok,down,down,ok,ok,right,right,right" SNTV_FAKE_DURATION=1
+# an episode watched to the end, the next one not played: the series stays in Continue Watching at the next episode
+CWH="$(home_with cw_next '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run cw_next_episode 760 "right,ok,down,down,ok,ok,wait,back,back,back,back,wait,back,wait,up,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=120 HOME="$CWH"
+grep -q '"video_id":"tt0903747:1:2"' "$CWH/.local/share/stremio/nativetv/library.json" && grep -q '"timeOffset":1[,}]' "$CWH/.local/share/stremio/nativetv/library.json" \
+  || { echo "a finished episode dropped the series from Continue Watching"; grep -o '"video_id":[^,]*\|"timeOffset":[^,]*' "$CWH/.local/share/stremio/nativetv/library.json"; exit 1; }
 run upnext_card 300 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run upnext_auto 380 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # OK on the card is its Play now (autoplay off, so only the key can start the next episode)

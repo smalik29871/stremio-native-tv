@@ -898,8 +898,18 @@ void app_library_progress(const MetaPreview *meta, const char *video_id, double 
     it->mtime_ms = it->last_watched_ms;
     free(it->video_id);
     it->video_id = video_id ? strdup(video_id) : NULL;
-    /* Stremio marks an item watched past ~90%; reset offset so it leaves Continue Watching. */
-    if (dur && pos > dur * 9 / 10) { it->times_watched++; it->flagged_watched = 1; it->time_offset = 0; }
+    /* Stremio marks an item watched past ~90%: a film leaves Continue Watching; a series
+     * stays in it at the start of the next episode (1 ms, as Stremio does) */
+    if (dur && pos > dur * 9 / 10) {
+        if (prev > 1 || !it->flagged_watched) it->times_watched++;   /* once per crossing, not per report after it */
+        it->flagged_watched = 1; it->time_offset = 0;
+        char next[160];
+        if (video_id && app_next_video(meta->id, video_id, next, sizeof next, NULL, 0)) {
+            free(it->video_id);
+            it->video_id = strdup(next);
+            it->time_offset = 1;
+        }
+    }
     save_library_cache();
     push_library_item(it);
 }
