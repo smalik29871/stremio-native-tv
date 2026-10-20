@@ -22,6 +22,8 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <unistd.h>
 #include <sys/vfs.h>
 #include <SDL.h>
 #include <GLES2/gl2.h>
@@ -47,36 +49,102 @@ static int in_ram(const char *dir)
     return type == 0x01021994UL || type == 0x858458f6UL;   /* tmpfs, ramfs */
 }
 
+static char g_moved[300];   /* said once the log is open: where the data came from */
+
+/* Copies a folder (but not the artwork cache, which refills by itself). 0 when all of it made it. */
+static int copy_tree(const char *from, const char *to)
+{
+    DIR *d = opendir(from);
+    if (!d) return -1;
+    mkdir(to, 0755);
+    int bad = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || !strcmp(e->d_name, "img")) continue;
+        char a[1200], b[1200];
+        snprintf(a, sizeof a, "%s/%s", from, e->d_name);
+        snprintf(b, sizeof b, "%s/%s", to, e->d_name);
+        struct stat st;
+        if (stat(a, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) { bad |= copy_tree(a, b) != 0; continue; }
+        FILE *in = fopen(a, "rb"), *out = in ? fopen(b, "wb") : NULL;
+        char buf[16384]; size_t k;
+        while (in && out && (k = fread(buf, 1, sizeof buf, in)) > 0) if (fwrite(buf, 1, k, out) != k) { bad = 1; break; }
+        if (!in || !out) bad = 1;
+        if (in) fclose(in);
+        if (out && fclose(out) != 0) bad = 1;
+    }
+    closedir(d);
+    return bad ? -1 : 0;
+}
+
+static void remove_tree(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char a[1200]; snprintf(a, sizeof a, "%s/%s", dir, e->d_name);
+        struct stat st;
+        if (lstat(a, &st) == 0 && S_ISDIR(st.st_mode)) remove_tree(a); else remove(a);
+    }
+    closedir(d);
+    rmdir(dir);
+}
+
+static int has_settings(const char *dir)
+{
+    char f[1200]; snprintf(f, sizeof f, "%s/settings.json", dir);
+    struct stat st;
+    return stat(f, &st) == 0;
+}
+
 static const char *data_dir(void)
 {
     static char dir[1024];
     char ram[1024] = "";
-    char *pref = SDL_GetPrefPath("stremio", "nativetv");
+    const char *flash_env = getenv("SNTV_FLASH_ROOTS");   /* tests: "internal,developer" stand-ins, as on webOS 10 */
+    char *pref = flash_env ? NULL : SDL_GetPrefPath("stremio", "nativetv");
     if (pref && dir_writable(pref)) {
         snprintf(dir, sizeof dir, "%s", pref); SDL_free(pref);
         if (!in_ram(dir)) return dir;
         snprintf(ram, sizeof ram, "%s", dir);
     } else if (pref) SDL_free(pref);
-    char *base = SDL_GetBasePath();   /* next to the app: where Homebrew installed it */
+    char *base = flash_env ? NULL : SDL_GetBasePath();   /* next to the app: where Homebrew installed it */
     if (base) {
         snprintf(dir, sizeof dir, "%sdata", base); SDL_free(base);
         mkdir(dir, 0755);
         if (dir_writable(dir) && !in_ram(dir)) return dir;
     }
     const char *home = getenv("HOME");
-    snprintf(dir, sizeof dir, "%s/.%s", home ? home : "/tmp", SNTV_APP_ID);
-    mkdir(dir, 0755);
-    if (dir_writable(dir) && !in_ram(dir)) return dir;
-    /* webOS 10 runs apps as their own user, for whom all of the above is read-only or in
-     * RAM; the developer partition (on flash, kept by Homebrew TVs) and internal storage
-     * still take writes and survive power-offs */
-    static const char *const FLASH[] = { "/media/developer/temp", "/media/internal" };
-    for (size_t i = 0; i < sizeof FLASH / sizeof FLASH[0]; i++) {
-        snprintf(dir, sizeof dir, "%s/%s%s", FLASH[i], i ? "." : "", SNTV_APP_ID);
-        mkdir(FLASH[i], 0755);
+    if (!flash_env) {
+        snprintf(dir, sizeof dir, "%s/.%s", home ? home : "/tmp", SNTV_APP_ID);
         mkdir(dir, 0755);
         if (dir_writable(dir) && !in_ram(dir)) return dir;
     }
+    /* webOS 10 runs apps as their own user, for whom all of the above is read-only or in
+     * RAM. Internal storage takes writes and survives power-offs. The developer partition
+     * does too, but the installer unpacks updates in its temp folder and Developer Mode's
+     * cache clearing empties it: sign-in kept there (0.10.12 to 0.10.17) moves over. */
+    char internal[512] = "/media/internal", developer[512] = "/media/developer/temp";
+    if (flash_env) sscanf(flash_env, "%511[^,],%511s", internal, developer);
+    char old[1024];
+    snprintf(old, sizeof old, "%s/%s", developer, SNTV_APP_ID);
+    snprintf(dir, sizeof dir, "%s/.%s", internal, SNTV_APP_ID);
+    mkdir(internal, 0755);
+    mkdir(dir, 0755);
+    if (dir_writable(dir) && !in_ram(dir)) {
+        if (!has_settings(dir) && has_settings(old)) {
+            if (copy_tree(old, dir) == 0) { remove_tree(old); snprintf(g_moved, sizeof g_moved, "data moved here from %s", old); }
+            else snprintf(g_moved, sizeof g_moved, "could not copy all of %s; it stays there", old);
+        }
+        return dir;
+    }
+    snprintf(dir, sizeof dir, "%s", old);
+    mkdir(developer, 0755);
+    mkdir(dir, 0755);
+    if (dir_writable(dir) && !in_ram(dir)) return dir;
     if (ram[0]) { snprintf(dir, sizeof dir, "%s", ram); return dir; }
     if (dir_writable(dir)) return dir;
     snprintf(dir, sizeof dir, "/tmp/%s", SNTV_APP_ID);
@@ -216,6 +284,7 @@ int main(int argc, char **argv)
     const char *dir = data_dir();
     log_init(dir);
     LOGI("%s %s starting, data dir %s", SNTV_APP_NAME, SNTV_APP_VERSION, dir);
+    if (g_moved[0]) LOGI("store: %s", g_moved);
     if (in_ram(dir)) LOGW("store: %s is in RAM: sign-in and settings will not survive the TV powering off", dir);
     store_init(dir);
     /* a marker that only a clean exit removes: present at start = the last session crashed */

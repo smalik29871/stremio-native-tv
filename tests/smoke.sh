@@ -202,6 +202,12 @@ FREE_MB=$(df -m --output=avail "$DH" | tail -1)
 run disk_full 120 "" HOME="$DH" SNTV_DISK_KEEP_FREE_MB=$((FREE_MB + 10))
 grep -q "image: .* MB free on the cache's drive; artwork cache kept to" "$OUT/disk_full.log" && [ "$(ls "$DH/.local/share/stremio/nativetv/img" | wc -l)" -lt 15 ] \
   || { echo "the artwork cache did not make room on a full drive"; grep image "$OUT/disk_full.log"; exit 1; }
+# webOS 10: sign-in kept in the developer partition's temp folder moves to internal storage
+MH="$OUT/home_migrate"; rm -rf "$MH"; mkdir -p "$MH/internal" "$MH/devtemp/org.stremio.nativetv/img"
+echo '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"moved-key"}' > "$MH/devtemp/org.stremio.nativetv/settings.json"
+run data_move 90 "" HOME="$MH" SNTV_FLASH_ROOTS="$MH/internal,$MH/devtemp"
+grep -q "store: data moved here from $MH/devtemp/org.stremio.nativetv" "$OUT/data_move.log" && grep -q "moved-key" "$MH/internal/.org.stremio.nativetv/settings.json" && [ ! -e "$MH/devtemp/org.stremio.nativetv" ] \
+  || { echo "sign-in did not move off the developer partition"; grep -E "data dir|store" "$OUT/data_move.log"; exit 1; }
 # Sources panel > Find more sources: every addon is asked while the video plays on, and the new ones join the list
 run player_more_sources 600 "right,ok,down,down,ok,ok,down,right,right,right,right,right,right,ok,down,down,down,down,down,down,down,ok,wait,wait,wait,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with more_src "$NO_PREFLIGHT")"
