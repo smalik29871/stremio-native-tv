@@ -253,14 +253,22 @@ int main(int argc, char **argv)
     /* the saved theme picks the typefaces; app_init applies its colours */
     int theme = store_get_int("theme", THEME_SIGNAL);
     theme_apply(theme, store_get_int("themeAccent", 0), store_get_int("themeBg", 0));
+    /* the network and the artwork loader first: what Home showed last time is read from
+     * the disk cache and decoded on its threads while the fonts load */
+    if (http_init() != 0) LOGE("network unavailable: libcurl missing");
+    image_init(dir, image_budget());
+    {
+        const cJSON *first = store_get_json("homeFirstView"), *u;
+        int n = 0;
+        cJSON_ArrayForEach(u, first) if (cJSON_IsString(u) && n++ < 24) image_prefetch(u->valuestring);
+        if (n) LOGI("home: warming %d pictures from last time", n);
+    }
     font_set_cache_dir(dir);
     if (theme_load_fonts(theme) != 0) {
         LOGE("no usable font found");
         return 1;
     }
     perf_mark("fonts");
-    if (http_init() != 0) LOGE("network unavailable: libcurl missing");
-    image_init(dir, image_budget());
     audio_init();
     phone_start();
     if (video_init(win) != 0) LOGW("video backend failed to initialise");
@@ -326,7 +334,7 @@ int main(int argc, char **argv)
                 store_save();
                 store_flush();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
-                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; }
+                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; app_library_foreground(); }
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
                 mem_emergency();
@@ -380,6 +388,7 @@ int main(int argc, char **argv)
         app_library_flush(0);
         mem_tick(dt);
         app_update_check(dt);
+        { const Screen *t = app_top(); app_library_tick(g_app.pip || (t && strcmp(t->name, "player") == 0)); }
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }

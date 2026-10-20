@@ -93,6 +93,10 @@ run player_seek 268 "right,ok,down,down,ok,ok,right,right,right" SNTV_FAKE_DURAT
 run upnext_card 300 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run upnext_auto 380 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # OK on the card is its Play now (autoplay off, so only the key can start the next episode)
+# Up Next with no bingeGroup: the next episode plays from the same release group (NTb) by itself
+run upnext_chain 520 "right,ok,down,down,ok,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/chain/manifest.json HOME="$(home_with upnext_chain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "streams: next episode like group NTb" "$OUT/upnext_chain.log" && grep -q "streams: next episode from the same release" "$OUT/upnext_chain.log" && grep "player: candidate 1/" "$OUT/upnext_chain.log" | sed -n 2p | grep -q "rel=ntb" \
+  || { echo "the next episode did not stay on the same release"; grep -E "streams:|player: candidate" "$OUT/upnext_chain.log"; exit 1; }
 run upnext_ok 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_ok '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
 # leaving a video mid-way: the island offers it back on Home, and Blue opens it
 run island_resume 520 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -163,6 +167,11 @@ run rail_open 150 "left"
 run explore 320 "left,down,ok,right,down,down,down"
 # details beside a card that stays focused: on Home, in a grid, opening left at the last column, off in Settings
 run home_peek 200 "right,right"
+# instant Home: what Home showed is kept, and the next launch warms it while the fonts load
+run home_first_view 1000 "" HOME="$(home_with first_view '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run home_first_view_again 150 "" HOME="$OUT/home_first_view"
+grep -q "home: first view kept ([0-9]* pictures)" "$OUT/home_first_view.log" && grep -q "home: warming [0-9]* pictures from last time" "$OUT/home_first_view_again.log" \
+  || { echo "Home's first view was not kept and warmed"; grep "home:" "$OUT/home_first_view.log" "$OUT/home_first_view_again.log"; exit 1; }
 run home_peek_marquee 200 "right,right" HOME="$(home_with peek_marquee '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":1}')"
 run explore_peek_edge 800 "left,down,ok,right,down,down,down,right,right,right,right,right,right"
 run home_peek_off 200 "right,right" HOME="$(home_with peek_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"cardDetails":0}')"
@@ -244,6 +253,9 @@ TK2='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","trakt
 run trakt_scrobble 420 "right,ok,down,down,ok,ok,wait,wait,back,back,back" HOME="$(home_with trakt2 "$TK2")" SNTV_FAKE_START=6600 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
 grep -q "tracking: Trakt start tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: Trakt stop tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: SimKL watched tt0903747" "$OUT/trakt_scrobble.log" \
   || { echo "playback was not scrobbled"; grep tracking "$OUT/trakt_scrobble.log"; exit 1; }
+# paused on a phone: Trakt's resume points reach Continue Watching when newer than the TV's
+run trakt_resume 600 "wait,wait,wait" HOME="$(home_with trakt_resume '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktToken":"tokresume"}')" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+grep -q "tracking: Trakt has 2 resume points, 2 newer than this TV's" "$OUT/trakt_resume.log" || { echo "Trakt's resume points were not taken"; grep -E "tracking|library" "$OUT/trakt_resume.log"; exit 1; }
 run simkl_connect 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid"}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
 grep -q "tracking: SimKL sign-in code SV2CODE" "$OUT/simkl_connect.log" && grep -q "tracking: SimKL connected" "$OUT/simkl_connect.log" && grep -qE '"simklRefresh":[[:space:]]*"sref"' "$OUT/home_simkl/.local/share/stremio/nativetv/settings.json" \
   || { echo "SimKL did not connect with OAuth 2.0"; grep tracking "$OUT/simkl_connect.log"; exit 1; }

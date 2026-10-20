@@ -243,3 +243,32 @@ double quality_runtime_minutes(const char *runtime)
     }
     return mins;
 }
+
+/* The release group: "Show.S01E02.1080p.WEB.h264-NTb.mkv" -> "NTb", "[SubsPlease] Show - 02"
+ * -> "SubsPlease". Episodes from one group share encoding, audio and subtitles. */
+void quality_release_group(const char *text, char *out, size_t n)
+{
+    out[0] = 0;
+    if (!text || !*text || n < 2) return;
+    if (text[0] == '[') {
+        const char *e = strchr(text, ']');
+        if (e && e - text > 2 && e - text < 24) snprintf(out, n, "%.*s", (int)(e - text - 1), text + 1);
+        return;
+    }
+    char t[256];
+    snprintf(t, sizeof t, "%s", text);
+    char *nl = strpbrk(t, "\n\r"); if (nl) *nl = 0;
+    char *dot = strrchr(t, '.');   /* the extension */
+    if (dot && strlen(dot) <= 5 && (!strcasecmp(dot, ".mkv") || !strcasecmp(dot, ".mp4") || !strcasecmp(dot, ".avi") || !strcasecmp(dot, ".ts") || !strcasecmp(dot, ".m4v"))) *dot = 0;
+    char *dash = strrchr(t, '-');
+    if (!dash || !dash[1]) return;
+    const char *g = dash + 1;
+    size_t len = strcspn(g, " .[]()");
+    static const char *const NOT_GROUPS[] = { "DL", "Rip", "RIP", "HD", "SD", "UHD", "DV", "HDR", "Atmos", NULL };
+    if (len < 2 || len > 14) return;
+    for (int i = 0; NOT_GROUPS[i]; i++) if (strlen(NOT_GROUPS[i]) == len && !strncasecmp(g, NOT_GROUPS[i], len)) return;
+    int letters = 0;
+    for (size_t i = 0; i < len; i++) { if (!isalnum((unsigned char)g[i])) return; if (isalpha((unsigned char)g[i])) letters++; }
+    if (!letters) return;
+    snprintf(out, n, "%.*s", (int)len, g);
+}

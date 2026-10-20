@@ -904,6 +904,56 @@ void app_library_progress(const MetaPreview *meta, const char *video_id, double 
     push_library_item(it);
 }
 
+/* A resume point from elsewhere (Trakt: another app or device), when it is newer than
+ * ours; the account gets it too, so every Stremio sees it. 1 when it was taken. */
+int app_library_remote_progress(const char *id, const char *type, const char *name, const char *video_id,
+                                double position_s, double duration_s, int64_t when_ms)
+{
+    if (!id || !*id || !type || duration_s <= 0 || position_s <= 0) return 0;
+    LibraryItem *it = app_library_find(id);
+    if (it && it->last_watched_ms >= when_ms) return 0;   /* ours is newer (or the same) */
+    MetaPreview m = {0};
+    m.id = (char *)id; m.type = (char *)type; m.name = (char *)(name ? name : "");
+    it = library_upsert(&m);
+    it->time_offset = (uint64_t)(position_s * 1000);
+    it->duration = (uint64_t)(duration_s * 1000);
+    it->last_watched_ms = when_ms;
+    it->mtime_ms = when_ms;
+    it->flagged_watched = 0;
+    free(it->video_id);
+    it->video_id = video_id ? strdup(video_id) : NULL;
+    save_library_cache();
+    push_library_item(it);
+    return 1;
+}
+
+/* The account's library again: on the way back to the app and every 15 min while nothing
+ * plays, so what was watched on a phone or another TV shows up here. */
+static double g_library_pulled_at;
+static void pull_library(const char *why)
+{
+    if (!g_app.auth_key || g_app.library_loading) return;
+    g_library_pulled_at = g_app.time;
+    g_app.library_loading = 1;
+    LOGI("library: asking the account again (%s)", why);
+    char *body = api_body_datastore_get(g_app.auth_key, STREMIO_LIBRARY_COLLECTION);
+    HttpOptions o = { .post_json = body, .work = work_library, .free_parsed = free_library };
+    http_request_async_ex(api_url_datastore_get(), &o, on_library, (void *)g_account_gen);
+    free(body);
+    tracking_pull_playback();
+}
+
+void app_library_foreground(void)
+{
+    if (g_app.time - g_library_pulled_at > 60) pull_library("back on screen");
+}
+
+void app_library_tick(int playing)
+{
+    if (g_library_pulled_at == 0) g_library_pulled_at = g_app.time;   /* the launch already asked */
+    if (!playing && g_app.time - g_library_pulled_at > 15 * 60) pull_library("every 15 min");
+}
+
 /* ---- episode marks ---------------------------------------------------------- */
 
 #define EPISODE_MARK_SERIES 200   /* series kept; the oldest go first */

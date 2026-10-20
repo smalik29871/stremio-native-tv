@@ -84,6 +84,15 @@ int main(void)
     CHECK(fabs(quality_runtime_minutes("95") - 95) < 0.01);
     CHECK(quality_runtime_minutes(NULL) == 0);
 
+    /* release groups: episodes from one group match each other */
+    char g[32];
+    quality_release_group("The.Show.S01E02.1080p.WEB.h264-NTb.mkv", g, sizeof g); CHECK(!strcmp(g, "NTb"));
+    quality_release_group("[SubsPlease] Show - 02 (1080p) [ABCD1234].mkv", g, sizeof g); CHECK(!strcmp(g, "SubsPlease"));
+    quality_release_group("Movie.2024.1080p.WEB-DL", g, sizeof g); CHECK(!strcmp(g, ""));
+    quality_release_group("The.Show.S04E10.1080p.BluRay.x265.DTS-HD.MA.5.1-GRP.mkv\n12 seeds", g, sizeof g); CHECK(!strcmp(g, "GRP"));
+    quality_release_group("Show 2160p - 7", g, sizeof g); CHECK(!strcmp(g, ""));
+    quality_release_group(NULL, g, sizeof g); CHECK(!strcmp(g, ""));
+
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("quality: all checks passed\n");
     return 0;

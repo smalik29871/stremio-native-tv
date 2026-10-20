@@ -1301,12 +1301,16 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
     MetaPreview meta;
     meta_preview_copy(&meta, &p->meta);
     char *vid = strdup(video_id), *title = video_title ? strdup(video_title) : NULL;
-    char *group = p->cands[p->cur].binge_group ? strdup(p->cands[p->cur].binge_group) : NULL;
+    /* the next one plays from the source most like this one: same release, addon, quality */
+    const PlayCandidate *c = &p->cands[p->cur];
+    ChainHint hint = { .addon_order = c->addon_order, .res = c->res, .needs = c->needs };
+    if (c->binge_group) snprintf(hint.binge_group, sizeof hint.binge_group, "%s", c->binge_group);
+    quality_release_group(c->filename ? c->filename : c->release, hint.group, sizeof hint.group);
     p->finished = 1;
     app_pop();   /* destroys this screen */
-    app_replace(screen_streams_create_auto(&meta, vid, title, group));
+    app_replace(screen_streams_create_chain(&meta, vid, title, &hint));
     meta_preview_free(&meta);
-    free(vid); free(title); free(group);
+    free(vid); free(title);
 }
 
 static void go_up_next(Player *p) { go_to_video(p, p->next_video_id, p->next_title); }
@@ -1578,7 +1582,9 @@ static void update(Screen *s, float dt)
     }
     /* fetch the next episode's sources now, so Up Next starts without a wait; the
      * control bar asks too, so its Next button can show them arriving */
-    int want_next = p->up_next_shown || p->bar_focus || (vi.duration > 120 && vi.position > vi.duration - 90);
+    /* five minutes before the end (or past 80%): the answers and the matching source are
+     * ready well before Up Next; the links stay good for hours */
+    int want_next = p->up_next_shown || p->bar_focus || (vi.duration > 120 && (vi.position > vi.duration - 300 || vi.position > vi.duration * 0.8));
     if (p->next_video_id && want_next && vi.state != VIDEO_LOADING && streams_prefetch_progress(p->next_video_id) < 0
         && (!p->prefetched || g_app.time - p->prefetch_tried > 30)) {
         p->prefetched = 1;

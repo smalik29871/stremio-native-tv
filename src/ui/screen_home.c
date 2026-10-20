@@ -8,6 +8,8 @@
 #include "../tracking.h"
 #include "../http.h"
 #include "../log.h"
+#include "../vendor/cJSON.h"
+#include "../store.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -365,9 +367,36 @@ static void request_desc(Home *h, const MetaPreview *m)
     }
 }
 
+/* What Home shows first, kept so the next launch can read it from the disk cache while
+ * the fonts load (main.c): the hero's backdrop and logo, the posters of the top rows. */
+static void note_first_view(Home *h)
+{
+    static double last_saved = -100;
+    if (g_app.time - last_saved < 30) return;
+    cJSON *a = cJSON_CreateArray();
+    char buf[1024];
+    if (h->hero_bg[0]) cJSON_AddItemToArray(a, cJSON_CreateString(h->hero_bg));
+    int rows = 0;
+    for (int i = 0; i < h->n_rows && rows < 2; i++) {
+        const Row *r = h->rows[i];
+        if (!r->n) continue;
+        rows++;
+        for (int j = 0; j < r->n && j < visible_cards(r) + 1; j++) {
+            const char *u = r->kind == ROW_CONTINUE ? app_art_background(&r->metas[j], buf, sizeof buf) : app_art_poster(&r->metas[j], buf, sizeof buf);
+            if (u && *u) cJSON_AddItemToArray(a, cJSON_CreateString(u));
+        }
+    }
+    if (cJSON_GetArraySize(a) < 3 || cJSON_Compare(a, store_get_json("homeFirstView"), 1)) { cJSON_Delete(a); return; }
+    LOGI("home: first view kept (%d pictures)", cJSON_GetArraySize(a));
+    store_set_json("homeFirstView", a);   /* the store owns it now */
+    store_save();
+    last_saved = g_app.time;
+}
+
 static void update(Screen *s, float dt)
 {
     Home *h = s->st;
+    if (g_app.time > 4) note_first_view(h);
     if (h->addons_seen != g_app.addons_version || h->rows_seen != g_app.home_rows_version) rebuild_rows(h);
     if (h->watched_seen != g_app.hide_watched) {   /* the toggle changed: catalogs reload from cache */
         h->watched_seen = g_app.hide_watched;

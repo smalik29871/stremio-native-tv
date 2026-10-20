@@ -353,6 +353,56 @@ static void on_row(HttpResponse *r, void *user)
     app_redraw();
 }
 
+/* ---- resume points from Trakt (another app or device paused there) ---- */
+static int g_playback_inflight;
+
+static int64_t iso_ms(const char *s)   /* "2026-10-19T21:40:00.000Z" */
+{
+    struct tm tmv = {0};
+    if (!s || sscanf(s, "%d-%d-%dT%d:%d:%d", &tmv.tm_year, &tmv.tm_mon, &tmv.tm_mday, &tmv.tm_hour, &tmv.tm_min, &tmv.tm_sec) != 6) return 0;
+    tmv.tm_year -= 1900; tmv.tm_mon -= 1;
+    return (int64_t)timegm(&tmv) * 1000;
+}
+
+static void on_playback(HttpResponse *r, void *user)
+{
+    (void)user;
+    g_playback_inflight = 0;
+    cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL, *e;
+    int taken = 0, seen = 0;
+    cJSON_ArrayForEach(e, j) {
+        const cJSON *type = cJSON_GetObjectItemCaseSensitive(e, "type"), *pr = cJSON_GetObjectItemCaseSensitive(e, "progress");
+        int64_t when = iso_ms(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(e, "paused_at")));
+        if (!cJSON_IsString(type) || !cJSON_IsNumber(pr) || !when) continue;
+        int episode = !strcmp(type->valuestring, "episode");
+        const cJSON *top = cJSON_GetObjectItemCaseSensitive(e, episode ? "show" : "movie"), *ep = cJSON_GetObjectItemCaseSensitive(e, "episode");
+        const char *imdb = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(top, "ids"), "imdb"));
+        if (!imdb || strncmp(imdb, "tt", 2)) continue;
+        const cJSON *rt = cJSON_GetObjectItemCaseSensitive(episode ? ep : top, "runtime");
+        if (!cJSON_IsNumber(rt) && episode) rt = cJSON_GetObjectItemCaseSensitive(top, "runtime");
+        double dur = cJSON_IsNumber(rt) ? rt->valuedouble * 60 : 0;
+        char vid[160];
+        if (episode) {
+            const cJSON *s = cJSON_GetObjectItemCaseSensitive(ep, "season"), *n = cJSON_GetObjectItemCaseSensitive(ep, "number");
+            if (!cJSON_IsNumber(s) || !cJSON_IsNumber(n)) continue;
+            snprintf(vid, sizeof vid, "%s:%d:%d", imdb, s->valueint, n->valueint);
+        } else snprintf(vid, sizeof vid, "%s", imdb);
+        seen++;
+        taken += app_library_remote_progress(imdb, episode ? "series" : "movie", cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(top, "title")),
+                                             vid, dur * pr->valuedouble / 100, dur, when);
+    }
+    if (j) LOGI("tracking: Trakt has %d resume point%s, %d newer than this TV's", seen, seen == 1 ? "" : "s", taken);
+    cJSON_Delete(j);
+}
+
+void tracking_pull_playback(void)
+{
+    if (!tracking_connected(TRACK_TRAKT) || g_playback_inflight) return;
+    char url[300]; snprintf(url, sizeof url, "%s/sync/playback?extended=full&limit=30", trakt_api());
+    g_playback_inflight = 1;
+    request(TRACK_TRAKT, url, NULL, on_playback, NULL);
+}
+
 static void fetch_rows(void)
 {
     for (int i = 0; i < TROW_COUNT; i++) { meta_previews_free(g_rows[i], g_n_rows[i]); g_rows[i] = NULL; g_n_rows[i] = 0; }
@@ -368,6 +418,7 @@ static void fetch_rows(void)
         request(TRACK_TRAKT, url, NULL, on_row, q);
     }
     g_version++;
+    tracking_pull_playback();   /* with the rows: on sign-in, at launch and every 30 min */
 }
 
 int tracking_row(int which, MetaPreview **out)

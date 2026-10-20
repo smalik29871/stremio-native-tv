@@ -36,6 +36,15 @@ typedef struct PlayCandidate {
     int res;                    /* vertical resolution from the source's name, 0 unknown */
 } PlayCandidate;
 
+/* The source an episode played from, so the next one can match it (Up Next) */
+typedef struct ChainHint {
+    char binge_group[160];      /* the addon's own tag for one release, "" none */
+    char group[24];             /* release group from the file name ("NTb"), "" unknown */
+    int addon_order;            /* -1 unknown */
+    int res;                    /* 0 unknown */
+    unsigned needs;             /* TVCAP_* bits: codec, HDR, audio */
+} ChainHint;
+
 enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
 enum { ISLAND_TIME, ISLAND_DAY, ISLAND_SECONDS, ISLAND_DIAL, ISLAND_STYLE_COUNT };   /* the clock island's styles */
 extern const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT];
@@ -173,6 +182,10 @@ void app_load_library(void);
 LibraryItem *app_library_find(const char *id);
 /* Records playback progress locally and (when logged in) pushes it to the account. */
 void app_library_progress(const MetaPreview *meta, const char *video_id, double position_s, double duration_s);
+int  app_library_remote_progress(const char *id, const char *type, const char *name, const char *video_id,
+                                 double position_s, double duration_s, int64_t when_ms);   /* newer than ours: taken, sent on */
+void app_library_foreground(void);   /* back on screen: the account's library again (at most once a minute) */
+void app_library_tick(int playing);  /* every 15 min while nothing plays */
 void app_library_toggle(const MetaPreview *meta);  /* add / remove from library */
 void app_library_mark_watched(const MetaPreview *meta, int watched);
 /* Episode marks set by hand (they override what the resume point implies):
@@ -259,6 +272,8 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
                              const char *next_video_id, const char *next_title);
 /* Opens the stream picker; with autoplay_group it plays the matching stream at once. */
 Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id, const char *video_title, const char *autoplay_group);
+/* Up Next: picks and plays the source most like `hint` by itself (NULL: the viewer chooses) */
+Screen *screen_streams_create_chain(const MetaPreview *meta, const char *video_id, const char *video_title, const ChainHint *hint);
 Screen *screen_login_create(void);
 Screen *screen_search_create(void);
 Screen *screen_search_create_query(const char *q);   /* already searching for q (a person on a title page) */

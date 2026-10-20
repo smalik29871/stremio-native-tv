@@ -27,6 +27,7 @@ void tracking_set_app(int svc, const char *id, const char *secret);
 const char *tracking_app_id(int svc);
 
 void tracking_tick(void);              /* once a frame: sign-in polls, row refreshes */
+void tracking_pull_playback(void);     /* Trakt's resume points into the library (newer ones) */
 
 /* The player's progress; `final` when it pauses, stops or moves on. */
 void tracking_progress(const MetaPreview *m, const char *video_id, double pos, double dur, int final);

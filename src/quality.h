@@ -56,6 +56,8 @@ int  quality_cap_ok(const TvProfile *tv, int cap);  /* current belief */
 /* Profile: starts from the webOS release, then learns. */
 void quality_tv_init(TvProfile *tv, const char *release_text);
 void quality_tv_learn(TvProfile *tv, unsigned needs, int worked);
+/* "Show.S01E02.1080p.WEB.h264-NTb.mkv" -> "NTb"; "" when there is none */
+void quality_release_group(const char *text, char *out, size_t n);
 /* "25 min", "1h 40min", "95" -> minutes; 0 when unparsable */
 double quality_runtime_minutes(const char *runtime);
 

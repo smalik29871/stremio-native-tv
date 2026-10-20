@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define ROW_H 142.0f
 #define LIST_X 620.0f
@@ -27,7 +28,9 @@ static Streams *g_live;
 
 struct Streams {
     MetaPreview meta;
-    char *video_id, *video_title, *autoplay_group;
+    char *video_id, *video_title;
+    int chaining;             /* from Up Next: plays the source most like `chain` by itself */
+    ChainHint chain;
     Stream *items; int n;
     int pending, n_reqs;
     int focus;
@@ -131,6 +134,17 @@ static int is_p2p(const Stream *s)
     return s->info_hash && !s->url && !(g_app.streaming_server && *g_app.streaming_server) && g_app.p2p_fallback && torrent_engine_available();
 }
 
+/* 2: the addon's own tag for the same release; 1: the same release group (and addon); 0 */
+static int same_release(const Streams *st, const Stream *s)
+{
+    if (!st->chaining) return 0;
+    if (st->chain.binge_group[0] && s->binge_group && !strcmp(st->chain.binge_group, s->binge_group)) return 2;
+    if (!st->chain.group[0]) return 0;
+    char g[24];
+    quality_release_group(s->filename ? s->filename : s->title ? s->title : s->description, g, sizeof g);
+    return g[0] && !strcasecmp(g, st->chain.group) && (st->chain.addon_order < 0 || s->addon_order == st->chain.addon_order);
+}
+
 static long rank(const Streams *st, const Stream *s)
 {
     long r = g_app.quality_mode == QUAL_ADDON_ORDER ? s->addon_order * 10L : (200000L - s->score) * 10L + s->addon_order;
@@ -139,7 +153,17 @@ static long rank(const Streams *st, const Stream *s)
     if (!playable(s)) r += 100000000L;
     if (is_notice(s)) r += 200000000L;
     if (s->url && app_link_dead(s->url)) r += 20000000L;
-    if (st->autoplay_group && s->binge_group && strcmp(st->autoplay_group, s->binge_group) == 0) r -= 50000000L;
+    if (st->chaining) {   /* the next episode: like the one just played, below the working-link penalties */
+        int m = same_release(st, s);
+        if (m == 2) r -= 50000000L;
+        else {
+            long b = m ? 4000000L : 0;
+            if (st->chain.addon_order >= 0 && s->addon_order == st->chain.addon_order) b += 2000000L;
+            if (st->chain.res && s->tags.res == st->chain.res) b += 1000000L;
+            if (st->chain.needs && quality_needs(&s->tags) == st->chain.needs) b += 500000L;
+            r -= b;
+        }
+    }
     return r;
 }
 
@@ -299,10 +323,14 @@ static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
 /* Autoplay: as soon as a same-group stream shows up, or when everyone answered. */
 static void autoplay_check(Streams *st)
 {
-    if (!st->autoplay_group || st->autoplayed || !st->n) return;
-    int match = st->items[0].binge_group && strcmp(st->items[0].binge_group, st->autoplay_group) == 0;
+    if (!st->chaining || st->autoplayed || !st->n) return;
+    int match = same_release(st, &st->items[0]) > 0;
     int waited = g_app.addon_wait < 99 && g_app.time - st->started > g_app.addon_wait;
-    if ((match || st->pending == 0 || waited) && playable(&st->items[0]) && !is_notice(&st->items[0])) { st->autoplayed = 1; play_from(st, 0); }
+    if ((match || st->pending == 0 || waited) && playable(&st->items[0]) && !is_notice(&st->items[0])) {
+        LOGI("streams: next episode from %s", match ? "the same release" : "the closest source (no same release)");
+        st->autoplayed = 1;
+        play_from(st, 0);
+    }
 }
 
 static void on_streams(HttpResponse *r, void *user)
@@ -443,10 +471,10 @@ static void update(Screen *s, float dt)
     Streams *st = s->st;
     if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
     if (st->check_autoplay) { st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return; }
-    if (st->n && !st->autoplay_group && (st->pending == 0 || g_app.time - st->started > 3)) probe_next(st);
+    if (st->n && !st->chaining && (st->pending == 0 || g_app.time - st->started > 3)) probe_next(st);
     if (st->probe_inflight) app_redraw();
     int checks_done = !g_app.preflight || (!st->probe_inflight && (st->probes_started >= PROBE_MAX || g_app.time - st->started > 12));
-    if (g_app.auto_recommended && !st->autoplay_group && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6))) {
+    if (g_app.auto_recommended && !st->chaining && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6))) {
         int r = recommended(st);
         if (r >= 0) {
             st->auto_rec_done = 1;
@@ -553,12 +581,12 @@ static void draw(Screen *s)
     float x = LIST_X, w = SNTV_UI_W - THEME_MARGIN - LIST_X;
     font_draw("Choose a source", x, 104, FONT_L | FONT_B, THEME_TEXT);
     char msg[128];
-    if (st->autoplay_group && !st->autoplayed) snprintf(msg, sizeof msg, "Finding the next episode on the same release");
+    if (st->chaining && !st->autoplayed) snprintf(msg, sizeof msg, "Finding the next episode on the same release");
     else if (st->pending) snprintf(msg, sizeof msg, "%d found  Â·  %d addon%s still searching", st->n, st->pending, st->pending == 1 ? "" : "s");
     else if (!st->n) snprintf(msg, sizeof msg, "%s", st->n_reqs ? "No sources found for this title" : "No stream addons installed. Add one in Settings.");
     else snprintf(msg, sizeof msg, "%d source%s", st->n, st->n == 1 ? "" : "s");
     font_draw(msg, x, 156, FONT_S, THEME_TEXT_MUTED);
-    if (st->pending || (st->autoplay_group && !st->autoplayed)) ui_spinner(x + w - 30, 140, 20);
+    if (st->pending || (st->chaining && !st->autoplayed)) ui_spinner(x + w - 30, 140, 20);
 
     if (!st->n && st->pending) {
         for (int i = 0; i < 5; i++) ui_skeleton(x, LIST_Y + i * ROW_H, w, ROW_H - 14, 20);
@@ -637,7 +665,7 @@ static void draw(Screen *s)
         char p2p[48];
         if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this TV"); }
         const char *flag = sm->info_hash ? (g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
-        if (st->autoplay_group && sm->binge_group && strcmp(sm->binge_group, st->autoplay_group) == 0) flag = "Same release";
+        if (same_release(st, sm)) flag = "Same release";
         if (flag) {
             Color fc = !ok ? THEME_DANGER : THEME_OK;
             float fw = font_measure(flag, FONT_XS | FONT_B) + 24;
@@ -846,7 +874,8 @@ static void play_from(Streams *st, int index)
     snprintf(title, sizeof title, "%s%s%s", st->meta.name, st->video_title ? "  -  " : "", st->video_title ? st->video_title : "");
     char next_id[128] = "", next_title[200] = "";
     int has_next = app_next_video(st->meta.id, st->video_id, next_id, sizeof next_id, next_title, sizeof next_title);
-    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st));
+    /* no race for the next episode's same-release source: it plays as matched */
+    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st) && !same_release(st, &st->items[index]));
 }
 
 /* ---- a quiet lookup for the player ---- */
@@ -944,20 +973,24 @@ static void destroy(Screen *s)
     if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */
     streams_free(st->items, st->n);
     meta_preview_free(&st->meta);
-    free(st->video_id); free(st->video_title); free(st->autoplay_group);
+    free(st->video_id); free(st->video_title);
     free(st);
     free(s);
 }
 
-Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id, const char *video_title, const char *autoplay_group)
+Screen *screen_streams_create_chain(const MetaPreview *meta, const char *video_id, const char *video_title, const ChainHint *hint)
 {
     Screen *s = calloc(1, sizeof *s);
     Streams *st = calloc(1, sizeof *st);
     meta_preview_copy(&st->meta, meta);
     st->video_id = strdup(video_id);
     st->video_title = video_title ? strdup(video_title) : NULL;
-    st->autoplay_group = autoplay_group ? strdup(autoplay_group) : NULL;
-    if (!autoplay_group) st->autoplayed = 1;
+    st->chaining = hint != NULL;
+    if (hint) {
+        st->chain = *hint;
+        LOGI("streams: next episode like %s%s%s%s, addon %d, %dp", hint->group[0] ? "group " : "", hint->group,
+             hint->binge_group[0] ? " binge " : "", hint->binge_group, hint->addon_order, hint->res);
+    } else st->autoplayed = 1;
     st->started = g_app.time;
     s->name = "streams"; s->st = st;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
@@ -967,7 +1000,15 @@ Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id
     return s;
 }
 
+Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id, const char *video_title, const char *autoplay_group)
+{
+    if (!autoplay_group) return screen_streams_create_chain(meta, video_id, video_title, NULL);
+    ChainHint h = { .addon_order = -1 };
+    snprintf(h.binge_group, sizeof h.binge_group, "%s", autoplay_group);
+    return screen_streams_create_chain(meta, video_id, video_title, &h);
+}
+
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title)
 {
-    return screen_streams_create_auto(meta, video_id, video_title, NULL);
+    return screen_streams_create_chain(meta, video_id, video_title, NULL);
 }

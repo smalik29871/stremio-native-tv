@@ -280,6 +280,19 @@ class H(BaseHTTPRequestHandler):
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
+        # /chain/...: episode sources with no bingeGroup, only release names; episode 1 has
+        # only NTb, the others list another group first (Up Next should stay on NTb)
+        chain = p.startswith("/chain/")
+        if chain:
+            p = p[6:]
+            if p.startswith("/stream/series/"):
+                from urllib.parse import unquote as _unq
+                vid = _unq(p.split("/stream/series/")[1].split(".json")[0])
+                ep = vid.rsplit(":", 1)[-1]
+                url = STREAMS["streams"][0]["url"]
+                ntb = {"name": "Example\n1080p", "title": f"Breaking.Bad.S01E{int(ep):02d}.1080p.WEB.h264-NTb\n\U0001F4BE 1.1 GB", "url": url + "?rel=ntb"}
+                other = {"name": "Example\n2160p", "title": f"Breaking.Bad.S01E{int(ep):02d}.2160p.WEB.h265-OTHER\n\U0001F4BE 4.2 GB", "url": url + "?rel=other"}
+                return self.send(200, json.dumps({"streams": [ntb] if ep == "1" else [other, ntb]}).encode())
         # /slow/...: a second, stream-only addon that answers after FAKE_SLOW_S seconds for
         # ids containing FAKE_SLOW_ID (the next episode, so the loader has something to show)
         # /p2p/...: an addon like Torrentio next to TorBox. The first answer for a video has
@@ -293,6 +306,16 @@ class H(BaseHTTPRequestHandler):
             data = [{"id": "1", "attributes": {"language": "en", "release": "Some.Other.Cut.720p.HDTV-XYZ", "download_count": 900, "moviehash_match": False, "files": [{"file_id": 111}]}},
                     {"id": "2", "attributes": {"language": "en", "release": "Movie.2024.1080p.WEB-DL", "download_count": 12, "moviehash_match": hashed, "files": [{"file_id": 222}]}}]
             return self.send(200, json.dumps({"data": data}).encode())
+        if p.startswith("/trakt/sync/playback"):   # paused on another device: a film past half, an episode at 40%
+            if self.headers.get("Authorization") != "Bearer tokresume":   # only the resume test's account has any
+                return self.send(200, b"[]")
+            import datetime as _dt
+            now = _dt.datetime.now(_dt.timezone.utc)
+            iso = lambda d: (now - d).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            return self.send(200, json.dumps([
+                {"type": "movie", "progress": 55.0, "paused_at": iso(_dt.timedelta(minutes=5)), "movie": {"title": "The Shawshank Redemption", "year": 1994, "runtime": 142, "ids": {"imdb": "tt0111161"}}},
+                {"type": "episode", "progress": 40.0, "paused_at": iso(_dt.timedelta(hours=1)), "episode": {"season": 1, "number": 3, "runtime": 47, "ids": {}},
+                 "show": {"title": "Breaking Bad", "year": 2008, "runtime": 47, "ids": {"imdb": "tt0903747"}}}]).encode())
         if p.startswith("/trakt/sync/watchlist"):
             return self.send(200, json.dumps([{"type": "movie", "movie": {"title": "The Shawshank Redemption", "year": 1994, "ids": {"imdb": "tt0111161"}}},
                                               {"type": "show", "show": {"title": "Breaking Bad", "year": 2008, "ids": {"imdb": "tt0903747"}}}]).encode())
