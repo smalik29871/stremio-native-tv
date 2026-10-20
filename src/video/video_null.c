@@ -76,6 +76,13 @@ void video_update(void)
     /* test hook: SNTV_FAKE_FAIL_LOADS=n fails the first n sources opened */
     const char *fl = getenv("SNTV_FAKE_FAIL_LOADS");
     if (g.state == VIDEO_LOADING && fl && g_loads <= atoi(fl)) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The link expired (SNTV_FAKE_FAIL_LOADS)"); return; }
+    /* test hook: SNTV_FAKE_STUCK=1 has the first source load and then wait for data for ever,
+     * buffering from before it is ready (a torrent nobody seeds) */
+    const char *stuck = getenv("SNTV_FAKE_STUCK");
+    if (stuck && g_loads == 1 && (g.state == VIDEO_LOADING || g.state == VIDEO_PLAYING)) {
+        if (!g.buffering) { LOGI("video(null): waiting for data (SNTV_FAKE_STUCK)"); g.buffering = 1; return; }   /* still loading */
+        g.state = VIDEO_PLAYING; return;
+    }
     if (g.state == VIDEO_LOADING) g.state = VIDEO_PLAYING;
     /* test hook: SNTV_FAKE_STALLS=1 buffers for 0.2 s after every 0.4 s played */
     static double played;

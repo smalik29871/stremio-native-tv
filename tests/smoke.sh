@@ -216,6 +216,10 @@ grep -q "player: candidate 1/3 Fake Addon - Example" "$OUT/fallback_race.log" \
   || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
 run fallback_reask 5000 "right,ok,down,down,ok,wait,wait,ok" "$LIGHTER" HOME="$(home_with fb4 "$NO_PREFLIGHT")" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
 grep -q "player: asked the addons again: 3 sources" "$OUT/fallback_reask.log" || { echo "the addons were not asked again"; grep -E "player" "$OUT/fallback_reask.log"; exit 1; }
+# a source that loads and then waits for data for ever (a torrent nobody seeds) gives way to the next
+run fallback_stuck 700 "right,ok,down,down,ok,ok" "$LIGHTER" HOME="$(home_with fb5 "$NO_PREFLIGHT")" SNTV_FAKE_STUCK=1 SNTV_START_TIMEOUT=3
+grep -q "player: source 1 did not start in [0-9]*s" "$OUT/fallback_stuck.log" && grep -q "player: candidate 2/3" "$OUT/fallback_stuck.log" \
+  || { echo "a source stuck at the start was not replaced"; grep -E "player|video" "$OUT/fallback_stuck.log"; exit 1; }
 grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
 run player_lighter_ok 820 "right,ok,down,down,ok,ok$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
 grep -q "player: switching to the lighter source [0-9]" "$OUT/player_lighter_ok.log" || { echo "OK did not take the lighter source"; grep player "$OUT/player_lighter_ok.log"; exit 1; }

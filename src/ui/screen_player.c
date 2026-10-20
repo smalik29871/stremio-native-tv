@@ -55,6 +55,9 @@ struct Player {
     char *video_id, *title;
     PlayCandidate *cands; int n_cands, cur;
     int tries;
+    uint64_t tried;                         /* sources already started here (bit per index, first 64) */
+    int started;                            /* this source has shown a picture (the clock moved) */
+    int p2p_peers, p2p_info;                /* the P2P engine's last word on this torrent */
     float p2p_recheck_in;     /* playing P2P: when to ask the addons again whether TorBox has it */
     float p2p_stats_in; unsigned p2p_stats_gen;
     char p2p_status[96];      /* "P2P  ·  14 peers  ·  3.2 MB/s" */
@@ -1095,6 +1098,8 @@ static void start_candidate(Player *p, int idx, double start)
     p->subs_auto_done = 0;
     p->bm_state = 0;
     p->load_started = g_app.time;
+    if (idx < 64) p->tried |= 1ull << idx;
+    p->started = 0; p->p2p_peers = -1; p->p2p_info = 0;
     p->stalls_here = 0; p->lighter_to = -1;
     p->warm_state = 0; p->warm_idx = -1; p->warm_at = g_app.time; p->drain_n = 0; p->drain_t = 0;
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
@@ -1124,6 +1129,9 @@ static int next_candidate(const Player *p)
         if (p->tries < 3 || torrent_engine_url_is(p->cands[i].url)) return i;
         break;
     }
+    /* then any above it not tried yet (a source picked from the panel can sit last) */
+    for (int i = 0; i < p->cur && i < 64 && p->tries < 3; i++)
+        if (!(p->tried >> i & 1) && !(i < 16 && p->dead[i])) return i;
     return -1;
 }
 
@@ -1477,6 +1485,7 @@ static void on_p2p_stats(HttpResponse *r, void *user)
         int peers = cJSON_GetObjectItemCaseSensitive(t, "peers") ? cJSON_GetObjectItemCaseSensitive(t, "peers")->valueint : 0;
         double bps = cJSON_GetObjectItemCaseSensitive(t, "downBps") ? cJSON_GetObjectItemCaseSensitive(t, "downBps")->valuedouble : 0;
         int info = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "haveInfo"));
+        p->p2p_peers = peers; p->p2p_info = info;
         if (!info) snprintf(p->p2p_status, sizeof p->p2p_status, "P2P  \xC2\xB7  finding peers (%d)", peers);
         else snprintf(p->p2p_status, sizeof p->p2p_status, "P2P  \xC2\xB7  %d peer%s  \xC2\xB7  %.1f MB/s", peers, peers == 1 ? "" : "s", bps / 1e6);
         static float logged;
@@ -1580,7 +1589,21 @@ static void update(Screen *s, float dt)
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) auto_select_tracks(p);
 
     if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
-    if (vi.state == VIDEO_LOADING && g_app.time - p->load_started > 45.0f && !p->error_handled) { p->error_handled = 1; fail_over(p, "Source is not responding"); }
+    /* never got going: still loading, or loaded but buffering at the start, past its time.
+     * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
+    if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    if (!p->started && !p->error_handled && !p->trailer && (vi.state == VIDEO_LOADING || vi.state == VIDEO_IDLE || vi.buffering)) {
+        int p2p = p->cur < p->n_cands && torrent_engine_url_is(p->cands[p->cur].url);
+        float waited = g_app.time - p->load_started;
+        float limit = env_s("SNTV_START_TIMEOUT", 45);
+        if (p2p) limit = p->p2p_peers == 0 ? env_s("SNTV_P2P_NO_PEERS", 25) : p->p2p_info ? env_s("SNTV_P2P_START", 90) : env_s("SNTV_P2P_START", 90) * 2 / 3;
+        if (waited > limit) {
+            LOGI("player: source %d did not start in %.0fs%s", p->cur + 1, waited, p2p ? (p->p2p_peers == 0 ? " (P2P, no peers)" : " (P2P, too slow)") : "");
+            p->error_handled = 1;
+            p->learned = 1;   /* slow or unseeded, not a format this TV cannot play */
+            fail_over(p, p2p && p->p2p_peers == 0 ? "Nobody is sharing this torrent" : "Source is not responding");
+        }
+    }
 
     if (!p->learned && vi.state == VIDEO_PLAYING && vi.position > 0 && g_app.time - p->load_started > 90 && p->stalls == 0) {
         app_tv_learn(p->cands[p->cur].needs, 1);
