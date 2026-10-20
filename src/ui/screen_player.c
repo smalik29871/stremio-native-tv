@@ -57,6 +57,7 @@ struct Player {
     int tries;
     uint64_t tried;                         /* sources already started here (bit per index, first 64) */
     int started;                            /* this source has shown a picture (the clock moved) */
+    int thumbs_warm;                        /* a first seek preview asked for, so the keyframe index is ready before the first seek */
     int p2p_peers, p2p_info;                /* the P2P engine's last word on this torrent */
     float p2p_recheck_in;     /* playing P2P: when to ask the addons again whether TorBox has it */
     float p2p_stats_in; unsigned p2p_stats_gen;
@@ -1099,7 +1100,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->bm_state = 0;
     p->load_started = g_app.time;
     if (idx < 64) p->tried |= 1ull << idx;
-    p->started = 0; p->p2p_peers = -1; p->p2p_info = 0;
+    p->started = 0; p->p2p_peers = -1; p->p2p_info = 0; p->thumbs_warm = 0;
     p->stalls_here = 0; p->lighter_to = -1;
     p->warm_state = 0; p->warm_idx = -1; p->warm_at = g_app.time; p->drain_n = 0; p->drain_t = 0;
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
@@ -1592,6 +1593,15 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    /* the first seek would wait seconds for the keyframe index: read it now, once playback
+     * has settled, with one preview a minute ahead (not for P2P: the index sits at the end
+     * of the file, which a torrent would then fetch first) */
+    if (!p->thumbs_warm && p->started && vi.state == VIDEO_PLAYING && !vi.buffering && !p->trailer && vi.duration > 120
+        && g_app.time - p->load_started > env_s("SNTV_THUMBS_WARM_AFTER", 15) && p->cur < p->n_cands && !torrent_engine_url_is(p->cands[p->cur].url)) {
+        p->thumbs_warm = 1;
+        int tw, th;
+        if (!seek_thumb(p, vi.position + 60, &tw, &th, 0)) LOGI("player: seek previews warming up");
+    }
     if (!p->started && !p->error_handled && !p->trailer && (vi.state == VIDEO_LOADING || vi.state == VIDEO_IDLE || vi.buffering)) {
         int p2p = p->cur < p->n_cands && torrent_engine_url_is(p->cands[p->cur].url);
         float waited = g_app.time - p->load_started;

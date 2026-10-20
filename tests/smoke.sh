@@ -253,6 +253,10 @@ run player_seek_thumb 238 "right,ok,down,down,ok,ok,right,right,right,right,righ
 if grep -q "^SNTV_FFMPEG_PREFIX:PATH=." "$BUILD/CMakeCache.txt" 2>/dev/null; then
   run player_seek_local 238 "right,ok,down,down,ok,ok,right,right,right,right,right,right"
   grep -q "frames: [0-9]* keyframes indexed" "$OUT/player_seek_local.log" && grep -q "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_local.log" || { echo "seek preview not decoded on the TV"; grep frames "$OUT/player_seek_local.log"; exit 1; }
+  # the keyframe index is read while the film plays, before the first seek
+  run player_thumbs_warm 400 "right,ok,down,down,ok,ok,wait,wait,wait,wait" SNTV_THUMBS_WARM_AFTER=1 HOME="$(home_with thumbs_warm '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+  grep -q "player: seek previews warming up" "$OUT/player_thumbs_warm.log" && grep -q "frames: [0-9]* keyframes indexed" "$OUT/player_thumbs_warm.log" \
+    || { echo "seek previews were not warmed up before the first seek"; grep -E "frames|warming" "$OUT/player_thumbs_warm.log"; exit 1; }
   # a long fast seek: one decode at a time, none turned away, and pictures keep coming
   run player_seek_fast 420 "right,ok,down,down,ok,ok,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,wait,wait,wait"
   [ "$(grep -c "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_fast.log")" -ge 2 ] && ! grep -q "frame?t=.* -> HTTP 503" "$OUT/player_seek_fast.log" \
