@@ -306,7 +306,7 @@ static const char *row_desc(int id)
     case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
     case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
     case IT_AMBIENT: return "When the remote has been quiet this long.";
-    case IT_AMBIENT_STYLE: return "Artwork, a wall of posters, a big clock, the logo drifting, or a fireplace.";
+    case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee or a starfield.";
     case IT_FIRE_VIDEO: return "A YouTube or video link of a real fire, played full screen and looped with the clock.";
     case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
     case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";

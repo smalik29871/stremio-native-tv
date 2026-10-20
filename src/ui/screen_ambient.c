@@ -9,6 +9,8 @@
 #include "../store.h"
 #include "../youtube.h"
 #include "../torbox.h"
+#include "../newep.h"
+#include "ambient_scenes.h"
 #include "clockface.h"
 #include "font.h"
 #include "gfx.h"
@@ -165,6 +167,8 @@ static void collect(Ambient *a)
         snprintf(it->id, sizeof it->id, "%s", li->id);
         snprintf(it->name, sizeof it->name, "%s", li->name);
         snprintf(it->background, sizeof it->background, "%s", bg);
+        if (li->poster && *li->poster) snprintf(it->poster, sizeof it->poster, "%s", li->poster);
+        else if (!strncmp(li->id, "tt", 2)) snprintf(it->poster, sizeof it->poster, "https://images.metahub.space/poster/medium/%s/img", li->id);
     }
     for (int i = 0; i < np; i++) {
         int dup = 0;
@@ -180,6 +184,12 @@ static void collect(Ambient *a)
             AmbientItem tmp = a->items[j]; a->items[j] = a->items[k]; a->items[k] = tmp;
         }
     }
+}
+
+/* the picture a style shows of a title: its poster in the cinema, else the backdrop */
+static const char *item_url(const AmbientItem *it)
+{
+    return g_app.ambient_style == AMBIENT_MARQUEE && it->poster[0] ? it->poster : it->background;
 }
 
 static void advance(Ambient *a)
@@ -227,15 +237,16 @@ static void update(Screen *s, float dt)
         }
         return;
     }
-    if (g_app.ambient_style == AMBIENT_CLOCK || !a->n) return;
+    if (g_app.ambient_style == AMBIENT_CLOCK || g_app.ambient_style == AMBIENT_AURORA || g_app.ambient_style == AMBIENT_WARP || !a->n) return;
     a->t += dt;
     if (a->fade > 0) { a->fade -= dt / FADE_S; if (a->fade < 0) a->fade = 0; }
     int w, h;
-    unsigned tex = image_get(a->items[a->cur].background, &w, &h);
+    const char *url = item_url(&a->items[a->cur]);
+    unsigned tex = image_get(url, &w, &h);
     if (tex && !a->cur_ready) { a->cur_ready = 1; a->shown_at = g_app.time; a->t = 0; }
-    if (!tex && (image_failed(a->items[a->cur].background) || g_app.time - a->shown_at > WAIT_S)) { advance(a); return; }
-    if (a->n > 1) image_prefetch(a->items[(a->cur + 1) % a->n].background);
-    if (a->cur_ready && a->t > SLOT_S) advance(a);
+    if (!tex && (image_failed(url) || g_app.time - a->shown_at > WAIT_S)) { advance(a); return; }
+    if (a->n > 1) image_prefetch(item_url(&a->items[(a->cur + 1) % a->n]));
+    if (a->cur_ready && a->t > (g_app.ambient_style == AMBIENT_RAIN ? SLOT_S * 3 : SLOT_S)) advance(a);   /* the rain lingers on one view */
 }
 
 /* Cover-fit UVs, zoomed by (1 + ZOOM * k) around a point that slides across the image. */
@@ -286,6 +297,41 @@ static void draw_wall(Ambient *a)
     gfx_gradient_v(0, 0, SNTV_UI_W, 300, RGBA(0, 0, 0, 0xD0), RGBA(0, 0, 0, 0));
 }
 
+/* What the cinema says about a title: new episodes, where you are, or why it's here */
+static void marquee_line(const Ambient *a, const AmbientItem *it, char *out, size_t n)
+{
+    const LibraryItem *li = a->cur < g_app.n_library ? app_library_find(it->id) : NULL;
+    const NewEp *ne = newep_get(it->id);
+    int se, ep;
+    if (ne) snprintf(out, n, ne->count == 1 ? "A new episode is out" : "%d new episodes are out", ne->count);
+    else if (li && li->time_offset > 0 && li->video_id && sscanf(strchr(li->video_id, ':') ? strchr(li->video_id, ':') : "", ":%d:%d", &se, &ep) == 2)
+        snprintf(out, n, "Pick up at season %d, episode %d", se, ep);
+    else if (li && li->time_offset > 0) snprintf(out, n, "Pick up where you left off");
+    else snprintf(out, n, li ? "From your library" : "Popular right now");
+}
+
+static void draw_marquee(Ambient *a, float sx, float sy)
+{
+    float px, py, pw, ph;
+    ambient_marquee(0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time, &px, &py, &pw, &ph);
+    if (!a->n) return;
+    const AmbientItem *cur = &a->items[a->cur];
+    int iw, ih;
+    float in = a->cur_ready ? 1 - a->fade : 0;
+    if (a->fade > 0 && a->prev != a->cur) {
+        unsigned pt = image_get(item_url(&a->items[a->prev]), &iw, &ih);
+        if (pt) gfx_rtex_uv(pt, px, py, pw, ph, 6, 0, 0, 1, 1, RGBA(255, 255, 255, 255), 0);
+    }
+    unsigned tex = image_get(item_url(cur), &iw, &ih);
+    if (tex && in > 0) gfx_rtex_uv(tex, px, py, pw, ph, 6, 0, 0, 1, 1, RGBA(255, 255, 255, (int)(255 * in)), 0);
+    float tx = px + pw + 150 + sx, ty = py + 120 + sy, tw = SNTV_UI_W - tx - THEME_MARGIN;
+    font_draw("N O W   S H O W I N G", tx, ty, FONT_S | FONT_B, RGBA(0xE8, 0xC2, 0x6A, 0xFF));
+    font_draw_fit(cur->name, tx, ty + 50, FONT_XL | FONT_B, RGBA(0xFF, 0xF6, 0xE8, (int)(255 * (0.3f + 0.7f * in))), tw);
+    char line[96];
+    marquee_line(a, cur, line, sizeof line);
+    font_draw_fit(line, tx, ty + 50 + font_height(FONT_XL | FONT_B) + 14, FONT_M, RGBA(0xE0, 0xC8, 0xB0, 0xD0), tw);
+}
+
 static void draw(Screen *s)
 {
     Ambient *a = s->st;
@@ -324,6 +370,14 @@ static void draw(Screen *s)
         return;
     }
     if (g_app.ambient_style == AMBIENT_WALL) draw_wall(a);
+    if (g_app.ambient_style == AMBIENT_AURORA) ambient_aurora(0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time);
+    if (g_app.ambient_style == AMBIENT_WARP) ambient_warp(0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time);
+    if (g_app.ambient_style == AMBIENT_MARQUEE) draw_marquee(a, sx, sy);
+    if (g_app.ambient_style == AMBIENT_RAIN) {
+        int iw = 0, ih = 0;
+        unsigned tex = a->n ? image_get(item_url(&a->items[a->cur]), &iw, &ih) : 0;
+        ambient_rain(tex, iw, ih, 0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time, a->cur_ready ? 1 - a->fade : 0.3f);
+    }
 
     if (a->n && g_app.ambient_style == AMBIENT_ARTWORK) {
         const AmbientItem *cur = &a->items[a->cur];

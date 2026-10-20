@@ -2863,7 +2863,7 @@ static void draw_veil(Player *p, const VideoInfo *vi)
 }
 
 /* What is on: title, episode, year and runtime, synopsis, cast. Shown once playback has
- * been paused for a moment, in the top-left where the title normally sits. */
+ * been paused for a moment, at the left, resting just above the paused line. */
 static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
 {
     if (g_theme.id == THEME_APERTURE) {
@@ -2891,26 +2891,36 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     }
     (void)vi;
     int a = (int)(255 * k);
-    float x = THEME_MARGIN, y = 150 - (1 - k) * 16, maxw = 1000;
-    gfx_gradient_h(0, 0, 1300, SNTV_UI_H, RGBA(0, 0, 0, (int)(0xB8 * k)), RGBA(0, 0, 0, 0));
-    font_draw("YOU'RE WATCHING", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
-    y += 44;
+    float x = THEME_MARGIN, maxw = 1000;
     char buf[512];
     const char *logo = app_art_logo(&p->meta, buf, sizeof buf);
     int lw = 0, lh = 0;
     unsigned ltex = logo ? image_get(logo, &lw, &lh) : 0;
-    if (ltex && lh > 0) {
-        float w = 520, hh = w * lh / lw;
-        if (hh > 150) { hh = 150; w = hh * lw / lh; }
+    float logo_w = 520, logo_h = ltex && lh > 0 ? logo_w * lh / lw : 0;
+    if (logo_h > 150) { logo_h = 150; logo_w = logo_h * lw / lh; }
+    int title_fs = font_measure(p->meta.name, FONT_XL | FONT_B) > maxw ? (FONT_L | FONT_B) : (FONT_XL | FONT_B);
+    const char *ep = strstr(p->title, "  -  ");
+    const TmdbInfo *tm = tmdb_get(p->meta.id, p->meta.type);
+    int n_cast = tm && tm->n_cast ? tm->n_cast : p->meta.cast.n;
+    int has_meta = (p->meta.imdb_rating && *p->meta.imdb_rating) || (tm && tm->cert[0]) || p->meta.release_info || p->meta.runtime;
+    /* measured first, so the block ends just above the paused line whatever it holds */
+    float need = 44 + (logo_h > 0 ? logo_h + 22 : font_draw_wrapped(p->meta.name, x, 0, title_fs, 0, maxw, 2) * font_height(title_fs) + 14)
+               + (ep ? font_height(FONT_M | FONT_B) + 12 : 0) + (has_meta ? 50 : 0)
+               + (p->meta.description ? font_draw_wrapped(p->meta.description, x, 0, FONT_S, 0, maxw, 4) * font_height(FONT_S) + 26 : 0)
+               + (n_cast ? 36 + 64 : 0);
+    float y = SNTV_UI_H - 230 - need;
+    if (y < 110) y = 110;
+    y += (1 - k) * 16;
+    gfx_gradient_h(0, 0, 1300, SNTV_UI_H, RGBA(0, 0, 0, (int)(0xB8 * k)), RGBA(0, 0, 0, 0));
+    gfx_gradient_v(0, y - 120, SNTV_UI_W, SNTV_UI_H - y + 120, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x60 * k)));
+    font_draw("YOU'RE WATCHING", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+    y += 44;
+    if (logo_h > 0) {
+        float w = logo_w, hh = logo_h;
         gfx_tex(ltex, x, y, w, hh, RGBA(255, 255, 255, a));
         y += hh + 22;
-    } else {
-        int fs = font_measure(p->meta.name, FONT_XL | FONT_B) > maxw ? (FONT_L | FONT_B) : (FONT_XL | FONT_B);
-        y += font_draw_wrapped(p->meta.name, x, y, fs, COLOR_ALPHA(THEME_TEXT, a), maxw, 2) * font_height(fs) + 14;
-    }
-    const char *ep = strstr(p->title, "  -  ");
+    } else y += font_draw_wrapped(p->meta.name, x, y, title_fs, COLOR_ALPHA(THEME_TEXT, a), maxw, 2) * font_height(title_fs) + 14;
     if (ep) { font_draw_fit(ep + 5, x, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), maxw); y += font_height(FONT_M | FONT_B) + 12; }
-    const TmdbInfo *tm = tmdb_get(p->meta.id, p->meta.type);
     float mx = x;
     if (p->meta.imdb_rating && *p->meta.imdb_rating) mx += ui_imdb(p->meta.imdb_rating, mx, y) + 6;
     if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, (int)(0x70 * k)), COLOR_ALPHA(THEME_TEXT, a)) + 8;
@@ -2924,8 +2934,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     }
     if (np || mx > x) y += 50;
     if (p->meta.description) y += font_draw_wrapped(p->meta.description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
-    int n_cast = tm && tm->n_cast ? tm->n_cast : p->meta.cast.n;
-    if (n_cast && y < SNTV_UI_H - 330) {
+    if (n_cast && y < SNTV_UI_H - 300) {
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
         y += 36;
         float cx = x;
@@ -3245,6 +3254,13 @@ static void cand_addon(const PlayCandidate *c, char *out, size_t n)
     snprintf(out, n, "%.*s", sep ? (int)(sep - lbl) : 0, lbl);
 }
 
+/* Where an addon sits in the user's list (the end when it isn't there) */
+static int addon_rank(const char *name)
+{
+    for (int i = 0; i < g_app.n_addons; i++) if (g_app.addons[i].manifest.name && !strcmp(g_app.addons[i].manifest.name, name)) return i;
+    return g_app.n_addons;
+}
+
 /* The addons with sources here, in the user's addon order (the Sources panel's chips) */
 static int source_addons(const Player *p, char names[SRC_ADDONS][80])
 {
@@ -3257,6 +3273,10 @@ static int source_addons(const Player *p, char names[SRC_ADDONS][80])
         for (int j = 0; j < k; j++) seen |= !strcmp(names[j], ad);
         if (!seen && k < SRC_ADDONS) snprintf(names[k++], 80, "%s", ad);
     }
+    for (int i = 1; i < k; i++)
+        for (int j = i; j > 0 && addon_rank(names[j]) < addon_rank(names[j - 1]); j--) {
+            char t[80]; memcpy(t, names[j], 80); memcpy(names[j], names[j - 1], 80); memcpy(names[j - 1], t, 80);
+        }
     return k;
 }
 

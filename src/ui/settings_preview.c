@@ -6,6 +6,7 @@
 #include "../app.h"
 #include "../lang.h"
 #include "../quality.h"
+#include "ambient_scenes.h"
 #include "clockface.h"
 #include "font.h"
 #include "theme.h"
@@ -357,6 +358,15 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         } else if (g_app.ambient_style == AMBIENT_ARTWORK) {
             art(sx, sy, sw, sh, R_KEY, 0, 0);
             gfx_rrect_grad_h(sx, sy, sw * 0.7f, sh, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0xB0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0));
+        } else if (g_app.ambient_style == AMBIENT_AURORA) { ambient_aurora(sx, sy, sw, sh, g_app.time); app_redraw(); }
+        else if (g_app.ambient_style == AMBIENT_WARP) { ambient_warp(sx, sy, sw, sh, g_app.time); app_redraw(); }
+        else if (g_app.ambient_style == AMBIENT_RAIN) { art(sx, sy, sw, sh, R_KEY, 4, 0); ambient_rain(0, 0, 0, sx, sy, sw, sh, g_app.time, 1); app_redraw(); }
+        else if (g_app.ambient_style == AMBIENT_MARQUEE) {
+            float px, py, pw, ph;
+            ambient_marquee(sx, sy, sw, sh, g_app.time, &px, &py, &pw, &ph);
+            art(px, py, pw, ph, 3, 2, 0);
+            bars(px + pw + sw * 0.08f, py + ph * 0.3f, sw * 0.32f, 3, COLOR_ALPHA(RGBA(0xFF, 0xE8, 0xC0, 0xFF), 0xA0));
+            app_redraw();
         }
         gfx_clip_pop();
         if (g_app.ambient_style == AMBIENT_CLOCK) {

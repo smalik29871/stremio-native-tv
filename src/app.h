@@ -50,7 +50,8 @@ typedef struct ChainHint {
 enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
 enum { ISLAND_TIME, ISLAND_DAY, ISLAND_SECONDS, ISLAND_DIAL, ISLAND_STYLE_COUNT };   /* the clock island's styles */
 extern const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT];
-enum { AMBIENT_ARTWORK, AMBIENT_WALL, AMBIENT_CLOCK, AMBIENT_LOGO, AMBIENT_FIRE, AMBIENT_STYLE_COUNT };
+enum { AMBIENT_ARTWORK, AMBIENT_WALL, AMBIENT_CLOCK, AMBIENT_LOGO, AMBIENT_FIRE, AMBIENT_AURORA, AMBIENT_RAIN, AMBIENT_MARQUEE,
+       AMBIENT_WARP, AMBIENT_STYLE_COUNT };
 extern const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT];
 extern const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT];
 
@@ -341,7 +342,7 @@ int  streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *
 float streams_draw_badges(const char *list, float x, float y, float max_w, int foc);
 
 /* Titles with artwork worth showing in the screensaver (library + catalog rows). */
-typedef struct AmbientItem { char id[64], name[128], background[512]; } AmbientItem;
+typedef struct AmbientItem { char id[64], name[128], background[512], poster[512]; } AmbientItem;
 void app_ambient_offer(const MetaPreview *m);
 int  app_ambient_pool(const AmbientItem **out);
 

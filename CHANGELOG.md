@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Four new screensavers** (Settings > System > Screensaver style), drawn live and
+  light enough for old TVs, always moving so OLED panels are safe:
+  - **Aurora**: northern lights rippling over a starry sky and a line of pines.
+  - **Rainy window**: your titles' artwork blurred behind wet glass; drops gather, dry,
+    and run down in fits, each showing the view upside down as real drops do.
+  - **Now showing**: a cinema's velvet curtain and a poster frame lit by chasing bulbs;
+    your titles go up one after another, with what's new ("2 new episodes are out") or
+    where you left off.
+  - **Warp**: flying through a starfield past drifting nebulae.
+- **The paused panel sits lower**: the title, synopsis and cast rest just above the
+  paused line, not at the top with an empty band beneath.
+- The Sources panel's addon tabs follow your addon order, not whichever answered first.
 - **The remote's Play key resumes playback** on LG TVs whose remote reports Play only by
   its key position (Pause worked, Play did nothing). Keys the app doesn't recognise are
   now written to the log (Settings > Diagnostics) so any other button can be mapped.

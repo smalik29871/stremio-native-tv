@@ -1975,6 +1975,7 @@ void app_ambient_offer(const MetaPreview *m)
     snprintf(a->id, sizeof a->id, "%s", m->id);
     snprintf(a->name, sizeof a->name, "%s", m->name);
     snprintf(a->background, sizeof a->background, "%s", bg);
+    snprintf(a->poster, sizeof a->poster, "%s", m->poster ? m->poster : "");
 }
 
 int app_ambient_pool(const AmbientItem **out)
@@ -2015,7 +2016,8 @@ void play_candidates_free(PlayCandidate *c, int n)
 
 const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
 const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT] = { "Time", "Day and time", "With seconds", "Small dial" };
-const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo", "Fireplace" };
+const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo", "Fireplace", "Aurora",
+                                                                   "Rainy window", "Now showing", "Warp" };
 
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
 {
