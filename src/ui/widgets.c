@@ -348,7 +348,7 @@ void ui_focus_under(float x, float y, float w, float h, float r, float a)
     if (a <= 0.01f) return;
     switch (g_theme.focus_style) {
     case FOCUS_APERTURE:
-        gfx_rect(x, y + h + 7, w < 48 ? w : 48, 3, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a)));
+        gfx_rect(x, y + h + 5, w < 96 ? w : 96, 4, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a)));
         break;
     case FOCUS_FRAME:
         gfx_rrect(x + 10 * a, y + 10 * a, w, h, r, COLOR_ALPHA(THEME_ACCENT, (int)(0x66 * a)));
@@ -377,7 +377,7 @@ static void focus_over(float x, float y, float w, float h, float r, float a)
     if (a <= 0.01f) return;
     switch (g_theme.focus_style) {
     case FOCUS_APERTURE:
-        gfx_rrect_ring(x, y, w, h, r, 1, COLOR_ALPHA(THEME_TEXT, (int)(0xA0 * a)));
+        gfx_rrect_ring(x - 2, y - 2, w + 4, h + 4, r + 1, 2.5f, COLOR_ALPHA(THEME_TEXT, (int)(0xF0 * a)));
         break;
     case FOCUS_FRAME: gfx_rrect_ring(x, y, w, h, r, 5, COLOR_ALPHA(THEME_ACCENT, (int)(255 * a))); break;
     case FOCUS_LIGHTBAR: gfx_rrect_ring(x, y, w, h, r, 2, COLOR_ALPHA(THEME_TEXT, (int)(0xC0 * a))); break;
@@ -1013,6 +1013,97 @@ void ui_aperture_art(const char *url, float x, float y, float w, float h, float 
         cover_uv(iw, ih, w, h, &u0, &v0, &u1, &v1);
         gfx_rtex_uv(tex, x, y, w, h, 2, u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * alpha)), 0);
     }
+}
+
+static int is_ascii(const char *s) { for (; *s; s++) if ((unsigned char)*s >= 0x80) return 0; return 1; }
+
+/* Words of `t` that fit in `maxw` at `fs`, from *p; advances *p. */
+static int take_line(const char **p, int fs, float maxw, char *out, size_t n)
+{
+    const char *s = *p;
+    while (*s == ' ') s++;
+    size_t len = 0, best = 0;
+    const char *end = s;
+    while (*end) {
+        const char *w = end;
+        while (*w && *w != ' ') w++;
+        size_t l = (size_t)(w - s);
+        if (l >= n) break;
+        memcpy(out, s, l); out[l] = 0;
+        if (best && font_measure(out, fs) > maxw) break;
+        best = l; end = w;
+        while (*end == ' ') end++;
+        len = l;
+    }
+    if (!best) return 0;
+    memcpy(out, s, len); out[len] = 0;
+    *p = end;
+    return 1;
+}
+
+float ui_serif_title(const char *text, float x, float bottom, float maxw, int size, int lines, Color c)
+{
+    if (!text || !*text) return bottom;
+    char up[512];
+    ui_upper(text, up, sizeof up);
+    static const int TRY[] = { FONT_HERO, FONT_HUGE, FONT_TITLE, FONT_XL, FONT_L };
+    char row[4][256]; int n = 0, fs = FONT_L | FONT_ALT;
+    for (int t = 0; t < 5; t++) {
+        if (TRY[t] > size || (TRY[t] >= FONT_HERO && !is_ascii(up))) continue;   /* the hero size has ASCII only */
+        fs = TRY[t] | FONT_ALT;
+        const char *p = up;
+        n = 0;
+        while (n < 4 && take_line(&p, fs, maxw, row[n], sizeof row[n])) n++;
+        if (!*p && n <= lines) break;
+    }
+    if (n > lines) n = lines;
+    float lh = (fs & 0xFFF) * 0.9f, top = bottom - n * lh, dy = font_ascent(fs) - (fs & 0xFFF) * 0.74f;
+    for (int i = 0; i < n; i++) {
+        if (i == n - 1 && n == lines) font_draw_fit(row[i], x, top + i * lh - dy, fs, c, maxw);
+        else font_draw(row[i], x, top + i * lh - dy, fs, c);
+    }
+    return top;
+}
+
+float ui_spaced_caps(const char *text, float x, float y, int size, float track, Color c, float max_w)
+{
+    if (!text) return 0;
+    char up[256];
+    ui_upper(text, up, sizeof up);
+    float w = font_measure_tracked(up, size, track);
+    if (max_w > 0 && w > max_w) { font_draw_fit(up, x, y, size, c, max_w); return max_w; }
+    font_draw_tracked(up, x, y, size, c, track);
+    return w;
+}
+
+float ui_slash_line(const char *const *parts, int n, float x, float y, int size, Color c)
+{
+    float x0 = x;
+    for (int i = 0, k = 0; i < n; i++) {
+        if (!parts[i] || !*parts[i]) continue;
+        if (k++) { font_draw("/", x + 18, y, size, THEME_TEXT_MUTED); x += 18 + font_measure("/", size) + 18; }
+        font_draw(parts[i], x, y, size, c);
+        x += font_measure(parts[i], size);
+    }
+    return x - x0;
+}
+
+float ui_aperture_button(const char *label, int icon, float x, float y, int primary, int focused)
+{
+    int fs = FONT_S | FONT_B;
+    float h = 64, iw = icon >= 0 ? 34 : 0, w = (primary ? 44 : 0) + iw + font_measure(label, fs) + (primary ? 52 : 0);
+    if (primary) {
+        gfx_rrect(x, y, w, h, 4, focused ? THEME_TEXT : COLOR_ALPHA(THEME_TEXT, 0xE6));
+        if (focused) gfx_rect(x + 10, y + h + 6, w - 20, 3, THEME_ACCENT);
+        if (icon >= 0) ui_icon(icon, x + 44 + 10, y + h / 2, 26, THEME_BG);
+        font_draw(label, x + 44 + iw, y + (h - font_height(fs)) / 2, fs, THEME_BG);
+    } else {
+        Color fg = focused ? THEME_TEXT : THEME_TEXT_DIM;
+        if (icon >= 0) ui_icon(icon, x + 12, y + h / 2, 24, fg);
+        font_draw(label, x + iw, y + (h - font_height(FONT_S)) / 2, FONT_S, fg);
+        if (focused) gfx_rect(x, y + h - 8, w, 3, THEME_ACCENT);
+    }
+    return w;
 }
 
 static int g_card_capture = 1;

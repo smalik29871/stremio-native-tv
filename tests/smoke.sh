@@ -465,8 +465,9 @@ grep -q "streams: using [0-9]* prefetched sources for tt0111161" "$OUT/detail_pr
 PL='{"prefSubs":"eng","subsAlways":1,"setupDone":1}'
 run player_previously 330 "right,ok,down,down,right,ok,ok,wait,wait" SNTV_AWAY_S=200000 HOME="$(home_with prev "$PL")"
 grep -q "player: previously card for tt0903747:1:1" "$OUT/player_previously.log" || { echo "no Previously card after days away"; grep player "$OUT/player_previously.log"; exit 1; }
-run player_away 600 "right,ok,down,down,ok,ok,wait,wait,wait,wait,wait,back,back,back,back,wait,blue,wait,wait" SNTV_AWAY_S=700000 SNTV_FAKE_START=200 HOME="$(home_with away "$PL")"
-grep -q "player: away 8 days, resuming 30 s earlier" "$OUT/player_away.log" && grep -q "player: candidate 1/1 Resume @17[01]s" "$OUT/player_away.log" || { echo "a week away did not resume earlier"; grep player "$OUT/player_away.log"; exit 1; }
+AW_HOME="$(home_with away "$PL")"; cp "$ROOT/tests/fixtures/library.json" "$AW_HOME/.local/share/stremio/nativetv/library.json"
+run player_away 700 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" HOME="$AW_HOME"
+grep -q "player: away [0-9]* days, resuming 30 s earlier" "$OUT/player_away.log" && grep -q "player: candidate 1/1 .* @1470s" "$OUT/player_away.log" || { echo "a week away did not resume earlier"; grep player "$OUT/player_away.log"; exit 1; }
 # Blue: the last 10 s again, with subtitles on for them when they were off
 run player_replay 600 "right,ok,down,down,right,ok,ok,wait,wait,wait,wait,wait,blue" HOME="$(home_with replay '{"prefSubs":"","setupDone":1}')"
 grep -q "player: replay from [0-9]* s with subtitles" "$OUT/player_replay.log" && grep -q "player: replay over, subtitles off again" "$OUT/player_replay.log" \

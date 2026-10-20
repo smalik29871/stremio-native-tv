@@ -30,8 +30,8 @@
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
 enum { BTN_PLAY, BTN_RESTART, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
-#define EP_W 384.0f
-#define EP_H 216.0f
+#define EP_W (g_theme.id == THEME_APERTURE ? 456.0f : 384.0f)
+#define EP_H (g_theme.id == THEME_APERTURE ? 256.0f : 216.0f)
 #define EP_GAP 28.0f
 #define RAIL_Y 700.0f
 /* About, below the fold */
@@ -620,7 +620,7 @@ static void draw_episode_info(const Detail *d, const LibraryItem *li, float x, f
     else if (v->season == 0) snprintf(kicker, sizeof kicker, "SPECIAL %d OF %d", d->ep_focus + 1, d->n_eps);
     else snprintf(kicker, sizeof kicker, "EPISODE %d OF %d", d->ep_focus + 1, d->n_eps);
     font_draw(kicker, x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_ACCENT, a));
-    font_draw_fit(v->title && *v->title ? v->title : "Untitled episode", x, y + 30, FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, a), w);
+    font_draw_fit(v->title && *v->title ? v->title : "Untitled episode", x, y + 30, g_theme.id == THEME_APERTURE ? FONT_L | FONT_ALT : FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, a), w);
     nice_date(v->released, date, sizeof date);
     size_t o = (size_t)snprintf(meta, sizeof meta, "%s", date);
     if (d->preview.runtime && *d->preview.runtime) o += (size_t)snprintf(meta + o, sizeof meta - o, "%s%s", o ? "  \xC2\xB7  " : "", d->preview.runtime);
@@ -830,6 +830,35 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
     }
 }
 
+/* Aperture, films: the first of the cast as portraits under the actions */
+static void draw_aperture_cast(const Detail *d, const TmdbInfo *tm, float x, float y)
+{
+    int n = tm && tm->n_cast ? tm->n_cast : d->preview.cast.n;
+    if (n <= 0 || y > SNTV_UI_H - 200) return;
+    if (n > 5) n = 5;
+    font_draw("Cast", x, y, FONT_XS, THEME_TEXT_DIM);
+    const float w = 168, h = 200, gap = 18;
+    for (int i = 0; i < n; i++) {
+        const char *name, *role, *photo;
+        cast_at(d, tm, i, &name, &role, &photo);
+        float px = x + i * (w + gap), py = y + 34;
+        int iw = 0, ih = 0;
+        unsigned tex = photo ? image_get(photo, &iw, &ih) : 0;
+        gfx_rect(px, py, w, h, THEME_BG2);
+        if (tex && iw > 0 && ih > 0) {
+            float ia = (float)iw / ih, u0 = 0, v0 = 0, u1 = 1, v1 = 1, ta = w / h;
+            if (ia > ta) { u0 = (1 - ta / ia) / 2; u1 = 1 - u0; } else { v0 = (1 - ia / ta) / 3; v1 = v0 + ia / ta; }   /* faces sit high */
+            gfx_rtex_uv(tex, px, py, w, h, 2, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
+        } else {
+            char ini[3] = { name[0], 0, 0 };
+            const char *sp = strrchr(name, ' ');
+            if (sp && sp[1]) ini[1] = sp[1];
+            font_draw_center(ini, px + w / 2, py + h / 2 - font_height(FONT_L | FONT_ALT) / 2, FONT_L | FONT_ALT, THEME_TEXT_MUTED);
+        }
+        font_draw_fit(name, px, py + h + 12, FONT_XS, THEME_TEXT_DIM, w);
+    }
+}
+
 static void draw_series(Detail *d, const LibraryItem *li, float x)
 {
     /* season tabs */
@@ -853,6 +882,14 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
         int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel;
         float w = font_measure(lbl, FONT_S | FONT_B) + 44;
         if (sx + w > SNTV_UI_W - THEME_MARGIN) { ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 10, sy + 26, 22, THEME_TEXT_MUTED); break; }
+        if (g_theme.id == THEME_APERTURE) {   /* words, the chosen one underlined in coral */
+            float tw = font_measure(lbl, FONT_M);
+            font_draw(lbl, sx, sy + (52 - font_height(FONT_M)) / 2, FONT_M, sel ? THEME_TEXT : THEME_TEXT_MUTED);
+            if (sel) gfx_rect(sx, sy + 50, tw, foc ? 4 : 3, foc ? THEME_ACCENT : COLOR_ALPHA(THEME_ACCENT, 0xB0));
+            if (foc) gfx_rect(sx - 14, sy + 6, 3, 40, THEME_TEXT);
+            sx += tw + 56;
+            continue;
+        }
         if (foc) gfx_rrect(sx, sy, w, 52, theme_pill_r(52), THEME_FOCUS);
         else if (sel) gfx_rrect(sx, sy, w, 52, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x2C));
         font_draw(lbl, sx + 22, sy + (52 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : sel ? THEME_TEXT : THEME_TEXT_MUTED);
@@ -884,6 +921,22 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
             if (is_cur && li->duration && li->time_offset) ui_progress(x2 + 16, y2 + h2 - 18, w2 - 32, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
             if (foc) { gfx_circle(x2 + w2 / 2, y2 + h2 / 2, 34, RGBA(0, 0, 0, 0x80)); ui_icon(ICON_PLAY, x2 + w2 / 2 + 3, y2 + h2 / 2, 30, THEME_TEXT); }
             char lbl[256];
+            if (g_theme.id == THEME_APERTURE) {   /* "02  Dead air", its length under it, a line for how far you got */
+                char num[8]; snprintf(num, sizeof num, "%02d", v->episode >= 0 ? v->episode : kk + 1);
+                float ly = RAIL_Y + EP_H + 20;
+                font_draw(num, px, ly, FONT_M, foc ? THEME_TEXT : THEME_TEXT_DIM);
+                font_draw_fit(v->title && *v->title ? v->title : "Episode", px + font_measure(num, FONT_M) + 18, ly, FONT_M, foc ? THEME_TEXT : THEME_TEXT_DIM, EP_W - 60);
+                char sub[40] = "";
+                if (d->preview.runtime && *d->preview.runtime) snprintf(sub, sizeof sub, "%s", d->preview.runtime);
+                else if (v->released) snprintf(sub, sizeof sub, "%.10s", v->released);
+                font_draw(sub, px, ly + 44, FONT_XS, THEME_TEXT_MUTED);
+                if (is_cur && li->duration && li->time_offset) {
+                    float bx = px + 120, bw = EP_W - 140;
+                    gfx_rect(bx, ly + 54, bw, 3, COLOR_ALPHA(THEME_TEXT, 0x30));
+                    gfx_rect(bx, ly + 54, bw * (float)li->time_offset / (float)li->duration, 3, THEME_ACCENT);
+                }
+                continue;
+            }
             if (v->episode >= 0) snprintf(lbl, sizeof lbl, "E%d  %s", v->episode, v->title ? v->title : "");
             else snprintf(lbl, sizeof lbl, "%s", v->title ? v->title : "Episode");
             float ly = RAIL_Y + EP_H + 16 + (foc ? 12 : 0);
@@ -905,9 +958,11 @@ static void draw(Screen *s)
     int series = d->meta.n_videos > 0;
     float k = g_app.fx_light ? 1.0f : d->intro;
     float tv = bgtrailer_shown(d->preview.id);   /* the trailer playing behind the artwork */
-    if (g_theme.id == THEME_APERTURE) {
-        ui_aperture_art(bg, 1000, 100, SNTV_UI_W - 1000 - THEME_MARGIN, series ? 450 : 680, 1);
-        font_draw_tracked("APERTURE  /  TITLE", THEME_MARGIN, 50, FONT_XS, THEME_TEXT_DIM, 1.5f);
+    if (g_theme.id == THEME_APERTURE) {   /* the artwork fills the right and fades into the page */
+        float ah = series ? RAIL_Y - 110 : SNTV_UI_H;
+        ui_aperture_art(bg, 700, 0, SNTV_UI_W - 700, ah, k);
+        gfx_gradient_h(699, 0, 520, ah, THEME_BG, COLOR_ALPHA(THEME_BG, 0));
+        gfx_gradient_v(0, ah - 320, SNTV_UI_W, 320, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
     } else if (bgt || tv > 0) {
         ui_backdrop_fades(1250, series ? 420 : 560, SNTV_UI_H);
         ui_backdrop_video(tv, SNTV_UI_H);
@@ -927,7 +982,10 @@ static void draw(Screen *s)
     int a = (int)(255 * k);
     const char *logo = app_art_logo(&d->preview, lbuf, sizeof lbuf);
     unsigned ltex = logo && g_theme.id != THEME_APERTURE ? image_get(logo, &iw, &ih) : 0;
-    if (ltex && ih > 0) {
+    if (g_theme.id == THEME_APERTURE) {
+        ui_serif_title(d->preview.name, x, series ? 270 : 360, col_w, series ? FONT_HUGE : FONT_HERO, 2, COLOR_ALPHA(THEME_TEXT, a));
+        y = series ? 296 : 386;
+    } else if (ltex && ih > 0) {
         float w = 640, h = w * ih / iw;
         if (h > 180) { h = 180; w = h * iw / ih; }
         gfx_tex(ltex, x, y + (180 - h), w, h, RGBA(255, 255, 255, a));
@@ -942,6 +1000,17 @@ static void draw(Screen *s)
     if (series && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) {
         draw_episode_info(d, li, x, y, col_w);
         y += 236;
+    } else if (g_theme.id == THEME_APERTURE) {   /* "1994 / 2h 22m / Drama", then the line it is sold on */
+        char seasons_txt[32] = "";
+        if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++;
+            snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); }
+        const char *parts[5] = { d->preview.release_info, d->preview.runtime, d->preview.genres.n ? d->preview.genres.v[0] : NULL, seasons_txt, d->preview.imdb_rating };
+        char imdb[24] = "";
+        if (d->preview.imdb_rating && *d->preview.imdb_rating) { snprintf(imdb, sizeof imdb, "IMDb %s", d->preview.imdb_rating); parts[4] = imdb; }
+        ui_slash_line(parts, 5, x, y, FONT_S, THEME_TEXT);
+        y += 52;
+        if (d->preview.description && !series)
+            y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, 680, 3) * font_height(FONT_S) + 30;
     } else {
         float mx = x;
         if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
@@ -973,6 +1042,18 @@ static void draw(Screen *s)
     const char *play_label = d->resume_label[0] ? d->resume_label : series ? "Episodes" : "Play";
     float by = y > 500 ? y : 500;
     if (series && by > 520) by = 520;
+    if (g_theme.id == THEME_APERTURE) {   /* an ivory primary, the rest as quiet text beside it */
+        int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
+        float bx = x + ui_aperture_button(!strcmp(play_label, "Play") ? "Watch film" : play_label, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 1, cur == BTN_PLAY) + 48;
+        if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x, by + 76, 200, 3, (float)d->resume_frac, THEME_ACCENT);
+        if (d->resume_label[0]) bx += ui_aperture_button("From the start", ICON_PREV, bx, by, 0, cur == BTN_RESTART) + 44;
+        if (has_trailer(d)) {
+            int getting = g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
+            bx += ui_aperture_button(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", ICON_TV, bx, by, 0, cur == BTN_TRAILER) + 44;
+        }
+        ui_aperture_button(in_lib ? "In your library" : "Add to library", in_lib ? ICON_CHECK : ICON_PLUS, bx, by, 0, cur == BTN_LIBRARY);
+        if (!series) draw_aperture_cast(d, tm, x, by + 130);
+    } else {
     float bw = ui_pill(play_label, 1, d->resume_label[0] || !series ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
                        d->area == AREA_ACTIONS && d->btn == 0);
     if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
@@ -984,8 +1065,9 @@ static void draw(Screen *s)
         bx2 += ui_pill(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", 1, ICON_TV, bx2, by, 72, PILL_SECONDARY, cur == BTN_TRAILER) + 18;
     }
     ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
+    }
     if (series) draw_series(d, li, x);
-    if (d->has_meta && d->scroll < 160) {   /* the way down to About; gone once the page moves */
+    if (d->has_meta && d->scroll < 160 && !(series && g_theme.id == THEME_APERTURE)) {   /* the way down to About; gone once the page moves (Aperture's episodes reach the bottom) */
         Color c = COLOR_ALPHA(THEME_TEXT_MUTED, (int)(((THEME_TEXT_MUTED) & 0xFF) * (1 - d->scroll / 160)));
         float cw = font_measure("About, cast and more", FONT_XS | FONT_B) + 36, cx = (SNTV_UI_W - cw) / 2, cy = SNTV_UI_H - 44;
         ui_icon(ICON_CHEVRON_DOWN, cx + 10, cy + font_height(FONT_XS | FONT_B) / 2, 22, c);

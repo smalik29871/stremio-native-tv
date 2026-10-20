@@ -277,7 +277,7 @@ static const struct { const char *regular, *bold, *alt; int alt_kind; } FONTS[TH
     { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
     { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
     { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
-    { "Inter-Medium.otf", "Inter-Bold.otf", NULL, FONT_ALT_NONE },
+    { "Inter-Medium.otf", "Inter-Bold.otf", "DMSerifDisplay-Regular.ttf", FONT_ALT_SERIF },   /* Aperture */
 };
 
 static int g_fonts_loaded = -1;

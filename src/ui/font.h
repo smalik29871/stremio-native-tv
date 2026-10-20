@@ -5,10 +5,10 @@
 /* Sizes; OR with FONT_B for the bold face, e.g. FONT_L | FONT_B, or with FONT_ALT for the
  * theme's alternate face (mono metadata in Signal, condensed display titles in Marquee);
  * without one FONT_ALT falls back to the regular/bold face. */
-enum { FONT_XS = 20, FONT_S = 24, FONT_M = 30, FONT_L = 40, FONT_XL = 56, FONT_TITLE = 72, FONT_HUGE = 96 };
+enum { FONT_XS = 20, FONT_S = 24, FONT_M = 30, FONT_L = 40, FONT_XL = 56, FONT_TITLE = 72, FONT_HUGE = 96, FONT_HERO = 132 };
 #define FONT_B 0x1000
 #define FONT_ALT 0x2000
-enum { FONT_ALT_NONE, FONT_ALT_MONO, FONT_ALT_DISPLAY };
+enum { FONT_ALT_NONE, FONT_ALT_MONO, FONT_ALT_DISPLAY, FONT_ALT_SERIF };   /* SERIF: Aperture's titles, up to FONT_HERO (ASCII only at that size) */
 
 /* Baked atlases are cached under dir/fontcache so later starts skip the bake. */
 void  font_set_cache_dir(const char *dir);

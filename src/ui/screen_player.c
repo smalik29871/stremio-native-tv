@@ -2062,11 +2062,12 @@ static void draw_menu(Player *p)
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
     static const char *TITLES[] = { "", "Audio", "Subtitles", "Sources", "Episodes" };   /* by MENU_ */
     static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SWAP, ICON_LIST };
-    ui_icon(ICONS[p->menu], x + 56, y + 62, 40, THEME_TEXT);
-    font_draw(TITLES[p->menu], x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
-    if (aperture) {
-        gfx_rect(x, y + 42, 3, 40, THEME_ACCENT);
-        font_draw("Back  Close drawer", x + 40, y + h - 40, FONT_XS, THEME_TEXT_DIM);
+    if (aperture) {   /* a serif heading, no icon */
+        font_draw(TITLES[p->menu], x + 40, y + 34, FONT_XL | FONT_ALT, THEME_TEXT);
+        font_draw("Back  Close", x + 40, y + h - 40, FONT_XS, THEME_TEXT_DIM);
+    } else {
+        ui_icon(ICONS[p->menu], x + 56, y + 62, 40, THEME_TEXT);
+        font_draw(TITLES[p->menu], x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
     }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
@@ -2104,13 +2105,15 @@ static void draw_menu(Player *p)
     #define ROW(label, sub, on) do { \
         int foc_ = p->menu_focus == row; const char *sub_ = (sub); float lx_ = x + 50 + (row_thumb ? 118 : 0); \
         if (ry + 70 > y + 100 && ry < y + h - 16) { \
-        if (foc_) { gfx_rrect(x + 24, ry, w - 48, 70, R_KEY, THEME_FOCUS); if (aperture) gfx_rect(x + 24, ry + 8, 3, 54, THEME_ACCENT); } \
-        else if (on) gfx_rrect(x + 24, ry, w - 48, 70, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); \
+        if (foc_ && aperture) { gfx_rrect_ring(x + 24, ry, w - 48, 70, 3, 2, THEME_TEXT); gfx_rect(x + 26, ry + 66, w - 52, 3, THEME_ACCENT); } \
+        else if (foc_) gfx_rrect(x + 24, ry, w - 48, 70, R_KEY, THEME_FOCUS); \
+        else if ((on) && !aperture) gfx_rrect(x + 24, ry, w - 48, 70, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); \
         if (row_thumb) ui_draw_thumb(row_thumb, x + 40, ry + 6, 104, 58, 0, COLOR_ALPHA(THEME_TEXT, 0x14)); \
-        Color fg_ = foc_ ? THEME_ON_FOCUS : THEME_TEXT; \
+        Color fg_ = foc_ && !aperture ? THEME_ON_FOCUS : THEME_TEXT; \
         font_draw_fit(label, lx_, ry + (sub_[0] ? 10 : 20), FONT_S | FONT_B, fg_, w - 190 - (lx_ - x - 50)); \
-        if (sub_[0]) font_draw_fit(sub_, lx_, ry + 40, FONT_XS, foc_ ? COLOR_ALPHA(THEME_BG, 0xB0) : THEME_TEXT_MUTED, w - 190 - (lx_ - x - 50)); \
-        if (on) { gfx_circle(x + w - 70, ry + 35, 17, foc_ ? THEME_ON_FOCUS : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 35, 20, foc_ ? THEME_FOCUS : THEME_ON_ACCENT); } } \
+        if (sub_[0]) font_draw_fit(sub_, lx_, ry + 40, FONT_XS, foc_ && !aperture ? COLOR_ALPHA(THEME_BG, 0xB0) : THEME_TEXT_MUTED, w - 190 - (lx_ - x - 50)); \
+        if ((on) && aperture) ui_icon(ICON_CHECK, x + w - 70, ry + 35, 26, THEME_TEXT); \
+        else if (on) { gfx_circle(x + w - 70, ry + 35, 17, foc_ ? THEME_ON_FOCUS : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 35, 20, foc_ ? THEME_FOCUS : THEME_ON_ACCENT); } } \
         ry += 78; row++; } while (0)
     if (p->menu == MENU_EPISODES) {
         for (int i = 0; i < n_eps; i++) {
@@ -2398,21 +2401,22 @@ static void draw_bar(Player *p, float x, float y)
     int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
     int n = bar_buttons(p, ids, labels, icons, src, sizeof src);
     int at = bar_pos(p, ids, n);
-    if (g_theme.id == THEME_APERTURE) {
-        const float step = 92;
+    if (g_theme.id == THEME_APERTURE) {   /* quiet icons centred under the timeline, the focused one named under it */
+        const float step = 112;
+        float x0 = (SNTV_UI_W - (n - 1) * step) / 2;
         for (int i = 0; i < n; i++) {
             int foc = p->bar_focus && i == at;
-            float cx = x + i * step + 28;
-            ui_icon(icons[i], cx, y + 24, 26, foc ? THEME_TEXT : THEME_TEXT_DIM);
+            float cx = x0 + i * step;
+            ui_icon(icons[i], cx, y + 24, 30, foc ? THEME_TEXT : THEME_TEXT_DIM);
             if (ids[i] == BTN_NEXT && next_progress(p) >= 0 && next_progress(p) < 1)
-                ui_progress(cx - 22, y + 44, 44, 2, next_progress(p), THEME_TEXT_DIM);
-            if (foc) gfx_rect(cx - 22, y + 52, 44, 3, THEME_ACCENT);
+                ui_progress(cx - 22, y + 48, 44, 2, next_progress(p), THEME_TEXT_DIM);
+            if (foc) {
+                float lw = font_measure(labels[i], FONT_XS);
+                font_draw(labels[i], cx - lw / 2, y + 50, FONT_XS, THEME_TEXT);
+                gfx_rect(cx - lw / 2 - 4, y + 80, lw + 8, 3, THEME_ACCENT);
+            }
         }
-        /* the focused button's name sits with the hint at the right (above the icons it would cover the time) */
-        char hint[160];
-        if (p->bar_focus && at >= 0 && at < n) snprintf(hint, sizeof hint, "%s   /   OK  Select   /   Up  Timeline", labels[at]);
-        else snprintf(hint, sizeof hint, "Down  Controls");
-        font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + 12, FONT_XS, THEME_TEXT_DIM);
+        if (!p->bar_focus) font_draw("Down  Controls", SNTV_UI_W - THEME_MARGIN - font_measure("Down  Controls", FONT_XS), y + 12, FONT_XS, THEME_TEXT_MUTED);
         return;
     }
     const float d = 56, gap = 14;
@@ -2852,21 +2856,27 @@ static void draw_veil(Player *p, const VideoInfo *vi)
  * been paused for a moment, in the top-left where the title normally sits. */
 static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
 {
-    if (g_theme.id == THEME_APERTURE) {
+    if (g_theme.id == THEME_APERTURE) {   /* the title card at the lower left: serif title, Paused, the time, Resume */
         int a = (int)(255 * k);
-        float x = THEME_MARGIN, y = 190;
-        gfx_gradient_h(0, 110, 1250, 560, RGBA(0, 0, 0, (int)(0xC0 * k)), RGBA(0, 0, 0, 0));
-        font_draw_tracked("PAUSED", x, y, FONT_XS, COLOR_ALPHA(THEME_TEXT_DIM, a), 1.5f);
-        ui_hero_title(p->meta.name, x, y + 244, 1000, COLOR_ALPHA(THEME_TEXT, a));
-        const char *ep = strstr(p->title, "  -  ");
-        if (ep) font_draw_fit(ep + 5, x, y + 272, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), 1000);
-        char pos[32], dur[32], line[96];
+        float x = THEME_MARGIN, y = 520;
+        gfx_gradient_h(0, 300, 1300, SNTV_UI_H - 300, RGBA(0, 0, 0, (int)(0xC8 * k)), RGBA(0, 0, 0, 0));
+        float lh = font_height(FONT_HUGE | FONT_ALT);
+        font_draw_fit(p->meta.name ? p->meta.name : p->title, x, y - lh * 0.15f, FONT_HUGE | FONT_ALT, COLOR_ALPHA(THEME_TEXT, a), 1100);
+        float ty = y + lh * 0.82f;
+        const char *ep = p->title ? strstr(p->title, "  -  ") : NULL;
+        font_draw(ep ? ep + 5 : "Paused", x, ty, FONT_S, COLOR_ALPHA(THEME_TEXT, a));
+        if (ep) { font_draw("Paused", x, ty + 36, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a)); ty += 36; }
+        char pos[32];
         ui_format_time(vi->position, pos, sizeof pos);
-        ui_format_time(vi->duration, dur, sizeof dur);
-        snprintf(line, sizeof line, "%s  /  %s", pos, vi->duration > 0 ? dur : "--:--");
-        font_draw(line, x, y + 320, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
-        gfx_rect(x, y + 388, 44, 3, COLOR_ALPHA(THEME_ACCENT, a));
-        font_draw("OK  Resume", x + 62, y + 374, FONT_S, COLOR_ALPHA(THEME_TEXT, a));
+        font_draw(pos, x, ty + 44, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
+        float by = ty + 98, bw = 220, bh = 62;
+        gfx_rrect_ring(x, by, bw, bh, 4, 2.5f, COLOR_ALPHA(THEME_TEXT, a));
+        gfx_rect(x + 8, by + bh + 6, bw - 16, 3, COLOR_ALPHA(THEME_ACCENT, a));
+        ui_icon(ICON_PLAY, x + 44, by + bh / 2, 24, COLOR_ALPHA(THEME_TEXT, a));
+        font_draw("Resume", x + 72, by + (bh - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+        gfx_rrect_ring(x + bw + 24, by, 220, bh, 4, 1.5f, COLOR_ALPHA(THEME_TEXT, a / 3));
+        ui_icon(ICON_INFO, x + bw + 24 + 40, by + bh / 2, 24, COLOR_ALPHA(THEME_TEXT_DIM, a));
+        font_draw("Info  Cast", x + bw + 24 + 68, by + (bh - font_height(FONT_S)) / 2, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
         return;
     }
     (void)vi;
@@ -3006,14 +3016,18 @@ static void draw(Screen *s)
     int bar_only = !overlay && p->seek_commit > 0;
     double shown_pos = p->seek_commit > 0 ? p->seek_target : vi.position;
     float bx = THEME_MARGIN, by = SNTV_UI_H - 150, bw = SNTV_UI_W - 2 * THEME_MARGIN;
+    int ap = g_theme.id == THEME_APERTURE;
+    if (ap) { bx = THEME_MARGIN + 130; bw = SNTV_UI_W - 2 * THEME_MARGIN - 130 - 230; by = SNTV_UI_H - 170; }   /* "32:18 ──●──── 1:15:42 left" on one line */
     if (overlay) {
         gfx_gradient_v(0, SNTV_UI_H - 420, SNTV_UI_W, 420, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
         gfx_gradient_v(0, 0, SNTV_UI_W, 220, RGBA(0, 0, 0, 0xB0), RGBA(0, 0, 0, 0));
         int info = vi.state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time - p->paused_since > 0.4f && !p->menu;
         float info_k = info ? (g_app.time - p->paused_since - 0.4f) / 0.5f : 0;
         if (info_k > 1) info_k = 1;
-        if (!info && g_theme.id == THEME_APERTURE) {
-            font_draw_fit(p->title, THEME_MARGIN, 56, FONT_S, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
+        if (!info && g_theme.id == THEME_APERTURE) {   /* the title in spaced serif capitals, the episode under it */
+            ui_spaced_caps(p->meta.name ? p->meta.name : p->title, THEME_MARGIN, 52, FONT_L | FONT_ALT, 6, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
+            const char *ep = p->title ? strstr(p->title, "  -  ") : NULL;
+            if (ep) font_draw_fit(ep + 5, THEME_MARGIN, 108, FONT_S, THEME_TEXT_DIM, SNTV_UI_W - 2 * THEME_MARGIN - 420);
         } else if (!info) {
             font_draw_fit(p->title, THEME_MARGIN, 56, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * THEME_MARGIN - 420);
             float cx = THEME_MARGIN;
@@ -3061,7 +3075,7 @@ static void draw(Screen *s)
     }
     if (p->rest_t > 0.001f) gfx_set_alpha(1 - p->rest_t);   /* the controls step aside */
     if (overlay || bar_only) {
-        float th = g_theme.id == THEME_APERTURE ? 3 : p->seek_commit > 0 ? 12 : 8, ty = by - th / 2;
+        float th = ap ? 4 : p->seek_commit > 0 ? 12 : 8, ty = by - th / 2;
         gfx_rrect(bx, ty, bw, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
         if (vi.duration > 0) {
             if (vi.buffer_percent > 0) gfx_rrect(bx, ty, bw * vi.buffer_percent / 100.0f, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
@@ -3073,16 +3087,21 @@ static void draw(Screen *s)
             }
             for (int i = 0; i < p->n_marks; i++)   /* the viewer's marked moments */
                 gfx_circle(bx + bw * (float)(p->marks[i] / vi.duration), ty - 12, 5, THEME_ACCENT);
-            if (p->probe)   /* chapter marks */
+            if (p->probe && ap)   /* chapters as dots on the line, the current one in coral */
+                for (int i = 0; i < p->probe->n_chapters; i++) {
+                    double cs = p->probe->chapters[i].start_s;
+                    gfx_circle(bx + bw * (float)(cs / vi.duration), by, 5, chapter_at(p, shown_pos) == i ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0xB0));
+                }
+            else if (p->probe)   /* chapter marks */
                 for (int i = 1; i < p->probe->n_chapters; i++) {
                     float cxp = bx + bw * (float)(p->probe->chapters[i].start_s / vi.duration);
                     gfx_rect(cxp - 1.5f, ty - 6, 3, th + 12, COLOR_ALPHA(THEME_TEXT, 0x70));
                 }
             float fw = bw * (float)(shown_pos / vi.duration);
-            if (fw > th) gfx_rrect_grad_h(bx, ty, fw, th, th / 2, g_theme.id == THEME_APERTURE ? THEME_TEXT : THEME_ACCENT, g_theme.id == THEME_APERTURE ? THEME_TEXT : THEME_ACCENT2);
+            if (fw > th) gfx_rrect_grad_h(bx, ty, fw, th, th / 2, THEME_ACCENT, ap ? THEME_ACCENT : THEME_ACCENT2);
             float kx = bx + fw;
             if (!g_app.fx_light && g_theme.id != THEME_APERTURE) gfx_shadow(kx - 14, by - 14, 28, 28, R_PANEL, 14, COLOR_ALPHA(THEME_ACCENT2, 0xB0));
-            gfx_circle(kx, by, g_theme.id == THEME_APERTURE ? 5 : p->seek_commit > 0 ? 16 : 12, g_theme.id == THEME_APERTURE ? THEME_ACCENT : THEME_TEXT);
+            gfx_circle(kx, by, ap ? 9 : p->seek_commit > 0 ? 16 : 12, THEME_TEXT);
             if (p->seek_commit > 0 && g_theme.id == THEME_APERTURE) {
                 draw_aperture_filmstrip(p, &vi, shown_pos, by);
             } else if (p->seek_commit > 0) {
@@ -3116,16 +3135,24 @@ static void draw(Screen *s)
         ui_format_time(shown_pos, pos, sizeof pos);
         ui_format_time(vi.duration - shown_pos, t2, sizeof t2);
         snprintf(rem, sizeof rem, vi.duration > 0 ? "-%s" : "--:--", t2);
-        font_draw(pos, bx, by + 24, FONT_S | FONT_B, THEME_TEXT);
         float rw = font_measure(rem, FONT_S | FONT_B);
-        font_draw(rem, bx + bw - rw, by + 24, FONT_S | FONT_B, THEME_TEXT_DIM);
+        if (ap) {
+            char left[56]; snprintf(left, sizeof left, "%s left", vi.duration > 0 ? t2 : "--:--");
+            float ty2 = by - font_height(FONT_S) / 2;
+            font_draw(pos, THEME_MARGIN, ty2, FONT_S, THEME_TEXT);
+            font_draw(left, SNTV_UI_W - THEME_MARGIN - font_measure(left, FONT_S), ty2, FONT_S, THEME_TEXT);
+        } else {
+            font_draw(pos, bx, by + 24, FONT_S | FONT_B, THEME_TEXT);
+            font_draw(rem, bx + bw - rw, by + 24, FONT_S | FONT_B, THEME_TEXT_DIM);
+        }
         if (p->rate_idx != RATE_NORMAL && overlay) {
             char sp[16]; snprintf(sp, sizeof sp, "%gx", RATES[p->rate_idx]);
-            ui_chip(sp, bx + bw - rw - 28 - font_measure(sp, FONT_XS | FONT_B) - 24, by + 20, COLOR_ALPHA(THEME_ACCENT2, 0xC0), THEME_TEXT);
+            float cw2 = font_measure(sp, FONT_XS | FONT_B) + 24;
+            ui_chip(sp, ap ? bx + bw - cw2 : bx + bw - rw - 28 - cw2, ap ? by - 60 : by + 20, COLOR_ALPHA(THEME_ACCENT2, 0xC0), THEME_TEXT);
         }
     }
-    if (overlay) {
-        draw_bar(p, bx, by + 66);
+    if (overlay && !(ap && vi.state == VIDEO_PAUSED && !p->bar_focus && p->paused_since > 0 && g_app.time - p->paused_since > 0.4f)) {   /* Aperture's pause card has the bottom alone */
+        draw_bar(p, bx, by + (ap ? 46 : 66));
     }
     gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);

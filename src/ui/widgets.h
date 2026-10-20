@@ -20,6 +20,16 @@ void ui_icon(Icon icon, float cx, float cy, float size, Color c);
 void ui_background(Color tint);
 /* One cropped artwork quad, using the existing bounded image cache. */
 void ui_aperture_art(const char *url, float x, float y, float w, float h, float alpha);
+/* Aperture's editorial pieces. A title in the serif's capitals, tightly leaded, up to
+ * `lines` lines, the last ending at `bottom`; `size` is the largest it may take (smaller
+ * when it would not fit). Returns the top of the first line. */
+float ui_serif_title(const char *text, float x, float bottom, float maxw, int size, int lines, Color c);
+/* Capitals spaced out, in the serif ("AFTER HOURS") or the sans (kickers). Returns the width. */
+float ui_spaced_caps(const char *text, float x, float y, int size, float track, Color c, float max_w);
+/* "2026 / 1h 48m / Sci-fi" */
+float ui_slash_line(const char *const *parts, int n, float x, float y, int size, Color c);
+/* Ivory button with dark type (the primary action), or the text-only one beside it. Returns the width. */
+float ui_aperture_button(const char *label, int icon, float x, float y, int primary, int focused);
 /* Cover-fit backdrop anchored right, with cinematic left + bottom fades. alpha 0..1.
  * ui_backdrop = image + fades; the split versions allow cross-fading two images. */
 void ui_backdrop(unsigned tex, int iw, int ih, float alpha, float left_fade_to, float bottom_fade_from);

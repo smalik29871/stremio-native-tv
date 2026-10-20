@@ -78,9 +78,11 @@ static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : g
 
 /* ---- row geometry ---- */
 
-static float card_w(const Row *r) { return r->kind == ROW_CONTINUE ? LAND_W : POSTER_W; }
-static float card_h(const Row *r) { return r->kind == ROW_CONTINUE ? LAND_H : POSTER_H; }
-static float row_h(const Row *r) { return TITLE_H + card_h(r) + 64; }
+/* Aperture shows every row as landscape stills, titled underneath */
+static int landscape(const Row *r) { return r->kind == ROW_CONTINUE || g_theme.id == THEME_APERTURE; }
+static float card_w(const Row *r) { return landscape(r) ? LAND_W : POSTER_W; }
+static float card_h(const Row *r) { return landscape(r) ? LAND_H : POSTER_H; }
+static float row_h(const Row *r) { return TITLE_H + card_h(r) + (g_theme.id == THEME_APERTURE ? 96 : 64); }
 static int visible_cards(const Row *r) { return (int)((SNTV_UI_W - LX) / (card_w(r) + GAP)); }
 
 static void row_free(Row *r)
@@ -525,17 +527,24 @@ static void draw_showcase_controls(const Home *h);
 
 static void draw_hero(Home *h, const MetaPreview *p)
 {
-    if (g_theme.id == THEME_APERTURE) {
+    if (g_theme.id == THEME_APERTURE) {   /* the artwork fills the right, the title column sits on the left */
         float k = g_app.fx_light ? 1 : h->hero_text_t;
-        float ax = 930 - 20 * k;
-        ui_aperture_art(h->hero_bg, ax, 124, SNTV_UI_W - THEME_MARGIN - ax, 442, g_app.fx_light ? 1 : h->hero_fade);
-        font_draw_tracked("APERTURE  /  HOME", LX, 124, FONT_XS, THEME_TEXT_DIM, 1.2f);
-        ui_hero_title(p->name, LX, 384, 680, THEME_TEXT);
-        const char *parts[3] = { p->release_info, p->runtime, p->genres.n ? p->genres.v[0] : p->type };
-        ui_meta_line(parts, 3, LX, 408, THEME_TEXT_DIM);
-        if (p->description) font_draw_wrapped(p->description, LX, 460, FONT_S, THEME_TEXT_DIM, 660, 2);
-        gfx_rect(LX, 558, 44, 3, THEME_ACCENT);
-        font_draw("OK  Discover this title", LX + 62, 546, FONT_S, THEME_TEXT);
+        float ax = 700 - 20 * k, ah = rows_y() + 60;
+        ui_aperture_art(h->hero_bg, ax, 0, SNTV_UI_W - ax, ah, g_app.fx_light ? 1 : h->hero_fade);
+        gfx_gradient_h(ax - 1, 0, 460, ah, THEME_BG, COLOR_ALPHA(THEME_BG, 0));
+        gfx_gradient_v(0, ah - 300, SNTV_UI_W, 300, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
+        int a = (int)(255 * k);
+        ui_spaced_caps("Your evening, in frame", LX, 56, FONT_XS, 7, COLOR_ALPHA(THEME_TEXT_DIM, a), 0);
+        const Row *fr = h->focus_row >= 0 && h->focus_row < h->n_rows ? h->rows[h->focus_row] : NULL;
+        ui_spaced_caps(fr && fr->kind == ROW_CONTINUE ? "Pick up where you left off" : fr ? fr->title : "Tonight's feature", LX, 132, FONT_XS | FONT_B, 5, COLOR_ALPHA(THEME_ACCENT, a), 760);
+        ui_serif_title(p->name, LX, 404, 780, FONT_HERO, 2, COLOR_ALPHA(THEME_TEXT, a));
+        const char *type = p->type && !strcmp(p->type, "series") ? "Series" : p->type && !strcmp(p->type, "movie") ? "Film" : p->type;
+        const char *parts[3] = { p->release_info, p->runtime, p->genres.n ? p->genres.v[0] : type };
+        ui_slash_line(parts, 3, LX, 424, FONT_S, COLOR_ALPHA(THEME_TEXT, a));
+        if (p->description) font_draw_wrapped(p->description, LX, 476, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), 640, 2);
+        int series = p->type && !strcmp(p->type, "series");
+        float bw = ui_aperture_button(series ? "Watch series" : "Watch film", ICON_PLAY, LX, 562, 1, 0);
+        ui_aperture_button("More details", -1, LX + bw + 46, 562, 0, 0);
         return;
     }
     float k = g_app.fx_light ? 1.0f : h->hero_text_t;
@@ -612,7 +621,13 @@ static void draw_row(Home *h, int ri, float y, float alpha)
     int index = 0;
     for (int i = 0; i < ri; i++) if (row_visible(h->rows[i])) index++;
     const char *source = r->kind == ROW_CATALOG && r->addon < g_app.n_addons ? g_app.addons[r->addon].manifest.name : NULL;
-    ui_row_header(index, r->title, source, r->n, LX, y, SNTV_UI_W - THEME_MARGIN, focused_row ? 1.0f : 0.0f);
+    if (g_theme.id == THEME_APERTURE) {   /* a serif heading, and where you are in the row at the right */
+        font_draw_fit(r->title, LX, y - 8, FONT_L | FONT_ALT, focused_row ? THEME_TEXT : THEME_TEXT_DIM, SNTV_UI_W - LX - THEME_MARGIN - 200);
+        if (focused_row && r->n) {
+            char at[24]; snprintf(at, sizeof at, "%02d  /  %02d", r->focus + 1, r->n);
+            font_draw(at, SNTV_UI_W - THEME_MARGIN - font_measure(at, FONT_S), y + 4, FONT_S, THEME_TEXT_DIM);
+        }
+    } else ui_row_header(index, r->title, source, r->n, LX, y, SNTV_UI_W - THEME_MARGIN, focused_row ? 1.0f : 0.0f);
     float cy = y + TITLE_H, cw = card_w(r), ch = card_h(r);
     if (!r->n) {
         if (r->loading || !r->requested) for (int j = 0; j < 8; j++) ui_skeleton(LX + j * (cw + GAP), cy, cw, ch, R_CARD);
@@ -648,7 +663,16 @@ static void draw_row(Home *h, int ri, float y, float alpha)
             float f = is_focus ? (g_app.fx_light ? 1.0f : h->focus_t) : is_prev ? h->prev_t : 0;
             float dim = focused_row ? 0 : 0.45f;
             const MetaPreview *m = &r->metas[j];
-            if (r->kind == ROW_CONTINUE) {
+            if (g_theme.id == THEME_APERTURE) {   /* a still, its title in spaced serif capitals under it */
+                ui_card(app_art_background(m, buf, sizeof buf), px, ry, cw, ch, f, dim, m->name, 0);
+                LibraryItem *li = r->kind == ROW_CONTINUE ? app_library_find(m->id) : NULL;
+                const NewEp *ne = r->kind == ROW_CONTINUE || r->kind == ROW_LIBRARY ? newep_get(m->id) : NULL;
+                float frac = li && li->duration && !ne ? (float)li->time_offset / (float)li->duration : 0;
+                if (frac > 0) gfx_rect(px, ry + ch + 4, cw, 3, COLOR_ALPHA(THEME_TEXT, 0x30));
+                if (frac > 0) gfx_rect(px, ry + ch + 4, cw * frac, 3, THEME_ACCENT);   /* the focus marker sits under it otherwise */
+                ui_spaced_caps(m->name, px + 4, ry + ch + 24, FONT_S | FONT_ALT, 4, is_focus ? THEME_TEXT : THEME_TEXT_DIM, cw - 8);
+                if (ne) ui_new_episodes_badge(ne->count, px + cw - 12, ry + 12);
+            } else if (r->kind == ROW_CONTINUE) {
                 const char *bg = app_art_background(m, buf, sizeof buf);
                 ui_card(bg, px, ry, cw, ch, f, dim, m->name, 0);
                 float sc = ui_focus_scale(f), w2 = cw * sc, h2 = ch * sc, x2 = px - (w2 - cw) / 2, y2 = ry - (h2 - ch) / 2 - ui_focus_lift(f);
@@ -680,7 +704,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
             if (is_focus && g_app.ok_hold > 0) {   /* holding OK: the hint takes the line under the card */
                 float sc = ui_focus_scale(f);
                 ui_hold_hint(px - (cw * sc - cw) / 2, cy + ch * sc - (ch * sc - ch) / 2 + 14, cw * sc > 240 ? cw * sc : 240);
-            } else if (is_focus && r->kind != ROW_CONTINUE && h->peek.t < 0.05f) {
+            } else if (is_focus && r->kind != ROW_CONTINUE && h->peek.t < 0.05f && g_theme.id != THEME_APERTURE) {   /* Aperture titles every card */
                 float sc = ui_focus_scale(f);
                 font_draw_fit(m->name, px - (cw * sc - cw) / 2, cy + ch * sc - (ch * sc - ch) / 2 + 14, FONT_XS | FONT_B,
                               COLOR_ALPHA(THEME_TEXT, (int)(255 * f)), cw * sc);

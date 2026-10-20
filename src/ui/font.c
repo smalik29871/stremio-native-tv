@@ -12,6 +12,7 @@
 static const int SIZES[] = { FONT_XS, FONT_S, FONT_M, FONT_L, FONT_XL, FONT_TITLE };
 static const int SIZES_MONO[] = { FONT_XS, FONT_S, FONT_M };
 static const int SIZES_DISPLAY[] = { FONT_L, FONT_XL, FONT_TITLE };
+static const int SIZES_SERIF[] = { FONT_S, FONT_L, FONT_TITLE, FONT_HERO };
 #define NSIZES ((int)(sizeof SIZES / sizeof SIZES[0]))
 
 /* Latin-1 + Latin Extended-A/B cover most European titles; general punctuation
@@ -191,7 +192,7 @@ static int bake(FontFile *ff, const unsigned char *ttf, const int *sizes, int ns
          * doubled the bake time */
         stbtt_PackSetOversampling(&pc, fc->size <= FONT_M ? 2 : 1, 1);
         /* Display sizes and the secondary faces keep the atlas small: Latin-1 + Extended-A only. */
-        fc->nr = (huge || reduced) ? 3 : NRANGES;
+        fc->nr = fc->size >= FONT_HERO ? 1 : (huge || reduced) ? 3 : NRANGES;   /* the hero size: ASCII, or the atlas would not fit */
         stbtt_pack_range pr[NRANGES];
         for (int r = 0; r < fc->nr; r++) {
             int count = range_count(r, fc->nr);
@@ -251,6 +252,8 @@ int font_init(const char *regular, const char *bold, const char *alt, int alt_ki
         g_have[F_ALT] = load_file(&g_files[F_ALT], alt, F_ALT, SIZES_MONO, (int)(sizeof SIZES_MONO / sizeof SIZES_MONO[0])) == 0;
     else if (alt && alt_kind == FONT_ALT_DISPLAY)
         g_have[F_ALT] = load_file(&g_files[F_ALT], alt, F_ALT, SIZES_DISPLAY, (int)(sizeof SIZES_DISPLAY / sizeof SIZES_DISPLAY[0])) == 0;
+    else if (alt && alt_kind == FONT_ALT_SERIF)
+        g_have[F_ALT] = load_file(&g_files[F_ALT], alt, F_ALT, SIZES_SERIF, (int)(sizeof SIZES_SERIF / sizeof SIZES_SERIF[0])) == 0;
     return 0;
 }
 
