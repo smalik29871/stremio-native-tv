@@ -21,6 +21,7 @@
 #include "widgets.h"
 #include "screen_options.h"
 #include "island.h"
+#include "bgtrailer.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -154,53 +155,27 @@ static void trailer_youtube(Detail *d)
     youtube_stream(url, on_trailer_stream, NULL);
 }
 
-/* IMDb's own trailer: direct MP4s up to 1080p (and an HLS playlist), with no YouTube
- * in the way. IMDb's public GraphQL API, as the IMDb Trailers add-ons for Kodi ask it. */
-static int imdb_rank(const char *def, const char *mime)
-{
-    int mp4 = mime && !strcmp(mime, "MP4");
-    if (!def) return 0;
-    if (!strcmp(def, "DEF_1080p")) return mp4 ? 60 : 0;
-    if (!strcmp(def, "DEF_AUTO") || (mime && !strcmp(mime, "M3U8"))) return 50;
-    if (!strcmp(def, "DEF_720p")) return mp4 ? 40 : 0;
-    if (!strcmp(def, "DEF_480p")) return mp4 ? 30 : 0;
-    if (!strcmp(def, "DEF_SD")) return mp4 ? 20 : 0;
-    return 0;
-}
-
-static void on_imdb_trailer(HttpResponse *r, void *user)
+/* IMDb's own trailer first: sharp, plain files with no YouTube in the way */
+static void on_imdb_trailer(const ImdbTrailer *t, int n, long status, void *user)
 {
     (void)user;
     Screen *top = app_top();
     Detail *d = top && !strcmp(top->name, "detail") && !strcmp(((Detail *)top->st)->preview.id, g_trailer.id) ? top->st : NULL;
-    cJSON *root = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
-    const cJSON *video = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(
-                             cJSON_GetObjectItemCaseSensitive(root, "data"), "title"), "latestTrailer"), "playbackURLs");
-    struct { const char *url; int rank; } got[8]; int n = 0;
-    const cJSON *u;
-    cJSON_ArrayForEach(u, video) {
-        const cJSON *def = cJSON_GetObjectItemCaseSensitive(u, "videoDefinition"), *mime = cJSON_GetObjectItemCaseSensitive(u, "videoMimeType"), *url = cJSON_GetObjectItemCaseSensitive(u, "url");
-        int rk = imdb_rank(cJSON_IsString(def) ? def->valuestring : NULL, cJSON_IsString(mime) ? mime->valuestring : NULL);
-        if (rk && cJSON_IsString(url) && n < 8) { got[n].url = url->valuestring; got[n].rank = rk; n++; }
-    }
-    for (int i = 1; i < n; i++) for (int j = i; j > 0 && got[j].rank > got[j - 1].rank; j--) { __typeof__(got[0]) t = got[j]; got[j] = got[j - 1]; got[j - 1] = t; }
     if (!n) {
-        LOGI("detail: no IMDb trailer for %s (%ld)%s", g_trailer.id, r->status, d && d->meta.trailer_yt ? "; YouTube's then" : "");
+        LOGI("detail: no IMDb trailer for %s (%ld)%s", g_trailer.id, status, d && d->meta.trailer_yt ? "; YouTube's then" : "");
         if (d && d->meta.trailer_yt) trailer_youtube(d);
         else { g_trailer.busy = 0; if (d) app_toast("No trailer found for this title"); }
-        cJSON_Delete(root);
         return;
     }
     g_trailer.busy = 0;
-    if (!d) { cJSON_Delete(root); return; }
+    if (!d) return;
     PlayCandidate *c = calloc((size_t)n, sizeof *c);
     for (int i = 0; i < n; i++) {   /* sharpest first; the player falls back down the list */
-        c[i].url = strdup(got[i].url);
-        char lbl[48]; snprintf(lbl, sizeof lbl, "IMDb - %s", got[i].rank == 60 ? "1080p" : got[i].rank == 50 ? "adaptive" : got[i].rank == 40 ? "720p" : got[i].rank == 30 ? "480p" : "SD");
+        c[i].url = strdup(t[i].url);
+        char lbl[48]; snprintf(lbl, sizeof lbl, "IMDb - %s", imdb_trailer_label(t[i].rank));
         c[i].label = strdup(lbl);
-        c[i].res = got[i].rank == 60 ? 1080 : got[i].rank == 40 ? 720 : got[i].rank == 30 ? 480 : 0;
+        c[i].res = imdb_trailer_res(t[i].rank);
     }
-    cJSON_Delete(root);
     char vid[160], title[200];
     snprintf(vid, sizeof vid, "trailer:%s", d->preview.id);
     snprintf(title, sizeof title, "%s  -  Trailer", d->preview.name ? d->preview.name : "");
@@ -222,14 +197,8 @@ static void trailer_play(Detail *d)
     if (strncmp(d->preview.id, "tt", 2) != 0) { trailer_youtube(d); return; }
     /* IMDb first: sharp and plain files; YouTube when IMDb has none */
     g_trailer.busy = 1;
-    char imdb[32]; snprintf(imdb, sizeof imdb, "%.*s", (int)strcspn(d->preview.id, ":"), d->preview.id);
-    char body[400];
-    snprintf(body, sizeof body, "{\"query\":\"query($id: ID!){title(id:$id){latestTrailer{id playbackURLs{videoDefinition videoMimeType url}}}}\",\"variables\":{\"id\":\"%s\"}}", imdb);
-    const char *api = getenv("SNTV_IMDB_API");
-    HttpOptions o = { .post_json = body, .timeout_s = 12,
-                      .headers = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36\nReferer: https://www.imdb.com/\nOrigin: https://www.imdb.com" };
-    LOGI("detail: asking IMDb for the trailer of %s", imdb);
-    http_request_async_ex(api && *api ? api : "https://graphql.prod.api.imdb.a2z.com/", &o, on_imdb_trailer, NULL);
+    LOGI("detail: asking IMDb for the trailer of %.*s", (int)strcspn(d->preview.id, ":"), d->preview.id);
+    imdb_trailer_fetch(d->preview.id, on_imdb_trailer, NULL);
 }
 
 static void ask_clear(Detail *d)
@@ -585,6 +554,7 @@ static void update(Screen *s, float dt)
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
     if (d->ask_open) { d->ask_t = ui_ease(d->ask_t * 100, 100, NULL, dt, 14) / 100; if (d->ask_t < 0.999f || d->ask_req) app_redraw(); }
     if (d->loading) app_redraw();
+    if (d->scroll < 60 && !d->ask_open) bgtrailer_want(d->preview.id, SNTV_UI_H, 2.5f);   /* not under About, where the backdrop dims */
     /* prefetch upcoming thumbnails */
     for (int k = d->ep_focus; k < d->n_eps && k < d->ep_focus + 6; k++) {
         const char *t = d->meta.videos[d->ep_index[k]].thumbnail;
@@ -895,9 +865,11 @@ static void draw(Screen *s)
     unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
     int series = d->meta.n_videos > 0;
     float k = g_app.fx_light ? 1.0f : d->intro;
-    if (bgt) {
+    float tv = bgtrailer_shown(d->preview.id);   /* the trailer playing behind the artwork */
+    if (bgt || tv > 0) {
         ui_backdrop_fades(1250, series ? 420 : 560, SNTV_UI_H);
-        ui_backdrop_image(bgt, iw, ih, k, SNTV_UI_H);
+        ui_backdrop_video(tv, SNTV_UI_H);
+        ui_backdrop_image(bgt, iw, ih, k * (1 - tv), SNTV_UI_H);
         ui_text_scrim(1300, SNTV_UI_H);
     }
     if (d->scroll > 1) {   /* About reads over a darker backdrop */

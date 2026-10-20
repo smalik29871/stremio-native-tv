@@ -43,6 +43,7 @@ void gfx_tex_uv4(unsigned tex, float x, float y, float w, float h, float u0, flo
                  Color tl, Color tr, Color bl, Color br);
 void gfx_glyph(unsigned alpha_tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color c);
 void gfx_video_hole(float x, float y, float w, float h);
+void gfx_video_fade(float x, float y, float w, float h, float tl, float tr, float bl, float br);
 
 /* anti-aliased shapes */
 void gfx_rrect(float x, float y, float w, float h, float r, Color c);

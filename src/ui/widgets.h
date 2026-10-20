@@ -23,6 +23,7 @@ void ui_background(Color tint);
 void ui_backdrop(unsigned tex, int iw, int ih, float alpha, float left_fade_to, float bottom_fade_from);
 void ui_backdrop_image(unsigned tex, int iw, int ih, float alpha, float height);
 void ui_backdrop_fades(float left_fade_to, float bottom_fade_from, float height);
+void ui_backdrop_video(float t, float height);
 /* The same, blurred and dimmed (needs a mipmapped texture). */
 /* Dark wash behind a left-aligned text column so copy stays readable on bright art. */
 void ui_text_scrim(float width, float height);

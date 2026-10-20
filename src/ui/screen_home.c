@@ -12,6 +12,7 @@
 #include "../store.h"
 #include "font.h"
 #include "theme.h"
+#include "bgtrailer.h"
 #include "widgets.h"
 #include "screen_options.h"
 #include "rail.h"
@@ -438,7 +439,7 @@ static void update(Screen *s, float dt)
     }
     if (g_app.home_style == HOME_SHOWCASE && featured_count(h) > 1) {
         float was = h->feat_timer;
-        h->feat_timer += dt;
+        if (!bgtrailer_shown(h->hero_id)) h->feat_timer += dt;   /* a trailer playing holds the carousel */
         if ((int)(was * 34 / SHOWCASE_EVERY) != (int)(h->feat_timer * 34 / SHOWCASE_EVERY) && !g_app.fx_light) app_redraw();   /* the dot's fill, a step a pixel */
         if (h->feat_timer > SHOWCASE_EVERY && h->focus_row != FOCUS_SHOWCASE) { h->feat_timer = 0; h->feat = (h->feat + 1) % featured_count(h); app_redraw(); }
         if (h->focus_row == FOCUS_SHOWCASE) h->feat_timer = 0;
@@ -488,6 +489,8 @@ static void update(Screen *s, float dt)
         h->hero_fade = 0;
         h->hero_text_t = 0;
     }
+    if (hero && settled && g_app.home_style != HOME_COMPACT && !strcmp(hero->id, h->hero_id))
+        bgtrailer_want(h->hero_id, SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f), 4.0f);
 
     /* prefetch around the focus and the start of the next row */
     if (h->focus_row >= 0) {
@@ -670,8 +673,10 @@ static void draw(Screen *s)
         unsigned cur = h->hero_bg[0] ? image_get(h->hero_bg, &iw, &ih) : 0;
         float bh = SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f);
         ui_backdrop_fades(1180, rows_y() - 140 > 360 ? rows_y() - 140 : 360, bh);   /* opaque down to the rows */
-        if (prev) ui_backdrop_image(prev, pw, ph, 1 - fade, bh);
-        if (cur) ui_backdrop_image(cur, iw, ih, fade, bh);
+        float tv = bgtrailer_shown(h->hero_id);   /* the trailer playing behind the artwork */
+        ui_backdrop_video(tv, bh);
+        if (prev) ui_backdrop_image(prev, pw, ph, (1 - fade) * (1 - tv), bh);
+        if (cur) ui_backdrop_image(cur, iw, ih, fade * (1 - tv), bh);
         ui_text_scrim(1100, bh);
         draw_hero(h, hero);
         if (g_app.home_style == HOME_SHOWCASE) draw_showcase_controls(h);

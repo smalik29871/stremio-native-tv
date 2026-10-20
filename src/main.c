@@ -5,6 +5,7 @@
 #include "ui/widgets.h"
 #include "ui/island.h"
 #include "ui/intro.h"
+#include "ui/bgtrailer.h"
 #include "http.h"
 #include "tracking.h"
 #include "perfstat.h"
@@ -466,6 +467,7 @@ int main(int argc, char **argv)
 
         Screen *top = app_top();
         if (top && top->update) top->update(top, dt);
+        bgtrailer_frame(dt);
         if (g_app.pip) { player_pip_update(g_app.pip, dt); if (g_app.pip && player_pip_done(g_app.pip)) app_pip_close(); }
         top = app_top();   /* update() may have popped or replaced the screen */
 

@@ -48,10 +48,13 @@ int video_init(SDL_Window *win)
 const char *video_backend_name(void) { return "Tizen capi-media-player"; }
 void video_shutdown(void) { video_stop(); }
 
+static unsigned g_load_count;
+
 int video_load(const char *url, const char *title, double start)
 {
     (void)title;
     video_stop();
+    g_load_count++;
     memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1;
     g_info.state = VIDEO_LOADING;
     g_pending_seek = start > 0 ? start : -1;
@@ -73,6 +76,8 @@ void video_play(void) { if (g_player && player_start(g_player) == PLAYER_ERROR_N
 void video_pause(void) { if (g_player && player_pause(g_player) == PLAYER_ERROR_NONE) g_info.state = VIDEO_PAUSED; }
 void video_seek(double s) { if (g_player) { player_set_play_position(g_player, (int)(s * 1000), true, NULL, NULL); g_info.position = s; } }
 void video_set_rate(double r) { if (g_player) player_set_playback_rate(g_player, (float)r); }
+void video_set_muted(int m) { if (g_player) player_set_mute(g_player, m); }
+unsigned video_load_count(void) { return g_load_count; }
 
 void video_stop(void)
 {

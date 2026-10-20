@@ -50,7 +50,7 @@ static const char *const CAT_DESC[CAT_COUNT] = {
 static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_PALETTE, ICON_LIST, ICON_LIBRARY, ICON_KEY, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
-       IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AMBIENT, IT_BLUR,
+       IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE,
@@ -124,7 +124,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_INTERFACE:
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
-        SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
+        SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
         SEC(SEC_SYSTEM); ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
         break;
@@ -230,6 +230,7 @@ static const char *row_title(int id)
     case IT_ACCENT: return "Accent colour";
     case IT_BG: return "Background";
     case IT_CARD_DETAILS: return "Show details when a card stays focused";
+    case IT_AUTO_TRAILER: return "Trailers play on their own";
     case IT_HOME_STYLE: return "Home screen";
     case IT_HIDE_WATCHED: return "Hide watched titles in catalogs";
     case IT_FX: return "Visual effects";
@@ -293,6 +294,7 @@ static const char *row_desc(int id)
     case IT_ACCENT: return "Focus, highlights and progress.";
     case IT_HOME_STYLE: return "How much room the focused title's artwork takes.";
     case IT_CARD_DETAILS: return "After a moment on a card it widens with the rating, runtime and synopsis; the cards beside it make room.";
+    case IT_AUTO_TRAILER: return "When you stay on a title, its trailer plays behind the artwork on Home and the title page, then the artwork comes back.";
     case IT_HIDE_WATCHED: return "Films and series you finished leave the catalog rows.";
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
     case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
@@ -837,6 +839,7 @@ static void draw(Screen *s)
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_THEME: draw_row(y, ICON_PALETTE, "Theme", THEME_NAMES[g_app.theme], foc, KIND_CHOICE, 0); break;
         case IT_CARD_DETAILS: draw_row(y, ICON_INFO, "Show details when a card stays focused", NULL, foc, KIND_TOGGLE, g_app.card_details); break;
+        case IT_AUTO_TRAILER: draw_row(y, ICON_PLAY, "Trailers play on their own", g_app.auto_trailers == 2 ? "With sound" : g_app.auto_trailers ? "Muted" : "Off", foc, KIND_CHOICE, 0); break;
         case IT_ACCENT: case IT_BG: {
             /* the swatches sit on the help line, the current one framed */
             int bg = id == IT_BG, n = bg ? THEME_BGS : THEME_ACCENTS + 1, cur = bg ? g_app.theme_bg : g_app.theme_accent;
@@ -1355,6 +1358,7 @@ static int adjust(Settings *st, int id, int dir)
         theme_load_fonts(g_app.theme);
         break;
     case IT_CARD_DETAILS: g_app.card_details = !g_app.card_details; break;
+    case IT_AUTO_TRAILER: g_app.auto_trailers = (g_app.auto_trailers + dir + 3) % 3; break;
     case IT_ACCENT:
         g_app.theme_accent = (g_app.theme_accent + dir + THEME_ACCENTS + 1) % (THEME_ACCENTS + 1);   /* the last is the artwork's colour */
         theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);

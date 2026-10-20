@@ -78,6 +78,16 @@ run detail_trailer_imdb 400 "wait,ok,right,ok,wait,wait,wait,wait" HOME="$(home_
 grep -q "detail: trailer for tt0111161 from IMDb (3 qualities, best 1080p)" "$OUT/detail_trailer_imdb.log" && grep -q "player: candidate 1/3 IMDb - 1080p" "$OUT/detail_trailer_imdb.log" \
   && ! grep -q "youtube: asking to stream" "$OUT/detail_trailer_imdb.log" \
   || { echo "the IMDb trailer did not play first"; grep -E "detail|youtube|player: candidate" "$OUT/detail_trailer_imdb.log"; exit 1; }
+# resting on a title page: its IMDb trailer plays muted behind the artwork, and gives way to the Trailer button's player
+run bg_trailer 1300 "wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,right,ok,wait,wait,wait" HOME="$(home_with bg_trailer "$ABOUT_HOME")" SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql/with"
+grep -q "trailer: tt0111161 plays behind the artwork (1080p, muted)" "$OUT/bg_trailer.log" && grep -q "video(null): muted" "$OUT/bg_trailer.log" \
+  && grep -q "trailer: tt0111161 gives way to another video" "$OUT/bg_trailer.log" && grep -q "player: candidate 1/3 IMDb - 1080p" "$OUT/bg_trailer.log" \
+  || { echo "the trailer did not play behind the title page"; grep -E "trailer|video|player: candidate" "$OUT/bg_trailer.log"; exit 1; }
+# on Home the hero's trailer plays too; turned off, nothing does
+run bg_trailer_home 1300 "wait" HOME="$(home_with bg_trailer_home "$ABOUT_HOME")" SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql/with"
+grep -q "trailer: tt[0-9]* plays behind the artwork" "$OUT/bg_trailer_home.log" || { echo "the Home hero's trailer did not play"; grep -E "trailer|video" "$OUT/bg_trailer_home.log"; exit 1; }
+run bg_trailer_off 1300 "wait,ok" HOME="$(home_with bg_trailer_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoTrailers":0}')" SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql/with"
+! grep -q "plays behind the artwork" "$OUT/bg_trailer_off.log" || { echo "a trailer played with the setting off"; exit 1; }
 # YouTube wants a token for the visionOS client's files: the TV app's are solved and tested instead
 run detail_trailer_tv 1500 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_tv "$ABOUT_HOME")" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/pot/manifest.json"
 grep -q "youtube: potPOT00001 refused the VISIONOS client's separate video and audio (403)" "$OUT/detail_trailer_tv.log" && grep -q "youtube: potPOT00001 separate video and audio from the TV client" "$OUT/detail_trailer_tv.log" \

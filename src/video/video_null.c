@@ -20,9 +20,11 @@ const char *video_backend_name(void) { return "null (desktop preview)"; }
 static int g_loads;          /* the test hooks below act on the first source only */
 static double g_played_here;
 
+static int g_muted;
+
 int video_load(const char *url, const char *title, double start)
 {
-    g_loads++; g_played_here = 0;
+    g_loads++; g_played_here = 0; g_muted = 0;
     LOGI("video(null): load %s (%s) from %.0fs", url, title ? title : "", start);
     memset(&g, 0, sizeof g);
     g.state = VIDEO_LOADING;
@@ -46,6 +48,8 @@ void video_pause(void) { if (g.state == VIDEO_PLAYING) g.state = VIDEO_PAUSED; }
 void video_seek(double s) { g.position = s < 0 ? 0 : s; if (g.duration && g.position > g.duration) g.position = g.duration; }
 void video_stop(void) { g.state = VIDEO_IDLE; }
 void video_set_rate(double r) { g_rate = r; }
+void video_set_muted(int m) { if (m != g_muted) LOGI("video(null): %s", m ? "muted" : "sound on"); g_muted = m; }
+unsigned video_load_count(void) { return (unsigned)g_loads; }
 void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}

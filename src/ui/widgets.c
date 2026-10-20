@@ -289,6 +289,24 @@ void ui_backdrop_image(unsigned tex, int iw, int ih, float alpha, float height)
         }
 }
 
+/* The video plane through the backdrop's shape, `t` of the way (a trailer behind the
+ * artwork): call after ui_backdrop_fades, before the artwork drawn at (1 - t). */
+void ui_backdrop_video(float t, float height)
+{
+    if (t <= 0) return;
+    float w = BD_W, x0 = SNTV_UI_W - w;
+    float left = g_fade_left, bottom = g_fade_bottom;
+    float mid = x0 + (left - x0) * 0.45f, bm = bottom + (height - bottom) * 0.5f;
+    float xs[4] = { x0, mid, left, SNTV_UI_W }, ax[4] = { 0.0f, 0.75f, 1.0f, 1.0f };
+    float ys[5] = { 0, 150, bottom, bm, height }, ay[5] = { 0.55f, 1.0f, 1.0f, 0.8f, 0.0f };
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 4; j++) {
+            float cx = xs[i], cw = xs[i + 1] - xs[i], cy = ys[j], ch = ys[j + 1] - ys[j];
+            if (cw <= 0 || ch <= 0) continue;
+            gfx_video_fade(cx, cy, cw, ch, t * ax[i] * ay[j], t * ax[i + 1] * ay[j], t * ax[i] * ay[j + 1], t * ax[i + 1] * ay[j + 1]);
+        }
+}
+
 void ui_backdrop_fades(float left_to, float bottom_from, float height)
 {
     (void)height;

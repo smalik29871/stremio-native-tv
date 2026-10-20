@@ -91,6 +91,7 @@ typedef struct App {
     int oled;                  /* pure black background */
     int theme, theme_accent, theme_bg;   /* THEME_*, its accent and background indexes (ui/theme.h) */
     int card_details;          /* a focused card opens a details panel after a moment */
+    int auto_trailers;         /* trailers play behind the artwork: 0 off, 1 muted, 2 with sound */
     float ok_hold;             /* OK held on a long-press screen: 0 not held, else 0..1 toward options (1 = release opens them) */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */
     int ambient_style;         /* AMBIENT_ARTWORK, _WALL, _CLOCK, _LOGO */

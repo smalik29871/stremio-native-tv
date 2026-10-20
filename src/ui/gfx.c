@@ -359,6 +359,19 @@ void gfx_video_hole(float x, float y, float w, float h)
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
+/* Lets the video plane show through by a fraction per corner (0..1): what is already
+ * drawn here fades toward transparent, so the video blends into the artwork's edges. */
+void gfx_video_fade(float x, float y, float w, float h, float tl, float tr, float bl, float br)
+{
+    flush();
+    glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+#define F(a) RGBA(0, 0, 0, (int)(255 * (a)))
+    aquad(x, y, w, h, 0, 0, 1, 1, F(tl), F(tr), F(bl), F(br), 0, 0, MODE_SOLID, 0, 0);
+#undef F
+    flush();
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+}
+
 /* ---- clipping (stack of 8) ---- */
 static struct { int x, y, w, h; } g_clip[8];
 static int g_nclip, g_clip_over;   /* pushes past the stack's depth, so pops stay balanced */

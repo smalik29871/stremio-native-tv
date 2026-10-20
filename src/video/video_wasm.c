@@ -27,6 +27,7 @@ EM_JS(void, js_video_play, (void), { var v = document.getElementById('sntv-video
 EM_JS(void, js_video_pause, (void), { var v = document.getElementById('sntv-video'); if (v) v.pause(); });
 EM_JS(void, js_video_seek, (double s), { var v = document.getElementById('sntv-video'); if (v) v.currentTime = s; });
 EM_JS(void, js_video_rate, (double r), { var v = document.getElementById('sntv-video'); if (v) v.playbackRate = r; });
+EM_JS(void, js_video_mute, (int m), { var v = document.getElementById('sntv-video'); if (v) v.muted = !!m; });
 EM_JS(void, js_video_stop, (void), { var v = document.getElementById('sntv-video'); if (v) { v.pause(); v.removeAttribute('src'); v.load(); } });
 EM_JS(double, js_video_time, (void), { var v = document.getElementById('sntv-video'); return v ? v.currentTime : 0; });
 EM_JS(double, js_video_duration, (void), { var v = document.getElementById('sntv-video'); return v && isFinite(v.duration) ? v.duration : 0; });
@@ -62,7 +63,10 @@ EM_JS(void, js_track_select, (int kind, int index), {
 int video_init(SDL_Window *win) { (void)win; return 0; }
 void video_shutdown(void) { js_video_stop(); }
 const char *video_backend_name(void) { return "HTML5 video (WebAssembly)"; }
-int video_load(const char *url, const char *title, double start) { (void)title; memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1; g_info.state = VIDEO_LOADING; js_video_load(url, start); return 0; }
+static unsigned g_load_count;
+int video_load(const char *url, const char *title, double start) { (void)title; g_load_count++; memset(&g_info, 0, sizeof g_info); g_info.buffer_ahead = -1; g_info.state = VIDEO_LOADING; js_video_load(url, start); js_video_mute(0); return 0; }
+void video_set_muted(int m) { js_video_mute(m); }
+unsigned video_load_count(void) { return g_load_count; }
 void video_play(void) { js_video_play(); }
 void video_pause(void) { js_video_pause(); }
 void video_seek(double s) { js_video_seek(s); }

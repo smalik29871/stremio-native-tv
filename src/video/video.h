@@ -43,6 +43,10 @@ void video_pause(void);
 void video_seek(double seconds);
 void video_stop(void);
 void video_set_rate(double rate);
+/* Silence the video playing or loading now; every video_load starts with sound. */
+void video_set_muted(int muted);
+/* Counts every video_load: whoever loaded can tell whether the video is still theirs. */
+unsigned video_load_count(void);
 void video_update(void);                 /* poll backend events; main thread */
 void video_info(VideoInfo *out);
 

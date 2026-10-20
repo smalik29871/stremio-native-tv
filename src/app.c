@@ -1498,6 +1498,7 @@ static void load_prefs(void)
     if (g_app.theme_bg < 0 || g_app.theme_bg >= THEME_BGS) g_app.theme_bg = 0;
     theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
     g_app.card_details = store_get_int("cardDetails", 1);
+    g_app.auto_trailers = store_get_int("autoTrailers", 1);
     g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
     g_app.ambient_style = store_get_int("ambientStyle", AMBIENT_ARTWORK);
     if (g_app.ambient_style < 0 || g_app.ambient_style >= AMBIENT_STYLE_COUNT) g_app.ambient_style = AMBIENT_ARTWORK;
@@ -1592,6 +1593,7 @@ void app_save_prefs(void)
     store_set_int("themeAccent", g_app.theme_accent);
     store_set_int("themeBg", g_app.theme_bg);
     store_set_int("cardDetails", g_app.card_details);
+    store_set_int("autoTrailers", g_app.auto_trailers);
     store_set_int("ambientMinutes", g_app.ambient_minutes);
     store_set_int("ambientStyle", g_app.ambient_style);
     store_set_int("qualityMode", g_app.quality_mode);
