@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.32
 
 - **Colour palettes** (Settings > Interface > Look): six ready-made pairs of an accent and
   a background, switched with Left/Right and shown as swatches on the row; Accent and
