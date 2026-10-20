@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.19
+
+- **Sharper YouTube again.** YouTube started refusing the high-quality files the app
+  asked for (403). The app now checks them before playing; when they are refused it
+  asks as YouTube's TV app and solves its links, and when those are refused too it
+  starts YouTube's own playlist at once instead of after two failed tries.
+- **Sources panel like the Sources page.** While watching, each source shows the same
+  badges (4K/1080p, Dolby Vision/HDR, codec, audio, cached, size), the recommended one
+  is marked, and the file name sits underneath. Picking a source yourself now always
+  keeps the recommended one as its first fallback.
+- **Continue Watching keeps the series.** When an episode ends and the next isn't
+  played, the series stays in the row at the next episode (Play S1 E2), as in Stremio.
+- **Seek previews on the first seek.** The video's keyframe index is read while it
+  plays, so the first seek shows pictures too.
+- **No seam in the background.** Glass and Mist drew a hard line across screens with
+  no artwork behind them (Settings); the haze now fades in.
+
 ## 0.10.18
 
 - **Sign-in survives Developer Mode's cache clearing.** On webOS 10 the app kept its
