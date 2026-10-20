@@ -547,7 +547,7 @@ static void update(Screen *s, float dt)
         for (int i = 0; r < 0 && st->play_now && i < st->n; i++) if (playable(&st->items[i])) r = i;   /* asked to play: the top source that can, the player falls back from there */
         if (r >= 0) {
             st->auto_rec_done = 1;
-            app_toast("Playing the recommended source. Back returns to the list.");
+            if (!st->play_now) app_toast("Playing the recommended source. Back returns to the list.");   /* asked to play: no surprise to explain */
             play_from(st, r);
             if (app_top() != s) return;
         }
