@@ -294,6 +294,93 @@ static void apply_collection_json(const char *json, int from_cache)
  * while the last one's library or addons were still on their way). */
 static uintptr_t g_account_gen = 1;
 
+/* ---- an account whose addons were saved without their manifests ----------------------
+ * Up to 0.10.23 this app saved the collection (after installing, removing or moving an
+ * addon) with only id, name and version in each manifest, and Stremio's own apps then
+ * cannot read the account's addons at all ("result.addons[0].manifest: missing field").
+ * Every addon's manifest is fetched again from its own URL and the collection saved back
+ * whole. When one cannot be fetched, nothing is saved and it is tried again next time. */
+typedef struct { int remaining, failed; cJSON *root; uintptr_t gen; } Repair;
+static int g_repairing;
+
+static void on_repair_saved(HttpResponse *r, void *user)
+{
+    (void)user;
+    cJSON *root = r->body ? cJSON_Parse(r->body) : NULL;
+    int ok = r->status == 200 && root && !cJSON_GetObjectItemCaseSensitive(root, "error");
+    if (ok) { LOGI("addons: the account's collection is repaired"); app_toast("Your account's addons were repaired"); }
+    else LOGW("addons: saving the repaired collection failed (%ld %.200s)", r->status, r->body ? r->body : r->error);
+    cJSON_Delete(root);
+}
+
+static void repair_done(Repair *rp)
+{
+    g_repairing = 0;
+    cJSON *addons = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(rp->root, "result"), "addons");
+    if (rp->gen == g_account_gen) {
+        char *txt = cJSON_PrintUnformatted(rp->root);
+        apply_collection_json(txt, 0);   /* this app has them back at once */
+        free(txt);
+        if (!rp->failed && g_app.auth_key) {
+            cJSON *o = cJSON_CreateObject();
+            cJSON_AddStringToObject(o, "type", "AddonCollectionSet");
+            cJSON_AddStringToObject(o, "authKey", g_app.auth_key);
+            cJSON_AddItemToObject(o, "addons", cJSON_Duplicate(addons, 1));
+            char *body = cJSON_PrintUnformatted(o);
+            cJSON_Delete(o);
+            http_request_async(api_url_addon_collection_set(), body, on_repair_saved, NULL);
+            free(body);
+            LOGI("addons: saving the repaired collection (%d addons) to the account", cJSON_GetArraySize(addons));
+        } else if (rp->failed) LOGW("addons: %d manifest(s) could not be fetched; the account is left as it is for now", rp->failed);
+    }
+    cJSON_Delete(rp->root);
+    free(rp);
+}
+
+static void on_repair_manifest(HttpResponse *r, void *user)
+{
+    void **u = user;
+    Repair *rp = u[0];
+    cJSON *d = u[1];
+    free(u);
+    cJSON *m = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
+    if (addon_manifest_complete(m)) cJSON_ReplaceItemInObjectCaseSensitive(d, "manifest", m);
+    else {
+        cJSON_Delete(m);
+        rp->failed++;
+        const cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
+        LOGW("addons: no manifest from %s (%ld)", cJSON_IsString(t) ? t->valuestring : "?", r->status);
+    }
+    if (--rp->remaining == 0) repair_done(rp);
+}
+
+/* 1 when the collection had partial manifests and a repair started */
+static int repair_collection(const char *json)
+{
+    if (g_repairing) return 1;
+    cJSON *root = cJSON_Parse(json);
+    cJSON *addons = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "result"), "addons"), *d;
+    int broken = 0;
+    cJSON_ArrayForEach(d, addons) if (!addon_manifest_complete(cJSON_GetObjectItemCaseSensitive(d, "manifest"))) broken++;
+    if (!broken) { cJSON_Delete(root); return 0; }
+    LOGW("addons: %d of the account's addons were saved without their manifest; fetching them again", broken);
+    Repair *rp = calloc(1, sizeof *rp);
+    rp->root = root; rp->gen = g_account_gen;
+    g_repairing = 1;
+    cJSON_ArrayForEach(d, addons) if (!addon_manifest_complete(cJSON_GetObjectItemCaseSensitive(d, "manifest"))) rp->remaining++;
+    cJSON_ArrayForEach(d, addons) {
+        if (addon_manifest_complete(cJSON_GetObjectItemCaseSensitive(d, "manifest"))) continue;
+        const cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
+        void **u = malloc(2 * sizeof(void *));
+        u[0] = rp; u[1] = d;
+        if (!cJSON_IsString(t)) { HttpResponse none = { 0 }; on_repair_manifest(&none, u); continue; }
+        char url[1024];
+        addon_url_manifest(t->valuestring, url, sizeof url);
+        http_request_async(url, NULL, on_repair_manifest, u);
+    }
+    return 1;
+}
+
 /* A failed collection is asked again: a TV often starts the app before its network is up */
 static float g_addons_retry_in = -1;
 static int g_addons_tries;
@@ -311,6 +398,7 @@ static void on_collection(HttpResponse *r, void *user)
         return;
     }
     g_addons_tries = 0;
+    if (r->body && repair_collection(r->body)) return;   /* applied once every manifest is back */
     apply_collection_json(r->body, 0);
 }
 
@@ -407,6 +495,7 @@ static void push_collection_to_account(void)
 {
     if (!g_app.auth_key) return;
     char *body = api_body_addon_collection_set(g_app.auth_key, g_app.addons, g_app.n_addons);
+    if (!body) { LOGW("addons: not saved to the account: a manifest is not complete here"); return; }
     http_request_async(api_url_addon_collection_set(), body, NULL, NULL);
     free(body);
 }

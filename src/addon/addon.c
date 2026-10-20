@@ -220,6 +220,7 @@ int addon_new(const char *transport_url, const char *manifest_json, Addon *out)
 {
     memset(out, 0, sizeof *out);
     if (addon_parse_manifest(manifest_json, &out->manifest) != 0) return -1;
+    out->manifest_json = strdup(manifest_json);
     out->transport_url = strdup(transport_url);
     out->base_url = base_from_transport(transport_url);
     return 0;
@@ -234,6 +235,7 @@ int addon_from_descriptor_json(const cJSON *d, Addon *out)
     if (parse_manifest_obj(m, &out->manifest) != 0) { addon_manifest_free(&out->manifest); return -1; }
     out->transport_url = strdup(t->valuestring);
     out->base_url = base_from_transport(t->valuestring);
+    if (addon_manifest_complete(m)) out->manifest_json = cJSON_PrintUnformatted(m);
     const cJSON *flags = cJSON_GetObjectItemCaseSensitive(d, "flags");
     if (cJSON_IsObject(flags)) {
         out->flag_official = jbool(flags, "official");
@@ -242,8 +244,17 @@ int addon_from_descriptor_json(const cJSON *d, Addon *out)
     return 0;
 }
 
+int addon_manifest_complete(const cJSON *m)
+{
+    return cJSON_IsObject(m) && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "id")) && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "name"))
+        && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "version")) && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "description"))
+        && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "resources")) && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "types"))
+        && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "catalogs"));
+}
+
 void addon_free(Addon *a)
 {
+    free(a->manifest_json);
     addon_manifest_free(&a->manifest);
     free(a->transport_url);
     free(a->base_url);

@@ -98,13 +98,13 @@ char *api_body_addon_collection_set(const char *auth_key, const Addon *addons, i
     cJSON_AddStringToObject(o, "authKey", auth_key);
     cJSON *arr = cJSON_AddArrayToObject(o, "addons");
     for (int i = 0; i < n; i++) {
-        /* We keep the raw manifest minimal here; the server merges by transportUrl. */
+        /* The whole manifest: the server stores it as given, and every Stremio app reads
+         * it back. A partial one breaks the account's addons everywhere, so none is sent. */
+        cJSON *m = addons[i].manifest_json ? cJSON_Parse(addons[i].manifest_json) : NULL;
+        if (!addon_manifest_complete(m)) { cJSON_Delete(m); cJSON_Delete(o); return NULL; }
         cJSON *d = cJSON_CreateObject();
         cJSON_AddStringToObject(d, "transportUrl", addons[i].transport_url);
-        cJSON *m = cJSON_AddObjectToObject(d, "manifest");
-        cJSON_AddStringToObject(m, "id", addons[i].manifest.id);
-        cJSON_AddStringToObject(m, "name", addons[i].manifest.name);
-        cJSON_AddStringToObject(m, "version", addons[i].manifest.version ? addons[i].manifest.version : "0.0.0");
+        cJSON_AddItemToObject(d, "manifest", m);
         cJSON *f = cJSON_AddObjectToObject(d, "flags");
         cJSON_AddBoolToObject(f, "official", addons[i].flag_official);
         cJSON_AddBoolToObject(f, "protected", addons[i].flag_protected);

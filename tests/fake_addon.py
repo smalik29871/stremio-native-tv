@@ -241,6 +241,19 @@ class H(BaseHTTPRequestHandler):
                                      "notes": "Violence and an assault are implied rather than shown; strong language throughout.",
                                      "similar": ["The Green Mile", "Cool Hand Luke", "Escape from Alcatraz"]})
             return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": answer}}]}).encode())
+        # an account whose addons an old version saved with partial manifests (key "brokenkey"),
+        # until a whole collection is saved back
+        if p == "/api/addonCollectionSet":
+            req = json.loads(body.decode("utf-8") or "{}")
+            need = ("id", "name", "version", "description", "resources", "types", "catalogs")
+            if not all(all(k in a.get("manifest", {}) for k in need) for a in req.get("addons", [])):
+                return self.send(200, b'{"error":{"message":"missing field","code":24}}')
+            H.repaired = True
+            with open(os.environ.get("FAKE_COLLECTION_LOG", os.devnull), "ab") as f:
+                f.write(body + b"\n")
+            return self.send(200, b'{"result":{"success":true}}')
+        if p == "/api/addonCollectionGet" and b"brokenkey" in body and not getattr(H, "repaired", False):
+            return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": {"id": MANIFEST["id"], "name": MANIFEST["name"], "version": MANIFEST["version"]}, "flags": {}}]}}).encode())
         if p == "/api/addonCollectionGet":   # the account's addons: this fake one
             return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": MANIFEST, "flags": {}}]}}).encode())
         if p == "/api/datastoreGet":   # the account's library (FAKE_LIBRARY), as the Stremio API answers

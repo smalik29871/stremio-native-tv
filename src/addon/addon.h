@@ -48,8 +48,11 @@ typedef struct Addon {
     char *transport_url;   /* ".../manifest.json" as installed */
     char *base_url;        /* transport_url without "/manifest.json" */
     AddonManifest manifest;
+    char *manifest_json;   /* the manifest exactly as the addon serves it: what the account stores */
     int flag_official, flag_protected;
 } Addon;
+/* 1 when a descriptor's manifest has what every Stremio app needs to read it back */
+int addon_manifest_complete(const struct cJSON *manifest);
 
 typedef struct MetaPreview {
     char *id, *type, *name, *poster, *poster_shape, *background, *logo;

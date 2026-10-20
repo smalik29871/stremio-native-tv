@@ -346,6 +346,11 @@ grep -q "candidate 1/.* -> http://127.0.0.1:11490/$FAKE_TORRENT_HASH/0" "$OUT/p2
   && grep -q "TorBox has it again" "$OUT/p2p_switch.log" || { echo "P2P fallback or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
 fi
 # progress reaches the account as the app closes mid-film, dated the way stremio-core reads it
+# an account whose addons an old version saved with partial manifests: refetched and saved back whole
+run addons_repair 300 "wait" HOME="$(home_with repair '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"brokenkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
+grep -q "addons: 1 of the account's addons were saved without their manifest" "$OUT/addons_repair.log" && grep -q "addons: the account's collection is repaired" "$OUT/addons_repair.log" \
+  && grep -q "addons: 1 loaded" "$OUT/addons_repair.log" \
+  || { echo "the account's addons were not repaired"; grep -E "addons|home" "$OUT/addons_repair.log"; exit 1; }
 run progress_sync 400 "right,ok,down,down,ok,ok" HOME="$(home_with sync '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
 python3 -I - "$FAKE_PUT_LOG" <<'PY' || { echo "progress did not reach the account"; exit 1; }
 import json, re, sys

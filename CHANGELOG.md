@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.24
+
+- **Your account's addons repaired.** When you installed, removed or moved an addon,
+  this app saved your Stremio account's addon list with only each addon's name and id
+  instead of its whole manifest. Stremio's own apps then couldn't read the list at all
+  ("AddonsPulledFromApi: Serialization error ... manifest: missing field"), and this app
+  showed no catalogs and "No installed addon provides details". On start, the app now
+  spots such a list, fetches every addon's manifest again from its own address and saves
+  the list back whole, which fixes the official apps too. If an addon can't be reached,
+  nothing is saved and it tries again next start.
+- **It can't happen again.** Addons are saved to the account with their full manifest,
+  and a list with an incomplete one is never sent.
+- **Addons load even on a slow start.** A failed addon list is asked for again after a
+  few seconds instead of leaving the app empty; an empty answer never replaces a working
+  list; a title page whose addons haven't come in yet waits for them, and asks Cinemeta
+  directly for IMDb titles.
+
 ## 0.10.23
 
 - **A familiar look.** A new theme, Streaming, is now the default and every install
