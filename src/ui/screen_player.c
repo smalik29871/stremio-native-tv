@@ -2259,6 +2259,28 @@ static void draw_lighter(const Player *p, int overlay)
 static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
 {
     float w = 640, h = 176, x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240;
+    if (g_theme.id == THEME_APERTURE) {
+        h = 200; y -= 24;
+        ui_panel(x, y, w, h, 2, COLOR_ALPHA(THEME_PANEL, 0xF4));
+        const char *thumb = app_video_thumbnail(p->meta.id, p->next_video_id);
+        ui_card(thumb, x + 20, y + 20, 256, 144, 0, 0, NULL, CARD_MIP);
+        float tx = x + 300, tw = w - 324;
+        ui_spaced_caps("Up next", tx, y + 22, FONT_XS | FONT_B, 4, THEME_ACCENT, tw);
+        font_draw_wrapped(p->next_title ? p->next_title : "Next episode", tx, y + 50, FONT_M | FONT_ALT, THEME_TEXT, tw, 2);
+        if (g_app.autoplay_next && vi->duration > 0) {
+            double at = p->next_at > 0 ? p->next_at : vi->duration, window = at < vi->duration ? 20.0 : 45.0, left = at - vi->position;
+            char t[48]; snprintf(t, sizeof t, "Starts in %ds", (int)(left < 0 ? 0 : left));
+            font_draw(t, x + 20, y + h - 30, FONT_XS, THEME_TEXT_DIM);
+            float lx = x + 20 + font_measure(t, FONT_XS) + 16, lw = 256 - (lx - x - 20);
+            if (lw > 20) { gfx_rect(lx, y + h - 20, lw, 2, COLOR_ALPHA(THEME_TEXT, 0x30)); gfx_rect(lx, y + h - 20, lw * (float)(1.0 - left / window), 2, THEME_ACCENT); }
+        }
+        float k = next_progress(p), by = y + h - 84;
+        if (k >= 0 && k < 1) {   /* the next episode's sources still arriving */
+            float bw = ui_aperture_button("Preparing", -1, tx, by, 0, 1);
+            gfx_rect(tx, by + 58, bw * k, 3, THEME_ACCENT);
+        } else ui_aperture_button("Play now", ICON_PLAY, tx, by, 1, 1);
+        return;
+    }
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0xA0));
     ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF2));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
@@ -3035,7 +3057,7 @@ static void draw(Screen *s)
             if (vi.duration > 0 && vi.state != VIDEO_PAUSED) { ui_clock_text((vi.duration - shown_pos) / RATES[p->rate_idx], end, sizeof end); snprintf(text, sizeof text, "%s   |   ends at %s", now, end); }
             else snprintf(text, sizeof text, "%s", now);
             float tw = font_measure(text, FONT_S | FONT_B) + 44, th2 = 52, tx = SNTV_UI_W - THEME_MARGIN - tw;
-            gfx_rrect(tx, 47, tw, th2, th2 / 2, COLOR_ALPHA(THEME_BG, 0x8C));
+            if (!ap) gfx_rrect(tx, 47, tw, th2, th2 / 2, COLOR_ALPHA(THEME_BG, 0x8C));
             font_draw(text, tx + 22, 47 + (th2 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
             chip_y = 112;
         }
@@ -3145,7 +3167,7 @@ static void draw(Screen *s)
     gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);
     float card_top = 0;
-    if (p->up_next_shown && p->next_video_id && !p->menu) { draw_up_next(p, &vi, overlay); card_top = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240; }
+    if (p->up_next_shown && p->next_video_id && !p->menu) { draw_up_next(p, &vi, overlay); card_top = (overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240) - (g_theme.id == THEME_APERTURE ? 24 : 0); }   /* Aperture's card is taller */
     else if (p->lighter_to >= 0 && !p->menu) { draw_lighter(p, overlay); card_top = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 200; }
     const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu && !p->cast_open && !p->scenes_open ? skippable(p, &vi) : NULL;
     if (sk) draw_skip_button(p, sk, &vi, overlay, card_top);

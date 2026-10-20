@@ -20,6 +20,8 @@ void ui_icon(Icon icon, float cx, float cy, float size, Color c);
 void ui_background(Color tint);
 /* One cropped artwork quad, using the existing bounded image cache. */
 void ui_aperture_art(const char *url, float x, float y, float w, float h, float alpha);
+/* From update(): the artwork windows pan slowly; this asks for the few frames that needs. */
+void ui_aperture_drift_tick(void);
 /* Aperture's editorial pieces. A title in the serif's capitals, tightly leaded, up to
  * `lines` lines, the last ending at `bottom`; `size` is the largest it may take (smaller
  * when it would not fit). Returns the top of the first line. */

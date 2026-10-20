@@ -39,6 +39,11 @@ quiet text actions, landscape rows titled in spaced serif capitals, a coral-mark
 focus with an ivory outline, the time / coral line / time left on one row in the
 player, a lower-left pause card, and borderless keyboard keys.
 
+The artwork windows pan slowly across a slightly closer crop. Home and the title page
+ask for about eight frames a second while they show, not a continuous 60; Light
+effects and low memory keep the artwork still. Taglines come from TMDB's details
+(when a TMDB key is set) and replace the synopsis on Home.
+
 There are no additional render targets, blur shaders, or decoder instances.
 Artwork uses the existing bounded image cache and the renderer's cropped quad.
 The filmstrip requests only the selected frame through the existing decoder path;

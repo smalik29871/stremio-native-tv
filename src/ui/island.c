@@ -126,8 +126,10 @@ void island_draw(int in_player, int show_clock)
 
     float r = theme_pill_r(I.h), busy = kind == IS_NOTICE || kind == IS_PROGRESS || kind == IS_RESUME;
     if (busy && !g_app.fx_light) gfx_shadow(x, y + 6, I.w, I.h, r, 24, RGBA(0, 0, 0, 0x80));
-    ui_panel(x, y, I.w, I.h, r, busy ? COLOR_ALPHA(THEME_PANEL, 0xF4) : COLOR_ALPHA(THEME_BG, 0xB0));
-    gfx_rrect_ring(x, y, I.w, I.h, r, 1, busy ? COLOR_ALPHA(THEME_TEXT, 0x22) : THEME_LINE);
+    if (busy || g_theme.id != THEME_APERTURE) {   /* Aperture's resting clock is bare type, as its mockups set it */
+        ui_panel(x, y, I.w, I.h, r, busy ? COLOR_ALPHA(THEME_PANEL, 0xF4) : COLOR_ALPHA(THEME_BG, 0xB0));
+        gfx_rrect_ring(x, y, I.w, I.h, r, 1, busy ? COLOR_ALPHA(THEME_TEXT, 0x22) : THEME_LINE);
+    }
 
     /* the content is laid out at the pill's new size and shows through as it grows into it */
     float a = (g_app.time - I.kind_at) / 0.18f, near = 1 - fabsf(I.w - tw) / 200;

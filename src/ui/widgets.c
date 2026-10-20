@@ -1037,6 +1037,15 @@ float ui_focus_scale(float focus)
     return s;
 }
 
+static int drift_on(void) { return !g_app.fx_light && !g_app.low_memory; }
+
+void ui_aperture_drift_tick(void)
+{
+    static int step;
+    int s = (int)(g_app.time * 8);   /* eight frames a second is enough for a pan this slow */
+    if (drift_on() && s != step) { step = s; app_redraw(); }
+}
+
 void ui_aperture_art(const char *url, float x, float y, float w, float h, float alpha)
 {
     int iw = 0, ih = 0;
@@ -1045,6 +1054,11 @@ void ui_aperture_art(const char *url, float x, float y, float w, float h, float 
     if (tex && iw > 0 && ih > 0) {
         float u0, v0, u1, v1;
         cover_uv(iw, ih, w, h, &u0, &v0, &u1, &v1);
+        if (drift_on()) {   /* a slow pan across a slightly closer crop, a minute each way */
+            float uw = (u1 - u0) * 0.94f, vh = (v1 - v0) * 0.94f, ph = 0.5f + 0.5f * sinf((float)g_app.time * 0.05f);
+            u0 += (u1 - u0 - uw) * ph; u1 = u0 + uw;
+            v0 += (v1 - v0 - vh) * 0.5f; v1 = v0 + vh;
+        }
         gfx_rtex_uv(tex, x, y, w, h, 2, u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * alpha)), 0);
     }
 }

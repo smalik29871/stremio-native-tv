@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Aperture shows a title's tagline from TMDB (with a TMDB key) on the Home hero and the
+  title page, as its mockups do: "Fear can hold you prisoner. Hope can set you free."
+- Aperture's artwork drifts slowly across the hero and the title page (a minute each
+  way, about eight frames a second; off with Light effects or low memory).
+- Aperture's corner clock is bare type, without the pill, on every screen and in the
+  player; notices and progress still take the pill.
+- Aperture's Up Next card: a coral "Up next", the episode in the serif, the countdown
+  as a thin line under the still, and an ivory Play now.
+
 ## 0.10.32
 
 - **Colour palettes** (Settings > Interface > Look): six ready-made pairs of an accent and

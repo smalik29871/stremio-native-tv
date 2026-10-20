@@ -556,6 +556,7 @@ static float facts_height(const Detail *d);
 
 static void update(Screen *s, float dt)
 {
+    if (g_theme.id == THEME_APERTURE) ui_aperture_drift_tick();
     Detail *d = s->st;
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
     int n_cast = cast_count(d, tm);
@@ -986,6 +987,7 @@ static void draw(Screen *s)
         if (d->preview.imdb_rating && *d->preview.imdb_rating) { snprintf(imdb, sizeof imdb, "IMDb %s", d->preview.imdb_rating); parts[4] = imdb; }
         ui_slash_line(parts, 5, x, y, FONT_S, THEME_TEXT);
         y += 52;
+        if (tm && tm->tagline[0]) y += font_draw_wrapped(tm->tagline, x, y, FONT_M, THEME_TEXT, 680, 2) * font_height(FONT_M) + 14;
         if (d->preview.description && !series)
             y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, 680, 3) * font_height(FONT_S) + 30;
     } else {

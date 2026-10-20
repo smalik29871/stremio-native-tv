@@ -12,6 +12,7 @@ typedef struct TmdbInfo {
     int tmdb_id;
     int collection_id;      /* the franchise the film belongs to, 0 none */
     char trailer_yt[16];    /* a YouTube trailer TMDB lists (official first), "" none */
+    char tagline[160];      /* the line it is sold on ("A signal from the deep."), "" none */
     char collection[96];
     int stinger;            /* a scene during (1) or after (2) the credits, both 3; films, from TMDB's keywords */
 } TmdbInfo;

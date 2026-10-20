@@ -12,6 +12,7 @@
 #include "../store.h"
 #include "font.h"
 #include "../newep.h"
+#include "../tmdb.h"
 #include "theme.h"
 #include "bgtrailer.h"
 #include "widgets.h"
@@ -406,6 +407,7 @@ static void note_first_view(Home *h)
 
 static void update(Screen *s, float dt)
 {
+    if (g_theme.id == THEME_APERTURE) ui_aperture_drift_tick();
     Home *h = s->st;
     if (g_app.time > 4) note_first_view(h);
     if (h->addons_seen != g_app.addons_version || h->rows_seen != g_app.home_rows_version) rebuild_rows(h);
@@ -541,7 +543,9 @@ static void draw_hero(Home *h, const MetaPreview *p)
         const char *type = p->type && !strcmp(p->type, "series") ? "Series" : p->type && !strcmp(p->type, "movie") ? "Film" : p->type;
         const char *parts[3] = { p->release_info, p->runtime, p->genres.n ? p->genres.v[0] : type };
         ui_slash_line(parts, 3, LX, 424, FONT_S, COLOR_ALPHA(THEME_TEXT, a));
-        if (p->description) font_draw_wrapped(p->description, LX, 476, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), 640, 2);
+        const TmdbInfo *tm = tmdb_get(p->id, p->type);
+        if (tm && tm->tagline[0]) font_draw_wrapped(tm->tagline, LX, 472, FONT_M, COLOR_ALPHA(THEME_TEXT, a), 640, 2);
+        else if (p->description) font_draw_wrapped(p->description, LX, 476, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), 640, 2);
         int series = p->type && !strcmp(p->type, "series");
         float bw = ui_aperture_button(series ? "Watch series" : "Watch film", ICON_PLAY, LX, 562, 1, 0);
         ui_aperture_button("More details", -1, LX + bw + 46, 562, 0, 0);

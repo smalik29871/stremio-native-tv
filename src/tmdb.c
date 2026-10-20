@@ -121,6 +121,8 @@ static void parse_details(Slot *s, const char *json)
         if (cJSON_IsNumber(id) && id->valueint == 179431) s->info.stinger |= 1;   /* "duringcreditsstinger" */
         if (cJSON_IsNumber(id) && id->valueint == 179430) s->info.stinger |= 2;   /* "aftercreditsstinger" */
     }
+    const cJSON *tag = cJSON_GetObjectItemCaseSensitive(root, "tagline");
+    snprintf(s->info.tagline, sizeof s->info.tagline, "%s", cJSON_IsString(tag) ? tag->valuestring : "");
     s->info.tmdb_id = s->tmdb_id;
     cJSON_Delete(root);
     s->info.state = 2;
