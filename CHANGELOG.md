@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.31
 
 - Fix an out-of-bounds read when a title from an addon ends partway through a UTF-8
   character: upper-casing it (Aperture titles, Marquee and Signal headings) read past
