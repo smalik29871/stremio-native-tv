@@ -59,6 +59,7 @@ typedef struct {
     char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
     /* About */
     float scroll, scroll_v, age, facts_h;
+    char pre_id[160]; float pre_since;   /* the video whose sources are asked ahead, and since when it has been the one */
     int cast_focus, sim_focus, fr_focus, fr_opening; unsigned fr_gen;
     float cast_x, sim_x, fr_x;
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
@@ -554,6 +555,16 @@ static void update(Screen *s, float dt)
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
     if (d->ask_open) { d->ask_t = ui_ease(d->ask_t * 100, 100, NULL, dt, 14) / 100; if (d->ask_t < 0.999f || d->ask_req) app_redraw(); }
     if (d->loading) app_redraw();
+    {   /* the sources Play would open, asked once the focus rests: they are in by the press */
+        const char *pre = NULL;
+        if (d->has_meta && d->age > 0.8f) {
+            if (d->meta.n_videos > 0 && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) pre = d->meta.videos[d->ep_index[d->ep_focus]].id;
+            else if (d->resume_label[0] && !d->resume_url[0]) pre = d->resume_video;
+            else if (d->meta.n_videos == 0) pre = d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
+        }
+        if (pre && strcmp(pre, d->pre_id)) { snprintf(d->pre_id, sizeof d->pre_id, "%s", pre); d->pre_since = g_app.time; }
+        else if (pre && g_app.time - d->pre_since > 0.8f) streams_prefetch(&d->preview, pre);
+    }
     if (d->scroll < 60 && !d->ask_open) bgtrailer_want(d->preview.id, SNTV_UI_H, 2.5f);   /* not under About, where the backdrop dims */
     /* prefetch upcoming thumbnails */
     for (int k = d->ep_focus; k < d->n_eps && k < d->ep_focus + 6; k++) {

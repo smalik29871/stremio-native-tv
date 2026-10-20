@@ -20,6 +20,15 @@
   player can switch over when it's ready.
 - **My TorBox videos.** Settings > API keys > My TorBox videos lists everything in your
   TorBox (torrents, usenet, web downloads), and OK plays it.
+- **Your TorBox copy first.** When your TorBox already holds the title (a film by its
+  name and year, an episode by its name and SxxEyy), it heads the sources as "Your
+  copy", is the recommended one, and Play starts it straight away with no race against
+  other sources. It opens through TorBox's direct file link, one hop less than before.
+- **Quicker, smoother starts.** Resting on a title page (or an episode) asks the addons
+  for its sources ahead, so Play opens on them already in. While a film starts, the
+  screen shows its artwork, logo and what is happening (Starting, Getting it from
+  TorBox, Finding peers) with a progress line, then fades into the picture instead of
+  a black screen with a spinner.
 - **Keys stay out of the log.** Link tokens are written as `token=***` in app.log.
 
 ## 0.10.22

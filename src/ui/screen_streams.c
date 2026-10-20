@@ -146,9 +146,16 @@ static int same_release(const Streams *st, const Stream *s)
     return g[0] && !strcasecmp(g, st->chain.group) && (st->chain.addon_order < 0 || s->addon_order == st->chain.addon_order);
 }
 
+/* a video in your own TorBox (it heads the list) */
+static int is_mine(const Stream *s) { return s->addon_order == -1 && s->addon_name && !strcmp(s->addon_name, "My TorBox"); }
+/* a torrent TorBox has cached (it plays from there, right after your own) */
+static int from_torbox(const Stream *s) { return !s->url && s->info_hash && torbox_hash_cached(s->info_hash); }
+
 static long rank(const Streams *st, const Stream *s)
 {
     long r = g_app.quality_mode == QUAL_ADDON_ORDER ? s->addon_order * 10L : (200000L - s->score) * 10L + s->addon_order;
+    if (is_mine(s)) r -= 80000000L;
+    else if (from_torbox(s)) r -= 40000000L;
     if (is_p2p(s)) r += 5000000L;                      /* after every cached or direct link */
     if (s->tags.cached < 0) r += 6000000L;             /* needs a debrid download first: after P2P */
     if (!playable(s)) r += 100000000L;
@@ -276,6 +283,8 @@ static void sort_items(Streams *st)
         Stream *s = &st->items[i];
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
         { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; }
+        if (is_mine(s)) s->score += 1500;           /* your TorBox first: it is what you chose to keep */
+        else if (from_torbox(s)) s->score += 600;
         if (rule_broken(s)) s->score -= 2000;                            /* Settings > Sources > Rules */
         if (s->url) s->score -= srchealth_penalty(s->url, s->addon_name);   /* servers that keep failing here, at this hour */
         if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */
@@ -302,7 +311,7 @@ static void play_from(Streams *st, int index);
 /* Parse one addon's answer into `items`; returns how many were added. */
 static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
 {
-    const char *addon_name = addon < g_app.n_addons ? g_app.addons[addon].manifest.name : "addon";
+    const char *addon_name = addon < 0 ? "My TorBox" : addon < g_app.n_addons ? g_app.addons[addon].manifest.name : "addon";
     ParsedStreams *ps = r->parsed;   /* parsed and tagged on the network thread */
     if (r->status != 200 || !ps) {
         LOGW("streams: %s failed (%ld %s)", addon_name, r->status, r->error);
@@ -345,8 +354,34 @@ static void on_streams(HttpResponse *r, void *user)
     autoplay_check(st);
 }
 
-static void query_addons(const char *type, const char *video_id, Streams *owner, unsigned generation, HttpCallback cb, int *pending, int *n_reqs)
+/* Your TorBox, asked like one more addon: the videos there that are this title */
+typedef struct { char type[16], video_id[160], name[256], year[8]; } LibAsk;
+
+static void library_task(HttpResponse *r, void *arg)
 {
+    LibAsk *a = arg;
+    ParsedStreams *ps = calloc(1, sizeof *ps);
+    ps->n = torbox_library_streams(a->type, a->video_id, a->name, a->year[0] ? a->year : NULL, &ps->s);
+    r->status = 200;
+    r->parsed = ps;
+    free(a);
+}
+
+static void query_addons(const MetaPreview *meta, const char *video_id, Streams *owner, unsigned generation, HttpCallback cb, int *pending, int *n_reqs)
+{
+    const char *type = meta->type;
+    if (torbox_enabled() && meta->name && type) {
+        LibAsk *a = calloc(1, sizeof *a);
+        snprintf(a->type, sizeof a->type, "%s", type);
+        snprintf(a->video_id, sizeof a->video_id, "%s", video_id);
+        snprintf(a->name, sizeof a->name, "%s", meta->name);
+        if (meta->release_info) snprintf(a->year, sizeof a->year, "%.4s", meta->release_info);
+        Pending *p = malloc(sizeof *p);
+        p->owner = owner; p->addon = -1; p->generation = generation;
+        (*pending)++;
+        if (n_reqs) (*n_reqs)++;
+        http_task_async("torbox library", library_task, a, cb, p);
+    }
     for (int i = 0; i < g_app.n_addons; i++) {
         if (!addon_supports(&g_app.addons[i], "stream", type, video_id)) continue;
         char url[1024];
@@ -359,7 +394,7 @@ static void query_addons(const char *type, const char *video_id, Streams *owner,
     }
 }
 
-static void query(Streams *st) { query_addons(st->meta.type, st->video_id, st, g_generation, on_streams, &st->pending, &st->n_reqs); }
+static void query(Streams *st) { query_addons(&st->meta, st->video_id, st, g_generation, on_streams, &st->pending, &st->n_reqs); }
 
 static void prefetch_clear(void)
 {
@@ -395,7 +430,7 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id)
     prefetch_clear();
     g_pre.video_id = strdup(video_id);
     g_pre.started = g_app.time;
-    query_addons(meta->type, video_id, NULL, g_pre.generation, on_prefetch, &g_pre.pending, NULL);
+    query_addons(meta, video_id, NULL, g_pre.generation, on_prefetch, &g_pre.pending, NULL);
     g_pre.total = g_pre.pending;
     LOGI("streams: prefetching %s from %d addon%s", video_id, g_pre.pending, g_pre.pending == 1 ? "" : "s");
     if (!g_pre.pending) prefetch_clear();
@@ -703,7 +738,7 @@ static void draw(Screen *s)
         font_draw_fit(line2, ax, ry + 98, FONT_XS, ok ? THEME_TEXT_DIM : THEME_TEXT_MUTED, w - 48);
         char p2p[48];
         if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this TV"); }
-        const char *flag = sm->info_hash ? (!sm->url && torbox_hash_cached(sm->info_hash) ? "From your TorBox" : g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
+        const char *flag = is_mine(sm) ? "In your TorBox" : sm->info_hash ? (from_torbox(sm) ? "From your TorBox" : g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
         if (same_release(st, sm)) flag = "Same release";
         if (flag) {
             Color fc = !ok ? THEME_DANGER : THEME_OK;
@@ -920,7 +955,7 @@ static void play_from(Streams *st, int index)
     char next_id[128] = "", next_title[200] = "";
     int has_next = app_next_video(st->meta.id, st->video_id, next_id, sizeof next_id, next_title, sizeof next_title);
     /* no race for the next episode's same-release source: it plays as matched */
-    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st) && !same_release(st, &st->items[index]));
+    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st) && !same_release(st, &st->items[index]) && !is_mine(&st->items[index]));   /* your own copy: no race either */
 }
 
 /* ---- a quiet lookup for the player ---- */
@@ -972,7 +1007,7 @@ void streams_lookup(const MetaPreview *meta, const char *video_id, StreamsLookup
     g_look.cb = cb; g_look.user = user;
     g_look.started = g_app.time;
     g_look.generation += 1000;
-    query_addons(meta->type, video_id, NULL, g_look.generation, on_lookup, &g_look.pending, NULL);
+    query_addons(meta, video_id, NULL, g_look.generation, on_lookup, &g_look.pending, NULL);
     if (!g_look.pending) lookup_finish();
 }
 

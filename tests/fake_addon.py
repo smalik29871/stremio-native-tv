@@ -535,7 +535,7 @@ class H(BaseHTTPRequestHandler):
                     {"id": "eng2", "url": f"{BASE}/sub.srt", "lang": "eng"}, {"id": "por1", "url": f"{BASE}/sub.srt", "lang": "por"}]
             return self.send(200, json.dumps({"subtitles": subs}).encode())
         if p.startswith("/video/"):
-            name = os.path.basename(p)
+            name = os.path.basename(p.split("?torbox=")[0])   # TorBox links carry their id
             path = os.path.join(MEDIA_DIR, name)
             if not os.path.isfile(path):
                 return self.send(404, b"")
@@ -620,10 +620,17 @@ class H(BaseHTTPRequestHandler):
                     {"id": 41, "name": "Fireplace 4K", "files": [
                         {"id": 0, "short_name": "fireplace.mp4", "mimetype": "video/mp4", "size": 734003200},
                         {"id": 1, "short_name": "readme.txt", "mimetype": "text/plain", "size": 12}]},
-                    {"id": 42, "name": "Adhan", "files": [{"id": 3, "short_name": "adhan.mkv", "mimetype": "video/x-matroska", "size": 52428800}]}]}).encode())
+                    {"id": 42, "name": "Adhan", "files": [{"id": 3, "short_name": "adhan.mkv", "mimetype": "video/x-matroska", "size": 52428800}]},
+                    {"id": 43, "name": "The.Shawshank.Redemption.1994.1080p.BluRay", "files": [
+                        {"id": 5, "short_name": "The.Shawshank.Redemption.1994.1080p.BluRay.x264.mkv", "mimetype": "video/x-matroska", "size": 8589934592}]},
+                    {"id": 44, "name": "The Shawshank Redemption 2031 remake", "files": [
+                        {"id": 6, "short_name": "Shawshank.Redemption.2031.2160p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]}]}).encode())
             if "/requestdl" in q:
-                if "token=tbkey" not in q or "redirect=true" not in q:
+                if "token=tbkey" not in q:
                     return self.send(403, b'{"success":false}')
+                if "redirect=true" not in q:   # the file's own link, as JSON
+                    tid = q.split("_id=")[1].split("&")[0]
+                    return self.send(200, json.dumps({"success": True, "data": f"{BASE}/video/sample_h264_aac.mkv?torbox={tid}"}).encode())
                 self.send_response(302)
                 self.send_header("Location", f"{BASE}/video/sample_h264_aac.mp4?torbox=1")
                 self.send_header("Content-Length", "0")

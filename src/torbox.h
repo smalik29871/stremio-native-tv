@@ -13,7 +13,7 @@ const char *torbox_resolve(const char *stored, char *out, size_t n);
 /* The file's name from a stored pick, for showing it. */
 const char *torbox_name(const char *stored, char *out, size_t n);
 
-typedef struct { char link[600]; char name[256]; double size_mb; } TorboxFile;
+typedef struct { char link[600]; char name[256]; char item[256]; double size_mb; } TorboxFile;   /* item: the torrent's (or download's) name */
 /* Every video file in your TorBox (torrents, usenet, web downloads), on the main thread;
  * files is NULL with a reason when nothing could be read. */
 typedef void (*TorboxListCb)(const TorboxFile *files, int n, const char *error, void *user);
@@ -34,6 +34,10 @@ char *torbox_hash_link(const char *info_hash, int file_idx);   /* malloc'd */
  * url is NULL with the reason when TorBox does not have it ready. */
 typedef void (*TorboxOpenCb)(const char *url, const char *error, void *user);
 void torbox_open_hash(const char *link, TorboxOpenCb cb, void *user);
+/* On a network thread: the videos in your TorBox that are this title (a film by its name
+ * and year, an episode by its name and SxxEyy), as sources; the list is kept 5 minutes.
+ * Returns how many (*out malloc'd, NULL when none). */
+int  torbox_library_streams(const char *type, const char *video_id, const char *name, const char *year, struct Stream **out);
 /* Starts TorBox downloading a torrent this TV is playing over P2P, so it can switch back. */
 void torbox_queue_hash(const char *info_hash);
 #endif

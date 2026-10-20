@@ -6,6 +6,7 @@
 #include "addon/addon.h"
 #include <ctype.h>
 #include <pthread.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,13 +45,21 @@ static const char *id_param(const char *type)
     return !strcmp(type, "usenet") ? "usenet_id" : !strcmp(type, "webdl") ? "web_id" : "torrent_id";
 }
 
+static const char *resolve_key(const char *stored, const char *k, char *out, size_t n);
+static char *direct_link(const char *permanent);
+
 const char *torbox_resolve(const char *stored, char *out, size_t n)
 {
     if (!torbox_is_link(stored) || !torbox_enabled()) return NULL;
+    return resolve_key(stored, key(), out, n);
+}
+
+static const char *resolve_key(const char *stored, const char *k, char *out, size_t n)
+{
     char type[16]; long item = 0, file = 0;
     if (sscanf(stored + 9, "%15[a-z]/%ld/%ld", type, &item, &file) != 3) return NULL;
     char enc[256];
-    http_url_encode(key(), enc, sizeof enc);
+    http_url_encode(k, enc, sizeof enc);
     snprintf(out, n, "%s/%s/requestdl?token=%s&%s=%ld&file_id=%ld&redirect=true", base(), type, enc, id_param(type), item, file);
     return out;
 }
@@ -95,6 +104,8 @@ static void on_list(HttpResponse *r, void *user)
             if (j->n == j->cap) { j->cap = j->cap ? j->cap * 2 : 32; j->files = realloc(j->files, sizeof *j->files * (size_t)j->cap); }
             TorboxFile *t = &j->files[j->n++];
             snprintf(t->name, sizeof t->name, "%s", nm->valuestring);
+            const cJSON *in = cJSON_GetObjectItemCaseSensitive(item, "name");
+            snprintf(t->item, sizeof t->item, "%s", cJSON_IsString(in) ? in->valuestring : "");
             snprintf(t->link, sizeof t->link, "torbox://%s/%.0f/%.0f/%s", type, id->valuedouble, fid->valuedouble, nm->valuestring);
             t->size_mb = cJSON_IsNumber(sz) ? sz->valuedouble / 1048576.0 : 0;
         }
@@ -269,9 +280,10 @@ static void open_task(HttpResponse *out, void *arg)
         key_copy(k, sizeof k);
         http_url_encode(k, enc, sizeof enc);
         snprintf(link, sizeof link, "%s/torrents/requestdl?token=%s&torrent_id=%ld&file_id=%ld&redirect=true", base(), enc, tid, fid);
+        char *direct = direct_link(link);
         out->status = 200;
-        out->body = strdup(link);
-        out->len = strlen(link);
+        out->body = direct ? direct : strdup(link);
+        out->len = strlen(out->body);
     }
     cJSON_Delete(root);
     http_response_free(&r);
@@ -314,4 +326,158 @@ void torbox_queue_hash(const char *info_hash)
     if (!info_hash || !torbox_enabled()) return;
     char *h = malloc(41); norm_hash(info_hash, h);
     http_task_async("torbox add", queue_task, h, on_queued, h);
+}
+
+/* ---- your TorBox as a source ----------------------------------------------------------- */
+
+static struct { TorboxFile *files; int n; time_t at; char key[160]; } g_lib;   /* under g_lock */
+
+/* every video in your TorBox, blocking (a network thread), from the list kept 5 minutes */
+static int library(TorboxFile **out)
+{
+    char k[160]; key_copy(k, sizeof k);
+    if (!k[0]) return 0;
+    pthread_mutex_lock(&g_lock);
+    if (g_lib.files && time(NULL) - g_lib.at < 300 && !strcmp(g_lib.key, k)) {
+        *out = malloc(sizeof **out * (size_t)(g_lib.n ? g_lib.n : 1));
+        memcpy(*out, g_lib.files, sizeof **out * (size_t)g_lib.n);
+        int n = g_lib.n;
+        pthread_mutex_unlock(&g_lock);
+        return n;
+    }
+    pthread_mutex_unlock(&g_lock);
+    TorboxFile *files = NULL; int n = 0, cap = 0, ok = 0;
+    char hdr[220]; auth_header(hdr, sizeof hdr);
+    for (int t = 0; t < 3; t++) {
+        char url[300];
+        snprintf(url, sizeof url, "%s/%s/mylist?bypass_cache=true&limit=1000", base(), TYPES[t]);
+        HttpOptions o = { .timeout_s = 8, .headers = hdr };
+        HttpResponse r;
+        http_request_ex(url, &o, &r);
+        if (r.status == 200 || r.status == 404) ok = 1;
+        cJSON *root = r.status == 200 && r.body ? cJSON_Parse(r.body) : NULL;
+        const cJSON *item, *file;
+        cJSON_ArrayForEach(item, cJSON_GetObjectItemCaseSensitive(root, "data")) {
+            const cJSON *id = cJSON_GetObjectItemCaseSensitive(item, "id"), *in = cJSON_GetObjectItemCaseSensitive(item, "name");
+            if (!cJSON_IsNumber(id)) continue;
+            cJSON_ArrayForEach(file, cJSON_GetObjectItemCaseSensitive(item, "files")) {
+                const cJSON *fid = cJSON_GetObjectItemCaseSensitive(file, "id"), *nm = cJSON_GetObjectItemCaseSensitive(file, "short_name"), *sz = cJSON_GetObjectItemCaseSensitive(file, "size");
+                if (!cJSON_IsNumber(fid) || !cJSON_IsString(nm) || !is_video(file)) continue;
+                if (n == cap) { cap = cap ? cap * 2 : 32; files = realloc(files, sizeof *files * (size_t)cap); }
+                TorboxFile *f = &files[n++];
+                snprintf(f->name, sizeof f->name, "%s", nm->valuestring);
+                snprintf(f->item, sizeof f->item, "%s", cJSON_IsString(in) ? in->valuestring : "");
+                snprintf(f->link, sizeof f->link, "torbox://%s/%.0f/%.0f/%s", TYPES[t], id->valuedouble, fid->valuedouble, nm->valuestring);
+                f->size_mb = cJSON_IsNumber(sz) ? sz->valuedouble / 1048576.0 : 0;
+            }
+        }
+        cJSON_Delete(root);
+        http_response_free(&r);
+    }
+    if (!ok) { free(files); return 0; }
+    pthread_mutex_lock(&g_lock);
+    free(g_lib.files);
+    g_lib.files = files; g_lib.n = n; g_lib.at = time(NULL);
+    snprintf(g_lib.key, sizeof g_lib.key, "%s", k);
+    *out = malloc(sizeof **out * (size_t)(n ? n : 1));
+    if (n) memcpy(*out, files, sizeof **out * (size_t)n);
+    pthread_mutex_unlock(&g_lock);
+    return n;
+}
+
+/* The file's own download link (requestdl without the redirect): the TV opens it directly,
+ * one hop less than the permanent link. Blocking; NULL when TorBox did not give one. */
+static char *direct_link(const char *permanent)
+{
+    char url[900];
+    snprintf(url, sizeof url, "%s", permanent);
+    char *r = strstr(url, "&redirect=true");
+    if (r) memmove(r, r + 14, strlen(r + 14) + 1);
+    HttpOptions o = { .timeout_s = 8 };
+    HttpResponse resp;
+    http_request_ex(url, &o, &resp);
+    cJSON *root = resp.status == 200 && resp.body ? cJSON_Parse(resp.body) : NULL;
+    const cJSON *d = cJSON_GetObjectItemCaseSensitive(root, "data");
+    char *out = cJSON_IsString(d) && !strncmp(d->valuestring, "http", 4) ? strdup(d->valuestring) : NULL;
+    cJSON_Delete(root);
+    http_response_free(&resp);
+    return out;
+}
+
+/* lowercase words separated by single spaces, with a space at each end: " the matrix 1999 " */
+static void words(const char *in, char *out, size_t n)
+{
+    size_t o = 0;
+    if (n < 3) { if (n) out[0] = 0; return; }
+    out[o++] = ' ';
+    for (const unsigned char *p = (const unsigned char *)in; *p && o + 2 < n; p++) {
+        if (*p == '\'') continue;   /* "Schindler's" matches "Schindlers" */
+        if (isalnum(*p) || *p >= 0x80) out[o++] = (char)tolower(*p);
+        else if (out[o - 1] != ' ') out[o++] = ' ';
+    }
+    if (out[o - 1] != ' ') out[o++] = ' ';
+    out[o] = 0;
+}
+
+/* S02E03, s2e3, 2x03: 1 when the text names this episode */
+static int names_episode(const char *w, int season, int episode)
+{
+    for (const char *p = w; *p; p++) {
+        int s, e, len = 0;
+        if ((sscanf(p, "s%de%d%n", &s, &e, &len) == 2 || sscanf(p, "%dx%d%n", &s, &e, &len) == 2) && (p == w || p[-1] == ' ') && s == season && e == episode) return 1;
+    }
+    return 0;
+}
+
+/* the first year in the text (1900..2099), or 0 */
+static int year_in(const char *w)
+{
+    for (const char *p = w; *p; p++)
+        if ((p == w || p[-1] == ' ') && (p[0] == '1' || p[0] == '2') && isdigit((unsigned char)p[1]) && isdigit((unsigned char)p[2]) && isdigit((unsigned char)p[3]) && p[4] == ' ') {
+            int y = atoi(p);
+            if (y >= 1900 && y < 2100) return y;
+        }
+    return 0;
+}
+
+int torbox_library_streams(const char *type, const char *video_id, const char *name, const char *year, Stream **out)
+{
+    *out = NULL;
+    if (!name || !*name || !video_id) return 0;
+    int series = type && !strcmp(type, "series"), season = 0, episode = 0;
+    if (series) { const char *c = strchr(video_id, ':'); if (!c || sscanf(c, ":%d:%d", &season, &episode) != 2) return 0; }
+    TorboxFile *files = NULL;
+    int n = library(&files), got = 0;
+    char title[300];
+    words(name, title, sizeof title);
+    int want_year = year ? atoi(year) : 0;
+    for (int i = 0; i < n; i++) {
+        char fw[600], iw[600];
+        words(files[i].name, fw, sizeof fw);
+        words(files[i].item, iw, sizeof iw);
+        if (!strstr(fw, title) && !strstr(iw, title)) continue;   /* the title's words, together */
+        if (series && !names_episode(fw, season, episode) && !names_episode(iw, season, episode)) continue;
+        if (!series && want_year) {   /* a remake is not the film: when a year is written, it is this one (or one off) */
+            int y = year_in(fw); if (!y) y = year_in(iw);
+            if (y && (y < want_year - 1 || y > want_year + 1)) continue;
+        }
+        char url[800];
+        char k[160]; key_copy(k, sizeof k);
+        if (!resolve_key(files[i].link, k, url, sizeof url)) continue;
+        *out = realloc(*out, sizeof **out * (size_t)(got + 1));
+        Stream *s = &(*out)[got++];
+        memset(s, 0, sizeof *s);
+        char *direct = direct_link(url);
+        s->url = direct ? direct : strdup(url);
+        s->name = strdup("Your copy");
+        s->title = strdup(files[i].name);
+        s->filename = strdup(files[i].name);
+        s->file_idx = -1;
+        s->video_size = (uint64_t)(files[i].size_mb * 1048576.0);
+        quality_parse(s->name, s->title, NULL, s->filename, s->video_size, &s->tags);
+        s->tags.cached = 1;
+    }
+    free(files);
+    if (got) LOGI("torbox: %d of your videos match%s %s", got, got == 1 ? "es" : "", video_id);
+    return got;
 }

@@ -58,6 +58,7 @@ struct Player {
     int tries;
     uint64_t tried;                         /* sources already started here (bit per index, first 64) */
     int started;                            /* this source has shown a picture (the clock moved) */
+    float veil;                             /* the title's artwork over the screen until the first picture, then fading */
     int thumbs_warm;                        /* a first seek preview asked for, so the keyframe index is ready before the first seek */
     int p2p_peers, p2p_info;                /* the P2P engine's last word on this torrent */
     float p2p_recheck_in;     /* playing P2P: when to ask the addons again whether TorBox has it */
@@ -1627,6 +1628,8 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    if (p->veil > 0 && (p->started || error_final(p, &vi))) { p->veil -= dt * 2.5f; if (p->veil < 0) p->veil = 0; app_redraw(); }
+    else if (p->veil > 0) app_redraw();   /* its progress line moves */
     /* the first seek would wait seconds for the keyframe index: read it now, once playback
      * has settled, with one preview a minute ahead (not for P2P: the index sits at the end
      * of the file, which a torrent would then fetch first) */
@@ -2232,6 +2235,47 @@ static int error_final(const Player *p, const VideoInfo *vi)
     return vi->state == VIDEO_ERROR && p->error_handled && next_candidate(p) < 0;
 }
 
+/* Until the first picture: the title's artwork and name, with what is happening, instead
+ * of a black screen; it fades into the video once that plays. */
+static void draw_veil(Player *p, const VideoInfo *vi)
+{
+    float k = p->veil;
+    char buf[512], lbuf[512];
+    const char *bg = app_art_background(&p->meta, buf, sizeof buf);
+    int iw, ih;
+    unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(255 * k)));
+    if (bgt) {
+        float ia = (float)iw / ih, sa = (float)SNTV_UI_W / SNTV_UI_H, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+        if (ia > sa) { float c = sa / ia; u0 = (1 - c) / 2; u1 = 1 - u0; } else { float c = ia / sa; v0 = (1 - c) / 2; v1 = 1 - v0; }
+        float z = 1.0f + 0.04f * (g_app.time - p->load_started < 8 ? (g_app.time - p->load_started) / 8 : 1);   /* a slow push in */
+        float cu = (u0 + u1) / 2, cv = (v0 + v1) / 2; u0 = cu - (cu - u0) / z; u1 = cu + (u1 - cu) / z; v0 = cv - (cv - v0) / z; v1 = cv + (v1 - cv) / z;
+        gfx_tex_uv(bgt, 0, 0, SNTV_UI_W, SNTV_UI_H, u0, v0, u1, v1, RGBA(150, 150, 150, (int)(255 * k)));
+    }
+    gfx_gradient_v(0, SNTV_UI_H * 0.45f, SNTV_UI_W, SNTV_UI_H * 0.55f, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0xE0 * k)));
+    float x = THEME_MARGIN, y = SNTV_UI_H - 300;
+    const char *logo = app_art_logo(&p->meta, lbuf, sizeof lbuf);
+    unsigned lt = logo ? image_get(logo, &iw, &ih) : 0;
+    Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * k));
+    if (lt && ih > 0) {
+        float w = 520, h = w * ih / iw;
+        if (h > 150) { h = 150; w = h * iw / ih; }
+        gfx_tex(lt, x, y + 150 - h, w, h, RGBA(255, 255, 255, (int)(255 * k)));
+    } else font_draw_fit(p->title ? p->title : "", x, y + 80, FONT_XL | FONT_B, fg, SNTV_UI_W - 2 * x);
+    const char *url = p->cur < p->n_cands ? p->cands[p->cur].url : "";
+    const char *what = torbox_is_hash_link(url) ? "Getting it from TorBox" : torrent_engine_url_is(url) ? "Finding peers"
+                     : vi->buffering || vi->state == VIDEO_PLAYING ? "Buffering" : "Starting";
+    char line[200];
+    const char *label = p->cur < p->n_cands && p->cands[p->cur].label ? p->cands[p->cur].label : "";
+    snprintf(line, sizeof line, "%s%s%s", what, label[0] ? "  \xC2\xB7  " : "", label);
+    ui_spinner(x + 16, y + 196, 14);
+    font_draw_fit(line, x + 44, y + 196 - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, (int)(255 * k)), SNTV_UI_W - 2 * x - 44);
+    /* a thin line that fills as the pipeline gets ready (no promise of how long) */
+    float bw = SNTV_UI_W - 2 * x, t = g_app.time - p->load_started, f = vi->buffer_percent > 0 ? vi->buffer_percent / 100.0f : 1 - 1 / (1 + t * 0.35f);
+    gfx_rect(x, y + 236, bw, 4, COLOR_ALPHA(THEME_TEXT, (int)(0x30 * k)));
+    gfx_rect(x, y + 236, bw * (f > 1 ? 1 : f), 4, COLOR_ALPHA(THEME_ACCENT, (int)(255 * k)));
+}
+
 /* What is on: title, episode, year and runtime, synopsis, cast. Shown once playback has
  * been paused for a moment, in the top-left where the title normally sits. */
 static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
@@ -2310,6 +2354,7 @@ static void draw(Screen *s)
     VideoInfo vi;
     video_info(&vi);
     draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
+    if (p->veil > 0 && !p->pip) { draw_veil(p, &vi); if (p->veil > 0.5f && !p->menu) return; }
     draw_subtitle(p, &vi);
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
@@ -2888,6 +2933,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
 {
     Screen *s = calloc(1, sizeof *s);
     Player *p = calloc(1, sizeof *p);
+    p->veil = 1;
     p->bar_id = BTN_PLAY;
     p->lighter_to = -1;
     p->jumped_at = -100;
