@@ -16,6 +16,14 @@
 - **TorBox sources fail cleanly.** When TorBox can't open the last source, the error
   card shows instead of an endless "Getting it from TorBox", and whatever played before
   stops while TorBox answers.
+- **No wait for addons that stay down.** When only addons left blank earlier are asked
+  again, your collection is used at once; those that answer are saved back without
+  undoing any change you made meanwhile. Blank ones carry a note in the official apps
+  ("did not answer when this account was repaired"), and an addon that is simply empty
+  is never mistaken for one.
+- **Switching to TorBox mid-film keeps your place.** While TorBox opens a source, the
+  one playing keeps playing (only a trailer is stopped), so a TorBox failure carries on
+  from the same moment; P2P keeps playing until TorBox answers.
 - **Less waste.** A title nobody serves is no longer asked for its sources every frame,
   late source answers no longer leak memory, and the old-protocol OpenSubtitles entry
   stays in your account without being asked on every playback.

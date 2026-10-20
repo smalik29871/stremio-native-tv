@@ -54,6 +54,7 @@ typedef struct Addon {
 /* 1 when a descriptor's manifest has what every Stremio app needs to read it back
  * (id, name, version, types, resources) */
 int addon_manifest_complete(const struct cJSON *manifest);
+int addon_is_legacy(const char *transport_url);
 /* Sets `key` on an object, replacing what was there (cJSON_Add* would add a second one) */
 void addon_json_put(struct cJSON *obj, const char *key, struct cJSON *value);
 /* Writes the optional fields older apps expect (description, catalogs) when missing */

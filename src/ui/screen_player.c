@@ -60,6 +60,7 @@ struct Player {
     int started;                            /* this source has shown a picture (the clock moved) */
     float veil;                             /* the title's artwork over the screen until the first picture, then fading */
     char tb_error[160];                     /* TorBox could not open the current source (nothing was loaded to fail) */
+    unsigned own_load;                      /* video_load_count() of this player's last load */
     int thumbs_warm;                        /* a first seek preview asked for, so the keyframe index is ready before the first seek */
     int p2p_peers, p2p_info;                /* the P2P engine's last word on this torrent */
     float p2p_recheck_in;     /* playing P2P: when to ask the addons again whether TorBox has it */
@@ -1135,7 +1136,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->p2p_status[0] = 0;
     p->tb_error[0] = 0;
     if (torbox_is_hash_link(p->cands[idx].url)) {
-        video_stop();             /* whatever played before (a trailer, the failed source) does not stand in for it */
+        if (video_load_count() != p->own_load) video_stop();   /* a trailer still on the plane; this player's own source plays on meanwhile */
         p->error_handled = 1;   /* nothing to watch over until TorBox answers */
         TbReq *q = malloc(sizeof *q);
         q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url);
@@ -1152,6 +1153,7 @@ static void start_candidate(Player *p, int idx, double start)
         torbox_queue_hash(p->cands[idx].url + strlen("http://127.0.0.1:11490/"));   /* your TorBox fetches it meanwhile */
     }
     if (video_load(p->cands[idx].url, p->title, start) != 0) app_toast("Could not start playback");
+    p->own_load = video_load_count();
     push_sub_style(p);   /* re-sent by the backend once the new pipeline has loaded */
     show_overlay(p);
 }
@@ -1375,7 +1377,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
         }
     }
     /* 5. nothing left to try: ask the addons again, twice at most */
-    if (vi->state == VIDEO_ERROR && p->error_handled && next_candidate(p) < 0 && p->reask_count < 2) {
+    if ((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && next_candidate(p) < 0 && p->reask_count < 2) {
         if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 8); LOGI("player: every source failed; asking the addons again shortly"); app_toast("No source plays right now. Asking the addons again in a few seconds"); }
         else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; if (p->more_state == 1) p->more_state = 0; streams_lookup(&p->meta, p->video_id, on_reask, p); }
     }
@@ -1550,7 +1552,7 @@ static void leave_p2p(Player *p, const Stream *s)
     app_toast("TorBox has it again: switched back to the cached copy");
     p->tries = 0;
     start_candidate(p, p->cur, vi.position);
-    torrent_engine_drop(old);   /* its RAM goes now; it comes back if TorBox fails */
+    if (!torbox_is_hash_link(p->cands[p->cur].url)) torrent_engine_drop(old);   /* its RAM goes now; it comes back if TorBox fails (a TorBox link: P2P plays on until it answers) */
     free(old);
 }
 
@@ -1673,7 +1675,7 @@ static void update(Screen *s, float dt)
     if (p->pip) {   /* no Up Next card in the corner: finish quietly and hand the plane back */
         if (vi.state == VIDEO_ENDED || error_final(p, &vi)) {
             report(p, 1);
-            if (vi.state == VIDEO_ENDED) app_toast("Finished: %s", p->title); else app_toast("Couldn't keep playing: %s", vi.error);
+            if (vi.state == VIDEO_ENDED) app_toast("Finished: %s", p->title); else app_toast("Couldn't keep playing: %s", p->tb_error[0] ? p->tb_error : vi.error);
             p->finished = 1;
             p->pip_done = 1;
         }

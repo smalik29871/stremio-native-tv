@@ -275,9 +275,17 @@ void addon_free(Addon *a)
 
 /* ---- capability checks --------------------------------------------------- */
 
+/* Stremio's first addon protocol: an endpoint ending ".../stremio/v1", no manifest.json */
+int addon_is_legacy(const char *transport_url)
+{
+    size_t n = transport_url ? strlen(transport_url) : 0;
+    while (n && transport_url[n - 1] == '/') n--;
+    return n >= 11 && !strncmp(transport_url + n - 11, "/stremio/v1", 11);
+}
+
 int addon_supports(const Addon *a, const char *resource, const char *type, const char *id)
 {
-    if (a->transport_url && strstr(a->transport_url, "/stremio/v1")) return 0;   /* the old protocol (Stremio's first OpenSubtitles): kept for the account, not asked */
+    if (addon_is_legacy(a->transport_url)) return 0;   /* kept for the account, not asked */
     const AddonManifest *m = &a->manifest;
     for (int i = 0; i < m->n_resources; i++) {
         const AddonResource *r = &m->resources[i];

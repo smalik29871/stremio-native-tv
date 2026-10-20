@@ -304,9 +304,15 @@ static unsigned enqueue(const char *url, const char *post_json, const HttpOption
 
 unsigned http_task_async(const char *label, HttpTaskFn task, void *arg, HttpCallback cb, void *user)
 {
+    return http_task_async_ex(label, task, arg, NULL, cb, user);
+}
+
+unsigned http_task_async_ex(const char *label, HttpTaskFn task, void *arg, HttpFreeFn free_parsed, HttpCallback cb, void *user)
+{
     Job *j = calloc(1, sizeof *j);
     j->url = strdup(label);
     j->task = task; j->task_arg = arg;
+    j->opt.free_parsed = free_parsed;
     j->cb = cb; j->user = user;
     SDL_LockMutex(g_qlock);
     j->id = g_next_id++;

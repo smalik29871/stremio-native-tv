@@ -257,6 +257,11 @@ class H(BaseHTTPRequestHandler):
                                                               {"transportUrl": "http://127.0.0.1:1/gone/manifest.json", "manifest": {"id": "org.gone", "name": "Gone", "version": "1.0.0"}, "flags": {}},
                                                               {"transportUrl": "https://opensubtitles.strem.io/stremio/v1", "manifest": {"id": "org.stremio.opensubtitles", "name": "OpenSubtitles", "version": "0.24.0",
                                                                "description": "", "types": [], "resources": [], "catalogs": []}, "flags": {"official": True, "protected": True}}]}}).encode())
+        if p == "/api/addonCollectionGet" and b"blankkey" in body:   # repaired earlier: two addons left blank, one of them answers now
+            note = "Did not answer when this account was repaired; reinstall it if it stays empty"
+            blank = lambda url, i: {"transportUrl": url, "manifest": {"id": i, "name": i, "version": "0.0.0", "description": note, "types": [], "resources": [], "catalogs": []}, "flags": {}}
+            return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": MANIFEST, "flags": {}},
+                                                                    blank(f"{BASE}/tbsrc/manifest.json", "org.sntv.tbsrc"), blank("http://127.0.0.1:1/gone/manifest.json", "org.gone")]}}).encode())
         if p == "/api/addonCollectionGet":   # the account's addons: this fake one
             return self.send(200, json.dumps({"result": {"addons": [{"transportUrl": f"{BASE}/manifest.json", "manifest": MANIFEST, "flags": {}}]}}).encode())
         if p == "/api/datastoreGet":   # the account's library (FAKE_LIBRARY), as the Stremio API answers

@@ -353,6 +353,11 @@ grep -q "addons: 2 of the account's addons were saved without their manifest" "$
   && grep -q "addons: saving the repaired collection (3 addons, 2 fixed, 1 still not answering)" "$OUT/addons_repair.log" && grep -q "addons: the account's collection is repaired" "$OUT/addons_repair.log" \
   && grep -q "addons: 3 loaded" "$OUT/addons_repair.log" && ! grep -q "opensubtitles.strem.io" "$OUT/addons_repair.log" \
   || { echo "the account's addons were not repaired"; grep -E "addons|home" "$OUT/addons_repair.log"; exit 1; }
+# addons left blank by an earlier repair: the collection is used at once, and the one that answers now is saved back
+run addons_reask 300 "wait" HOME="$(home_with reask '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"blankkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
+grep -q "addons: 2 addons had no answer last time; asking again" "$OUT/addons_reask.log" && grep -q "addons: 3 loaded" "$OUT/addons_reask.log" \
+  && grep -q "addons: 1 addon answered again; saving to the account" "$OUT/addons_reask.log" && ! grep -q "addons: not saved to the account" "$OUT/addons_reask.log" \
+  || { echo "blank addons were not asked again"; grep -E "addons" "$OUT/addons_reask.log"; exit 1; }
 run progress_sync 400 "right,ok,down,down,ok,ok" HOME="$(home_with sync '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
 python3 -I - "$FAKE_PUT_LOG" <<'PY' || { echo "progress did not reach the account"; exit 1; }
 import json, re, sys

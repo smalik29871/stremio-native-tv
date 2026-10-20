@@ -60,6 +60,7 @@ static struct {
     int pending, total;
     unsigned generation;
     float started;
+    int addons_version;   /* the addons it was asked of: new ones make it stale */
 } g_pre;
 #define PREFETCH_FRESH_S 600.0f
 
@@ -347,7 +348,7 @@ static void on_streams(HttpResponse *r, void *user)
 {
     Pending *p = user;
     Streams *st = p->owner;
-    if (st != g_live || p->generation != g_generation) { app_free_streams(r->parsed); r->parsed = NULL; free(p); return; }
+    if (st != g_live || p->generation != g_generation) { free(p); return; }
     st->pending--;
     if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
     free(p);
@@ -380,7 +381,7 @@ static void query_addons(const MetaPreview *meta, const char *video_id, Streams 
         p->owner = owner; p->addon = -1; p->generation = generation;
         (*pending)++;
         if (n_reqs) (*n_reqs)++;
-        http_task_async("torbox library", library_task, a, cb, p);
+        http_task_async_ex("torbox library", library_task, a, app_free_streams, cb, p);
     }
     for (int i = 0; i < g_app.n_addons; i++) {
         if (!addon_supports(&g_app.addons[i], "stream", type, video_id)) continue;
@@ -408,7 +409,7 @@ static void prefetch_clear(void)
 static void on_prefetch(HttpResponse *r, void *user)
 {
     Pending *p = user;
-    if (p->generation != g_pre.generation) { app_free_streams(r->parsed); r->parsed = NULL; free(p); return; }
+    if (p->generation != g_pre.generation) { free(p); return; }
     g_pre.pending--;
     Streams *st = g_live && g_live->from_prefetch && g_live->video_id && g_pre.video_id && strcmp(g_live->video_id, g_pre.video_id) == 0 ? g_live : NULL;
     if (st) {   /* the screen for this episode is already open: feed it directly */
@@ -426,14 +427,14 @@ static void on_prefetch(HttpResponse *r, void *user)
 void streams_prefetch(const MetaPreview *meta, const char *video_id)
 {
     if (!video_id || !meta->type) return;
-    if (g_pre.video_id && strcmp(g_pre.video_id, video_id) == 0 && g_app.time - g_pre.started < PREFETCH_FRESH_S) return;
+    if (g_pre.video_id && strcmp(g_pre.video_id, video_id) == 0 && g_app.time - g_pre.started < PREFETCH_FRESH_S && g_pre.addons_version == g_app.addons_version) return;
     prefetch_clear();
     g_pre.video_id = strdup(video_id);
     g_pre.started = g_app.time;
+    g_pre.addons_version = g_app.addons_version;
     query_addons(meta, video_id, NULL, g_pre.generation, on_prefetch, &g_pre.pending, NULL);
     g_pre.total = g_pre.pending;
-    LOGI("streams: prefetching %s from %d addon%s", video_id, g_pre.pending, g_pre.pending == 1 ? "" : "s");
-    if (!g_pre.pending) prefetch_clear();
+    if (g_pre.pending) LOGI("streams: prefetching %s from %d addon%s", video_id, g_pre.pending, g_pre.pending == 1 ? "" : "s");
 }
 
 float streams_prefetch_progress(const char *video_id)
@@ -446,7 +447,7 @@ float streams_prefetch_progress(const char *video_id)
 /* Take over a prefetch for this episode. 1 when there was one. */
 static int adopt_prefetch(Streams *st)
 {
-    if (!g_pre.video_id || strcmp(g_pre.video_id, st->video_id) != 0) return 0;
+    if (!g_pre.video_id || strcmp(g_pre.video_id, st->video_id) != 0 || (!g_pre.n && !g_pre.pending)) return 0;   /* nobody was asked: the screen asks itself */
     if (g_app.time - g_pre.started > PREFETCH_FRESH_S) { prefetch_clear(); return 0; }
     st->items = g_pre.items; st->n = g_pre.n;
     g_pre.items = NULL; g_pre.n = 0;
@@ -984,7 +985,7 @@ static void lookup_finish(void)
 static void on_lookup(HttpResponse *r, void *user)
 {
     Pending *p = user;
-    if (p->generation != g_look.generation || !g_look.cb) { app_free_streams(r->parsed); r->parsed = NULL; free(p); return; }
+    if (p->generation != g_look.generation || !g_look.cb) { free(p); return; }
     g_look.pending--;
     absorb(&g_look.items, &g_look.n, r, p->addon);
     free(p);

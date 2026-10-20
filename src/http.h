@@ -57,6 +57,8 @@ void http_cancel(unsigned id);   /* the callback will not fire */
  * `label` names it in the perf log. */
 typedef void (*HttpTaskFn)(HttpResponse *r, void *arg);
 unsigned http_task_async(const char *label, HttpTaskFn task, void *arg, HttpCallback cb, void *user);
+/* The same, with what frees r->parsed when the callback left it there (or never ran). */
+unsigned http_task_async_ex(const char *label, HttpTaskFn task, void *arg, HttpFreeFn free_parsed, HttpCallback cb, void *user);
 void http_pump(void);
 int  http_pending_replies(void);   /* replies held for the next frame (keep drawing) */
 int  http_online(void);            /* 0 when transport failures repeat and nothing got through for 15 s */
