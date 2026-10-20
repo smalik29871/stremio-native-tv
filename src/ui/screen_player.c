@@ -1746,8 +1746,9 @@ static void draw_menu(Player *p)
                         : p->menu == MENU_SUBS ? (p->menu_focus >= SUB_TIMING) + (p->menu_focus >= SUB_OFF) + ((p->menu_focus >= SUB_TRACKS && n) ? 1 : 0)
                                                  + ((p->menu_focus >= SUB_TRACKS + n && (ng || p->subs_pending)) ? 1 : 0)
                         : 0;
-    float focus_y = 120 + sections_before * 40 + p->menu_focus * 78.0f;
-    float scroll = focus_y + 78 > h - 60 ? focus_y + 78 - (h - 60) : 0;
+    float step = p->menu == MENU_SOURCES ? 100 : 78;   /* a source row carries its badges and file name */
+    float focus_y = 120 + sections_before * 40 + p->menu_focus * step;
+    float scroll = focus_y + step > h - 60 ? focus_y + step - (h - 60) : 0;
     float ry = y + 120 - scroll;
     int row = 0;
     gfx_clip_push(x, y + 104, w, h - 120);
@@ -1798,7 +1799,20 @@ static void draw_menu(Player *p)
                 for (char *ch = addon; *ch; ch++) if (*ch >= 'a' && *ch <= 'z') *ch -= 32;
                 SECTION(addon);
             }
-            ROW(c->detail ? c->detail : name, c->release ? c->release : host, view[k] == p->cur);
+            /* as on the Sources page: its badges (and its pick), the file under them */
+            int foc = p->menu_focus == row, on = view[k] == p->cur;
+            if (ry + 92 > y + 100 && ry < y + h - 16) {
+                if (foc) gfx_rrect(x + 24, ry, w - 48, 92, R_KEY, THEME_FOCUS);
+                else if (on) gfx_rrect(x + 24, ry, w - 48, 92, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14));
+                float bx = x + 44, room = w - 88 - (on ? 50 : 0);
+                if (c->recommended) bx = streams_draw_badges("RECOMMENDED", bx, ry + 12, room, foc);
+                if (c->badges[0]) bx = streams_draw_badges(c->badges, bx, ry + 12, x + 44 + room - bx, foc);
+                else font_draw_fit(c->detail ? c->detail : name, bx, ry + 14, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : THEME_TEXT, x + 44 + room - bx);
+                const char *file = c->filename ? c->filename : c->release ? c->release : host;
+                font_draw_fit(file, x + 50, ry + 56, FONT_XS, foc ? COLOR_ALPHA(THEME_BG, 0xB0) : THEME_TEXT_DIM, room);
+                if (on) { gfx_circle(x + w - 70, ry + 46, 17, foc ? THEME_ON_FOCUS : THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 70, ry + 46, 20, foc ? THEME_FOCUS : THEME_ON_ACCENT); }
+            }
+            ry += 100; row++;
         }
         if (p->more_state == 2) ROW("Open the Sources page", "Every source with its details; this video stops", 0);
         else if (p->more_state == 1) ROW("Asking every addon\xE2\x80\xA6", "The video keeps playing", 0);

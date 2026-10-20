@@ -524,7 +524,8 @@ static void find_size(const char *t, char *out, size_t n)
     }
 }
 
-static float draw_badges(const Stream *sm, float right_x, float y, int foc)
+/* The badges of a source, best known first: resolution, HDR, codec, audio, cached, size. */
+static int badge_list(const Stream *sm, char out[][24], int max)
 {
     char text[1200];
     snprintf(text, sizeof text, "%s %s %s %s", sm->name ? sm->name : "", sm->title ? sm->title : "",
@@ -537,25 +538,61 @@ static float draw_badges(const Stream *sm, float right_x, float y, int foc)
     const char *codec = has_ci(text, "av1") ? "AV1" : has_ci(text, "hevc") || has_ci(text, "x265") || has_ci(text, "h265") || has_ci(text, "h.265") ? "HEVC" : NULL;
     const char *audio = has_ci(text, "atmos") ? "ATMOS" : has_ci(text, "truehd") ? "TRUEHD" : has_ci(text, "dts") ? "DTS" :
                         has_ci(text, "7.1") ? "7.1" : has_ci(text, "5.1") ? "5.1" : NULL;
-    const char *cached = has_ci(text, "[rd+]") || has_ci(text, "[tb+]") || has_ci(text, "[ad+]") || has_ci(text, "[pm+]") || has_ci(text, "â¡") ? "CACHED" : NULL;
+    const char *cached = has_ci(text, "[rd+]") || has_ci(text, "[tb+]") || has_ci(text, "[ad+]") || has_ci(text, "[pm+]") || has_ci(text, "\xE2\x9A\xA1") || sm->tags.cached > 0 ? "CACHED" : NULL;
     char size[24];
     find_size(text, size, sizeof size);
     if (!size[0] && sm->video_size) snprintf(size, sizeof size, "%.1f GB", sm->video_size / 1073741824.0);
+    const char *all[6] = { res, hdr, codec, audio, cached, size[0] ? size : NULL };
+    int n = 0;
+    for (int i = 0; i < 6 && n < max; i++) if (all[i]) snprintf(out[n++], 24, "%s", all[i]);
+    return n;
+}
 
-    struct { const char *t; Color bg, fg; } b[8]; int n = 0;
-    if (res) { b[n].t = res; b[n].bg = strcmp(res, "4K") == 0 ? THEME_GOLD : COLOR_ALPHA(THEME_TEXT, 0xE8); b[n].fg = THEME_ON_LIGHT; n++; }
-    if (hdr) { b[n].t = hdr; b[n].bg = RGBA(0x8B, 0x5C, 0xF6, 0xFF); b[n].fg = THEME_TEXT; n++; }
-    if (codec) { b[n].t = codec; b[n].bg = COLOR_ALPHA(THEME_TEXT, 0x22); b[n].fg = THEME_TEXT; n++; }
-    if (audio) { b[n].t = audio; b[n].bg = COLOR_ALPHA(THEME_TEXT, 0x22); b[n].fg = THEME_TEXT; n++; }
-    if (cached) { b[n].t = cached; b[n].bg = THEME_OK; b[n].fg = THEME_ON_LIGHT; n++; }
-    if (size[0]) { b[n].t = size; b[n].bg = COLOR_ALPHA(THEME_TEXT, 0x12); b[n].fg = THEME_TEXT_DIM; n++; }
+/* A badge's colours, by what it says: the same on the Sources page and in the player. */
+static void badge_colors(const char *t, int foc, Color *bg, Color *fg)
+{
+    int res = !strcmp(t, "4K") || !strcmp(t, "1440p") || !strcmp(t, "1080p") || !strcmp(t, "720p") || !strcmp(t, "SD");
+    int size = strstr(t, " GB") || strstr(t, " MB");
+    if (res) { *bg = !strcmp(t, "4K") ? THEME_GOLD : COLOR_ALPHA(THEME_TEXT, 0xE8); *fg = THEME_ON_LIGHT; }
+    else if (!strcmp(t, "DOLBY VISION") || !strncmp(t, "HDR", 3)) { *bg = RGBA(0x8B, 0x5C, 0xF6, 0xFF); *fg = THEME_TEXT; }
+    else if (!strcmp(t, "CACHED")) { *bg = THEME_OK; *fg = THEME_ON_LIGHT; }
+    else if (!strcmp(t, "RECOMMENDED")) { *bg = THEME_ACCENT; *fg = THEME_ON_ACCENT; }
+    else if (size) { *bg = COLOR_ALPHA(THEME_TEXT, 0x12); *fg = THEME_TEXT_DIM; }
+    else { *bg = COLOR_ALPHA(THEME_TEXT, 0x22); *fg = THEME_TEXT; }
+    /* translucent chips vanish on the lit focused row: give them a solid ground there */
+    if (foc && (*bg & 0xFF) < 0x80) { *bg = COLOR_ALPHA(THEME_PANEL, 0xF0); if (*fg == THEME_TEXT_DIM) *fg = THEME_TEXT; }
+}
+
+static float draw_badges(const Stream *sm, float right_x, float y, int foc)
+{
+    char b[8][24];
+    int n = badge_list(sm, b, 8);
     float x = right_x;
     for (int i = n - 1; i >= 0; i--) {
-        float w = font_measure(b[i].t, FONT_XS | FONT_B) + 24;
+        float w = font_measure(b[i], FONT_XS | FONT_B) + 24;
         x -= w;
-        /* translucent chips vanish on the lit focused row: give them a solid ground there */
-        ui_chip(b[i].t, x, y, foc && (b[i].bg & 0xFF) < 0x80 ? COLOR_ALPHA(THEME_PANEL, 0xF0) : b[i].bg, foc && b[i].fg == THEME_TEXT_DIM ? THEME_TEXT : b[i].fg);
+        Color bg, fg;
+        badge_colors(b[i], foc, &bg, &fg);
+        ui_chip(b[i], x, y, bg, fg);
         x -= 8;
+    }
+    return x;
+}
+
+float streams_draw_badges(const char *list, float x, float y, float max_w, int foc)
+{
+    char t[24];
+    float right = x + max_w;
+    for (const char *p = list; p && *p; ) {
+        size_t l = strcspn(p, "|");
+        snprintf(t, sizeof t, "%.*s", (int)(l < 23 ? l : 23), p);
+        p += l + (p[l] == '|');
+        float w = font_measure(t, FONT_XS | FONT_B) + 24;
+        if (x + w > right) break;   /* what does not fit is left out, never cut */
+        Color bg, fg;
+        badge_colors(t, foc, &bg, &fg);
+        ui_chip(t, x, y, bg, fg);
+        x += w + 8;
     }
     return x;
 }
@@ -747,6 +784,9 @@ int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c
     c->video_size = s->video_size;
     c->needs = quality_needs(&s->tags);
     c->res = s->tags.res;
+    char b[8][24];
+    int nb = badge_list(s, b, 8);
+    for (int i = 0; i < nb; i++) { size_t u = strlen(c->badges); snprintf(c->badges + u, sizeof c->badges - u, "%s%s", u ? "|" : "", b[i]); }
     return 1;
 }
 
@@ -854,15 +894,18 @@ static void play_from(Streams *st, int index)
     char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
     if (!url) { app_toast("%s", reason); return; }
     PlayCandidate *c = calloc((size_t)st->n + 2, sizeof *c);
-    int n = 0, p2p = 0;
+    int n = 0, p2p = 0, rec = recommended(st);
     const char *group = st->items[index].binge_group;
-    for (int pass = 0; pass < 3 && n < 6; pass++)
+    /* the one picked, the recommended one (the surest fallback, and the player marks it),
+     * the rest of its binge group, then the others in the list's order */
+    for (int pass = 0; pass < 4 && n < 6; pass++)
         for (int i = 0; i < st->n && n < 6; i++) {
             if (pass == 0 && i != index) continue;
-            if (pass > 0 && i == index) continue;
-            if (pass == 1 && !(group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0)) continue;
-            if (pass == 2 && group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0) continue;
-            if (streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p |= is_p2p(&st->items[i]); n++; }
+            if (pass > 0 && (i == index || (pass > 1 && i == rec))) continue;
+            if (pass == 1 && i != rec) continue;
+            if (pass == 2 && !(group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0)) continue;
+            if (pass == 3 && group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0) continue;
+            if (streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p |= is_p2p(&st->items[i]); c[n].recommended = i == rec; n++; }
         }
     for (int i = 0; i < st->n && !p2p; i++)
         if (is_p2p(&st->items[i]) && streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p = 1; n++; }

@@ -34,6 +34,8 @@ typedef struct PlayCandidate {
     uint64_t video_size;
     unsigned needs;             /* TVCAP_* bits this source depends on (quality.h) */
     int res;                    /* vertical resolution from the source's name, 0 unknown */
+    char badges[96];            /* "4K|DOLBY VISION|HEVC|CACHED|2.1 GB", as the Sources page shows them */
+    int recommended;            /* the Sources page's pick */
 } PlayCandidate;
 
 /* The source an episode played from, so the next one can match it (Up Next) */
@@ -321,6 +323,8 @@ void streams_lookup_cancel(void);
 void streams_lookup_tick(void);
 /* A player candidate for one of those sources (0 when it cannot play here). */
 int  streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *out);
+/* Badges from PlayCandidate.badges, left to right from x, the ones that fit in max_w; returns the end. */
+float streams_draw_badges(const char *list, float x, float y, float max_w, int foc);
 
 /* Titles with artwork worth showing in the screensaver (library + catalog rows). */
 typedef struct AmbientItem { char id[64], name[128], background[512]; } AmbientItem;
