@@ -11,6 +11,7 @@
 #include "../vendor/cJSON.h"
 #include "../store.h"
 #include "font.h"
+#include "../newep.h"
 #include "theme.h"
 #include "bgtrailer.h"
 #include "widgets.h"
@@ -133,6 +134,13 @@ static MetaPreview preview_from_item(const LibraryItem *li)
     return p;
 }
 
+/* Continue Watching's order: when you last watched, or when a new episode aired */
+static int64_t cw_when(const LibraryItem *li)
+{
+    const NewEp *ne = newep_get(li->id);
+    return ne && ne->released_ms > li->last_watched_ms ? ne->released_ms : li->last_watched_ms;
+}
+
 static void build_library_row(Row *r)
 {
     char keep[160] = "";   /* the focused title, found again after the re-sort */
@@ -156,13 +164,13 @@ static void build_library_row(Row *r)
     int n = 0;
     for (int i = 0; i < g_app.n_library; i++) {
         LibraryItem *li = &g_app.library[i];
-        int take = r->kind == ROW_CONTINUE ? (li->time_offset > 0 && (!li->removed || li->temp)) : (!li->removed && !li->temp);
+        int take = r->kind == ROW_CONTINUE ? ((li->time_offset > 0 && (!li->removed || li->temp)) || newep_get(li->id)) : (!li->removed && !li->temp);
         if (take) sorted[n++] = li;
     }
     for (int i = 1; i < n; i++)
         for (int j = i; j > 0; j--) {
-            int64_t a = r->kind == ROW_CONTINUE ? sorted[j]->last_watched_ms : sorted[j]->mtime_ms;
-            int64_t b = r->kind == ROW_CONTINUE ? sorted[j - 1]->last_watched_ms : sorted[j - 1]->mtime_ms;
+            int64_t a = r->kind == ROW_CONTINUE ? cw_when(sorted[j]) : sorted[j]->mtime_ms;
+            int64_t b = r->kind == ROW_CONTINUE ? cw_when(sorted[j - 1]) : sorted[j - 1]->mtime_ms;
             if (a <= b) break;
             LibraryItem *t = sorted[j]; sorted[j] = sorted[j - 1]; sorted[j - 1] = t;
         }
@@ -406,6 +414,10 @@ static void update(Screen *s, float dt)
     if (h->library_seen != g_app.library_version) {
         for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CONTINUE || h->rows[i]->kind == ROW_LIBRARY) build_library_row(h->rows[i]);
         h->library_seen = g_app.library_version;
+        if (g_app.last_input <= 0 && h->focus_row > 0) {   /* a row filled in above before any key (a new episode): start there */
+            int n = next_visible(h, -1, 1);
+            if (n >= 0 && n < h->focus_row) move_focus(h, n, -1);
+        }
     }
     if (h->trakt_seen != tracking_version()) {   /* signed in or out of Trakt, or its rows arrived */
         h->trakt_seen = tracking_version();
@@ -644,17 +656,25 @@ static void draw_row(Home *h, int ri, float y, float alpha)
                  * (a clipped square one showed past them) */
                 gfx_rrect_grad_v(x2, y2 + h2 * 0.45f, w2, h2 * 0.55f, R_CARD, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
                 LibraryItem *li = app_library_find(m->id);
+                const NewEp *ne = newep_get(m->id);
+                const char *vid = ne ? ne->video_id : li ? li->video_id : NULL;
                 char sub[64] = "";
-                if (li && li->video_id) {
+                if (vid) {
                     int se = 0, ep = 0;
-                    const char *c1 = strchr(li->video_id, ':');
+                    const char *c1 = strchr(vid, ':');
                     if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(sub, sizeof sub, "S%d  E%d", se, ep);
                 }
+                if (ne) ui_new_episodes_badge(ne->count, x2 + w2 - 16, y2 + 16);
                 font_draw_fit(m->name, x2 + 20, y2 + h2 - 76, FONT_S | FONT_B, THEME_TEXT, w2 - 40);
                 if (sub[0]) font_draw(sub, x2 + 20, y2 + h2 - 48, FONT_XS, THEME_TEXT_DIM);
-                if (li && li->duration) ui_progress(x2 + 20, y2 + h2 - 18, w2 - 40, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
+                if (li && li->duration && !ne) ui_progress(x2 + 20, y2 + h2 - 18, w2 - 40, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
             } else {
                 ui_card(app_art_poster(m, buf, sizeof buf), px, ry, cw, ch, f, dim, m->name, 0);
+                const NewEp *ne = r->kind == ROW_LIBRARY ? newep_get(m->id) : NULL;
+                if (ne) {
+                    float sc = ui_focus_scale(f), w2 = cw * sc, x2 = px - (w2 - cw) / 2, y2 = ry - (ch * sc - ch) / 2 - ui_focus_lift(f);
+                    ui_new_episodes_dot(ne->count, x2 + w2 - 10, y2 + 10);
+                }
             }
             if (is_focus && r->kind != ROW_CONTINUE) { m_peek = m; px_peek = px; f_peek = f; }
             if (is_focus && g_app.ok_hold > 0) {   /* holding OK: the hint takes the line under the card */

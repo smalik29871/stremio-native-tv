@@ -477,7 +477,7 @@ grep -q "player: cast drawer (3 people)" "$OUT/player_cast.log" || { echo "Info 
 # Scenes: the rail from the bar, and a moment marked there is kept for the video
 run player_scenes 640 "right,ok,down,down,right,ok,ok,wait,wait,wait,down,right,right,right,right,right,right,right,right,ok,left,left,left,ok,wait,wait" HOME="$(home_with scenes "$PL")"
 grep -q "player: scenes rail (3)" "$OUT/player_scenes.log" && grep -q "player: moment marked at [0-9]* s" "$OUT/player_scenes.log" \
-  && grep -q '"marks":{"tt0903747:1:2":\[' "$OUT/home_scenes/.local/share/stremio/nativetv/settings.json" \
+  && tr -d ' \t\n' < "$OUT/home_scenes/.local/share/stremio/nativetv/settings.json" | grep -q '"marks":{"tt0903747:1:2":\[' \
   || { echo "the Scenes rail did not mark a moment"; grep -E "scene|marked" "$OUT/player_scenes.log"; exit 1; }
 # the last minutes: the next episode's likely file is fetched ahead
 run player_warm_next 600 "right,ok,down,down,right,ok,ok" SNTV_FAKE_DURATION=1200 SNTV_FAKE_START=900 HOME="$(home_with warmnext "$PL")"
@@ -491,6 +491,17 @@ run player_second_subs 400 "right,ok,down,down,right,ok,ok,wait,wait,wait" HOME=
 grep -q "player: second subtitles spa (on for this show)" "$OUT/player_second_subs.log" || { echo "the show's second subtitles did not come back"; grep -E "subtitles|subs:" "$OUT/player_second_subs.log"; exit 1; }
 run player_night 330 "right,ok,down,down,right,ok,ok,wait,wait" HOME="$(home_with night '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"nightMode":2}')"
 grep -q "player: night mode on" "$OUT/player_night.log" && grep -q "video(null): volume 60" "$OUT/player_night.log" || { echo "night mode did not lower the volume"; grep -E "night|volume" "$OUT/player_night.log"; exit 1; }
+# a series you had caught up on comes back to Continue Watching when an episode airs after you watched (Stremio's own apps do too)
+NE_WAIT="$(printf 'wait,%.0s' $(seq 1 76))"
+NE_HOME="$(home_with newep "$PL")"; cp "$ROOT/tests/fixtures/library_newep.json" "$NE_HOME/.local/share/stremio/nativetv/library.json"
+run newep_row 1900 "${NE_WAIT}ok,wait,wait" HOME="$NE_HOME"
+grep -q "newep: Breaking Bad has 2 new episodes from tt0903747:2:2" "$OUT/newep_row.log" && grep -q "UI check: screen=detail" "$OUT/newep_row.log" \
+  || { echo "a new episode did not bring the series back"; grep -E "newep|UI check" "$OUT/newep_row.log"; exit 1; }
+# put away from the options, it stays away until a later episode
+NE_HOME2="$(home_with newep2 "$PL")"; cp "$ROOT/tests/fixtures/library_newep.json" "$NE_HOME2/.local/share/stremio/nativetv/library.json"
+run newep_dismiss 2000 "${NE_WAIT}yellow,down,ok,wait" HOME="$NE_HOME2"
+tr -d ' \t\n' < "$NE_HOME2/.local/share/stremio/nativetv/settings.json" | grep -q '"newEpSeen":{"tt0903747":"tt0903747:2:3"}' \
+  || { echo "removing the new episode from Continue Watching was not kept"; grep -E "newep|toast" "$OUT/newep_dismiss.log"; exit 1; }
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }

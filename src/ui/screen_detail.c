@@ -6,6 +6,7 @@
  * cast with their photos and more titles of the same genre. */
 #include "../app.h"
 #include "../tmdb.h"
+#include "../newep.h"
 #include "../tracking.h"
 #include "../ai.h"
 #include "../image.h"
@@ -317,19 +318,32 @@ static void compute_seasons(Detail *d)
         }
     int start = 0;
     LibraryItem *li = app_library_find(d->preview.id);
-    if (li && li->video_id)
+    const NewEp *ne = newep_get(d->preview.id);
+    const char *at = ne ? ne->video_id : li ? li->video_id : NULL;   /* a new episode is where you are now */
+    if (at)
         for (int i = 0; i < d->meta.n_videos; i++)
-            if (strcmp(d->meta.videos[i].id, li->video_id) == 0)
+            if (strcmp(d->meta.videos[i].id, at) == 0)
                 for (int j = 0; j < d->n_seasons; j++) if (d->seasons[j] == d->meta.videos[i].season) start = j;
     select_season(d, start);
-    if (li && li->video_id)
-        for (int k = 0; k < d->n_eps; k++) if (strcmp(d->meta.videos[d->ep_index[k]].id, li->video_id) == 0) d->ep_focus = k;
+    if (at)
+        for (int k = 0; k < d->n_eps; k++) if (strcmp(d->meta.videos[d->ep_index[k]].id, at) == 0) d->ep_focus = k;
 }
 
 static void load_resume(Detail *d)
 {
     d->resume_label[0] = 0;
     LibraryItem *li = app_library_find(d->preview.id);
+    const NewEp *ne = li && li->time_offset == 0 ? newep_get(d->preview.id) : NULL;
+    if (ne) {   /* caught up, and another episode is out */
+        int se = 0, ep = 0;
+        const char *c1 = strchr(ne->video_id, ':');
+        d->resume_url[0] = 0;
+        snprintf(d->resume_video, sizeof d->resume_video, "%s", ne->video_id);
+        d->resume_pos = 0; d->resume_frac = 0;
+        if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(d->resume_label, sizeof d->resume_label, "Play S%d E%d  \xC2\xB7  New", se, ep);
+        else snprintf(d->resume_label, sizeof d->resume_label, "Play the new episode");
+        return;
+    }
     if (!li || li->time_offset == 0) return;
     char key[160];
     snprintf(key, sizeof key, "resume:%s", d->preview.id);

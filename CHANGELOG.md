@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **New episodes come back to Continue Watching**, as in Stremio's own apps: a series
+  you had caught up on returns to the front of the row when an episode airs after you
+  last watched, with a "New episode" (or "3 new episodes") badge, and a bell with the
+  count on its poster in My Library. Its title page opens on that season with "Play
+  S2 E5 · New". Removing it from Continue Watching keeps it away until a later
+  episode airs; shows with notifications turned off in Stremio are left out.
 - **Back after a while**: resuming something left more than a day ago starts 10 s
   earlier (30 s after a week), and a series left for two days or more opens with a
   "Previously" card holding the last episode's summary (OK or Back puts it away).

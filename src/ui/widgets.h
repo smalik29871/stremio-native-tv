@@ -40,6 +40,10 @@ float ui_icon_button(Icon icon, float cx, float cy, float radius, int focused);
 /* Small rounded badges. Returns width. */
 float ui_chip(const char *text, float x, float y, Color bg, Color fg);
 float ui_chip_outline(const char *text, float x, float y, Color line, Color fg);
+/* "New episode" ("3 new episodes") with a bell, its right edge at x: a series card whose show has aired more. */
+void ui_new_episodes_badge(int count, float right_x, float y);
+/* The same on a poster: a bell and the count in a small pill. */
+void ui_new_episodes_dot(int count, float right_x, float y);
 float ui_imdb(const char *rating, float x, float y);
 /* Wall-clock time `from_now` seconds ahead in the viewer's 12/24-hour format (settings). */
 void  ui_clock_text(double from_now, char *out, size_t n);

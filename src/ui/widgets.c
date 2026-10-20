@@ -808,6 +808,28 @@ float ui_chip(const char *text, float x, float y, Color bg, Color fg)
     return w;
 }
 
+void ui_new_episodes_badge(int count, float right_x, float y)
+{
+    char text[32];
+    if (count > 1) snprintf(text, sizeof text, "%d new episodes", count);
+    else snprintf(text, sizeof text, "New episode");
+    int fs = FONT_XS | FONT_B;
+    float h = 40, w = 14 + 24 + 8 + font_measure(text, fs) + 16, x = right_x - w;
+    gfx_rrect(x, y, w, h, theme_pill_r(h), THEME_ACCENT);
+    ui_icon(ICON_BELL, x + 14 + 12, y + h / 2, 22, THEME_ON_ACCENT);
+    font_draw(text, x + 14 + 24 + 8, y + (h - font_height(fs)) / 2, fs, THEME_ON_ACCENT);
+}
+
+void ui_new_episodes_dot(int count, float right_x, float y)
+{
+    char n[8]; snprintf(n, sizeof n, "%d", count > 99 ? 99 : count);
+    int fs = FONT_XS | FONT_B;
+    float h = 40, w = 12 + 22 + 6 + font_measure(n, fs) + 14, x = right_x - w;
+    gfx_rrect(x, y, w, h, theme_pill_r(h), THEME_ACCENT);
+    ui_icon(ICON_BELL, x + 12 + 11, y + h / 2, 22, THEME_ON_ACCENT);
+    font_draw(n, x + 12 + 22 + 6, y + (h - font_height(fs)) / 2, fs, THEME_ON_ACCENT);
+}
+
 float ui_chip_outline(const char *text, float x, float y, Color line, Color fg)
 {
     int fs = FONT_XS;

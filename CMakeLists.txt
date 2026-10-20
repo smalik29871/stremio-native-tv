@@ -55,6 +55,7 @@ add_library(sntv_core STATIC
   src/tidy.c
   src/torrent.c
   src/suntimes.c
+  src/newep.c
   src/lang.c
   src/trackmem.c
   src/lists.c

@@ -18,6 +18,7 @@
 #include "ui/gfx.h"
 #include "ui/theme.h"
 #include "video/video.h"
+#include "newep.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -491,6 +492,7 @@ int main(int argc, char **argv)
         top = app_top();   /* update() may have popped or replaced the screen */
 
         breaks_tick(dt);
+        newep_tick();
         app_library_flush(0);
         mem_tick(dt);
         app_update_check(dt);

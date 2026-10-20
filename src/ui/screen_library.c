@@ -1,6 +1,7 @@
 /* Library: everything in the account's library as a poster grid, with filters
  * (all, movies, series, continue watching) and a sort (recent, name), and Your stats:
  * time watched, what was finished, the most watched titles and when you watch. */
+#include "../newep.h"
 #include "../app.h"
 #include "../image.h"
 #include "font.h"
@@ -270,6 +271,11 @@ static void draw(Screen *s)
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&l->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, f, l->zone == Z_GRID && !foc ? 0.25f : 0, l->items[i].name, 0);
             const LibraryItem *li = l->src[i];
+            const NewEp *ne = newep_get(li->id);
+            if (ne) {
+                float sc = ui_focus_scale(f), w2 = CELL_W * sc, x2 = px - (w2 - CELL_W) / 2, y2 = py - (CELL_H * sc - CELL_H) / 2 - ui_focus_lift(f);
+                ui_new_episodes_dot(ne->count, x2 + w2 - 10, y2 + 10);
+            }
             if (li->duration && li->time_offset) {
                 float sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc, x2 = px - (w2 - CELL_W) / 2, y2 = py - (h2 - CELL_H) / 2;
                 ui_progress(x2 + 14, y2 + h2 - 14, w2 - 28, 5, (float)li->time_offset / (float)li->duration, THEME_ACCENT);

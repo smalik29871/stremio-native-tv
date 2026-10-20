@@ -1,0 +1,7 @@
+{ "result": [
+  { "_id": "tt0903747", "name": "Breaking Bad", "type": "series", "poster": "https://x/p.jpg", "posterShape": "poster",
+    "removed": false, "temp": false, "_ctime": "2008-01-01T10:00:00.000Z", "_mtime": 1200009600000,
+    "state": { "lastWatched": "2009-03-01T20:30:00.000Z", "timeWatched": 0, "timeOffset": 0,
+               "overallTimeWatched": 9000000, "timesWatched": 1, "flaggedWatched": 1, "duration": 2940000,
+               "video_id": "tt0903747:2:1", "noNotif": false } }
+] }

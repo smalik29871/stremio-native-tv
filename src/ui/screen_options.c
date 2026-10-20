@@ -1,4 +1,5 @@
 /* Options sheet: a short list of actions over the dimmed page (hold OK or Yellow on a title). */
+#include "../newep.h"
 #include "screen_options.h"
 #include "../app.h"
 #include "../ai.h"
@@ -134,10 +135,13 @@ static void title_choice(int c, void *user)
 {
     TitleOpt *t = user;
     LibraryItem *li = app_library_find(t->m.id);
-    int watched = app_title_watched(t->m.id), in_cw = li && li->time_offset > 0;
+    int watched = app_title_watched(t->m.id), in_cw = (li && li->time_offset > 0) || newep_get(t->m.id);
     int k = 0;
     if (c == k++) app_library_mark_watched(&t->m, !watched);
-    else if (in_cw && c == k++) app_library_dismiss_continue(&t->m);
+    else if (in_cw && c == k++) {
+        if (newep_get(t->m.id) && !li->time_offset) { newep_dismiss(t->m.id); app_toast("Removed from Continue Watching"); }
+        else app_library_dismiss_continue(&t->m);
+    }
     else if (c == k++) app_library_toggle(&t->m);
     else if (ai_enabled() && c == k++) screen_detail_ask(&t->m);
     else if (c == k++) screen_options_lists(&t->m);
@@ -147,7 +151,7 @@ void screen_options_for_title(const MetaPreview *m)
 {
     if (!m || !m->id) return;
     LibraryItem *li = app_library_find(m->id);
-    int watched = app_title_watched(m->id), in_cw = li && li->time_offset > 0, in_lib = li && !li->removed && !li->temp;
+    int watched = app_title_watched(m->id), in_cw = (li && li->time_offset > 0) || newep_get(m->id), in_lib = li && !li->removed && !li->temp;
     const char *items[6]; int n = 0;
     items[n++] = watched ? "Mark as not watched" : "Mark as watched";
     if (in_cw) items[n++] = "Remove from Continue Watching";
