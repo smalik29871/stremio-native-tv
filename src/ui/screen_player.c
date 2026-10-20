@@ -59,6 +59,7 @@ struct Player {
     uint64_t tried;                         /* sources already started here (bit per index, first 64) */
     int started;                            /* this source has shown a picture (the clock moved) */
     float veil;                             /* the title's artwork over the screen until the first picture, then fading */
+    char tb_error[160];                     /* TorBox could not open the current source (nothing was loaded to fail) */
     int thumbs_warm;                        /* a first seek preview asked for, so the keyframe index is ready before the first seek */
     int p2p_peers, p2p_info;                /* the P2P engine's last word on this torrent */
     float p2p_recheck_in;     /* playing P2P: when to ask the addons again whether TorBox has it */
@@ -1103,7 +1104,8 @@ static void on_torbox_open(const char *url, const char *error, void *user)
         start_candidate(p, q->idx, q->start);
     } else if (current) {
         LOGW("player: source %d not from TorBox: %s", q->idx + 1, error ? error : "?");
-        fail_over(p, error ? error : "TorBox could not open it");
+        snprintf(p->tb_error, sizeof p->tb_error, "TorBox: %s", error ? error : "it could not open it");
+        fail_over(p, p->tb_error);
     }
     free(q->link);
     free(q);
@@ -1131,7 +1133,9 @@ static void start_candidate(Player *p, int idx, double start)
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     p->p2p_status[0] = 0;
+    p->tb_error[0] = 0;
     if (torbox_is_hash_link(p->cands[idx].url)) {
+        video_stop();             /* whatever played before (a trailer, the failed source) does not stand in for it */
         p->error_handled = 1;   /* nothing to watch over until TorBox answers */
         TbReq *q = malloc(sizeof *q);
         q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url);
@@ -2232,7 +2236,7 @@ static void draw_video_area(Player *p, float x, float y, float w, float h)
 /* every candidate has failed and the error card is up */
 static int error_final(const Player *p, const VideoInfo *vi)
 {
-    return vi->state == VIDEO_ERROR && p->error_handled && next_candidate(p) < 0;
+    return (vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && next_candidate(p) < 0;
 }
 
 /* Until the first picture: the title's artwork and name, with what is happening, instead
@@ -2366,7 +2370,7 @@ static void draw(Screen *s)
         gfx_line(x + w / 2 - 12, y + 58, x + w / 2 + 12, y + 82, 6, THEME_DANGER);
         gfx_line(x + w / 2 + 12, y + 58, x + w / 2 - 12, y + 82, 6, THEME_DANGER);
         font_draw_center("This source can't be played", x + w / 2, y + 128, FONT_L | FONT_B, THEME_TEXT);
-        font_draw_wrapped(vi.error, x + 60, y + 190, FONT_S, THEME_TEXT_DIM, w - 120, 2);
+        font_draw_wrapped(p->tb_error[0] ? p->tb_error : vi.error, x + 60, y + 190, FONT_S, THEME_TEXT_DIM, w - 120, 2);
         font_draw_center(p->n_cands > 1 ? "Every candidate failed. Press Back to pick another source." : "Press Back to pick another source.",
                          x + w / 2, y + h - 86, FONT_S | FONT_B, THEME_TEXT_MUTED);
         font_draw_center("Press OK to see what happened (Diagnostics)", x + w / 2, y + h - 46, FONT_XS, THEME_TEXT_MUTED);

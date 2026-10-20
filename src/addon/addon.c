@@ -247,9 +247,21 @@ int addon_from_descriptor_json(const cJSON *d, Addon *out)
 int addon_manifest_complete(const cJSON *m)
 {
     return cJSON_IsObject(m) && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "id")) && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "name"))
-        && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "version")) && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "description"))
-        && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "resources")) && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "types"))
-        && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "catalogs"));
+        && cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "version"))
+        && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "resources")) && cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "types"));
+}
+
+void addon_json_put(cJSON *obj, const char *key, cJSON *value)
+{
+    if (cJSON_GetObjectItemCaseSensitive(obj, key)) cJSON_ReplaceItemInObjectCaseSensitive(obj, key, value);
+    else cJSON_AddItemToObject(obj, key, value);
+}
+
+void addon_manifest_fill(cJSON *m)
+{
+    if (!cJSON_IsObject(m)) return;
+    if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(m, "description"))) addon_json_put(m, "description", cJSON_CreateString(""));
+    if (!cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(m, "catalogs"))) addon_json_put(m, "catalogs", cJSON_CreateArray());
 }
 
 void addon_free(Addon *a)
@@ -265,6 +277,7 @@ void addon_free(Addon *a)
 
 int addon_supports(const Addon *a, const char *resource, const char *type, const char *id)
 {
+    if (a->transport_url && strstr(a->transport_url, "/stremio/v1")) return 0;   /* the old protocol (Stremio's first OpenSubtitles): kept for the account, not asked */
     const AddonManifest *m = &a->manifest;
     for (int i = 0; i < m->n_resources; i++) {
         const AddonResource *r = &m->resources[i];

@@ -299,8 +299,9 @@ static uintptr_t g_account_gen = 1;
  * addon) with only id, name and version in each manifest, and Stremio's own apps then
  * cannot read the account's addons at all ("result.addons[0].manifest: missing field").
  * Every addon's manifest is fetched again from its own URL and the collection saved back
- * whole. When one cannot be fetched, nothing is saved and it is tried again next time. */
-typedef struct { int remaining, failed; cJSON *root; uintptr_t gen; } Repair;
+ * whole. An addon that does not answer keeps its place with empty lists, so every app
+ * reads the account again; it is asked again on later starts and saved once it answers. */
+typedef struct { int remaining, unreadable, fixed, blanked; cJSON *root; uintptr_t gen; } Repair;
 
 /* Stremio's own OpenSubtitles addon still sits in many accounts on the old protocol
  * (".../stremio/v1", no manifest.json to fetch); its manifest is written out here */
@@ -315,16 +316,15 @@ static cJSON *known_manifest(const char *transport_url)
                        "\"types\":[\"movie\",\"series\"],\"idPrefixes\":[\"tt\"],\"catalogs\":[]}");
 }
 
-/* a descriptor every Stremio app reads back with what the addon does (0.10.25 left the
- * old OpenSubtitles one with empty lists) */
-static int descriptor_ok(const cJSON *d)
+/* 2: no Stremio app can read it; 1: readable but blank (no types, no resources: an
+ * addon that did not answer an earlier repair); 0: fine */
+static int descriptor_state(const cJSON *d)
 {
-    const cJSON *m = cJSON_GetObjectItemCaseSensitive(d, "manifest"), *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
-    if (!addon_manifest_complete(m)) return 0;
-    if (cJSON_IsString(t) && is_known(t->valuestring) && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(m, "resources"))) return 0;
-    return 1;
+    const cJSON *m = cJSON_GetObjectItemCaseSensitive(d, "manifest");
+    if (!addon_manifest_complete(m)) return 2;
+    return !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(m, "resources")) && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(m, "types"));
 }
-static int g_repairing;
+static uintptr_t g_repairing;   /* the account generation a repair runs for, 0 none */
 
 static void on_repair_saved(HttpResponse *r, void *user)
 {
@@ -341,13 +341,13 @@ static void on_repair_saved(HttpResponse *r, void *user)
 
 static void repair_done(Repair *rp)
 {
-    g_repairing = 0;
+    if (g_repairing == rp->gen) g_repairing = 0;
     cJSON *addons = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(rp->root, "result"), "addons");
-    if (rp->gen == g_account_gen) {
+    if (rp->gen == g_account_gen) {   /* still the account it was asked for */
         char *txt = cJSON_PrintUnformatted(rp->root);
         apply_collection_json(txt, 0);   /* this app has them back at once */
         free(txt);
-        if (g_app.auth_key) {
+        if (g_app.auth_key && (rp->unreadable || rp->fixed)) {   /* nothing better to save when only blank ones stayed blank */
             cJSON *o = cJSON_CreateObject();
             cJSON_AddStringToObject(o, "type", "AddonCollectionSet");
             cJSON_AddStringToObject(o, "authKey", g_app.auth_key);
@@ -356,9 +356,9 @@ static void repair_done(Repair *rp)
             cJSON_Delete(o);
             http_request_async(api_url_addon_collection_set(), body, on_repair_saved, NULL);
             free(body);
-            LOGI("addons: saving the repaired collection (%d addons) to the account", cJSON_GetArraySize(addons));
-            if (rp->failed) app_toast("%d addon%s did not answer: reinstall %s to use %s again", rp->failed, rp->failed == 1 ? "" : "s", rp->failed == 1 ? "it" : "them", rp->failed == 1 ? "it" : "them");
-        }
+            LOGI("addons: saving the repaired collection (%d addons, %d fixed, %d still not answering) to the account", cJSON_GetArraySize(addons), rp->fixed, rp->blanked);
+            if (rp->blanked) app_toast("%d addon%s did not answer; asked again next start", rp->blanked, rp->blanked == 1 ? "" : "s");
+        } else LOGI("addons: %d addon%s still not answering; the account is left as it is", rp->blanked, rp->blanked == 1 ? "" : "s");
     }
     cJSON_Delete(rp->root);
     free(rp);
@@ -369,52 +369,61 @@ static void on_repair_manifest(HttpResponse *r, void *user)
     void **u = user;
     Repair *rp = u[0];
     cJSON *d = u[1];
+    int was = (int)(intptr_t)u[2];
     free(u);
     cJSON *m = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
-    if (addon_manifest_complete(m)) cJSON_ReplaceItemInObjectCaseSensitive(d, "manifest", m);
-    else {   /* the addon does not answer: its entry is completed with empty lists, so every app reads the account again */
+    const cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
+    if (addon_manifest_complete(m)) {
+        addon_manifest_fill(m);
+        addon_json_put(d, "manifest", m);
+        rp->fixed++;
+    } else {
         cJSON_Delete(m);
-        rp->failed++;
-        const cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
-        LOGW("addons: no manifest from %s (%ld); keeping it with empty lists", cJSON_IsString(t) ? t->valuestring : "?", r->status);
-        cJSON *old = cJSON_GetObjectItemCaseSensitive(d, "manifest");
-        if (!cJSON_IsObject(old)) { old = cJSON_CreateObject(); cJSON_ReplaceItemInObjectCaseSensitive(d, "manifest", old); }
-        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "id"))) cJSON_AddStringToObject(old, "id", cJSON_IsString(t) ? t->valuestring : "unknown.addon");
-        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "name"))) cJSON_AddStringToObject(old, "name", "Addon");
-        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "version"))) cJSON_AddStringToObject(old, "version", "0.0.0");
-        if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "description"))) cJSON_AddStringToObject(old, "description", "");
-        static const char *const LISTS[] = { "types", "resources", "catalogs" };
-        for (int i = 0; i < 3; i++) if (!cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(old, LISTS[i]))) cJSON_AddItemToObject(old, LISTS[i], cJSON_CreateArray());
+        rp->blanked++;
+        LOGW("addons: no manifest from %s (%ld)%s", cJSON_IsString(t) ? t->valuestring : "?", r->status, was == 2 ? "; keeping it with empty lists" : "");
+        if (was == 2) {   /* unreadable: completed with empty lists so every app reads the account again */
+            cJSON *old = cJSON_GetObjectItemCaseSensitive(d, "manifest");
+            if (!cJSON_IsObject(old)) { old = cJSON_CreateObject(); addon_json_put(d, "manifest", old); }
+            if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "id"))) addon_json_put(old, "id", cJSON_CreateString(cJSON_IsString(t) ? t->valuestring : "unknown.addon"));
+            if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "name"))) addon_json_put(old, "name", cJSON_CreateString("Addon"));
+            if (!cJSON_IsString(cJSON_GetObjectItemCaseSensitive(old, "version"))) addon_json_put(old, "version", cJSON_CreateString("0.0.0"));
+            if (!cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(old, "types"))) addon_json_put(old, "types", cJSON_CreateArray());
+            if (!cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(old, "resources"))) addon_json_put(old, "resources", cJSON_CreateArray());
+            addon_manifest_fill(old);
+        }
     }
     if (--rp->remaining == 0) repair_done(rp);
 }
 
-/* 1 when the collection had partial manifests and a repair started */
+/* 1 when the collection needed a repair and it started (it is applied when it ends) */
 static int repair_collection(const char *json)
 {
-    if (g_repairing) return 1;
+    if (g_repairing == g_account_gen) return 1;
     cJSON *root = cJSON_Parse(json);
     cJSON *addons = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "result"), "addons"), *d;
-    int broken = 0;
-    cJSON_ArrayForEach(d, addons) if (!descriptor_ok(d)) broken++;
-    if (!broken) { cJSON_Delete(root); return 0; }
-    LOGW("addons: %d of the account's addons were saved without their manifest; fetching them again", broken);
+    int unreadable = 0, blank = 0;
+    cJSON_ArrayForEach(d, addons) { int st = descriptor_state(d); unreadable += st == 2; blank += st == 1; }
+    if (!unreadable && !blank) { cJSON_Delete(root); return 0; }
+    if (unreadable) LOGW("addons: %d of the account's addons were saved without their manifest; fetching them again", unreadable);
+    if (blank) LOGI("addons: %d addon%s had no answer last time; asking again", blank, blank == 1 ? "" : "s");
     Repair *rp = calloc(1, sizeof *rp);
-    rp->root = root; rp->gen = g_account_gen;
-    g_repairing = 1;
-    cJSON_ArrayForEach(d, addons) if (!descriptor_ok(d)) rp->remaining++;
-    rp->remaining++;   /* held until every request is out: a known manifest completes at once */
+    rp->root = root; rp->gen = g_account_gen; rp->unreadable = unreadable;
+    g_repairing = g_account_gen;
+    rp->remaining = 1;   /* held until every request is out: a known manifest completes at once */
     cJSON_ArrayForEach(d, addons) {
-        if (descriptor_ok(d)) continue;
+        int st = descriptor_state(d);
+        if (!st) continue;
         const cJSON *t = cJSON_GetObjectItemCaseSensitive(d, "transportUrl");
         cJSON *known = cJSON_IsString(t) ? known_manifest(t->valuestring) : NULL;
-        if (known) { cJSON_ReplaceItemInObjectCaseSensitive(d, "manifest", known); rp->remaining--; continue; }
-        void **u = malloc(2 * sizeof(void *));
-        u[0] = rp; u[1] = d;
+        if (known) { addon_json_put(d, "manifest", known); rp->fixed++; continue; }
+        void **u = malloc(3 * sizeof(void *));
+        u[0] = rp; u[1] = d; u[2] = (void *)(intptr_t)st;
+        rp->remaining++;
         if (!cJSON_IsString(t)) { HttpResponse none = { 0 }; on_repair_manifest(&none, u); continue; }
         char url[1024];
         addon_url_manifest(t->valuestring, url, sizeof url);
-        http_request_async(url, NULL, on_repair_manifest, u);
+        HttpOptions o = { .timeout_s = 12 };
+        http_request_async_ex(url, &o, on_repair_manifest, u);
     }
     if (--rp->remaining == 0) repair_done(rp);
     return 1;

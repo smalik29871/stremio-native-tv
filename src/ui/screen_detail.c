@@ -59,7 +59,7 @@ typedef struct {
     char *ask_nutshell, *ask_good_for, *ask_notes, *ask_similar; char ask_err[160];
     /* About */
     float scroll, scroll_v, age, facts_h;
-    char pre_id[160]; float pre_since;
+    char pre_id[160]; float pre_since; int pre_asked;
     int meta_wait, addons_seen;   /* details asked again once the addons have come in */   /* the video whose sources are asked ahead, and since when it has been the one */
     int cast_focus, sim_focus, fr_focus, fr_opening; unsigned fr_gen;
     float cast_x, sim_x, fr_x;
@@ -576,8 +576,8 @@ static void update(Screen *s, float dt)
             else if (d->resume_label[0] && !d->resume_url[0]) pre = d->resume_video;
             else if (d->meta.n_videos == 0) pre = d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
         }
-        if (pre && strcmp(pre, d->pre_id)) { snprintf(d->pre_id, sizeof d->pre_id, "%s", pre); d->pre_since = g_app.time; }
-        else if (pre && g_app.time - d->pre_since > 0.8f) streams_prefetch(&d->preview, pre);
+        if (pre && strcmp(pre, d->pre_id)) { snprintf(d->pre_id, sizeof d->pre_id, "%s", pre); d->pre_since = g_app.time; d->pre_asked = 0; }
+        else if (pre && !d->pre_asked && g_app.time - d->pre_since > 0.8f) { d->pre_asked = 1; streams_prefetch(&d->preview, pre); }   /* once: an id nobody serves is not asked every frame */
     }
     if (d->scroll < 60 && !d->ask_open) bgtrailer_want(d->preview.id, SNTV_UI_H, 2.5f);   /* not under About, where the backdrop dims */
     /* prefetch upcoming thumbnails */

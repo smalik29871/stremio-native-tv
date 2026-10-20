@@ -80,6 +80,7 @@ static struct {
     float height, dwell, waited;
     float t;              /* how far the video has replaced the artwork */
     unsigned http, load;  /* the IMDb request; video_load_count() of our video, 0 none */
+    unsigned loads_at_fetch;   /* video_load_count() when IMDb was asked: another video since means hands off */
     int muted;
 } B;
 
@@ -94,7 +95,6 @@ static void full_screen(void)
 
 static void finish(int next_state)
 {
-    if (B.state == BT_FETCH && B.http) http_cancel(B.http);
     if (ours()) { video_stop(); full_screen(); }
     else if (B.load) full_screen();   /* someone else's video now: it fills the screen */
     B.http = 0; B.load = 0; B.t = 0;
@@ -115,9 +115,12 @@ static void place(void)
 static void on_trailer(const ImdbTrailer *t, int n, long status, void *user)
 {
     char *id = user;
-    int current = B.state == BT_FETCH && !strcmp(id, B.id);
+    /* still this title, still on screen, and no other video started meanwhile (Play pressed
+     * while IMDb was answering) */
+    int same = B.state == BT_FETCH && !strcmp(id, B.id);
+    int current = same && B.unwanted < 0.1f && video_load_count() == B.loads_at_fetch;
     free(id);
-    if (!current) return;
+    if (!current) { if (same) { B.state = BT_DONE; B.http = 0; } return; }
     B.http = 0;
     if (!n) { LOGI("trailer: none from IMDb for %s (%ld)", B.id, status); B.state = BT_DONE; return; }
     place();
@@ -162,6 +165,7 @@ void bgtrailer_frame(float dt)
         B.waited += dt;
         if (B.waited >= B.dwell) {
             B.state = BT_FETCH;
+            B.loads_at_fetch = video_load_count();
             B.http = imdb_trailer_fetch(B.id, on_trailer, strdup(B.id));
         }
         break;

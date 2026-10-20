@@ -1,6 +1,24 @@
 # Changelog
 
-## 0.10.26
+## 0.10.27
+
+(0.10.26 never reached the Homebrew Channel; its changes are here.)
+
+- **A safer account repair.** An addon that misses one start (slow network at boot,
+  rate limits) is asked again on later starts and saved once it answers, instead of
+  staying blank. Manifests that leave out optional fields (description, catalogs) are
+  accepted, so a working addon is never blanked for that, and they no longer block saving
+  your addons. A repair for one profile can't swallow another profile's addons, and a
+  field stored with the wrong type is replaced instead of duplicated.
+- **Trailers keep their hands off.** Pressing Play while IMDb was still answering for a
+  background trailer could start the trailer over your film; a trailer now starts only
+  if no other video began meanwhile.
+- **TorBox sources fail cleanly.** When TorBox can't open the last source, the error
+  card shows instead of an endless "Getting it from TorBox", and whatever played before
+  stops while TorBox answers.
+- **Less waste.** A title nobody serves is no longer asked for its sources every frame,
+  late source answers no longer leak memory, and the old-protocol OpenSubtitles entry
+  stays in your account without being asked on every playback.
 
 - **OpenSubtitles back in the official apps.** Stremio's own OpenSubtitles addon still
   sits in many accounts on its old protocol, with no manifest to fetch, so 0.10.25's

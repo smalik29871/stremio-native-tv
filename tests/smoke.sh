@@ -348,7 +348,9 @@ fi
 # progress reaches the account as the app closes mid-film, dated the way stremio-core reads it
 # an account whose addons an old version saved with partial manifests: refetched and saved back whole
 run addons_repair 300 "wait" HOME="$(home_with repair '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"brokenkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
-grep -q "addons: 3 of the account's addons were saved without their manifest" "$OUT/addons_repair.log" && grep -q "addons: no manifest from http://127.0.0.1:1/gone/manifest.json (0); keeping it with empty lists" "$OUT/addons_repair.log" && grep -q "addons: the account's collection is repaired" "$OUT/addons_repair.log" \
+grep -q "addons: 2 of the account's addons were saved without their manifest" "$OUT/addons_repair.log" && grep -q "addons: 1 addon had no answer last time; asking again" "$OUT/addons_repair.log" \
+  && grep -q "addons: no manifest from http://127.0.0.1:1/gone/manifest.json (0); keeping it with empty lists" "$OUT/addons_repair.log" \
+  && grep -q "addons: saving the repaired collection (3 addons, 2 fixed, 1 still not answering)" "$OUT/addons_repair.log" && grep -q "addons: the account's collection is repaired" "$OUT/addons_repair.log" \
   && grep -q "addons: 3 loaded" "$OUT/addons_repair.log" && ! grep -q "opensubtitles.strem.io" "$OUT/addons_repair.log" \
   || { echo "the account's addons were not repaired"; grep -E "addons|home" "$OUT/addons_repair.log"; exit 1; }
 run progress_sync 400 "right,ok,down,down,ok,ok" HOME="$(home_with sync '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"

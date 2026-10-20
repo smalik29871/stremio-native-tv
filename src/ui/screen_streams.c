@@ -347,7 +347,7 @@ static void on_streams(HttpResponse *r, void *user)
 {
     Pending *p = user;
     Streams *st = p->owner;
-    if (st != g_live || p->generation != g_generation) { free(p); return; }
+    if (st != g_live || p->generation != g_generation) { app_free_streams(r->parsed); r->parsed = NULL; free(p); return; }
     st->pending--;
     if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
     free(p);
@@ -408,7 +408,7 @@ static void prefetch_clear(void)
 static void on_prefetch(HttpResponse *r, void *user)
 {
     Pending *p = user;
-    if (p->generation != g_pre.generation) { free(p); return; }
+    if (p->generation != g_pre.generation) { app_free_streams(r->parsed); r->parsed = NULL; free(p); return; }
     g_pre.pending--;
     Streams *st = g_live && g_live->from_prefetch && g_live->video_id && g_pre.video_id && strcmp(g_live->video_id, g_pre.video_id) == 0 ? g_live : NULL;
     if (st) {   /* the screen for this episode is already open: feed it directly */
@@ -984,7 +984,7 @@ static void lookup_finish(void)
 static void on_lookup(HttpResponse *r, void *user)
 {
     Pending *p = user;
-    if (p->generation != g_look.generation || !g_look.cb) { free(p); return; }
+    if (p->generation != g_look.generation || !g_look.cb) { app_free_streams(r->parsed); r->parsed = NULL; free(p); return; }
     g_look.pending--;
     absorb(&g_look.items, &g_look.n, r, p->addon);
     free(p);
