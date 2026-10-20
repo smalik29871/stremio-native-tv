@@ -656,7 +656,7 @@ static void draw_aperture(Streams *st)
     if (st->video_title) font_draw_fit(st->video_title, THEME_MARGIN, 812, FONT_S, THEME_TEXT_DIM, 420);
     font_draw("Back  Return to title", THEME_MARGIN, 960, FONT_XS, THEME_TEXT_DIM);
     float x = LIST_X, w = SNTV_UI_W - THEME_MARGIN - x;
-    font_draw("Find your picture.", x, 92, FONT_L | FONT_B, THEME_TEXT);
+    font_draw("Choose a source", x, 92, FONT_L | FONT_B, THEME_TEXT);
     snprintf(line, sizeof line, "%d sources  /  %d addons searching", st->n, st->pending);
     font_draw(st->n || st->pending ? line : "No sources. Check your stream addons in Settings.", x, 150, FONT_S, THEME_TEXT_DIM);
     if (st->pending) ui_spinner(x + w - 28, 140, 18);
@@ -693,12 +693,22 @@ static void draw_aperture(Streams *st)
         first_line(sm->name, line, sizeof line);
         font_draw_fit(line[0] ? line : "Stream", x + 24, y + 16, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 270);
         font_draw_fit(sm->addon_name, x + w - 230, y + 22, FONT_XS, THEME_TEXT_DIM, 210);
+        {   /* the same badges as the other themes' Sources page: quality, size, cached */
+            char b[8][24], list[200] = "";
+            int nb = badge_list(sm, b, 8);
+            for (int k = 0; k < nb; k++) { size_t u = strlen(list); snprintf(list + u, sizeof list - u, "%s%s", u ? "|" : "", b[k]); }
+            if (list[0]) streams_draw_badges(list, x + w - 230, y + 54, 210, 0);
+        }
         aperture_source_summary(sm, runtime, line, sizeof line);
         const char *warn[1];
-        const char *note = !ok ? "Cannot play on this TV" : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
-            : sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85 ? "Too fast for this link"
+        char why[160] = "";
+        if (!ok) { char *u = app_stream_playable_url(sm, why, sizeof why); free(u); }   /* the reason it cannot play here */
+        const char *note = !ok ? (why[0] ? why : "Cannot play on this TV") : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
+            : sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85 ? "Heavier than this connection"
             : quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 1) ? warn[0] : sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
-        font_draw_fit(note ? note : line, x + 24, y + 62, FONT_XS, note ? THEME_DANGER : THEME_TEXT_DIM, w - 48);
+        const char *flag = is_mine(sm) ? "In your TorBox" : from_torbox(sm) ? "From your TorBox" : is_p2p(sm) ? "P2P on this TV" : NULL;
+        if (!note && flag) { font_draw_fit(flag, x + 24, y + 62, FONT_XS | FONT_B, THEME_OK, w - 280); }
+        else font_draw_fit(note ? note : line, x + 24, y + 62, FONT_XS, note ? THEME_DANGER : THEME_TEXT_DIM, w - 280);
         if (foc) {
             const char *file = sm->filename ? sm->filename : sm->description ? sm->description : sm->title;
             first_line(file, line, sizeof line);
@@ -838,9 +848,9 @@ static void draw(Screen *s)
             bx -= fw + 8;
             ui_chip("Link not responding", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_DANGER, 0x30), THEME_DANGER);
         } else if (sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85) {
-            float fw = font_measure("Too fast for this link", FONT_XS | FONT_B) + 24;
+            float fw = font_measure("Heavier than this connection", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip("Too fast for this link", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+            ui_chip("Heavier than this connection", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
         } else if (sm->probe_state == 2 && !nw) {
             float fw = font_measure("Verified", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;

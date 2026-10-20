@@ -62,9 +62,8 @@ them as `aperture-native-preview`. Existing unit tests and the webOS package bui
 remain in CI. The desktop backend simulates video; physical webOS playback, remote
 repeat timing, and GPU performance still need a device run.
 
-In the restricted Windows implementation session, the theme contracts were compiled
-and executed with an embedded MSVC compiler. Eight changed C implementation files
-passed syntax checks using temporary SDL declarations; the smoke script passed
-shell syntax validation. A complete SDL/GLES build, smoke execution, screenshot
-review, and physical TV testing could not run there because Linux/SDL dependencies
-and WSL access were unavailable. These checks must complete before merging.
+The full Linux build, the unit tests (including the theme contracts), this journey and
+the main smoke suite pass on the desktop backend.
+
+Background trailers and card details are off in this theme; Settings says so beside
+those rows instead of showing switches that do nothing.

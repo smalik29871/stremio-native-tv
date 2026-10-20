@@ -2336,12 +2336,12 @@ static void draw_bar(Player *p, float x, float y)
             ui_icon(icons[i], cx, y + 24, 26, foc ? THEME_TEXT : THEME_TEXT_DIM);
             if (ids[i] == BTN_NEXT && next_progress(p) >= 0 && next_progress(p) < 1)
                 ui_progress(cx - 22, y + 44, 44, 2, next_progress(p), THEME_TEXT_DIM);
-            if (foc) {
-                gfx_rect(cx - 22, y + 52, 44, 3, THEME_ACCENT);
-                font_draw_fit(labels[i], x, y - 32, FONT_XS, THEME_TEXT, 900);
-            }
+            if (foc) gfx_rect(cx - 22, y + 52, 44, 3, THEME_ACCENT);
         }
-        const char *hint = p->bar_focus ? "OK  Select   /   Up  Timeline" : "Down  Controls";
+        /* the focused button's name sits with the hint at the right (above the icons it would cover the time) */
+        char hint[160];
+        if (p->bar_focus && at >= 0 && at < n) snprintf(hint, sizeof hint, "%s   /   OK  Select   /   Up  Timeline", labels[at]);
+        else snprintf(hint, sizeof hint, "Down  Controls");
         font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + 12, FONT_XS, THEME_TEXT_DIM);
         return;
     }
@@ -2542,7 +2542,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         int a = (int)(255 * k);
         float x = THEME_MARGIN, y = 190;
         gfx_gradient_h(0, 110, 1250, 560, RGBA(0, 0, 0, (int)(0xC0 * k)), RGBA(0, 0, 0, 0));
-        font_draw_tracked("PAUSED  /  TAKE YOUR TIME", x, y, FONT_XS, COLOR_ALPHA(THEME_TEXT_DIM, a), 1.5f);
+        font_draw_tracked("PAUSED", x, y, FONT_XS, COLOR_ALPHA(THEME_TEXT_DIM, a), 1.5f);
         ui_hero_title(p->meta.name, x, y + 244, 1000, COLOR_ALPHA(THEME_TEXT, a));
         const char *ep = strstr(p->title, "  -  ");
         if (ep) font_draw_fit(ep + 5, x, y + 272, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), 1000);

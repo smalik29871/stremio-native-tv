@@ -517,14 +517,13 @@ static void draw_hero(Home *h, const MetaPreview *p)
         float k = g_app.fx_light ? 1 : h->hero_text_t;
         float ax = 930 - 20 * k;
         ui_aperture_art(h->hero_bg, ax, 124, SNTV_UI_W - THEME_MARGIN - ax, 442, g_app.fx_light ? 1 : h->hero_fade);
-        font_draw_tracked("APERTURE  /  YOUR EVENING, IN FOCUS", LX, 124, FONT_XS, THEME_TEXT_DIM, 1.2f);
+        font_draw_tracked("APERTURE  /  HOME", LX, 124, FONT_XS, THEME_TEXT_DIM, 1.2f);
         ui_hero_title(p->name, LX, 384, 680, THEME_TEXT);
         const char *parts[3] = { p->release_info, p->runtime, p->genres.n ? p->genres.v[0] : p->type };
         ui_meta_line(parts, 3, LX, 408, THEME_TEXT_DIM);
         if (p->description) font_draw_wrapped(p->description, LX, 460, FONT_S, THEME_TEXT_DIM, 660, 2);
         gfx_rect(LX, 558, 44, 3, THEME_ACCENT);
         font_draw("OK  Discover this title", LX + 62, 546, FONT_S, THEME_TEXT);
-        font_draw("A collection of possibilities. One at a time.", ax, 590, FONT_XS, THEME_TEXT_MUTED);
         return;
     }
     float k = g_app.fx_light ? 1.0f : h->hero_text_t;

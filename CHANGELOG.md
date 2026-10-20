@@ -8,6 +8,16 @@
   remote actions, playback, and saved theme IDs are preserved.
 - Add theme contract tests and a fixture-backed native journey with screenshot
   artifacts, including Back navigation, reduced motion, and low-memory seeking.
+- Aperture's Sources page shows the same badges as the other themes (quality, size,
+  cached), "In your TorBox" / "From your TorBox", and the actual reason a source
+  cannot play here ("needs a streaming server", "opens in an external app") instead
+  of one generic line. "Too fast for this link" now reads "Heavier than this
+  connection" everywhere.
+- Aperture's player: the focused control's name moves next to the hint at the right,
+  so it no longer covers the elapsed time; plainer headings ("Home", "Paused",
+  "Choose a source").
+- Settings says "Not in the Aperture theme" beside background trailers and card
+  details, which that theme does not use, instead of showing switches that do nothing.
 
 ## 0.10.28
 

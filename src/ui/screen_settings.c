@@ -841,8 +841,13 @@ static void draw(Screen *s)
         case IT_BR_WHERE: draw_row(y, ICON_HOME, "Breaks apply", g_app.breaks_everywhere ? "Everywhere in the app" : "Only while a video plays", foc, KIND_CHOICE, 0); break;
         case IT_AUTO_REC: draw_row(y, ICON_PLAY, "Play the recommended source automatically", NULL, foc, KIND_TOGGLE, g_app.auto_recommended); break;
         case IT_THEME: draw_row(y, ICON_PALETTE, "Theme", THEME_NAMES[g_app.theme], foc, KIND_CHOICE, 0); break;
-        case IT_CARD_DETAILS: draw_row(y, ICON_INFO, "Show details when a card stays focused", NULL, foc, KIND_TOGGLE, g_app.card_details); break;
-        case IT_AUTO_TRAILER: draw_row(y, ICON_PLAY, "Trailers play on their own", g_app.auto_trailers == 2 ? "With sound" : g_app.auto_trailers ? "Muted" : "Off", foc, KIND_CHOICE, 0); break;
+        case IT_CARD_DETAILS:   /* Aperture keeps its cards plain: say so rather than show a switch that does nothing */
+            if (g_app.theme == THEME_APERTURE) draw_row(y, ICON_INFO, "Show details when a card stays focused", "Not in the Aperture theme", foc, KIND_CHOICE, 0);
+            else draw_row(y, ICON_INFO, "Show details when a card stays focused", NULL, foc, KIND_TOGGLE, g_app.card_details);
+            break;
+        case IT_AUTO_TRAILER:   /* Aperture's artwork windows stay still */
+            draw_row(y, ICON_PLAY, "Trailers play on their own", g_app.theme == THEME_APERTURE ? "Not in the Aperture theme" : g_app.auto_trailers == 2 ? "With sound" : g_app.auto_trailers ? "Muted" : "Off", foc, KIND_CHOICE, 0);
+            break;
         case IT_ACCENT: case IT_BG: {
             /* the swatches sit on the help line, the current one framed */
             int bg = id == IT_BG, n = bg ? THEME_BGS : THEME_ACCENTS + 1, cur = bg ? g_app.theme_bg : g_app.theme_accent;
