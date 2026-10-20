@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.33
 
 - **Faster on old TVs**: the network workers now share DNS answers and TLS sessions
   (a server one has reached is resumed by the others without a new handshake, the
