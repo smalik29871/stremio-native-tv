@@ -138,7 +138,10 @@ static void draw(Screen *s)
     gfx_circle(cx, cy, 150, COLOR_ALPHA(THEME_ACCENT2, 0x22));
     gfx_rrect_ring(cx - 118, cy - 118, 236, 236, 118, 3, COLOR_ALPHA(THEME_TEXT, 0x40));
     char now[24]; ui_clock_text(0, now, sizeof now);
-    font_draw_center(now, cx, cy - font_height(FONT_TITLE | FONT_B) / 2, FONT_TITLE | FONT_B, THEME_TEXT);
+    char *ampm = strchr(now, ' ');   /* "11:59 PM": the hour inside the ring, AM/PM small under it */
+    if (ampm) *ampm++ = 0;
+    font_draw_center(now, cx, cy - font_height(FONT_TITLE | FONT_B) / 2 - (ampm ? 14 : 0), FONT_TITLE | FONT_B, THEME_TEXT);
+    if (ampm) font_draw_center(ampm, cx, cy + font_height(FONT_TITLE | FONT_B) / 2 - 6, FONT_S | FONT_B, THEME_TEXT_DIM);
     const char *label = b->kind == BRK_KIND_PRAYER ? "TIME FOR PRAYER" : b->kind == BRK_KIND_HEALTH ? "TAKE A BREAK" : b->kind == BRK_KIND_BEDTIME ? "BEDTIME" : "BREAK";
     font_draw_center(label, cx, cy + 170, FONT_XS | FONT_B, THEME_ACCENT2);
     font_draw_center(b->name, cx, cy + 204, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)));

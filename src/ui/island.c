@@ -129,9 +129,10 @@ void island_draw(int in_player, int show_clock)
     ui_panel(x, y, I.w, I.h, r, busy ? COLOR_ALPHA(THEME_PANEL, 0xF4) : COLOR_ALPHA(THEME_BG, 0xB0));
     gfx_rrect_ring(x, y, I.w, I.h, r, 1, busy ? COLOR_ALPHA(THEME_TEXT, 0x22) : THEME_LINE);
 
-    /* the content fades in once the pill is near its new size */
-    float a = (g_app.time - I.kind_at) / 0.18f;
-    if (fabsf(I.w - tw) > 24) a = 0;
+    /* the content is laid out at the pill's new size and shows through as it grows into it */
+    float a = (g_app.time - I.kind_at) / 0.18f, near = 1 - fabsf(I.w - tw) / 200;
+    if (a > near) a = near;
+    if (a < 0) a = 0;
     if (a > 1 || g_app.fx_light) a = 1;
     if (a < 1) app_redraw();
     if (g_focus && kind == IS_RESUME) gfx_rrect_ring(x - 5, y - 5, I.w + 10, I.h + 10, r + 5, 4, THEME_FOCUS);   /* outside the clip */
@@ -152,10 +153,10 @@ void island_draw(int in_player, int show_clock)
         break;
     case IS_NOTICE:
         gfx_circle(x + 32, y + I.h / 2, 7, THEME_ACCENT2);
-        font_draw_fit(g_app.toast, x + 54, cy, fs, THEME_TEXT, I.w - 80);
+        font_draw_fit(g_app.toast, x + 54, cy, fs, THEME_TEXT, tw - 80);
         break;
     case IS_PROGRESS: {
-        font_draw_fit(I.progress, x + 26, cy, fs, THEME_TEXT, I.w - 200);
+        font_draw_fit(I.progress, x + 26, cy, fs, THEME_TEXT, tw - 200);
         float bw = 140, bx = x + I.w - bw - 26, by = y + I.h / 2 - 3;
         if (I.progress_frac >= 0) ui_progress(bx, by, bw, 6, I.progress_frac, THEME_ACCENT);
         else {   /* no measure: a short bar that sweeps */
@@ -180,7 +181,7 @@ void island_draw(int in_player, int show_clock)
         float kw = font_measure(k, FONT_XS | FONT_B) + 18, kx = x + I.w - kw - 20;
         gfx_rrect(kx, ky - 2, kw, 28, 6, g_focus ? THEME_FOCUS : THEME_BLUE);
         font_draw(k, kx + 9, ky + (24 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, g_focus ? THEME_ON_FOCUS : RGBA(0x06, 0x12, 0x1E, 0xFF));
-        font_draw_fit(I.resume_line, lx, y + I.h - 16 - font_height(fs), fs, THEME_TEXT, I.w - 52);
+        font_draw_fit(I.resume_line, lx, y + I.h - 16 - font_height(fs), fs, THEME_TEXT, tw - 52);
         break;
     }
     default: break;

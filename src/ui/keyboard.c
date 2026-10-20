@@ -109,7 +109,7 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
         else gfx_rrect(kx, ky, w, KEY_H, R_KEY, sel ? THEME_FOCUS : lit ? THEME_SURFACE_HI : COLOR_ALPHA(THEME_TEXT, 0x1C));
         int fs = FONT_S | FONT_B;
         float tw = font_measure(ACT_LABEL[a], fs);
-        font_draw(ACT_LABEL[a], kx + (w - tw) / 2, ky + (KEY_H - font_height(fs)) / 2, fs, sel ? THEME_ON_FOCUS : THEME_TEXT);
+        font_draw(ACT_LABEL[a], kx + (w - tw) / 2, ky + (KEY_H - font_height(fs)) / 2, fs, sel ? THEME_ON_FOCUS : a == ACT_DONE ? THEME_ON_ACCENT : THEME_TEXT);
         kx += w + GAP;
     }
 }

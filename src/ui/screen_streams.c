@@ -524,7 +524,7 @@ static void find_size(const char *t, char *out, size_t n)
     }
 }
 
-static float draw_badges(const Stream *sm, float right_x, float y)
+static float draw_badges(const Stream *sm, float right_x, float y, int foc)
 {
     char text[1200];
     snprintf(text, sizeof text, "%s %s %s %s", sm->name ? sm->name : "", sm->title ? sm->title : "",
@@ -553,7 +553,8 @@ static float draw_badges(const Stream *sm, float right_x, float y)
     for (int i = n - 1; i >= 0; i--) {
         float w = font_measure(b[i].t, FONT_XS | FONT_B) + 24;
         x -= w;
-        ui_chip(b[i].t, x, y, b[i].bg, b[i].fg);
+        /* translucent chips vanish on the lit focused row: give them a solid ground there */
+        ui_chip(b[i].t, x, y, foc && (b[i].bg & 0xFF) < 0x80 ? COLOR_ALPHA(THEME_PANEL, 0xF0) : b[i].bg, foc && b[i].fg == THEME_TEXT_DIM ? THEME_TEXT : b[i].fg);
         x -= 8;
     }
     return x;
@@ -659,7 +660,7 @@ static void draw(Screen *s)
         gfx_rrect_grad_h(ax, ay, aw, 32, theme_pill_r(32), COLOR_ALPHA(THEME_ACCENT, 0x60), COLOR_ALPHA(THEME_ACCENT2, 0x60));
         font_draw_fit(sm->addon_name, ax + 12, ay + (32 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT, aw - 24);
         if (sub[0]) font_draw_fit(sub, ax + aw + 12, ay + 4, FONT_XS | FONT_B, THEME_TEXT_DIM, 160);
-        float bx = draw_badges(sm, x + w - 24, ry + 18);
+        float bx = draw_badges(sm, x + w - 24, ry + 18, foc);
         font_draw_fit(line1[0] ? line1 : "Stream", ax, ry + 60, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 48);
         font_draw_fit(line2, ax, ry + 98, FONT_XS, ok ? THEME_TEXT_DIM : THEME_TEXT_MUTED, w - 48);
         char p2p[48];
@@ -670,7 +671,7 @@ static void draw(Screen *s)
             Color fc = !ok ? THEME_DANGER : THEME_OK;
             float fw = font_measure(flag, FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip(flag, bx, ry + 18, COLOR_ALPHA(fc, 0x30), fc);
+            ui_chip(flag, bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(fc, 0x30), fc);
         }
         const char *warn[3];
         int nw = ok ? quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 3) : 0;
@@ -678,28 +679,28 @@ static void draw(Screen *s)
         if (sick && !rule_broken(sm)) {
             float fw = font_measure(sick, FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip(sick, bx, ry + 18, COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+            ui_chip(sick, bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
         } else if (rule_broken(sm)) {
             float fw = font_measure("Against your rules", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip("Against your rules", bx, ry + 18, COLOR_ALPHA(THEME_TEXT_MUTED, 0x30), THEME_TEXT_MUTED);
+            ui_chip("Against your rules", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_TEXT_MUTED, 0x30), THEME_TEXT_MUTED);
         } else if (sm->probe_state == 4) {
             float fw = font_measure("Link not responding", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip("Link not responding", bx, ry + 18, COLOR_ALPHA(THEME_DANGER, 0x30), THEME_DANGER);
+            ui_chip("Link not responding", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_DANGER, 0x30), THEME_DANGER);
         } else if (sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85) {
             float fw = font_measure("Too fast for this link", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip("Too fast for this link", bx, ry + 18, COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+            ui_chip("Too fast for this link", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
         } else if (sm->probe_state == 2 && !nw) {
             float fw = font_measure("Verified", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip("Verified", bx, ry + 18, COLOR_ALPHA(THEME_OK, 0x30), THEME_OK);
+            ui_chip("Verified", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_OK, 0x30), THEME_OK);
         }
         if (nw) {
             float fw = font_measure(warn[0], FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
-            ui_chip(warn[0], bx, ry + 18, COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+            ui_chip(warn[0], bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
         } else if (i == rec) {
             float fw = font_measure("Recommended", FONT_XS | FONT_B) + 24;
             bx -= fw + 8;

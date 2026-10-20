@@ -1646,8 +1646,8 @@ static void draw_menu(Player *p)
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
     ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
-    static const char *TITLES[] = { "", "Audio", "Subtitles", "Subtitle style", "Sources", "Episodes" };
-    static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SUBS, ICON_SWAP, ICON_LIST };
+    static const char *TITLES[] = { "", "Audio", "Subtitles", "Sources", "Episodes" };   /* by MENU_ */
+    static const Icon ICONS[] = { ICON_PLAY, ICON_AUDIO, ICON_SUBS, ICON_SWAP, ICON_LIST };
     ui_icon(ICONS[p->menu], x + 56, y + 62, 40, THEME_TEXT);
     font_draw(TITLES[p->menu], x + 92, y + 40, FONT_L | FONT_B, THEME_TEXT);
     VideoTrack tr[MAX_TRACKS];
@@ -1857,12 +1857,13 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
     font_draw("OK", gx - 16 - font_measure("OK", FONT_XS | FONT_B), gy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
 }
 
-static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay)
+static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay, float card_top)
 {
     int lit = !overlay || p->skip_focus;   /* OK skips: hidden controls, or Up focused it */
     const char *label = s->kind == SKIP_RECAP ? "Skip recap" : "Skip intro";
     float h = 72, w = ui_pill_width(label, 1, h);
     float x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 330 : SNTV_UI_H - 200;
+    if (card_top > 0 && y + h + 32 > card_top) y = card_top - h - 32;   /* above an Up Next or lighter-source card */
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, h / 2, 30, RGBA(0, 0, 0, 0x90));
     ui_pill(label, 1, ICON_NEXT, x, y, h, lit ? PILL_PRIMARY : PILL_SECONDARY, lit);
     /* time left in the segment, as a thin line under the button */
@@ -2354,10 +2355,11 @@ static void draw(Screen *s)
     }
     gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);
-    if (p->up_next_shown && p->next_video_id && !p->menu) draw_up_next(p, &vi, overlay);
-    else if (p->lighter_to >= 0 && !p->menu) draw_lighter(p, overlay);
+    float card_top = 0;
+    if (p->up_next_shown && p->next_video_id && !p->menu) { draw_up_next(p, &vi, overlay); card_top = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240; }
+    else if (p->lighter_to >= 0 && !p->menu) { draw_lighter(p, overlay); card_top = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 200; }
     const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu ? skippable(p, &vi) : NULL;
-    if (sk) draw_skip_button(p, sk, &vi, overlay);
+    if (sk) draw_skip_button(p, sk, &vi, overlay, card_top);
     if (p->menu) draw_menu(p);
 }
 
