@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.29
 
 - Add the selectable Aperture prototype: charcoal and ivory editorial Home and
   title pages, compact source comparisons, quiet player controls, a pause title
