@@ -255,6 +255,10 @@ class H(BaseHTTPRequestHandler):
             if client["clientName"] == "IOS":   # the iPhone app also offers an HLS playlist
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "OK"}, "videoDetails": {"videoId": req["videoId"], "lengthSeconds": "185"},
                                                   "streamingData": {"hlsManifestUrl": f"{BASE}/yt/media/master.m3u8?id={req['videoId']}&c=IOS"}}).encode())
+            # "pot...": the visionOS links want a proof-of-origin token past their first bytes; the TV app's do not
+            pot = req["videoId"].startswith("pot")
+            vc = "TVHTML5" if client["clientName"] == "TVHTML5" else "VISIONOS"
+            need = "&pot=need" if pot and vc == "VISIONOS" else ""
             return self.send(200, json.dumps({
                 "playabilityStatus": {"status": "OK"},
                 "videoDetails": {"videoId": req["videoId"], "title": "Adhan (fixture)", "lengthSeconds": "185"},
@@ -262,12 +266,12 @@ class H(BaseHTTPRequestHandler):
                     "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123"}],
                     "adaptiveFormats": [
                         {"itag": 137, "mimeType": "video/mp4; codecs=\"avc1.640028\"", "bitrate": 4400000, "width": 1920, "height": 1080, "fps": 30,
-                         "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v1080&c=VISIONOS&clen={vfrag}"},
+                         "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v1080&c={vc}&clen={vfrag}{need}"},
                         {"itag": 136, "mimeType": "video/mp4; codecs=\"avc1.4d401f\"", "bitrate": 2300000, "width": 1280, "height": 720, "fps": 30,
-                         "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v720&c=VISIONOS&clen={vfrag}"},
+                         "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v720&c={vc}&clen={vfrag}{need}"},
                         {"itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150000, "url": f"{BASE}/yt/media/opus.webm?n=abc123"},
                         {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "audioSampleRate": "44100", "contentLength": str(afrag),
-                         "initRange": {"start": "0", "end": "732"}, "indexRange": {"start": "733", "end": "784"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={afrag}"},
+                         "initRange": {"start": "0", "end": "732"}, "indexRange": {"start": "733", "end": "784"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={afrag}{need}"},
                         {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 135000, "isDrc": True, "url": f"{BASE}/yt/media/drc.m4a?n=abc123"}]}}).encode())
         return self.send(404, b"{}")
 
@@ -277,6 +281,10 @@ class H(BaseHTTPRequestHandler):
         bestfit = p.startswith("/bestfit/")
         if bestfit:
             p = p[8:]
+        # /pot/...: its trailer's separate video and audio want a token from the visionOS client
+        pot = p.startswith("/pot/")
+        if pot:
+            p = p[4:]
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
@@ -401,7 +409,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"meta": dict(m, description="A fixture movie used by the smoke test.", runtime="101 min",
                 director=["Frank Darabont"], writer=["Stephen King", "Frank Darabont"], country="United States",
                 awards="Nominated for 7 Oscars. 21 wins & 43 nominations total", released="1994-10-14T00:00:00.000Z",
-                trailerStreams=[] if notrailer else [{"title": "Trailer", "ytId": "dQw4w9WgXcQ"}],
+                trailerStreams=[] if notrailer else [{"title": "Trailer", "ytId": "potPOT00001" if pot else "dQw4w9WgXcQ"}],
                 app_extras={"cast": [{"name": n, "character": c, "photo": f"{BASE}/tmdbimg/p{i}.png"} for i, (n, c) in enumerate(
                     [("Tim Robbins", "Andy Dufresne"), ("Morgan Freeman", "Ellis Boyd 'Red' Redding"), ("Bob Gunton", "Warden Norton"), ("William Sadler", "Heywood")])]})}).encode())
         if p.startswith("/stream/"):
@@ -437,8 +445,12 @@ class H(BaseHTTPRequestHandler):
             name = p.split("?")[0].rsplit("/", 1)[1]
             # links are bound to the app they were issued to, as googlevideo's are
             ua = self.headers.get("User-Agent") or ""
-            if ("c=IOS" in p and "ios.youtube" not in ua) or ("c=VISIONOS" in p and "Macintosh" not in ua):
+            if ("c=IOS" in p and "ios.youtube" not in ua) or ("c=VISIONOS" in p and "Macintosh" not in ua) or ("c=TVHTML5" in p and "SMART-TV" not in ua):
                 return self.send(403, b"")
+            if "pot=need" in p:   # the first bytes come, the rest is refused without a token
+                rq = p.split("&range=")[1].split("&")[0] if "&range=" in p else (self.headers.get("Range") or "bytes=0-")[6:]
+                if int(rq.split("-")[0] or 0) > 4096:
+                    return self.send(403, b"")
             if name in ("mid.m3u8", "high.m3u8"):
                 return self.send(200, b"#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg1.ts?c=IOS\n#EXT-X-ENDLIST\n", "application/vnd.apple.mpegurl")
             if name == "seg1.ts":

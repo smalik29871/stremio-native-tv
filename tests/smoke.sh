@@ -72,6 +72,11 @@ grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not f
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
 grep -q "youtube: dQw4w9WgXcQ as a byte-range playlist at 1080p (10 pieces)" "$OUT/detail_trailer.log" && grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality, pieces listed)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/4 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
+# YouTube wants a token for the visionOS client's files: the TV app's are solved and tested instead
+run detail_trailer_tv 1500 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_tv "$ABOUT_HOME")" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/pot/manifest.json"
+grep -q "youtube: potPOT00001 refused the VISIONOS client's separate video and audio (403)" "$OUT/detail_trailer_tv.log" && grep -q "youtube: potPOT00001 separate video and audio from the TV client" "$OUT/detail_trailer_tv.log" \
+  && grep -q "youtube: potPOT00001 as a byte-range playlist at 1080p" "$OUT/detail_trailer_tv.log" \
+  || { echo "refused visionOS files were not replaced by the TV app's"; grep -E "youtube|player: candidate" "$OUT/detail_trailer_tv.log"; exit 1; }
 # both sharp ways failed on this TV: YouTube's own playlist goes first (the others every tenth time)
 run detail_trailer_hls_first 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer_hls '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ytFailLocalHls":1,"ytFailDash":1}')"
 grep -q "youtube: dQw4w9WgXcQ 2 way(s) failed here before" "$OUT/detail_trailer_hls_first.log" && grep -q "player: candidate 1/4 .* -> http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_hls_first.log" \
