@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.28
 
 - **A new Sources sheet during playback**, laid out after nuvio-native-legacy's: a tall
   card on the right while the video keeps playing beside it. The source this TV should
