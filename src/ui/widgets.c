@@ -416,8 +416,9 @@ void ui_upper(const char *in, char *out, size_t n)
         else if ((p[0] & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80) { c = ((p[0] & 0x1F) << 6) | (p[1] & 0x3F); len = 2; }
         else { /* copy longer sequences unchanged */
             len = (p[0] & 0xF0) == 0xE0 ? 3 : (p[0] & 0xF8) == 0xF0 ? 4 : 1;
-            for (int i = 0; i < len && p[i]; i++) out[o++] = (char)p[i];
-            p += len;
+            int i = 0;
+            for (; i < len && p[i]; i++) out[o++] = (char)p[i];
+            p += i;   /* a sequence cut short by the end of the string stops there */
             continue;
         }
         c = upper_cp(c);

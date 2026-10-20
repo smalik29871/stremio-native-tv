@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix an out-of-bounds read when a title from an addon ends partway through a UTF-8
+  character: upper-casing it (Aperture titles, Marquee and Signal headings) read past
+  the end of the text.
+
 ## 0.10.30
 
 - **Aperture now matches its design mockups**, set in a new serif (DM Serif Display):
