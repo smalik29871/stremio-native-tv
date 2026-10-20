@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.20
+
+- **YouTube test in Diagnostics.** A new YouTube tab asks for a known video the way
+  trailers are fetched and shows each way to get it on this TV and network: the
+  visionOS app and its high-quality files, YouTube's TV app and its files, YouTube's
+  own playlist and the file with sound, each with YouTube's reason when it refuses,
+  then the best that plays now. Play opens the test video.
+- **YouTube's refusals show in Problems.** Why a trailer came out at low quality (the
+  bot check, a token wanted, copy-protected or SABR-only formats) is now listed there.
+- **No phone-app files.** YouTube's Android and iPhone apps' high-quality files always
+  want a token now; when visionOS offers none, the TV app's are asked for at once.
+
 ## 0.10.19
 
 - **Sharper YouTube again.** YouTube started refusing the high-quality files the app
