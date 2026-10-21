@@ -605,6 +605,7 @@ static int g_saver_ok;   /* the TV took the subscription: no new one at each loa
 
 static volatile int g_keep_awake;
 void video_keep_awake(int on) { g_keep_awake = on; }
+int video_paused_on_purpose(void) { return g_paused_by_user; }
 
 static int saver_hold(void)
 {
@@ -993,7 +994,8 @@ void video_update(void)
         g_autoplayed = 1;
         if (g_muted || g_volume < 100) video_set_muted(g_muted);   /* before the first sound */
         if (seek > 0) video_seek(seek);
-        video_play();
+        if (g_paused_by_user || g_background) LOGI("video(webos): loaded while paused (the TV's Home, a break): it waits");   /* paused while it loaded: stays so */
+        else video_play();
     } else if (loading && SDL_GetTicks() - started > 40000) {
         SDL_LockMutex(g_lock);
         snprintf(g_info.error, sizeof g_info.error, "The TV didn't start this stream within 40 seconds");

@@ -8,6 +8,7 @@
 #include "youtube.h"
 #include "torbox.h"
 #include "ui/font.h"
+#include "video/video.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
 #include "../vendor/cJSON.h"
@@ -29,6 +30,7 @@ static struct {
     int skipped_day;             /* breaks skipped for this day */
     int banner_for;              /* minute of the event the banner shows, -1 none */
     float watch_s;               /* continuous watching, for the stretch reminder */
+    float away_s;                /* nothing playing since: five minutes of it ends the stretch of watching */
     int detecting;
     int stale;                   /* settings changed: recompute the list, keep what already fired */
 } B = { .day_key = -1, .skipped_day = -1, .banner_for = -1 };
@@ -229,11 +231,17 @@ void breaks_tick(float dt)
     Screen *top = app_top();
     int in_break = top && strcmp(top->name, "break") == 0;
     int skipped = B.skipped_day == B.day_key;
-    /* stretch reminder: counts only while something plays */
-    if (g_app.break_health_min > 0 && watching() && !in_break) {
+    /* stretch reminder: counts while a video plays (not paused, not a list between two
+     * episodes); five minutes with nothing playing start it over */
+    VideoInfo vi;
+    video_info(&vi);
+    int playing = watching() && !in_break && vi.state == VIDEO_PLAYING;
+    if (playing) B.away_s = 0;
+    else if ((B.away_s += dt) > 300) B.watch_s = 0;
+    if (g_app.break_health_min > 0 && playing) {
         B.watch_s += dt;
         if (B.watch_s >= g_app.break_health_min * 60.0f && !skipped) { B.watch_s = 0; breaks_fire_now("Time to stretch", "Stand up, look away from the screen, drink some water", BRK_KIND_HEALTH); return; }
-    } else if (!watching()) B.watch_s = 0;
+    }
     if (in_break || skipped) { B.banner_for = -1; return; }
     if (!watching() && !g_app.breaks_everywhere) { B.banner_for = -1; return; }
     struct tm t = now_tm();

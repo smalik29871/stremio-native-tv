@@ -142,6 +142,8 @@ struct Player {
     int lighter_to; int lighter_offered;    /* buffering keeps stopping: a lower resolution offered (-1 none) */
     int stalls_here;                        /* stalls since this source started */
     double pos_seen; float jumped_at;       /* the playhead jumped (a seek): the buffering after it is not the connection's fault */
+    double known_dur;                       /* the duration last reported (0 while a source loads) */
+    double jump_pos;                        /* where the last jump landed */
     float menu_t; int menu_seen;           /* the side menu slides in */
     int embedded_text_sel;    /* -1 off */
     double embedded_offset;   /* timing for the TV's own subtitles, seconds (positive = later) */
@@ -171,6 +173,8 @@ struct Player {
     int final_used;           /* this load opened where the link's redirects led (found moments ago) */
     unsigned char final_off[16];   /* that address failed for this source: its link from now on */
     int relay_used;           /* this load went through the local relay (its addon asked for headers) */
+    int tb_pending;           /* TorBox is preparing the current source: no re-ask, no error card meanwhile */
+    int tb_held; double tb_held_start;   /* TorBox answered while a break or dialog covered the player: it starts once back on top */
     unsigned char relay_off[16];   /* the relay did not get it playing: the direct link from now on */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
@@ -193,6 +197,7 @@ struct Player {
     double next_at;           /* position where Up Next starts by itself */
     int up_next_dismissed;
     int next_wanted;          /* OK on the card while the next episode was still being prepared: it starts when ready */
+    int still_asking;         /* "Still watching?": episodes went on by themselves for a while with nobody pressing a key */
 
     int menu, menu_focus;
     int src_filter, src_chip, src_on_chips;   /* Sources sheet: addon tab (0 all), focused button (0 find more, 1 close), focus zone (0 list, 1 tabs, 2 buttons) */
@@ -209,6 +214,30 @@ static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_
 #define ADVISORY_S 7.0f   /* seconds the content advisory stays when a video starts */
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
+
+/* Resume on the title page opens the source that played, not the one first picked (which
+ * may have lost the race or died since). */
+static void remember_playing(const Player *p)
+{
+    if (p->trailer || !p->meta.id || p->cur < 0 || !p->cands[p->cur].url) return;
+    char key[160];
+    snprintf(key, sizeof key, "resume:%s", p->meta.id);
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "url", p->cands[p->cur].url);
+    cJSON_AddStringToObject(o, "video_id", p->video_id);
+    store_set_json(key, o);
+    store_save();
+}
+
+/* Where this video goes on from: the position while it plays; while a source loads,
+ * reconnects or fails it reports 0, so where it was headed (a reconnect's spot, the
+ * position it was started at). */
+static double resume_spot(const Player *p, const VideoInfo *vi)
+{
+    if (vi->position > 5) return vi->position;
+    if (p->net_retry_pos > 5) return p->net_retry_pos;
+    return p->start_at;
+}
 static void instant_replay(Player *p, double pos);
 static void night_tick(Player *p, const VideoInfo *vi);
 static int scenes_list(const Player *p, double duration, double *t, int *kind, int n);
@@ -240,17 +269,33 @@ static void xl_start(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
 static int recovering(const Player *p, const VideoInfo *vi);
 
-static void report(Player *p, int force)
+static double resume_spot(const Player *p, const VideoInfo *vi);
+
+/* The position to the library and to Trakt/SimKL. played_through: it got here by playing
+ * (two minutes since the last seek), so past 90% it counts as watched; a seek to the end
+ * to peek does not. scrobble: a final report ends the scrobble (not for an overlay). */
+static void report_ex(Player *p, int force, int scrobble)
 {
     VideoInfo vi;
     video_info(&vi);
-    if (vi.state == VIDEO_IDLE || vi.state == VIDEO_LOADING || vi.state == VIDEO_ERROR) return;
-    if (!force && vi.position == p->last_reported) return;
     if (p->trailer) return;
+    if (vi.duration > 0) p->known_dur = vi.duration;
+    if (vi.state == VIDEO_IDLE || vi.state == VIDEO_LOADING || vi.state == VIDEO_ERROR) {   /* between sources: where it was headed */
+        double at = resume_spot(p, &vi);
+        if (!force || at <= 5 || p->known_dur <= 0) return;
+        app_library_progress(&p->meta, p->video_id, at, p->known_dur, 0);
+        if (scrobble) tracking_progress(&p->meta, p->video_id, at, p->known_dur, 1, 0);
+        return;
+    }
+    if (!force && vi.position == p->last_reported) return;
     p->last_reported = vi.position;
-    app_library_progress(&p->meta, p->video_id, vi.position, vi.duration);
-    tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, force || vi.state == VIDEO_PAUSED);
+    double left = vi.duration - p->jump_pos, need = left * 0.8 < 120 ? left * 0.8 : 120;   /* played since the last jump: 2 min, or most of what was left */
+    int through = g_app.time - p->jumped_at >= need;
+    app_library_progress(&p->meta, p->video_id, vi.position, vi.duration, through);
+    tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, (force && scrobble) || vi.state == VIDEO_PAUSED, through);
 }
+
+static void report(Player *p, int force) { report_ex(p, force, 1); }
 
 /* ---- addon subtitles ---------------------------------------------------------- */
 
@@ -1280,10 +1325,14 @@ static void on_torbox_open(const char *url, const char *error, void *user)
     TbReq *q = user;
     Player *p = q->owner;
     int current = p == g_live && !p->finished && q->attempt == p->attempt && q->idx == p->cur && !strcmp(p->cands[q->idx].url, q->link);
+    if (current) p->tb_pending = 0;
+    const Screen *top = app_top();
+    int on_top = (top && top->st == p) || (g_app.pip && g_app.pip->st == p);
     if (current && url) {
         free(p->cands[q->idx].url);
         p->cands[q->idx].url = strdup(url);
-        start_candidate(p, q->idx, q->start);
+        if (on_top) start_candidate(p, q->idx, q->start);
+        else { p->tb_held = 1; p->tb_held_start = q->start; LOGI("player: TorBox has source %d; it starts when the player is back on top", q->idx + 1); }   /* never under a break */
     } else if (current) {
         LOGW("player: source %d not from TorBox: %s", q->idx + 1, error ? error : "?");
         snprintf(p->tb_error, sizeof p->tb_error, "TorBox: %s", error ? error : "it could not open it");
@@ -1329,6 +1378,7 @@ static void start_candidate(Player *p, int idx, double start)
         for (int k = 0; k < p->n_addon_subs; k++) p->addon_subs[k].matched = 0;   /* matched to the old file; this one's hash re-marks them */
     }
     p->attempt++;
+    p->tb_pending = 0; p->tb_held = 0;   /* an earlier TorBox open is not this start's */
     p->audio_bad = 0; p->audio_req_at = -100;
     p->net_retry_at = 0; p->net_reconnecting = 0;   /* a source chosen meanwhile, or Reload, replaces a pending reconnect */
     for (int r = 0; r < 2; r++)
@@ -1370,6 +1420,7 @@ static void start_candidate(Player *p, int idx, double start)
     if (torbox_is_hash_link(p->cands[idx].url)) {
         if (video_load_count() != p->own_load) video_stop();   /* a trailer still on the plane; this player's own source plays on meanwhile */
         p->error_handled = 1;   /* nothing to watch over until TorBox answers */
+        p->tb_pending = 1;
         TbReq *q = malloc(sizeof *q);
         q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url); q->attempt = p->attempt;
         EpisodeHint ep;
@@ -1623,6 +1674,8 @@ static void on_reask(const Stream *items, int n, void *user)
     for (int r = 0; r < 2; r++) { free(p->ready[r].url); free(p->ready[r].link); p->ready[r].url = p->ready[r].link = NULL; }   /* the old list's */
     p->cands = c; p->n_cands = k; p->tries = 0;
     memset(p->dead, 0, sizeof p->dead);
+    memset(p->relay_off, 0, sizeof p->relay_off); memset(p->final_off, 0, sizeof p->final_off);   /* about the old list's sources */
+    p->cur = -1;   /* a new list: source 1 is a new source (its own retries, its own file) */
     app_toast("Found sources again. Carrying on from where it stopped");
     start_candidate(p, 0, p->reask_pos);
 }
@@ -1742,7 +1795,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
         }
     }
     /* 5. nothing left to try: ask the addons again, twice at most */
-    if ((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->net_retry_at && next_candidate(p) < 0 && p->reask_count < 2) {
+    if ((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->net_retry_at && next_candidate(p) < 0 && p->reask_count < 2 && !p->tb_pending && !p->tb_held) {   /* TorBox still on it: not yet */
         if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 2); LOGI("player: every source failed; asking the addons again for fresh links"); }
         else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; if (p->more_state == 1) p->more_state = 0; streams_lookup_auto(&p->meta, p->video_id, on_reask, p); }
     }
@@ -1755,6 +1808,8 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
     if (ready < 0) LOGI("player: on to %s, its sources not fetched yet", video_id);
     else LOGI("player: on to %s, %.0f%% of its addons answered ahead%s", video_id, ready * 100, p->next_warmed ? ", its file warmed" : "");
     report(p, 1);
+    if (p->up_next_shown && p->known_dur > 0 && !p->trailer)   /* on from the credits: this one is finished (it stopped short of 90%) */
+        app_library_progress(&p->meta, p->video_id, p->known_dur, p->known_dur, 1);
     video_stop();
     MetaPreview meta;
     meta_preview_copy(&meta, &p->meta);
@@ -1767,12 +1822,33 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
     if (!hint.group[0]) quality_release_group(c->release, hint.group, sizeof hint.group);
     p->finished = 1;
     app_pop();   /* destroys this screen */
-    app_replace(screen_streams_create_chain(&meta, vid, title, &hint));
+    const Screen *under = app_top();
+    Screen *next = screen_streams_create_chain(&meta, vid, title, &hint);
+    if (under && !strcmp(under->name, "streams")) app_replace(next);   /* the last episode's sources give way */
+    else app_push(next);   /* started from the title page (Resume): it stays under, for Back */
     meta_preview_free(&meta);
     free(vid); free(title);
 }
 
 static void go_up_next(Player *p) { go_to_video(p, p->next_video_id, p->next_title); }
+
+/* Episodes started by themselves in a row with no key pressed: after this many, the next
+ * one waits for "Still watching?" (a whole season must not play to someone asleep). */
+static int g_auto_streak;
+static float g_auto_streak_input = -1;
+static int still_watching_due(void)
+{
+    if (g_app.last_input != g_auto_streak_input) g_auto_streak = 0;   /* a key since: someone is there */
+    return g_auto_streak >= env_s("SNTV_STILL_WATCHING_AFTER", 3);
+}
+
+static void go_up_next_auto(Player *p)   /* the countdown or the episode's end, nobody asked */
+{
+    if (g_app.last_input != g_auto_streak_input) g_auto_streak = 0;
+    g_auto_streak++;
+    g_auto_streak_input = g_app.last_input;
+    go_up_next(p);
+}
 
 /* The next episode can start: its sources are in and the best is checked (or nothing was
  * fetched ahead at all, so there is nothing to wait for). */
@@ -1925,6 +2001,8 @@ static void leave_p2p(Player *p, const Stream *s)
     memmove(&p->cands[p->cur + 1], &p->cands[p->cur], sizeof *p->cands * (size_t)(p->n_cands - p->cur));
     p->cands[p->cur] = c;
     p->n_cands++;
+    for (int i = 15; i > p->cur && i > 0; i--) { p->dead[i] = p->dead[i - 1]; p->relay_off[i] = p->relay_off[i - 1]; p->final_off[i] = p->final_off[i - 1]; }   /* the rest moved down one */
+    if (p->cur < 16) p->dead[p->cur] = p->relay_off[p->cur] = p->final_off[p->cur] = 0;
     LOGI("player: TorBox has it again, leaving P2P at %.0f s for %s", vi.position, c.label);
     app_toast("TorBox has it again: switched back to the cached copy");
     p->tries = 0;
@@ -1972,6 +2050,7 @@ static void update(Screen *s, float dt)
 {
     Player *p = s->st;
     if (p->finished) return;
+    if (p->tb_held) { p->tb_held = 0; start_candidate(p, p->cur, p->tb_held_start); }   /* back on top: TorBox's answer starts now */
     VideoInfo vi;
     video_info(&vi);
     if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
@@ -1995,7 +2074,7 @@ static void update(Screen *s, float dt)
     p->since_report += dt;
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
     if (vi.state == VIDEO_PLAYING && vi.position > 2 && !p->yt_noted) { p->yt_noted = 1; youtube_note_result(p->cands[p->cur].url, 1); }
-    if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0); }
+    if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0, 0); }
     if (p->seek_commit > 0) { p->seek_commit -= dt; if (p->seek_commit <= 0) video_seek(p->seek_target); }
 
     if (vi.tracks_version != p->last_tracks_version) { p->last_tracks_version = vi.tracks_version; app_redraw(); }
@@ -2033,7 +2112,7 @@ static void update(Screen *s, float dt)
         p->net_reconnecting = 1;
     }
     if (p->net_reconnecting && p->started && vi.state == VIDEO_PLAYING) p->net_reconnecting = 0;
-    if (p->started && vi.state == VIDEO_PLAYING) p->net_played = 1;
+    if (p->started && vi.state == VIDEO_PLAYING && !p->net_played) { p->net_played = 1; remember_playing(p); }
     if (p->net_retries && vi.state == VIDEO_PLAYING && vi.position > p->net_retry_pos + 10) p->net_retries = 0;   /* it holds again */
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
@@ -2147,7 +2226,7 @@ static void update(Screen *s, float dt)
         && (vi.buffer_ahead < 0 || vi.buffer_ahead > 30))   /* never at this video's expense */
         p->next_warmed = streams_prefetch_warm(p->next_video_id, p->cands[p->cur].binge_group);
     next_progress_update(p, dt);
-    if (fabs(vi.position - p->pos_seen) > 3 + dt * 4 || p->seek_commit > 0) p->jumped_at = g_app.time;   /* seeking, or just sought */
+    if (fabs(vi.position - p->pos_seen) > 3 + dt * 4 || p->seek_commit > 0) { p->jumped_at = g_app.time; p->jump_pos = vi.position; }   /* seeking, or just sought */
     p->pos_seen = vi.position;
     int settled = g_app.time - p->jumped_at > 8 && vi.state == VIDEO_PLAYING;
     if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; if (settled) p->stalls_here++; p->stall_since = g_app.time; }
@@ -2166,14 +2245,21 @@ static void update(Screen *s, float dt)
     if (!vi.buffering && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
     p->was_buffering = vi.buffering;
     if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
-    if (p->up_next_shown && p->next_video_id && ((g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at) || p->next_wanted)
+    if (p->up_next_shown && p->next_video_id && ((g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at && !still_watching_due()) || p->next_wanted)
         && vi.state == VIDEO_PLAYING && !p->menu && next_ready(p)) {   /* never under an open menu, and not before it's ready: the credits play on meanwhile */
         LOGI("player: the next episode is ready%s", p->next_wanted ? " (asked for on the card)" : "");
-        go_up_next(p); return;
+        if (p->next_wanted) go_up_next(p); else go_up_next_auto(p);
+        return;
     }
     if (p->up_next_shown && !at_credits && !near_end) { p->up_next_shown = 0; p->next_wanted = 0; }   /* seeked back out of its window (with or without markers) */
     if (vi.state == VIDEO_ENDED) {
-        if (p->next_video_id && g_app.autoplay_next) { if (!p->menu) go_up_next(p); return; }
+        if (p->next_video_id && (g_app.autoplay_next || p->next_wanted)) {   /* asked for on the card counts too */
+            if (p->menu) { p->menu = 0; LOGI("player: the episode ended with a menu open; closing it for the next one"); }   /* nobody left to close it */
+            if (p->next_wanted) { go_up_next(p); return; }
+            if (!still_watching_due()) { go_up_next_auto(p); return; }
+            if (!p->still_asking) { p->still_asking = 1; LOGI("player: %d episodes went on by themselves; asking if anyone is still watching", g_auto_streak); app_redraw(); }
+            return;   /* the card waits for an answer */
+        }
         p->finished = 1;
         report(p, 1);
         app_pop();
@@ -2795,7 +2881,7 @@ static void bar_activate(Player *p, const VideoInfo *vi)
         if (vi->state == VIDEO_PLAYING) { video_pause(); p->viewer_paused = 1; } else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
         break;
     case BTN_NEXT: go_up_next(p); return;
-    case BTN_RELOAD: app_toast("Reloading"); start_candidate(p, p->cur, vi->position); break;
+    case BTN_RELOAD: app_toast("Reloading"); start_candidate(p, p->cur, resume_spot(p, vi)); break;   /* mid-hiccup it reports 0: its real spot */
     case BTN_SUBS: p->menu = MENU_SUBS; subs_open(p); break;
     case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = current_track_row(p, MENU_AUDIO); break;
     case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
@@ -3103,7 +3189,7 @@ static void draw_catchup(Player *p)
 /* every candidate has failed and the error card is up */
 static int error_final(const Player *p, const VideoInfo *vi)
 {
-    return recovering(p, vi) == 0 && (vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled;
+    return recovering(p, vi) == 0 && (vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->tb_pending && !p->tb_held;
 }
 
 /* After a failure, what the player is still doing about it: 0 nothing (the error card),
@@ -3364,7 +3450,7 @@ static void draw(Screen *s)
     }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */
     if (error_final(p, &vi)) {
-        if (!p->card_logged) { p->card_logged = 1; perf_start_done(0); LOGI("player: error card (%s): every source and fresh link tried", p->tb_error[0] ? p->tb_error : vi.error); }
+        if (!p->card_logged) { p->card_logged = 1; p->menu = 0; perf_start_done(0); LOGI("player: error card (%s): every source and fresh link tried", p->tb_error[0] ? p->tb_error : vi.error); }
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
         float w = 900, h = 360, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
         ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
@@ -3576,7 +3662,16 @@ static void draw(Screen *s)
     gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);
     float card_top = 0;
-    if (p->up_next_shown && p->next_video_id && !p->menu) { draw_up_next(p, &vi, overlay); card_top = (overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240) - (g_theme.id == THEME_APERTURE ? 24 : 0); }   /* Aperture's card is taller */
+    if (p->still_asking) {
+        float w = 760, h = 230, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
+        if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0xA0));
+        ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF4));
+        font_draw_center("Still watching?", x + w / 2, y + 40, FONT_L | FONT_B, THEME_TEXT);
+        char line[200]; snprintf(line, sizeof line, "Up next: %s", p->next_title ? p->next_title : "the next episode");
+        font_draw_center(line, x + w / 2, y + 100, FONT_S, THEME_TEXT_DIM);
+        font_draw_center("OK  plays it      \xC2\xB7      Back  stops here", x + w / 2, y + 160, FONT_S | FONT_B, THEME_TEXT);
+    }
+    if (p->up_next_shown && p->next_video_id && !p->menu && !p->still_asking) { draw_up_next(p, &vi, overlay); card_top = (overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 240) - (g_theme.id == THEME_APERTURE ? 24 : 0); }   /* Aperture's card is taller */
     else if (p->lighter_to >= 0 && !p->menu) { draw_lighter(p, overlay); card_top = overlay ? SNTV_UI_H - 400 : SNTV_UI_H - 200; }
     const SkipSeg *sk = g_app.skip_mode == 0 && !p->menu && !p->cast_open && !p->scenes_open ? skippable(p, &vi) : NULL;
     if (sk) draw_skip_button(p, sk, &vi, overlay, card_top);
@@ -3841,7 +3936,7 @@ static void menu_activate(Player *p)
         VideoInfo vi;
         video_info(&vi);
         int rows[64], n = source_rows(p, rows);
-        if (p->menu_focus < n && rows[p->menu_focus] != p->cur) { app_toast("Switching source"); start_candidate(p, rows[p->menu_focus], vi.position); }
+        if (p->menu_focus < n && rows[p->menu_focus] != p->cur) { app_toast("Switching source"); keep_choices(p); start_candidate(p, rows[p->menu_focus], resume_spot(p, &vi)); }
         return;
     }
     if (p->menu == MENU_EPISODES) {
@@ -4333,10 +4428,15 @@ static int key(Screen *s, KeyAction a)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
+    if (p->still_asking) {   /* "Still watching?": OK goes on, Back stops; nothing else */
+        if (a == KEY_OK || a == KEY_PLAY || a == KEY_PLAY_PAUSE) { p->still_asking = 0; g_auto_streak = 0; LOGI("player: still watching: on to the next episode"); go_up_next(p); }
+        else if (a == KEY_BACK || a == KEY_STOP) { p->still_asking = 0; p->finished = 1; report(p, 1); app_pop(); }
+        return 1;
+    }
     if (p->lighter_to >= 0 && !p->menu && p->seek_commit <= 0 && !(p->up_next_shown && p->next_video_id) && (a == KEY_OK || a == KEY_BACK)) {   /* the lighter source on offer */
         int to = p->lighter_to;
         p->lighter_to = -1;
-        if (a == KEY_OK) { LOGI("player: switching to the lighter source %d", to + 1); app_toast("Switching to %dp", p->cands[to].res); start_candidate(p, to, vi.position); }
+        if (a == KEY_OK) { LOGI("player: switching to the lighter source %d", to + 1); app_toast("Switching to %dp", p->cands[to].res); keep_choices(p); start_candidate(p, to, resume_spot(p, &vi)); }
         app_redraw();
         return 1;
     }
@@ -4456,7 +4556,7 @@ keys:
     case KEY_GREEN: if (p->next_video_id) go_up_next(p); return 1;
     case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
     case KEY_BLUE: instant_replay(p, vi.position); return 1;
-    case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); start_candidate(p, p->cur + 1, vi.position); } return 1;
+    case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); keep_choices(p); start_candidate(p, p->cur + 1, resume_spot(p, &vi)); } return 1;
     case KEY_BACK:
         if (g_app.pip_enabled && !p->trailer && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
         /* fall through */
@@ -4474,6 +4574,11 @@ keys:
 void player_save_progress(void)
 {
     if (g_live) report(g_live, 1);
+}
+
+void player_save_progress_quiet(void)   /* an overlay over the app: saved, but Trakt is not told it stopped */
+{
+    if (g_live) report_ex(g_live, 1, 0);
 }
 
 static void destroy(Screen *s)
@@ -4652,6 +4757,13 @@ void player_set_pip(Screen *s, int on)
 }
 
 void player_pip_update(Screen *s, float dt) { update(s, dt); }
+double player_resume_point(Screen *s)
+{
+    VideoInfo vi;
+    video_info(&vi);
+    return resume_spot(s->st, &vi);
+}
+
 void player_reload_at(Screen *s, double position_s, int paused) { Player *p = s->st; p->pause_when_started = paused; start_candidate(p, p->cur, position_s); }
 int player_pip_done(Screen *s) { return ((Player *)s->st)->pip_done; }
 const char *player_video_id(Screen *s) { return ((Player *)s->st)->video_id; }
@@ -4690,7 +4802,7 @@ int player_holds_screen(void)
     VideoInfo vi;
     video_info(&vi);
     if (vi.buffering || vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) return 1;
-    if (vi.state == VIDEO_PAUSED) return !g_live->viewer_paused;   /* a stall the TV reports as a pause */
+    if (vi.state == VIDEO_PAUSED) return !g_live->viewer_paused && !video_paused_on_purpose();   /* a stall the TV reports as a pause; not the TV's Home or a break pausing it */
     if (vi.state == VIDEO_ENDED) return 0;
     /* between sources (TorBox opening the next one, the addons asked again, reconnecting):
      * held; the final error card is not */

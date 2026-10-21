@@ -191,7 +191,7 @@ void app_logout(void);
 void app_load_library(void);
 LibraryItem *app_library_find(const char *id);
 /* Records playback progress locally and (when logged in) pushes it to the account. */
-void app_library_progress(const MetaPreview *meta, const char *video_id, double position_s, double duration_s);
+void app_library_progress(const MetaPreview *meta, const char *video_id, double position_s, double duration_s, int played_through);   /* played_through: got there by playing (past 90% it is watched); a seek there is not */
 int  app_library_remote_progress(const char *id, const char *type, const char *name, const char *video_id,
                                  double position_s, double duration_s, int64_t when_ms);   /* newer than ours: taken, sent on */
 void app_library_foreground(void);   /* back on screen: the account's library again (at most once a minute) */
@@ -202,6 +202,7 @@ void app_library_mark_watched(const MetaPreview *meta, int watched);
  * -1 none, 0 not watched, 1 watched. Kept on this TV. */
 int  app_episode_mark(const char *series_id, const char *video_id);
 void app_episode_set_marks(const char *series_id, const char *const *video_ids, int n, int watched);
+int  app_episode_marks_any(const char *series_id);   /* any episode recorded as watched */
 void app_library_dismiss_continue(const MetaPreview *meta);   /* drop from Continue Watching, keep in Library */
 /* Links that failed to play are remembered for six hours and sorted last. */
 void app_link_failed(const char *url);
@@ -288,6 +289,7 @@ void    screen_detail_ask(const MetaPreview *preview);   /* the title page with 
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title);
 /* The same, starting the recommended source by itself (Back returns to the list). */
 Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id, const char *video_title);
+Screen *screen_streams_create_from_start(const MetaPreview *meta, const char *video_id, const char *video_title);   /* Restart: 0:00 */
 /* The player takes ownership of `cands`. next_video_id (optional) enables Up Next. */
 /* 1 while a video is on that nothing but a break may cover: playing, stalled, between
  * sources; 0 with no video, or paused by the viewer */
@@ -327,8 +329,10 @@ void player_pip_draw(Screen *s, int focused);
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);
 void player_save_progress(void);
+void player_save_progress_quiet(void);   /* an overlay over the app: saved locally, Trakt not told it stopped */
 /* Clear old caches and unused recordings from the data folder, on a thread (tidy.h). */
 void app_tidy(int delay_ms);   /* now, e.g. as the app goes to the background */
+double player_resume_point(Screen *s);   /* where it plays from: the position, or (loading, reconnecting) where it is headed */
 void player_reload_at(Screen *s, double position_s, int paused);   /* the same source again from `position_s` (after a break), paused again if it was */
 
 /* Fetch an episode's streams ahead of time so Up Next starts without a spinner. */

@@ -17,6 +17,7 @@ int  island_key_blue(void);
 /* The resume card as a focus stop (Up from the top of Home): 1 when it took the focus. */
 int  island_take_focus(void);
 int  island_has_focus(void);
+void island_drop_focus(void);   /* a screen opened over it: keys go to that screen */
 /* Keys while it has the focus: OK opens the title, Down or Back hand the focus back. */
 void island_focus_key(int ok);
 void island_draw(int in_player, int show_clock);

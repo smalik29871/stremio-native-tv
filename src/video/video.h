@@ -69,6 +69,9 @@ void video_app_foreground(void);
 /* A start under way with no video loaded yet (the next episode's sources being found):
  * the TV's own screensaver waits, as it does for a playing video. */
 void video_keep_awake(int on);
+/* Paused by a video_pause() call (the viewer, the app going to the background, a break),
+ * not a stall that the TV reports as a pause (LG does). */
+int video_paused_on_purpose(void);
 
 /* Updating the app itself (here because the system bus lives in this backend). On webOS
  * the Homebrew Channel's service downloads the package, checks its SHA-256 and installs

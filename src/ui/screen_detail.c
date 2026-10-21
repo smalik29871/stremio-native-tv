@@ -426,14 +426,34 @@ static void fetch_meta(Detail *d)
     if (!d->meta_wait) snprintf(d->error, sizeof d->error, "No installed addon provides details for this title");
 }
 
+static long ep_order(const MetaVideo *v) { return (long)(v->season < 0 ? 0 : v->season) * 100000 + (v->episode < 0 ? 0 : v->episode); }
+
+/* The episode the library is on, in any season. */
+static const MetaVideo *library_episode(const Detail *d, const LibraryItem *li)
+{
+    for (int i = 0; li && li->video_id && i < d->meta.n_videos; i++) if (!strcmp(d->meta.videos[i].id, li->video_id)) return &d->meta.videos[i];
+    return NULL;
+}
+
+/* -1 nothing known; else 1 when episode k comes before the one the library is on */
+static int before_current(const Detail *d, int k, const LibraryItem *li)
+{
+    const MetaVideo *c = library_episode(d, li);
+    return c ? ep_order(&d->meta.videos[d->ep_index[k]]) < ep_order(c) : -1;
+}
+
 static int ep_watched(const Detail *d, int k, const LibraryItem *li, int cur_idx)
 {
+    (void)cur_idx;
     const MetaVideo *v = &d->meta.videos[d->ep_index[k]];
-    int mark = app_episode_mark(d->preview.id, v->id);   /* set by hand: wins */
+    int mark = app_episode_mark(d->preview.id, v->id);   /* set by hand, or recorded when it was finished: wins */
     if (mark >= 0) return mark;
     if (!li) return 0;
     if (li->video_id && strcmp(li->video_id, v->id) == 0) return li->time_offset == 0 && li->times_watched > 0;
-    return cur_idx >= 0 && k < cur_idx;
+    /* episodes are recorded as they are finished; a series with none recorded (watched
+     * elsewhere, synced in) has only where it is up to: those before it, in any season */
+    if (app_episode_marks_any(d->preview.id)) return 0;
+    return before_current(d, k, li) == 1;
 }
 
 /* ---- About ---- */
@@ -892,7 +912,8 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
             float f = foc ? (g_app.fx_light ? 1.0f : d->focus_t) : 0;
             int watched = ep_watched(d, kk, li, cur_idx);
             int is_cur = kk == cur_idx;
-            int blur = g_app.spoiler_blur && !watched && !is_cur && cur_idx >= 0 ? 1 : (g_app.spoiler_blur && cur_idx < 0 && kk > 0);
+            int bc = before_current(d, kk, li);   /* -1: nothing watched of it yet */
+            int blur = g_app.spoiler_blur && !watched && !is_cur && (bc == 0 || (bc < 0 && kk > 0));   /* what lies ahead, in any season */
             ui_card(v->thumbnail, px, RAIL_Y, EP_W, EP_H, f, d->area == AREA_EPISODES ? 0 : 0.3f, NULL, (blur ? CARD_BLUR : CARD_MIP) | CARD_TRUE_COLOUR);
             float sc = ui_focus_scale(f), w2 = EP_W * sc, h2 = EP_H * sc, x2 = px - (w2 - EP_W) / 2, y2 = RAIL_Y - (h2 - EP_H) / 2;
             if (!v->thumbnail) { char n[16]; snprintf(n, sizeof n, "%d", v->episode >= 0 ? v->episode : kk + 1);
@@ -1080,7 +1101,7 @@ static void open_streams_for_video_ex(Detail *d, int video_idx, int play_now)
     char title[200];
     if (v->season >= 0 && v->episode >= 0) snprintf(title, sizeof title, "S%d E%d  %s", v->season, v->episode, v->title ? v->title : "");
     else snprintf(title, sizeof title, "%s", v->title ? v->title : "");
-    if (app_pip_claim(v->id)) return;   /* already playing in the corner */
+    if (play_now && app_pip_claim(v->id)) return;   /* playing in the corner already: Play brings it back; its sources still open */
     app_push(play_now ? screen_streams_create_play(&d->preview, v->id, title) : screen_streams_create(&d->preview, v->id, title));
 }
 
@@ -1220,8 +1241,7 @@ static int key(Screen *s, KeyAction a)
             if (btn_at(d, d->btn) == BTN_TRAILER) { trailer_play(d); return 1; }
             if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
                 const char *vid = d->resume_video[0] ? d->resume_video : d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
-                if (app_pip_claim(vid)) return 1;
-                app_push(screen_streams_create(&d->preview, vid, NULL));
+                app_push(screen_streams_create_from_start(&d->preview, vid, NULL));   /* replaces a corner video of it too */
                 return 1;
             }
             if (d->resume_label[0]) {

@@ -500,6 +500,15 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [{"name": f"Many\n{r}p", "title": f"Movie.2024.{r}p.WEB-DL.Copy{i}", "url": first["url"] + f"?many={i}"}
                                                               for i, r in enumerate([1080, 1080, 720, 720, 1080, 480, 720, 1080, 480, 720])]}).encode())
             return self.send(404, b"{}")
+        # /ep2wrong/...: the whole addon, but episode 2's only sources are named for another episode
+        if p.startswith("/ep2wrong/"):
+            rest = p[10:]
+            if rest == "manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.ep2wrong", name="Ep2 Wrong")).encode())
+            if rest.startswith("stream/") and (":1:2" in rest or "%3A1%3A2" in rest):
+                return self.send(200, json.dumps({"streams": [{"name": "Wrong\n1080p", "title": "Breaking.Bad.S01E04.1080p.WEB.x264-WRONG",
+                    "url": f"{BASE}/video/sample_h264_aac.mkv?ep=4", "behaviorHints": {"filename": "Breaking.Bad.S01E04.1080p.WEB.x264-WRONG.mkv"}}]}).encode())
+            p = "/" + rest
         # /hdr/...: the addon with only two sources, both asking for a Referer: one refuses anyone without it
         # (/hdrvideo/: 403 without it, the video with it, ranges and all); /hdrbad/ refuses even then
         if p.startswith("/hdr/"):

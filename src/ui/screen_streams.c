@@ -47,6 +47,8 @@ struct Streams {
     int auto_rec_done;        /* the recommended source was started by itself */
     int sources_timed;        /* the start timing has its "sources" phase */
     int launched;             /* a player was opened from here (coming back to it is Back from that player) */
+    int gave_up;              /* asked to start by itself, nothing could: it waits for a choice */
+    int from_start;           /* Restart: from 0:00, whatever was saved */
     int play_now;             /* opened to play: the recommended source starts by itself, whatever the setting */
     int probes_started, probe_inflight;
     int ranks_logged;
@@ -456,6 +458,7 @@ static void sort_items(Streams *st)
     free(keys); free(sorted);
     if (keep_url || keep_hash)
         for (int i = 0; i < st->n; i++) if (st->items[i].url == keep_url && st->items[i].info_hash == keep_hash) { st->focus = i; break; }
+    if (st->focus == -1 && st->n && recommended(st) < 0) st->focus = 0;   /* the recommendation card went (its link died): the top row instead */
     Uint32 took = SDL_GetTicks() - t0;
     if (took > 20) LOGW("perf: sorting %d sources took %u ms", st->n, took);
 }
@@ -489,15 +492,22 @@ static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
 /* Autoplay: as soon as a same-group stream shows up, or when everyone answered, or the
  * wait is over (20 s at most, even set to wait for every addon). The best row that can
  * play here: a notice or a link this TV cannot open at the top does not stop it. */
+static void give_up(Streams *st)   /* nothing here starts by itself: the list waits for a choice, screensavers come again */
+{
+    st->autoplayed = 1; st->auto_rec_done = 1; st->gave_up = 1;
+    LOGI("streams: no source here can start by itself; waiting for a choice");
+    app_redraw();
+}
+
 static void autoplay_check(Streams *st)
 {
-    if (!st->chaining || st->autoplayed || !st->n) return;
-    int best = -1;
-    for (int i = 0; i < st->n && best < 0; i++) if (!ineligible(st, &st->items[i])) best = i;
-    if (best < 0) return;
-    int match = same_release(st, &st->items[best]) > 0;
+    if (!st->chaining || st->autoplayed || st->launched) return;   /* launched: a player is already open from here */
     float waited_s = g_app.time - st->started;
     int waited = (g_app.addon_wait < 99 && waited_s > g_app.addon_wait) || waited_s > 20;
+    int best = -1;
+    for (int i = 0; i < st->n && best < 0; i++) if (!ineligible(st, &st->items[i])) best = i;
+    if (best < 0) { if (!st->pending || waited) give_up(st); return; }
+    int match = same_release(st, &st->items[best]) > 0;
     if (match || st->pending == 0 || waited) {
         LOGI("streams: next episode from %s%s", match ? "the same release" : "the closest source (no same release)",
              st->pending && !match ? ", done waiting for the other addons" : "");
@@ -694,6 +704,7 @@ int streams_prefetch_warm(const char *video_id, const char *binge_group)
 static int adopt_prefetch(Streams *st)
 {
     if (!g_pre.video_id || strcmp(g_pre.video_id, st->video_id) != 0 || (!g_pre.n && !g_pre.pending)) return 0;   /* nobody was asked: the screen asks itself */
+    if (g_pre.addons_version != g_app.addons_version) { prefetch_clear(); return 0; }   /* asked of other addons (or another profile's) */
     if (g_app.time - g_pre.started > PREFETCH_FRESH_S) { prefetch_clear(); return 0; }
     st->items = g_pre.items; st->n = g_pre.n;
     g_pre.items = NULL; g_pre.n = 0;
@@ -790,14 +801,18 @@ static void update(Screen *s, float dt)
     if ((g_app.auto_recommended || st->play_now) && !st->chaining && !st->auto_rec_done && st->n && checks_done && (waited || good_enough(st))) {
         int r = recommended(st);
         if (!waited) LOGI("streams: the best so far is ready at %dp; not waiting for %d slower addon%s", st->items[r].tags.res, st->pending, st->pending == 1 ? "" : "s");
-        for (int i = 0; r < 0 && st->play_now && i < st->n; i++) if (playable(&st->items[i])) r = i;   /* asked to play: the top source that can, the player falls back from there */
+        for (int i = 0; r < 0 && st->play_now && i < st->n; i++) {   /* asked to play: the top source that can, the player falls back from there; */
+            const char *why = ineligible(st, &st->items[i]);           /* never a notice or another episode's file */
+            if (playable(&st->items[i]) && !is_notice(&st->items[i]) && !(why && !strcmp(why, "it is another episode"))) r = i;
+        }
         if (r >= 0) {
             st->auto_rec_done = 1;
             if (!st->play_now) app_toast("Playing the recommended source. Back returns to the list.");   /* asked to play: no surprise to explain */
             play_from(st, r);
             if (app_top() != s) return;
-        }
+        } else if (waited) give_up(st);
     }
+    if (starting(st) && !st->n && !st->pending && g_app.time - st->started > 1) give_up(st);   /* nobody had anything */
     int first = st->focus - (VISIBLE - 3);
     st->scroll_target = (first < 0 ? 0 : first) * ROW_H;
     st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 14);
@@ -1020,7 +1035,8 @@ static void draw(Screen *s)
     float x = LIST_X, w = SNTV_UI_W - THEME_MARGIN - LIST_X;
     font_draw("Choose a source", x, 104, FONT_L | FONT_B, THEME_TEXT);
     char msg[128];
-    if (st->chaining && !st->autoplayed) snprintf(msg, sizeof msg, "Finding the next episode on the same release  ·  Up or Down to choose");
+    if (st->gave_up && st->n) snprintf(msg, sizeof msg, "None of these can start by itself here  ·  choose one");
+    else if (st->chaining && !st->autoplayed) snprintf(msg, sizeof msg, "Finding the next episode on the same release  ·  Up or Down to choose");
     else if ((st->play_now || g_app.auto_recommended) && !st->auto_rec_done && st->n) snprintf(msg, sizeof msg, "Starting the best source  ·  Up or Down to choose");
     else if (st->pending) snprintf(msg, sizeof msg, "%d found  ·  %d addon%s still searching", st->n, st->pending, st->pending == 1 ? "" : "s");
     else if (!st->n) snprintf(msg, sizeof msg, "%s", st->n_reqs ? "No sources found for this title" : "No stream addons installed. Add one in Settings.");
@@ -1302,11 +1318,16 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
  * source rides along last, so TorBox being down still ends in something that plays. */
 /* A YouTube video from an addon (YouTubio, trailer addons): streamed the way Nuvio
  * plays YouTube, then opened like any other source. */
-static struct { int busy; MetaPreview meta; char video_id[160], title[300], yt[16]; } g_yt;
+static struct { int busy; const Streams *owner; MetaPreview meta; char video_id[160], title[300], yt[16]; } g_yt;   /* owner: the list it plays for */
 static void on_yt_stream(const char *url, const char *error, void *user)
 {
     (void)user;
     g_yt.busy = 0;
+    const Screen *top = app_top();
+    if (!top || strcmp(top->name, "streams") || top->st != g_yt.owner) {   /* left (or covered) meanwhile: nothing starts over another screen */
+        LOGI("streams: the YouTube video came after its list was left; not started");
+        meta_preview_free(&g_yt.meta); return;
+    }
     if (!url) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); meta_preview_free(&g_yt.meta); return; }
     static char urls[YT_PLAY_URLS][4608];
     int nu = youtube_player_urls(url, g_yt.yt, urls, YT_PLAY_URLS);
@@ -1322,6 +1343,7 @@ static void play_yt(Streams *st, const Stream *s)
 {
     if (g_yt.busy) { app_toast("Getting the video from YouTube\xE2\x80\xA6"); return; }
     g_yt.busy = 1;
+    g_yt.owner = st;
     meta_preview_copy(&g_yt.meta, &st->meta);
     snprintf(g_yt.video_id, sizeof g_yt.video_id, "%s", st->video_id);
     snprintf(g_yt.title, sizeof g_yt.title, "%s%s%s", st->meta.name, st->video_title ? "  -  " : "", st->video_title ? st->video_title : "");
@@ -1332,15 +1354,24 @@ static void play_yt(Streams *st, const Stream *s)
     youtube_stream(url, on_yt_stream, NULL);
 }
 
+/* The corner player, once the pick is sure to be tried: this video in the corner goes full
+ * screen (Restart replaces it instead); another video there gives way. 1: it went full screen. */
+static int pip_take(const Streams *st)
+{
+    if (!st->from_start) return app_pip_claim(st->video_id);
+    if (g_app.pip) app_pip_close();
+    return 0;
+}
+
 static void play_from(Streams *st, int index)
 {
-    if (app_pip_claim(st->video_id)) return;
     if (!st->sources_timed) { st->sources_timed = 1; perf_start_phase("sources"); }
     perf_start_phase("check");
-    if (st->items[index].yt_id && !st->items[index].url) { play_yt(st, &st->items[index]); return; }
+    if (st->items[index].yt_id && !st->items[index].url) { if (!pip_take(st)) play_yt(st, &st->items[index]); return; }
     char reason[160];
     char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
-    if (!url) { app_toast("%s", reason); return; }
+    if (!url) { app_toast("%s", reason); return; }   /* the corner video stays: nothing was going to replace it */
+    if (pip_take(st)) { free(url); return; }
     st->launched = 1;
     video_keep_awake(0);   /* the player's own loading holds the TV's screensaver from here */
     PlayCandidate *c = calloc((size_t)st->n + 2, sizeof *c);
@@ -1362,7 +1393,7 @@ static void play_from(Streams *st, int index)
         if (is_p2p(&st->items[i]) && !ineligible(st, &st->items[i]) && streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p = 1; n++; }
     if (torrent_engine_url_is(c[0].url)) torrent_engine_start(0);   /* warm up while the player opens */
     LibraryItem *li = app_library_find(st->meta.id);
-    double start = (li && li->video_id && strcmp(li->video_id, st->video_id) == 0) ? li->time_offset / 1000.0 : 0;
+    double start = !st->from_start && li && li->video_id && strcmp(li->video_id, st->video_id) == 0 ? li->time_offset / 1000.0 : 0;   /* Restart: 0:00 */
     remember_resume(st, url);
     free(url);
     char title[300];
@@ -1455,6 +1486,8 @@ void streams_lookup_tick(void)
 static int key(Screen *s, KeyAction a)
 {
     Streams *st = s->st;
+    if (a == KEY_PLAY) a = KEY_OK;   /* the remote's Play on a source: that one */
+    if (a == KEY_OK && g_app.time - st->started < 0.25f) return 1;   /* the OK that opened this list, pressed twice: not a choice yet */
     if (a == KEY_UP || a == KEY_DOWN || a == KEY_OK) race_cancel(st);
     switch (a) {
     case KEY_UP:
@@ -1534,6 +1567,13 @@ Screen *screen_streams_create_auto(const MetaPreview *meta, const char *video_id
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title)
 {
     return screen_streams_create_chain(meta, video_id, video_title, NULL);
+}
+
+Screen *screen_streams_create_from_start(const MetaPreview *meta, const char *video_id, const char *video_title)
+{
+    Screen *s = screen_streams_create_chain(meta, video_id, video_title, NULL);
+    ((Streams *)s->st)->from_start = 1;
+    return s;
 }
 
 Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id, const char *video_title)

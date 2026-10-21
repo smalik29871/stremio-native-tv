@@ -49,6 +49,8 @@ int island_has_focus(void)
     return g_focus;
 }
 
+void island_drop_focus(void) { g_focus = 0; }
+
 int island_take_focus(void)
 {
     if (I.kind != IS_RESUME || !I.has_resume) return 0;

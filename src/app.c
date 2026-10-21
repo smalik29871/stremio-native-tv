@@ -1,3 +1,4 @@
+#include "ui/island.h"
 #include "app.h"
 #include "perfstat.h"
 #include "lists.h"
@@ -161,6 +162,7 @@ void app_push(Screen *s)
     if (!s || g_app.depth >= (int)(sizeof g_app.stack / sizeof g_app.stack[0])) { if (s && s->destroy) s->destroy(s); return; }
     Screen *old = app_top();
     int d = g_app.depth;
+    island_drop_focus();   /* a dialog or break over the resume card: OK is for it */
     /* opened with OK on a card drawn this moment: grow out of that card */
     g_origin[d].has = g_app.time - g_app.card_at < 0.12f && g_app.time - g_app.press_at < 0.12f && g_app.card_rect[2] > 0 && g_app.card_rect[3] > 0;
     if (g_origin[d].has) memcpy(g_origin[d].r, g_app.card_rect, sizeof g_origin[d].r);
@@ -1032,12 +1034,16 @@ static void save_library_cache(void)
 
 void app_library_flush(int force)
 {
+    static float written_at = -1000;
     if (!g_library_dirty) return;
     if (!force) {
         const Screen *top = app_top();
-        if (g_app.pip || (top && strcmp(top->name, "player") == 0) || g_app.time - g_library_dirty_at < 3) return;
+        int playing = g_app.pip || (top && strcmp(top->name, "player") == 0);
+        if (g_app.time - g_library_dirty_at < 3) return;
+        if (playing && g_app.time - written_at < 300) return;   /* while playing, every five minutes: with no account (or offline) it is the only copy */
     }
     g_library_dirty = 0;
+    written_at = g_app.time;
     cJSON *root = cJSON_CreateObject();
     cJSON *arr = cJSON_AddArrayToObject(root, "result");
     for (int i = 0; i < g_app.n_library; i++) cJSON_AddItemToArray(arr, library_item_to_json(&g_app.library[i]));
@@ -1081,7 +1087,25 @@ static void push_library_item(const LibraryItem *it)
     free(body);
 }
 
-void app_library_progress(const MetaPreview *meta, const char *video_id, double position_s, double duration_s)
+/* An episode finished. The first one recorded for a series also records those before it:
+ * until now they were shown watched for coming first, and must stay so. */
+static void record_finished(const char *series_id, const char *video_id)
+{
+    const char *ids[512];
+    int n = 0;
+    if (!app_episode_marks_any(series_id)) {
+        int nv;
+        const MetaVideo *v = app_videos(series_id, &nv), *c = NULL;
+        for (int i = 0; i < nv; i++) if (!strcmp(v[i].id, video_id)) c = &v[i];
+        for (int i = 0; c && i < nv && n < 511; i++)
+            if (v[i].season > 0 && (v[i].season < c->season || (v[i].season == c->season && v[i].episode < c->episode))) ids[n++] = v[i].id;
+        if (n) LOGI("library: %d earlier episodes recorded as watched with this one", n);
+    }
+    ids[n++] = video_id;
+    app_episode_set_marks(series_id, ids, n, 1);
+}
+
+void app_library_progress(const MetaPreview *meta, const char *video_id, double position_s, double duration_s, int played_through)
 {
     LibraryItem *it = library_upsert(meta);
     uint64_t pos = (uint64_t)(position_s * 1000), dur = (uint64_t)(duration_s * 1000);
@@ -1095,8 +1119,9 @@ void app_library_progress(const MetaPreview *meta, const char *video_id, double 
     it->video_id = video_id ? strdup(video_id) : NULL;
     /* Stremio marks an item watched past ~90%: a film leaves Continue Watching; a series
      * stays in it at the start of the next episode (1 ms, as Stremio does) */
-    if (dur && pos > dur * 9 / 10) {
+    if (dur && pos > dur * 9 / 10 && played_through) {   /* a seek to the end to peek is not watching it */
         if (prev > 1 || !it->flagged_watched) it->times_watched++;   /* once per crossing, not per report after it */
+        if (video_id && strchr(video_id, ':')) record_finished(meta->id, video_id);   /* this episode, by name: the title page shows what was watched, not what came before */
         it->flagged_watched = 1; it->time_offset = 0;
         char next[160];
         if (video_id && app_next_video(meta->id, video_id, next, sizeof next, NULL, 0)) {
@@ -1169,6 +1194,14 @@ int app_episode_mark(const char *series_id, const char *video_id)
     const cJSON *series = series_id ? cJSON_GetObjectItemCaseSensitive(all, series_id) : NULL;
     const cJSON *m = video_id ? cJSON_GetObjectItemCaseSensitive(series, video_id) : NULL;
     return cJSON_IsBool(m) ? cJSON_IsTrue(m) : -1;
+}
+
+int app_episode_marks_any(const char *series_id)
+{
+    const cJSON *all = store_get_json("episodeMarks");
+    const cJSON *series = series_id ? cJSON_GetObjectItemCaseSensitive(all, series_id) : NULL, *m;
+    cJSON_ArrayForEach(m, series) if (cJSON_IsTrue(m)) return 1;
+    return 0;
 }
 
 void app_episode_set_marks(const char *series_id, const char *const *video_ids, int n, int watched)
@@ -1272,8 +1305,10 @@ static int quiet_moment(void)
 {
     const Screen *top = app_top();
     if (!top || g_app.pip) return 0;
-    static const char *const BUSY[] = { "player", "break", "welcome", "login", "update", "pin", "options", NULL };
+    /* nor over a list starting a video, the screensaver, or typing */
+    static const char *const BUSY[] = { "player", "break", "welcome", "login", "update", "pin", "options", "streams", "ambient", "search", "settings", NULL };
     for (int i = 0; BUSY[i]; i++) if (!strcmp(top->name, BUSY[i])) return 0;
+    if (streams_starting()) return 0;
     return g_app.time - g_app.last_input > 2;   /* not in the middle of pressing keys */
 }
 
@@ -1282,21 +1317,21 @@ int app_update_installs_here(void) { return !store_get_int("updateNoInstaller", 
 static void on_update_answer(int choice, void *user)
 {
     (void)user;
-    if (choice == 0) { LOGI(app_update_installs_here() ? "update: the viewer said update now" : "update: the viewer asked how"); app_push(screen_update_create(0)); }
+    if (choice == 1) { LOGI(app_update_installs_here() ? "update: the viewer said update now" : "update: the viewer asked how"); app_push(screen_update_create(0)); }   /* Later is first: a stray OK never installs */
     else LOGI("update: the viewer said later");
 }
 
 /* The question, at a quiet moment: nothing installs unless the viewer says so. */
 static void ask_to_update(void)
 {
-    static const char *const ITEMS[] = { "Update now", "Later" };
-    static const int ICONS[] = { ICON_RELOAD, ICON_CLOCK };
+    static const char *const ITEMS[] = { "Later", "Update now" };
+    static const int ICONS[] = { ICON_CLOCK, ICON_RELOAD };
     char sub[80], body[300];
     snprintf(sub, sizeof sub, "Version %s  \xC2\xB7  you have %s", g_update_version, SNTV_APP_VERSION);
     if (!app_update_installs_here()) {   /* this TV won't let the app install: say once per version where it's done */
         if (!strcmp(store_get_str("updateHowToldFor", ""), g_update_version)) return;
         store_set_str("updateHowToldFor", g_update_version); store_save();
-        static const char *const HOW[] = { "Show me how", "Later" };
+        static const char *const HOW[] = { "Later", "Show me how" };
         snprintf(body, sizeof body, "This TV doesn't let apps install updates themselves, so the Homebrew Channel does it: "
                  "a minute, and your sign-in, settings and progress stay.");
         app_push(screen_options_create_ex("An update is ready", sub, body, HOW, ICONS, 2, on_update_answer, NULL));
@@ -1912,40 +1947,52 @@ void app_note_frame(float ms)
     }
 }
 
-static struct { char *meta_id; MetaVideo *videos; int n; } g_videos;
+/* The episode lists of the last few titles opened: the one playing (in the corner too)
+ * keeps its own while another title page is browsed. */
+typedef struct { char *meta_id; MetaVideo *videos; int n; unsigned used; } VideoList;
+static VideoList g_vlists[4];
+static unsigned g_vlist_clock;
+
+static const VideoList *video_list(const char *meta_id)
+{
+    for (int i = 0; meta_id && i < 4; i++) if (g_vlists[i].meta_id && !strcmp(g_vlists[i].meta_id, meta_id)) return &g_vlists[i];
+    return NULL;
+}
 
 void app_remember_videos(const char *meta_id, const MetaVideo *videos, int n)
 {
-    free(g_videos.meta_id);
-    for (int i = 0; i < g_videos.n; i++) { free(g_videos.videos[i].id); free(g_videos.videos[i].title); free(g_videos.videos[i].thumbnail); free(g_videos.videos[i].overview); }
-    free(g_videos.videos);
-    g_videos.meta_id = strdup(meta_id);
-    g_videos.videos = calloc((size_t)n + 1, sizeof(MetaVideo));
-    g_videos.n = n;
+    VideoList *l = (VideoList *)video_list(meta_id);
+    if (!l) { l = &g_vlists[0]; for (int i = 1; i < 4; i++) if (g_vlists[i].used < l->used) l = &g_vlists[i]; }   /* the least recently used goes */
+    free(l->meta_id);
+    for (int i = 0; i < l->n; i++) { free(l->videos[i].id); free(l->videos[i].title); free(l->videos[i].thumbnail); free(l->videos[i].overview); }
+    free(l->videos);
+    l->meta_id = strdup(meta_id);
+    l->videos = calloc((size_t)n + 1, sizeof(MetaVideo));
+    l->n = n;
+    l->used = ++g_vlist_clock;
     for (int i = 0; i < n; i++) {
-        g_videos.videos[i].id = strdup(videos[i].id);
-        g_videos.videos[i].title = videos[i].title ? strdup(videos[i].title) : NULL;
-        g_videos.videos[i].thumbnail = videos[i].thumbnail ? strdup(videos[i].thumbnail) : NULL;
-        g_videos.videos[i].overview = videos[i].overview ? strdup(videos[i].overview) : NULL;   /* the player's "Previously" card */
-        g_videos.videos[i].season = videos[i].season;
-        g_videos.videos[i].episode = videos[i].episode;
+        l->videos[i].id = strdup(videos[i].id);
+        l->videos[i].title = videos[i].title ? strdup(videos[i].title) : NULL;
+        l->videos[i].thumbnail = videos[i].thumbnail ? strdup(videos[i].thumbnail) : NULL;
+        l->videos[i].overview = videos[i].overview ? strdup(videos[i].overview) : NULL;   /* the player's "Previously" card */
+        l->videos[i].season = videos[i].season;
+        l->videos[i].episode = videos[i].episode;
     }
 }
 
 const char *app_video_thumbnail(const char *meta_id, const char *video_id)
 {
-    if (!g_videos.meta_id || !video_id || strcmp(g_videos.meta_id, meta_id) != 0) return NULL;
-    for (int i = 0; i < g_videos.n; i++) if (strcmp(g_videos.videos[i].id, video_id) == 0) return g_videos.videos[i].thumbnail;
+    const VideoList *l = video_list(meta_id);
+    for (int i = 0; l && video_id && i < l->n; i++) if (strcmp(l->videos[i].id, video_id) == 0) return l->videos[i].thumbnail;
     return NULL;
 }
 
 /* Next = the following entry in release order within regular seasons (specials skipped). */
 const MetaVideo *app_videos(const char *meta_id, int *n)
 {
-    *n = 0;
-    if (!g_videos.meta_id || !meta_id || strcmp(g_videos.meta_id, meta_id) != 0) return NULL;
-    *n = g_videos.n;
-    return g_videos.videos;
+    const VideoList *l = video_list(meta_id);
+    *n = l ? l->n : 0;
+    return l ? l->videos : NULL;
 }
 
 void app_episode_hint(const char *meta_id, const char *show, const char *video_id, EpisodeHint *h)
@@ -1977,14 +2024,15 @@ void app_episode_hint(const char *meta_id, const char *show, const char *video_i
 
 int app_adjacent_video(const char *meta_id, const char *video_id, int dir, char *out_id, size_t id_n, char *out_title, size_t title_n)
 {
-    if (!g_videos.meta_id || !video_id || strcmp(g_videos.meta_id, meta_id) != 0) return 0;
+    const VideoList *l = video_list(meta_id);
+    if (!l || !video_id) return 0;
     int cur = -1;
-    for (int i = 0; i < g_videos.n; i++) if (strcmp(g_videos.videos[i].id, video_id) == 0) { cur = i; break; }
+    for (int i = 0; i < l->n; i++) if (strcmp(l->videos[i].id, video_id) == 0) { cur = i; break; }
     if (cur < 0) return 0;
-    const MetaVideo *c = &g_videos.videos[cur];
+    const MetaVideo *c = &l->videos[cur];
     const MetaVideo *best = NULL;
-    for (int i = 0; i < g_videos.n; i++) {
-        const MetaVideo *v = &g_videos.videos[i];
+    for (int i = 0; i < l->n; i++) {
+        const MetaVideo *v = &l->videos[i];
         if (v == c || v->season == 0) continue;   /* specials never count */
         int after = v->season > c->season || (v->season == c->season && v->episode > c->episode);
         int before = v->season < c->season || (v->season == c->season && v->episode < c->episode);

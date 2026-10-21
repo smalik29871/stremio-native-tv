@@ -544,7 +544,7 @@ static void simkl_watched(const char *imdb, int season, int episode)
     free(body);
 }
 
-void tracking_progress(const MetaPreview *m, const char *video_id, double pos, double dur, int final)
+void tracking_progress(const MetaPreview *m, const char *video_id, double pos, double dur, int final, int played_through)
 {
     (void)m;
     if (!video_id || dur <= 0) return;
@@ -552,6 +552,7 @@ void tracking_progress(const MetaPreview *m, const char *video_id, double pos, d
     if (!split_id(video_id, imdb, sizeof imdb, &season, &episode)) return;
     double pct = pos / dur * 100;
     if (pct > 100) pct = 100;
+    if (!played_through && pct >= 80) pct = 79;   /* sought to the end: not watched (Trakt's stop and SimKL count 80%) */
     if (strcmp(g_play.vid, video_id) != 0) { memset(&g_play, 0, sizeof g_play); snprintf(g_play.vid, sizeof g_play.vid, "%s", video_id); }
     if (tracking_connected(TRACK_TRAKT)) {
         if (final) { if (g_play.started) scrobble(pct >= 80 ? "stop" : "pause", imdb, season, episode, pct); g_play.started = 0; }

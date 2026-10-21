@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+From an audit of whole evenings of use rather than single features:
+
+- **Still watching?** After three episodes have started by themselves with no key pressed,
+  the next one waits for an answer at the end of the episode: OK plays it, Back stops.
+- **Watched means watched.** An episode is marked watched when you played it to the end,
+  not when you seek there to peek (Trakt and SimKL too), and on the title page only the
+  episodes you finished are ticked, not every one before where you are. Shows watched
+  elsewhere keep their ticks, in every season, until their first episode is finished here.
+  Moving on from the credits with Up Next finishes the episode.
+- **Nothing gets stuck waiting.** A next episode with no source that may start by itself
+  says so and lets the screensaver come, instead of spinning all night; an episode that
+  ends with a menu open goes on to the next; OK on a preparing Up Next card is kept even
+  with autoplay off.
+- **The update prompt stays out of the way.** It no longer opens over a list starting a
+  video, the screensaver, search or settings; *Later* is the first choice, and an OK
+  pressed as it opens is not taken as an answer.
+- **The TV's Home and breaks.** A video paused while it loaded (the TV's Home, a break)
+  stays paused; breaks, chimes and the fireplace screensaver don't start while the app is
+  behind the TV's Home; a break during loading or a reconnect comes back to the right
+  spot, and bedtime with a recording leaves the film ready to play, paused. TorBox
+  answering during a break waits for it to end.
+- **Your place survives hiccups.** Reload, a source picked in the player or Yellow during a
+  reconnect go on from where the film was, keeping the audio and subtitles you chose;
+  Resume on the title page opens the source that actually played; leaving while a source
+  loads still saves the spot; progress is written to the TV every five minutes while
+  playing (with no account it was only kept in memory).
+- **Restart** plays from 0:00, even with the episode playing in the corner.
+- Smaller: Play on a source list plays that source; a quick double OK no longer starts a
+  source unseen; the corner player no longer takes Play from a title page or from a
+  break, and stays off the screensaver; a show playing in the corner keeps its Continue
+  Watching place while you browse; Back after Up Next returns to the title page; the TV's
+  volume overlay no longer tells Trakt playback stopped; Play's fallback never picks a
+  file named for another episode; a prefetch made with other addons (or another profile)
+  is not reused; the stretch reminder counts playing time only.
+
 ## 0.10.45
 
 - **Fixed: the next episode could fail to start, or the app could close.** When the next

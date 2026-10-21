@@ -270,9 +270,14 @@ static void dispatch_key(KeyAction a)
         for (size_t i = 0; i < sizeof BROWSE / sizeof BROWSE[0]; i++)
             if (strcmp(top->name, BROWSE[i]) == 0 && island_key_blue()) return;
     }
-    if (g_app.pip && (a == KEY_PLAY_PAUSE || a == KEY_PLAY)) { app_pip_restore(); return; }
-    if (g_app.pip && a == KEY_STOP) { app_pip_close(); return; }
-    if (g_app.pip && g_pip_focus) {   /* the corner player has the focus: 1 = Full screen, 2 = Close */
+    /* the corner player's keys, unless a break, a dialog or the screensaver has the screen
+     * (they come first), or a title page's Play plays that title (its own corner video comes back) */
+    static const char *const OVER_PIP[] = { "break", "options", "update", "pin", "login", "welcome", "ambient" };
+    int pip_keys = g_app.pip != NULL;
+    for (size_t i = 0; pip_keys && top && i < sizeof OVER_PIP / sizeof *OVER_PIP; i++) if (!strcmp(top->name, OVER_PIP[i])) pip_keys = 0;
+    if (pip_keys && (a == KEY_PLAY_PAUSE || a == KEY_PLAY) && !(top && !strcmp(top->name, "detail"))) { app_pip_restore(); return; }
+    if (pip_keys && a == KEY_STOP) { app_pip_close(); return; }
+    if (pip_keys && g_pip_focus) {   /* the corner player has the focus: 1 = Full screen, 2 = Close */
         if (a == KEY_OK || a == KEY_LONG_OK) { if (g_pip_focus == 2) app_pip_close(); else app_pip_restore(); }
         else if (a == KEY_LEFT) g_pip_focus = 1;
         else if (a == KEY_RIGHT) g_pip_focus = 2;
@@ -446,7 +451,7 @@ int main(int argc, char **argv)
                  * the app is still on screen, so the video plays on. Progress is saved in
                  * case it turns into Home after all. */
                 LOGI("window: focus lost (overlay), playback continues");
-                player_save_progress();
+                player_save_progress_quiet();
                 app_library_flush(1);
                 store_save();
                 store_flush();
@@ -472,7 +477,7 @@ int main(int argc, char **argv)
                 store_flush();   /* on flash before webOS may end us */
             } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
                 video_app_foreground();
-                if (g_backgrounded) app_update_foreground();
+                if (g_backgrounded) { app_update_foreground(); app_library_foreground(); }   /* whichever of these events comes first */
                 g_backgrounded = 0;
                 app_redraw();
             }
@@ -511,7 +516,7 @@ int main(int argc, char **argv)
         if (g_app.pip) { player_pip_update(g_app.pip, dt); if (g_app.pip && player_pip_done(g_app.pip)) app_pip_close(); }
         top = app_top();   /* update() may have popped or replaced the screen */
 
-        breaks_tick(dt);
+        if (!g_backgrounded) breaks_tick(dt);   /* behind the TV's Home: no chime, no break */
         newep_tick();
         app_library_flush(0);
         mem_tick(dt);
@@ -519,7 +524,7 @@ int main(int argc, char **argv)
         { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
-        if (top && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }
+        if (top && !g_backgrounded && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }   /* never behind the TV's Home (the fireplace has sound) */
 
         /* Idle frame skipping: when nothing animates or arrives, don't redraw at all.
          * Keeps old TVs cool and leaves the CPU to the network threads. Dev hooks and
@@ -531,7 +536,7 @@ int main(int argc, char **argv)
             app_draw_screen(top, dt);
             int in_player = top && strcmp(top->name, "player") == 0;
             if (!g_app.pip) g_pip_focus = 0;
-            if (g_app.pip) player_pip_draw(g_app.pip, g_pip_focus);
+            if (g_app.pip && !(top && !strcmp(top->name, "ambient"))) player_pip_draw(g_app.pip, g_pip_focus);   /* not a still frame over the screensaver */
             if (top && strcmp(top->name, "break") != 0 && strcmp(top->name, "pin") != 0) breaks_draw_banner();
             island_draw(in_player, top && !in_player && strcmp(top->name, "ambient") != 0);   /* the player has its clock in its controls */
             intro_draw();
