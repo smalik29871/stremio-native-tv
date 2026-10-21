@@ -1015,28 +1015,26 @@ static void draw(Screen *s)
         float mx = x;
         if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 4;
         if (tm && tm->cert[0]) mx += ui_chip_outline(tm->cert, mx, y, COLOR_ALPHA(THEME_TEXT, 0x70), THEME_TEXT) + 8;
-        const char *parts[4]; int np = 0;
-        char seasons_txt[32];
+        const char *parts[5]; int np = 0;
+        char seasons_txt[32], genres_txt[96] = "";
         if (d->preview.release_info) parts[np++] = d->preview.release_info;
         if (d->preview.runtime) parts[np++] = d->preview.runtime;
         if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++;
             snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); parts[np++] = seasons_txt; }
+        for (int g = 0; g < d->preview.genres.n && g < 3; g++)   /* the genres in the facts line, leaving a line to the scores */
+            snprintf(genres_txt + strlen(genres_txt), sizeof genres_txt - strlen(genres_txt), "%s%s", g ? ", " : "", d->preview.genres.v[g]);
+        if (genres_txt[0]) parts[np++] = genres_txt;
         for (int i = 0; i < np; i++) {
             if (mx > x) mx = ui_dot_sep(mx, y, THEME_TEXT_MUTED);
             font_draw(parts[i], mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT_DIM);
             mx += font_measure(parts[i], FONT_S | FONT_B);
         }
         y += 52;
-        /* the genres, then what critics and audiences make of it */
+        /* what critics and audiences make of it */
         ScoreBadge sb[8];
         char sv[8][16];
         int ns = detail_scores(d, sb, sv);
-        if (d->preview.genres.n || ns) {
-            float gx = x;
-            for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, 0x50), THEME_TEXT_DIM) + 10;
-            if (ns) ui_score_inline(gx > x ? gx + 18 : x, y, sb, ns);
-            y += 54;
-        }
+        if (ns) { ui_score_pills(x, y, sb, ns, col_w + 300); y += 60; }
         /* and what it contains, as the player says when it starts */
         const Advisory *adv = g_app.advisory ? advisory_get(d->preview.id) : NULL;
         if (g_app.advisory) advisory_fetch(d->preview.id);

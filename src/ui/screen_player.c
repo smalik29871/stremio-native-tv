@@ -2997,7 +2997,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         long tv[3] = { 0, 0, 0 };
         if (trakt_stats(p->meta.id, p->meta.type, &tv[0], &tv[1], &tv[2])) {
             static const struct { int kind; const char *label, *log; } T[3] = {
-                { BADGE_LIVE, "watching now", "Watching now" }, { BADGE_WATCHERS, "watched it on Trakt", "Trakt watchers" }, { BADGE_PLAYS, "plays on Trakt", "Trakt plays" } };
+                { BADGE_LIVE, "Watching now", "Watching now" }, { BADGE_WATCHERS, "Watched it", "Trakt watchers" }, { BADGE_PLAYS, "Plays", "Trakt plays" } };
             for (int i = 0; i < 3; i++) {
                 if (tv[i] <= 0) continue;
                 tracking_count_text(tv[i], text[used], 16);
@@ -3006,13 +3006,10 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
                 used++;
             }
         }
-        /* one column width for every row, so the badges line up as a grid from the right */
-        float col = 0;
-        for (int r = 0; r < 2; r++) for (int i = 0; i < nr[r]; i++) { float w = ui_score_badge_width(&rb[r][i]); if (w > col) col = w; }
-        for (int i = 0; i < nt; i++) { float w = ui_score_badge_width(&tb[i]); if (w > col) col = w; }
-        float ry = 120;
-        for (int r = 0; r < 2; r++) if (nr[r]) ry += ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry, rb[r], nr[r], k, col) + 30;
-        if (nt) ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry + 10, tb, nt, k, col);   /* a little apart: these are people, not scores */
+        ScoreBadge cardrows[8];
+        int nc = 0;
+        for (int r = 0; r < 2; r++) for (int i = 0; i < nr[r]; i++) cardrows[nc++] = rb[r][i];
+        ui_score_card(SNTV_UI_W - THEME_MARGIN, 110, cardrows, nc, tb, nt, k);
         if (used > p->corner_logged) { LOGI("player: paused corner: %s", all); p->corner_logged = used; }   /* once more is known */
     }
     if (n_cast && y < SNTV_UI_H - 300) {
