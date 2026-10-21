@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.39
 
 - **A Cast button in the player.** The full cast opened only with the Info key, which most
   LG remotes do not send to apps (the Magic Remote has none; on the standard remote the TV
