@@ -1810,7 +1810,7 @@ static void update(Screen *s, float dt)
         const Advisory *adv = advisory_get(p->meta.id);
         char d[160] = "";
         if (adv) advisory_describe(adv, d, sizeof d);
-        if (d[0] || (adv && tmi && tmi->cert[0])) { p->adv_at = g_app.time; LOGI("player: advisory shown: %s %s", tmi && tmi->cert[0] ? tmi->cert : "", d); }
+        if (d[0]) { p->adv_at = g_app.time; LOGI("player: advisory shown: %s", d); }
     }
     int stinger = tmi ? tmi->stinger : 0;
     if (stinger && !p->stinger_noted && vi.state == VIDEO_PLAYING && vi.duration > 600
@@ -3018,10 +3018,8 @@ static void draw(Screen *s)
     float adv_t = p->adv_at ? g_app.time - p->adv_at : -1;
     if (adv_t >= 0 && adv_t < ADVISORY_S && !p->menu && !overlay && !p->pip) {   /* fades in, stays, fades out */
         float k = adv_t < 0.5f ? adv_t / 0.5f : adv_t > ADVISORY_S - 0.8f ? (ADVISORY_S - adv_t) / 0.8f : 1;
-        const TmdbInfo *tm = tmdb_get(p->meta.id, p->meta.type);
         const Advisory *adv = advisory_get(p->meta.id);
-        static const int none[ADV_THEMES];
-        ui_advisory(THEME_MARGIN, 96, tm && tm->cert[0] ? tm->cert : NULL, adv ? adv->level : none, k);
+        if (adv) ui_advisory(THEME_MARGIN + 120, 56, adv->level, k);
         app_redraw();
     }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */

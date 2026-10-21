@@ -873,29 +873,24 @@ float ui_chip_outline(const char *text, float x, float y, Color line, Color fg)
     return w;
 }
 
-void ui_advisory(float x, float y, const char *rating, const int level[5], float alpha)
+void ui_advisory(float x, float y, const int level[5], float alpha)
 {
-    static const char *const NAME[5] = { "Nudity", "Violence", "Language", "Drugs", "Frightening" };
+    /* the themes in the order they are listed at the same strength (advisory.h's indices) */
+    static const int SHOWN[5] = { 1, 2, 4, 0, 3 };
+    static const char *const NAME[5] = { "Nudity", "Violence", "Profanity", "Alcohol/Drugs", "Frightening" };
+    static const char *const LEVEL[4] = { "", "Mild", "Moderate", "Severe" };
     int a = (int)(255 * alpha), order[5], n = 0;
-    for (int lvl = 3; lvl >= 1; lvl--) for (int t = 0; t < 5; t++) if (level[t] == lvl) order[n++] = t;   /* strongest first */
-    if (!n && !rating) return;
-    float head = rating ? font_height(FONT_L | FONT_B) : font_height(FONT_M | FONT_B), ch = 46, h = head + (n ? 14 + ch : 0);
-    gfx_shadow(x - 40, y - 30, 900, h + 60, 60, 120, RGBA(0, 0, 0, (int)(0x90 * alpha)));   /* readable over any picture */
-    gfx_rrect(x, y + 4, 6, h - 8, 3, COLOR_ALPHA(THEME_ACCENT, a));
-    float tx = x + 26;
-    if (rating) font_draw_shadow(rating, tx, y, FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, a), RGBA(0, 0, 0, a / 2));
-    else font_draw_shadow("Contains", tx, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), RGBA(0, 0, 0, a / 2));
-    float cx = tx, cy = y + head + 14;
-    for (int i = 0; i < n; i++) {   /* a chip per theme: its name and three bars, lit to its level */
-        int t = order[i];
-        float tw = font_measure(NAME[t], FONT_XS | FONT_B), w = tw + 28 + 3 * 10 + 14;
-        gfx_rrect(cx, cy, w, ch, ch / 2, RGBA(0x10, 0x10, 0x14, (int)(0xB0 * alpha)));
-        font_draw(NAME[t], cx + 18, cy + (ch - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
-        for (int b = 0; b < 3; b++) {
-            float bh = 10 + b * 5, bx = cx + 18 + tw + 12 + b * 10;
-            gfx_rrect(bx, cy + ch / 2 + 10 - bh, 6, bh, 2, b < level[t] ? COLOR_ALPHA(level[t] == 3 ? THEME_ACCENT : THEME_TEXT, a) : RGBA(0xFF, 0xFF, 0xFF, a / 5));
-        }
-        cx += w + 10;
+    for (int lvl = 3; lvl >= 1; lvl--) for (int i = 0; i < 5; i++) if (level[SHOWN[i]] == lvl) order[n++] = SHOWN[i];
+    if (!n) return;
+    float lh = 50, h = n * lh;
+    gfx_shadow(x - 30, y - 20, 560, h + 40, 40, 90, RGBA(0, 0, 0, (int)(0x70 * alpha)));   /* readable over any picture */
+    gfx_rrect(x, y, 6, h, 3, RGBA(0xFF, 0xFF, 0xFF, a));
+    for (int i = 0; i < n; i++) {
+        float tx = x + 32, ty = y + i * lh + (lh - font_height(FONT_M | FONT_B)) / 2;
+        font_draw_shadow(NAME[order[i]], tx, ty, FONT_M | FONT_B, RGBA(0xF2, 0xF2, 0xF2, a), RGBA(0, 0, 0, a / 3));
+        tx += font_measure(NAME[order[i]], FONT_M | FONT_B);
+        char rest[24]; snprintf(rest, sizeof rest, " \xC2\xB7 %s", LEVEL[level[order[i]]]);
+        font_draw_shadow(rest, tx, ty, FONT_M, RGBA(0x9A, 0x9A, 0x9A, a), RGBA(0, 0, 0, a / 3));
     }
 }
 
