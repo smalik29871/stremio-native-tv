@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
+#include <stdint.h>
 #if !defined(_WIN32)
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -27,6 +29,7 @@ static char g_title[96], g_hint[300], g_current[600];
 static char g_pending[600]; static int g_has_pending;
 static char g_file_slot[16];   /* "start" / "end" while a recording may be uploaded */
 static volatile int g_quit;
+static char *g_log; static char g_log_key[20];   /* the log offered while Diagnostics shows its QR */
 static char *g_backup;            /* settings offered for download while the backup page is open */
 static char *g_restore; static int g_restore_open;   /* settings sent back from the phone */
 
@@ -435,6 +438,23 @@ static int queue_yt(int fd, const char *req)
     return 1;
 }
 
+/* Diagnostics: GET /log/<key> while the TV shows the code, as plain text to read and copy */
+static int handle_log(int fd, const char *req)
+{
+    if (strncmp(req, "GET /log/", 9) != 0) return 0;
+    SDL_LockMutex(g_lock);
+    size_t kl = strlen(g_log_key);
+    char *t = g_log && kl && strncmp(req + 9, g_log_key, kl) == 0 && (req[9 + kl] == ' ' || req[9 + kl] == '?') ? strdup(g_log) : NULL;
+    SDL_UnlockMutex(g_lock);
+    if (!t) { respond(fd, "404 Not Found", "<p>Open Diagnostics on the TV and press OK on a line for a fresh code."); return 1; }
+    char head[200];
+    snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", strlen(t));
+    send_all(fd, head, strlen(head));
+    send_all(fd, t, strlen(t));
+    free(t);
+    return 1;
+}
+
 /* Settings backup: GET /backup.json while the TV offers one; POST /restore takes one back. */
 static int handle_backup(int fd, char *req, ssize_t n)
 {
@@ -487,6 +507,7 @@ static int handle(int fd, const struct sockaddr_in *peer)
     if (n <= 0) return 0;
     req[n] = 0;
     if (handle_backup(fd, req, n)) return 0;
+    if (handle_log(fd, req)) return 0;
     if (strncmp(req, "GET /yt?", 8) == 0) {
         if (peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK) && queue_yt(fd, req)) return 1;
         respond_text(fd, "404 Not Found", "no YouTube files here");
@@ -697,6 +718,28 @@ int phone_take(char *out, size_t n)
     if (g_has_pending) { snprintf(out, n, "%s", g_pending); g_has_pending = 0; got = 1; }
     SDL_UnlockMutex(g_lock);
     return got;
+}
+
+int phone_offer_log(const char *text, char *url, size_t n)
+{
+    if (!g_lock) return 0;
+    SDL_LockMutex(g_lock);
+    free(g_log); g_log = text ? strdup(text) : NULL;
+    g_log_key[0] = 0;
+    if (text) {   /* a new key each time: an old code (a photo of the screen) stops working */
+        unsigned r = (unsigned)SDL_GetPerformanceCounter() ^ ((unsigned)time(NULL) << 7) ^ (unsigned)(uintptr_t)g_log;
+        for (int i = 0; i < 12; i++) { r = r * 1103515245u + 12345u; g_log_key[i] = "abcdefghjkmnpqrstuvwxyz23456789"[(r >> 16) % 31]; }
+        g_log_key[12] = 0;
+        const char *fixed = getenv("SNTV_LOG_KEY");   /* tests */
+        if (fixed && *fixed) snprintf(g_log_key, sizeof g_log_key, "%s", fixed);
+    }
+    char key[20]; snprintf(key, sizeof key, "%s", g_log_key);
+    SDL_UnlockMutex(g_lock);
+    if (!text) return 0;
+    char base[96];
+    if (!phone_url(base, sizeof base)) return 0;
+    snprintf(url, n, "%slog/%s", base, key);
+    return 1;
 }
 
 void phone_offer_backup(const char *json)

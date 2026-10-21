@@ -1499,6 +1499,9 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
 
 static void go_to_video(Player *p, const char *video_id, const char *video_title)
 {
+    float ready = streams_prefetch_progress(video_id);   /* for Diagnostics: was it fetched ahead? */
+    if (ready < 0) LOGI("player: on to %s, its sources not fetched yet", video_id);
+    else LOGI("player: on to %s, %.0f%% of its addons answered ahead%s", video_id, ready * 100, p->next_warmed ? ", its file warmed" : "");
     report(p, 1);
     video_stop();
     MetaPreview meta;
@@ -1836,9 +1839,9 @@ static void update(Screen *s, float dt)
     }
     /* fetch the next episode's sources now, so Up Next starts without a wait; the
      * control bar asks too, so its Next button can show them arriving */
-    /* five minutes before the end (or past 80%): the answers and the matching source are
-     * ready well before Up Next; the links stay good for hours */
-    int want_next = p->up_next_shown || p->bar_focus || (vi.duration > 120 && (vi.position > vi.duration - 300 || vi.position > vi.duration * 0.8));
+    /* fifteen minutes before the end (or past 60%): the answers and the matching source are
+     * ready well before Up Next, and for a Next pressed early; the links stay good for hours */
+    int want_next = p->up_next_shown || p->bar_focus || (vi.duration > 120 && (vi.position > vi.duration - 900 || vi.position > vi.duration * 0.6));
     if (p->next_video_id && want_next && vi.state != VIDEO_LOADING && streams_prefetch_progress(p->next_video_id) < 0
         && (!p->prefetched || g_app.time - p->prefetch_tried > 30)) {
         p->prefetched = 1;

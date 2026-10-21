@@ -158,6 +158,7 @@ grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && g
   || { echo "the Speed tab did not measure"; grep speed: "$OUT/diagnostics_speed.log"; exit 1; }
 run diagnostics_filter 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,left,left"
 run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,ok"
+grep -q "diagnostics: the log ([0-9]* lines) is at a link while the code shows" "$OUT/diagnostics_qr.log" || { echo "the log QR is not a link to the whole log"; grep diagnostics "$OUT/diagnostics_qr.log"; exit 1; }
 run diagnostics_prev_qr 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,blue,ok"
 run settings_more 340 "left,down,down,down,down,down,ok,down,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers

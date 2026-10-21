@@ -23,4 +23,7 @@ const char *phone_resolve_sound(const char *url, char *out, size_t n);
  * a backup back; NULL closes both. phone_take_restore() returns a sent backup (malloc'd). */
 void phone_offer_backup(const char *json);
 char *phone_take_restore(void);
+/* Diagnostics: offers `text` at a link with a fresh random key (written to url, 1 when
+ * the server is up) while the QR is open; NULL takes it down. */
+int phone_offer_log(const char *text, char *url, size_t n);
 #endif

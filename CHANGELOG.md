@@ -8,6 +8,15 @@
   the TV. Each source's rank is now worked out once and the list sorted in one go
   (4,000 sources: from about 930 ms to under 20 ms on a desktop, several times that on
   a TV). A sort that still takes long is written to Diagnostics.
+- **The Diagnostics QR code scans easily now**: instead of packing the log lines into a
+  dense code (hard for a phone to read off a TV), it is a short link to this TV, and the
+  phone opens the whole log as text to copy. It works on the same Wi-Fi, only while the
+  code is on screen, with a new random link each time; without the phone server the old
+  code (smaller now) is shown.
+- **The next episode is ready sooner**: its sources are fetched from 60% of an episode
+  (or its last 15 minutes) instead of the last 5, so Next pressed early starts quickly
+  too; and the freeze above no longer hits when it takes over the fetched list. When
+  it starts, Diagnostics says whether its sources were ready.
 - **Home shows the scores too**: the hero has the same strip of score pills as title
   pages (Tomatometer, Popcornmeter, Metascore, Roger Ebert, Letterboxd, Trakt, TMDB and
   MDBList's ring), the genres moving into the facts line.

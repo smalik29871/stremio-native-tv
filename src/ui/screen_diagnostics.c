@@ -5,6 +5,7 @@
  * the log can be scanned with a phone and pasted into a bug report. */
 #include "../app.h"
 #include "../log.h"
+#include "../phone.h"
 #include "../video/video.h"
 #include "../platform/platform.h"
 #include "../perfstat.h"
@@ -37,6 +38,7 @@ typedef struct {
     int show_qr;
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
     int qr_ok, qr_lines;
+    int qr_link;            /* the code is a link to the whole log on this TV, not the lines themselves */
     char system[256];
     int yt_state, yt_focus;          /* YouTube test: 0 not run, 1 running, 2 done; 0 Run, 1 Play */
     char *yt_answer;                 /* what the test found to play, for Play */
@@ -126,10 +128,31 @@ static void reload(Diag *d)
     refilter(d);
 }
 
-/* QR payload: header + the lines that lead up to the cursor, newest last. */
+/* QR: a short link to the whole log, served by this TV while the code shows (a phone on
+ * the same Wi-Fi opens it and copies all of it); without the phone server, the lines
+ * leading up to the cursor in the code itself, newest last. */
 static void build_qr(Diag *d)
 {
     static const char *TAB_NAMES[] = { "playback", "problems", "everything" };
+    size_t cap = 600, len = 0;
+    for (int k = 0; k < d->n_vis; k++) cap += strlen(d->lines[d->vis[k]].text) + 4;
+    char *all = malloc(cap), url[160];
+    if (all) {
+        len = (size_t)snprintf(all, cap, "Stremio Native TV %s\n%s\n%s\n%s log, %s session\n---\n", SNTV_APP_VERSION, video_backend_name(), d->system,
+                               TAB_NAMES[d->tab < 3 ? d->tab : 2], d->previous ? "previous" : "this");
+        for (int k = 0; k < d->n_vis && len < cap; k++) len += (size_t)snprintf(all + len, cap - len, "%c %s\n", d->lines[d->vis[k]].level, d->lines[d->vis[k]].text);
+        d->qr_link = phone_offer_log(all, url, sizeof url);
+        free(all);
+        if (d->qr_link) {
+            uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
+            d->qr_ok = qrcodegen_encodeText(url, tmp, d->qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, 10, qrcodegen_Mask_AUTO, true);
+            d->qr_lines = d->n_vis;
+            LOGI("diagnostics: the log (%d lines) is at a link while the code shows", d->n_vis);
+            if (d->qr_ok) return;
+            phone_offer_log(NULL, NULL, 0);
+            d->qr_link = 0;
+        }
+    }
     char *text = malloc(QR_BUDGET + 600);
     int budget = QR_BUDGET;
     for (int attempt = 0; attempt < 6; attempt++, budget = budget * 3 / 4) {
@@ -151,7 +174,7 @@ static void build_qr(Diag *d)
         }
         d->qr_lines = d->n_vis ? d->cursor - first + 1 : 0;
         uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
-        d->qr_ok = qrcodegen_encodeText(text, tmp, d->qr, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 22,
+        d->qr_ok = qrcodegen_encodeText(text, tmp, d->qr, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 16,
                                         qrcodegen_Mask_AUTO, true);
         if (d->qr_ok) break;
     }
@@ -195,6 +218,17 @@ static void draw_qr_overlay(Diag *d)
                     gfx_rect(qx + off + rx * cell, qy + off + ry * cell, cell, cell, RGBA(0, 0, 0, 255));
     }
     float tx = qx + qs + 60, tw = x + w - tx - 40;
+    if (d->qr_link) {
+        font_draw("Scan to get this log", tx, y + 60, FONT_L | FONT_B, THEME_TEXT);
+        char t[200];
+        snprintf(t, sizeof t, "The code is a link to this TV: your phone opens the whole log (%d line%s) as text to copy.",
+                 d->qr_lines, d->qr_lines == 1 ? "" : "s");
+        font_draw_wrapped(t, tx, y + 130, FONT_S, THEME_TEXT_DIM, tw, 3);
+        font_draw_wrapped("Your phone has to be on the same Wi-Fi as the TV. The link works while this is open, and a new one is made each time.",
+                          tx, y + 260, FONT_S, THEME_TEXT_MUTED, tw, 4);
+        ui_pill("Close", 0, ICON_BACK, tx, y + h - 120, 72, PILL_SECONDARY, 1);
+        return;
+    }
     font_draw("Scan to copy this log", tx, y + 60, FONT_L | FONT_B, THEME_TEXT);
     char t[200];
     snprintf(t, sizeof t, "The code holds your TV's details and the %d line%s up to the selected one.",
@@ -376,7 +410,7 @@ static int key(Screen *s, KeyAction a)
         }
     }
     if (d->show_qr) {
-        if (a == KEY_BACK || a == KEY_OK) { d->show_qr = 0; return 1; }
+        if (a == KEY_BACK || a == KEY_OK) { d->show_qr = 0; if (d->qr_link) phone_offer_log(NULL, NULL, 0); d->qr_link = 0; return 1; }
         return 1;
     }
     switch (a) {
@@ -396,6 +430,7 @@ static void destroy(Screen *s)
 {
     Diag *d = s->st;
     if (g_diag_live == d) g_diag_live = NULL;
+    if (d->qr_link) phone_offer_log(NULL, NULL, 0);
     free(d->yt_answer);
     free(d->lines);
     free(d->vis);
