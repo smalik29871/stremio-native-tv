@@ -254,6 +254,9 @@ grep -q "subs: file hash 0123456789abcdef from the addon" "$OUT/stream_hints.log
 run player_next_loading 300 "right,ok,down,down,play,wait,down,right" "$SLOW" SNTV_FAKE_START=300
 run player_next_ring 300 "right,ok,down,down,play,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
 run player_skipped 300 "right,ok,down,down,play,wait,ok"
+# the controls up (Play brings them) and Skip intro showing: OK skips, it does not pause
+run player_skip_controls_up 320 "right,ok,down,down,play,wait,play,ok" HOME="$(home_with skipup '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: skipping intro" "$OUT/player_skip_controls_up.log" || { echo "OK with the controls up paused instead of skipping"; grep -E "player:" "$OUT/player_skip_controls_up.log" | tail -5; exit 1; }
 run upnext_credits 300 "right,ok,down,down,play,wait" SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"

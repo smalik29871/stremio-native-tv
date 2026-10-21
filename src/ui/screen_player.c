@@ -203,7 +203,6 @@ struct Player {
     int menu, menu_focus;
     int src_filter, src_chip, src_on_chips;   /* Sources sheet: addon tab (0 all), focused button (0 find more, 1 close), focus zone (0 list, 1 tabs, 2 buttons) */
     int bar_focus, bar_id;     /* Down moves from the seek bar to the button row; the button by BTN_* id */
-    int skip_focus;            /* Up from the timeline focused the Skip button (the controls are up) */
     float play_flash;          /* big centre icon after play/pause */
     int flash_icon;
 };
@@ -1294,6 +1293,8 @@ static void do_skip(Player *p, const SkipSeg *s)
     p->skip_used |= 1u << (int)(s - p->skip);
     LOGI("player: skipping %s %.0f-%.0fs", s->kind == SKIP_RECAP ? "recap" : "intro", s->start, s->end);
     video_seek(s->end);
+    p->viewer_paused = 0;
+    video_play();   /* paused when Skip was pressed: the episode goes on from there all the same */
     if (g_app.skip_mode == 1) app_toast(s->kind == SKIP_RECAP ? "Skipped the recap" : "Skipped the intro");
     app_redraw();
 }
@@ -2692,7 +2693,8 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
 
 static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay, float card_top)
 {
-    int lit = !overlay || p->skip_focus;   /* OK skips: hidden controls, or Up focused it */
+    int lit = !p->bar_focus;   /* OK skips, unless the controls' buttons have it */
+    (void)overlay;
     const char *label = s->kind == SKIP_RECAP ? "Skip recap" : "Skip intro";
     float h = 72, w = ui_pill_width(label, 1, h);
     float x = SNTV_UI_W - THEME_MARGIN - w, y = overlay ? SNTV_UI_H - 330 : SNTV_UI_H - 200;
@@ -2704,7 +2706,7 @@ static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, i
     if (k < 0) k = 0;
     if (k > 1) k = 1;
     gfx_rrect(x + h / 2, y + h + 10, (w - h) * (1 - k), 4, 2, COLOR_ALPHA(THEME_TEXT, 0x90));
-    const char *keyname = lit ? "OK" : "Up";
+    const char *keyname = lit ? "OK" : "Up";   /* from the buttons, Up leaves them */
     font_draw(keyname, x - font_measure(keyname, FONT_XS | FONT_B) - 16, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
 }
 
@@ -4571,14 +4573,11 @@ keys:
         else if (!p->next_wanted) { p->next_wanted = 1; LOGI("player: next episode asked for while it's prepared"); app_redraw(); }
         return 1;
     }
-    /* Skip: OK while the controls are hidden and the video plays, or once Up has focused the
-     * button; with the controls up OK is play/pause like everywhere else */
+    /* Skip: while its button shows, OK skips (controls up or not, playing or paused); the
+     * controls' buttons have OK only once Down has gone into them. Play/Pause still pauses. */
     {
         const SkipSeg *sk = g_app.skip_mode == 0 ? skippable(p, &vi) : NULL;
-        if (!sk || !overlay_on) p->skip_focus = 0;
-        if (sk && a == KEY_OK && (p->skip_focus || (!overlay_on && vi.state == VIDEO_PLAYING))) { p->skip_focus = 0; do_skip(p, sk); show_overlay(p); return 1; }
-        if (sk && overlay_on && !p->bar_focus && a == KEY_UP && !p->skip_focus) { p->skip_focus = 1; show_overlay(p); return 1; }
-        if (p->skip_focus && (a == KEY_DOWN || a == KEY_BACK)) { p->skip_focus = 0; show_overlay(p); return 1; }
+        if (sk && a == KEY_OK) { do_skip(p, sk); show_overlay(p); return 1; }
     }
     if (a == KEY_DOWN && p->up_next_shown && p->next_video_id && !p->bar_focus) {   /* put the card away for the controls */
         p->up_next_shown = 0; p->up_next_dismissed = 1; p->bar_focus = 1; show_overlay(p); return 1;

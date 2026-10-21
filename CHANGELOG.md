@@ -7,6 +7,12 @@
   subtitles moved a little left beside it, and the controls hidden. When nobody is speaking a
   sample line shows the size, style and position. Back brings the drawer back; the two
   slide and fade into each other.
+- **Signs and credits no longer hide the dialogue.** In subtitle files from addons, two lines
+  shown at once (a translated credit or sign over the dialogue) now both show, one under the
+  other, instead of one replacing the other; a line marked for the top ({\an8}, or WebVTT's
+  line:0) goes to the top, under the title while the controls show. The subtitles inside the
+  video are drawn by the TV itself, which shows such marks as text and draws those lines over
+  each other: choosing an addon file once in the drawer is remembered for the show.
 - **A smaller Subtitles drawer.** It covers less of the picture while you pick a language.
 - **The UI scenarios run on GitHub.** Every push runs them; a release waits for them.
 
