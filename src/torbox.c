@@ -254,8 +254,8 @@ typedef struct { char hash[41]; int file_idx; EpisodeHint ep; AiSnap ai; TorboxO
 typedef struct { long id; double size; const char *name; int score; } PackFile;
 
 /* The episode's file in a season pack: the one its name says is it, the AI's pick when
- * the names leave several (asked with the list, as a person would read it), else the
- * largest that is not plainly another episode. */
+ * the names leave several (asked with the list, as a person would read it), else its one
+ * main file; never a file named for another episode, never a guess between look-alikes. */
 static long pick_episode(const Open *o, PackFile *f, int n)
 {
     int best = -1;
@@ -314,11 +314,8 @@ static long pick_episode(const Open *o, PackFile *f, int n)
         }
         LOGI("torbox: the AI did not pick a file (%d)", pick);
     }
-    if (tied == 2) {   /* two: one copy in two formats, or an episode in two parts: the larger, as always */
-        LOGI("torbox: no episode named; the larger of two files plays: %s", f[best].name);
-        return f[best].id;
-    }
-    /* several alike and nothing says which is the episode (a disc rip): another source, not a guess */
+    /* several alike and nothing says which is the episode (two unnamed episodes, a disc rip):
+     * another source, not a guess */
     LOGI("torbox: can't tell which of %d files is S%dE%d; leaving this torrent", tied, o->ep.season, o->ep.episode);
     return -1;
 }
@@ -347,12 +344,20 @@ static void open_task(HttpResponse *out, void *arg)
         const cJSON *nm = cJSON_GetObjectItemCaseSensitive(f, "name");   /* "Pack Folder/file.mkv", the folder can name the season */
         if (!cJSON_IsString(nm)) nm = cJSON_GetObjectItemCaseSensitive(f, "short_name");
         if (!cJSON_IsNumber(id) || !is_video(f)) continue;
-        if (o->file_idx >= 0 && (long)id->valuedouble == o->file_idx) { fid = (long)id->valuedouble; n_pack = 0; break; }   /* the addon's file */
+        if (o->file_idx >= 0 && (long)id->valuedouble == o->file_idx) {   /* the addon's file, unless its name says another episode */
+            const char *fname = cJSON_IsString(nm) ? nm->valuestring : "";
+            if (o->ep.episode > 0 && quality_episode_score(fname, &o->ep) < 0) {
+                LOGI("torbox: the addon's file is another episode (%s); not S%dE%d", fname, o->ep.season, o->ep.episode);
+                snprintf(out->error, sizeof out->error, "No file in that torrent is this episode");
+                fid = -1; n_pack = 0; break;
+            }
+            fid = (long)id->valuedouble; n_pack = 0; break;
+        }
         double size = cJSON_IsNumber(sz) ? sz->valuedouble : 0;
         if (n_pack < 200) pack[n_pack++] = (PackFile){ (long)id->valuedouble, size, cJSON_IsString(nm) ? nm->valuestring : "", 0 };
         if (size > best) { best = size; fid = (long)id->valuedouble; }   /* else the largest video */
     }
-    if (o->ep.episode > 0 && n_pack > 1) {
+    if (o->ep.episode > 0 && n_pack > 0) {   /* one file too: it may be named for another episode */
         fid = pick_episode(o, pack, n_pack);
         if (fid < 0 && !out->error[0]) snprintf(out->error, sizeof out->error, "No file in that torrent is this episode");
     }

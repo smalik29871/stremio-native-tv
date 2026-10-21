@@ -13,6 +13,8 @@ typedef struct HttpResponse {
     char error[256];
     double seconds;     /* wall time of the transfer, connection included */
     uint64_t total_size; /* from Content-Range (range requests) or Content-Length; 0 unknown */
+    int has_range;       /* answered with a Content-Range: */
+    uint64_t range_from; /* the offset its bytes start at */
     char content_type[64];
     int cut;            /* the body was cut at its budget (a server that ignored Range, or a runaway answer) */
     void *parsed;       /* set by HttpOptions.work on the worker; the callback may take it (set NULL) */

@@ -51,7 +51,7 @@ enum { N_RATES = 7, RATE_NORMAL = 2 };
 typedef struct AddonSub { char *url, *lang, *addon, *release; int matched, sync_failed; int fit; char fit_why[48]; int name; } AddonSub;   /* name: release-name match 0..100 (OpenSubtitles) */   /* fit: 0 not checked, else 1..101 */
 
 typedef struct Player Player;
-typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; unsigned attempt; } SubReq;   /* attempt: 0, or the source start it is about */
+typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; unsigned attempt; unsigned seq; } SubReq;   /* attempt: 0, or the source start it is about; seq: which subtitle download, for files */
 
 struct Player {
     MetaPreview meta;
@@ -97,6 +97,7 @@ struct Player {
     int subs_pending;
     unsigned gen;
     unsigned attempt;         /* bumps at every source start: late answers about an earlier one are dropped */
+    unsigned sub_seq[3];      /* the newest download per subtitle slot (track, second, timing reference): an older answer is dropped */
     SubTrack track; int track_loaded; int active_addon_sub;   /* -1 none */
     unsigned sub_req;
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
@@ -332,7 +333,15 @@ static void on_hash_part(HttpResponse *r, void *user)
     unsigned qa = q->attempt, qg = q->gen;
     free(q);
     if (p != g_live || qa != p->attempt || qg != p->gen) return;   /* the player closed, or about an earlier source */
-    if ((r->status != 200 && r->status != 206) || r->len < 8) { p->hash_state = 4; LOGI("subs: file hash unavailable (%ld)", r->status); return; }
+    /* both 64 KB pieces whole, and the end really from the end: a server that ignored the
+     * Range sends the start again, and that hash would look right and match nothing */
+    if ((r->status != 200 && r->status != 206) || r->len < 65536
+        || (tail && (r->status != 206 || !r->has_range || r->range_from != p->os_size - 65536))) {
+        p->hash_state = 4;
+        LOGI("subs: file hash unavailable (%ld, %zu bytes%s)", r->status, r->len, tail && r->status == 200 ? ", the end was not sent" : "");
+        return;
+    }
+    if (r->len > 65536) r->len = 65536;   /* the hash reads 64 KB of each end, never more */
     p->os_sum += sum64((const uint8_t *)r->body, r->len);
     if (!tail) {
         p->os_size = r->total_size ? r->total_size : (uint64_t)r->len;
@@ -378,7 +387,7 @@ static void on_sub_file(HttpResponse *r, void *user)
 {
     SubReq *q = user;
     Player *p = q->owner;
-    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    if (p != g_live || q->gen != p->gen || q->seq != p->sub_seq[q->slot] || (q->slot == 2 && q->attempt != p->attempt)) { free(q); return; }   /* replaced by a newer download, or a reference for an earlier source */
     SubTrack *t = q->slot == 2 ? &p->ref : q->slot ? &p->track2 : &p->track;
     int *loaded = q->slot == 2 ? &p->ref_loaded : q->slot ? &p->track2_loaded : &p->track_loaded;
     if (!q->slot) p->sub_req = 0;
@@ -505,9 +514,9 @@ static void select_addon_sub_slot(Player *p, int idx, int slot)
         p->sync_for = -1; p->sync_state = 0;
         xl_stop(p);
     }
-    if (idx < 0) return;
+    if (idx < 0) { p->sub_seq[slot]++; return; }   /* off: a download still coming is dropped */
     SubReq *q = calloc(1, sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = slot;
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = slot; q->seq = ++p->sub_seq[slot];
     unsigned req = sub_get(p->addon_subs[idx].url, on_sub_file, q);
     if (!slot) p->sub_req = req;
 }
@@ -870,7 +879,7 @@ static void on_bm_file(HttpResponse *r, void *user)
 {
     SubReq *q = user;
     Player *p = q->owner;
-    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    if (p != g_live || q->gen != p->gen || q->attempt != p->attempt) { free(q); return; }   /* a comparison for an earlier source */
     int k = q->slot;
     p->bm_ok[k] = sub_take(r, &p->bm_track[k]);
     p->bm_pending--;
@@ -899,7 +908,7 @@ static void bestmatch_tick(Player *p, const VideoInfo *vi)
         for (int k = 0; k < p->bm_n; k++) {
             memset(&p->bm_track[k], 0, sizeof p->bm_track[k]); p->bm_ok[k] = 0;
             SubReq *q = calloc(1, sizeof *q);
-            q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = k; q->hashed = 0;
+            q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = k; q->hashed = 0; q->attempt = p->attempt;
             sub_get(p->addon_subs[p->bm_idx[k]].url, on_bm_file, q);
         }
         LOGI("subs: comparing %d %s files for the best fit", p->bm_n, cur->lang);
@@ -939,7 +948,7 @@ static void autosync_tick(Player *p)
         p->ref_idx = ref; p->sync_state = 1; p->ref_loaded = 0;
         subs_free(&p->ref);
         SubReq *q = calloc(1, sizeof *q);
-        q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 2; q->hashed = 0;
+        q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 2; q->hashed = 0; q->attempt = p->attempt; q->seq = ++p->sub_seq[2];
         sub_get(p->addon_subs[ref].url, on_sub_file, q);
         return;
     }
@@ -1506,7 +1515,12 @@ static void fail_over(Player *p, const char *why)
     VideoInfo vi;
     video_info(&vi);
     double resume = vi.position > 5 ? vi.position : 0;
-    if (!p->learned && decoder_failure(p, &vi)) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
+    if (!p->learned && decoder_failure(p, &vi)) {   /* the error never names the decoder: only a source needing one feature says which failed */
+        unsigned needs = p->cands[p->cur].needs;
+        if (needs && !(needs & (needs - 1))) app_tv_learn(needs, 0);
+        else if (needs) LOGI("tv profile: a source needing several features failed; none is blamed");
+        p->learned = 1;
+    }
     if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
     if (vi.position < 5) youtube_note_result(p->cands[p->cur].url, 0);   /* this TV and that way of playing YouTube */
     health_record(p, HEALTH_FAIL);

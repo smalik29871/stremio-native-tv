@@ -2,6 +2,24 @@
 
 ## 0.10.40
 
+From a third review:
+
+- **No guessing between episodes in a TorBox pack.** Two unnamed files of a like size
+  played the larger; that could be the wrong episode, so another source plays instead.
+  A torrent with one video, and the file an addon points to, are checked too: named for
+  another episode, they don't play.
+- **Late subtitle downloads are dropped.** Only the newest download for each subtitle
+  slot is used, so a file asked for earlier (or before subtitles were turned off) can't
+  replace the current one; the timing reference and the best-fit comparison belong to
+  the source they were made for.
+- **The start race reads enough to tell a page from a file** (4 KB, not 2 bytes), and
+  plain-text answers ("Not found", "Link expired") and pages served with no type lose.
+- **A failed source teaches the TV profile only when one feature explains it.** One
+  needing several (say Dolby Vision and TrueHD) is a failed link, not two bad decoders.
+- **Subtitle matching by file hash needs both ends of the file.** A server that ignores
+  the request for the end sends the start again; that hash looked right and matched
+  nothing, and now the hash is left out instead.
+
 - **Updates are checked when the app opens.** The first check came 20 seconds after a
   start, and none when the app came back from the TV's Home (webOS keeps it running
   behind it). It now checks a few seconds after opening and again each time it's back on
