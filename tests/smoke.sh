@@ -146,6 +146,12 @@ run upnext_wait_ready 1300 "right,ok,down,down,play,wait,wait,ok" "$SLOW" SNTV_F
 grep -q "player: next episode asked for while it's prepared" "$OUT/upnext_wait_ready.log" && grep -q "player: the next episode is ready (asked for on the card)" "$OUT/upnext_wait_ready.log" \
   && grep -q "player: on to tt0903747:1:2, 100% of its addons answered ahead" "$OUT/upnext_wait_ready.log" && [ "$(grep -c "player: candidate" "$OUT/upnext_wait_ready.log")" -ge 2 ] \
   || { echo "the Up Next card did not wait for the next episode to be ready"; grep -E "player: (next|the next|on to|candidate)|streams: prefetch" "$OUT/upnext_wait_ready.log"; exit 1; }
+# the next episode handed over with screen transitions on (as on a TV) after a raced start:
+# the screen it replaces leaves after the new one starts, and must not call off its start (or
+# free the list the player now has: that crashed)
+run upnext_handoff_transitions 900 "right,ok,down,down,play,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/manifest.json SNTV_NO_TRANSITIONS= SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with handoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')"
+! grep -q "streams: race called off" "$OUT/upnext_handoff_transitions.log" && grep -q "player: on to tt0903747:1:2" "$OUT/upnext_handoff_transitions.log" && [ "$(grep -c "player: candidate" "$OUT/upnext_handoff_transitions.log")" -ge 2 ] \
+  || { echo "the screen left behind called off the next episode's start"; grep -E "streams: (race|next|racing)|player: (candidate|on to)" "$OUT/upnext_handoff_transitions.log"; exit 1; }
 run upnext_loading 420 "right,ok,down,down,play,wait" "$SLOW" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_loading '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # the next episode's sources are asked for early in this one (here after 1 s of playing,
 # 30 s on a TV), not only near the end or when the control bar is open

@@ -461,6 +461,8 @@ static void sort_items(Streams *st)
 }
 
 static void play_from(Streams *st, int index);
+static int race_runs_for(const Streams *st);
+static int race_resume(const Streams *st);
 
 /* Parse one addon's answer into `items`; returns how many were added. */
 static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
@@ -773,7 +775,8 @@ static int good_enough(const Streams *st)
 static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
-    video_keep_awake(starting(st));   /* the TV's screensaver must not take the handoff */
+    video_keep_awake(starting(st) || race_runs_for(st));   /* the TV's screensaver must not take the handoff */
+    if (race_resume(st) && app_top() != s) return;   /* back on top: the source its race found starts */
     if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
     if (st->check_autoplay || (st->chaining && !st->autoplayed)) {   /* every frame too: the wait can run out with no answer arriving */
         st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return;
@@ -1196,30 +1199,57 @@ int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c
  * answers starts; the rest stay behind it as the player's fallbacks. */
 typedef struct {
     int busy, pending, done;
+    const Streams *owner;     /* the screen it starts for: only it calls it off, only on top it starts */
+    int deferred, deferred_first;   /* answered while something covered that screen: starts when it's back */
     PlayCandidate *c; int n; double start;
     MetaPreview meta; char video_id[160], title[300], next_id[128], next_title[200]; int has_next;
 } Race;
 static Race g_race;
 
+static int owner_on_top(const Race *r)
+{
+    const Screen *t = app_top();
+    return t && !strcmp(t->name, "streams") && t->st == r->owner;
+}
+
 static void race_launch(int first)   /* -2: no race, the first plays as chosen */
 {
     Race *r = &g_race;
+    if (!owner_on_top(r)) {   /* a screensaver, a dialog or a break over its screen: the player waits for it */
+        if (!r->deferred) LOGI("streams: the source is ready; starting it when its screen is back");
+        r->deferred = 1; r->deferred_first = first;
+        return;
+    }
+    r->deferred = 0;
     if (first > 0) { PlayCandidate t = r->c[first]; memmove(r->c + 1, r->c, sizeof *r->c * (size_t)first); r->c[0] = t; }
     if (first != -2) LOGI("streams: %s", first >= 0 ? "the quickest source starts" : "no source answered the race; trying them in order");
     perf_start_phase("race");
-    app_push(screen_player_create(&r->meta, r->video_id, r->title, r->c, r->n, 0, r->start, r->has_next ? r->next_id : NULL, r->has_next ? r->next_title : NULL));
-    meta_preview_free(&r->meta);
-    r->c = NULL; r->busy = 0;
+    /* the list is the player's from here: given up before the push, so nothing that runs
+     * during it (a screen leaving at the end of its transition) can free it again */
+    PlayCandidate *c = r->c; int n = r->n;
+    MetaPreview meta = r->meta;
+    r->c = NULL; r->busy = 0; memset(&r->meta, 0, sizeof r->meta);
+    app_push(screen_player_create(&meta, r->video_id, r->title, c, n, 0, r->start, r->has_next ? r->next_id : NULL, r->has_next ? r->next_title : NULL));
+    meta_preview_free(&meta);
+}
+
+static int race_runs_for(const Streams *st) { return g_race.busy && g_race.owner == st; }
+
+static int race_resume(const Streams *st)   /* 1 when it started the player it was holding */
+{
+    if (!g_race.busy || !g_race.deferred || g_race.owner != st) return 0;
+    race_launch(g_race.deferred_first);
+    return 1;
 }
 
 typedef struct { int idx; unsigned round; } RaceReq;
 static unsigned g_race_round;
 
 /* The viewer took over (moved, chose, left): a race still running starts nothing. */
-static void race_cancel(void)
+static void race_cancel(const Streams *owner)
 {
     Race *r = &g_race;
-    if (!r->busy) return;
+    if (!r->busy || r->owner != owner) return;   /* another screen's start: not this one's to call off */
     g_race_round++;
     LOGI("streams: race called off, the viewer chose");
     play_candidates_free(r->c, r->n);
@@ -1247,6 +1277,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
     for (int i = 0; i < n && i < 3; i++) if (!strncmp(c[i].url, "http", 4) && !torrent_engine_url_is(c[i].url)) racers++;
     if (r->busy) { play_candidates_free(c, n); app_toast("Finding the quickest source\xE2\x80\xA6"); return; }
     memset(r, 0, sizeof *r);
+    r->owner = st;
     r->c = c; r->n = n; r->start = start; r->has_next = has_next;
     meta_preview_copy(&r->meta, &st->meta);
     snprintf(r->video_id, sizeof r->video_id, "%s", st->video_id);
@@ -1424,7 +1455,7 @@ void streams_lookup_tick(void)
 static int key(Screen *s, KeyAction a)
 {
     Streams *st = s->st;
-    if (a == KEY_UP || a == KEY_DOWN || a == KEY_OK) race_cancel();
+    if (a == KEY_UP || a == KEY_DOWN || a == KEY_OK) race_cancel(st);
     switch (a) {
     case KEY_UP:
         st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1;   /* choosing: nothing starts by itself any more */
@@ -1455,10 +1486,10 @@ static void resume(Screen *s)
 static void destroy(Screen *s)
 {
     Streams *st = s->st;
-    if (g_live == st) { g_live = NULL; g_generation++; }
-    race_cancel();   /* left with Back while it ran: only the screen on top races */
-    video_keep_awake(0);
-    perf_start_cancel();   /* left before anything played (after a start, nothing is running) */
+    /* this screen's own start only: the next episode's screen is made before the one it
+     * replaces is gone (that goes at the end of the transition) */
+    race_cancel(st);
+    if (g_live == st) { g_live = NULL; g_generation++; video_keep_awake(0); perf_start_cancel(); }
     st->probe_gen++;
     if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */
     streams_free(st->items, st->n);

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed: the next episode could fail to start, or the app could close.** When the next
+  episode started from a source race, the screen it replaced was cleared a moment later
+  and called off the new episode's start; that could also free what the player had just
+  been given, closing the app. A start is now only called off by the screen that made it,
+  and a source found while something covers its screen waits for the screen to be back.
+
 ## 0.10.44
 
 - **Up Next waits until the next episode is ready.** Its button reads *Preparing*, filling
