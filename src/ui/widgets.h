@@ -132,7 +132,7 @@ void ui_card_capture(int on);
 /* Details on a focused card: after the card has been focused for PEEK_DWELL seconds the
  * card grows a panel beside it and its neighbours make room (ui_peek_room). Step from update() (it asks for the full details then),
  * draw from draw() (reads caches only). t is how far the panel is open, 0..1. */
-#define PEEK_DWELL 0.6f
+#define PEEK_DWELL 1.5f   /* long enough that passing over a card never opens it */
 typedef struct Peek { char id[128]; float since, t; int asked; } Peek;
 struct MetaPreview;
 void  ui_peek_step(Peek *p, const struct MetaPreview *m, float dt);

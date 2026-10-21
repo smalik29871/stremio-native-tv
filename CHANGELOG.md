@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Card details wait longer.** The panel beside a focused card opens after 1.5 s instead
+  of 0.6 s, so moving along a row no longer opens it on the way.
+
 ## 0.10.41
 
 - **OK on an episode shows its sources, and nothing starts until you choose one.** It
