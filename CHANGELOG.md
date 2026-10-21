@@ -38,9 +38,15 @@
   permissions do not name that service): "Update failed". When that happens before
   anything downloads, the same request now goes through luna-send-pub, the public tool
   any app may run, and its progress shows as before.
-- **The screensaver no longer covers a video.** It came on when a video was paused, or
-  stalled (webOS reports a stall as a pause), or between two sources; now nothing but a
-  break takes over the player, full screen or in the corner.
+- **The screensaver no longer covers a video.** It came on whenever the video was not
+  reported as playing: stalled (webOS reports a stall as a pause) or between two sources
+  too. Now it only comes over a video you paused yourself; nothing else but a break takes
+  over the player, full screen or in the corner.
+- **The next episode always starts by itself.** It waited for an addon to answer before
+  checking whether the wait was over, so with an addon gone quiet it never started; and
+  it only looked at the top source, so a notice or a link this TV cannot open at the top
+  stopped it. Now the wait is checked all the time (20 seconds at most, even set to wait
+  for every addon) and the best source that can play here starts.
 - **Two sources stand by.** While a video plays, the next source in line was checked so a
   switch is quick; now the one after it is too (one after the other, never competing with
   the video). A torrent on TorBox among them, skipped before, is made ready on TorBox

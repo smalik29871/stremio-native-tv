@@ -375,9 +375,11 @@ grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && gre
 # the screensaver waits while a break counts down (it froze the break, so the film never came back)
 run break_no_saver 900 "right,ok,down,down,ok,wait" HOME="$(home_with brkns '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00+3 SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=break" "$OUT/break_no_saver.log" || { echo "the screensaver covered a break"; grep "UI check" "$OUT/break_no_saver.log"; exit 1; }
-# nor a video: paused (or stalled, which webOS reports as paused) it stays the player
-run player_no_saver 700 "right,ok,down,down,ok,wait,ok,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
-grep -q "UI check: screen=player" "$OUT/player_no_saver.log" || { echo "the screensaver covered a paused video"; grep "UI check" "$OUT/player_no_saver.log"; exit 1; }
+# nor a playing video; only one the viewer paused (a stall webOS reports as a pause is not one)
+run player_no_saver 700 "right,ok,down,down,ok,wait,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
+grep -q "UI check: screen=player" "$OUT/player_no_saver.log" || { echo "the screensaver covered a playing video"; grep "UI check" "$OUT/player_no_saver.log"; exit 1; }
+run player_paused_saver 700 "right,ok,down,down,ok,wait,ok,wait" HOME="$(home_with pausesaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
+grep -q "UI check: screen=ambient" "$OUT/player_paused_saver.log" || { echo "the screensaver did not come over a video the viewer paused"; grep "UI check" "$OUT/player_paused_saver.log"; exit 1; }
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 # no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
 if [ -n "${FAKE_TORRENT_HASH:-}" ]; then

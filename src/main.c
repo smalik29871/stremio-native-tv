@@ -170,9 +170,10 @@ static int ambient_due(const Screen *top)
     if (!g_app.ambient_minutes && idle_after <= 0) return 0;
     if (g_app.time - g_app.last_input < limit) return 0;
     /* nothing takes over a video but a break (which counts down and resumes it itself):
-     * not while it plays, pauses, buffers or changes source, full screen or in the corner */
-    static const char *const NEVER_UNDER[] = { "ambient", "login", "break", "pin", "update", "player" };
-    if (g_app.pip) return 0;
+     * not while it plays, stalls or changes source, full screen or in the corner; only
+     * once the viewer paused it */
+    static const char *const NEVER_UNDER[] = { "ambient", "login", "break", "pin", "update" };
+    if (player_holds_screen()) return 0;
     for (size_t i = 0; i < sizeof NEVER_UNDER / sizeof *NEVER_UNDER; i++) if (strcmp(top->name, NEVER_UNDER[i]) == 0) return 0;
     VideoInfo vi;
     video_info(&vi);

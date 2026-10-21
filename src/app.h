@@ -287,6 +287,9 @@ Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, con
 /* The same, starting the recommended source by itself (Back returns to the list). */
 Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id, const char *video_title);
 /* The player takes ownership of `cands`. next_video_id (optional) enables Up Next. */
+/* 1 while a video is on that nothing but a break may cover: playing, stalled, between
+ * sources; 0 with no video, or paused by the viewer */
+int player_holds_screen(void);
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,
                              PlayCandidate *cands, int n_cands, int start_index, double start_s,
                              const char *next_video_id, const char *next_title);

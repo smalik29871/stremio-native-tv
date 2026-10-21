@@ -130,6 +130,7 @@ struct Player {
     int reask_count; float reask_at; double reask_pos;   /* every source failed: the addons asked again */
     double start_at;                        /* where this source was asked to start (a failed one reports 0) */
     int pause_when_started;                 /* reloaded after a break over a paused film: paused again once it shows */
+    int viewer_paused;                      /* the pause is the viewer's (not a stall the TV reports as one) */
     float good_since; int good_recorded;   /* this source has played well for a while */
     int lighter_to; int lighter_offered;    /* buffering keeps stopping: a lower resolution offered (-1 none) */
     int stalls_here;                        /* stalls since this source started */
@@ -209,6 +210,7 @@ static void cand_addon(const PlayCandidate *c, char *out, size_t n);
 static void describe_track(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn);
 static int xl_available(Player *p);
 static void draw_subs_panel(Player *p);
+
 static int subs_key(Player *p, KeyAction a);
 static void subs_open(Player *p);
 static void xl_start(Player *p);
@@ -1790,6 +1792,7 @@ static void update(Screen *s, float dt)
     if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
     if (vi.state == VIDEO_PAUSED && p->paused_since == 0) { p->paused_since = g_app.time; app_redraw(); }
     if (vi.state != VIDEO_PAUSED && p->paused_since != 0) p->paused_since = 0;
+    if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) p->viewer_paused = 0;
     if (vi.state == VIDEO_PAUSED && g_app.time - p->paused_since < 1.3f) app_redraw();   /* the info panel fades in */
     {   /* paused and left alone for a while: lean back (the controls go, the title stays) */
         int rest = vi.state == VIDEO_PAUSED && !p->menu && p->seek_commit <= 0 && p->paused_since > 0
@@ -1825,7 +1828,7 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
-    if (p->started && p->pause_when_started) { p->pause_when_started = 0; video_pause(); LOGI("player: paused again at %.0fs, as before the break", vi.position); }
+    if (p->started && p->pause_when_started) { p->pause_when_started = 0; video_pause(); p->viewer_paused = 1; LOGI("player: paused again at %.0fs, as before the break", vi.position); }
     if (p->catchup_until < 0 && p->started) p->catchup_until = g_app.time + 12;
     if (p->replay_until > 0 && vi.state == VIDEO_PLAYING && vi.position >= p->replay_until + 1) {
         if (p->replay_subs) { select_addon_sub(p, -1); video_select_track(TRACK_TEXT, -1); p->embedded_text_sel = -1; LOGI("player: replay over, subtitles off again"); }
@@ -2566,7 +2569,7 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     switch (ids[bar_pos(p, ids, n)]) {
     case BTN_PREV: if (p->prev_video_id) go_to_video(p, p->prev_video_id, p->prev_title); return;
     case BTN_PLAY:
-        if (vi->state == VIDEO_PLAYING) video_pause(); else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
+        if (vi->state == VIDEO_PLAYING) { video_pause(); p->viewer_paused = 1; } else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
         break;
     case BTN_NEXT: go_up_next(p); return;
     case BTN_RELOAD: app_toast("Reloading"); start_candidate(p, p->cur, vi->position); break;
@@ -4127,11 +4130,11 @@ keys:
     switch (a) {
     case KEY_OK: case KEY_PLAY_PAUSE:
         p->bar_id = BTN_PLAY;
-        if (vi.state == VIDEO_PLAYING) video_pause(); else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
+        if (vi.state == VIDEO_PLAYING) { video_pause(); p->viewer_paused = 1; } else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
         show_overlay(p);
         return 1;
     case KEY_PLAY: video_play(); show_overlay(p); return 1;
-    case KEY_PAUSE: video_pause(); show_overlay(p); return 1;
+    case KEY_PAUSE: video_pause(); p->viewer_paused = 1; show_overlay(p); return 1;
     case KEY_LEFT: seek_by(p, -10); return 1;
     case KEY_RIGHT: seek_by(p, 10); return 1;
     case KEY_REWIND: case KEY_FORWARD:
@@ -4382,4 +4385,12 @@ void player_pip_draw(Screen *s, int focused)
     else if (vi.state == VIDEO_LOADING || vi.buffering) ui_spinner(cx, cy, 20);
     ui_chip(focused ? "Left/Right: choose  \xC2\xB7  OK: select  \xC2\xB7  Up: back" : "Down: select  \xC2\xB7  Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), focused ? THEME_TEXT : THEME_TEXT_DIM);
     if (vi.state == VIDEO_PLAYING) app_redraw();
+}
+
+int player_holds_screen(void)
+{
+    if (!g_live || g_live->finished) return 0;
+    VideoInfo vi;
+    video_info(&vi);
+    return !(g_live->viewer_paused && vi.state == VIDEO_PAUSED && !vi.buffering);
 }

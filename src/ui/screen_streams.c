@@ -355,16 +355,23 @@ static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
     return n;
 }
 
-/* Autoplay: as soon as a same-group stream shows up, or when everyone answered. */
+/* Autoplay: as soon as a same-group stream shows up, or when everyone answered, or the
+ * wait is over (20 s at most, even set to wait for every addon). The best row that can
+ * play here: a notice or a link this TV cannot open at the top does not stop it. */
 static void autoplay_check(Streams *st)
 {
     if (!st->chaining || st->autoplayed || !st->n) return;
-    int match = same_release(st, &st->items[0]) > 0;
-    int waited = g_app.addon_wait < 99 && g_app.time - st->started > g_app.addon_wait;
-    if ((match || st->pending == 0 || waited) && playable(&st->items[0]) && !is_notice(&st->items[0])) {
-        LOGI("streams: next episode from %s", match ? "the same release" : "the closest source (no same release)");
+    int best = -1;
+    for (int i = 0; i < st->n && best < 0; i++) if (!is_notice(&st->items[i]) && playable(&st->items[i])) best = i;
+    if (best < 0) return;
+    int match = same_release(st, &st->items[best]) > 0;
+    float waited_s = g_app.time - st->started;
+    int waited = (g_app.addon_wait < 99 && waited_s > g_app.addon_wait) || waited_s > 20;
+    if (match || st->pending == 0 || waited) {
+        LOGI("streams: next episode from %s%s", match ? "the same release" : "the closest source (no same release)",
+             st->pending && !match ? ", done waiting for the other addons" : "");
         st->autoplayed = 1;
-        play_from(st, 0);
+        play_from(st, best);
     }
 }
 
@@ -559,7 +566,9 @@ static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
     if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
-    if (st->check_autoplay) { st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return; }
+    if (st->check_autoplay || (st->chaining && !st->autoplayed)) {   /* every frame too: the wait can run out with no answer arriving */
+        st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return;
+    }
     if (st->n && !st->chaining && (st->pending == 0 || g_app.time - st->started > 3)) probe_next(st);
     if (st->probe_inflight) app_redraw();
     int checks_done = !g_app.preflight || (!st->probe_inflight && (st->probes_started >= PROBE_MAX || g_app.time - st->started > 12));
