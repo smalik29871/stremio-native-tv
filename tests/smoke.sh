@@ -107,7 +107,8 @@ run episodes 220 "right,ok,down,down,right"
 run streams 240 "right,ok,down,down,ok"
 run streams_best 320 "right,ok,down,down,yellow,down,down,down,ok,up" HOME="$(home_with best '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"qualityMode":1}')"
 run player 280 "right,ok,down,down,ok,wait"
-run player_subs 360 "right,ok,down,down,ok,wait,down,right,right,right,ok"
+run player_subs 360 "right,ok,down,down,ok,wait,down,right,right,right,ok" HOME="$(home_with subs1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: subtitles in" "$OUT/player_subs.log" || { echo "the Subtitles sheet did not open"; grep -E "drawer|subtitles" "$OUT/player_subs.log"; exit 1; }
 run player_audio 400 "right,ok,down,down,ok,wait,down,right,right,right,right,ok,down"
 run player_cue 300 "right,ok,down,down,ok,wait" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "right,ok,down,down,ok,wait,right,right,right" SNTV_FAKE_DURATION=1
@@ -186,7 +187,8 @@ run player_bar_style 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,d
 run player_bar_sources 380 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,ok"
 run pip_focus 420 "$P,back,back,down,down,down,down,down,down,down"
 run pip_focus_close 460 "$P,back,back,down,down,down,down,down,down,down,right,ok"
-run player_subs_scrolled 420 "right,ok,down,down,ok,wait,down,right,right,right,ok,right,down,down,down"
+run player_subs_scrolled 420 "right,ok,down,down,ok,wait,down,right,right,right,ok,right,down,down,down" HOME="$(home_with subs3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: subtitles in" "$OUT/player_subs_scrolled.log" || { echo "the Subtitles sheet did not open"; grep -E "drawer|subtitles" "$OUT/player_subs_scrolled.log"; exit 1; }
 run player_episodes 400 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,right,ok"
 run player_paused 320 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200
 # the content advisory as a video starts: IMDb's parents guide, once the controls step aside; off in Settings, none
@@ -296,7 +298,7 @@ run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
 # the subtitles sheet: languages, then their choices; Look and timing at the end
-run player_subs_second 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,right,back,up,up,up,ok" SNTV_FAKE_START=200
+run player_subs_second 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,right,back,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with subs2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Choose for Second subtitles" "$OUT/player_subs_second.log" && grep -q "player: subtitles sheet: a file from Fake Addon in Portugu.*, as the second" "$OUT/player_subs_second.log" \
   || { echo "a second subtitle language was not chosen in the sheet"; grep -E "subtitles" "$OUT/player_subs_second.log"; exit 1; }
 run player_seek_thumb 238 "right,ok,down,down,ok,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
@@ -425,7 +427,7 @@ run options_sheet 400 "right,right,hold,$HOLD,release"
 run hold_hint 200 "right,ok,down,down,right,hold,wait,wait"
 run episode_options 400 "right,ok,down,down,right,hold,$HOLD,release"
 # timing for a subtitle track inside the file (the TV draws it; the player sends the offset)
-run player_subs_timing_embedded 460 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,right,right,right" SNTV_FAKE_START=300
+run player_subs_timing_embedded 460 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,right,right,right" SNTV_FAKE_START=300 HOME="$(home_with substime '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Timing +0.3 s" "$OUT/player_subs_timing_embedded.log" || { echo "the video's subtitles were not retimed"; grep -E "subtitles" "$OUT/player_subs_timing_embedded.log"; exit 1; }
 run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok" HOME="$(home_with ep_marked '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -453,7 +455,7 @@ run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,do
 grep -q "breaks: prayer times by Umm al-Qura" "$OUT/break_settings.log" || { echo "the location did not pick the local prayer time method"; grep breaks "$OUT/break_settings.log"; exit 1; }
 run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
 run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run player_autosync 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200
+run player_autosync 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200 HOME="$(home_with subsync '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Auto-sync Off" "$OUT/player_autosync.log" || { echo "auto-sync was not switched in the sheet"; grep -E "subtitles" "$OUT/player_autosync.log"; exit 1; }
 # two English files, no file-matched one: the one that runs to the end of the video wins
 run player_subs_bestfit 420 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with bestfit '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1
