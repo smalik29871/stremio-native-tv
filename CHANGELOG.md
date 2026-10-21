@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **The remote's Play button works on LG webOS 10**: it arrives with a code the app
+  didn't know (found with the new unknown-key log in Diagnostics); it now plays on
+  title pages and resumes a paused video.
+
 ## 0.10.35
 
 - **Four new screensavers** (Settings > System > Screensaver style), drawn live and
