@@ -138,7 +138,7 @@ run island_resume_focus 500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wa
 SLOW="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/slow/manifest.json"
 # the next episode on its way after the countdown (the slow addon holds its sources 6 s) with
 # the screensaver due after 1 s idle: it waits for the episode, which then starts by itself
-run upnext_screensaver 1400 "right,ok,down,down,play,wait" "$SLOW" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_AMBIENT_SECONDS=1 HOME="$(home_with upsaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_screensaver 1400 "right,ok,down,down,play,wait" "$SLOW" SNTV_STILL_WATCHING_AFTER=99 SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_AMBIENT_SECONDS=1 HOME="$(home_with upsaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 ! grep -q "ambient: .* screensaver" "$OUT/upnext_screensaver.log" && [ "$(grep -c "player: candidate" "$OUT/upnext_screensaver.log")" -ge 2 ] \
   || { echo "the screensaver took the handoff to the next episode"; grep -E "ambient|streams: next|player: candidate" "$OUT/upnext_screensaver.log"; exit 1; }
 # OK on the Up Next card while the next episode is still being fetched (the slow addon holds it
