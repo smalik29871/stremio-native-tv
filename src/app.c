@@ -1334,12 +1334,12 @@ static void ask_to_update(void)
         static const char *const HOW[] = { "Later", "Show me how" };
         snprintf(body, sizeof body, "This TV doesn't let apps install updates themselves, so the Homebrew Channel does it: "
                  "a minute, and your sign-in, settings and progress stay.");
-        app_push(screen_options_create_ex("An update is ready", sub, body, HOW, ICONS, 2, on_update_answer, NULL));
+        app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, HOW, ICONS, 2, on_update_answer, NULL)));
         return;
     }
     snprintf(body, sizeof body, "It takes about half a minute. The app closes while the Homebrew Channel installs it; "
              "open it again afterwards. Later asks again the next time the app starts (Settings > About > Update any time).");
-    app_push(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL));
+    app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL)));
 }
 
 static float g_update_t, g_update_next = -1, g_update_checked_at = -1000;

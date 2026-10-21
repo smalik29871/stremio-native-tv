@@ -17,7 +17,7 @@ From an audit of whole evenings of use rather than single features:
   with autoplay off.
 - **The update prompt stays out of the way.** It no longer opens over a list starting a
   video, the screensaver, search or settings; *Later* is the first choice, and an OK
-  pressed as it opens is not taken as an answer.
+  pressed as the prompt opens is not taken as an answer.
 - **The TV's Home and breaks.** A video paused while it loaded (the TV's Home, a break)
   stays paused; breaks, chimes and the fireplace screensaver don't start while the app is
   behind the TV's Home; a break during loading or a reconnect comes back to the right

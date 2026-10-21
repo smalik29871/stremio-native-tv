@@ -17,7 +17,7 @@ typedef struct {
     char *body;
     char items[MAX_ITEMS][64]; int icons[MAX_ITEMS];
     int n, focus; OptionsFn fn; void *user; float t;
-    float opened_at;   /* OK this early is a press meant for the screen beneath */
+    float opened_at, grace;   /* opened by itself: an OK within `grace` s was meant for the screen beneath */
 } Opt;
 
 static void update(Screen *s, float dt)
@@ -79,7 +79,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_DOWN: if (o->focus < o->n - 1) o->focus++; return 1;
     case KEY_LONG_OK: return 1;   /* the hold that opened the sheet */
     case KEY_OK: {
-        if (g_app.time - o->opened_at < 0.4f) return 1;   /* an OK meant for the screen beneath, as this opened: not an answer */
+        if (g_app.time - o->opened_at < o->grace) return 1;   /* an OK meant for the screen beneath, as this opened: not an answer */
         OptionsFn fn = o->fn; void *u = o->user; int c = o->focus; app_pop(); if (fn) fn(c, u); return 1; }
     case KEY_BACK: case KEY_YELLOW: app_pop(); return 1;
     default: return 1;
@@ -101,6 +101,12 @@ Screen *screen_options_create_ex(const char *title, const char *subtitle, const 
     o->opened_at = g_app.time;
     s->name = "options"; s->st = o;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    return s;
+}
+
+Screen *screen_options_unasked(Screen *s)
+{
+    ((Opt *)s->st)->grace = 0.6f;
     return s;
 }
 
