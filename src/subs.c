@@ -136,14 +136,15 @@ int subs_parse(const char *data, size_t len, SubTrack *out)
     char *line, *save = p;
     char text[4096];
     double start = 0, end = 0;
-    int have_times = 0;
+    int have_times = 0, top = 0;
     text[0] = 0;
 
     #define FLUSH() do { if (have_times && text[0]) { \
             if (out->n == cap) { cap *= 2; out->cues = realloc(out->cues, sizeof(SubCue) * (size_t)cap); } \
             out->cues[out->n].start = start; out->cues[out->n].end = end; \
+            out->cues[out->n].top = top || strstr(text, "{\\an7") || strstr(text, "{\\an8") || strstr(text, "{\\an9"); \
             out->cues[out->n].text = clean_text(text, is_utf8); out->n++; } \
-        have_times = 0; text[0] = 0; } while (0)
+        have_times = 0; top = 0; text[0] = 0; } while (0)
 
     while ((line = save) && *line) {
         char *nl = strchr(line, '\n');
@@ -159,6 +160,8 @@ int subs_parse(const char *data, size_t len, SubTrack *out)
             const char *b = arrow + 3;
             while (*b == ' ') b++;
             if (parse_time(a, &start) == 0 && parse_time(b, &end) == 0 && end > start) have_times = 1;
+            const char *ln = strstr(b, "line:");   /* WebVTT: a line number from the top, or a percentage */
+            top = ln && (atoi(ln + 5) < 0 ? 0 : strchr(ln, '%') ? atoi(ln + 5) <= 30 : atoi(ln + 5) <= 3);
             continue;
         }
         if (!have_times) continue;   /* cue numbers, WEBVTT header, NOTE blocks */
@@ -297,6 +300,33 @@ const char *subs_at(const SubTrack *t, double s)
     for (int i = best; i >= 0 && i > best - 4; i--)   /* tolerate slight overlap/disorder */
         if (t->cues[i].start <= s && s < t->cues[i].end) return t->cues[i].text;
     return NULL;
+}
+
+size_t subs_text_at(const SubTrack *t, double s, int top, char *buf, size_t n)
+{
+    size_t o = 0;
+    if (n) buf[0] = 0;
+    s -= t->offset;
+    int w = (int)(s / 600);
+    if (w >= 0 && w < SUBS_WINDOWS) s -= t->window_fix[w];
+    if (t->scale > 0 && t->scale != 1) s /= t->scale;
+    int lo = 0, hi = t->n - 1, best = -1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (t->cues[mid].start <= s) { best = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    int first = best - 24 < 0 ? 0 : best - 24;   /* a long sign can start well before the line under it */
+    for (int i = first; i <= best && i < t->n; i++) {
+        const SubCue *c = &t->cues[i];
+        if (!(c->start <= s && s < c->end) || !c->top != !top || !c->text[0]) continue;
+        int dup = 0;   /* the same words twice (a file listing a cue again) show once */
+        for (int k = first; k < i && !dup; k++) dup = t->cues[k].start <= s && s < t->cues[k].end && !t->cues[k].top == !top && !strcmp(t->cues[k].text, c->text);
+        if (dup) continue;
+        int k = snprintf(buf + o, n - o, "%s%s", o ? "\n" : "", c->text);
+        if (k < 0 || (size_t)k >= n - o) break;
+        o += (size_t)k;
+    }
+    return o;
 }
 
 int subs_fit(const SubTrack *t, double duration, const SubTrack *ref, char *why, size_t wn)

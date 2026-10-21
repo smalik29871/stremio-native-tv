@@ -2273,9 +2273,18 @@ static void update(Screen *s, float dt)
 
 static void draw_subtitle(Player *p, const VideoInfo *vi)
 {
-    const char *text = p->track_loaded ? subs_at(&p->track, vi->position) : NULL;
-    const char *text2 = p->track2_loaded ? subs_at(&p->track2, vi->position) : NULL;
+    static char b1[2048], b2[2048], up[2048];   /* every line on screen now: a sign over the dialogue shows with it */
+    const char *text = p->track_loaded && subs_text_at(&p->track, vi->position, 0, b1, sizeof b1) ? b1 : NULL;
+    const char *text2 = p->track2_loaded && subs_text_at(&p->track2, vi->position, 0, b2, sizeof b2) ? b2 : NULL;
+    const char *top = p->track_loaded && subs_text_at(&p->track, vi->position, 1, up, sizeof up) ? up : NULL;
     float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
+    if (top) {   /* the file asks for the top ({\an8}): over a credit or a sign at the bottom */
+        int lines = 1;
+        for (const char *c = top; *c; c++) lines += *c == '\n';
+        float lh = font_height(ui_subtitle_font(sub_size(p))) * 1.04f, tb = (g_app.time < p->overlay_until && !subs_tuning(p) ? 150 : 72) + lines * lh;   /* under the title while it shows */
+        if (g_app.subs_pos == 2 && bottom < tb + 24 + lh) bottom = tb + 24 + lh * 2;   /* yours at the top too: under it */
+        ui_subtitle(top, tb, sub_size(p), g_app.subs_style);
+    }
     if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && !subs_tuning(p) && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
     int r = subs_tuning(p) ? p->subs_row : -1;
     if (!text && !text2 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS)) text = "Subtitles will look like this";   /* nothing said right now: a sample to judge by */

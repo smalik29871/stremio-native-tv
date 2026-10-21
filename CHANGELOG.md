@@ -1,11 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.10.48
 
-- **See the subtitles while you change them.** Moving into Look and timing shrinks the
-  drawer to a small card with just the setting you're on, at the top of the screen (at the
-  bottom when subtitles are set to the top). The controls hide, and when nobody is speaking a
-  sample line shows the size, style and position. Back opens the full drawer again.
+- **See the subtitles while you change them.** Opening Look and timing in the Subtitles
+  drawer turns the drawer into a narrow panel on the right with every setting, the
+  subtitles moved a little left beside it, and the controls hidden. When nobody is speaking a
+  sample line shows the size, style and position. Back brings the drawer back; the two
+  slide and fade into each other.
+- **A smaller Subtitles drawer.** It covers less of the picture while you pick a language.
+- **The UI scenarios run on GitHub.** Every push runs them; a release waits for them.
 
 ## 0.10.47
 

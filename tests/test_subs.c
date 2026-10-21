@@ -154,6 +154,21 @@ int main(void)
     CHECK(subs_at(&t, 2.5) && subs_at(&t, 4.2) && subs_at(&t, 1.5) == NULL);
     subs_free(&t);
 
+    {   /* a credit over the dialogue, the dialogue marked for the top: both show, each in its place */
+        const char *srt = "1\n00:00:01,000 --> 00:00:09,000\n{\\an8}Up here\n\n2\n00:00:02,000 --> 00:00:05,000\nCredit\n\n"
+                          "3\n00:00:03,000 --> 00:00:04,000\nName\n\n4\n00:00:03,000 --> 00:00:04,000\nName\n";
+        char b[256];
+        CHECK(subs_parse(srt, strlen(srt), &t) == 4);
+        CHECK(t.cues[0].top == 1 && t.cues[1].top == 0 && strcmp(t.cues[0].text, "Up here") == 0);
+        CHECK(subs_text_at(&t, 3.5, 1, b, sizeof b) && strcmp(b, "Up here") == 0);
+        CHECK(subs_text_at(&t, 3.5, 0, b, sizeof b) && strcmp(b, "Credit\nName") == 0);   /* the repeated line once */
+        CHECK(subs_text_at(&t, 6.0, 0, b, sizeof b) == 0 && b[0] == 0);
+        subs_free(&t);
+        const char *vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000 line:0\nTop\n\n00:00:01.000 --> 00:00:02.000 line:-1\nLow\n";
+        CHECK(subs_parse(vtt, strlen(vtt), &t) == 2 && t.cues[0].top == 1 && t.cues[1].top == 0);
+        subs_free(&t);
+    }
+
     d = read_fixture("sample.vtt", &len);
     CHECK(subs_parse(d, len, &t) == 2);
     free(d);

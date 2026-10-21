@@ -574,6 +574,9 @@ run episode_options 400 "right,ok,down,down,right,hold,$HOLD,release"
 run player_subs_timing_embedded 460 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,down,right,right,right" SNTV_FAKE_START=300 HOME="$(home_with substime '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Timing +0.3 s" "$OUT/player_subs_timing_embedded.log" || { echo "the video's subtitles were not retimed"; grep -E "subtitles" "$OUT/player_subs_timing_embedded.log"; exit 1; }
 # Look and timing steps aside to a narrow panel so the subtitles show while they change; Back brings the drawer back
+# a credit over the dialogue and a line marked {\an8}: the mark is not shown, that line goes to the top, the credit and the name stack
+run player_subs_signs 360 "right,ok,down,down,play,wait,wait" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/signs/manifest.json HOME="$(home_with signs '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "subs: loaded 3 cues" "$OUT/player_subs_signs.log" || { echo "the subtitles with a sign did not load"; grep -iE "subs" "$OUT/player_subs_signs.log"; exit 1; }
 run player_subs_panel 460 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,down,down,right" HOME="$(home_with subspanel '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles Look and timing panel, the drawer aside" "$OUT/player_subs_panel.log" && grep -q "player: subtitles sheet: Size Large" "$OUT/player_subs_panel.log" \
   || { echo "the Look and timing panel did not open, or Size did not change in it"; grep -E "subtitles" "$OUT/player_subs_panel.log"; exit 1; }

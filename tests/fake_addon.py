@@ -341,6 +341,10 @@ class H(BaseHTTPRequestHandler):
         latesubs = p.startswith("/latesubs/")
         if latesubs:
             p = p[9:]
+        # /signs/...: the same addon, its English file a credit over the dialogue and a line marked for the top
+        signs = p.startswith("/signs/")
+        if signs:
+            p = p[6:]
         # /pot/...: its trailer's separate video and audio want a token from the visionOS client
         pot = p.startswith("/pot/")
         if pot:
@@ -663,6 +667,12 @@ class H(BaseHTTPRequestHandler):
                 t = h * 3600 + mi * 60 + s + ms / 1000 + 2.0
                 return "%02d:%02d:%02d,%03d" % (t // 3600, (t % 3600) // 60, t % 60, round((t - int(t)) * 1000))
             return self.send(200, _re.sub(r"(\d\d):(\d\d):(\d\d),(\d\d\d)", shift, src).encode("latin-1"), "text/plain")
+        if signs and p.startswith("/subtitles/"):
+            return self.send(200, json.dumps({"subtitles": [{"id": "signs", "url": f"{BASE}/signs.srt", "lang": "eng"}]}).encode())
+        if p == "/signs.srt":
+            return self.send(200, ("1\n00:00:00,200 --> 00:00:30,000\n{\\an8}for, like, a portion of the day\nand also take time out\n\n"
+                                   "2\n00:00:00,300 --> 00:00:30,000\n<font color=\"#00ff00\">Co-Executive Producer</font>\n\n"
+                                   "3\n00:00:00,300 --> 00:00:30,000\nSeth MacFarlane\n").encode(), "text/plain")
         if latesubs and p.startswith("/subtitles/"):
             return self.send(200, json.dumps({"subtitles": [{"id": "late", "url": f"{BASE}/gen.srt?n=7&delay=4", "lang": "eng"},
                                                             {"id": "quick", "url": f"{BASE}/gen.srt?n=5", "lang": "eng"}]}).encode())
