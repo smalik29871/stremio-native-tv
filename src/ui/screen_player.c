@@ -102,6 +102,7 @@ struct Player {
     int assign_second;        /* the subtitles menu picks for the second slot */
     int subs_col, subs_group, subs_row;   /* the subtitles sheet: column (0 languages, 1 options), language, option */
     char subs_group_name[48];            /* the language focused, so files arriving meanwhile cannot move it */
+    int subs_row_kind, subs_row_ref;     /* and the choice in it */
     void *sg; int sg_n; unsigned sg_key; /* the sheet's groups, rebuilt when the subtitles change */
     int second_done;          /* the show's second language put on (or nothing to do) */
     int forced_checked;       /* looked for a forced track in the audio language */
@@ -537,6 +538,7 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
              * for a series) it wins over another file from an addon */
             int unl = -1, unlabelled = 0, labelled = 0;
             for (int i = 0; i < nt; i++) { if (lang_known(tr[i].lang)) labelled++; else { unlabelled++; if (unl < 0) unl = i; } }
+            if (unl >= 0 && (strstr(tr[unl].label, "orced") || strstr(tr[unl].label, "ORCED"))) unlabelled = 0;   /* foreign parts only */
             if (unlabelled == 1 && !labelled && lang && (!strcmp(lang, "und") || lang_same(lang, "eng"))) {
                 select_addon_sub(p, -1);
                 video_select_track(TRACK_TEXT, tr[unl].index);
@@ -3792,7 +3794,8 @@ static SubGroup *subs_view(Player *p, VideoTrack *tr, int *nt, int *ng)
     unsigned key = 2166136261u;
     #define MIX(v) (key = (key ^ (unsigned)(v)) * 16777619u)
     MIX(*nt); MIX(vi.tracks_version); MIX(p->n_addon_subs); MIX(xl_available(p)); MIX(p->assign_second);
-    for (int i = 0; i < p->n_addon_subs; i++) MIX(p->addon_subs[i].matched);
+    MIX(p->probe != NULL);
+    for (int i = 0; i < p->n_addon_subs; i++) { MIX(p->addon_subs[i].matched); for (const char *c = p->addon_subs[i].lang ? p->addon_subs[i].lang : ""; *c; c++) MIX(*c); }
     for (const char *c = g_app.pref_subs; *c; c++) MIX(*c);
     for (int i = 0; i < *nt; i++) { MIX(tr[i].index); for (const char *c = tr[i].lang; *c; c++) MIX(*c); }
     #undef MIX
@@ -3803,7 +3806,11 @@ static SubGroup *subs_view(Player *p, VideoTrack *tr, int *nt, int *ng)
         p->sg_key = key;
         p->sg_n = subs_groups(p, g, tr, *nt);
         if (p->subs_group_name[0])
-            for (int i = 0; i < p->sg_n; i++) if (!strcmp(g[i].name, p->subs_group_name)) { p->subs_group = i; break; }
+            for (int i = 0; i < p->sg_n; i++) if (!strcmp(g[i].name, p->subs_group_name)) {
+                p->subs_group = i;
+                for (int r = 0; r < g[i].n; r++) if (g[i].it[r].kind == p->subs_row_kind && g[i].it[r].ref == p->subs_row_ref) { p->subs_row = r; break; }
+                break;
+            }
     }
     *ng = p->sg_n;
     if (p->subs_group >= *ng) p->subs_group = *ng - 1;
@@ -3822,6 +3829,7 @@ static void subs_open(Player *p)
     p->subs_col = 0; p->subs_group = 0; p->subs_row = 0;
     for (int i = 1; i < ng; i++) { int r = group_on(p, tr, &g[i]); if (r >= 0) { p->subs_group = i; p->subs_row = r; break; } }
     snprintf(p->subs_group_name, sizeof p->subs_group_name, "%s", g[p->subs_group].name);
+    p->subs_row_kind = g[p->subs_group].it[p->subs_row].kind; p->subs_row_ref = g[p->subs_group].it[p->subs_row].ref;
     LOGI("player: subtitles in %d language%s, on %s", ng - 2, ng - 2 == 1 ? "" : "s", g[p->subs_group].name);
 }
 
@@ -4066,7 +4074,10 @@ static int subs_key(Player *p, KeyAction a)
         break;
     default: break;
     }
-    if (p->subs_group < ng) snprintf(p->subs_group_name, sizeof p->subs_group_name, "%s", g[p->subs_group].name);
+    if (p->subs_group < ng) {
+        snprintf(p->subs_group_name, sizeof p->subs_group_name, "%s", g[p->subs_group].name);
+        if (p->subs_row < g[p->subs_group].n) { p->subs_row_kind = g[p->subs_group].it[p->subs_row].kind; p->subs_row_ref = g[p->subs_group].it[p->subs_row].ref; }
+    }
     if (close) p->menu = MENU_NONE;
     show_overlay(p);
     return 1;
@@ -4472,5 +4483,8 @@ int player_holds_screen(void)
     video_info(&vi);
     if (vi.buffering || vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) return 1;
     if (vi.state == VIDEO_PAUSED) return !g_live->viewer_paused;   /* a stall the TV reports as a pause */
-    return g_live->net_retry_at > 0 || g_live->net_reconnecting;   /* reconnecting; an error card or the end are not held */
+    if (vi.state == VIDEO_ENDED) return 0;
+    /* between sources (TorBox opening the next one, the addons asked again, reconnecting):
+     * held; the final error card is not */
+    return g_live->reask_at != 0 || !error_final(g_live, &vi);
 }

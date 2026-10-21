@@ -108,6 +108,11 @@ int main(void)
     CHECK(quality_episode_score("Show.S01.DD5.1.x264.mkv", &(EpisodeHint){ .season = 1, .episode = 5 }) == 0);
     CHECK(quality_episode_score("[Group] Show - 14 [1080p].mkv", &(EpisodeHint){ .season = 2, .episode = 1, .absolute = 14 }) == 2);
     CHECK(quality_episode_score("Show.S01E02.mkv", &(EpisodeHint){ 0 }) == 0);
+    /* kitsu: an id per season, the season unknown; the episode number decides */
+    CHECK(quality_episode_score("Show S2/Show.S02E05.1080p.mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == 3);
+    CHECK(quality_episode_score("Show S2/Show.S02E04.1080p.mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == -1);
+    CHECK(quality_episode_score("Show S2/NCOP.mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == 0);
+    CHECK(quality_episode_score("[Group] Show S2 - 05 [1080p].mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == 2);
 
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("quality: all checks passed\n");

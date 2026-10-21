@@ -615,7 +615,7 @@ static int on_saver(LSHandle *sh, LSMessage *msg, void *ctx)
 {
     (void)ctx;
     const char *payload = L.MessageGetPayload(msg);
-    if (payload && strstr(payload, "\"returnValue\":true")) g_saver_ok = 1;
+    if (payload && (strstr(payload, "\"returnValue\":true") || strstr(payload, "\"returnValue\": true"))) g_saver_ok = 1;
     if (!payload || !strstr(payload, "\"Active\"")) return 1;
     const char *t = strstr(payload, "\"timestamp\"");
     char stamp[48] = "";
@@ -641,9 +641,10 @@ static int on_saver(LSHandle *sh, LSMessage *msg, void *ctx)
 
 static void saver_register(void)
 {
-    if (!g_bus || !L.Call || g_saver_ok) return;
+    if (!g_bus || !L.Call) return;
     float now = (float)SDL_GetTicks() / 1000.0f;
-    if (now - g_saver_registered_at < 60) return;
+    if (now - g_saver_registered_at < (g_saver_ok ? 1800 : 60)) return;   /* taken: renewed every half hour, in case the TV dropped it */
+    g_saver_ok = 0;
     g_saver_registered_at = now;
     char p[160];
     snprintf(p, sizeof p, "{\"subscribe\":true,\"clientName\":\"%s\"}", SNTV_APP_ID);

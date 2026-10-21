@@ -1943,7 +1943,7 @@ void app_episode_hint(const char *meta_id, const char *show, const char *video_i
     for (const char *c = video_id ? video_id : ""; *c; c++) colons += *c == ':';
     if (!last || colons < 2 || sscanf(last + 1, "%d", &n2) != 1 || n2 <= 0) return;   /* "kitsu:12345" is a film */
     if (prev > video_id + 1 && sscanf(prev, "%d", &n1) == 1 && prev[-1] == ':' && strncmp(video_id, "kitsu:", 6) != 0) { h->season = n1; h->episode = n2; }
-    else { h->season = 1; h->episode = n2; }
+    else { h->season = strncmp(video_id, "kitsu:", 6) ? 1 : 0; h->episode = n2; }   /* kitsu: an id per season, numbers restart: season unknown */
     snprintf(h->show, sizeof h->show, "%s", show ? show : "");
     int n;
     const MetaVideo *v = app_videos(meta_id, &n);

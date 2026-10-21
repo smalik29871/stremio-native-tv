@@ -62,7 +62,7 @@ void quality_release_group(const char *text, char *out, size_t n);
  * its title, or its number counted from the first episode (anime). */
 typedef struct EpisodeHint {
     char show[96];         /* the series' name, for the AI */
-    int season, episode;   /* 0 when not an episode */
+    int season, episode;   /* episode 0 when not an episode; season 0 unknown (any) */
     int absolute;          /* the episode's number across all seasons, 0 unknown */
     char title[96];        /* "Pilot", "" unknown */
 } EpisodeHint;

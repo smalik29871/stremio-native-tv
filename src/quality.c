@@ -298,8 +298,8 @@ static int names_exact(const char *w, int season, int episode, int *other)
         if (sscanf(p, "s%de%d%n", &s, &e, &len) == 2 || sscanf(p, "s%d e%d%n", &s, &e, &len) == 2
             || sscanf(p, "season %d episode %d%n", &s, &e, &len) == 2
             || (isdigit((unsigned char)p[0]) && sscanf(p, "%dx%d%n", &s, &e, &len) == 2 && s < 100)) {
-            if (s == season && e == episode) hit = 1;
-            else if (s == season) {   /* s01e04e05: a double episode */
+            if ((season <= 0 || s == season) && e == episode) hit = 1;
+            else if (season <= 0 || s == season) {   /* s01e04e05: a double episode */
                 const char *q = p + len;
                 int e2;
                 while (*q == 'e' && sscanf(q, "e%d%n", &e2, &len) == 1) { if (e2 == episode) hit = 1; q += len; }
@@ -341,7 +341,7 @@ int quality_episode_score(const char *path, const EpisodeHint *e)
             || (isdigit((unsigned char)*p) && sscanf(p, "%d%n", &num, &len) == 1 && len <= 3)) {
             if (p[len] != ' ') continue;   /* "1080p", "x264": not a number on its own */
             if ((num == 2 || num == 5 || num == 7) && (p[len + 1] == '0' || p[len + 1] == '1') && p[len + 2] == ' ') continue;   /* "5.1" sound */
-            if (num == e->episode && (in_season || (!any_season && e->season == 1))) return 2;
+            if (num == e->episode && (in_season || e->season <= 0 || (!any_season && e->season == 1))) return 2;
             if (e->absolute > 0 && num == e->absolute) return 2;
         }
     }
