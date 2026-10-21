@@ -601,6 +601,7 @@ static int load_acb(void)
  * stall LG reports as a pause); let through when the viewer paused, it ended or failed,
  * or nothing plays. */
 static float g_saver_registered_at = -1e9f;
+static int g_saver_ok;   /* the TV took the subscription: no new one at each load (they would pile up) */
 
 static int saver_hold(void)
 {
@@ -614,6 +615,7 @@ static int on_saver(LSHandle *sh, LSMessage *msg, void *ctx)
 {
     (void)ctx;
     const char *payload = L.MessageGetPayload(msg);
+    if (payload && strstr(payload, "\"returnValue\":true")) g_saver_ok = 1;
     if (!payload || !strstr(payload, "\"Active\"")) return 1;
     const char *t = strstr(payload, "\"timestamp\"");
     char stamp[48] = "";
@@ -624,20 +626,22 @@ static int on_saver(LSHandle *sh, LSMessage *msg, void *ctx)
         while (t[k] && t[k] != ',' && t[k] != '}' && t[k] != ' ' && k + 1 < sizeof stamp) k++;
         memcpy(stamp, t, k); stamp[k] = 0;
     }
-    int hold = saver_hold();
+    SDL_LockMutex(g_lock);
+    int hold = saver_hold(), buffering = g_info.buffering, paused = g_info.state == VIDEO_PAUSED;
+    SDL_UnlockMutex(g_lock);
     char reply[200];
     snprintf(reply, sizeof reply, "{\"clientName\":\"%s\",\"ack\":%s,\"timestamp\":%s}", SNTV_APP_ID, hold ? "false" : "true", stamp[0] ? stamp : "0");
     LSError e; L.ErrorInit(&e);
     if (!L.CallOneReply(sh, "luna://com.webos.service.tvpower/power/responseScreenSaverRequest", reply, NULL, NULL, NULL, &e)) ls_error_log("responseScreenSaverRequest", &e);
     L.ErrorFree(&e);
     LOGI("video(webos): the TV's screensaver %s (%s)", hold ? "held off" : "let through",
-         hold ? (g_info.buffering ? "stalled" : g_info.state == VIDEO_PAUSED ? "paused by the pipeline" : "a video is on") : g_paused_by_user ? "paused by the viewer" : "no video playing");
+         hold ? (buffering ? "stalled" : paused ? "paused by the pipeline" : "a video is on") : g_paused_by_user ? "paused by the viewer" : "no video playing");
     return 1;
 }
 
 static void saver_register(void)
 {
-    if (!g_bus || !L.Call) return;
+    if (!g_bus || !L.Call || g_saver_ok) return;
     float now = (float)SDL_GetTicks() / 1000.0f;
     if (now - g_saver_registered_at < 60) return;
     g_saver_registered_at = now;
@@ -829,6 +833,7 @@ static int g_install_state;
 static int g_install_moved;   /* progress seen: a refusal now is a real failure */
 static int g_pub_wanted, g_pub;   /* the public way: to start / started */
 static char g_pub_payload[900];
+static int g_pub_logged;
 
 static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
 {
@@ -864,6 +869,7 @@ static int install_pub(void)
     if (access(PUB_TOOL, X_OK) != 0) return -1;
     for (const char *c = g_pub_payload; *c; c++) if (*c == '\'') return -1;   /* it goes in single quotes */
     unlink(PUB_LOG);
+    g_pub_logged = 0;
     char cmd[1200];
     snprintf(cmd, sizeof cmd, "nohup " PUB_TOOL " -i -f luna://org.webosbrew.hbchannel.service/install '%s' > " PUB_LOG " 2>&1 &", g_pub_payload);
     LOGI("update: asking the Homebrew Channel through luna-send-pub");
@@ -876,6 +882,7 @@ static void pub_read(void)
     FILE *f = fopen(PUB_LOG, "rb");
     if (!f) return;
     static char buf[16384];
+    if (fseek(f, 0, SEEK_END) == 0) { long size = ftell(f); if (size > (long)sizeof buf - 1) fseek(f, size - (long)(sizeof buf - 1), SEEK_SET); else rewind(f); }   /* the latest replies */
     size_t n = fread(buf, 1, sizeof buf - 1, f);
     fclose(f);
     buf[n] = 0;
@@ -888,8 +895,10 @@ static void pub_read(void)
     if (last) { const char *a = strchr(last + 12, '"'); const char *b = a ? strchr(a + 1, '"') : NULL; if (a && b && b - a - 1 < (long)sizeof status) { memcpy(status, a + 1, (size_t)(b - a - 1)); status[b - a - 1] = 0; } }
     int done = strstr(buf, "\"finished\": true") || strstr(buf, "\"finished\":true");
     const char *err = strstr(buf, "\"errorText\"");
+    int refused = !err && (strstr(buf, "\"returnValue\": false") || strstr(buf, "\"returnValue\":false"));
     pthread_mutex_lock(&g_install_lock);
     if (done) { g_install_state = 2; snprintf(g_install_text, sizeof g_install_text, "Installed"); }
+    else if (refused) { g_install_state = -1; snprintf(g_install_text, sizeof g_install_text, "the Homebrew Channel refused the update"); }
     else if (err) {
         const char *a = strchr(err + 11, '"'); const char *b = a ? strchr(a + 1, '"') : NULL;
         g_install_state = -1;
@@ -900,8 +909,7 @@ static void pub_read(void)
     }
     int st = g_install_state;
     pthread_mutex_unlock(&g_install_lock);
-    static int logged;
-    if (st != 1 && !logged) { logged = 1; LOGI("update: installer (luna-send-pub) says %.200s", buf); }
+    if (st != 1 && !g_pub_logged) { g_pub_logged = 1; LOGI("update: installer (luna-send-pub) says %.200s", buf); }
 }
 
 int video_install_update(const char *ipk_url, const char *sha256, const char *app_id)

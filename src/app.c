@@ -1935,8 +1935,15 @@ const MetaVideo *app_videos(const char *meta_id, int *n)
 void app_episode_hint(const char *meta_id, const char *show, const char *video_id, EpisodeHint *h)
 {
     memset(h, 0, sizeof *h);
-    const char *c = video_id ? strchr(video_id, ':') : NULL;
-    if (!c || sscanf(c, ":%d:%d", &h->season, &h->episode) != 2 || h->episode <= 0) { h->season = h->episode = 0; return; }
+    /* the last two fields: "tt1:2:3" and "kitsu:12345:5" (no season: 1), "tmdb:99:2:3" */
+    const char *last = video_id ? strrchr(video_id, ':') : NULL, *prev = last;
+    while (prev && prev > video_id && prev[-1] != ':') prev--;
+    int n1 = 0, n2 = 0;
+    int colons = 0;
+    for (const char *c = video_id ? video_id : ""; *c; c++) colons += *c == ':';
+    if (!last || colons < 2 || sscanf(last + 1, "%d", &n2) != 1 || n2 <= 0) return;   /* "kitsu:12345" is a film */
+    if (prev > video_id + 1 && sscanf(prev, "%d", &n1) == 1 && prev[-1] == ':' && strncmp(video_id, "kitsu:", 6) != 0) { h->season = n1; h->episode = n2; }
+    else { h->season = 1; h->episode = n2; }
     snprintf(h->show, sizeof h->show, "%s", show ? show : "");
     int n;
     const MetaVideo *v = app_videos(meta_id, &n);

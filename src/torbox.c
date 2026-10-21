@@ -270,7 +270,16 @@ static long pick_episode(const Open *o, PackFile *f, int n)
         LOGI("torbox: the episode's file by its name: %s", f[best].name);
         return f[best].id;
     }
+    /* the AI's answer for this torrent and episode, kept: standby sources re-open it now and then */
+    static pthread_mutex_t memo_lock = PTHREAD_MUTEX_INITIALIZER;
+    static struct { char hash[41]; int season, episode; long fid; } memo[8];
+    static int memo_next;
     if (tied > 1 && o->ai.url[0]) {
+        long known = -1;
+        pthread_mutex_lock(&memo_lock);
+        for (int m = 0; m < 8; m++) if (!strcmp(memo[m].hash, o->hash) && memo[m].season == o->ep.season && memo[m].episode == o->ep.episode) known = memo[m].fid;
+        pthread_mutex_unlock(&memo_lock);
+        for (int i = 0; i < n && known >= 0; i++) if (f[i].id == known) { LOGI("torbox: the episode's file, as the AI picked before: %s", f[i].name); return known; }
         char msg[6000];
         int len = snprintf(msg, sizeof msg, "Show: %s\nWanted: season %d, episode %d", o->ep.show, o->ep.season, o->ep.episode);
         if (o->ep.absolute) len += snprintf(msg + len, sizeof msg - (size_t)len, " (episode %d counting from the first)", o->ep.absolute);
@@ -284,8 +293,13 @@ static long pick_episode(const Open *o, PackFile *f, int n)
         const cJSON *k = cJSON_GetObjectItemCaseSensitive(j, "file");
         int pick = cJSON_IsNumber(k) ? (int)k->valuedouble : -2;
         cJSON_Delete(j); free(a);
-        if (pick >= 0 && pick < n && f[pick].score >= 0) {
+        if (pick >= 0 && pick < n && f[pick].score == f[best].score) {   /* among the tied ones only, never a worse name */
             LOGI("torbox: the AI picked the episode's file: %s", f[pick].name);
+            pthread_mutex_lock(&memo_lock);
+            snprintf(memo[memo_next].hash, sizeof memo[memo_next].hash, "%s", o->hash);
+            memo[memo_next].season = o->ep.season; memo[memo_next].episode = o->ep.episode; memo[memo_next].fid = f[pick].id;
+            memo_next = (memo_next + 1) % 8;
+            pthread_mutex_unlock(&memo_lock);
             return f[pick].id;
         }
         LOGI("torbox: the AI did not pick a file (%d); the largest plays", pick);

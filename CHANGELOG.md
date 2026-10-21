@@ -38,6 +38,16 @@
   permissions do not name that service): "Update failed". When that happens before
   anything downloads, the same request now goes through luna-send-pub, the public tool
   any app may run, and its progress shows as before.
+- **Fixes from a review of this release:** a video's own subtitle track picked by hand is
+  remembered by its real language (an unlabelled one could turn subtitles off for the
+  rest of a series); reconnect tries follow one another even when one fails; anime and
+  TMDB episode ids are read right when choosing a season pack's file, and the AI only
+  chooses among equally named files (its answer kept); the next episode's answers are
+  renewed before its file is warmed, not after; a TorBox source made ready ahead is
+  matched by its own link; the Subtitles sheet keeps its language while files arrive and
+  is no longer rebuilt every frame; the screensaver may come over an error card again;
+  the TV's screensaver request is subscribed to once; the update progress reads the
+  installer's latest replies.
 - **The TV's own screensaver stays off during films.** A video played under the app's
   window does not count as "playing" to the TV's power service, so LG's screensaver could
   come on in the middle of a film (about every 20 minutes). The app now answers the TV's
