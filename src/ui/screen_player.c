@@ -4019,9 +4019,11 @@ static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n)
     return NULL;
 }
 
+enum { SG_LOOK = 0, SG_OFF = 1, SG_FIRST_LANG = 2 };   /* the drawer's groups, top down */
+
 static SubGroup *group_for(SubGroup *g, int *ng, const char *name)
 {
-    for (int i = 1; i < *ng; i++) if (!strcmp(g[i].name, name)) return &g[i];
+    for (int i = SG_FIRST_LANG; i < *ng; i++) if (!strcmp(g[i].name, name)) return &g[i];
     if (*ng >= SUB_GROUPS - 1) return NULL;
     SubGroup *x = &g[(*ng)++];
     memset(x, 0, sizeof *x);
@@ -4029,14 +4031,17 @@ static SubGroup *group_for(SubGroup *g, int *ng, const char *name)
     return x;
 }
 
-/* Off, then a group per language (yours first, then those in the file, then by name),
- * then Look and timing. Returns the number of groups. */
+/* Look and timing on top (one press up from Off, not under a long list), Off, then a group
+ * per language (yours first, then those in the file, then by name). Returns the number. */
 static int subs_groups(Player *p, SubGroup *g, const VideoTrack *tr, int n)
 {
-    int ng = 1;
-    memset(&g[0], 0, sizeof g[0]);
-    snprintf(g[0].name, sizeof g[0].name, "Off");
-    g[0].it[g[0].n++] = (SubItem){ SI_OFF, SUB_OFF, -1 };
+    int ng = SG_FIRST_LANG;
+    memset(&g[SG_LOOK], 0, sizeof g[SG_LOOK]);
+    snprintf(g[SG_LOOK].name, sizeof g[SG_LOOK].name, "Look and timing");
+    for (int r = SUB_CHOOSE; r <= SUB_SYNC; r++) g[SG_LOOK].it[g[SG_LOOK].n++] = (SubItem){ SI_SET, r, r };
+    memset(&g[SG_OFF], 0, sizeof g[SG_OFF]);
+    snprintf(g[SG_OFF].name, sizeof g[SG_OFF].name, "Off");
+    g[SG_OFF].it[g[SG_OFF].n++] = (SubItem){ SI_OFF, SUB_OFF, -1 };
     for (int i = 0; i < n; i++) {
         const char *l = emb_lang(p, tr, i, n);
         SubGroup *x = group_for(g, &ng, l ? lang_display(l) : "No language given");
@@ -4054,17 +4059,13 @@ static int subs_groups(Player *p, SubGroup *g, const VideoTrack *tr, int n)
     }
     /* yours first, then the file's own languages, then by name */
     const char *mine = g_app.pref_subs[0] ? lang_display(g_app.pref_subs) : "";
-    for (int i = 2; i < ng; i++)
-        for (int j = i; j > 1; j--) {
+    for (int i = SG_FIRST_LANG + 1; i < ng; i++)
+        for (int j = i; j > SG_FIRST_LANG; j--) {
             SubGroup *a = &g[j], *b = &g[j - 1];
             int ka = !strcmp(a->name, mine) * 4 + a->in_video * 2 + (strcmp(a->name, "No language given") != 0);
             int kb = !strcmp(b->name, mine) * 4 + b->in_video * 2 + (strcmp(b->name, "No language given") != 0);
             if (ka > kb || (ka == kb && strcasecmp(a->name, b->name) < 0)) { SubGroup t = *a; *a = *b; *b = t; } else break;
         }
-    SubGroup *x = &g[ng++];
-    memset(x, 0, sizeof *x);
-    snprintf(x->name, sizeof x->name, "Look and timing");
-    for (int r = SUB_CHOOSE; r <= SUB_SYNC; r++) x->it[x->n++] = (SubItem){ SI_SET, r, r };
     return ng;
 }
 
@@ -4128,8 +4129,8 @@ static void subs_open(Player *p)
     p->subs_group_name[0] = 0;
     SubGroup *g = subs_view(p, tr, &nt, &ng);
     if (!g) return;
-    p->subs_col = 0; p->subs_group = 0; p->subs_row = 0;
-    for (int i = 1; i < ng; i++) { int r = group_on(p, tr, &g[i]); if (r >= 0) { p->subs_group = i; p->subs_row = r; break; } }
+    p->subs_col = 0; p->subs_group = SG_OFF; p->subs_row = 0;
+    for (int i = SG_FIRST_LANG; i < ng; i++) { int r = group_on(p, tr, &g[i]); if (r >= 0) { p->subs_group = i; p->subs_row = r; break; } }
     snprintf(p->subs_group_name, sizeof p->subs_group_name, "%s", g[p->subs_group].name);
     p->subs_row_kind = g[p->subs_group].it[p->subs_row].kind; p->subs_row_ref = g[p->subs_group].it[p->subs_row].ref;
     LOGI("player: subtitles in %d language%s, on %s", ng - 2, ng - 2 == 1 ? "" : "s", g[p->subs_group].name);
@@ -4215,25 +4216,25 @@ static void draw_subs_panel(Player *p)
     }
 
     /* languages */
-    float lscroll = 0, fy = p->subs_group * ROW;
+    float lscroll = 0, fy = p->subs_group * ROW + (p->subs_group > SG_LOOK ? 14 : 0);
     if (fy + ROW > bottom - top) lscroll = fy + ROW - (bottom - top);
     gfx_clip_push(SX, top - 4, LW + PAD + 8, bottom - top + 8);
     for (int i = 0; i < ng; i++) {
-        float y = top + i * ROW - lscroll + (i == ng - 1 ? 14 : 0);
+        float y = top + i * ROW - lscroll + (i > SG_LOOK ? 14 : 0);
         if (y + ROW < top - 4 || y > bottom) continue;
-        if (i == ng - 1) gfx_rect(cx + 12, y - 10, LW - 24, 1, COLOR_ALPHA(THEME_TEXT, 0x18));
+        if (i == SG_OFF) gfx_rect(cx + 12, y - 10, LW - 24, 1, COLOR_ALPHA(THEME_TEXT, 0x18));   /* the settings above, the choices below */
         int sel = i == p->subs_group, foc = sel && p->subs_col == 0;
         if (foc) gfx_rrect(cx, y, LW, ROW - 8, R_KEY, THEME_FOCUS);
         else if (sel) gfx_rrect(cx, y, LW, ROW - 8, R_KEY, COLOR_ALPHA(THEME_TEXT, 0x12));
         Color fg = foc ? THEME_ON_FOCUS : sel ? THEME_TEXT : THEME_TEXT_DIM;
-        int on = i < ng - 1 && group_on(p, tr, &g[i]) >= 0;
+        int on = i != SG_LOOK && group_on(p, tr, &g[i]) >= 0;
         font_draw_fit(g[i].name, cx + 24, y + (ROW - 8 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, on && !foc ? THEME_ACCENT : fg, LW - 120);
-        if (i > 0 && i < ng - 1) {
+        if (i >= SG_FIRST_LANG) {
             char c[16]; snprintf(c, sizeof c, "%d", g[i].n);
             font_draw(c, cx + LW - 64 - font_measure(c, FONT_XS | FONT_B) / 2, y + (ROW - 8 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xA0) : THEME_TEXT_MUTED);
         }
         if (on) ui_icon(ICON_CHECK, cx + LW - 28, y + (ROW - 8) / 2, 22, foc ? THEME_ON_FOCUS : THEME_ACCENT);
-        else if (i == ng - 1) ui_icon(ICON_SUBS, cx + LW - 28, y + (ROW - 8) / 2, 22, fg);
+        else if (i == SG_LOOK) ui_icon(ICON_SUBS, cx + LW - 28, y + (ROW - 8) / 2, 22, fg);
     }
     gfx_clip_pop();
     float ox = cx + LW + 36, ow = SX + SW - PAD - ox;
@@ -4241,8 +4242,8 @@ static void draw_subs_panel(Player *p)
 
     /* that language's choices */
     char head[96];
-    if (p->subs_group == 0) snprintf(head, sizeof head, "NO SUBTITLES");
-    else if (p->subs_group == ng - 1) snprintf(head, sizeof head, "LOOK AND TIMING  \xC2\xB7  LEFT/RIGHT CHANGES");
+    if (p->subs_group == SG_OFF) snprintf(head, sizeof head, "NO SUBTITLES");
+    else if (p->subs_group == SG_LOOK) snprintf(head, sizeof head, "LOOK AND TIMING  \xC2\xB7  LEFT/RIGHT CHANGES");
     else { char up[64]; ui_upper(cur->name, up, sizeof up); snprintf(head, sizeof head, "%s  \xC2\xB7  %d CHOICE%s", up, cur->n, cur->n == 1 ? "" : "S"); }
     font_draw_tracked(head, ox, top - 40, FONT_XS | FONT_B, THEME_TEXT_MUTED, 1.2f);
     float oscroll = 0, oy = p->subs_row * OROW;
@@ -4305,7 +4306,7 @@ static void draw_subs_panel(Player *p)
     }
     gfx_clip_pop();
     const char *hint = p->subs_col == 0 ? "Up/Down  language   \xC2\xB7   OK  its first choice   \xC2\xB7   Right  all its choices   \xC2\xB7   Back  close"
-                                        : p->subs_group == ng - 1 ? "Left/Right  change   \xC2\xB7   OK  reset or switch   \xC2\xB7   Back  languages"
+                                        : p->subs_group == SG_LOOK ? "Left/Right  change   \xC2\xB7   OK  reset or switch   \xC2\xB7   Back  languages"
                                         : "OK  choose   \xC2\xB7   Left  languages   \xC2\xB7   Back  languages";
     font_draw_fit(hint, cx, SY + SH - 44, FONT_XS, THEME_TEXT_MUTED, SW - 2 * PAD);
     gfx_set_alpha(1);
@@ -4352,14 +4353,14 @@ static int subs_key(Player *p, KeyAction a)
             else adjust_subs(p, it->ref, dir);
             char v[160]; subs_setting(p, it->ref, v, sizeof v);
             LOGI("player: subtitles sheet: %s %s", SET_LABEL[it->ref], v);
-        } else if (p->subs_col == 0 && dir > 0 && p->subs_group > 0 && cur->n) {
+        } else if (p->subs_col == 0 && dir > 0 && p->subs_group != SG_OFF && cur->n) {
             p->subs_col = 1; int r = group_on(p, tr, cur); p->subs_row = r > 0 ? r : 0;
         } else if (p->subs_col == 1 && dir < 0) p->subs_col = 0;
         break;
     }
     case KEY_OK:
         if (!it) break;
-        if (p->subs_col == 0 && p->subs_group == ng - 1) { p->subs_col = 1; p->subs_row = 0; break; }
+        if (p->subs_col == 0 && p->subs_group == SG_LOOK) { p->subs_col = 1; p->subs_row = 0; break; }
         if (p->subs_col == 0) {   /* a language: its first choice (the file's own, or the best-matched file) */
             int first = 0;   /* the second slot takes files only: the TV draws one track at a time */
             while (p->assign_second && first < cur->n - 1 && cur->it[first].kind == SI_EMB) first++;

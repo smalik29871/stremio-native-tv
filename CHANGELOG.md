@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Subtitle settings are easy to find.** In the player's Subtitles drawer, Look and timing
+  (size, style, position, timing, auto-sync, second subtitles) is now at the top, above Off,
+  instead of under every language. It opens on your language as before; Up twice reaches it.
+
 ## 0.10.46
 
 - **A more accurate recommended source.**
