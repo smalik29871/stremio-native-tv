@@ -8,11 +8,8 @@
 - **The trailer's "Sound off" pill moves out from under the island**: it sits just below
   the clock and slides down when the island grows into a notice ("Press Back again to
   leave"), instead of being hidden behind it.
-- **More scores, laid out as a grid**: Roger Ebert (a gold star, out of 4), Trakt's and
-  TMDB's ratings, and MDBList's own blend of them all as a ring that fills to the score
-  in green, yellow or red. On the paused screen the critics sit on the first row, the
-  audiences on the second and Trakt's live numbers below, every badge in one column
-  width so they line up; title pages show them all in one line.
+- **More scores**: Roger Ebert (a gold star, out of 4), Trakt's and TMDB's ratings, and
+  MDBList's own blend of them all as a ring that fills in green, yellow or red.
 - **The left menu is centred**: its sections sit in the middle of the screen, between
   the logo and the account button, instead of bunched under the logo.
 - **The Popcornmeter shows**: MDBList calls the audience score "tomatoesaudience",

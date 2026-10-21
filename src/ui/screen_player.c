@@ -3018,12 +3018,17 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
         y += 36;
         float cx = x;
+        int shown = 0;
+        char more[48];
+        snprintf(more, sizeof more, "+%d more  \xC2\xB7  Info for all", n_cast);   /* widest it can be, room kept for it */
+        float more_w = font_measure(more, FONT_XS | FONT_B) + 24;
         for (int i = 0; i < n_cast && i < 6; i++) {
             const char *name = tm && tm->n_cast ? tm->cast[i].name : p->meta.cast.v[i];
             const char *role = tm && tm->n_cast ? tm->cast[i].character : (i < p->meta.cast_roles.n ? p->meta.cast_roles.v[i] : "");
             const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : (i < p->meta.cast_photos.n && p->meta.cast_photos.v[i][0] ? p->meta.cast_photos.v[i] : NULL);
             float w = (font_measure(name, FONT_XS | FONT_B) > font_measure(role, FONT_XS) ? font_measure(name, FONT_XS | FONT_B) : font_measure(role, FONT_XS)) + (photo ? 90 : 74);
-            if (cx + w > right_edge) break;
+            if (cx + w > right_edge - (i + 1 < n_cast ? more_w : 0)) break;
+            shown++;
             float hh = role[0] ? 64 : 48;
             gfx_rrect(cx, y, w, hh, hh / 2, COLOR_ALPHA(THEME_TEXT, (int)(0x1C * k)));
             int pw = 0, ph = 0;
@@ -3042,6 +3047,10 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             if (role[0]) { font_draw(name, tx, y + 11, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a)); font_draw(role, tx, y + 35, FONT_XS, COLOR_ALPHA(THEME_TEXT_DIM, a)); }
             else font_draw(name, tx, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
             cx += w + 12;
+        }
+        if (shown < n_cast) {   /* the rest are in the cast drawer */
+            snprintf(more, sizeof more, "+%d more  \xC2\xB7  Info for all", n_cast - shown);
+            font_draw(more, cx + 12, y + (64 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
         }
         y += 64;
     }
