@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.44
 
 - **Up Next waits until the next episode is ready.** Its button reads *Preparing*, filling
   as the next episode's sources arrive and its best source is checked, and turns into
