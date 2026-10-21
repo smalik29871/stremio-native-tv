@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.45
 
 - **Fixed: the next episode could fail to start, or the app could close.** When the next
   episode started from a source race, the screen it replaced was cleared a moment later
