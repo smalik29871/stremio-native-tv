@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A source list you're choosing from no longer starts by itself.** OK on an episode
+  opens its sources and starts the best one after a moment; moving in the list now
+  stops that, and the header says so ("Up or Down to choose"). A choice made while the
+  quickest of the top sources was still being found was dropped and the automatic one
+  played; the choice now wins, and Back calls the search off too.
+
 From a review of how sources are chosen and played:
 
 - **Answers have a size budget.** A check asks for a few kilobytes of a file, but a server

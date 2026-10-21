@@ -861,8 +861,9 @@ static void draw(Screen *s)
     float x = LIST_X, w = SNTV_UI_W - THEME_MARGIN - LIST_X;
     font_draw("Choose a source", x, 104, FONT_L | FONT_B, THEME_TEXT);
     char msg[128];
-    if (st->chaining && !st->autoplayed) snprintf(msg, sizeof msg, "Finding the next episode on the same release");
-    else if (st->pending) snprintf(msg, sizeof msg, "%d found  Â·  %d addon%s still searching", st->n, st->pending, st->pending == 1 ? "" : "s");
+    if (st->chaining && !st->autoplayed) snprintf(msg, sizeof msg, "Finding the next episode on the same release  ·  Up or Down to choose");
+    else if ((st->play_now || g_app.auto_recommended) && !st->auto_rec_done && st->n) snprintf(msg, sizeof msg, "Starting the best source  ·  Up or Down to choose");
+    else if (st->pending) snprintf(msg, sizeof msg, "%d found  ·  %d addon%s still searching", st->n, st->pending, st->pending == 1 ? "" : "s");
     else if (!st->n) snprintf(msg, sizeof msg, "%s", st->n_reqs ? "No sources found for this title" : "No stream addons installed. Add one in Settings.");
     else snprintf(msg, sizeof msg, "%d source%s", st->n, st->n == 1 ? "" : "s");
     font_draw(msg, x, 156, FONT_S, THEME_TEXT_MUTED);
@@ -1056,6 +1057,18 @@ static void race_launch(int first)
 
 typedef struct { int idx; unsigned round; } RaceReq;
 static unsigned g_race_round;
+
+/* The viewer took over (moved, chose, left): a race still running starts nothing. */
+static void race_cancel(void)
+{
+    Race *r = &g_race;
+    if (!r->busy) return;
+    g_race_round++;
+    LOGI("streams: race called off, the viewer chose");
+    play_candidates_free(r->c, r->n);
+    meta_preview_free(&r->meta);
+    r->c = NULL; r->busy = 0;
+}
 static void on_race(HttpResponse *resp, void *user)
 {
     RaceReq *q = user;
@@ -1247,14 +1260,15 @@ void streams_lookup_tick(void)
 static int key(Screen *s, KeyAction a)
 {
     Streams *st = s->st;
+    if (a == KEY_UP || a == KEY_DOWN || a == KEY_OK) race_cancel();
     switch (a) {
     case KEY_UP:
-        st->moved = 1;
+        st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1;   /* choosing: nothing starts by itself any more */
         if (st->focus > 0) st->focus--;
         else if (st->focus == 0 && recommended(st) >= 0) st->focus = -1;
         app_redraw();
         return 1;
-    case KEY_DOWN: st->moved = 1; if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
+    case KEY_DOWN: st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
     case KEY_OK:
         if (st->focus == -1) { int r = recommended(st); if (r >= 0) play_from(st, r); return 1; }
         if (st->focus < st->n) play_from(st, st->focus);
@@ -1276,6 +1290,7 @@ static void destroy(Screen *s)
 {
     Streams *st = s->st;
     if (g_live == st) { g_live = NULL; g_generation++; }
+    race_cancel();   /* left with Back while it ran: only the screen on top races */
     st->probe_gen++;
     if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */
     streams_free(st->items, st->n);
