@@ -68,6 +68,7 @@ unsigned video_load_count(void) { return (unsigned)g_loads; }
 void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
+void video_keep_awake(int on) { (void)on; }
 
 /* No installer here. SNTV_FAKE_INSTALL (tests) walks through the steps a TV shows. */
 static double g_install_at;

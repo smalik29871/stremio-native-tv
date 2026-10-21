@@ -173,7 +173,7 @@ static int ambient_due(const Screen *top)
      * not while it plays, stalls or changes source, full screen or in the corner; only
      * once the viewer paused it */
     static const char *const NEVER_UNDER[] = { "ambient", "login", "break", "pin", "update" };
-    if (player_holds_screen()) return 0;
+    if (player_holds_screen() || streams_starting()) return 0;   /* nor the next episode on its way */
     for (size_t i = 0; i < sizeof NEVER_UNDER / sizeof *NEVER_UNDER; i++) if (strcmp(top->name, NEVER_UNDER[i]) == 0) return 0;
     VideoInfo vi;
     video_info(&vi);

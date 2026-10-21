@@ -77,6 +77,7 @@ void video_stop(void) { js_video_stop(); g_info.state = VIDEO_IDLE; }
 void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
 void video_app_background(void) { js_video_pause(); }
 void video_app_foreground(void) {}
+void video_keep_awake(int on) { (void)on; }
 
 /* No installer on this platform: updates come from its store. */
 int video_install_update(const char *ipk_url, const char *sha256, const char *app_id) { (void)ipk_url; (void)sha256; (void)app_id; return -1; }

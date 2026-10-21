@@ -66,6 +66,9 @@ void video_set_display_rect(int x, int y, int w, int h);
 /* App went to background / came back (webOS pauses the pipeline itself, but we keep state honest). */
 void video_app_background(void);
 void video_app_foreground(void);
+/* A start under way with no video loaded yet (the next episode's sources being found):
+ * the TV's own screensaver waits, as it does for a playing video. */
+void video_keep_awake(int on);
 
 /* Updating the app itself (here because the system bus lives in this backend). On webOS
  * the Homebrew Channel's service downloads the package, checks its SHA-256 and installs

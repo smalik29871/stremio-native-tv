@@ -2,6 +2,12 @@
 
 ## 0.10.43
 
+- **The next episode starts even when the screensaver is due.** When the Up Next
+  countdown ended, the app's screensaver came on at that instant (nothing was playing
+  for a moment, and no key had been pressed for an hour), and closing it left the
+  sources waiting for a choice. The screensaver now waits while the next episode is on
+  its way, the TV's own screensaver is held off then too, and if anything else covers
+  the sources meanwhile, the episode still starts by itself.
 - **Sources that need request headers now play.** Some addons hand out links that only
   answer when asked with a particular header (a Referer, a cookie), which the TV's
   player can't send. Those now play through a small relay inside the app: the player

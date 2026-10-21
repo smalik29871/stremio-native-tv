@@ -292,6 +292,7 @@ Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id
 /* 1 while a video is on that nothing but a break may cover: playing, stalled, between
  * sources; 0 with no video, or paused by the viewer */
 int player_holds_screen(void);
+int streams_starting(void);   /* a Sources screen is starting a video by itself (the next episode, Play) */
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,
                              PlayCandidate *cands, int n_cands, int start_index, double start_s,
                              const char *next_video_id, const char *next_title);

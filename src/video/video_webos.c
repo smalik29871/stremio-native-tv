@@ -603,8 +603,12 @@ static int load_acb(void)
 static float g_saver_registered_at = -1e9f;
 static int g_saver_ok;   /* the TV took the subscription: no new one at each load (they would pile up) */
 
+static volatile int g_keep_awake;
+void video_keep_awake(int on) { g_keep_awake = on; }
+
 static int saver_hold(void)
 {
+    if (g_keep_awake) return 1;   /* the next episode is on its way */
     if (g_paused_by_user) return 0;
     if (g_info.state == VIDEO_LOADING) return 1;   /* no media id yet */
     if (!g_media_id[0]) return 0;
@@ -635,7 +639,7 @@ static int on_saver(LSHandle *sh, LSMessage *msg, void *ctx)
     if (!L.CallOneReply(sh, "luna://com.webos.service.tvpower/power/responseScreenSaverRequest", reply, NULL, NULL, NULL, &e)) ls_error_log("responseScreenSaverRequest", &e);
     L.ErrorFree(&e);
     LOGI("video(webos): the TV's screensaver %s (%s)", hold ? "held off" : "let through",
-         hold ? (buffering ? "stalled" : paused ? "paused by the pipeline" : "a video is on") : g_paused_by_user ? "paused by the viewer" : "no video playing");
+         hold ? (g_keep_awake ? "the next video is starting" : buffering ? "stalled" : paused ? "paused by the pipeline" : "a video is on") : g_paused_by_user ? "paused by the viewer" : "no video playing");
     return 1;
 }
 

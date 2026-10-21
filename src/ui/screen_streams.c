@@ -6,6 +6,7 @@
 #include "../srchealth.h"
 #include "../probe.h"
 #include "../perfstat.h"
+#include "../video/video.h"
 #include "../store.h"
 #include "../torrent.h"
 #include "../torbox.h"
@@ -45,6 +46,7 @@ struct Streams {
     int check_autoplay;
     int auto_rec_done;        /* the recommended source was started by itself */
     int sources_timed;        /* the start timing has its "sources" phase */
+    int launched;             /* a player was opened from here (coming back to it is Back from that player) */
     int play_now;             /* opened to play: the recommended source starts by itself, whatever the setting */
     int probes_started, probe_inflight;
     int ranks_logged;
@@ -737,6 +739,14 @@ static void log_ranking(Streams *st)
     }
 }
 
+/* Starting by itself, no video yet: the next episode, or Play's pick still being made. */
+static int starting(const Streams *st)
+{
+    return !st->launched && ((st->chaining && !st->autoplayed) || ((g_app.auto_recommended || st->play_now) && !st->auto_rec_done));
+}
+
+int streams_starting(void) { return g_live && starting(g_live); }
+
 /* While slow addons are still answering: the best so far is already what they could
  * bring (ready on debrid or your TorBox, at your quality cap, its check passed), so the
  * start does not wait for them. Their answers still join the list. */
@@ -755,6 +765,7 @@ static int good_enough(const Streams *st)
 static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
+    video_keep_awake(starting(st));   /* the TV's screensaver must not take the handoff */
     if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
     if (st->check_autoplay || (st->chaining && !st->autoplayed)) {   /* every frame too: the wait can run out with no answer arriving */
         st->check_autoplay = 0; autoplay_check(st); if (app_top() != s) return;
@@ -1291,6 +1302,8 @@ static void play_from(Streams *st, int index)
     char reason[160];
     char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
     if (!url) { app_toast("%s", reason); return; }
+    st->launched = 1;
+    video_keep_awake(0);   /* the player's own loading holds the TV's screensaver from here */
     PlayCandidate *c = calloc((size_t)st->n + 2, sizeof *c);
     int n = 0, p2p = 0, rec = recommended(st);
     const char *group = st->items[index].binge_group;
@@ -1424,17 +1437,19 @@ static int key(Screen *s, KeyAction a)
 static void resume(Screen *s)
 {
     Streams *st = s->st;
-    /* Coming back from an auto-played episode: the user pressed Back, don't re-trigger. */
-    st->autoplayed = 1;
-    st->auto_rec_done = 1;
+    /* Back from the player it opened: don't start it again. Back on top for another reason
+     * (the screensaver closing, a dialog) changes nothing: a start under way goes on. */
+    if (st->launched) { st->autoplayed = 1; st->auto_rec_done = 1; }
     app_redraw();
 }
+
 
 static void destroy(Screen *s)
 {
     Streams *st = s->st;
     if (g_live == st) { g_live = NULL; g_generation++; }
     race_cancel();   /* left with Back while it ran: only the screen on top races */
+    video_keep_awake(0);
     perf_start_cancel();   /* left before anything played (after a start, nothing is running) */
     st->probe_gen++;
     if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */
