@@ -6,7 +6,7 @@
   LG remotes do not send to apps (the Magic Remote has none; on the standard remote the TV
   can keep INFO for itself), so "Info for all" led nowhere. The control bar now ends with
   a Cast button, and the paused screen points to it. The standard LG remote's INFO key
-  (it arrives as key 499) and GUIDE open it too.
+  (it arrives as key 499) and GUIDE open it too, and its Stop key (120) now stops.
 - **No error card while the player can still fix it.** When every source in the list had
   failed it showed "This source can't be played" at once, though it then asked the addons
   for fresh links after 8 seconds. Now it asks after 2, shows what it is doing

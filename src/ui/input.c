@@ -37,7 +37,7 @@ KeyAction input_map(const SDL_Event *e)
     /* the media keys by position too: the TV's keymap can leave their symbol empty */
     case SDL_SCANCODE_AUDIOPLAY: return KEY_PLAY;
     case SDL_SCANCODE_PAUSE: return KEY_PAUSE;
-    case SDL_SCANCODE_AUDIOSTOP: return KEY_STOP;
+    case SDL_SCANCODE_AUDIOSTOP: case SDL_SCANCODE_STOP: return KEY_STOP;   /* the standard LG remote's Stop is the plain one (120) */
     case SDL_SCANCODE_AUDIOPREV: case SDL_SCANCODE_AUDIOREWIND: return KEY_REWIND;
     case SDL_SCANCODE_AUDIONEXT: case SDL_SCANCODE_AUDIOFASTFORWARD: return KEY_FORWARD;
     default: break;
@@ -53,7 +53,7 @@ KeyAction input_map(const SDL_Event *e)
     case SDLK_BACKSPACE: return KEY_BACKSPACE;
     case SDLK_AUDIOPLAY: return KEY_PLAY;
     case SDLK_PAUSE: return KEY_PAUSE;
-    case SDLK_AUDIOSTOP: return KEY_STOP;
+    case SDLK_AUDIOSTOP: case SDLK_STOP: return KEY_STOP;
     case SDLK_AUDIOPREV: case SDLK_AUDIOREWIND: return KEY_REWIND;
     case SDLK_AUDIONEXT: case SDLK_AUDIOFASTFORWARD: return KEY_FORWARD;
     case SDLK_MENU: case SDLK_APPLICATION: return KEY_MENU;
