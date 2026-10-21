@@ -33,6 +33,19 @@ int main(void)
     quality_parse("x", "Movie 2160p AV1 Opus", NULL, NULL, 3221225472ULL, &t);
     CHECK(t.codec == CODEC_AV1 && t.audio == AUDIO_OTHER && fabs(t.size_gb - 3.0) < 0.01);
 
+    quality_parse("x", "Movie.2024.DVDSCR.x264", NULL, NULL, 0, &t);
+    CHECK(t.tier == TIER_CAM);   /* a screener is no better than a cinema recording */
+    quality_parse("x", "Movie.2024.1080p.HDTS.WEB.x264", NULL, NULL, 0, &t);
+    CHECK(t.tier == TIER_CAM);   /* "WEB" beside it changes nothing */
+    quality_parse("x", "Movie.2024.1080p.WEB-DL.AAC2.0.H.264 TS", NULL, NULL, 0, &t);
+    CHECK(t.tier == TIER_WEB);   /* a bare "TS" counts only when nothing better is named */
+    quality_parse("x", "Movie.2024.1080p.BluRay.10bit.x264", NULL, NULL, 0, &t);
+    CHECK(t.avc10 && t.codec == CODEC_AVC);
+    quality_parse("x", "Movie.2024.1080p.BluRay.10bit.x265", NULL, NULL, 0, &t);
+    CHECK(!t.avc10);   /* 10-bit HEVC is what TVs play */
+    quality_parse("x", "Movie.2024.1080p.WEBRip.HC.x264", NULL, NULL, 0, &t);
+    CHECK(t.hardsub);
+
     TvProfile old;   /* a 2021 LG: webOS 6, no DTS, no TrueHD, AV1 fine */
     quality_tv_init(&old, "webOS TV 6.3.0-1234 (kisscurl-kinglake)");
     CHECK(old.webos_major == 6);

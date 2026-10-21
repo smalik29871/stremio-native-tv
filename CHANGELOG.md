@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **The recommended source reads names more carefully.** A screener (DVDSCR and the like)
+  counts as a cinema recording, and so does a telesync whose name also says WEB; 10-bit
+  H.264, which no TV decodes, goes to the bottom from its name alone, not only after the
+  file is checked; subtitles burned into the picture (HC) count against a source.
+
 ## 0.10.46
 
 From an audit of whole evenings of use rather than single features:

@@ -85,11 +85,18 @@ void quality_parse(const char *name, const char *title, const char *description,
     }
     if (out->size_gb <= 0 && size_bytes) out->size_gb = size_bytes / 1073741824.0;
 
-    if (has(text, "remux")) out->tier = TIER_REMUX;
+    /* a cinema recording or a screener says so whatever else the name has ("HDTS WEB"); the
+     * bare "TS"/"TC" are ambiguous and only count when nothing better is named */
+    int cam = has(text, "hdcam") || has(text, "hdts") || has(text, "telesync") || has(text, "telecine") || has(text, "camrip") || has_token(text, "cam")
+              || has(text, "dvdscr") || has(text, "bdscr") || has(text, "webscr") || has(text, "screener") || has_token(text, "scr") || has(text, "workprint") || has_token(text, "hdtc");
+    if (cam) out->tier = TIER_CAM;
+    else if (has(text, "remux")) out->tier = TIER_REMUX;
     else if (has(text, "bluray") || has(text, "blu-ray") || has(text, "bdrip") || has(text, "brrip") || has(text, "web-dl") || has(text, "webdl") || has_token(text, "web")) out->tier = TIER_WEB;
     else if (has(text, "webrip") || has(text, "hdtv") || has(text, "dvdrip") || has(text, "hdrip")) out->tier = TIER_TV;
-    else if (has(text, "hdcam") || has(text, "hdts") || has(text, "telesync") || has(text, "telecine") || has_token(text, "cam") || has_token(text, "ts") || has_token(text, "tc") || has(text, "camrip")) out->tier = TIER_CAM;
+    else if (has_token(text, "ts") || has_token(text, "tc")) out->tier = TIER_CAM;
     out->threed = has_token(text, "3d") || has(text, "half-sbs") || has(text, "h-sbs");
+    out->avc10 = out->codec == CODEC_AVC && (has(text, "10bit") || has(text, "10-bit") || has(text, "hi10"));
+    out->hardsub = has_token(text, "hc") || has(text, "hardsub") || has(text, "hardcoded");
 }
 
 int quality_cap_ok(const TvProfile *tv, int cap)
@@ -167,6 +174,8 @@ long quality_score(const StreamTags *t, const TvProfile *tv, const QualityPrefs 
     default: break;
     }
     if (t->threed) s -= 500;
+    if (t->avc10) s -= 500;      /* plays nowhere on a TV: only a last resort */
+    if (t->hardsub) s -= 150;    /* subtitles you can't turn off */
 
     double mb = mbits(t, runtime_min);
     double limit = mode == QUAL_SAVER ? 8 : mode == QUAL_BALANCED ? 25 : mode == QUAL_HIGHEST ? 120 : 60;
@@ -186,6 +195,8 @@ int quality_warnings(const StreamTags *t, const TvProfile *tv, const QualityPref
     if (t->cached < 0) ADD("Not cached: needs a download first");
     if (t->tier == TIER_CAM) ADD("Cinema recording");
     if (t->threed) ADD("3D release");
+    if (t->avc10) ADD("10-bit H.264: TVs can't decode it");
+    if (t->hardsub) ADD("Subtitles burned into the picture");
     if (t->res > (p->cap_res ? p->cap_res : 2160)) ADD("Above your resolution cap");
     if (t->cached == 0 && t->seeders >= 0 && t->seeders < 3) ADD("Very few seeders");
     #undef ADD

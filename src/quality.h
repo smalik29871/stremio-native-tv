@@ -23,6 +23,8 @@ typedef struct StreamTags {
     double size_gb;     /* 0 unknown */
     SourceTier tier;
     int threed;
+    int avc10;          /* 10-bit H.264: no TV decodes it */
+    int hardsub;        /* subtitles burned into the picture (HC) */
 } StreamTags;
 
 /* Capabilities a source can depend on; the TV profile keeps a belief per entry. */
