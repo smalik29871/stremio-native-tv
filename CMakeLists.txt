@@ -37,6 +37,7 @@ add_library(sntv_core STATIC
   vendor/qrcodegen.c
   src/log.c
   src/http.c
+  src/relay.c
   src/store.c
   src/subs.c
   src/skip.c

@@ -58,6 +58,17 @@ int  http_looks_like_media(const HttpResponse *r);
 /* The answer holds len bytes of the file from `from`: a server that ignored the Range sent
  * the start instead, and a short or shifted answer is not that piece. */
 int  http_has_bytes(const HttpResponse *r, uint64_t from, size_t len);
+/* A long download handed on as it arrives, on the calling thread (the local relay).
+ * on_head comes once, before any data, with the final answer's status, type, length
+ * ((uint64_t)-1 unknown) and Content-Range ("" none); returning 0 stops it. on_data
+ * returning 0 stops it too. range: "123-" or NULL. 0 when the source answered (whatever
+ * its status), -1 when nothing came back at all. */
+typedef struct {
+    int (*on_head)(void *user, long status, const char *type, uint64_t length, const char *content_range);
+    int (*on_data)(void *user, const char *data, size_t n);
+    void *user;
+} HttpStream;
+int  http_stream(const char *url, const char *headers, const char *range, const HttpStream *cb);
 
 /* Async: the request runs on a worker thread and `cb` is invoked on the main
  * thread from http_pump(), which the main loop calls once per frame. */

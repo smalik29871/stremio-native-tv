@@ -1,5 +1,6 @@
 /* Desktop preview backend: no decoding, just a simulated clock so the player
  * UI, track menu, progress reporting and library sync can be exercised. */
+#include "../http.h"
 #include "video.h"
 #include "../log.h"
 #include <SDL.h>
@@ -41,6 +42,18 @@ int video_load(const char *url, const char *title, double start)
     g_last = SDL_GetTicks();
     g_audio_sel = 0; g_text_sel = -1; g_rate = 1.0;
     g.tracks_version = 1;
+    /* test hook: SNTV_FAKE_FETCH=1 reads the first 64 KB from the address as a TV's player
+     * would (no headers of its own) and fails the load when that is not a video */
+    if (getenv("SNTV_FAKE_FETCH") && !strncmp(url, "http", 4)) {
+        const char *from = getenv("SNTV_FAKE_FETCH_FROM");   /* a seek: the bytes from there */
+        HttpOptions o = { .range_bytes = 65536, .range_start = from ? strtoull(from, NULL, 10) : 0, .timeout_s = 8, .no_json_accept = 1 };
+        HttpResponse r;
+        http_request_ex(url, &o, &r);
+        int ok = from ? (r.status == 206 && r.has_range && r.range_from == o.range_start && r.len == 65536) : http_looks_like_media(&r);   /* mid-file bytes are no header */
+        LOGI("video(null): fetched %zu bytes, status %ld%s", r.len, r.status, ok ? "" : ": not a video");
+        if (!ok) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The source refused the request (HTTP %ld)", r.status); }
+        http_response_free(&r);
+    }
     return 0;
 }
 

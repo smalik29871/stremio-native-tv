@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Sources that need request headers now play.** Some addons hand out links that only
+  answer when asked with a particular header (a Referer, a cookie), which the TV's
+  player can't send. Those now play through a small relay inside the app: the player
+  opens a local address, and the relay fetches the source with its headers. Only this
+  TV can reach it, and its address never carries the link or a key. It is used for
+  those sources alone, and when it doesn't get one playing the link is opened directly,
+  as before.
+
 ## 0.10.42
 
 - **Sources start faster.**

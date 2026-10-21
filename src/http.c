@@ -279,6 +279,86 @@ int http_looks_like_media(const HttpResponse *r)
     return 1;
 }
 
+/* ---- a long transfer handed on as it arrives (the local relay) ---- */
+typedef struct {
+    const HttpStream *cb;
+    long status; char type[96], range[96]; uint64_t length; int has_length;
+    int headed, stop;
+    CURL *h;
+} StreamRun;
+
+static size_t on_stream_header(char *ptr, size_t size, size_t nmemb, void *user)
+{
+    StreamRun *r = user;
+    size_t n = size * nmemb;
+    char line[256];
+    size_t k = n < sizeof line - 1 ? n : sizeof line - 1;
+    memcpy(line, ptr, k); line[k] = 0;
+    line[strcspn(line, "\r\n")] = 0;
+    const char *v = strchr(line, ':');
+    if (v) { v++; while (*v == ' ') v++; }
+    if (!strncmp(line, "HTTP/", 5)) { r->status = 0; r->type[0] = r->range[0] = 0; r->length = 0; r->has_length = 0; const char *sp = strchr(line, ' '); if (sp) r->status = atol(sp + 1); }   /* each answer of a redirect chain: its own headers */
+    else if (v && !strncasecmp(line, "Content-Type:", 13)) snprintf(r->type, sizeof r->type, "%s", v);
+    else if (v && !strncasecmp(line, "Content-Range:", 14)) snprintf(r->range, sizeof r->range, "%s", v);
+    else if (v && !strncasecmp(line, "Content-Length:", 15)) { r->length = strtoull(v, NULL, 10); r->has_length = 1; }
+    return n;
+}
+
+static void stream_head(StreamRun *r)
+{
+    if (r->headed) return;
+    r->headed = 1;
+    if (!r->cb->on_head(r->cb->user, r->status, r->type, r->has_length ? r->length : (uint64_t)-1, r->range)) r->stop = 1;
+}
+
+static size_t on_stream_data(char *ptr, size_t size, size_t nmemb, void *user)
+{
+    StreamRun *r = user;
+    size_t n = size * nmemb;
+    stream_head(r);
+    if (r->stop) return 0;
+    if (!r->cb->on_data(r->cb->user, ptr, n)) { r->stop = 1; return 0; }   /* the player went away (or seeks elsewhere): stop fetching */
+    return n;
+}
+
+int http_stream(const char *url, const char *headers, const char *range, const HttpStream *cb)
+{
+    if (!C.lib) return -1;
+    CURL *h = C.easy_init();
+    if (!h) return -1;
+    StreamRun r = { .cb = cb, .h = h };
+    struct curl_slist *hdrs = NULL;
+    for (const char *p = headers ? headers : ""; *p; ) {
+        size_t len = strcspn(p, "\n");
+        if (len) { char *line = strndup(p, len); hdrs = C.slist_append(hdrs, line); free(line); }
+        p += len + (p[len] == '\n');
+    }
+    char err[256] = "";
+    if (range && range[0]) C.easy_setopt(h, OPT_RANGE, range);
+    C.easy_setopt(h, OPT_URL, url);
+    C.easy_setopt(h, OPT_HEADERFUNCTION, on_stream_header);
+    C.easy_setopt(h, OPT_HEADERDATA, &r);
+    C.easy_setopt(h, OPT_WRITEFUNCTION, on_stream_data);
+    C.easy_setopt(h, OPT_WRITEDATA, &r);
+    C.easy_setopt(h, OPT_ERRORBUFFER, err);
+    C.easy_setopt(h, OPT_USERAGENT, SNTV_USER_AGENT);
+    C.easy_setopt(h, OPT_HTTPHEADER, hdrs);
+    C.easy_setopt(h, OPT_FOLLOWLOCATION, 1L);
+    C.easy_setopt(h, OPT_MAXREDIRS, 5L);
+    C.easy_setopt(h, OPT_NOSIGNAL, 1L);
+    C.easy_setopt(h, OPT_CONNECTTIMEOUT, 10L);
+    C.easy_setopt(h, OPT_LOW_SPEED_LIMIT, 1L);    /* no whole-transfer limit: a film takes hours; */
+    C.easy_setopt(h, OPT_LOW_SPEED_TIME, 30L);    /* nothing for 30 s is a dead link */
+    if (C.share) C.easy_setopt(h, OPT_SHARE, C.share);
+    C.easy_setopt(h, OPT_TCP_KEEPALIVE, 1L);
+    CURLcode rc = C.easy_perform(h);   /* no Accept-Encoding: video bytes as they are, ranges intact */
+    if (rc == 0) stream_head(&r);      /* an empty answer still has its status */
+    C.slist_free_all(hdrs);
+    C.easy_cleanup(h);
+    if (rc != 0 && !r.stop && !r.headed) return -1;   /* nothing came: the caller answers for it */
+    return 0;
+}
+
 int http_has_bytes(const HttpResponse *r, uint64_t from, size_t len)
 {
     if (!r || (r->status != 200 && r->status != 206) || r->len < len) return 0;

@@ -500,6 +500,24 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [{"name": f"Many\n{r}p", "title": f"Movie.2024.{r}p.WEB-DL.Copy{i}", "url": first["url"] + f"?many={i}"}
                                                               for i, r in enumerate([1080, 1080, 720, 720, 1080, 480, 720, 1080, 480, 720])]}).encode())
             return self.send(404, b"{}")
+        # /hdr/...: the addon with only two sources, both asking for a Referer: one refuses anyone without it
+        # (/hdrvideo/: 403 without it, the video with it, ranges and all); /hdrbad/ refuses even then
+        if p.startswith("/hdr/"):
+            rest = p[5:]
+            if rest == "manifest.json":   # the whole addon (catalogs, metas), its sources only these
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.hdr", name="Header Addon")).encode())
+            if rest.startswith("stream/"):
+                return self.send(200, json.dumps({"streams": [{"name": "Hdr\n1080p", "title": "Breaking.Bad.1080p.WEB.x264-HDR",
+                    "url": f"{BASE}/hdrvideo/sample_h264_aac.mkv", "behaviorHints": {"proxyHeaders": {"request": {"Referer": "https://hdr.example/"}}}},
+                    {"name": "Hdr\n720p", "title": "Breaking.Bad.720p.WEB.x264-HDRBAD",
+                    "url": f"{BASE}/hdrbad/sample_h264_aac.mkv", "behaviorHints": {"proxyHeaders": {"request": {"Referer": "https://hdr.example/"}}}}]}).encode())
+            p = "/" + rest   # the rest as the plain addon answers it
+        if p.startswith("/hdrbad/"):
+            return self.send(403, b"Forbidden", "text/plain")
+        if p.startswith("/hdrvideo/"):
+            if self.headers.get("Referer") != "https://hdr.example/":
+                return self.send(403, b"Forbidden: no Referer", "text/plain")
+            p = "/video/" + p[10:]
         # /fast/...: a stream-only addon with one cached debrid copy, reached through a redirect
         # (as a debrid link resolves to its file); /redir/<path> sends 302 to /<path>
         if p.startswith("/fast/"):

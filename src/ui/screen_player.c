@@ -2,6 +2,7 @@
  * addon + embedded subtitles, audio/subtitle menu, auto-fallback across stream
  * candidates, intro/recap skipping, Up Next at the credits, and progress sync to
  * the Stremio library. */
+#include "../relay.h"
 #include "../perfstat.h"
 #include "../app.h"
 #include "../http.h"
@@ -169,6 +170,8 @@ struct Player {
     int start_timed;          /* its first frame closed the start timing (perfstat) */
     int final_used;           /* this load opened where the link's redirects led (found moments ago) */
     unsigned char final_off[16];   /* that address failed for this source: its link from now on */
+    int relay_used;           /* this load went through the local relay (its addon asked for headers) */
+    unsigned char relay_off[16];   /* the relay did not get it playing: the direct link from now on */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
     int pip, pip_done;        /* parked in a corner; finished there */
@@ -1358,7 +1361,9 @@ static void start_candidate(Player *p, int idx, double start)
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     add_stream_subs(p, &p->cands[idx]);
-    if (p->cands[idx].headers) LOGI("player: source %d asks for request headers; the TV's player can't send them (its checks did), so it may not play", idx + 1);
+    char *relayed = p->cands[idx].headers && idx < 16 && !p->relay_off[idx] ? relay_url(p->cands[idx].url, p->cands[idx].headers) : NULL;
+    if (relayed) LOGI("player: source %d asks for request headers; it plays through the local relay, which sends them", idx + 1);
+    else if (p->cands[idx].headers) LOGI("player: source %d asks for request headers; the TV's player can't send them (its checks did), so it may not play", idx + 1);
     p->p2p_status[0] = 0;
     p->tb_error[0] = 0;
     if (torbox_is_hash_link(p->cands[idx].url)) {
@@ -1380,14 +1385,17 @@ static void start_candidate(Player *p, int idx, double start)
         app_toast("No cached copy: playing P2P on this TV. It switches back when TorBox has it.");
         torbox_queue_hash(p->cands[idx].url + strlen("http://127.0.0.1:11490/"));   /* your TorBox fetches it meanwhile */
     }
-    const char *load = p->cands[idx].url, *final = idx < 16 && !p->final_off[idx] ? streams_final_url(load) : NULL;
+    const char *load = p->cands[idx].url, *final = !relayed && idx < 16 && !p->final_off[idx] ? streams_final_url(load) : NULL;
     p->final_used = final != NULL;
+    p->relay_used = relayed != NULL;
+    if (relayed) load = relayed;
     if (final) {   /* checked moments ago: straight to the file, without the redirects */
         const char *hs = strstr(final, "://"); hs = hs ? hs + 3 : final;
         LOGI("player: source %d opens where its link led a moment ago (%.*s)", idx + 1, (int)strcspn(hs, "/:?"), hs);
         load = final;
     }
     if (video_load(load, p->title, start) != 0) app_toast("Could not start playback");
+    free(relayed);
     p->own_load = video_load_count();
     push_sub_style(p);   /* re-sent by the backend once the new pipeline has loaded */
     show_overlay(p);
@@ -1995,6 +2003,12 @@ static void update(Screen *s, float dt)
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
     night_tick(p, &vi);
 
+    if (vi.state == VIDEO_ERROR && !p->error_handled && p->relay_used && !p->net_played && p->cur < 16) {   /* the relay did not get it going: the link directly, as before it existed */
+        p->relay_off[p->cur] = 1;
+        LOGI("player: source %d did not start through the relay; opening its link directly", p->cur + 1);
+        start_candidate(p, p->cur, p->start_at);
+        video_info(&vi);
+    }
     if (vi.state == VIDEO_ERROR && !p->error_handled && p->final_used && !p->net_played && p->cur < 16) {   /* the address it led to may have expired: the link itself */
         p->final_off[p->cur] = 1;
         LOGI("player: the address source %d led to did not play; opening its link", p->cur + 1);
