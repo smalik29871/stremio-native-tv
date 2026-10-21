@@ -159,6 +159,8 @@ struct Player {
     int prefetch_renewed;     /* asked again near the end, once */
     int net_retries; float net_retry_at; double net_retry_pos;   /* the same source again after a dropped connection */
     int net_reconnecting;     /* this load is such a retry: failing before it plays still counts as the dropped connection */
+    int net_played;           /* this source has played (a link that never did gets one retry, not three) */
+    int card_logged;          /* the error card was put up (once in the log) */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
     int pip, pip_done;        /* parked in a corner; finished there */
@@ -222,6 +224,7 @@ static int subs_key(Player *p, KeyAction a);
 static void subs_open(Player *p);
 static void xl_start(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
+static int recovering(const Player *p, const VideoInfo *vi);
 
 static void report(Player *p, int force)
 {
@@ -1253,7 +1256,7 @@ static void on_torbox_open(const char *url, const char *error, void *user)
 
 static void start_candidate(Player *p, int idx, double start)
 {
-    if (idx != p->cur) p->net_retries = 0;   /* another source: its own count */
+    if (idx != p->cur) { p->net_retries = 0; p->net_played = 0; }   /* another source: its own count */
     p->net_retry_at = 0; p->net_reconnecting = 0;   /* a source chosen meanwhile, or Reload, replaces a pending reconnect */
     for (int r = 0; r < 2; r++)
         if (torbox_is_hash_link(p->cands[idx].url) && p->ready[r].url && p->ready[r].link && !strcmp(p->ready[r].link, p->cands[idx].url)
@@ -1372,7 +1375,7 @@ static void rescue(Player *p, const char *why, double at)
     char addon[96];
     cand_addon(&p->cands[next], addon, sizeof addon);
     LOGI("player: rescue (%s) -> source %d at %.0fs", why, next + 1, at);
-    app_toast("%s. Carrying on with %s from the same moment", why, addon[0] ? addon : "another source");
+    app_toast("Carrying on with %s from the same moment", addon[0] ? addon : "another source");
     start_candidate(p, next, at);
 }
 
@@ -1386,14 +1389,13 @@ static int net_retry(Player *p, const VideoInfo *vi)
     const char *c = strstr(vi->error, "(code ");
     int code = c ? atoi(c + 6) : 0;
     if (p->net_retries >= 3 || !(code == 300 || (code >= 40000 && code < 50000))) return 0;
-    if (!p->net_reconnecting && (!p->started || vi->position < 5)) return 0;   /* never played: the source, not the connection */
+    if (!p->net_played && p->net_retries >= 1) return 0;   /* never played: one more try, then it is the source */
     static const float WAIT[] = { 3, 10, 25 };
     float scale = env_s("SNTV_NET_RETRY_SCALE", 1);
-    if (!p->net_reconnecting) p->net_retry_pos = vi->position;   /* a failed reconnect keeps the first drop's place */
+    if (!p->net_reconnecting) p->net_retry_pos = vi->position > 5 ? vi->position : p->start_at;   /* a failed reconnect keeps the first drop's place */
     p->net_retry_at = g_app.time + WAIT[p->net_retries] * scale;
     p->net_retries++;
     LOGI("player: the connection dropped (%s); the same source again in %.0f s", vi->error, WAIT[p->net_retries - 1] * scale);
-    app_toast("Connection dropped. Reconnecting\xE2\x80\xA6");
     return 1;
 }
 
@@ -1410,7 +1412,8 @@ static void fail_over(Player *p, const char *why)
     if (next >= 0) {
         if (resume > 0) { rescue(p, why, resume); return; }   /* mid-film: carry on as it was */
         p->tries++;
-        app_toast(torrent_engine_url_is(p->cands[next].url) ? "%s. Trying P2P on this TV..." : "%s. Trying the next source...", why);
+        LOGI("player: source %d failed (%s)", p->cur + 1, why);
+        app_toast(torrent_engine_url_is(p->cands[next].url) ? "Trying P2P on this TV\xE2\x80\xA6" : "Trying another source\xE2\x80\xA6");
         start_candidate(p, next, p->start_at);   /* a resumed start keeps its place */
     } else {
         p->error_handled = 1;   /* stay on the error screen */
@@ -1599,7 +1602,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     }
     /* 5. nothing left to try: ask the addons again, twice at most */
     if ((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->net_retry_at && next_candidate(p) < 0 && p->reask_count < 2) {
-        if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 8); LOGI("player: every source failed; asking the addons again shortly"); app_toast("No source plays right now. Asking the addons again in a few seconds"); }
+        if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 2); LOGI("player: every source failed; asking the addons again for fresh links"); }
         else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; if (p->more_state == 1) p->more_state = 0; streams_lookup(&p->meta, p->video_id, on_reask, p); }
     }
     if (p->reask_at < 0 || p->more_state == 1) streams_lookup_tick();
@@ -1866,6 +1869,7 @@ static void update(Screen *s, float dt)
         p->net_reconnecting = 1;
     }
     if (p->net_reconnecting && p->started && vi.state == VIDEO_PLAYING) p->net_reconnecting = 0;
+    if (p->started && vi.state == VIDEO_PLAYING) p->net_played = 1;
     if (p->net_retries && vi.state == VIDEO_PLAYING && vi.position > p->net_retry_pos + 10) p->net_retries = 0;   /* it holds again */
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
@@ -2917,7 +2921,18 @@ static void draw_catchup(Player *p)
 /* every candidate has failed and the error card is up */
 static int error_final(const Player *p, const VideoInfo *vi)
 {
-    return (vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->net_retry_at && next_candidate(p) < 0;
+    return recovering(p, vi) == 0 && (vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled;
+}
+
+/* After a failure, what the player is still doing about it: 0 nothing (the error card),
+ * 1 reconnecting to the same source, 2 asking the addons for fresh links, 3 another source. */
+static int recovering(const Player *p, const VideoInfo *vi)
+{
+    if (!((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled)) return 0;
+    if (p->net_retry_at > 0) return 1;
+    if (next_candidate(p) >= 0) return 3;
+    if (p->reask_at != 0 || p->reask_count < 2) return 2;
+    return 0;
 }
 
 /* Until the first picture: the title's artwork and name, with what is happening, instead
@@ -2948,7 +2963,9 @@ static void draw_veil(Player *p, const VideoInfo *vi)
         gfx_tex(lt, x, y + 150 - h, w, h, RGBA(255, 255, 255, (int)(255 * k)));
     } else font_draw_fit(p->title ? p->title : "", x, y + 80, FONT_XL | FONT_B, fg, SNTV_UI_W - 2 * x);
     const char *url = p->cur < p->n_cands ? p->cands[p->cur].url : "";
-    const char *what = torbox_is_hash_link(url) ? "Getting it from TorBox" : torrent_engine_url_is(url) ? "Finding peers"
+    int rec = recovering(p, vi);
+    const char *what = rec == 1 ? "Reconnecting" : rec == 2 ? "Finding a fresh link" : rec == 3 ? "Trying another source"
+                     : torbox_is_hash_link(url) ? "Getting it from TorBox" : torrent_engine_url_is(url) ? "Finding peers"
                      : vi->buffering || vi->state == VIDEO_PLAYING ? "Buffering" : "Starting";
     char line[200];
     const char *label = p->cur < p->n_cands && p->cands[p->cur].label ? p->cands[p->cur].label : "";
@@ -3165,6 +3182,7 @@ static void draw(Screen *s)
     }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */
     if (error_final(p, &vi)) {
+        if (!p->card_logged) { p->card_logged = 1; LOGI("player: error card (%s): every source and fresh link tried", p->tb_error[0] ? p->tb_error : vi.error); }
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
         float w = 900, h = 360, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
         ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
@@ -3179,7 +3197,13 @@ static void draw(Screen *s)
         return;
     }
 
-    if (vi.state == VIDEO_LOADING || vi.buffering) {
+    int rec = recovering(p, &vi);
+    if (rec) {   /* not an error yet: what is being done about it */
+        static const char *const WHAT[] = { "", "Reconnecting\xE2\x80\xA6", "Finding a fresh link\xE2\x80\xA6", "Trying another source\xE2\x80\xA6" };
+        ui_spinner(SNTV_UI_W / 2, SNTV_UI_H / 2, 34);
+        font_draw_shadow(WHAT[rec], SNTV_UI_W / 2 - font_measure(WHAT[rec], FONT_S | FONT_B) / 2, SNTV_UI_H / 2 + 60, FONT_S | FONT_B, THEME_TEXT, RGBA(0, 0, 0, 0xA0));
+        app_redraw();
+    } else if (vi.state == VIDEO_LOADING || vi.buffering) {
         ui_spinner(SNTV_UI_W / 2, SNTV_UI_H / 2, 34);
         const char *what = vi.state == VIDEO_LOADING ? "Starting" : "Buffering";
         char b[48];

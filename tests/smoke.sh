@@ -294,7 +294,16 @@ grep -q "player: candidate 1/[0-9]* Fake Addon - Example" "$OUT/fallback_race.lo
   || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
 # (P2P off: with the engine built, its copy would play and nothing would be asked again)
 run fallback_reask 5000 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
-grep -q "player: asked the addons again: 3 sources" "$OUT/fallback_reask.log" || { echo "the addons were not asked again"; grep -E "player" "$OUT/fallback_reask.log"; exit 1; }
+grep -q "player: asked the addons again: 3 sources" "$OUT/fallback_reask.log" && ! grep -q "player: error card" "$OUT/fallback_reask.log" \
+  || { echo "the addons were not asked again (or the error card came up while they were)"; grep -E "player" "$OUT/fallback_reask.log"; exit 1; }
+# a link that fails to open with a network error is tried once more before it counts as failed
+run open_net_retry 1200 "right,ok,down,down,ok,wait,wait" "$LIGHTER" HOME="$(home_with netopen '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=1 SNTV_FAKE_FAIL_CODE=300 SNTV_NET_RETRY_SCALE=0.2 SNTV_NO_RACE=1
+grep -q "player: the connection dropped (Network Error (code 300)); the same source again" "$OUT/open_net_retry.log" && grep -q "player: reconnecting to source 1" "$OUT/open_net_retry.log" && ! grep -q "player: error card" "$OUT/open_net_retry.log" \
+  || { echo "a link that failed to open on a network error was not tried again"; grep -E "player" "$OUT/open_net_retry.log"; exit 1; }
+# only when every source, every retry and every fresh link failed does the error card come up
+run all_failed_card 3000 "right,ok,down,down,ok,wait,wait" "$LIGHTER" HOME="$(home_with allfail '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=99 SNTV_REASK_AFTER=0.2 SNTV_NO_RACE=1
+grep -q "player: error card" "$OUT/all_failed_card.log" && [ "$(grep -c "player: asked the addons again" "$OUT/all_failed_card.log")" = 2 ] \
+  || { echo "the error card did not wait for the addons to be asked again twice"; grep -E "player" "$OUT/all_failed_card.log"; exit 1; }
 # a source that loads and then waits for data for ever (a torrent nobody seeds) gives way to the next
 run fallback_stuck 1200 "right,ok,down,down,ok,wait" "$LIGHTER" HOME="$(home_with fb5 "$NO_PREFLIGHT")" SNTV_FAKE_STUCK=1 SNTV_START_TIMEOUT=1
 grep -q "player: source 1 did not start in [0-9]*s" "$OUT/fallback_stuck.log" && grep -q "player: candidate 2/[0-9]*" "$OUT/fallback_stuck.log" \

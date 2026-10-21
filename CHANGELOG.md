@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **No error card while the player can still fix it.** When every source in the list had
+  failed it showed "This source can't be played" at once, though it then asked the addons
+  for fresh links after 8 seconds. Now it asks after 2, shows what it is doing
+  ("Reconnecting", "Finding a fresh link", "Trying another source") instead of an error,
+  and the card only comes up once every source, retry and fresh link has failed. A link
+  that fails to open with a network error (code 300) is tried once more first; switch
+  notices no longer show the raw error (it stays in Diagnostics).
 - **Your TorBox offers only this episode of this show.** The show's name was looked for
   anywhere in a file's name, so "Ted" took Ted Lasso's S01E05; it must now be the whole
   name (followed by a year, the episode, a quality tag or nothing). And a file numbered as
