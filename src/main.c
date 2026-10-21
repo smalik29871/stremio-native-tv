@@ -459,7 +459,7 @@ int main(int argc, char **argv)
                 store_save();
                 store_flush();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
-                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; app_library_foreground(); }
+                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; app_library_foreground(); app_update_foreground(); }
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
                 mem_emergency();
@@ -472,6 +472,7 @@ int main(int argc, char **argv)
                 store_flush();   /* on flash before webOS may end us */
             } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
                 video_app_foreground();
+                if (g_backgrounded) app_update_foreground();
                 g_backgrounded = 0;
                 app_redraw();
             }

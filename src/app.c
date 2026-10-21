@@ -1307,6 +1307,18 @@ static void ask_to_update(void)
     app_push(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL));
 }
 
+static float g_update_t, g_update_next = -1, g_update_checked_at = -1000;
+
+/* Opened again from the TV's Home (webOS keeps the app running behind it): that is an
+ * opening too, so it checks again and a "Later" from before is asked once more. */
+void app_update_foreground(void)
+{
+    if (g_update_t - g_update_checked_at < 60) return;
+    g_update_offered = 0;
+    g_update_next = g_update_t + 3;
+    LOGI("update: back on screen, checking soon");
+}
+
 void app_update_check(float dt)
 {
     if (g_addons_retry_in > 0 && (g_addons_retry_in -= dt) <= 0) {
@@ -1318,16 +1330,17 @@ void app_update_check(float dt)
             free(body);
         }
     }
-    static float t, next = -1;
-    if (next < 0) next = getenv("SNTV_UPDATE_URL") ? 1 : 20;   /* tests check at once */
-    t += dt;
+    if (g_update_next < 0) g_update_next = getenv("SNTV_UPDATE_URL") ? 1 : 3;   /* soon after opening: Home is up by then */
+    g_update_t += dt;
+    float t = g_update_t, next = g_update_next;
     if (g_update_version[0] && g_update_url[0] && g_update_sha256[0] && g_app.auto_update && !g_update_offered && quiet_moment()) {
         g_update_offered = 1;
         ask_to_update();
         return;
     }
     if (t < next) return;
-    next = t + 6 * 3600;   /* then every six hours while it runs */
+    g_update_next = t + 6 * 3600;   /* then every six hours while it runs */
+    g_update_checked_at = t;
     if (getenv("SNTV_SCREENSHOT") && !getenv("SNTV_UPDATE_URL")) return;   /* headless test runs stay offline */
     http_request_async(repo_url(), NULL, on_repo, NULL);
 }

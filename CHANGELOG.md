@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Updates are checked when the app opens.** The first check came 20 seconds after a
+  start, and none when the app came back from the TV's Home (webOS keeps it running
+  behind it). It now checks a few seconds after opening and again each time it's back on
+  screen, and a "Later" is asked once more then.
+
 - **A source list you're choosing from no longer starts by itself.** OK on an episode
   opens its sources and starts the best one after a moment; moving in the list now
   stops that, and the header says so ("Up or Down to choose"). A choice made while the

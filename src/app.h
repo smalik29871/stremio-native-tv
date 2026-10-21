@@ -210,6 +210,7 @@ void app_link_failed(const char *url);
  * installs only on "Update now" (screen_update_create), or from Settings > About. */
 void app_update_check(float dt);
 void app_update_check_now(void);
+void app_update_foreground(void);   /* back on screen: an opening, so it checks again */
 extern char g_update_version[16];   /* "" or the newer version */
 extern char g_update_url[600], g_update_sha256[80];   /* the package and its checksum */
 Screen *screen_update_create(int countdown_s);
