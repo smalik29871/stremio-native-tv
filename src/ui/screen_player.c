@@ -260,6 +260,7 @@ static void describe_track(const Player *p, int kind, const VideoTrack *tr, int 
 static int xl_available(Player *p);
 static void draw_subs_panel(Player *p);
 static int subs_tuning(const Player *p);
+static int tuner_style(void) { const char *v = getenv("SNTV_TUNER_STYLE"); return v ? atoi(v) : 0; }   /* MOCKUP ONLY */
 static int cast_n(const Player *p, const TmdbInfo **tm);
 static int open_cast(Player *p);
 static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n);
@@ -2278,11 +2279,14 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && !subs_tuning(p) && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
     int r = subs_tuning(p) ? p->subs_row : -1;
     if (!text && !text2 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS)) text = "Subtitles will look like this";   /* nothing said right now: a sample to judge by */
+    float shift = r >= 0 && tuner_style() == 1 ? -250 : 0;   /* clear of the side panel */
+    gfx_set_translate(shift, 0);
     if (text) ui_subtitle(text, bottom, sub_size(p), g_app.subs_style);
     if (text2) {   /* the second language sits above the first (or where it would be) */
         float lift = text ? font_height(ui_subtitle_font(sub_size(p))) * 1.04f * 2 + 24 : 0;
         ui_subtitle(text2, bottom - lift, sub_size(p) > 0 ? sub_size(p) - 1 : 0, g_app.subs_style);
     }
+    gfx_set_translate(0, 0);
 }
 
 /* The Sources sheet during playback, after nuvio-native-legacy's: a tall card on the right,
@@ -4198,8 +4202,73 @@ static int subs_tuning(const Player *p)
 
 /* A small card with only the setting being changed, at the top (or the bottom when the
  * subtitles are at the top), the picture and its subtitles left clear. */
+static void draw_tuner_side(Player *p, float e)
+{
+    const float W = 460, RH = 84, H = 110 + (SUB_SYNC + 1) * RH + 56, X = SNTV_UI_W - 48 - W, Y = (SNTV_UI_H - H) / 2, PAD = 28;
+    gfx_set_alpha(e);
+    gfx_rrect(X, Y, W, H, 32, RGBA(0x15, 0x16, 0x1A, 0xE8));
+    font_draw_tracked("LOOK AND TIMING", X + PAD, Y + 30, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x73), 1.5f);
+    font_draw("Subtitles", X + PAD, Y + 56, FONT_M | FONT_B, THEME_TEXT);
+    for (int r = 0; r <= SUB_SYNC; r++) {
+        float y = Y + 110 + r * RH, cy = y + (RH - 8) / 2;
+        int foc = r == p->subs_row, adj = r != SUB_SYNC;
+        if (foc) gfx_rrect(X + 14, y, W - 28, RH - 8, R_KEY, THEME_FOCUS);
+        Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, vc = foc ? THEME_ON_FOCUS : THEME_ACCENT;
+        char v[160];
+        subs_setting(p, r, v, sizeof v);
+        if (r == SUB_SYNC) { char *d = strstr(v, "  \xC2\xB7"); if (d) *d = 0; }
+        font_draw(SET_LABEL[r], X + PAD + 6, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, fg);
+        float vr = X + W - PAD - (foc && adj ? 26 : 0), vw = font_measure(v, FONT_S | FONT_B);
+        font_draw(v, vr - vw, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, vc);
+        if (foc && adj) { ui_icon(ICON_CHEVRON_LEFT, vr - vw - 18, cy, 18, vc); ui_icon(ICON_CHEVRON_RIGHT, vr + 14, cy, 18, vc); }
+    }
+    font_draw_fit("Up/Down  setting   \xC2\xB7   Left/Right  change   \xC2\xB7   Back", X + PAD, Y + H - 44, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
+    gfx_set_alpha(1);
+}
+
+static void draw_tuner_chip(Player *p, float e)
+{
+    int row = p->subs_row;
+    char v[160];
+    subs_setting(p, row, v, sizeof v);
+    const float X = 48, Y = 40, H = 76;
+    float lw = font_measure(SET_LABEL[row], FONT_S | FONT_B), vw = font_measure(v, FONT_M | FONT_B), W = 40 + lw + 28 + 30 + vw + 30 + 40;
+    gfx_set_alpha(e);
+    gfx_rrect(X, Y, W, H, H / 2, RGBA(0x15, 0x16, 0x1A, 0xE8));
+    font_draw(SET_LABEL[row], X + 40, Y + (H - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT_DIM);
+    float vx = X + 40 + lw + 28 + 30, cy = Y + H / 2;
+    ui_icon(ICON_CHEVRON_LEFT, vx - 20, cy, 22, THEME_ACCENT);
+    font_draw(v, vx, cy - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, THEME_TEXT);
+    ui_icon(ICON_CHEVRON_RIGHT, vx + vw + 20, cy, 22, THEME_ACCENT);
+    for (int i = 0; i <= SUB_SYNC; i++)
+        gfx_circle(X + 40 + i * 16, Y + H + 18, i == row ? 5 : 4, i == row ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x50));
+    font_draw("Up/Down  more settings", X + 40 + 6 * 16 + 10, Y + H + 18 - font_height(FONT_XS) / 2, FONT_XS, COLOR_ALPHA(THEME_TEXT, 0xA0));
+    gfx_set_alpha(1);
+}
+
+static void draw_tuner_bar(Player *p, float e)
+{
+    const float H = 110, Y = SNTV_UI_H - H, W = SNTV_UI_W, TW = (W - 96) / (SUB_SYNC + 1);
+    gfx_set_alpha(e);
+    gfx_gradient_v(0, Y - 40, W, H + 40, RGBA(0, 0, 0, 0), RGBA(0x10, 0x11, 0x14, 0xF0));
+    for (int r = 0; r <= SUB_SYNC; r++) {
+        float x = 48 + r * TW;
+        int foc = r == p->subs_row;
+        char v[160];
+        subs_setting(p, r, v, sizeof v);
+        if (r == SUB_SYNC) { char *d = strstr(v, "  \xC2\xB7"); if (d) *d = 0; }
+        if (foc) gfx_rrect(x + 4, Y + 14, TW - 8, H - 28, R_KEY, THEME_FOCUS);
+        font_draw_center(SET_LABEL[r], x + TW / 2, Y + 24, FONT_XS | FONT_B, foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED);
+        font_draw_center(v, x + TW / 2, Y + 50, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : THEME_TEXT);
+    }
+    gfx_set_alpha(1);
+}
+
 static void draw_subs_tuner(Player *p, float e)
 {
+    if (tuner_style() == 1) { draw_tuner_side(p, e); return; }
+    if (tuner_style() == 2) { draw_tuner_chip(p, e); return; }
+    if (tuner_style() == 3) { draw_tuner_bar(p, e); return; }
     const float W = 1040, H = 176, X = (SNTV_UI_W - W) / 2, Y = g_app.subs_pos == 2 ? SNTV_UI_H - H - 48 : 40, PAD = 40;
     int row = p->subs_row < 0 ? 0 : p->subs_row > SUB_SYNC ? SUB_SYNC : p->subs_row;
     gfx_set_alpha(e);
