@@ -991,6 +991,55 @@ float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float 
     return h;
 }
 
+float ui_score_inline(float x, float y, const ScoreBadge *b, int n)
+{
+    const float icon = 30, h = 36;
+    float x0 = x;
+    for (int i = 0; i < n; i++) {
+        float cx = x + icon / 2, cy = y + h / 2;
+        switch (b[i].kind) {
+        case BADGE_TOMATOMETER: if (b[i].score >= 60) mark_tomato(cx, cy, icon, 255); else mark_splat(cx, cy, icon, 255); break;
+        case BADGE_POPCORNMETER: mark_popcorn(cx, cy, icon, 255, b[i].score >= 60); break;
+        case BADGE_LETTERBOXD: mark_letterboxd(cx, cy, icon, 255); break;
+        case BADGE_METASCORE: {   /* the box holds the score itself */
+            float bw = font_measure(b[i].value, FONT_XS | FONT_B) + 16;
+            Color c = b[i].score >= 61 ? RGBA(0x00, 0xCE, 0x7A, 0xFF) : b[i].score >= 40 ? RGBA(0xFF, 0xBD, 0x3F, 0xFF) : RGBA(0xFF, 0x68, 0x74, 0xFF);
+            gfx_rrect(x, y + 3, bw, h - 6, 6, c);
+            font_draw(b[i].value, x + 8, y + (h - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, RGBA(0x10, 0x10, 0x12, 0xFF));
+            x += bw + 26;
+            continue;
+        }
+        default: break;
+        }
+        font_draw(b[i].value, x + icon + 8, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+        x += icon + 8 + font_measure(b[i].value, FONT_S | FONT_B) + 26;
+    }
+    return n ? x - 26 - x0 : 0;
+}
+
+float ui_advisory_inline(float x, float y, const int level[5], float max_w)
+{
+    static const int SHOWN[5] = { 1, 2, 4, 0, 3 };
+    static const char *const NAME[5] = { "Nudity", "Violence", "Profanity", "Alcohol/Drugs", "Frightening" };
+    static const char *const LEVEL[4] = { "", "Mild", "Moderate", "Severe" };
+    float x0 = x, ty = y + (36 - font_height(FONT_S | FONT_B)) / 2;
+    int first = 1;
+    for (int lvl = 3; lvl >= 1; lvl--)
+        for (int i = 0; i < 5; i++) {
+            int t = SHOWN[i];
+            if (level[t] != lvl) continue;
+            float w = (first ? 0 : font_measure("  \xC2\xB7  ", FONT_S)) + font_measure(NAME[t], FONT_S | FONT_B) + font_measure(" ", FONT_S) + font_measure(LEVEL[lvl], FONT_S);
+            if (x - x0 + w > max_w) return x - x0;   /* the strongest fit; the rest wait for the player */
+            if (!first) { font_draw("  \xC2\xB7  ", x, ty, FONT_S, THEME_TEXT_MUTED); x += font_measure("  \xC2\xB7  ", FONT_S); }
+            font_draw(NAME[t], x, ty, FONT_S | FONT_B, THEME_TEXT);
+            x += font_measure(NAME[t], FONT_S | FONT_B) + font_measure(" ", FONT_S);
+            font_draw(LEVEL[lvl], x, ty, FONT_S, THEME_TEXT_DIM);
+            x += font_measure(LEVEL[lvl], FONT_S);
+            first = 0;
+        }
+    return x - x0;
+}
+
 void ui_advisory(float x, float y, const int level[5], float alpha)
 {
     /* the themes in the order they are listed at the same strength (advisory.h's indices) */

@@ -8,6 +8,7 @@
 #include "../tmdb.h"
 #include "../newep.h"
 #include "../tracking.h"
+#include "../advisory.h"
 #include "../ai.h"
 #include "../image.h"
 #include "../../vendor/cJSON.h"
@@ -924,6 +925,24 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
         }
 }
 
+/* MDBList's scores as badges for the header: the Tomatometer, Popcornmeter, Metascore, Letterboxd */
+static int detail_scores(const Detail *d, ScoreBadge *b, char text[][16])
+{
+    static const struct { int src, kind; const char *fmt; } R[] = {
+        { MDB_TOMATOMETER, BADGE_TOMATOMETER, "%.0f%%" }, { MDB_POPCORNMETER, BADGE_POPCORNMETER, "%.0f%%" },
+        { MDB_METACRITIC, BADGE_METASCORE, "%.0f" }, { MDB_LETTERBOXD, BADGE_LETTERBOXD, "%.1f" } };
+    double sc[MDB_SOURCES];
+    int n = 0;
+    if (!mdblist_scores(d->preview.id, d->preview.type, sc)) return 0;
+    for (int i = 0; i < 4; i++) {
+        if (sc[R[i].src] <= 0) continue;
+        snprintf(text[n], 16, R[i].fmt, sc[R[i].src]);
+        b[n] = (ScoreBadge){ R[i].kind, sc[R[i].src], text[n], NULL };
+        n++;
+    }
+    return n;
+}
+
 static void draw(Screen *s)
 {
     Detail *d = s->st;
@@ -1006,11 +1025,20 @@ static void draw(Screen *s)
             mx += font_measure(parts[i], FONT_S | FONT_B);
         }
         y += 52;
-        if (d->preview.genres.n) {
+        /* the genres, then what critics and audiences make of it */
+        ScoreBadge sb[4];
+        char sv[4][16];
+        int ns = detail_scores(d, sb, sv);
+        if (d->preview.genres.n || ns) {
             float gx = x;
             for (int g = 0; g < d->preview.genres.n && g < 5; g++) gx += ui_chip_outline(d->preview.genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, 0x50), THEME_TEXT_DIM) + 10;
+            if (ns) ui_score_inline(gx > x ? gx + 18 : x, y, sb, ns);
             y += 54;
         }
+        /* and what it contains, as the player says when it starts */
+        const Advisory *adv = g_app.advisory ? advisory_get(d->preview.id) : NULL;
+        if (g_app.advisory) advisory_fetch(d->preview.id);
+        if (adv && ui_advisory_inline(x, y - 6, adv->level, col_w) > 0) y += 44;
         if (d->preview.description)
             y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, col_w, series ? 2 : g_theme.id == THEME_APERTURE ? 3 : 5) * font_height(FONT_S) + 26;
     }

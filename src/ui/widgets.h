@@ -64,6 +64,10 @@ void ui_facts(float x, float y, const char *const *name, const char *const *valu
 enum { BADGE_TOMATOMETER, BADGE_POPCORNMETER, BADGE_METASCORE, BADGE_LETTERBOXD, BADGE_LIVE, BADGE_WATCHERS, BADGE_PLAYS };
 typedef struct { int kind; double score; const char *value, *label; } ScoreBadge;
 float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha);
+/* The same marks small, each with its score beside it, in a 36-high line from x; returns the width. */
+float ui_score_inline(float x, float y, const ScoreBadge *b, int n);
+/* The advisory on one line from x ("Violence Severe · Profanity Moderate"); returns the width (0: nothing rated). */
+float ui_advisory_inline(float x, float y, const int level[5], float max_w);
 /* A person's photo cropped to the box (faces sit high), or their initials when there is none. */
 void ui_portrait(const char *photo, const char *name, float x, float y, float w, float h, float r, int initials_font);
 /* "New episode" ("3 new episodes") with a bell, its right edge at x: a series card whose show has aired more. */

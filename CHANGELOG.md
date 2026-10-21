@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Title pages show the scores and the advisory too**, not only the paused screen: the
+  Tomatometer, Popcornmeter, Metascore and Letterboxd marks beside the genres, and a
+  line of what the title contains ("Violence Severe · Profanity Moderate").
+- **The Popcornmeter shows**: MDBList calls the audience score "tomatoesaudience",
+  which the app did not read (it looked for "popcorn"); both names count now.
+
 ## 0.10.36
 
 - **What critics and viewers make of it, in the paused screen's corner**, as score

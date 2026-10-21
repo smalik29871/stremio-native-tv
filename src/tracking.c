@@ -552,13 +552,15 @@ static void mdb_parse(int slot, const char *json)
     char *o = g_mdb[slot].line; size_t n = sizeof g_mdb[slot].line, l = 0;
     o[0] = 0;
     memset(g_mdb[slot].score, 0, sizeof g_mdb[slot].score);
-    static const struct { const char *src, *name, *fmt; } S[] = {   /* in MDB_* order */
-        { "tomatoes", "Tomatometer", "%.0f%%" }, { "popcorn", "Popcornmeter", "%.0f%%" }, { "metacritic", "Metacritic", "%.0f" },
-        { "letterboxd", "Letterboxd", "%.1f" }, { "tmdb", "TMDB", "%.0f%%" } };
+    /* in MDB_* order; the audience score has gone by both names (Kometa reads it as "tomatoesaudience") */
+    static const struct { const char *src, *alt, *name, *fmt; } S[] = {
+        { "tomatoes", NULL, "Tomatometer", "%.0f%%" }, { "tomatoesaudience", "popcorn", "Popcornmeter", "%.0f%%" },
+        { "metacritic", NULL, "Metacritic", "%.0f" }, { "letterboxd", NULL, "Letterboxd", "%.1f" }, { "tmdb", NULL, "TMDB", "%.0f%%" } };
     for (size_t k = 0; k < sizeof S / sizeof S[0]; k++)
         if (cJSON_IsArray(rs)) cJSON_ArrayForEach(it, rs) {
             const cJSON *src = cJSON_GetObjectItemCaseSensitive(it, "source"), *v = cJSON_GetObjectItemCaseSensitive(it, "value");
-            if (!cJSON_IsString(src) || strcmp(src->valuestring, S[k].src) || !cJSON_IsNumber(v) || v->valuedouble <= 0) continue;
+            if (!cJSON_IsString(src) || !cJSON_IsNumber(v) || v->valuedouble <= 0) continue;
+            if (strcmp(src->valuestring, S[k].src) && (!S[k].alt || strcmp(src->valuestring, S[k].alt))) continue;
             char val[16]; snprintf(val, sizeof val, S[k].fmt, v->valuedouble);
             if (l < n) l += (size_t)snprintf(o + l, n - l, "%s%s %s", l ? "  \xC2\xB7  " : "", S[k].name, val);
             g_mdb[slot].score[k] = v->valuedouble;
