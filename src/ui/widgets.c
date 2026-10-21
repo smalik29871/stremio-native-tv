@@ -1009,38 +1009,40 @@ void ui_score_card(float right_x, float y, const ScoreBadge *scores, int n, cons
     for (int i = 0; i < n; i++) { if (scores[i].kind == BADGE_MDBLIST) ring = &scores[i]; else rows++; }
     float head = ring ? 104 : 0, h = pad + head + rows * row + (np ? (rows || ring ? 26 : 0) + 34 + np * row : 0) + pad - 8;
     float x = right_x - w;
-    gfx_shadow(x, y + 10, w, h, 22, 40, RGBA(0, 0, 0, (int)(0x90 * alpha)));
-    gfx_rrect(x, y, w, h, 22, RGBA(0x12, 0x12, 0x18, (int)(0xD8 * alpha)));
-    gfx_rrect_ring(x, y, w, h, 22, 1, RGBA(0xFF, 0xFF, 0xFF, (int)(0x1C * alpha)));
+    /* glass: the picture shows through, a soft dark only where the text needs it */
+    gfx_shadow(x, y + 8, w, h, 22, 40, RGBA(0, 0, 0, (int)(0x38 * alpha)));
+    gfx_rrect(x, y, w, h, 22, RGBA(0x20, 0x20, 0x28, (int)(0x6A * alpha)));
+    gfx_rrect_ring(x, y, w, h, 22, 1, RGBA(0xFF, 0xFF, 0xFF, (int)(0x30 * alpha)));
+    Color sh = RGBA(0, 0, 0, a / 2);
     float cy = y + pad;
     if (ring) {   /* MDBList's blend: the ring large, the score in it */
         float rc = x + pad + 40, rm = cy + 40;
         ui_arc(rc, rm, 36, 8, 0, 1, RGBA(0xFF, 0xFF, 0xFF, a / 6));
         ui_arc(rc, rm, 36, 8, 0, (float)(ring->score / 100), score_colour(ring->score, a));
-        font_draw_center(ring->value, rc, rm - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a));
-        font_draw("MDBList score", rc + 64, rm - 30, FONT_S | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a));
-        font_draw("every rating, weighed together", rc + 64, rm + 4, FONT_XS, RGBA(0xA0, 0xA0, 0xA8, a));
+        font_draw_shadow(ring->value, rc - font_measure(ring->value, FONT_M | FONT_B) / 2, rm - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), sh);
+        font_draw_shadow("MDBList score", rc + 64, rm - 30, FONT_S | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), sh);
+        font_draw_shadow("every rating, weighed together", rc + 64, rm + 4, FONT_XS, RGBA(0xC8, 0xC8, 0xD0, a), sh);
         cy += head;
     }
     for (int i = 0; i < n; i++) {
         if (scores[i].kind == BADGE_MDBLIST) continue;
         float my = cy + row / 2;
         draw_mark(&scores[i], x + pad + icon / 2, my, icon, a);
-        font_draw(scores[i].label, x + pad + icon + 18, my - font_height(FONT_S) / 2, FONT_S, RGBA(0xD8, 0xD8, 0xDE, a));
+        font_draw_shadow(scores[i].label, x + pad + icon + 18, my - font_height(FONT_S) / 2, FONT_S, RGBA(0xEC, 0xEC, 0xF0, a), sh);
         float vw = font_measure(scores[i].value, FONT_S | FONT_B);
-        font_draw(scores[i].value, x + w - pad - vw, my - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a));
+        font_draw_shadow(scores[i].value, x + w - pad - vw, my - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0xFF, 0xFF, 0xFF, a), sh);
         cy += row;
     }
     if (np) {
-        if (rows || ring) { gfx_rect(x + pad, cy + 12, w - 2 * pad, 1, RGBA(0xFF, 0xFF, 0xFF, a / 8)); cy += 26; }
-        font_draw_tracked("ON TRAKT", x + pad, cy + 4, FONT_XS | FONT_B, RGBA(0x90, 0x90, 0x98, a), 2);
+        if (rows || ring) { gfx_rect(x + pad, cy + 12, w - 2 * pad, 1, RGBA(0xFF, 0xFF, 0xFF, a / 5)); cy += 26; }
+        font_draw_tracked("ON TRAKT", x + pad, cy + 4, FONT_XS | FONT_B, RGBA(0xC0, 0xC0, 0xC8, a), 2);
         cy += 34;
         for (int i = 0; i < np; i++) {
             float my = cy + row / 2;
             draw_mark(&people[i], x + pad + icon / 2, my, icon, a);
-            font_draw(people[i].label, x + pad + icon + 18, my - font_height(FONT_S) / 2, FONT_S, RGBA(0xD8, 0xD8, 0xDE, a));
+            font_draw_shadow(people[i].label, x + pad + icon + 18, my - font_height(FONT_S) / 2, FONT_S, RGBA(0xEC, 0xEC, 0xF0, a), sh);
             float vw = font_measure(people[i].value, FONT_S | FONT_B);
-            font_draw(people[i].value, x + w - pad - vw, my - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a));
+            font_draw_shadow(people[i].value, x + w - pad - vw, my - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0xFF, 0xFF, 0xFF, a), sh);
             cy += row;
         }
     }
