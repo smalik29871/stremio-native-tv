@@ -192,6 +192,7 @@ struct Player {
     unsigned skip_used;       /* bit per segment: skipped or played through */
     double next_at;           /* position where Up Next starts by itself */
     int up_next_dismissed;
+    int next_wanted;          /* OK on the card while the next episode was still being prepared: it starts when ready */
 
     int menu, menu_focus;
     int src_filter, src_chip, src_on_chips;   /* Sources sheet: addon tab (0 all), focused button (0 find more, 1 close), focus zone (0 list, 1 tabs, 2 buttons) */
@@ -1773,6 +1774,14 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
 
 static void go_up_next(Player *p) { go_to_video(p, p->next_video_id, p->next_title); }
 
+/* The next episode can start: its sources are in and the best is checked (or nothing was
+ * fetched ahead at all, so there is nothing to wait for). */
+static int next_ready(const Player *p)
+{
+    float k = p->next_video_id ? streams_prefetch_progress(p->next_video_id) : -1;
+    return k < 0 || k >= 1;
+}
+
 /* ---- next episode readiness ------------------------------------------------------- */
 
 #define READY_PULSE_S 0.6f
@@ -2157,9 +2166,12 @@ static void update(Screen *s, float dt)
     if (!vi.buffering && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
     p->was_buffering = vi.buffering;
     if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
-    if (p->up_next_shown && p->next_video_id && g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at
-        && vi.state == VIDEO_PLAYING && !p->menu) { go_up_next(p); return; }   /* never under an open menu */
-    if (p->up_next_shown && !at_credits && !near_end) p->up_next_shown = 0;   /* seeked back out of its window (with or without markers) */
+    if (p->up_next_shown && p->next_video_id && ((g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at) || p->next_wanted)
+        && vi.state == VIDEO_PLAYING && !p->menu && next_ready(p)) {   /* never under an open menu, and not before it's ready: the credits play on meanwhile */
+        LOGI("player: the next episode is ready%s", p->next_wanted ? " (asked for on the card)" : "");
+        go_up_next(p); return;
+    }
+    if (p->up_next_shown && !at_credits && !near_end) { p->up_next_shown = 0; p->next_wanted = 0; }   /* seeked back out of its window (with or without markers) */
     if (vi.state == VIDEO_ENDED) {
         if (p->next_video_id && g_app.autoplay_next) { if (!p->menu) go_up_next(p); return; }
         p->finished = 1;
@@ -2527,7 +2539,7 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
         font_draw_wrapped(p->next_title ? p->next_title : "Next episode", tx, y + 50, FONT_M | FONT_ALT, THEME_TEXT, tw, 2);
         if (g_app.autoplay_next && vi->duration > 0) {
             double at = p->next_at > 0 ? p->next_at : vi->duration, window = at < vi->duration ? 20.0 : 45.0, left = at - vi->position;
-            char t[48]; snprintf(t, sizeof t, "Starts in %ds", (int)(left < 0 ? 0 : left));
+            char t[48]; if (left > 0.5 && !p->next_wanted) snprintf(t, sizeof t, "Starts in %ds", (int)left); else snprintf(t, sizeof t, "Starts once ready");
             font_draw(t, x + 20, y + h - 30, FONT_XS, THEME_TEXT_DIM);
             float lx = x + 20 + font_measure(t, FONT_XS) + 16, lw = 256 - (lx - x - 20);
             if (lw > 20) { gfx_rect(lx, y + h - 20, lw, 2, COLOR_ALPHA(THEME_TEXT, 0x30)); gfx_rect(lx, y + h - 20, lw * (float)(1.0 - left / window), 2, THEME_ACCENT); }
@@ -2552,8 +2564,8 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
         double at = p->next_at > 0 ? p->next_at : vi->duration;
         double window = at < vi->duration ? 20.0 : 45.0;
         double left = at - vi->position;
-        char t[48]; snprintf(t, sizeof t, "Starts in %ds", (int)(left < 0 ? 0 : left));
-        font_draw(t, tx, y + h - 54, FONT_XS, THEME_TEXT_DIM);
+        char t[48]; if (left > 0.5 && !p->next_wanted) snprintf(t, sizeof t, "Starts in %ds", (int)left); else snprintf(t, sizeof t, "Starts once ready");
+        font_draw_fit(t, tx, y + h - 54, FONT_XS, THEME_TEXT_DIM, (x + w - 140) - 64 - tx);   /* clear of the OK beside the button */
         ui_progress(tx, y + h - 22, w - 320, 6, (float)(1.0 - left / window), THEME_ACCENT);
     }
     float k = next_progress(p), gx = x + w - 140, gy = y + h - 64;
@@ -2572,7 +2584,7 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
     font_draw_center(what, gx + 60, gy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_ON_LIGHT);
     /* OK is the button's key: framed like a focused control, with the key named beside it */
     gfx_rrect_ring(gx - 5, gy - 5, 130, 50, R_PANEL + 4, 2.5f, THEME_TEXT);
-    font_draw("OK", gx - 16 - font_measure("OK", FONT_XS | FONT_B), gy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
+    if (!p->next_wanted) font_draw("OK", gx - 16 - font_measure("OK", FONT_XS | FONT_B), gy + (40 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);   /* pressed already: it waits */
 }
 
 static void draw_skip_button(Player *p, const SkipSeg *s, const VideoInfo *vi, int overlay, float card_top)
@@ -4393,7 +4405,11 @@ keys:
      * (live scrub may already have moved the picture) */
     if (p->seek_commit > 0 && a == KEY_OK) { p->seek_commit = 0; video_seek(p->seek_target); show_overlay(p); return 1; }
     if (p->seek_commit > 0 && a == KEY_BACK) { p->seek_commit = 0; if (g_app.live_scrub) video_seek(p->seek_origin); app_toast("Seek cancelled"); show_overlay(p); return 1; }
-    if (a == KEY_OK && p->up_next_shown && p->next_video_id) { go_up_next(p); return 1; }   /* the card's Play now */
+    if (a == KEY_OK && p->up_next_shown && p->next_video_id) {   /* the card's Play now; still preparing: it starts once ready */
+        if (next_ready(p)) go_up_next(p);
+        else if (!p->next_wanted) { p->next_wanted = 1; LOGI("player: next episode asked for while it's prepared"); app_redraw(); }
+        return 1;
+    }
     /* Skip: OK while the controls are hidden and the video plays, or once Up has focused the
      * button; with the controls up OK is play/pause like everywhere else */
     {

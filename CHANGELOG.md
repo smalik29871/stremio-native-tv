@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Up Next waits until the next episode is ready.** Its button reads *Preparing*, filling
+  as the next episode's sources arrive and its best source is checked, and turns into
+  *Play now* when it can start. OK while it prepares starts it the moment it's ready
+  ("Starts once ready"), and a countdown that runs out first waits on the card while the
+  credits play, so the source list no longer shows in between.
+
 ## 0.10.43
 
 - **The next episode starts even when the screensaver is due.** When the Up Next

@@ -68,6 +68,7 @@ static struct {
     float started;
     int addons_version;   /* the addons it was asked of: new ones make it stale */
     MetaPreview meta; int has_meta;   /* the title, to rank what came in (its best is checked ahead) */
+    int checking;         /* its best source is being checked: not ready yet */
 } g_pre;
 #define PREFETCH_FRESH_S 10800.0f   /* the answers hold for hours; near the end of the episode they are asked again (streams_prefetch_again) */
 
@@ -574,11 +575,14 @@ static void prefetch_clear(void)
     g_pre.generation = g_generation + 1000;
 }
 
+typedef struct { char *url; unsigned generation; } AheadReq;
+
 static void on_ahead(HttpResponse *r, void *user)
 {
-    char *url = user;
-    check_record(url, r);
-    free(url);
+    AheadReq *q = user;
+    check_record(q->url, r);
+    if (q->generation == g_pre.generation) { g_pre.checking = 0; app_redraw(); }   /* the Up Next card may be waiting */
+    free(q->url); free(q);
 }
 
 /* Every answer is in: the source Play would start is checked now, while the viewer reads
@@ -596,7 +600,10 @@ static void check_ahead(void)
     if (!s->url || strncmp(s->url, "http", 4) || torrent_engine_url_is(s->url) || check_find(s->url, CHECK_FRESH_S)) return;
     LOGI("streams: checking the best of %d prefetched sources ahead", g_pre.n);
     HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1 };   /* as the screen checks it */
-    http_request_async_ex(s->url, &opt, on_ahead, strdup(s->url));
+    AheadReq *q = malloc(sizeof *q);
+    q->url = strdup(s->url); q->generation = g_pre.generation;
+    g_pre.checking = 1;
+    http_request_async_ex(s->url, &opt, on_ahead, q);
 }
 
 static void on_prefetch(HttpResponse *r, void *user)
@@ -649,6 +656,7 @@ float streams_prefetch_progress(const char *video_id)
 {
     if (!video_id || !g_pre.video_id || strcmp(g_pre.video_id, video_id) != 0 || g_pre.total <= 0) return -1;
     if (g_app.time - g_pre.started > PREFETCH_FRESH_S) return -1;
+    if (!g_pre.pending && g_pre.checking) return 0.95f;   /* every answer in, its best still being checked */
     return (float)(g_pre.total - g_pre.pending) / (float)g_pre.total;
 }
 
