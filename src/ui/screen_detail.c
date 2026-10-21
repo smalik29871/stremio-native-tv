@@ -1234,7 +1234,7 @@ static int key(Screen *s, KeyAction a)
                 app_push(screen_player_create(&d->preview, d->resume_video, d->preview.name, c, 1, 0, d->resume_pos, has_next ? nid : NULL, has_next ? nt : NULL));
                 return 1;
             }
-            if (series) { if (d->n_eps) play_episode(d, d->ep_index[d->ep_focus]); return 1; }
+            if (series) { if (d->n_eps) open_streams_for_video_ex(d, d->ep_index[d->ep_focus], play_key); return 1; }   /* OK: its sources to choose from; Play: it starts */
             if (!d->has_meta && d->loading) { app_toast("Still loading details..."); return 1; }
             if (app_pip_claim(d->meta.default_video_id ? d->meta.default_video_id : d->preview.id)) return 1;
             {
@@ -1259,7 +1259,7 @@ static int key(Screen *s, KeyAction a)
         case KEY_RIGHT: if (d->ep_focus < d->n_eps - 1) focus_ep(d, d->ep_focus + 1); return 1;
         case KEY_UP: d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_ACTIONS; return 1;
         case KEY_DOWN: d->area = AREA_ABOUT; return 1;
-        case KEY_OK: if (d->n_eps) play_episode(d, d->ep_index[d->ep_focus]); return 1;
+        case KEY_OK: if (d->n_eps) open_streams_for_video(d, d->ep_index[d->ep_focus]); return 1;   /* its sources, nothing starts until one is chosen (Play starts it) */
         case KEY_BACK: d->area = AREA_ACTIONS; return 1;
         default: return 0;
         }

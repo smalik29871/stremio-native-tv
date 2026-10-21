@@ -104,57 +104,61 @@ grep -q "youtube: fileOnly001 streams as a file" "$OUT/detail_trailer_file.log" 
 LIBF="$OUT/home_trailer/.local/share/stremio/nativetv/library.json"
 [ ! -f "$LIBF" ] || ! grep -q tt0111161 "$LIBF" || { echo "watching the trailer saved progress for the film"; exit 1; }
 run episodes 220 "right,ok,down,down,right"
-run streams 240 "right,ok,down,down,ok"
+run streams 240 "right,ok,down,down,play"
 run streams_best 320 "right,ok,down,down,yellow,down,down,down,ok,up" HOME="$(home_with best '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"qualityMode":1}')"
-run player 280 "right,ok,down,down,ok,wait"
-run player_subs 360 "right,ok,down,down,ok,wait,down,right,right,right,ok" HOME="$(home_with subs1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player 280 "right,ok,down,down,play,wait"
+run player_subs 360 "right,ok,down,down,play,wait,down,right,right,right,ok" HOME="$(home_with subs1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles in" "$OUT/player_subs.log" || { echo "the Subtitles sheet did not open"; grep -E "drawer|subtitles" "$OUT/player_subs.log"; exit 1; }
-run player_audio 400 "right,ok,down,down,ok,wait,down,right,right,right,right,ok,down"
-run player_cue 300 "right,ok,down,down,ok,wait" SNTV_FAKE_NO_TEXT_TRACKS=1
-run player_seek 268 "right,ok,down,down,ok,wait,right,right,right" SNTV_FAKE_DURATION=1
+run player_audio 400 "right,ok,down,down,play,wait,down,right,right,right,right,ok,down"
+run player_cue 300 "right,ok,down,down,play,wait" SNTV_FAKE_NO_TEXT_TRACKS=1
+run player_seek 268 "right,ok,down,down,play,wait,right,right,right" SNTV_FAKE_DURATION=1
 # an episode watched to the end, the next one not played: the series stays in Continue Watching at the next episode
 CWH="$(home_with cw_next '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run cw_next_episode 760 "right,ok,down,down,ok,wait,wait,back,back,back,back,wait,back,wait,up,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=120 HOME="$CWH"
+run cw_next_episode 760 "right,ok,down,down,play,wait,wait,back,back,back,back,wait,back,wait,up,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=120 HOME="$CWH"
 grep -q '"video_id":"tt0903747:1:2"' "$CWH/.local/share/stremio/nativetv/library.json" && grep -q '"timeOffset":1[,}]' "$CWH/.local/share/stremio/nativetv/library.json" \
   || { echo "a finished episode dropped the series from Continue Watching"; grep -o '"video_id":[^,]*\|"timeOffset":[^,]*' "$CWH/.local/share/stremio/nativetv/library.json"; exit 1; }
-run upnext_card 300 "right,ok,down,down,ok,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run upnext_auto 380 "right,ok,down,down,ok,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_card 300 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_auto 380 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # OK on the card is its Play now (autoplay off, so only the key can start the next episode)
 # Up Next with no bingeGroup: the next episode plays from the same release group (NTb) by itself
-run upnext_chain 520 "right,ok,down,down,ok,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/chain/manifest.json HOME="$(home_with upnext_chain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_chain 520 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/chain/manifest.json HOME="$(home_with upnext_chain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "streams: next episode like group NTb" "$OUT/upnext_chain.log" && grep -q "streams: next episode from the same release" "$OUT/upnext_chain.log" && grep "player: candidate 1/" "$OUT/upnext_chain.log" | sed -n 2p | grep -q "rel=ntb" \
   || { echo "the next episode did not stay on the same release"; grep -E "streams:|player: candidate" "$OUT/upnext_chain.log"; exit 1; }
-run upnext_ok 520 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_ok '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
+run upnext_ok 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_ok '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
 # leaving a video mid-way: the island offers it back on Home, and Blue opens it
-run island_resume 520 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run island_resume 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume.log" || { echo "Blue did not open the title left mid-way"; grep -i "island\|player" "$OUT/island_resume.log"; exit 1; }
-run island_resume_up 540 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with island_up '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run island_resume_up 540 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with island_up '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume_up.log" || { echo "Up and OK did not open the resume card"; grep -i "island" "$OUT/island_resume_up.log"; exit 1; }
-run island_resume_focus 500 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up" SNTV_FAKE_START=200 HOME="$(home_with island_f '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run island_resume_focus 500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up" SNTV_FAKE_START=200 HOME="$(home_with island_f '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 [ "$(grep -c 'player: candidate' "$OUT/upnext_ok.log")" -ge 2 ] || { echo "OK on the Up Next card did not start the next episode"; grep player "$OUT/upnext_ok.log"; exit 1; }
 # next episode's sources still arriving (the /slow addon answers 6 s late): the Up Next
 # button and the control bar's Next button fill as a loader
 SLOW="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/slow/manifest.json"
-run upnext_loading 420 "right,ok,down,down,ok,wait" "$SLOW" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_loading '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_loading 420 "right,ok,down,down,play,wait" "$SLOW" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_loading '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # the next episode's sources are asked for early in this one (here after 1 s of playing,
 # 30 s on a TV), not only near the end or when the control bar is open
-run next_early 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with nextearly '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_DURATION=3000 SNTV_PREFETCH_AFTER=1
+run next_early 500 "right,ok,down,down,play,wait,wait" HOME="$(home_with nextearly '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_DURATION=3000 SNTV_PREFETCH_AFTER=1
 grep -q "streams: prefetching tt0903747:1:2" "$OUT/next_early.log" || { echo "the next episode was not prepared early"; grep -E "streams:|player: candidate" "$OUT/next_early.log"; exit 1; }
 # and asked again in the last minutes when the answers have aged (here after 1 s)
-run next_renewed 600 "right,ok,down,down,ok,wait,wait,wait" HOME="$(home_with nextrenew '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=200 SNTV_PREFETCH_RENEW=1
+run next_renewed 600 "right,ok,down,down,play,wait,wait,wait" HOME="$(home_with nextrenew '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=200 SNTV_PREFETCH_RENEW=1
 grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { echo "the next episode's sources were not renewed near the end"; grep -E "streams:" "$OUT/next_renewed.log"; exit 1; }
 # a source named for another episode never plays by itself, however good it looks
-run wrong_episode_skipped 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
+run wrong_episode_skipped 500 "right,ok,down,down,play,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
 grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep "player: candidate" "$OUT/wrong_episode_skipped.log" | grep -q "?ep=4" \
   || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
-# an episode's sources opened to play (OK): moving in the list stops the automatic start (the
+# OK on an episode: its sources to choose from, and nothing starts by itself (the answers are quick here)
+run ep_ok_list 900 "right,ok,down,down,ok" HOME="$(home_with epok '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "UI check: screen=streams" "$OUT/ep_ok_list.log" && ! grep -qE "player: candidate|racing" "$OUT/ep_ok_list.log" \
+  || { echo "OK on an episode started a source by itself"; grep -E "streams|player|UI check" "$OUT/ep_ok_list.log" | tail -5; exit 1; }
+# an episode's sources opened to play (the remote's Play): moving in the list stops the automatic start (the
 # slow addon holds episode 2's answers 6 s, the wait it would start after), a source chosen
 # plays, and left alone the best one still starts by itself
-run ep_list_choose 1000 "right,ok,down,down,right,ok,down" "$SLOW" HOME="$(home_with eplist_choose '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run ep_list_choose 1000 "right,ok,down,down,right,play,down" "$SLOW" HOME="$(home_with eplist_choose '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -qE "player: candidate|racing" "$OUT/ep_list_choose.log" && { echo "a source started by itself after the viewer moved in the list"; grep -E "streams|player" "$OUT/ep_list_choose.log" | tail -5; exit 1; }
-run ep_list_pick 700 "right,ok,down,down,right,ok,down,up,ok" "$SLOW" HOME="$(home_with eplist_pick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run ep_list_pick 700 "right,ok,down,down,right,play,down,up,ok" "$SLOW" HOME="$(home_with eplist_pick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: candidate 1/1 Fake Addon - Example" "$OUT/ep_list_pick.log" || { echo "the source chosen in the list did not play"; grep -E "streams|player" "$OUT/ep_list_pick.log" | tail -5; exit 1; }
-run ep_list_untouched 1000 "right,ok,down,down,right,ok" "$SLOW" HOME="$(home_with eplist_untouched '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run ep_list_untouched 1000 "right,ok,down,down,right,play" "$SLOW" HOME="$(home_with eplist_untouched '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: candidate" "$OUT/ep_list_untouched.log" || { echo "left alone, the best source did not start"; grep -E "streams|player" "$OUT/ep_list_untouched.log" | tail -5; exit 1; }
 # a link answering 200 with an HTML error page is not a video: it loses the start race
 run race_error_page 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with errpage '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/errpage/manifest.json"
@@ -166,10 +170,10 @@ grep -q "streams: racing" "$OUT/race_error_page.log" && grep -q "player: candida
 run stream_hints 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with rich '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/rich/manifest.json" SNTV_NO_RACE=1
 grep -q "subs: file hash 0123456789abcdef from the addon" "$OUT/stream_hints.log" && grep -q "subs: 1 subtitle(s) came with the source" "$OUT/stream_hints.log" && grep -q "player: source 1 asks for request headers" "$OUT/stream_hints.log" \
   || { echo "the stream's headers, hash or subtitles were dropped"; grep -E "subs:|probe:|player: candidate" "$OUT/stream_hints.log"; exit 1; }
-run player_next_loading 300 "right,ok,down,down,ok,wait,down,right" "$SLOW" SNTV_FAKE_START=300
-run player_next_ring 300 "right,ok,down,down,ok,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
-run player_skipped 300 "right,ok,down,down,ok,wait,ok"
-run upnext_credits 300 "right,ok,down,down,ok,wait" SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player_next_loading 300 "right,ok,down,down,play,wait,down,right" "$SLOW" SNTV_FAKE_START=300
+run player_next_ring 300 "right,ok,down,down,play,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
+run player_skipped 300 "right,ok,down,down,play,wait,ok"
+run upnext_credits 300 "right,ok,down,down,play,wait" SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run search_keyboard 200 "search,ok" SNTV_PHONE_HOST=192.168.1.20
@@ -196,48 +200,48 @@ run settings_more 340 "left,down,down,down,down,down,ok,down,down,down,down,down
 run welcome 90 "" HOME="$(home_with fresh '{}')"
 run welcome_subs_when 170 "ok,down,ok" HOME="$(home_with fresh2 '{}')"
 # subtitles stay off when the audio already is the subtitle language
-run player_native_audio 300 "right,ok,down,down,ok,wait" HOME="$(home_with native '{"prefSubs":"eng","setupDone":1}')"
+run player_native_audio 300 "right,ok,down,down,play,wait" HOME="$(home_with native '{"prefSubs":"eng","setupDone":1}')"
 # pick Spanish audio and Portuguese subtitles, then the next episode starts with them
 MEM="$(home_with memory '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run player_pick_tracks 520 "right,ok,down,down,ok,wait,down,right,right,right,right,ok,down,down,ok,left,ok,down,down,down,down,ok" HOME="$MEM"
-run player_remembered 300 "right,ok,down,down,ok,wait" HOME="$MEM"
+run player_pick_tracks 520 "right,ok,down,down,play,wait,down,right,right,right,right,ok,down,down,ok,left,ok,down,down,down,down,ok" HOME="$MEM"
+run player_remembered 300 "right,ok,down,down,play,wait" HOME="$MEM"
 run home_oled 150 "right,right" HOME="$(home_with oled '{"oled":1,"setupDone":1}')"
 run settings_subs_style 340 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,right"
-run player_cue_yellow 300 "right,ok,down,down,ok,wait" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with yellow '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":2,"subsSize":2}')"
-run player_cue_boxed 300 "right,ok,down,down,ok,wait" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with boxed '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":3}')"
+run player_cue_yellow 300 "right,ok,down,down,play,wait" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with yellow '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":2,"subsSize":2}')"
+run player_cue_boxed 300 "right,ok,down,down,play,wait" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with boxed '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsStyle":3}')"
 P='right,ok,down,down,ok,wait,back'
 run pip_detail 320 "$P"
 run pip_home 360 "$P,back,back"
 run pip_restore 380 "$P,back,back,play"
 run pip_claim 340 "$P,ok"
 run pip_stop 340 "$P,back,stop"
-run player_stats 300 "right,ok,down,down,ok,wait,red"
-run player_bar 300 "right,ok,down,down,ok,wait,down"
-run player_bar_style 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,right,right,down,right"
-run player_bar_sources 380 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,ok"
+run player_stats 300 "right,ok,down,down,play,wait,red"
+run player_bar 300 "right,ok,down,down,play,wait,down"
+run player_bar_style 520 "right,ok,down,down,play,wait,down,right,right,right,ok,down,down,right,right,down,right"
+run player_bar_sources 380 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok"
 run pip_focus 420 "$P,back,back,down,down,down,down,down,down,down"
 run pip_focus_close 460 "$P,back,back,down,down,down,down,down,down,down,right,ok"
-run player_subs_scrolled 420 "right,ok,down,down,ok,wait,down,right,right,right,ok,right,down,down,down" HOME="$(home_with subs3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player_subs_scrolled 420 "right,ok,down,down,play,wait,down,right,right,right,ok,right,down,down,down" HOME="$(home_with subs3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles in" "$OUT/player_subs_scrolled.log" || { echo "the Subtitles sheet did not open"; grep -E "drawer|subtitles" "$OUT/player_subs_scrolled.log"; exit 1; }
-run player_episodes 400 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,right,ok"
-run player_paused 320 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200
+run player_episodes 400 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,right,ok"
+run player_paused 320 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200
 # the content advisory as a video starts: IMDb's parents guide, once the controls step aside; off in Settings, none
-run player_advisory 300 "right,ok,down,down,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
+run player_advisory 300 "right,ok,down,down,play" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
 grep -q "player: advisory shown: Severe violence, severe drugs, moderate language, mild nudity" "$OUT/player_advisory.log" || { echo "the content advisory did not show"; grep -E "advisory" "$OUT/player_advisory.log"; exit 1; }
-run player_advisory_off 300 "right,ok,down,down,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 HOME="$(home_with adv_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"advisory":0}')"
+run player_advisory_off 300 "right,ok,down,down,play" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 HOME="$(home_with adv_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"advisory":0}')"
 grep -qE "advisory: |advisory shown" "$OUT/player_advisory_off.log" && { echo "the content advisory showed while off"; exit 1; }
 # paused: the critics' and audience scores and Trakt's numbers in the right-hand corner
-run player_corner 330 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 SNTV_MDBLIST_API=http://127.0.0.1:$PORT/mdblist SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt \
+run player_corner 330 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 SNTV_MDBLIST_API=http://127.0.0.1:$PORT/mdblist SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt \
   HOME="$(home_with corner '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"mdblistKey":"k","traktClientId":"cid"}')"
 grep -q "player: paused corner: Tomatometer 91%, Popcornmeter 96%, Metacritic 82, Roger Ebert 2.5, Letterboxd 4.5, Trakt 85%, TMDB 84%, MDBList 8.0, Watching now 37, Trakt watchers 23K, Trakt plays 1.4M" "$OUT/player_corner.log" \
   || { echo "the paused corner did not show the scores and Trakt's numbers"; grep -E "corner|mdblist|trakt" "$OUT/player_corner.log"; exit 1; }
-run player_rest 330 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
+run player_rest 330 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
 grep -q "player: paused and idle, the controls step aside" "$OUT/player_rest.log" || { echo "the paused player never leaned back"; grep player "$OUT/player_rest.log"; exit 1; }
-run player_rest_ok 360 "right,ok,down,down,ok,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
+run player_rest_ok 360 "right,ok,down,down,play,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
 grep -q "player: OK plays on from the lean-back screen" "$OUT/player_rest_ok.log" || { echo "OK did not play on from the lean-back screen"; grep player "$OUT/player_rest_ok.log"; exit 1; }
-run player_episodes_season 420 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,right,ok,right"
-run player_speed 400 "right,ok,down,down,ok,wait,down,right,right,right,right,ok,right,right"
-run player_aspect 360 "right,ok,down,down,ok,wait,down,right,right,right,right,right,ok"
+run player_episodes_season 420 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,right,ok,right"
+run player_speed 400 "right,ok,down,down,play,wait,down,right,right,right,right,ok,right,right"
+run player_aspect 360 "right,ok,down,down,play,wait,down,right,right,right,right,right,ok"
 run home_showcase 200 "" HOME="$(home_with showcase '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":1}')"
 run home_showcase_rows 240 "down,right" HOME="$(home_with showcase2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":1}')"
 run rail_open 150 "left"
@@ -283,88 +287,88 @@ run data_move 90 "" HOME="$MH" SNTV_FLASH_ROOTS="$MH/internal,$MH/devtemp"
 grep -q "store: data moved here from $MH/devtemp/org.stremio.nativetv" "$OUT/data_move.log" && grep -q "moved-key" "$MH/internal/.org.stremio.nativetv/settings.json" && [ ! -e "$MH/devtemp/org.stremio.nativetv" ] \
   || { echo "sign-in did not move off the developer partition"; grep -E "data dir|store" "$OUT/data_move.log"; exit 1; }
 # Sources panel > Find more sources: every addon is asked while the video plays on, and the new ones join the list
-run player_more_sources 600 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,ok,up,up,up,up,up,up,up,up,up,ok,wait,wait,wait,wait" \
+run player_more_sources 600 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok,up,up,up,up,up,up,up,up,up,ok,wait,wait,wait,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with more_src "$NO_PREFLIGHT")"
 grep -q "player: every addon asked from the Sources panel: 5 more sources" "$OUT/player_more_sources.log" && [ "$(grep -c "streams: #1 score" "$OUT/player_more_sources.log")" -eq 1 ] \
   || { echo "Find more sources did not add sources while playing"; grep -E "player: (every|asking)" "$OUT/player_more_sources.log"; exit 1; }
 # the Sources panel during playback (as Nuvio's): Right narrows it to one addon, OK there switches at the same moment
-run player_sources_filter 560 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,ok,right,right,down,ok,wait" \
+run player_sources_filter 560 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok,right,right,down,ok,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with src_filter "$NO_PREFLIGHT")"
 grep -q "player: sources shown for Many Addon" "$OUT/player_sources_filter.log" && grep -q "player: candidate [0-9]*/[0-9]* Many Addon - Many @[0-9]*s" "$OUT/player_sources_filter.log" \
   || { echo "the Sources panel's addon filter did not switch to that addon's source"; grep -E "player: (sources|candidate)" "$OUT/player_sources_filter.log"; exit 1; }
 # the Sources sheet during playback: Left/Right walk the addon tabs, Up climbs to Find more
-run player_sources_tabs 520 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,ok,right,right,wait" \
+run player_sources_tabs 520 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok,right,right,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with src_tabs "$NO_PREFLIGHT")"
 grep -q "player: sources shown for Many Addon" "$OUT/player_sources_tabs.log" && grep -q "player: sources shown for Fake Addon" "$OUT/player_sources_tabs.log" \
   || { echo "the Sources sheet's addon tabs did not switch"; grep -E "player: sources" "$OUT/player_sources_tabs.log"; exit 1; }
-run player_lighter 700 "right,ok,down,down,ok,wait" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
+run player_lighter 700 "right,ok,down,down,play,wait" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
 # a connection that drops after the video played: the same source again from the same moment, not the next one
-run net_reconnect 1600 "right,ok,down,down,ok,wait" HOME="$(home_with netre '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_START=600 SNTV_FAKE_NET_ERROR_AFTER=3 SNTV_NET_RETRY_SCALE=0.2
+run net_reconnect 1600 "right,ok,down,down,play,wait" HOME="$(home_with netre '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_START=600 SNTV_FAKE_NET_ERROR_AFTER=3 SNTV_NET_RETRY_SCALE=0.2
 grep -q "player: the connection dropped (Network error (code 300)); the same source again" "$OUT/net_reconnect.log" && grep -q "player: reconnecting to source 1 at 60[0-9]s (try 1 of 3)" "$OUT/net_reconnect.log" && ! grep -q "Trying the next source\|player: rescue" "$OUT/net_reconnect.log" \
   || { echo "a dropped connection did not reconnect to the same source"; grep -E "player: (the conn|reconn|candidate|rescue)|toast" "$OUT/net_reconnect.log"; exit 1; }
 # a server that ignores Range sends the whole file: a 64 KB check keeps 64 KB, not 20 MB
 run http_norange 30 "" SNTV_HTTP_PROBE=http://127.0.0.1:$PORT/norange
 grep -q "http probe: status 200, 65536 bytes, cut at its budget" "$OUT/http_norange.log" || { echo "a range request kept more than it asked for"; grep "http probe" "$OUT/http_norange.log"; exit 1; }
 # audio this TV can't decode: another track by itself; no track at all: another source from the same moment
-run audio_repair_track 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with audfix '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_BAD_AUDIO=0
+run audio_repair_track 500 "right,ok,down,down,play,wait,wait" HOME="$(home_with audfix '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_BAD_AUDIO=0
 grep -q "player: audio track 0 can't be played here; switching to spa AC3" "$OUT/audio_repair_track.log" \
   || { echo "an undecodable audio track was not replaced by itself"; grep -E "audio|player" "$OUT/audio_repair_track.log"; exit 1; }
-run audio_repair_source 700 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with audsrc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_BAD_AUDIO="*" SNTV_FAKE_START=300 SNTV_NO_RACE=1
+run audio_repair_source 700 "right,ok,down,down,play,wait,wait,wait" "$LIGHTER" HOME="$(home_with audsrc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_BAD_AUDIO="*" SNTV_FAKE_START=300 SNTV_NO_RACE=1
 grep -q "player: no audio track of source 1 plays here; another source" "$OUT/audio_repair_source.log" && grep -q "player: rescue (This TV can't play this source's audio) -> source 2 at 30[0-9]s" "$OUT/audio_repair_source.log" \
   || { echo "a source with no playable audio was not replaced"; grep -E "audio|player: (rescue|candidate)" "$OUT/audio_repair_source.log"; exit 1; }
 # fallbacks: a source that dies mid-film is replaced at the same moment with the same subtitles;
 # the next source is checked while playing; a draining buffer moves to a lighter copy first;
 # Play races the top sources; when all fail the addons are asked again
 FB="SNTV_FAKE_NO_TEXT_TRACKS=1"
-run fallback_rescue 4000 "right,ok,down,down,ok,wait" "$LIGHTER" "$FB" HOME="$(home_with fb1 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
+run fallback_rescue 4000 "right,ok,down,down,play,wait" "$LIGHTER" "$FB" HOME="$(home_with fb1 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
 grep -q "player: next source 2 does not answer" "$OUT/fallback_rescue.log" && grep -q "player: rescue (The source stopped sending video) -> source 3 at 6[01][0-9]s" "$OUT/fallback_rescue.log" && grep -q "player: subtitles kept across the switch" "$OUT/fallback_rescue.log" \
   || { echo "a dead source was not replaced at the same moment"; grep -E "player|video" "$OUT/fallback_rescue.log"; exit 1; }
-run fallback_drain 4000 "right,ok,down,down,ok,wait" "$LIGHTER" "$FB" HOME="$(home_with fb2 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DRAIN=1 SNTV_DRAIN_EVERY=1 SNTV_WARM_AFTER=1
+run fallback_drain 4000 "right,ok,down,down,play,wait" "$LIGHTER" "$FB" HOME="$(home_with fb2 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DRAIN=1 SNTV_DRAIN_EVERY=1 SNTV_WARM_AFTER=1
 grep -q "player: buffer draining .* switching to source [23] ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
   || { echo "the draining buffer did not move to a working lighter source"; grep -E "player" "$OUT/fallback_drain.log"; exit 1; }
-run fallback_race 2000 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
+run fallback_race 2000 "right,ok,down,down,play,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
 grep -q "player: candidate 1/[0-9]* Fake Addon - Example" "$OUT/fallback_race.log" \
   || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
 # (P2P off: with the engine built, its copy would play and nothing would be asked again)
-run fallback_reask 5000 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
+run fallback_reask 5000 "right,ok,down,down,play,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
 grep -q "player: asked the addons again: 3 sources" "$OUT/fallback_reask.log" && ! grep -q "player: error card" "$OUT/fallback_reask.log" \
   || { echo "the addons were not asked again (or the error card came up while they were)"; grep -E "player" "$OUT/fallback_reask.log"; exit 1; }
 # a link that fails to open with a network error is tried once more before it counts as failed
-run open_net_retry 1200 "right,ok,down,down,ok,wait,wait" "$LIGHTER" HOME="$(home_with netopen '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=1 SNTV_FAKE_FAIL_CODE=300 SNTV_NET_RETRY_SCALE=0.2 SNTV_NO_RACE=1
+run open_net_retry 1200 "right,ok,down,down,play,wait,wait" "$LIGHTER" HOME="$(home_with netopen '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=1 SNTV_FAKE_FAIL_CODE=300 SNTV_NET_RETRY_SCALE=0.2 SNTV_NO_RACE=1
 grep -q "player: the connection dropped (Network Error (code 300)); the same source again" "$OUT/open_net_retry.log" && grep -q "player: reconnecting to source 1" "$OUT/open_net_retry.log" && ! grep -q "player: error card" "$OUT/open_net_retry.log" \
   || { echo "a link that failed to open on a network error was not tried again"; grep -E "player" "$OUT/open_net_retry.log"; exit 1; }
 # only when every source, every retry and every fresh link failed does the error card come up
-run all_failed_card 3000 "right,ok,down,down,ok,wait,wait" "$LIGHTER" HOME="$(home_with allfail '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=99 SNTV_REASK_AFTER=0.2 SNTV_NO_RACE=1
+run all_failed_card 3000 "right,ok,down,down,play,wait,wait" "$LIGHTER" HOME="$(home_with allfail '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=99 SNTV_REASK_AFTER=0.2 SNTV_NO_RACE=1
 grep -q "player: error card" "$OUT/all_failed_card.log" && [ "$(grep -c "player: asked the addons again" "$OUT/all_failed_card.log")" = 2 ] && ! grep -q "tv profile: .* failed here" "$OUT/all_failed_card.log" \
   || { echo "the error card did not wait for the addons to be asked again twice (or links that failed taught the TV profile)"; grep -E "player|tv profile" "$OUT/all_failed_card.log"; exit 1; }
 # a source that loads and then waits for data for ever (a torrent nobody seeds) gives way to the next
-run fallback_stuck 1200 "right,ok,down,down,ok,wait" "$LIGHTER" HOME="$(home_with fb5 "$NO_PREFLIGHT")" SNTV_FAKE_STUCK=1 SNTV_START_TIMEOUT=1
+run fallback_stuck 1200 "right,ok,down,down,play,wait" "$LIGHTER" HOME="$(home_with fb5 "$NO_PREFLIGHT")" SNTV_FAKE_STUCK=1 SNTV_START_TIMEOUT=1
 grep -q "player: source 1 did not start in [0-9]*s" "$OUT/fallback_stuck.log" && grep -q "player: candidate 2/[0-9]*" "$OUT/fallback_stuck.log" \
   || { echo "a source stuck at the start was not replaced"; grep -E "player|video" "$OUT/fallback_stuck.log"; exit 1; }
 grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
-run player_lighter_ok 820 "right,ok,down,down,ok,wait$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
+run player_lighter_ok 820 "right,ok,down,down,play,wait$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
 grep -q "player: switching to the lighter source [0-9]" "$OUT/player_lighter_ok.log" || { echo "OK did not take the lighter source"; grep player "$OUT/player_lighter_ok.log"; exit 1; }
-run player_lighter_seek 700 "right,ok,down,down,ok,wait,right,right,right,right,right,left,left,left,right,right,right" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_seek "$NO_PREFLIGHT")"
+run player_lighter_seek 700 "right,ok,down,down,play,wait,right,right,right,right,right,left,left,left,right,right,right" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_seek "$NO_PREFLIGHT")"
 grep -q "offering source" "$OUT/player_lighter_seek.log" && { echo "seeking counted as buffering trouble"; exit 1; }
 run library_stats 280 "left,down,down,down,ok,up,right,right,right,right,ok"
 run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
 # the subtitles sheet: languages, then their choices; Look and timing at the end
-run player_subs_second 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,right,back,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with subs2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player_subs_second 520 "right,ok,down,down,play,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,right,back,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with subs2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Choose for Second subtitles" "$OUT/player_subs_second.log" && grep -q "player: subtitles sheet: a file from Fake Addon in Portugu.*, as the second" "$OUT/player_subs_second.log" \
   || { echo "a second subtitle language was not chosen in the sheet"; grep -E "subtitles" "$OUT/player_subs_second.log"; exit 1; }
-run player_seek_thumb 238 "right,ok,down,down,ok,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
+run player_seek_thumb 238 "right,ok,down,down,play,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
 # no helper: the TV decodes the keyframe itself (bundled FFmpeg) through its local /frame
 if grep -q "^SNTV_FFMPEG_PREFIX:PATH=." "$BUILD/CMakeCache.txt" 2>/dev/null; then
-  run player_seek_local 238 "right,ok,down,down,ok,wait,right,right,right,right,right,right"
+  run player_seek_local 238 "right,ok,down,down,play,wait,right,right,right,right,right,right"
   grep -q "frames: [0-9]* keyframes indexed" "$OUT/player_seek_local.log" && grep -q "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_local.log" || { echo "seek preview not decoded on the TV"; grep frames "$OUT/player_seek_local.log"; exit 1; }
   # the keyframe index is read while the film plays, before the first seek
-  run player_thumbs_warm 400 "right,ok,down,down,ok,wait,wait,wait,wait,wait" SNTV_THUMBS_WARM_AFTER=1 HOME="$(home_with thumbs_warm '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+  run player_thumbs_warm 400 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_THUMBS_WARM_AFTER=1 HOME="$(home_with thumbs_warm '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
   grep -q "player: seek previews warming up" "$OUT/player_thumbs_warm.log" && grep -q "frames: [0-9]* keyframes indexed" "$OUT/player_thumbs_warm.log" \
     || { echo "seek previews were not warmed up before the first seek"; grep -E "frames|warming" "$OUT/player_thumbs_warm.log"; exit 1; }
   # a long fast seek: one decode at a time, none turned away, and pictures keep coming
-  run player_seek_fast 420 "right,ok,down,down,ok,wait,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,wait,wait,wait"
+  run player_seek_fast 420 "right,ok,down,down,play,wait,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,wait,wait,wait"
   [ "$(grep -c "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_fast.log")" -ge 2 ] && ! grep -q "frame?t=.* -> HTTP 503" "$OUT/player_seek_fast.log" \
     || { echo "fast seeking starved the previews"; grep -E "frames|frame\?t" "$OUT/player_seek_fast.log" | head; exit 1; }
 else echo "skip: seek previews decoded on the TV (build FFmpeg: tools/ffmpeg.sh)"; fi
@@ -374,12 +378,12 @@ run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '
 run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_with accts '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"accounts":[{"email":"other@example.com","key":"k"}]}')"
 TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
 run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
-run player_paused_tmdb 320 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run player_paused_tmdb 320 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run detail_franchise 420 "right,right,ok,down,down,down,right,ok" HOME="$(home_with tmdb3 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 grep -q 'detail: franchise -> tt1002' "$OUT/detail_franchise.log" || { echo "the franchise row did not open the next film"; grep -E "detail|tmdb" "$OUT/detail_franchise.log"; exit 1; }
 run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
 run settings_rules 380 "left,down,down,down,down,down,ok,up,ok,t:largest,down,down,down,down,left,ok,right" HOME="$(home_with rules '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"CAM, 3D"}')"
-run streams_rules 240 "right,ok,down,down,ok" HOME="$(home_with rules2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"web-dl","preflight":0}')"
+run streams_rules 240 "right,ok,down,down,play" HOME="$(home_with rules2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"web-dl","preflight":0}')"
 # a YouTube stream from an addon (YouTubio, trailer addons) plays here, streamed as Nuvio does
 run streams_youtube 440 "right,ok,down,down,yellow,down,down,down,ok,down,down,ok,wait,wait,wait" HOME="$(home_with ytstream '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "streams: YouTube video for tt0903747:1:1 streaming" "$OUT/streams_youtube.log" || { echo "an addon's YouTube stream did not play"; grep -E "streams|youtube" "$OUT/streams_youtube.log"; exit 1; }
@@ -390,7 +394,7 @@ TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktC
 run trakt_connect 1200 "left,down,down,down,down,down,ok,up,ok,t:trakt,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trakt "$TK")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
 grep -q "tracking: Trakt connected" "$OUT/trakt_connect.log" && grep -q "tracking: Trakt watchlist has 2 titles" "$OUT/trakt_connect.log" || { echo "Trakt did not connect"; grep tracking "$OUT/trakt_connect.log"; exit 1; }
 TK2='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktClientSecret":"sec","traktToken":"tok1","simklClientId":"scid","simklToken":"stok"}'
-run trakt_scrobble 460 "wait,wait,right,ok,down,down,ok,wait,wait,wait,back,back,back" HOME="$(home_with trakt2 "$TK2")" SNTV_FAKE_START=6600 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+run trakt_scrobble 460 "wait,wait,right,ok,down,down,play,wait,wait,wait,back,back,back" HOME="$(home_with trakt2 "$TK2")" SNTV_FAKE_START=6600 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
 grep -q "tracking: Trakt start tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: Trakt stop tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: SimKL watched tt0903747" "$OUT/trakt_scrobble.log" \
   || { echo "playback was not scrobbled"; grep tracking "$OUT/trakt_scrobble.log"; exit 1; }
 # renewing a token that lasts a day: once, not again every second; a renewal that fails waits
@@ -420,26 +424,26 @@ run home_lowmem 150 "right,right" HOME="$(home_with lowmem '{"prefSubs":"eng","s
 BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":723,"breakLead":5,"breaksEverywhere":1}'
 run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
-run break_player 300 "right,ok,down,down,ok,wait" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
+run break_player 300 "right,ok,down,down,play,wait" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
 # a recording over a paused film, ended with OK: the film is back where it was, still paused
-run break_paused 1100 "right,ok,down,down,ok,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+4 SNTV_FAKE_START=200
+run break_paused 1100 "right,ok,down,down,play,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+4 SNTV_FAKE_START=200
 grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && grep -q "player: paused again at 20[0-9]s" "$OUT/break_paused.log" \
   || { echo "the paused film did not come back paused where it was"; grep -E "player|break" "$OUT/break_paused.log"; exit 1; }
 # the screensaver waits while a break counts down (it froze the break, so the film never came back)
-run break_no_saver 900 "right,ok,down,down,ok,wait" HOME="$(home_with brkns '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00+3 SNTV_AMBIENT_SECONDS=1
+run break_no_saver 900 "right,ok,down,down,play,wait" HOME="$(home_with brkns '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00+3 SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=break" "$OUT/break_no_saver.log" || { echo "the screensaver covered a break"; grep "UI check" "$OUT/break_no_saver.log"; exit 1; }
 # nor a playing video; only one the viewer paused (a stall webOS reports as a pause is not one)
-run player_no_saver 700 "right,ok,down,down,ok,wait,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
+run player_no_saver 700 "right,ok,down,down,play,wait,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=player" "$OUT/player_no_saver.log" || { echo "the screensaver covered a playing video"; grep "UI check" "$OUT/player_no_saver.log"; exit 1; }
-run player_paused_saver 700 "right,ok,down,down,ok,wait,ok,wait" HOME="$(home_with pausesaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
+run player_paused_saver 700 "right,ok,down,down,play,wait,ok,wait" HOME="$(home_with pausesaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=ambient" "$OUT/player_paused_saver.log" || { echo "the screensaver did not come over a video the viewer paused"; grep "UI check" "$OUT/player_paused_saver.log"; exit 1; }
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 # no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
 if [ -n "${FAKE_TORRENT_HASH:-}" ]; then
-run p2p_playing 420 "right,ok,down,down,ok,wait" HOME="$(home_with p2p1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=1
+run p2p_playing 420 "right,ok,down,down,play,wait" HOME="$(home_with p2p1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=1
 grep -q "still no cached copy; staying on P2P" "$OUT/p2p_playing.log" || { echo "P2P did not keep playing without a cached copy"; grep -E "player|p2p" "$OUT/p2p_playing.log"; exit 1; }
 run settings_p2p 400 "left,down,down,down,down,down,ok,down,down,down,down,right,down,down,down,down,down,down" HOME="$(home_with p2pset '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run p2p_switch 700 "right,ok,down,down,ok,wait" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
+run p2p_switch 700 "right,ok,down,down,play,wait" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
 grep -q "candidate 1/.* -> http://127.0.0.1:11490/$FAKE_TORRENT_HASH/0" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
   && grep -q "TorBox has it again" "$OUT/p2p_switch.log" || { echo "P2P fallback or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
 fi
@@ -456,7 +460,7 @@ run addons_reask 300 "wait" HOME="$(home_with reask '{"prefSubs":"eng","subsAlwa
 grep -q "addons: 2 addons had no answer last time; asking again" "$OUT/addons_reask.log" && grep -q "addons: 3 loaded" "$OUT/addons_reask.log" \
   && grep -q "addons: 1 addon answered again; saving to the account" "$OUT/addons_reask.log" && ! grep -q "addons: not saved to the account" "$OUT/addons_reask.log" \
   || { echo "blank addons were not asked again"; grep -E "addons" "$OUT/addons_reask.log"; exit 1; }
-run progress_sync 400 "right,ok,down,down,ok,wait" HOME="$(home_with sync '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
+run progress_sync 400 "right,ok,down,down,play,wait" HOME="$(home_with sync '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
 python3 -I - "$FAKE_PUT_LOG" <<'PY' || { echo "progress did not reach the account"; exit 1; }
 import json, re, sys
 puts = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
@@ -470,14 +474,14 @@ H="$(home_with sync2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"
 sed 's/"_mtime": 1714557600000/"_mtime": "2026-10-18T20:00:00.000Z"/; s/"timeOffset": 1500000/"timeOffset": 2000000/' "$ROOT/tests/fixtures/library.json" > "$H/.local/share/stremio/nativetv/library.json"
 run progress_merge 200 "right" HOME="$H" SNTV_API_URL="http://127.0.0.1:$PORT"
 grep -q '"_id":"tt0903747".*"timeOffset":2000000' "$FAKE_PUT_LOG" || { echo "newer local progress was not kept and resent"; exit 1; }
-run break_video 300 "right,ok,down,down,ok,wait" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:8765"}')" SNTV_NOW=12:00
+run break_video 300 "right,ok,down,down,play,wait" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:8765"}')" SNTV_NOW=12:00
 # a YouTube link typed into Settings is saved by the TV itself (QuickJS runs the solver), then plays at the break with no helper
 run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
 grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
-run break_yt_play 300 "right,ok,down,down,ok,wait" HOME="$OUT/home_brkyt" SNTV_NOW=12:00
+run break_yt_play 300 "right,ok,down,down,play,wait" HOME="$OUT/home_brkyt" SNTV_NOW=12:00
 grep -q "break: playing http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_play.log" || { echo "saved YouTube recording not played"; grep break "$OUT/break_yt_play.log"; exit 1; }
 # YouTube's bot check on the visionOS client: the TV client, with the solver, takes over
-run break_yt_tv 400 "right,ok,down,down,ok,wait" HOME="$(home_with brkyt2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0,"breakAudio":"https://youtu.be/tvOnlyVid01"}')" SNTV_NOW=12:00
+run break_yt_tv 400 "right,ok,down,down,play,wait" HOME="$(home_with brkyt2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0,"breakAudio":"https://youtu.be/tvOnlyVid01"}')" SNTV_NOW=12:00
 grep -q "itag 140 from the TVHTML5 client" "$OUT/break_yt_tv.log" && grep -q "ready as yt-tvOnlyVid01-audio.m4a" "$OUT/break_yt_tv.log" || { echo "TV client fallback failed"; grep youtube "$OUT/break_yt_tv.log"; exit 1; }
 # hold OK: a short press still opens the title; the hint fills, then the release opens the sheet
 HOLD="wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait"
@@ -485,7 +489,7 @@ run options_sheet 400 "right,right,hold,$HOLD,release"
 run hold_hint 200 "right,ok,down,down,right,hold,wait,wait"
 run episode_options 400 "right,ok,down,down,right,hold,$HOLD,release"
 # timing for a subtitle track inside the file (the TV draws it; the player sends the offset)
-run player_subs_timing_embedded 460 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,right,right,right" SNTV_FAKE_START=300 HOME="$(home_with substime '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player_subs_timing_embedded 460 "right,ok,down,down,play,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,right,right,right" SNTV_FAKE_START=300 HOME="$(home_with substime '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Timing +0.3 s" "$OUT/player_subs_timing_embedded.log" || { echo "the video's subtitles were not retimed"; grep -E "subtitles" "$OUT/player_subs_timing_embedded.log"; exit 1; }
 run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok" HOME="$(home_with ep_marked '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -507,19 +511,19 @@ run update_refused_again 1700 "${W}ok,wait,wait" HOME="$OUT/home_upd3" SNTV_UPDA
 grep -q "update: the viewer asked how" "$OUT/update_refused_again.log" && ! grep -q "update: installing" "$OUT/update_refused_again.log" \
   || { echo "a TV that refused the installer was asked again"; grep -E "update|toast" "$OUT/update_refused_again.log"; exit 1; }
 run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
-run break_media_length 230 "right,ok,down,down,ok,wait" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
+run break_media_length 230 "right,ok,down,down,play,wait" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
 run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 # the found country picks its own authority's prayer times (Saudi Arabia: Umm al-Qura)
 grep -q "breaks: prayer times by Umm al-Qura" "$OUT/break_settings.log" || { echo "the location did not pick the local prayer time method"; grep breaks "$OUT/break_settings.log"; exit 1; }
 run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
 run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run player_autosync 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200 HOME="$(home_with subsync '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run player_autosync 520 "right,ok,down,down,play,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200 HOME="$(home_with subsync '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Auto-sync Off" "$OUT/player_autosync.log" || { echo "auto-sync was not switched in the sheet"; grep -E "subtitles" "$OUT/player_autosync.log"; exit 1; }
 # two English files, no file-matched one: the one that runs to the end of the video wins
-run player_subs_bestfit 420 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with bestfit '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1
+run player_subs_bestfit 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with bestfit '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1
 grep -q "subs: switching to file 1, it fits better" "$OUT/player_subs_bestfit.log" || { echo "the better-fitting subtitle was not picked"; grep subs "$OUT/player_subs_bestfit.log"; exit 1; }
 # OpenSubtitles.com built in: the file made for this video (its hash) is the one downloaded
-run player_subs_opensubs 420 "right,ok,down,down,ok,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with os '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"osApiKey":"oskey"}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_OPENSUBS_API=http://127.0.0.1:8765/os
+run player_subs_opensubs 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with os '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"osApiKey":"oskey"}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_OPENSUBS_API=http://127.0.0.1:8765/os
 grep -q "subs: 2 from OpenSubtitles.com, one made for this file" "$OUT/player_subs_opensubs.log" && grep -q "opensubs: file 222, 4 downloads left today" "$OUT/player_subs_opensubs.log" \
   && ! grep -q "opensubs: file 111" "$OUT/player_subs_opensubs.log" || { echo "OpenSubtitles.com did not pick the file made for this video"; grep -E "subs|opensubs" "$OUT/player_subs_opensubs.log"; exit 1; }
 AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}'
@@ -528,31 +532,31 @@ AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_s
 # a source switch; best-fit files fetched for a source that failed are not scored for the next
 LATE="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/latesubs/manifest.json"
 LATE2="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/latesubs/manifest.json"
-run subs_late_pick 1000 "right,ok,down,down,ok,wait,down,right,right,right,ok,right,down,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with latepick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run subs_late_pick 1000 "right,ok,down,down,play,wait,down,right,right,right,ok,right,down,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with latepick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "subs: loaded 5 cues" "$OUT/subs_late_pick.log" && grep -q "subs: a subtitle download that was replaced is dropped" "$OUT/subs_late_pick.log" && ! grep -q "subs: loaded 7 cues" "$OUT/subs_late_pick.log" \
   || { echo "a late subtitle file replaced the one chosen meanwhile"; grep "subs" "$OUT/subs_late_pick.log"; exit 1; }
-run subs_late_off 1000 "right,ok,down,down,ok,wait,down,right,right,right,ok,up,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with lateoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run subs_late_off 1000 "right,ok,down,down,play,wait,down,right,right,right,ok,up,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with lateoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: off" "$OUT/subs_late_off.log" && grep -q "subs: a subtitle download that was replaced is dropped" "$OUT/subs_late_off.log" && ! grep -q "subs: loaded" "$OUT/subs_late_off.log" \
   || { echo "a late subtitle file turned subtitles back on"; grep "subs" "$OUT/subs_late_off.log"; exit 1; }
-run subs_late_switch 2500 "right,ok,down,down,ok,wait,down,right,right,right,ok,right,down,ok,back" "$LATE2" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=6 SNTV_RESCUE_AFTER=2 SNTV_NO_RACE=1 HOME="$(home_with lateswitch "$NO_PREFLIGHT")"
+run subs_late_switch 2500 "right,ok,down,down,play,wait,down,right,right,right,ok,right,down,ok,back" "$LATE2" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=6 SNTV_RESCUE_AFTER=2 SNTV_NO_RACE=1 HOME="$(home_with lateswitch "$NO_PREFLIGHT")"
 grep -q "player: subtitles kept across the switch" "$OUT/subs_late_switch.log" && sed -n '/player: candidate 2\//,$p' "$OUT/subs_late_switch.log" | grep -q "subs: loaded 5 cues" && ! grep -q "subs: loaded 7 cues" "$OUT/subs_late_switch.log" \
   || { echo "the subtitles chosen did not stay across a source switch"; grep -E "subs|player: (candidate|rescue|subtitles)" "$OUT/subs_late_switch.log"; exit 1; }
-run subs_late_bestfit_switch 1200 "right,ok,down,down,ok" "$LATE2" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=1 SNTV_RESCUE_AFTER=1 SNTV_NO_RACE=1 HOME="$(home_with latebf "$NO_PREFLIGHT")"
+run subs_late_bestfit_switch 1200 "right,ok,down,down,play" "$LATE2" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=1 SNTV_RESCUE_AFTER=1 SNTV_NO_RACE=1 HOME="$(home_with latebf "$NO_PREFLIGHT")"
 grep -q "player: candidate 2/" "$OUT/subs_late_bestfit_switch.log" && grep -q "subs: a best-fit file for an earlier source is dropped" "$OUT/subs_late_bestfit_switch.log" \
   || { echo "best-fit files for a failed source were scored for the next"; grep -E "subs|player: (candidate|rescue)" "$OUT/subs_late_bestfit_switch.log"; exit 1; }
 # a decoder failure teaches the TV profile only when one feature explains it (DTS alone);
 # one needing Dolby Vision and TrueHD blames neither, and still counts against the source
 CAPS="SNTV_FAKE_FAIL_LOADS=2 SNTV_FAKE_FAIL_CODE=1007 SNTV_NO_RACE=1"
-run caps_one_feature 700 "right,ok,down,down,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/caps/dts/manifest.json,http://127.0.0.1:$PORT/manifest.json $CAPS HOME="$(home_with caps1 "$NO_PREFLIGHT")"
+run caps_one_feature 700 "right,ok,down,down,play,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/caps/dts/manifest.json,http://127.0.0.1:$PORT/manifest.json $CAPS HOME="$(home_with caps1 "$NO_PREFLIGHT")"
 grep -q "tv profile: dts failed here" "$OUT/caps_one_feature.log" || { echo "a DTS source failing in the decoder did not teach the TV profile"; grep -E "tv profile|player: (candidate|source)" "$OUT/caps_one_feature.log"; exit 1; }
-run caps_several 700 "right,ok,down,down,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/caps/dvtruehd/manifest.json,http://127.0.0.1:$PORT/manifest.json $CAPS HOME="$(home_with caps2 "$NO_PREFLIGHT")"
+run caps_several 700 "right,ok,down,down,play,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/caps/dvtruehd/manifest.json,http://127.0.0.1:$PORT/manifest.json $CAPS HOME="$(home_with caps2 "$NO_PREFLIGHT")"
 grep -q "tv profile: a source needing several features failed; none is blamed" "$OUT/caps_several.log" && ! grep -q "tv profile: .* failed here" "$OUT/caps_several.log" \
   && sed -n '/caps=dvtruehd/,$p' "$OUT/caps_several.log" | grep -q "health: .* failed" \
   || { echo "a source needing several features taught the TV profile (or did not count against the source)"; grep -E "tv profile|health|player: (candidate|source)" "$OUT/caps_several.log"; exit 1; }
 run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
-run player_translate 600 "right,ok,down,down,ok,wait,down,right,right,right,ok,up,up,up,up,up,up,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+run player_translate 600 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,up,up,up,up,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 grep -q "player: subtitles sheet: AI translation in Fran" "$OUT/player_translate.log" || { echo "the AI translation was not offered under its language"; grep -E "subtitles" "$OUT/player_translate.log"; exit 1; }
 run settings_ai 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,down" HOME="$(home_with ai4 "$AI")"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
@@ -586,23 +590,23 @@ grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" &
   || { echo "your TorBox copy did not come first"; grep -E "torbox|streams: #|candidate" "$OUT/torbox_library.log"; exit 1; }
 # Your TorBox for an episode: only files that are this show (not "Breaking Bad Insider"), named
 # for this episode by their own name (not the item's), and not titled as another episode
-run torbox_library_episode 600 "right,ok,down,down,ok,wait" "$TB" HOME="$(home_with tblibep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkeylib"}')"
+run torbox_library_episode 600 "right,ok,down,down,play,wait" "$TB" HOME="$(home_with tblibep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkeylib"}')"
 grep -q "torbox: 1 of your videos matches tt0903747:1:1" "$OUT/torbox_library_episode.log" && grep -q "torbox: Breaking.Bad.S01E01.Cats.in.the.Bag.1080p.mkv names \"Cat's in the Bag...\", another episode: left out" "$OUT/torbox_library_episode.log" \
   || { echo "your TorBox offered files of another show or episode"; grep -E "torbox" "$OUT/torbox_library_episode.log"; exit 1; }
 # A season pack with no file named: the episode's own file plays, not the largest (another episode)
-run torbox_pack 600 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbpack '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
+run torbox_pack 600 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbpack '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
 grep -q "torbox: the episode's file by its name: Breaking Bad S01 1080p/Breaking.Bad.S01E01.1080p.mkv" "$OUT/torbox_pack.log" \
   || { echo "the season pack did not play the episode's file"; grep -E "torbox|candidate" "$OUT/torbox_pack.log"; exit 1; }
 # A disc rip (title_t00, title_t01...): the names say nothing, so the AI is asked
-run torbox_disc 600 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbdisc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json"
+run torbox_disc 600 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbdisc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json"
 grep -q "torbox: the AI picked the episode's file: BREAKING_BAD_D1/title_t01.mkv" "$OUT/torbox_disc.log" && ! grep -q "gsk_" "$OUT/torbox_disc.log" \
   || { echo "the AI did not pick the disc rip's episode"; grep -E "torbox|ai:" "$OUT/torbox_disc.log"; exit 1; }
 # A pack that names its episodes but not this one: no extra or other episode plays; the next source does
-run torbox_pack_missing 700 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbmiss '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbmiss/manifest.json"
+run torbox_pack_missing 700 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbmiss '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbmiss/manifest.json"
 grep -q "torbox: no file in this torrent is S1E1 (it names other episodes)" "$OUT/torbox_pack_missing.log" && grep -q "player: candidate 2/" "$OUT/torbox_pack_missing.log" && ! grep -q "torbox=81" "$OUT/torbox_pack_missing.log" \
   || { echo "a pack without the episode played something else"; grep -E "torbox|player: (candidate|source)" "$OUT/torbox_pack_missing.log"; exit 1; }
 # The next source a TorBox torrent: made ready on TorBox while the first plays, so when the first dies it takes over at once
-run torbox_standby 4000 "right,ok,down,down,ok,wait" "$TB" HOME="$(home_with tbstand '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
+run torbox_standby 4000 "right,ok,down,down,play,wait" "$TB" HOME="$(home_with tbstand '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
 grep -q "player: next source 2 is ready on TorBox" "$OUT/torbox_standby.log" && grep -q "player: next source 3 answers" "$OUT/torbox_standby.log" && grep -q "player: source 2 was made ready on TorBox ahead" "$OUT/torbox_standby.log" \
   || { echo "the TorBox source standing by was not ready ahead"; grep -E "player: (next|source|rescue|candidate)" "$OUT/torbox_standby.log"; exit 1; }
 # resting on a title page asks for its sources ahead: Play opens on them
@@ -610,7 +614,7 @@ run detail_prefetch 900 "wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wa
 grep -q "streams: using [0-9]* prefetched sources for tt0111161" "$OUT/detail_prefetch.log" || { echo "the title page did not prefetch its sources"; grep streams "$OUT/detail_prefetch.log"; exit 1; }
 # The player's extras. Back after days away: "Previously" with the last episode's summary, and a little earlier than where it stopped
 PL='{"prefSubs":"eng","subsAlways":1,"setupDone":1}'
-run player_previously 330 "right,ok,down,down,right,ok,wait,wait,wait" SNTV_AWAY_S=200000 HOME="$(home_with prev "$PL")"
+run player_previously 330 "right,ok,down,down,right,play,wait,wait,wait" SNTV_AWAY_S=200000 HOME="$(home_with prev "$PL")"
 grep -q "player: previously card for tt0903747:1:1" "$OUT/player_previously.log" || { echo "no Previously card after days away"; grep player "$OUT/player_previously.log"; exit 1; }
 AW_HOME="$(home_with away "$PL")"; cp "$ROOT/tests/fixtures/library.json" "$AW_HOME/.local/share/stremio/nativetv/library.json"
 run player_away 700 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" HOME="$AW_HOME"
@@ -620,31 +624,31 @@ RF_HOME="$(home_with resumefail "$NO_PREFLIGHT")"; cp "$ROOT/tests/fixtures/libr
 run resume_failover 900 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" "$LIGHTER" HOME="$RF_HOME" SNTV_FAKE_FAIL_LOADS=1 SNTV_NO_RACE=1
 grep -q "player: candidate 2/[0-9]* .* @1[45][0-9][0-9]s" "$OUT/resume_failover.log" || { echo "a failed first source lost the resume point"; grep "player: candidate" "$OUT/resume_failover.log"; exit 1; }
 # Blue: the last 10 s again, with subtitles on for them when they were off
-run player_replay 900 "right,ok,down,down,right,ok,wait,wait,wait,wait,wait,wait,blue,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with replay '{"prefSubs":"","setupDone":1}')"
+run player_replay 900 "right,ok,down,down,right,play,wait,wait,wait,wait,wait,wait,blue,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with replay '{"prefSubs":"","setupDone":1}')"
 grep -q "player: replay from [0-9]* s with subtitles" "$OUT/player_replay.log" && grep -q "player: replay over, subtitles off again" "$OUT/player_replay.log" \
   || { echo "the instant replay did not bring subtitles for its 10 s"; grep -E "replay|subs" "$OUT/player_replay.log"; exit 1; }
 # Info: who is in it
-run player_cast 420 "right,ok,down,down,right,ok,wait,wait,wait,wait,info,right" HOME="$(home_with pcast "$PL")"
+run player_cast 420 "right,ok,down,down,right,play,wait,wait,wait,wait,info,right" HOME="$(home_with pcast "$PL")"
 grep -q "player: cast drawer (3 people)" "$OUT/player_cast.log" || { echo "Info did not show the cast"; grep player "$OUT/player_cast.log"; exit 1; }
 # most LG remotes have no Info key: the bar's Cast button (its last) opens the same drawer
-run player_cast_button 700 "right,ok,down,down,right,ok,wait,wait,wait,wait,down,right,right,right,right,right,right,right,right,right,right,right,right,ok" HOME="$(home_with pcastb "$PL")"
+run player_cast_button 700 "right,ok,down,down,right,play,wait,wait,wait,wait,down,right,right,right,right,right,right,right,right,right,right,right,right,ok" HOME="$(home_with pcastb "$PL")"
 grep -q "player: cast drawer (3 people)" "$OUT/player_cast_button.log" || { echo "the Cast button did not show the cast"; grep player "$OUT/player_cast_button.log"; exit 1; }
 # Scenes: the rail from the bar, and a moment marked there is kept for the video
-run player_scenes 640 "right,ok,down,down,right,ok,wait,wait,wait,wait,down,right,right,right,right,right,right,right,right,ok,left,left,left,ok,wait,wait" HOME="$(home_with scenes "$PL")"
+run player_scenes 640 "right,ok,down,down,right,play,wait,wait,wait,wait,down,right,right,right,right,right,right,right,right,ok,left,left,left,ok,wait,wait" HOME="$(home_with scenes "$PL")"
 grep -q "player: scenes rail (3)" "$OUT/player_scenes.log" && grep -q "player: moment marked at [0-9]* s" "$OUT/player_scenes.log" \
   && tr -d ' \t\n' < "$OUT/home_scenes/.local/share/stremio/nativetv/settings.json" | grep -q '"marks":{"tt0903747:1:2":\[' \
   || { echo "the Scenes rail did not mark a moment"; grep -E "scene|marked" "$OUT/player_scenes.log"; exit 1; }
 # the last minutes: the next episode's likely file is fetched ahead
-run player_warm_next 600 "right,ok,down,down,right,ok,wait" SNTV_FAKE_DURATION=1200 SNTV_FAKE_START=900 HOME="$(home_with warmnext "$PL")"
+run player_warm_next 600 "right,ok,down,down,right,play,wait" SNTV_FAKE_DURATION=1200 SNTV_FAKE_START=900 HOME="$(home_with warmnext "$PL")"
 grep -q "streams: next episode's file warmed (206" "$OUT/player_warm_next.log" || { echo "the next episode's file was not warmed"; grep streams "$OUT/player_warm_next.log"; exit 1; }
 # a film with a scene after the credits says so (TMDB's keywords)
 run player_stinger 400 "right,right,ok,wait,ok,ok,wait,wait" SNTV_FAKE_DURATION=3600 SNTV_FAKE_START=3300 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg \
   HOME="$(home_with stinger '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
 grep -q "player: the film has a scene after the credits" "$OUT/player_stinger.log" || { echo "the after-credits scene was not mentioned"; grep -E "tmdb|player" "$OUT/player_stinger.log"; exit 1; }
 # second subtitles stay on for the show; night mode plays quieter
-run player_second_subs 400 "right,ok,down,down,right,ok,wait,wait,wait,wait" HOME="$(home_with second '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"secondSubs":{"tt0903747":"spa"}}')"
+run player_second_subs 400 "right,ok,down,down,right,play,wait,wait,wait,wait" HOME="$(home_with second '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"secondSubs":{"tt0903747":"spa"}}')"
 grep -q "player: second subtitles spa (on for this show)" "$OUT/player_second_subs.log" || { echo "the show's second subtitles did not come back"; grep -E "subtitles|subs:" "$OUT/player_second_subs.log"; exit 1; }
-run player_night 330 "right,ok,down,down,right,ok,wait,wait,wait" HOME="$(home_with night '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"nightMode":2}')"
+run player_night 330 "right,ok,down,down,right,play,wait,wait,wait" HOME="$(home_with night '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"nightMode":2}')"
 grep -q "player: night mode on" "$OUT/player_night.log" && grep -q "video(null): volume 60" "$OUT/player_night.log" || { echo "night mode did not lower the volume"; grep -E "night|volume" "$OUT/player_night.log"; exit 1; }
 # a series you had caught up on comes back to Continue Watching when an episode airs after you watched (Stremio's own apps do too)
 NE_WAIT="$(printf 'wait,%.0s' $(seq 1 76))"
@@ -663,7 +667,7 @@ run settings_palette 380 "wait,left,down,down,down,down,down,ok,wait,down,down,d
 tr -d ' \t\n' < "$PAL_HOME/.local/share/stremio/nativetv/settings.json" | grep -q '"themeAccent":4,"themeBg":1' \
   || { echo "the palette did not set the accent and background"; grep -o '"theme[A-Za-z]*":[0-9]*' "$PAL_HOME/.local/share/stremio/nativetv/settings.json"; exit 1; }
 # a 1 GB TV: the saver is on from the start, and the artwork cache shrinks while a video fills the screen
-run memory_playback 520 "right,ok,down,down,ok,wait,wait,wait,wait,wait,back,back,back,wait,wait" SNTV_FAKE_MEM=1000000,500000 HOME="$(home_with memplay "$PL")"
+run memory_playback 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,back,back,back,wait,wait" SNTV_FAKE_MEM=1000000,500000 HOME="$(home_with memplay "$PL")"
 grep -q "memory saver on (small TV)" "$OUT/memory_playback.log" && grep -q "memory: artwork trimmed while the video plays" "$OUT/memory_playback.log" \
   && grep -q "memory: artwork budget back after the video" "$OUT/memory_playback.log" \
   || { echo "the memory saver did not trim during playback"; grep -E "memory" "$OUT/memory_playback.log"; exit 1; }
@@ -677,7 +681,7 @@ for f in 1 2 3 4 5 6 7 8 9 10 11 12; do
 done
 run island_dial 150 "" HOME="$(home_with isl_dial '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":3}')"
 run island_seconds 150 "" HOME="$(home_with isl_sec '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":2}')"
-run ambient_paused 300 "right,ok,down,down,ok,wait,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run ambient_paused 300 "right,ok,down,down,play,wait,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run login_qr 260 "left,down,down,down,down,down,down,ok"
 run login_pw 280 "left,down,down,down,down,down,down,ok,wait"
 python3 -I - "$OUT" <<'PY'

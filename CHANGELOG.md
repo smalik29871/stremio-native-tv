@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.41
+
+- **OK on an episode shows its sources, and nothing starts until you choose one.** It
+  used to start the best source by itself after a few seconds, so a list you were still
+  reading could start playing. OK on a series' main button does the same for its episode.
+  The remote's Play button still starts the episode at once on the best source.
+
 ## 0.10.40
 
 From a third review:
