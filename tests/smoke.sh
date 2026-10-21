@@ -375,6 +375,9 @@ grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && gre
 # the screensaver waits while a break counts down (it froze the break, so the film never came back)
 run break_no_saver 900 "right,ok,down,down,ok,wait" HOME="$(home_with brkns '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00+3 SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=break" "$OUT/break_no_saver.log" || { echo "the screensaver covered a break"; grep "UI check" "$OUT/break_no_saver.log"; exit 1; }
+# nor a video: paused (or stalled, which webOS reports as paused) it stays the player
+run player_no_saver 700 "right,ok,down,down,ok,wait,ok,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
+grep -q "UI check: screen=player" "$OUT/player_no_saver.log" || { echo "the screensaver covered a paused video"; grep "UI check" "$OUT/player_no_saver.log"; exit 1; }
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 # no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
 if [ -n "${FAKE_TORRENT_HASH:-}" ]; then
@@ -510,7 +513,7 @@ grep -q "torbox: the AI picked the episode's file: BREAKING_BAD_D1/title_t01.mkv
   || { echo "the AI did not pick the disc rip's episode"; grep -E "torbox|ai:" "$OUT/torbox_disc.log"; exit 1; }
 # The next source a TorBox torrent: made ready on TorBox while the first plays, so when the first dies it takes over at once
 run torbox_standby 4000 "right,ok,down,down,ok,wait" "$TB" HOME="$(home_with tbstand '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
-grep -q "player: next source 2 is ready on TorBox" "$OUT/torbox_standby.log" && grep -q "player: source 2 was made ready on TorBox ahead" "$OUT/torbox_standby.log" \
+grep -q "player: next source 2 is ready on TorBox" "$OUT/torbox_standby.log" && grep -q "player: next source 3 answers" "$OUT/torbox_standby.log" && grep -q "player: source 2 was made ready on TorBox ahead" "$OUT/torbox_standby.log" \
   || { echo "the TorBox source standing by was not ready ahead"; grep -E "player: (next|source|rescue|candidate)" "$OUT/torbox_standby.log"; exit 1; }
 # resting on a title page asks for its sources ahead: Play opens on them
 run detail_prefetch 900 "wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait" HOME="$(home_with prefetch "$ABOUT_HOME")"

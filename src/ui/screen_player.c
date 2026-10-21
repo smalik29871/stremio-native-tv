@@ -123,8 +123,9 @@ struct Player {
     char keep_audio[16]; int keep_sub_kind, keep_sub_idx; char keep_sub_lang[16];   /* kind: 0 none, 1 addon file, 2 file track, 3 off */
     unsigned char dead[16];                 /* sources found not to answer */
     int more_state;                         /* every addon asked from the Sources panel: 0 not yet, 1 asking, 2 answered */
-    int warm_idx, warm_state; float warm_at, warm_s;   /* the next source, checked while this one plays (state 0 -, 1 asking, 2 answers) */
-    char *warm_link; int warm_link_for; float warm_link_at;   /* a TorBox torrent among them, already turned into its file's link */
+    /* the next two sources, checked while this one plays (state 0 -, 1 asking, 2 answers) */
+    struct { int idx, state; float at, s; } warm[2];
+    struct { char *url; int idx; float at; } ready[2];   /* TorBox torrents among them, already turned into their files' links */
     float drain_at[6], drain_v[6]; int drain_n; float drain_t;   /* seconds buffered ahead, sampled */
     int reask_count; float reask_at; double reask_pos;   /* every source failed: the addons asked again */
     double start_at;                        /* where this source was asked to start (a failed one reports 0) */
@@ -1242,12 +1243,13 @@ static void on_torbox_open(const char *url, const char *error, void *user)
 
 static void start_candidate(Player *p, int idx, double start)
 {
-    if (torbox_is_hash_link(p->cands[idx].url) && p->warm_link && p->warm_link_for == idx && g_app.time - p->warm_link_at < 1800) {
-        LOGI("player: source %d was made ready on TorBox ahead", idx + 1);   /* no wait for TorBox now */
-        free(p->cands[idx].url);
-        p->cands[idx].url = p->warm_link;
-        p->warm_link = NULL;
-    }
+    for (int r = 0; r < 2; r++)
+        if (torbox_is_hash_link(p->cands[idx].url) && p->ready[r].url && p->ready[r].idx == idx && g_app.time - p->ready[r].at < 1800) {
+            LOGI("player: source %d was made ready on TorBox ahead", idx + 1);   /* no wait for TorBox now */
+            free(p->cands[idx].url);
+            p->cands[idx].url = p->ready[r].url;
+            p->ready[r].url = NULL;
+        }
     p->cur = idx;
     p->start_at = start;
     p->error_handled = 0;
@@ -1265,7 +1267,8 @@ static void start_candidate(Player *p, int idx, double start)
     if (idx < 64) p->tried |= 1ull << idx;
     p->started = 0; p->p2p_peers = -1; p->p2p_info = 0; p->thumbs_warm = 0;
     p->stalls_here = 0; p->lighter_to = -1;
-    p->warm_state = 0; p->warm_idx = -1; p->warm_at = g_app.time; p->drain_n = 0; p->drain_t = 0;
+    for (int w = 0; w < 2; w++) { p->warm[w].state = 0; p->warm[w].idx = -1; p->warm[w].at = g_app.time; }
+    p->drain_n = 0; p->drain_t = 0;
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     p->p2p_status[0] = 0;
@@ -1310,6 +1313,16 @@ static int next_candidate(const Player *p)
     /* then any above it not tried yet (a source picked from the panel can sit last) */
     for (int i = 0; i < p->cur && i < 64 && p->tries < 3; i++)
         if (!(p->tried >> i & 1) && !(i < 16 && p->dead[i])) return i;
+    return -1;
+}
+
+/* The sources standing by: 0 the next, 1 the one after it (not dead, not the one on) */
+static int standby(const Player *p, int slot)
+{
+    int a = next_candidate(p);
+    if (slot == 0 || a < 0) return a;
+    for (int i = a + 1; i < p->n_cands; i++)
+        if (i != p->cur && !(i < 16 && p->dead[i]) && !torrent_engine_url_is(p->cands[i].url)) return i;
     return -1;
 }
 
@@ -1373,18 +1386,18 @@ static void fail_over(Player *p, const char *why)
 
 static float env_s(const char *name, float def) { const char *e = getenv(name); return e && *e ? (float)atof(e) : def; }
 
-typedef struct { Player *owner; unsigned gen; int idx; } WarmReq;
+typedef struct { Player *owner; unsigned gen; int idx, slot; } WarmReq;
 static void on_warm(HttpResponse *r, void *user)
 {
     WarmReq *q = user;
     Player *p = q->owner;
-    if (p == g_live && q->gen == p->gen && q->idx == p->warm_idx) {
-        p->warm_at = g_app.time;
+    if (p == g_live && q->gen == p->gen && q->idx == p->warm[q->slot].idx) {
+        p->warm[q->slot].at = g_app.time;
         if (r->status == 200 || r->status == 206) {
-            p->warm_state = 2; p->warm_s = (float)r->seconds;
+            p->warm[q->slot].state = 2; p->warm[q->slot].s = (float)r->seconds;
             LOGI("player: next source %d answers (%.1f s)", q->idx + 1, r->seconds);
         } else {
-            p->warm_state = 0;
+            p->warm[q->slot].state = 0;
             if (q->idx < 16) p->dead[q->idx] = 1;
             app_link_failed(p->cands[q->idx].url);
             LOGI("player: next source %d does not answer (%ld); the one after it stands by", q->idx + 1, r->status);
@@ -1398,16 +1411,17 @@ static void on_warm_tb(const char *url, const char *error, void *user)
 {
     WarmReq *q = user;
     Player *p = q->owner;
-    if (p == g_live && q->gen == p->gen && q->idx == p->warm_idx) {
-        p->warm_at = g_app.time;
+    if (p == g_live && q->gen == p->gen && q->idx == p->warm[q->slot].idx) {
+        p->warm[q->slot].at = g_app.time;
         if (url) {
-            free(p->warm_link);
-            p->warm_link = strdup(url); p->warm_link_for = q->idx; p->warm_link_at = g_app.time;
-            p->warm_state = 2;
+            int r = p->ready[0].url && p->ready[0].idx != q->idx && (!p->ready[1].url || p->ready[1].idx == q->idx);   /* its own place, else a free one */
+            free(p->ready[r].url);
+            p->ready[r].url = strdup(url); p->ready[r].idx = q->idx; p->ready[r].at = g_app.time;
+            p->warm[q->slot].state = 2;
             LOGI("player: next source %d is ready on TorBox", q->idx + 1);
         } else {
-            p->warm_state = 0;
-            p->warm_at = g_app.time + 120;   /* TorBox may still be fetching it: ask again later */
+            p->warm[q->slot].state = 0;
+            p->warm[q->slot].at = g_app.time + 120;   /* TorBox may still be fetching it: ask again later */
             LOGI("player: next source %d not ready on TorBox yet (%s)", q->idx + 1, error ? error : "?");
         }
     }
@@ -1428,7 +1442,7 @@ static void on_reask(const Stream *items, int n, void *user)
     if (p->reask_pos <= 0) p->reask_pos = p->start_at;   /* it never played: where it was meant to start */
     LOGI("player: asked the addons again: %d sources, resuming at %.0fs", k, p->reask_pos);
     play_candidates_free(p->cands, p->n_cands);
-    free(p->warm_link); p->warm_link = NULL;   /* it was for the old list's order */
+    for (int r = 0; r < 2; r++) { free(p->ready[r].url); p->ready[r].url = NULL; }   /* they were for the old list's order */
     p->cands = c; p->n_cands = k; p->tries = 0;
     memset(p->dead, 0, sizeof p->dead);
     app_toast("Found sources again. Carrying on from where it stopped");
@@ -1483,7 +1497,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     int playing = vi->state == VIDEO_PLAYING;
     if (playing && vi->position > 5) p->reask_pos = vi->position;
     /* 1. a source that stopped sending: the next one, from the same moment */
-    float dead_after = env_s("SNTV_RESCUE_AFTER", p->warm_state == 2 ? 12 : 20);   /* sooner when the next one is known to work */
+    float dead_after = env_s("SNTV_RESCUE_AFTER", p->warm[0].state == 2 ? 12 : 20);   /* sooner when the next one is known to work */
     if (playing && vi->buffering && p->stall_since > 0 && now - p->stall_since > dead_after && now - p->jumped_at > dead_after && next_candidate(p) >= 0) {
         health_record(p, HEALTH_STALL);
         p->stall_s += now - p->stall_since; p->stall_since = 0; p->was_buffering = 0;
@@ -1494,25 +1508,29 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     if (playing && !vi->buffering) { if (!p->good_since) p->good_since = now; }
     else if (vi->buffering) p->good_since = 0;
     if (p->good_since && !p->good_recorded && now - p->good_since > env_s("SNTV_GOOD_AFTER", 600)) { p->good_recorded = 1; p->tries = 0; health_record(p, HEALTH_OK); }   /* later trouble starts the count afresh */
-    /* 3. the next source checked while this one plays, so a switch is quick */
-    if (p->warm_state == 2 && now - p->warm_at > 600) p->warm_state = 0;   /* links age: check again */
+    /* 3. the next two sources checked while this one plays, so a switch is quick; the
+     * second only once the first answered, never both at once */
     int room = !vi->buffering && (vi->buffer_ahead < 0 || vi->buffer_ahead > 30);   /* never competes with a tight connection */
-    if (playing && room && p->warm_state == 0 && now - p->load_started > env_s("SNTV_WARM_AFTER", 30) && now - p->warm_at > 5) {
-        int idx = next_candidate(p);
-        if (idx >= 0 && torbox_is_hash_link(p->cands[idx].url)) {
-            p->warm_idx = idx; p->warm_state = 1; p->warm_at = now;
+    for (int w = 0; w < 2; w++) {
+        int idx = standby(p, w);
+        if (idx != p->warm[w].idx) { p->warm[w].idx = idx; p->warm[w].state = 0; }
+        if (p->warm[w].state == 2 && now - p->warm[w].at > 600) p->warm[w].state = 0;   /* links age: check again */
+        if (w == 1 && p->warm[0].state != 2) break;
+        if (!playing || !room || idx < 0 || p->warm[w].state != 0 || now - p->load_started < env_s("SNTV_WARM_AFTER", 30) || now - p->warm[w].at < 5) continue;
+        if (torbox_is_hash_link(p->cands[idx].url)) {
+            p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
-            q->owner = p; q->gen = p->gen; q->idx = idx;
+            q->owner = p; q->gen = p->gen; q->idx = idx; q->slot = w;
             EpisodeHint ep;
             app_episode_hint(p->meta.id, p->meta.name, p->video_id, &ep);
             torbox_open_hash(p->cands[idx].url, &ep, on_warm_tb, q);
-        } else if (idx >= 0 && !strncmp(p->cands[idx].url, "http", 4) && !torrent_engine_url_is(p->cands[idx].url)) {
-            p->warm_idx = idx; p->warm_state = 1; p->warm_at = now;
+        } else if (!strncmp(p->cands[idx].url, "http", 4) && !torrent_engine_url_is(p->cands[idx].url)) {
+            p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
-            q->owner = p; q->gen = p->gen; q->idx = idx;
+            q->owner = p; q->gen = p->gen; q->idx = idx; q->slot = w;
             HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1 };
             http_request_async_ex(p->cands[idx].url, &o, on_warm, q);
-        } else p->warm_at = now + 60;
+        } else p->warm[w].at = now + 60;
     }
     /* 4. the buffer is draining: a lighter copy before playback stops */
     if (playing && !vi->buffering && vi->buffer_ahead >= 0 && now - p->jumped_at > 8 && now - p->drain_t >= env_s("SNTV_DRAIN_EVERY", 5)) {
@@ -4176,7 +4194,7 @@ static void destroy(Screen *s)
     xl_stop(p);
     free(p->probe);
     for (int i = 0; i < p->n_addon_subs; i++) { free(p->addon_subs[i].url); free(p->addon_subs[i].lang); free(p->addon_subs[i].addon); free(p->addon_subs[i].release); }
-    free(p->warm_link);
+    for (int r = 0; r < 2; r++) free(p->ready[r].url);
     play_candidates_free(p->cands, p->n_cands);
     meta_preview_free(&p->meta);
     free(p->video_id); free(p->title); free(p->next_video_id); free(p->next_title); free(p->prev_video_id); free(p->prev_title);
