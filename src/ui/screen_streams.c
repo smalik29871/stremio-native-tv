@@ -277,8 +277,19 @@ static int recommended(const Streams *st)
     return best;
 }
 
+typedef struct { long rank; int at; } RankKey;
+
+/* by rank; equal ranks keep the order they had (the sort stays stable) */
+static int cmp_rank(const void *x, const void *y)
+{
+    const RankKey *a = x, *b = y;
+    if (a->rank != b->rank) return a->rank < b->rank ? -1 : 1;
+    return a->at - b->at;
+}
+
 static void sort_items(Streams *st)
 {
+    Uint32 t0 = SDL_GetTicks();
     QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
     double runtime = quality_runtime_minutes(st->meta.runtime);
     for (int i = 0; i < st->n; i++) {
@@ -300,12 +311,22 @@ static void sort_items(Streams *st)
     int keep = st->moved && st->focus >= 0 && st->focus < st->n;   /* untouched, the focus stays on the top */
     const char *keep_url = keep ? st->items[st->focus].url : NULL;
     const char *keep_hash = keep ? st->items[st->focus].info_hash : NULL;
-    for (int i = 1; i < st->n; i++)
-        for (int j = i; j > 0 && rank(st, &st->items[j]) < rank(st, &st->items[j - 1]); j--) {
-            Stream t = st->items[j]; st->items[j] = st->items[j - 1]; st->items[j - 1] = t;
-        }
+    /* each rank worked out once (it looks through the TorBox and dead-link lists), then one
+     * O(n log n) sort: with a dozen addons answering a few thousand sources, comparing
+     * by rank in an insertion sort held a TV's main thread for seconds */
+    RankKey *keys = st->n > 1 ? malloc(sizeof *keys * (size_t)st->n) : NULL;
+    Stream *sorted = keys ? malloc(sizeof *sorted * (size_t)st->n) : NULL;
+    if (keys && sorted) {
+        for (int i = 0; i < st->n; i++) { keys[i].rank = rank(st, &st->items[i]); keys[i].at = i; }
+        qsort(keys, (size_t)st->n, sizeof *keys, cmp_rank);
+        for (int i = 0; i < st->n; i++) sorted[i] = st->items[keys[i].at];
+        memcpy(st->items, sorted, sizeof *sorted * (size_t)st->n);
+    }
+    free(keys); free(sorted);
     if (keep_url || keep_hash)
         for (int i = 0; i < st->n; i++) if (st->items[i].url == keep_url && st->items[i].info_hash == keep_hash) { st->focus = i; break; }
+    Uint32 took = SDL_GetTicks() - t0;
+    if (took > 20) LOGW("perf: sorting %d sources took %u ms", st->n, took);
 }
 
 static void play_from(Streams *st, int index);

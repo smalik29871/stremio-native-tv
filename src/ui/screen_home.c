@@ -572,14 +572,20 @@ static void draw_hero(Home *h, const MetaPreview *p)
     float mx = x;
     if (p->imdb_rating && *p->imdb_rating) mx += ui_imdb(p->imdb_rating, mx, y) + 4;
     const char *parts[5]; int np = 0;
+    char genres[96] = "";
+    for (int g = 0; g < p->genres.n && g < 3; g++)   /* the genres in the facts line, as on title pages */
+        snprintf(genres + strlen(genres), sizeof genres - strlen(genres), "%s%s", g ? ", " : "", p->genres.v[g]);
     if (p->release_info) parts[np++] = p->release_info;
     if (p->runtime) parts[np++] = p->runtime;
     if (p->type) parts[np++] = strcmp(p->type, "series") == 0 ? "Series" : strcmp(p->type, "movie") == 0 ? "Movie" : p->type;
+    if (genres[0]) parts[np++] = genres;
     if (np) ui_meta_line(parts, np, mx > x ? mx + 8 : mx, y + (36 - font_height(FONT_S | FONT_B)) / 2, COLOR_ALPHA(THEME_TEXT_DIM, a));
     y += 54;
-    float gx = x;
-    for (int g = 0; g < p->genres.n && g < 4; g++) gx += ui_chip_outline(p->genres.v[g], gx, y, COLOR_ALPHA(THEME_TEXT, (int)(0x50 * k)), COLOR_ALPHA(THEME_TEXT_DIM, a)) + 10;
-    if (p->genres.n) y += 54;
+    /* what critics and audiences make of it (with an MDBList key) */
+    ScoreBadge sb[8];
+    char sv[8][16];
+    int ns = ui_mdb_badges(p->id, p->type, sb, sv);
+    if (ns) { ui_score_pills(x, y, sb, ns, maxw + 200, k); y += 60; }
     if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4);
 }
 

@@ -925,25 +925,6 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
         }
 }
 
-/* MDBList's scores as marks for the header: critics, audiences, then MDBList's blend */
-static int detail_scores(const Detail *d, ScoreBadge *b, char text[][16])
-{
-    static const struct { int src, kind; const char *fmt; double scale; } R[] = {
-        { MDB_TOMATOMETER, BADGE_TOMATOMETER, "%.0f%%", 1 }, { MDB_POPCORNMETER, BADGE_POPCORNMETER, "%.0f%%", 1 },
-        { MDB_METACRITIC, BADGE_METASCORE, "%.0f", 1 }, { MDB_ROGEREBERT, BADGE_EBERT, "%.1f", 1 },
-        { MDB_LETTERBOXD, BADGE_LETTERBOXD, "%.1f", 1 }, { MDB_TRAKT, BADGE_TRAKT, "%.0f%%", 1 },
-        { MDB_TMDB, BADGE_TMDB, "%.0f%%", 1 }, { MDB_SCORE, BADGE_MDBLIST, "%.1f", 0.1 } };
-    double sc[MDB_SOURCES];
-    int n = 0;
-    if (!mdblist_scores(d->preview.id, d->preview.type, sc)) return 0;
-    for (int i = 0; i < 8; i++) {
-        if (sc[R[i].src] <= 0) continue;
-        snprintf(text[n], 16, R[i].fmt, sc[R[i].src] * R[i].scale);
-        b[n] = (ScoreBadge){ R[i].kind, sc[R[i].src], text[n], NULL };
-        n++;
-    }
-    return n;
-}
 
 static void draw(Screen *s)
 {
@@ -1033,8 +1014,8 @@ static void draw(Screen *s)
         /* what critics and audiences make of it */
         ScoreBadge sb[8];
         char sv[8][16];
-        int ns = detail_scores(d, sb, sv);
-        if (ns) { ui_score_pills(x, y, sb, ns, col_w + 300); y += 60; }
+        int ns = ui_mdb_badges(d->preview.id, d->preview.type, sb, sv);
+        if (ns) { ui_score_pills(x, y, sb, ns, col_w + 300, 1); y += 60; }
         /* and what it contains, as the player says when it starts */
         const Advisory *adv = g_app.advisory ? advisory_get(d->preview.id) : NULL;
         if (g_app.advisory) advisory_fetch(d->preview.id);

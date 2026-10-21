@@ -73,7 +73,10 @@ float ui_score_badge_width(const ScoreBadge *b);
 float ui_score_card(float right_x, float center_y, const ScoreBadge *scores, int n, const ScoreBadge *people, int np, float alpha);
 #define SCORE_CARD_W 660.0f   /* its width, for what sits beside it */
 /* The title page's strip: a pill per score, its mark and value; returns the width. */
-float ui_score_pills(float x, float y, const ScoreBadge *b, int n, float max_w);
+float ui_score_pills(float x, float y, const ScoreBadge *b, int n, float max_w, float alpha);
+/* MDBList's scores for a title as badges, critics first, then audiences and MDBList's
+ * blend (text holds their values); 0 while unknown or without an MDBList key. */
+int ui_mdb_badges(const char *id, const char *type, ScoreBadge b[8], char text[8][16]);
 /* The same marks small, each with its score beside it, in a 36-high line from x; returns the width. */
 float ui_score_inline(float x, float y, const ScoreBadge *b, int n);
 /* The advisory on one line from x ("Violence Severe · Profanity Moderate"); returns the width (0: nothing rated). */

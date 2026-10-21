@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **No more freeze while sources come in.** With many addons answering (a few thousand
+  sources), the list was re-sorted with a comparison that looked through the TorBox and
+  dead-link lists every time, for every answer: up to six seconds of a frozen screen on
+  the TV. Each source's rank is now worked out once and the list sorted in one go
+  (4,000 sources: from about 930 ms to under 20 ms on a desktop, several times that on
+  a TV). A sort that still takes long is written to Diagnostics.
+- **Home shows the scores too**: the hero has the same strip of score pills as title
+  pages (Tomatometer, Popcornmeter, Metascore, Roger Ebert, Letterboxd, Trakt, TMDB and
+  MDBList's ring), the genres moving into the facts line.
+
 ## 0.10.37
 
 - **Title pages show the scores and the advisory too**, not only the paused screen: the

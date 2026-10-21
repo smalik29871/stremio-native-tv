@@ -3,6 +3,7 @@
 #include "font.h"
 #include "../app.h"
 #include "../image.h"
+#include "../tracking.h"
 #include "qrcodegen.h"
 #include <math.h>
 #include <stdio.h>
@@ -1049,20 +1050,40 @@ float ui_score_card(float right_x, float center_y, const ScoreBadge *scores, int
     return h;
 }
 
-float ui_score_pills(float x, float y, const ScoreBadge *b, int n, float max_w)
+float ui_score_pills(float x, float y, const ScoreBadge *b, int n, float max_w, float alpha)
 {
     const float h = 44, icon = 26, gap = 12;
+    int a = (int)(255 * alpha);
     float x0 = x;
     for (int i = 0; i < n; i++) {
         float w = 16 + icon + 10 + font_measure(b[i].value, FONT_S | FONT_B) + 18;
         if (x - x0 + w > max_w) break;
-        gfx_rrect(x, y, w, h, h / 2, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0x14));
-        gfx_rrect_ring(x, y, w, h, h / 2, 1, COLOR_ALPHA(RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0x20));
-        draw_mark(&b[i], x + 16 + icon / 2, y + h / 2, icon, 255);
-        font_draw(b[i].value, x + 16 + icon + 10, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+        gfx_rrect(x, y, w, h, h / 2, RGBA(0xFF, 0xFF, 0xFF, (int)(0x14 * alpha)));
+        gfx_rrect_ring(x, y, w, h, h / 2, 1, RGBA(0xFF, 0xFF, 0xFF, (int)(0x20 * alpha)));
+        draw_mark(&b[i], x + 16 + icon / 2, y + h / 2, icon, a);
+        font_draw(b[i].value, x + 16 + icon + 10, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
         x += w + gap;
     }
     return x - x0 - (x > x0 ? gap : 0);
+}
+
+int ui_mdb_badges(const char *id, const char *type, ScoreBadge b[8], char text[8][16])
+{
+    static const struct { int src, kind; const char *fmt, *label; double scale; } R[] = {
+        { MDB_TOMATOMETER, BADGE_TOMATOMETER, "%.0f%%", "Tomatometer", 1 }, { MDB_POPCORNMETER, BADGE_POPCORNMETER, "%.0f%%", "Popcornmeter", 1 },
+        { MDB_METACRITIC, BADGE_METASCORE, "%.0f", "Metascore", 1 }, { MDB_ROGEREBERT, BADGE_EBERT, "%.1f", "Roger Ebert", 1 },
+        { MDB_LETTERBOXD, BADGE_LETTERBOXD, "%.1f", "Letterboxd", 1 }, { MDB_TRAKT, BADGE_TRAKT, "%.0f%%", "Trakt", 1 },
+        { MDB_TMDB, BADGE_TMDB, "%.0f%%", "TMDB", 1 }, { MDB_SCORE, BADGE_MDBLIST, "%.1f", "MDBList", 0.1 } };
+    double sc[MDB_SOURCES];
+    int n = 0;
+    if (!id || !mdblist_scores(id, type, sc)) return 0;
+    for (int i = 0; i < 8; i++) {
+        if (sc[R[i].src] <= 0) continue;
+        snprintf(text[n], 16, R[i].fmt, sc[R[i].src] * R[i].scale);
+        b[n] = (ScoreBadge){ R[i].kind, sc[R[i].src], text[n], R[i].label };
+        n++;
+    }
+    return n;
 }
 
 float ui_score_badge_width(const ScoreBadge *b)
