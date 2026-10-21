@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.35
 
 - **Four new screensavers** (Settings > System > Screensaver style), drawn live and
   light enough for old TVs, always moving so OLED panels are safe:
