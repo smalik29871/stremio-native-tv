@@ -153,6 +153,8 @@ struct Player {
     float played_at, adv_at;  /* when playback first ran; when the content advisory came up (0 not yet) */
     int corner_logged;        /* lines in the paused corner last logged */
     float prefetch_tried;     /* when; a stale or empty prefetch is retried after a while */
+    int prefetch_renewed;     /* asked again near the end, once */
+    int net_retries; float net_retry_at; double net_retry_pos;   /* the same source again after a dropped connection */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
     int pip, pip_done;        /* parked in a corner; finished there */
@@ -1364,6 +1366,26 @@ static void rescue(Player *p, const char *why, double at)
     start_candidate(p, next, at);
 }
 
+static float env_s(const char *name, float def) { const char *e = getenv(name); return e && *e ? (float)atof(e) : def; }
+
+/* A connection that dropped after the video played (webOS: code 300, or 40000-49999) is
+ * not a dead source: the same one again from the same moment, after 3, 10 and 25 s,
+ * before giving it up. 1 when a retry is set. */
+static int net_retry(Player *p, const VideoInfo *vi)
+{
+    const char *c = strstr(vi->error, "(code ");
+    int code = c ? atoi(c + 6) : 0;
+    if (!p->started || vi->position < 5 || p->net_retries >= 3 || !(code == 300 || (code >= 40000 && code < 50000))) return 0;
+    static const float WAIT[] = { 3, 10, 25 };
+    float scale = env_s("SNTV_NET_RETRY_SCALE", 1);
+    p->net_retry_pos = vi->position;
+    p->net_retry_at = g_app.time + WAIT[p->net_retries] * scale;
+    p->net_retries++;
+    LOGI("player: the connection dropped (%s); the same source again in %.0f s", vi->error, WAIT[p->net_retries - 1] * scale);
+    app_toast("Connection dropped. Reconnecting\xE2\x80\xA6");
+    return 1;
+}
+
 static void fail_over(Player *p, const char *why)
 {
     VideoInfo vi;
@@ -1386,7 +1408,6 @@ static void fail_over(Player *p, const char *why)
 
 /* ---- fallback while watching ------------------------------------------------------ */
 
-static float env_s(const char *name, float def) { const char *e = getenv(name); return e && *e ? (float)atof(e) : def; }
 
 typedef struct { Player *owner; unsigned gen; int idx, slot; } WarmReq;
 static void on_warm(HttpResponse *r, void *user)
@@ -1565,7 +1586,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
         }
     }
     /* 5. nothing left to try: ask the addons again, twice at most */
-    if ((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && next_candidate(p) < 0 && p->reask_count < 2) {
+    if ((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->net_retry_at && next_candidate(p) < 0 && p->reask_count < 2) {
         if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 8); LOGI("player: every source failed; asking the addons again shortly"); app_toast("No source plays right now. Asking the addons again in a few seconds"); }
         else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; if (p->more_state == 1) p->more_state = 0; streams_lookup(&p->meta, p->video_id, on_reask, p); }
     }
@@ -1824,7 +1845,14 @@ static void update(Screen *s, float dt)
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
     night_tick(p, &vi);
 
-    if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
+    if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; if (!net_retry(p, &vi)) fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
+    if (p->net_retry_at > 0 && g_app.time >= p->net_retry_at) {
+        p->net_retry_at = 0;
+        LOGI("player: reconnecting to source %d at %.0fs (try %d of 3)", p->cur + 1, p->net_retry_pos, p->net_retries);
+        keep_choices(p);
+        start_candidate(p, p->cur, p->net_retry_pos);
+    }
+    if (p->net_retries && vi.state == VIDEO_PLAYING && vi.position > p->net_retry_pos + 10) p->net_retries = 0;   /* it holds again */
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
@@ -1914,11 +1942,17 @@ static void update(Screen *s, float dt)
         LOGI("player: Up Next at %.0fs (%s), plays at %.0fs", vi.position, at_credits ? "credits" : "end", p->next_at);
         show_overlay(p);
     }
-    /* fetch the next episode's sources now, so Up Next starts without a wait; the
-     * control bar asks too, so its Next button can show them arriving */
-    /* fifteen minutes before the end (or past 60%): the answers and the matching source are
-     * ready well before Up Next, and for a Next pressed early; the links stay good for hours */
-    int want_next = p->up_next_shown || p->bar_focus || (vi.duration > 120 && (vi.position > vi.duration - 900 || vi.position > vi.duration * 0.6));
+    /* the next episode's sources, asked for once this one has played half a minute, so
+     * Up Next, an early Next or a source that dies at the end all find them ready; asked
+     * again in the last 8 minutes when they are over half an hour old (links age) */
+    int want_next = p->up_next_shown || p->bar_focus || (p->started && g_app.time - p->load_started > env_s("SNTV_PREFETCH_AFTER", 30))
+                    || (vi.duration > 120 && (vi.position > vi.duration - 900 || vi.position > vi.duration * 0.6));   /* started late in the episode */
+    float pre_age = p->next_video_id ? streams_prefetch_age(p->next_video_id) : -1;
+    if (p->next_video_id && !p->prefetch_renewed && pre_age > env_s("SNTV_PREFETCH_RENEW", 1800) && vi.duration > 120 && vi.position > vi.duration - 480
+        && vi.state == VIDEO_PLAYING && streams_prefetch_progress(p->next_video_id) >= 1) {
+        p->prefetch_renewed = 1;
+        streams_prefetch_again(&p->meta, p->next_video_id);
+    }
     if (p->next_video_id && want_next && vi.state != VIDEO_LOADING && streams_prefetch_progress(p->next_video_id) < 0
         && (!p->prefetched || g_app.time - p->prefetch_tried > 30)) {
         p->prefetched = 1;
@@ -2867,7 +2901,7 @@ static void draw_catchup(Player *p)
 /* every candidate has failed and the error card is up */
 static int error_final(const Player *p, const VideoInfo *vi)
 {
-    return (vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && next_candidate(p) < 0;
+    return (vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->net_retry_at && next_candidate(p) < 0;
 }
 
 /* Until the first picture: the title's artwork and name, with what is happening, instead

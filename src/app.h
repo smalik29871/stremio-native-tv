@@ -333,6 +333,10 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id);
 /* Share of addons that have answered that prefetch, 0..1 (1 = ready to start at once);
  * -1 when none is running or it went stale. */
 float streams_prefetch_progress(const char *video_id);
+/* Asks every addon again for that episode (fresher links), and how old the answers are
+ * in seconds (-1 when none). */
+void streams_prefetch_again(const MetaPreview *meta, const char *video_id);
+float streams_prefetch_age(const char *video_id);
 /* The prefetch has every answer: the first megabytes of the source Up Next will most
  * likely play (the same binge group first) are fetched, so the server and any debrid
  * link are warm when it starts. 1 when a file was asked for. */

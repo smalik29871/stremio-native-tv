@@ -592,6 +592,62 @@ static int load_acb(void)
     return 1;
 }
 
+/* ---- the TV's own screensaver ------------------------------------------------------
+ * Video in a hole under the app's window is not "a video playing" to the TV's power
+ * service, so its screensaver came on in the middle of films. The service asks first:
+ * registerScreenSaverRequest (subscribed) says when it is about to start, and the app
+ * answers on responseScreenSaverRequest with the same timestamp, ack false to hold it
+ * off. Held off while a video plays, stalls, loads, or is paused by the pipeline (a
+ * stall LG reports as a pause); let through when the viewer paused, it ended or failed,
+ * or nothing plays. */
+static float g_saver_registered_at = -1e9f;
+
+static int saver_hold(void)
+{
+    if (g_paused_by_user) return 0;
+    if (g_info.state == VIDEO_LOADING) return 1;   /* no media id yet */
+    if (!g_media_id[0]) return 0;
+    return g_info.state == VIDEO_PLAYING || g_info.state == VIDEO_PAUSED || g_info.buffering;
+}
+
+static int on_saver(LSHandle *sh, LSMessage *msg, void *ctx)
+{
+    (void)ctx;
+    const char *payload = L.MessageGetPayload(msg);
+    if (!payload || !strstr(payload, "\"Active\"")) return 1;
+    const char *t = strstr(payload, "\"timestamp\"");
+    char stamp[48] = "";
+    if (t && (t = strchr(t, ':')) != NULL) {   /* copied as written: a large number must not be rounded */
+        t++;
+        while (*t == ' ') t++;
+        size_t k = 0;
+        while (t[k] && t[k] != ',' && t[k] != '}' && t[k] != ' ' && k + 1 < sizeof stamp) k++;
+        memcpy(stamp, t, k); stamp[k] = 0;
+    }
+    int hold = saver_hold();
+    char reply[200];
+    snprintf(reply, sizeof reply, "{\"clientName\":\"%s\",\"ack\":%s,\"timestamp\":%s}", SNTV_APP_ID, hold ? "false" : "true", stamp[0] ? stamp : "0");
+    LSError e; L.ErrorInit(&e);
+    if (!L.CallOneReply(sh, "luna://com.webos.service.tvpower/power/responseScreenSaverRequest", reply, NULL, NULL, NULL, &e)) ls_error_log("responseScreenSaverRequest", &e);
+    L.ErrorFree(&e);
+    LOGI("video(webos): the TV's screensaver %s (%s)", hold ? "held off" : "let through",
+         hold ? (g_info.buffering ? "stalled" : g_info.state == VIDEO_PAUSED ? "paused by the pipeline" : "a video is on") : g_paused_by_user ? "paused by the viewer" : "no video playing");
+    return 1;
+}
+
+static void saver_register(void)
+{
+    if (!g_bus || !L.Call) return;
+    float now = (float)SDL_GetTicks() / 1000.0f;
+    if (now - g_saver_registered_at < 60) return;
+    g_saver_registered_at = now;
+    char p[160];
+    snprintf(p, sizeof p, "{\"subscribe\":true,\"clientName\":\"%s\"}", SNTV_APP_ID);
+    LSError e; L.ErrorInit(&e);
+    if (!L.Call(g_bus, "luna://com.webos.service.tvpower/power/registerScreenSaverRequest", p, on_saver, NULL, NULL, &e)) ls_error_log("registerScreenSaverRequest", &e);
+    L.ErrorFree(&e);
+}
+
 int video_init(SDL_Window *win)
 {
     g_lock = SDL_CreateMutex();
@@ -633,6 +689,7 @@ int video_init(SDL_Window *win)
         LOGW("video(webos): neither exported window nor ACB available; expect audio without picture");
     LOGI("video(webos): %s", video_backend_name());
     g_ready = 1;
+    saver_register();
     return 0;
 }
 
@@ -687,6 +744,7 @@ int video_load(const char *url, const char *title, double start)
     g_session++;
     SDL_UnlockMutex(g_lock);
     send_load();
+    saver_register();   /* again now and then: a TV that dropped the subscription asks once more */
     return 0;
 }
 

@@ -63,7 +63,7 @@ static struct {
     float started;
     int addons_version;   /* the addons it was asked of: new ones make it stale */
 } g_pre;
-#define PREFETCH_FRESH_S 600.0f
+#define PREFETCH_FRESH_S 10800.0f   /* the answers hold for hours; near the end of the episode they are asked again (streams_prefetch_again) */
 
 static int playable(const Stream *s)
 {
@@ -466,6 +466,20 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id)
     query_addons(meta, video_id, NULL, g_pre.generation, on_prefetch, &g_pre.pending, NULL);
     g_pre.total = g_pre.pending;
     if (g_pre.pending) LOGI("streams: prefetching %s from %d addon%s", video_id, g_pre.pending, g_pre.pending == 1 ? "" : "s");
+}
+
+void streams_prefetch_again(const MetaPreview *meta, const char *video_id)
+{
+    if (g_live && g_live->from_prefetch && g_live->video_id && video_id && !strcmp(g_live->video_id, video_id)) return;   /* already taken over */
+    LOGI("streams: asking again for %s, the answers are %.0f min old", video_id, g_pre.video_id ? (g_app.time - g_pre.started) / 60 : 0);
+    prefetch_clear();
+    streams_prefetch(meta, video_id);
+}
+
+float streams_prefetch_age(const char *video_id)
+{
+    if (!video_id || !g_pre.video_id || strcmp(g_pre.video_id, video_id) != 0) return -1;
+    return g_app.time - g_pre.started;
 }
 
 float streams_prefetch_progress(const char *video_id)

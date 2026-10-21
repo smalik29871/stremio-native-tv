@@ -38,6 +38,21 @@
   permissions do not name that service): "Update failed". When that happens before
   anything downloads, the same request now goes through luna-send-pub, the public tool
   any app may run, and its progress shows as before.
+- **The TV's own screensaver stays off during films.** A video played under the app's
+  window does not count as "playing" to the TV's power service, so LG's screensaver could
+  come on in the middle of a film (about every 20 minutes). The app now answers the TV's
+  screensaver request (as nuvio-native-legacy does): held off while a video plays, loads
+  or stalls (also when the pipeline reports a stall as a pause), let through when you
+  paused it, it ended, or nothing plays.
+- **The next episode is prepared early.** Its sources were asked for at 60% of the episode
+  (or in its last 15 minutes) or when the control bar was open, and the answers counted
+  as fresh for only 10 minutes, so on a long episode they could be gone by the end. Now
+  they are asked for half a minute into the episode, kept for hours, and asked for again
+  in the last 8 minutes when over half an hour old, so the links are fresh for Up Next.
+- **A dropped connection reconnects to the same source.** After a video has played, a
+  network error (webOS codes 300 and 40000-49999) reloads the same source at the same
+  moment after 3, 10 and then 25 seconds, before moving to another source; a source is
+  not given up because the Wi-Fi blinked.
 - **The screensaver no longer covers a video.** It came on whenever the video was not
   reported as playing: stalled (webOS reports a stall as a pause) or between two sources
   too. Now it only comes over a video you paused yourself; nothing else but a break takes

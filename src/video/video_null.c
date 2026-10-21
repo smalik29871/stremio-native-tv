@@ -103,8 +103,10 @@ void video_update(void)
     /* test hooks, first source only: SNTV_FAKE_DEAD_AFTER=s stops delivering after s seconds;
      * SNTV_FAKE_DRAIN=1 has the buffer ahead shrink from 20 s by half a second a second */
     if (g.state == VIDEO_PLAYING && g_loads == 1) {
-        const char *dead = getenv("SNTV_FAKE_DEAD_AFTER"), *drain = getenv("SNTV_FAKE_DRAIN");
+        const char *dead = getenv("SNTV_FAKE_DEAD_AFTER"), *drain = getenv("SNTV_FAKE_DRAIN"), *net = getenv("SNTV_FAKE_NET_ERROR_AFTER");
         g_played_here += dt;
+        /* SNTV_FAKE_NET_ERROR_AFTER=s: the connection drops after s seconds (as webOS reports it) */
+        if (net && g_played_here > atof(net)) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "Network error (code 300)"); LOGI("video(null): the connection dropped (SNTV_FAKE_NET_ERROR_AFTER)"); return; }
         if (dead && g_played_here > atof(dead)) { if (!g.buffering) LOGI("video(null): the source stopped (SNTV_FAKE_DEAD_AFTER)"); g.buffering = 1; return; }
         if (drain && g.duration > 0) {
             double ahead = 20 - g_played_here * 0.5;

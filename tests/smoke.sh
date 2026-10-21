@@ -136,6 +136,13 @@ run island_resume_focus 500 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait
 # button and the control bar's Next button fill as a loader
 SLOW="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/slow/manifest.json"
 run upnext_loading 420 "right,ok,down,down,ok,wait" "$SLOW" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_loading '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+# the next episode's sources are asked for early in this one (here after 1 s of playing,
+# 30 s on a TV), not only near the end or when the control bar is open
+run next_early 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with nextearly '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_DURATION=3000 SNTV_PREFETCH_AFTER=1
+grep -q "streams: prefetching tt0903747:1:2" "$OUT/next_early.log" || { echo "the next episode was not prepared early"; grep -E "streams:|player: candidate" "$OUT/next_early.log"; exit 1; }
+# and asked again in the last minutes when the answers have aged (here after 1 s)
+run next_renewed 600 "right,ok,down,down,ok,wait,wait,wait" HOME="$(home_with nextrenew '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=200 SNTV_PREFETCH_RENEW=1
+grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { echo "the next episode's sources were not renewed near the end"; grep -E "streams:" "$OUT/next_renewed.log"; exit 1; }
 run player_next_loading 300 "right,ok,down,down,ok,wait,down,right" "$SLOW" SNTV_FAKE_START=300
 run player_next_ring 300 "right,ok,down,down,ok,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
 run player_skipped 300 "right,ok,down,down,ok,wait,ok"
@@ -268,6 +275,10 @@ run player_sources_tabs 520 "right,ok,down,down,ok,wait,down,right,right,right,r
 grep -q "player: sources shown for Many Addon" "$OUT/player_sources_tabs.log" && grep -q "player: sources shown for Fake Addon" "$OUT/player_sources_tabs.log" \
   || { echo "the Sources sheet's addon tabs did not switch"; grep -E "player: sources" "$OUT/player_sources_tabs.log"; exit 1; }
 run player_lighter 700 "right,ok,down,down,ok,wait" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
+# a connection that drops after the video played: the same source again from the same moment, not the next one
+run net_reconnect 1600 "right,ok,down,down,ok,wait" HOME="$(home_with netre '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_START=600 SNTV_FAKE_NET_ERROR_AFTER=3 SNTV_NET_RETRY_SCALE=0.2
+grep -q "player: the connection dropped (Network error (code 300)); the same source again" "$OUT/net_reconnect.log" && grep -q "player: reconnecting to source 1 at 60[0-9]s (try 1 of 3)" "$OUT/net_reconnect.log" && ! grep -q "Trying the next source\|player: rescue" "$OUT/net_reconnect.log" \
+  || { echo "a dropped connection did not reconnect to the same source"; grep -E "player: (the conn|reconn|candidate|rescue)|toast" "$OUT/net_reconnect.log"; exit 1; }
 # fallbacks: a source that dies mid-film is replaced at the same moment with the same subtitles;
 # the next source is checked while playing; a draining buffer moves to a lighter copy first;
 # Play races the top sources; when all fail the addons are asked again
