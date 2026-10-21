@@ -147,6 +147,15 @@ grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { e
 run wrong_episode_skipped 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
 grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep "player: candidate" "$OUT/wrong_episode_skipped.log" | grep -q "?ep=4" \
   || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
+# an episode's sources opened to play (OK): moving in the list stops the automatic start (the
+# slow addon holds episode 2's answers 6 s, the wait it would start after), a source chosen
+# plays, and left alone the best one still starts by itself
+run ep_list_choose 700 "right,ok,down,down,right,ok,down" "$SLOW"
+grep -qE "player: candidate|racing" "$OUT/ep_list_choose.log" && { echo "a source started by itself after the viewer moved in the list"; grep -E "streams|player" "$OUT/ep_list_choose.log" | tail -5; exit 1; }
+run ep_list_pick 700 "right,ok,down,down,right,ok,down,up,ok" "$SLOW"
+grep -q "player: candidate 1/1 Fake Addon - Example" "$OUT/ep_list_pick.log" || { echo "the source chosen in the list did not play"; grep -E "streams|player" "$OUT/ep_list_pick.log" | tail -5; exit 1; }
+run ep_list_untouched 700 "right,ok,down,down,right,ok" "$SLOW"
+grep -q "player: candidate" "$OUT/ep_list_untouched.log" || { echo "left alone, the best source did not start"; grep -E "streams|player" "$OUT/ep_list_untouched.log" | tail -5; exit 1; }
 # a link answering 200 with an HTML error page is not a video: it loses the start race
 run race_error_page 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with errpage '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/errpage/manifest.json"
 grep -q "streams: racing" "$OUT/race_error_page.log" && grep -q "player: candidate 1/" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q expiredpage \

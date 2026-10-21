@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.40
 
 - **Updates are checked when the app opens.** The first check came 20 seconds after a
   start, and none when the app came back from the TV's Home (webOS keeps it running
