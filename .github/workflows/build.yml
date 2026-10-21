@@ -33,6 +33,12 @@ env:
 
 jobs:
   desktop:
+    # Actions minutes are counted (private repository) and the full suite runs before every
+    # push anyway: an ordinary branch push runs nothing here. Main, tags, a run started by
+    # hand and a release commit ("0.10.49") run everything.
+    if: >-
+      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
     name: Desktop build and tests
     runs-on: ubuntu-24.04
     steps:
@@ -62,8 +68,7 @@ jobs:
         run: cd tools/torrentd && go vet ./... && go test ./...
 
   ui:
-    # Actions minutes are counted (private repository): the UI runs and the LG package are
-    # made for main, tags, a run started by hand, and a release commit ("0.10.49") on a branch.
+    # (when, as for the desktop build above)
     if: >-
       github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
