@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.46
 
 From an audit of whole evenings of use rather than single features:
 

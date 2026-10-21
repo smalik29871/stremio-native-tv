@@ -152,6 +152,32 @@ grep -q "player: next episode asked for while it's prepared" "$OUT/upnext_wait_r
 run upnext_handoff_transitions 900 "right,ok,down,down,play,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/manifest.json SNTV_NO_TRANSITIONS= SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with handoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')"
 ! grep -q "streams: race called off" "$OUT/upnext_handoff_transitions.log" && grep -q "player: on to tt0903747:1:2" "$OUT/upnext_handoff_transitions.log" && [ "$(grep -c "player: candidate" "$OUT/upnext_handoff_transitions.log")" -ge 2 ] \
   || { echo "the screen left behind called off the next episode's start"; grep -E "streams: (race|next|racing)|player: (candidate|on to)" "$OUT/upnext_handoff_transitions.log"; exit 1; }
+# Journeys from the audit. A next episode with nothing that may start by itself: the list
+# says so and the screensaver may come (it spun, holding both screensavers off, all night)
+run journey_nothing_plays 1500 "right,ok,down,down,play,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/ep2wrong/manifest.json SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_AMBIENT_SECONDS=3 HOME="$(home_with jnothing '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "streams: no source here can start by itself" "$OUT/journey_nothing_plays.log" && grep -q "ambient: .* screensaver" "$OUT/journey_nothing_plays.log" \
+  || { echo "a next episode with nothing playable spun forever"; grep -E "streams|ambient|player: on to" "$OUT/journey_nothing_plays.log"; exit 1; }
+# nobody pressing a key: after the set number of episodes went on by themselves, "Still watching?"
+run journey_still_watching 1500 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_STILL_WATCHING_AFTER=1 HOME="$(home_with jstill '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: 1 episodes went on by themselves; asking if anyone is still watching" "$OUT/journey_still_watching.log" && [ "$(grep -c "player: on to" "$OUT/journey_still_watching.log")" = 1 ] \
+  || { echo "autoplay went on with nobody watching"; grep -E "player: (on to|.*asking)" "$OUT/journey_still_watching.log"; exit 1; }
+# a seek to the end to peek, then Back: not watched (Continue Watching stays on the episode)
+run journey_peek_end 600 "right,ok,down,down,play,wait,wait,back" SNTV_FAKE_DURATION=3000 SNTV_FAKE_START=2950 HOME="$(home_with jpeek '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q '"video_id":"tt0903747:1:1"' "$OUT/home_jpeek/.local/share/stremio/nativetv/library.json" \
+  || { echo "a peek at the end marked the episode watched"; cat "$OUT/home_jpeek/.local/share/stremio/nativetv/library.json" | head -c 600; exit 1; }
+# the episode ends with the Audio menu open: it closes, the next one starts
+run journey_menu_at_end 1300 "right,ok,down,down,play,wait,down,right,right,right,right,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=125 HOME="$(home_with jmenu '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: the episode ended with a menu open; closing it for the next one" "$OUT/journey_menu_at_end.log" && grep -q "player: on to tt0903747:1:2" "$OUT/journey_menu_at_end.log" \
+  || { echo "a menu open at the end held the next episode"; grep -E "player: (on to|the episode)" "$OUT/journey_menu_at_end.log"; exit 1; }
+# an update found while Play's pick is being made (the slow addon): the prompt does not cover it
+run journey_update_during_start 1200 "right,ok,down,down,right,play" "$SLOW" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json HOME="$(home_with jupd '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "update: 9.9.9 available" "$OUT/journey_update_during_start.log" && grep -q "player: candidate" "$OUT/journey_update_during_start.log" \
+  || { echo "the update prompt held a start"; grep -E "update|player: candidate|streams" "$OUT/journey_update_during_start.log"; exit 1; }
+# Restart on a title with a saved place (S2E3 at 25 min): from 0:00
+RH="$(home_with jrestart '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"; cp "$ROOT/tests/fixtures/library.json" "$RH/.local/share/stremio/nativetv/library.json"
+run journey_restart 900 "wait,wait,ok,wait,wait,right,ok,wait,wait,wait,ok,wait" HOME="$RH"
+grep -q "player: candidate 1/[0-9]* .* @0s" "$OUT/journey_restart.log" && grep -q "markers from TheIntroDB for tt0903747:2:3" "$OUT/journey_restart.log" \
+  || { echo "Restart did not start the episode from 0:00"; grep -E "player: candidate|TheIntroDB" "$OUT/journey_restart.log"; exit 1; }
 run upnext_loading 420 "right,ok,down,down,play,wait" "$SLOW" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_loading '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # the next episode's sources are asked for early in this one (here after 1 s of playing,
 # 30 s on a TV), not only near the end or when the control bar is open
@@ -553,15 +579,19 @@ run offline_update 220 "right" SNTV_FAKE_OFFLINE=1 SNTV_UPDATE_URL=http://127.0.
 # a new release: at a quiet moment the app asks; Update now hands it to the Homebrew Channel
 run update_prompt 600 "" HOME="$(home_with upd1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 W=$(printf 'wait,%.0s' $(seq 1 40))
-run update_install 1600 "${W}ok" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json SNTV_FAKE_INSTALL=1
+run update_install 1600 "${W}down,ok" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json SNTV_FAKE_INSTALL=1
 grep -q "update: installing" "$OUT/update_prompt.log" && { echo "it installed without being asked"; exit 1; }
 [ "$(grep -c "update: 9.9.9 available" "$OUT/update_install.log")" = 1 ] && grep -q "update: the viewer said update now" "$OUT/update_install.log" && grep -q "update: installing 9.9.9 from http://127.0.0.1:8765/org.stremio.nativetv_9.9.9_arm.ipk" "$OUT/update_install.log" && grep -q "update: 9.9.9 installed" "$OUT/update_install.log" || { echo "the update did not install"; grep update "$OUT/update_install.log"; exit 1; }
+# Later is the prompt's first choice: an OK that lands as it opens never installs
+run update_ok_is_later 1600 "${W}ok" HOME="$(home_with upd4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json SNTV_FAKE_INSTALL=1
+grep -q "update: the viewer said later" "$OUT/update_ok_is_later.log" && ! grep -q "update: installing" "$OUT/update_ok_is_later.log" \
+  || { echo "OK on the update prompt installed (Later must come first)"; grep -E "update" "$OUT/update_ok_is_later.log"; exit 1; }
 ASR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":0,"breakMethod":1,"breakAsr":1,"breakLat":"43.676","breakLon":"-79.485","breakCity":"Toronto","breakLead":5,"breaksEverywhere":1}'
 run island_update 900 "$(printf 'wait,%.0s' $(seq 1 35))back" HOME="$(home_with islu '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
-run update_refused 1700 "${W}ok,wait,wait,wait,ok" HOME="$(home_with upd3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+run update_refused 1700 "${W}down,ok,wait,wait,wait,ok" HOME="$(home_with upd3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 grep -q "toast: Open the Homebrew Channel from the Home screen to update" "$OUT/update_refused.log" || { echo "a refused update did not point to the Homebrew Channel"; grep -E "update|toast" "$OUT/update_refused.log"; exit 1; }
 # refused once: the next launch tells how (once per version) and doesn't ask the installer unasked
-run update_refused_again 1700 "${W}ok,wait,wait" HOME="$OUT/home_upd3" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+run update_refused_again 1700 "${W}down,ok,wait,wait" HOME="$OUT/home_upd3" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 grep -q "update: the viewer asked how" "$OUT/update_refused_again.log" && ! grep -q "update: installing" "$OUT/update_refused_again.log" \
   || { echo "a TV that refused the installer was asked again"; grep -E "update|toast" "$OUT/update_refused_again.log"; exit 1; }
 run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
