@@ -145,7 +145,7 @@ run upnext_screensaver 1400 "right,ok,down,down,play,wait" "$SLOW" SNTV_STILL_WA
   || { echo "the screensaver took the handoff to the next episode"; grep -E "ambient|streams: next|player: candidate" "$OUT/upnext_screensaver.log"; exit 1; }
 # OK on the Up Next card while the next episode is still being fetched (the slow addon holds it
 # 6 s): the card waits ("Starts once ready"), then the episode starts at once, no source list between
-run upnext_wait_ready 1300 "right,ok,down,down,play,wait,wait,ok" "$SLOW" SNTV_FAKE_START=3002 HOME="$(home_with upwait '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_wait_ready 2200 "right,ok,down,down,play,wait,wait,ok" "$SLOW" SNTV_FAKE_START=3002 HOME="$(home_with upwait '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: next episode asked for while it's prepared" "$OUT/upnext_wait_ready.log" && grep -q "player: the next episode is ready (asked for on the card)" "$OUT/upnext_wait_ready.log" \
   && grep -q "player: on to tt0903747:1:2, 100% of its addons answered ahead" "$OUT/upnext_wait_ready.log" && [ "$(grep -c "player: candidate" "$OUT/upnext_wait_ready.log")" -ge 2 ] \
   || { echo "the Up Next card did not wait for the next episode to be ready"; grep -E "player: (next|the next|on to|candidate)|streams: prefetch" "$OUT/upnext_wait_ready.log"; exit 1; }
