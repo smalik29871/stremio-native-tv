@@ -492,6 +492,14 @@ run torbox_library 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,up,ok
 grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" && grep -q "streams: #1 score [0-9]*  My TorBox Your copy" "$OUT/torbox_library.log" \
   && grep -q "player: candidate 1/[0-9]* My TorBox - Your copy @0s -> http://127.0.0.1:[0-9]*/video/sample_h264_aac.mkv?torbox=43" "$OUT/torbox_library.log" \
   || { echo "your TorBox copy did not come first"; grep -E "torbox|streams: #|candidate" "$OUT/torbox_library.log"; exit 1; }
+# A season pack with no file named: the episode's own file plays, not the largest (another episode)
+run torbox_pack 600 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbpack '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
+grep -q "torbox: the episode's file by its name: Breaking Bad S01 1080p/Breaking.Bad.S01E01.1080p.mkv" "$OUT/torbox_pack.log" \
+  || { echo "the season pack did not play the episode's file"; grep -E "torbox|candidate" "$OUT/torbox_pack.log"; exit 1; }
+# A disc rip (title_t00, title_t01...): the names say nothing, so the AI is asked
+run torbox_disc 600 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbdisc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json"
+grep -q "torbox: the AI picked the episode's file: BREAKING_BAD_D1/title_t01.mkv" "$OUT/torbox_disc.log" && ! grep -q "gsk_" "$OUT/torbox_disc.log" \
+  || { echo "the AI did not pick the disc rip's episode"; grep -E "torbox|ai:" "$OUT/torbox_disc.log"; exit 1; }
 # resting on a title page asks for its sources ahead: Play opens on them
 run detail_prefetch 900 "wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait" HOME="$(home_with prefetch "$ABOUT_HOME")"
 grep -q "streams: using [0-9]* prefetched sources for tt0111161" "$OUT/detail_prefetch.log" || { echo "the title page did not prefetch its sources"; grep streams "$OUT/detail_prefetch.log"; exit 1; }

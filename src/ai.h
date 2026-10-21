@@ -20,6 +20,13 @@ typedef void (*AiCallback)(const char *text, const char *error, void *user);
 unsigned ai_ask(const char *system, const char *user_msg, int max_tokens, int json_mode, AiCallback cb, void *user);
 void ai_cancel(unsigned id);
 
+/* For a network thread, which may not read the settings: the endpoint, model and key
+ * copied on the main thread (0 when AI is off), then one JSON question asked there,
+ * blocking up to timeout_s. The answer is trimmed to its {...} (malloc'd), or NULL. */
+typedef struct AiSnap { char url[600], model[128], key[256]; int json_format; } AiSnap;
+int   ai_snapshot(AiSnap *s);
+char *ai_ask_now(const AiSnap *s, const char *system, const char *user_msg, int timeout_s);
+
 /* The provider's chat models, best first (ids is NULL with an error on failure). */
 typedef void (*AiModelsCallback)(const char *const *ids, int n, const char *error, void *user);
 void ai_list_models(AiModelsCallback cb, void *user);

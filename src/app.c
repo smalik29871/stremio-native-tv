@@ -1697,7 +1697,7 @@ static void load_prefs(void)
     g_app.subs_size = store_get_int("subsSize", 1);
     g_app.subs_pos = store_get_int("subsPos", 0);
     g_app.subs_style = store_get_int("subsStyle", 0);
-    if (g_app.subs_style < 0 || g_app.subs_style > 3) g_app.subs_style = 0;
+    if (g_app.subs_style < 0 || g_app.subs_style >= SUBS_STYLE_COUNT) g_app.subs_style = 0;
     g_app.autoplay_next = store_get_int("autoplayNext", 1);
     g_app.night_mode = store_get_int("nightMode", 0);
     if (g_app.night_mode < 0 || g_app.night_mode > 2) g_app.night_mode = 0;
@@ -1927,6 +1927,26 @@ const MetaVideo *app_videos(const char *meta_id, int *n)
     if (!g_videos.meta_id || !meta_id || strcmp(g_videos.meta_id, meta_id) != 0) return NULL;
     *n = g_videos.n;
     return g_videos.videos;
+}
+
+void app_episode_hint(const char *meta_id, const char *show, const char *video_id, EpisodeHint *h)
+{
+    memset(h, 0, sizeof *h);
+    const char *c = video_id ? strchr(video_id, ':') : NULL;
+    if (!c || sscanf(c, ":%d:%d", &h->season, &h->episode) != 2 || h->episode <= 0) { h->season = h->episode = 0; return; }
+    snprintf(h->show, sizeof h->show, "%s", show ? show : "");
+    int n;
+    const MetaVideo *v = app_videos(meta_id, &n);
+    int before = 0, found = 0;
+    for (int i = 0; i < n; i++) {
+        if (v[i].season < 1 || v[i].episode < 1) continue;   /* specials do not count */
+        if (v[i].season < h->season || (v[i].season == h->season && v[i].episode < h->episode)) before++;
+        if (v[i].season == h->season && v[i].episode == h->episode) {
+            found = 1;
+            snprintf(h->title, sizeof h->title, "%s", v[i].title ? v[i].title : "");
+        }
+    }
+    if (found && h->season > 1) h->absolute = before + 1;   /* in season 1 it is the episode itself */
 }
 
 int app_adjacent_video(const char *meta_id, const char *video_id, int dir, char *out_id, size_t id_n, char *out_title, size_t title_n)

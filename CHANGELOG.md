@@ -27,6 +27,16 @@
 - **The next episode stays on the release you picked** when the files are named
   "Show - S01E02.mkv", as in many season packs: the release group (PSA, NTb...) is read
   from the torrent's name then, and it counts from any addon that lists it.
+- **Season packs: the right file however it is named.** Besides S01E02 and 1x02, the
+  file is found by "S01 E02", "Season 1 Episode 2", a season folder with "02 - ..." or
+  "Episode 2" inside, the episode's title, or (anime) its number counted from the first
+  episode; a file named for another episode is never taken for it. When the names
+  leave several (a disc rip's title_t00, title_t01...), your AI (Settings > API keys) is
+  shown the list and picks; without it, or if it is unsure, the largest file plays.
+- **Four more subtitle styles**: Bright (heavier letters in a wide dark outline, for
+  bright pictures), Raised, Soft box (a light see-through box) and Cyan. They apply to
+  the video's own subtitles too, and those are now set to full opacity, so a TV that
+  starts them dimmed shows them white.
 - **The video's own subtitles win again** when the file's only text track gives no
   language ("und"): it is picked over an addon's, and remembered as your choice.
 - **No more `<font>` and `<i>` tags in subtitles**: tags written out as text (escaped,

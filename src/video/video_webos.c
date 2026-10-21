@@ -172,14 +172,16 @@ static void subtitle_style_send(void)
     static const int FONT[] = { 1, 2, 3, 4 };
     static const int POS[] = { 0, 2, 4 };
     int st = g_sub.style;
-    const char *colour = st == 2 ? "yellow" : "white";            /* SUBS_STYLE_YELLOW */
-    const char *edge = st == 0 ? "dropShadow" : st == 3 ? "none" : "uniform";
-    int box = st == 3 ? 190 : 0;                                  /* SUBS_STYLE_BOXED */
+    /* SUBS_STYLE_*: shadow, outline, yellow, boxed, bright, raised, soft box, cyan */
+    const char *colour = st == 2 ? "yellow" : st == 7 ? "cyan" : "white";
+    const char *edge = st == 0 ? "dropShadow" : st == 3 || st == 6 ? "none" : st == 5 ? "raised" : "uniform";
+    int box = st == 3 ? 190 : st == 6 ? 110 : 0;
     char x[96];
     snprintf(x, sizeof x, "\"fontSize\":%d", FONT[g_sub.size < 0 ? 0 : g_sub.size > 3 ? 3 : g_sub.size]);
     media_call_id("setSubtitleFontSize", x);
     snprintf(x, sizeof x, "\"charColor\":\"%s\"", colour);
     media_call_id("setSubtitleCharacterColor", x);
+    media_call_id("setSubtitleCharacterOpacity", "\"charOpacity\":255");   /* full white: some TVs start them dimmed */
     snprintf(x, sizeof x, "\"charEdgeType\":\"%s\"", edge);
     media_call_id("setSubtitleCharacterEdge", x);
     media_call_id("setSubtitleCharacterEdgeColor", "\"charEdgeColor\":\"black\"");

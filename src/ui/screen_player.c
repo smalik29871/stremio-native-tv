@@ -1264,7 +1264,9 @@ static void start_candidate(Player *p, int idx, double start)
         p->error_handled = 1;   /* nothing to watch over until TorBox answers */
         TbReq *q = malloc(sizeof *q);
         q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url);
-        torbox_open_hash(p->cands[idx].url, p->video_id, on_torbox_open, q);
+        EpisodeHint ep;
+        app_episode_hint(p->meta.id, p->meta.name, p->video_id, &ep);
+        torbox_open_hash(p->cands[idx].url, &ep, on_torbox_open, q);
         show_overlay(p);
         return;
     }

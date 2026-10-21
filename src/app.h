@@ -244,6 +244,9 @@ int  app_next_video(const char *meta_id, const char *video_id, char *next_id, si
 int  app_adjacent_video(const char *meta_id, const char *video_id, int dir, char *out_id, size_t id_n, char *out_title, size_t title_n);
 /* The remembered episode list for this title (NULL when another title's list is held). */
 const MetaVideo *app_videos(const char *meta_id, int *n);
+/* What a season pack's file may call this episode: its numbers, title and number
+ * counted from the first (from the loaded episode list, when it is this series'). */
+void app_episode_hint(const char *meta_id, const char *show, const char *video_id, EpisodeHint *h);
 const char *app_video_thumbnail(const char *meta_id, const char *video_id);
 
 /* Artwork with metahub fallbacks for IMDb ids (what the official apps use). */

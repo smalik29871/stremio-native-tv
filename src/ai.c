@@ -258,3 +258,46 @@ void ai_cancel(unsigned id)
 {
     for (Req *q = g_reqs; q; q = q->next) if (q->first_id == id) { q->cb = NULL; return; }
 }
+
+int ai_snapshot(AiSnap *s)
+{
+    memset(s, 0, sizeof *s);
+    if (!ai_enabled()) return 0;
+    endpoint("chat/completions", s->url, sizeof s->url);
+    snprintf(s->model, sizeof s->model, "%s", ai_model());
+    snprintf(s->key, sizeof s->key, "%s", g_app.ai_key ? g_app.ai_key : "");
+    s->json_format = g_app.ai_provider != AI_OPENROUTER;
+    return 1;
+}
+
+char *ai_ask_now(const AiSnap *s, const char *system, const char *user_msg, int timeout_s)
+{
+    if (!s || !s->url[0]) return NULL;
+    cJSON *body = cJSON_CreateObject();
+    cJSON_AddStringToObject(body, "model", s->model);
+    cJSON *msgs = cJSON_AddArrayToObject(body, "messages");
+    cJSON *m = cJSON_CreateObject(); cJSON_AddStringToObject(m, "role", "system"); cJSON_AddStringToObject(m, "content", system); cJSON_AddItemToArray(msgs, m);
+    m = cJSON_CreateObject(); cJSON_AddStringToObject(m, "role", "user"); cJSON_AddStringToObject(m, "content", user_msg); cJSON_AddItemToArray(msgs, m);
+    cJSON_AddNumberToObject(body, "temperature", 0);
+    cJSON_AddNumberToObject(body, "max_tokens", 1200);
+    if (s->json_format) cJSON_AddStringToObject(cJSON_AddObjectToObject(body, "response_format"), "type", "json_object");
+    char *json = cJSON_PrintUnformatted(body);
+    cJSON_Delete(body);
+    HttpOptions opt = { .timeout_s = timeout_s, .post_json = json, .bearer = s->key[0] ? s->key : NULL };
+    HttpResponse r;
+    http_request_ex(s->url, &opt, &r);
+    free(json);
+    char *out = NULL;
+    cJSON *root = r.status == 200 && r.body ? cJSON_Parse(r.body) : NULL;
+    const cJSON *c0 = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(root, "choices"), 0);
+    const cJSON *content = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(c0, "message"), "content");
+    if (cJSON_IsString(content)) {
+        char *text = strdup(content->valuestring);
+        strip_think(text);
+        out = strdup(trim_json(text));
+        free(text);
+    } else LOGI("ai: no answer (%ld%s%s)", r.status, r.error[0] ? " " : "", r.error);
+    cJSON_Delete(root);
+    http_response_free(&r);
+    return out;
+}

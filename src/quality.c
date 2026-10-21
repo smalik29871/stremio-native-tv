@@ -272,3 +272,78 @@ void quality_release_group(const char *text, char *out, size_t n)
     if (!letters) return;
     snprintf(out, n, "%.*s", (int)len, g);
 }
+
+/* lowercase words, one space between and at each end: " show s01e05 1080p " */
+static void ep_words(const char *in, char *out, size_t n)
+{
+    size_t o = 0;
+    out[o++] = ' ';
+    for (const unsigned char *p = (const unsigned char *)in; *p && o + 2 < n; p++) {
+        if (*p == '\'') continue;
+        if (isalnum(*p) || *p >= 0x80) out[o++] = (char)tolower(*p);
+        else if (out[o - 1] != ' ') out[o++] = ' ';
+    }
+    if (out[o - 1] != ' ') out[o++] = ' ';
+    out[o] = 0;
+}
+
+/* the episodes a word list names outright: s01e05, s01e05e06, 1x05, "s01 e05",
+ * "season 1 episode 5"; *other set when it names one that is not this */
+static int names_exact(const char *w, int season, int episode, int *other)
+{
+    int hit = 0;
+    for (const char *p = w + 1; *p; p++) {
+        if (p[-1] != ' ') continue;
+        int s = -1, e = -1, len = 0;
+        if (sscanf(p, "s%de%d%n", &s, &e, &len) == 2 || sscanf(p, "s%d e%d%n", &s, &e, &len) == 2
+            || sscanf(p, "season %d episode %d%n", &s, &e, &len) == 2
+            || (isdigit((unsigned char)p[0]) && sscanf(p, "%dx%d%n", &s, &e, &len) == 2 && s < 100)) {
+            if (s == season && e == episode) hit = 1;
+            else if (s == season) {   /* s01e04e05: a double episode */
+                const char *q = p + len;
+                int e2;
+                while (*q == 'e' && sscanf(q, "e%d%n", &e2, &len) == 1) { if (e2 == episode) hit = 1; q += len; }
+                if (!hit) *other = 1;
+            } else *other = 1;
+        }
+    }
+    return hit;
+}
+
+int quality_episode_score(const char *path, const EpisodeHint *e)
+{
+    if (!path || !e || e->episode <= 0) return 0;
+    const char *slash = strrchr(path, '/');
+    const char *base = slash ? slash + 1 : path;
+    char all[768], file[512];
+    ep_words(path, all, sizeof all);
+    ep_words(base, file, sizeof file);
+    int other = 0;
+    /* the file's own name first: a pack's folder "S01E01-E10" names only the first */
+    if (names_exact(file, e->season, e->episode, &other)) return 3;
+    if (other) return -1;
+    if (e->title[0] && strlen(e->title) >= 4) {   /* "05 - The One Where..." */
+        char t[200];
+        ep_words(e->title, t, sizeof t);
+        if (strlen(t) > 5 && strstr(file, t)) return 2;
+    }
+    /* "Season 1/05 - Name.mkv", "Show S01/Episode 5.mkv", "[Group] Show - 13 [1080p].mkv" */
+    int in_season = 0, any_season = 0;   /* a pack with no season named is taken as season 1 */
+    for (const char *p = all + 1; *p; p++) {
+        int s, len = 0;
+        if (p[-1] == ' ' && (sscanf(p, "season %d%n", &s, &len) == 1 || sscanf(p, "s%d %n", &s, &len) == 1)) { any_season = 1; in_season |= s == e->season; }
+    }
+    for (const char *p = file + 1; *p; p++) {
+        if (p[-1] != ' ') continue;
+        int num, len = 0;
+        if (sscanf(p, "episode %d%n", &num, &len) == 1 || sscanf(p, "ep %d%n", &num, &len) == 1
+            || sscanf(p, "ep%d%n", &num, &len) == 1 || sscanf(p, "e%d%n", &num, &len) == 1
+            || (isdigit((unsigned char)*p) && sscanf(p, "%d%n", &num, &len) == 1 && len <= 3)) {
+            if (p[len] != ' ') continue;   /* "1080p", "x264": not a number on its own */
+            if ((num == 2 || num == 5 || num == 7) && (p[len + 1] == '0' || p[len + 1] == '1') && p[len + 2] == ' ') continue;   /* "5.1" sound */
+            if (num == e->episode && (in_season || (!any_season && e->season == 1))) return 2;
+            if (e->absolute > 0 && num == e->absolute) return 2;
+        }
+    }
+    return 0;
+}

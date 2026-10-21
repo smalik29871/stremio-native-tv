@@ -102,7 +102,8 @@ void ui_toggle(float x, float y, int on, int focused);
 
 /* Subtitle text in the chosen size (0 small, 1 medium, 2 large) and style, centred,
  * with its last line ending at `bottom`. Used by the player and the Settings preview. */
-enum { SUBS_STYLE_SHADOW, SUBS_STYLE_OUTLINE, SUBS_STYLE_YELLOW, SUBS_STYLE_BOXED, SUBS_STYLE_COUNT };
+enum { SUBS_STYLE_SHADOW, SUBS_STYLE_OUTLINE, SUBS_STYLE_YELLOW, SUBS_STYLE_BOXED, SUBS_STYLE_BRIGHT, SUBS_STYLE_RAISED,
+       SUBS_STYLE_SOFT_BOX, SUBS_STYLE_CYAN, SUBS_STYLE_COUNT };   /* stored by number: add at the end */
 extern const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT];
 void ui_subtitle(const char *text, float bottom, int size_setting, int style);
 int  ui_subtitle_font(int size_setting);   /* 0 small .. 3 extra large */

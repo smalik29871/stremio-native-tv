@@ -160,7 +160,9 @@ class H(BaseHTTPRequestHandler):
             if not m:
                 return self.send(400, b'{"success":false,"detail":"no magnet"}')
             cached = m.group(1).lower().startswith(b"cafe")
-            return self.send(200, json.dumps({"success": True, "data": {"torrent_id": 77 if cached else 78, "hash": m.group(1).decode().lower()}}).encode())
+            pack = m.group(1).lower().startswith(b"cafe5eed")   # a season pack (id 79)
+            disc = m.group(1).lower().startswith(b"cafe0d15")   # a disc rip, files named title_t00... (id 80)
+            return self.send(200, json.dumps({"success": True, "data": {"torrent_id": 80 if disc else 79 if pack else 77 if cached else 78, "hash": m.group(1).decode().lower()}}).encode())
         # IMDb's GraphQL stand-in: /imdbgql has no trailer for anything, /imdbgql/with has one in three qualities
         if p.startswith("/imdbgql"):
             if b"parentsGuide" in body:   # the parents guide: what a title contains, None to Severe
@@ -242,6 +244,9 @@ class H(BaseHTTPRequestHandler):
                 lines = json.loads(user).get("lines", [])
                 lang = system.split("into ")[1].split(" for")[0]
                 answer = json.dumps({"lines": ["[%s] %s" % (lang[:2].lower(), l) for l in lines]})
+            elif "which file in a torrent is a given TV episode" in system:   # a disc rip: the second title is the episode
+                pick = next((int(l.split(".")[0]) for l in user.split("\n") if "title_t01" in l and "season 1, episode 1" in user), -1)
+                answer = json.dumps({"file": pick})
             elif "recommend films" in system:
                 answer = json.dumps({"titles": [{"name": "The Shawshank Redemption", "year": 1994}, {"name": "Breaking Bad", "year": 2008}, {"name": "No Such Title", "year": 2001}]})
             else:
@@ -414,10 +419,16 @@ class H(BaseHTTPRequestHandler):
                     streams.insert(0, {"name": "[TB+] Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\u26A1 cached",
                                        "url": f"{BASE}/video/sample_h264_aac.mkv"})
                 return self.send(200, json.dumps({"streams": streams}).encode())
+        disc = p.startswith("/tbdisc/")   # the same, its series torrent a disc rip
+        if disc:
+            p = "/tbsrc/" + p[8:]
         if p.startswith("/tbsrc/"):   # torrents only, no links: one TorBox has cached, one it does not
             p = p[6:]
             if p == "/manifest.json":
                 return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.tbsrc", name="Torrents", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/series/"):   # a whole season, no file named
+                return self.send(200, json.dumps({"streams": [
+                    {"name": "Torrents\n1080p", "title": "Breaking Bad S01 1080p WEB x264-PACK", "infoHash": ("CAFE0D15" if disc else "CAFE5EED") * 5}]}).encode())
             if p.startswith("/stream/"):
                 return self.send(200, json.dumps({"streams": [
                     {"name": "Torrents\n1080p", "title": "Movie.2024.1080p.WEB.x264.mkv", "infoHash": "CAFE" * 10, "fileIdx": 1},
@@ -640,6 +651,17 @@ class H(BaseHTTPRequestHandler):
                     return self.send(401, b'{"success":false}')
                 hashes = q.split("hash=")[1].split("&")[0].split(",") if "hash=" in q else []
                 return self.send(200, json.dumps({"success": True, "data": [{"hash": h, "name": "x", "size": 1} for h in hashes if h.startswith("cafe")]}).encode())
+            if "/mylist" in q and "id=79" in q:   # the season pack: its largest file is another episode
+                return self.send(200, json.dumps({"success": True, "data": {"id": 79, "download_present": True, "download_finished": True, "files": [
+                    {"id": 10, "name": "Breaking Bad S01 1080p/Sample.mkv", "short_name": "Sample.mkv", "mimetype": "video/x-matroska", "size": 40000000},
+                    {"id": 11, "name": "Breaking Bad S01 1080p/Breaking.Bad.S01E01.1080p.mkv", "short_name": "Breaking.Bad.S01E01.1080p.mkv", "mimetype": "video/x-matroska", "size": 1500000000},
+                    {"id": 12, "name": "Breaking Bad S01 1080p/Breaking.Bad.S01E02.1080p.mkv", "short_name": "Breaking.Bad.S01E02.1080p.mkv", "mimetype": "video/x-matroska", "size": 1900000000},
+                    {"id": 13, "name": "Breaking Bad S01 1080p/Breaking.Bad.S01E03.1080p.mkv", "short_name": "Breaking.Bad.S01E03.1080p.mkv", "mimetype": "video/x-matroska", "size": 1700000000}]}}).encode())
+            if "/mylist" in q and "id=80" in q:   # the disc rip: nothing in the names says which episode
+                return self.send(200, json.dumps({"success": True, "data": {"id": 80, "download_present": True, "download_finished": True, "files": [
+                    {"id": 20, "name": "BREAKING_BAD_D1/title_t00.mkv", "short_name": "title_t00.mkv", "mimetype": "video/x-matroska", "size": 2600000000},
+                    {"id": 21, "name": "BREAKING_BAD_D1/title_t01.mkv", "short_name": "title_t01.mkv", "mimetype": "video/x-matroska", "size": 2400000000},
+                    {"id": 22, "name": "BREAKING_BAD_D1/title_t02.mkv", "short_name": "title_t02.mkv", "mimetype": "video/x-matroska", "size": 2500000000}]}}).encode())
             if "/mylist" in q and "id=7" in q:   # the torrents added above
                 ready = "id=77" in q
                 return self.send(200, json.dumps({"success": True, "data": {"id": 77 if ready else 78, "download_present": ready, "download_finished": ready, "files": [

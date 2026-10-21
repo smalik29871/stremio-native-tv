@@ -93,6 +93,22 @@ int main(void)
     quality_release_group("Show 2160p - 7", g, sizeof g); CHECK(!strcmp(g, ""));
     quality_release_group(NULL, g, sizeof g); CHECK(!strcmp(g, ""));
 
+    /* which file in a season pack is the episode */
+    EpisodeHint e = { .season = 1, .episode = 2, .absolute = 0 };
+    snprintf(e.title, sizeof e.title, "Sanctuary");
+    CHECK(quality_episode_score("Carrie S01/Carrie.S01E02.1080p.WEB.h264-NTb.mkv", &e) == 3);
+    CHECK(quality_episode_score("Carrie S01E01-E08/Carrie.S01E01.1080p.mkv", &e) == -1);
+    CHECK(quality_episode_score("Show.S01E01E02.720p.mkv", &e) == 3);
+    CHECK(quality_episode_score("Show 1x02 Name.avi", &e) == 3);
+    CHECK(quality_episode_score("Show S01 E02.mkv", &e) == 3);
+    CHECK(quality_episode_score("Show/Season 1/02 - Something.mkv", &e) == 2);
+    CHECK(quality_episode_score("Show/Season 2/02 - Something.mkv", &e) == 0);
+    CHECK(quality_episode_score("Show/Season 1/Show - Sanctuary.mkv", &e) == 2);
+    CHECK(quality_episode_score("Show Complete/Episode 2.mkv", &e) == 2);
+    CHECK(quality_episode_score("Show.S01.DD5.1.x264.mkv", &(EpisodeHint){ .season = 1, .episode = 5 }) == 0);
+    CHECK(quality_episode_score("[Group] Show - 14 [1080p].mkv", &(EpisodeHint){ .season = 2, .episode = 1, .absolute = 14 }) == 2);
+    CHECK(quality_episode_score("Show.S01E02.mkv", &(EpisodeHint){ 0 }) == 0);
+
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("quality: all checks passed\n");
     return 0;

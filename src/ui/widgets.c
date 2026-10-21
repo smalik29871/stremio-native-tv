@@ -1217,7 +1217,8 @@ float ui_dot_sep(float x, float y, Color c)
     return x + 24;
 }
 
-const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT] = { "Soft shadow", "Bold outline", "Classic yellow", "Black box" };
+const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT] = { "Soft shadow", "Bold outline", "Classic yellow", "Black box",
+                                                          "Bright", "Raised", "Soft box", "Cyan" };
 
 int ui_subtitle_font(int size_setting)
 {
@@ -1232,7 +1233,7 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
     float max_w = SNTV_UI_W * 0.78f, lh = font_height(size) * 1.04f;
     int lines = font_draw_wrapped(text, 0, 0, size, 0, max_w, 3);
     float y = bottom - lines * lh;
-    Color fg = style == SUBS_STYLE_YELLOW ? RGBA(0xFF, 0xE1, 0x3C, 0xFF) : RGBA(255, 255, 255, 255);
+    Color fg = style == SUBS_STYLE_YELLOW ? RGBA(0xFF, 0xE1, 0x3C, 0xFF) : style == SUBS_STYLE_CYAN ? RGBA(0x6E, 0xF0, 0xFF, 0xFF) : RGBA(255, 255, 255, 255);
     char tmp[512];
     snprintf(tmp, sizeof tmp, "%s", text);
     int i = 0;
@@ -1244,8 +1245,25 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
         case SUBS_STYLE_BOXED:
             gfx_rrect(lx - 18, ly - 2, lw + 36, lh + 4, 8, RGBA(0, 0, 0, 0xB8));
             break;
+        case SUBS_STYLE_SOFT_BOX:   /* a light veil: the picture still shows through */
+            gfx_rrect(lx - 22, ly - 2, lw + 44, lh + 4, lh * 0.3f, RGBA(0x10, 0x10, 0x14, 0x78));
+            font_draw_fit(l, lx + 2, ly + 2, size, RGBA(0, 0, 0, 0x90), max_w);
+            break;
+        case SUBS_STYLE_BRIGHT:
+            /* the widest dark ring and the letters drawn twice, a hair apart: heavier,
+             * so they read brighter on a bright picture */
+            for (int dx = -4; dx <= 4; dx += 2) for (int dy = -4; dy <= 4; dy += 2)
+                if (dx * dx + dy * dy >= 8) font_draw_fit(l, lx + dx, ly + dy, size, RGBA(0, 0, 0, 0xF0), max_w);
+            font_draw_fit(l, lx + 1, ly, size, fg, max_w);
+            break;
+        case SUBS_STYLE_RAISED:   /* lit from the top left: a dark edge below, a faint light one above */
+            font_draw_fit(l, lx + 3, ly + 3, size, RGBA(0, 0, 0, 0xE8), max_w);
+            font_draw_fit(l, lx + 2, ly + 2, size, RGBA(0, 0, 0, 0xE8), max_w);
+            font_draw_fit(l, lx - 1, ly - 1, size, RGBA(0xFF, 0xFF, 0xFF, 0x50), max_w);
+            break;
         case SUBS_STYLE_OUTLINE:
         case SUBS_STYLE_YELLOW:
+        case SUBS_STYLE_CYAN:
             /* a thick ring of dark copies: holds up on bright, busy pictures */
             for (int dx = -3; dx <= 3; dx += 3) for (int dy = -3; dy <= 3; dy += 3)
                 if (dx || dy) font_draw_fit(l, lx + dx, ly + dy, size, RGBA(0, 0, 0, 0xE0), max_w);

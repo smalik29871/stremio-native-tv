@@ -58,6 +58,18 @@ void quality_tv_init(TvProfile *tv, const char *release_text);
 void quality_tv_learn(TvProfile *tv, unsigned needs, int worked);
 /* "Show.S01E02.1080p.WEB.h264-NTb.mkv" -> "NTb"; "" when there is none */
 void quality_release_group(const char *text, char *out, size_t n);
+/* An episode as a file in a season pack may name it: S01E05, 1x05, "Season 1/05 - Pilot",
+ * its title, or its number counted from the first episode (anime). */
+typedef struct EpisodeHint {
+    char show[96];         /* the series' name, for the AI */
+    int season, episode;   /* 0 when not an episode */
+    int absolute;          /* the episode's number across all seasons, 0 unknown */
+    char title[96];        /* "Pilot", "" unknown */
+} EpisodeHint;
+/* How surely a file's path ("Show S01/Show.S01E05.1080p.mkv") is this episode:
+ * 3 it names it, 2 it names its title or its number within its season's folder,
+ * 0 it does not say, -1 it names another episode. */
+int quality_episode_score(const char *path, const EpisodeHint *e);
 /* "25 min", "1h 40min", "95" -> minutes; 0 when unparsable */
 double quality_runtime_minutes(const char *runtime);
 

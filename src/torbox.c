@@ -4,6 +4,8 @@
 #include "store.h"
 #include "cJSON.h"
 #include "addon/addon.h"
+#include "ai.h"
+#include "quality.h"
 #include <ctype.h>
 #include <pthread.h>
 #include <time.h>
@@ -247,10 +249,50 @@ static long add_torrent(const char *hash, char *err, size_t en)
     return tid;
 }
 
-typedef struct { char hash[41]; int file_idx, season, episode; TorboxOpenCb cb; void *user; } Open;
+typedef struct { char hash[41]; int file_idx; EpisodeHint ep; AiSnap ai; TorboxOpenCb cb; void *user; } Open;
 
-static int names_episode(const char *w, int season, int episode);
-static void words(const char *in, char *out, size_t n);
+typedef struct { long id; double size; const char *name; int score; } PackFile;
+
+/* The episode's file in a season pack: the one its name says is it, the AI's pick when
+ * the names leave several (asked with the list, as a person would read it), else the
+ * largest that is not plainly another episode. */
+static long pick_episode(const Open *o, PackFile *f, int n)
+{
+    int best = -1;
+    for (int i = 0; i < n; i++) {
+        f[i].score = quality_episode_score(f[i].name, &o->ep);
+        if (best < 0 || f[i].score > f[best].score || (f[i].score == f[best].score && f[i].size > f[best].size)) best = i;
+    }
+    if (best < 0) return -1;
+    int tied = 0;
+    for (int i = 0; i < n; i++) tied += f[i].score == f[best].score && f[i].size > f[best].size * 0.25;
+    if (f[best].score > 0 && tied == 1) {
+        LOGI("torbox: the episode's file by its name: %s", f[best].name);
+        return f[best].id;
+    }
+    if (tied > 1 && o->ai.url[0]) {
+        char msg[6000];
+        int len = snprintf(msg, sizeof msg, "Show: %s\nWanted: season %d, episode %d", o->ep.show, o->ep.season, o->ep.episode);
+        if (o->ep.absolute) len += snprintf(msg + len, sizeof msg - (size_t)len, " (episode %d counting from the first)", o->ep.absolute);
+        if (o->ep.title[0]) len += snprintf(msg + len, sizeof msg - (size_t)len, ", titled \"%s\"", o->ep.title);
+        len += snprintf(msg + len, sizeof msg - (size_t)len, "\nFiles:\n");
+        for (int i = 0; i < n && i < 60 && len < (int)sizeof msg - 200; i++)
+            len += snprintf(msg + len, sizeof msg - (size_t)len, "%d. %.180s (%.1f GB)\n", i, f[i].name, f[i].size / 1e9);
+        char *a = ai_ask_now(&o->ai, "You find which file in a torrent is a given TV episode. Reply with JSON only: "
+                             "{\"file\": <the file's number>}, or {\"file\": -1} when no file is that episode.", msg, 8);
+        cJSON *j = a ? cJSON_Parse(a) : NULL;
+        const cJSON *k = cJSON_GetObjectItemCaseSensitive(j, "file");
+        int pick = cJSON_IsNumber(k) ? (int)k->valuedouble : -2;
+        cJSON_Delete(j); free(a);
+        if (pick >= 0 && pick < n && f[pick].score >= 0) {
+            LOGI("torbox: the AI picked the episode's file: %s", f[pick].name);
+            return f[pick].id;
+        }
+        LOGI("torbox: the AI did not pick a file (%d); the largest plays", pick);
+    }
+    LOGI("torbox: no file named for the episode; the largest plays: %s", f[best].name);
+    return f[best].id;
+}
 
 static void open_task(HttpResponse *out, void *arg)
 {
@@ -268,21 +310,20 @@ static void open_task(HttpResponse *out, void *arg)
     const cJSON *t = cJSON_GetObjectItemCaseSensitive(root, "data"), *f;
     if (cJSON_IsArray(t)) t = cJSON_GetArrayItem(t, 0);
     long fid = -1; double best = -1;
+    PackFile pack[200]; int n_pack = 0;
     if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "download_present")) && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "download_finished")))
         snprintf(out->error, sizeof out->error, "TorBox is still downloading it");
     else cJSON_ArrayForEach(f, cJSON_GetObjectItemCaseSensitive(t, "files")) {
         const cJSON *id = cJSON_GetObjectItemCaseSensitive(f, "id"), *sz = cJSON_GetObjectItemCaseSensitive(f, "size");
+        const cJSON *nm = cJSON_GetObjectItemCaseSensitive(f, "name");   /* "Pack Folder/file.mkv", the folder can name the season */
+        if (!cJSON_IsString(nm)) nm = cJSON_GetObjectItemCaseSensitive(f, "short_name");
         if (!cJSON_IsNumber(id) || !is_video(f)) continue;
-        if (o->file_idx >= 0 && (long)id->valuedouble == o->file_idx) { fid = (long)id->valuedouble; break; }   /* the addon's file */
+        if (o->file_idx >= 0 && (long)id->valuedouble == o->file_idx) { fid = (long)id->valuedouble; n_pack = 0; break; }   /* the addon's file */
         double size = cJSON_IsNumber(sz) ? sz->valuedouble : 0;
-        if (o->episode > 0) {   /* a season pack: the episode's own file beats any size */
-            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(f, "name");
-            char w[512];
-            words(cJSON_IsString(nm) ? nm->valuestring : "", w, sizeof w);
-            if (names_episode(w, o->season, o->episode)) size += 1e15;
-        }
+        if (n_pack < 200) pack[n_pack++] = (PackFile){ (long)id->valuedouble, size, cJSON_IsString(nm) ? nm->valuestring : "", 0 };
         if (size > best) { best = size; fid = (long)id->valuedouble; }   /* else the largest video */
     }
+    if (o->ep.episode > 0 && n_pack > 1) fid = pick_episode(o, pack, n_pack);
     if (fid < 0 && !out->error[0]) snprintf(out->error, sizeof out->error, "No video in that torrent on TorBox");
     if (fid >= 0) {
         char k[160], enc[256], link[700];
@@ -307,12 +348,11 @@ static void on_open(HttpResponse *r, void *user)
     free(o);
 }
 
-void torbox_open_hash(const char *link, const char *video_id, TorboxOpenCb cb, void *user)
+void torbox_open_hash(const char *link, const EpisodeHint *ep, TorboxOpenCb cb, void *user)
 {
     Open *o = calloc(1, sizeof *o);
     o->cb = cb; o->user = user; o->file_idx = -1;
-    const char *c = video_id ? strchr(video_id, ':') : NULL;
-    if (c && sscanf(c, ":%d:%d", &o->season, &o->episode) != 2) o->season = o->episode = 0;
+    if (ep) { o->ep = *ep; if (ep->episode > 0) ai_snapshot(&o->ai); }
     if (!torbox_is_hash_link(link) || !torbox_enabled() || sscanf(link + 14, "%40[0-9a-fA-F]/%d", o->hash, &o->file_idx) < 1) {
         free(o); cb(NULL, "Not a TorBox link, or no TorBox key", user); return;
     }
