@@ -10,10 +10,13 @@
 static const char *const LABELS[RAIL_COUNT] = { "Home", "Explore", "Search", "Library", "Calendar", "Settings", "Account" };
 static const Icon ICONS[RAIL_COUNT] = { ICON_HOME, ICON_COMPASS, ICON_SEARCH, ICON_LIBRARY, ICON_CALENDAR, ICON_SETTINGS, ICON_USER };
 
+#define RAIL_STEP 88.0f
+
+/* The sections centred on the screen's middle, the account apart at the bottom */
 static float item_y(int i)
 {
     if (i == RAIL_ACCOUNT) return SNTV_UI_H - 120;
-    return 180 + i * 88;
+    return SNTV_UI_H / 2.0f - (RAIL_ACCOUNT - 1) * RAIL_STEP / 2 + i * RAIL_STEP;
 }
 
 void rail_draw(int active, int focus)

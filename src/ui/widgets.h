@@ -61,9 +61,12 @@ void ui_advisory(float x, float y, const int level[5], float alpha);
 void ui_facts(float x, float y, const char *const *name, const char *const *value, int n, float alpha, int right);
 /* Score badges: each its own mark (a tomato, a popcorn bucket, ...), the score large
  * and what it is under it; a row right-aligned to right_x. Returns the row's height. */
-enum { BADGE_TOMATOMETER, BADGE_POPCORNMETER, BADGE_METASCORE, BADGE_LETTERBOXD, BADGE_LIVE, BADGE_WATCHERS, BADGE_PLAYS };
+enum { BADGE_TOMATOMETER, BADGE_POPCORNMETER, BADGE_METASCORE, BADGE_LETTERBOXD, BADGE_LIVE, BADGE_WATCHERS, BADGE_PLAYS,
+       BADGE_EBERT, BADGE_TRAKT, BADGE_TMDB, BADGE_MDBLIST };
 typedef struct { int kind; double score; const char *value, *label; } ScoreBadge;
-float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha);
+float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha, float col_w);
+/* A badge's own width, to line several rows up in columns (pass the widest as col_w). */
+float ui_score_badge_width(const ScoreBadge *b);
 /* The same marks small, each with its score beside it, in a 36-high line from x; returns the width. */
 float ui_score_inline(float x, float y, const ScoreBadge *b, int n);
 /* The advisory on one line from x ("Violence Severe · Profanity Moderate"); returns the width (0: nothing rated). */

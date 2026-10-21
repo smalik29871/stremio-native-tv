@@ -390,8 +390,8 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/simkl/oauth/pin"):
             return self.send(200, json.dumps({"result": "OK", "user_code": "SIM12", "verification_url": "https://simkl.com/pin", "expires_in": 900, "interval": 1}).encode())
         if p.startswith("/mdblist/"):
-            return self.send(200, json.dumps({"title": "x", "ratings": [{"source": "imdb", "value": 9.3}, {"source": "tomatoes", "value": 91}, {"source": "tomatoesaudience", "value": 96},
-                                                                       {"source": "metacritic", "value": 82}, {"source": "letterboxd", "value": 4.5}, {"source": "tmdb", "value": None}]}).encode())
+            return self.send(200, json.dumps({"title": "x", "ratings": [{"source": "imdb", "value": 9.3}, {"source": "tomatoes", "value": 91}, {"source": "tomatoesaudience", "value": 96}, {"source": "trakt", "value": 85}, {"source": "rogerebert", "value": 2.5},
+                                                                       {"source": "metacritic", "value": 82}, {"source": "letterboxd", "value": 4.5}, {"source": "tmdb", "value": 84}], "score": 80}).encode())
         if p.startswith("/p2p/") or p.startswith("/p2ponly/"):
             only = p.startswith("/p2ponly/")
             p = p[8:] if only else p[4:]

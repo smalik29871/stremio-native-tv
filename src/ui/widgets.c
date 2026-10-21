@@ -941,6 +941,32 @@ static void mark_letterboxd(float cx, float cy, float s, int a)
     gfx_circle(cx + s * 0.3f, cy, s * 0.17f, RGBA(0x40, 0xBC, 0xF4, a));
 }
 
+static void mark_trakt(float cx, float cy, float s, int a)
+{
+    gfx_circle(cx, cy, s * 0.42f, RGBA(0xED, 0x1C, 0x24, a));
+    gfx_rrect_ring(cx - s * 0.24f, cy - s * 0.24f, s * 0.48f, s * 0.48f, s * 0.24f, s * 0.07f, RGBA(0xFF, 0xFF, 0xFF, a));
+    gfx_line(cx - s * 0.1f, cy - s * 0.01f, cx - s * 0.02f, cy + s * 0.08f, s * 0.06f, RGBA(0xFF, 0xFF, 0xFF, a));   /* the tick */
+    gfx_line(cx - s * 0.02f, cy + s * 0.08f, cx + s * 0.13f, cy - s * 0.1f, s * 0.06f, RGBA(0xFF, 0xFF, 0xFF, a));
+}
+
+static void mark_tmdb(float cx, float cy, float s, int a)
+{
+    gfx_rrect_grad_h(cx - s * 0.48f, cy - s * 0.2f, s * 0.96f, s * 0.4f, s * 0.2f, RGBA(0x90, 0xCE, 0xA1, a), RGBA(0x01, 0xB4, 0xE4, a));
+    gfx_rrect(cx - s * 0.36f, cy - s * 0.05f, s * 0.42f, s * 0.1f, s * 0.05f, RGBA(0x0D, 0x25, 0x3F, a));   /* its long rounded bar */
+}
+
+/* how much of the ring is lit, and in which colour: MDBList's blend of every score */
+static Color score_colour(double v, int a)
+{
+    return v >= 70 ? RGBA(0x21, 0xC0, 0x4B, a) : v >= 50 ? RGBA(0xFF, 0xBD, 0x3F, a) : RGBA(0xFF, 0x5A, 0x5A, a);
+}
+
+static void mark_ring(float cx, float cy, float s, int a, double v)
+{
+    ui_arc(cx, cy, s * 0.4f, s * 0.12f, 0, 1, RGBA(0xFF, 0xFF, 0xFF, a / 6));
+    ui_arc(cx, cy, s * 0.4f, s * 0.12f, 0, (float)(v / 100), score_colour(v, a));
+}
+
 /* Metacritic's own way: the score in a box, green, yellow or red */
 static void mark_metascore(float cx, float cy, float s, int a, double v, const char *text)
 {
@@ -949,16 +975,20 @@ static void mark_metascore(float cx, float cy, float s, int a, double v, const c
     font_draw_center(text, cx, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0x10, 0x10, 0x12, a));
 }
 
-float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha)
+float ui_score_badge_width(const ScoreBadge *b)
+{
+    float vw = font_measure(b->value, FONT_L | FONT_B), lw = font_measure(b->label, FONT_XS | FONT_B);
+    return 46 + 14 + (vw > lw ? vw : lw);
+}
+
+float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha, float col_w)
 {
     if (n <= 0) return 0;
     int a = (int)(255 * alpha);
-    const float icon = 46, gap = 14, space = 40, h = 64;
+    const float icon = 46, gap = 14, space = 36, h = 64;
     float w[16], total = 0;
     for (int i = 0; i < n && i < 16; i++) {
-        float vw = b[i].kind == BADGE_METASCORE ? 0 : font_measure(b[i].value, FONT_L | FONT_B);
-        float lw = font_measure(b[i].label, FONT_XS | FONT_B);
-        w[i] = icon + gap + (vw > lw ? vw : lw);
+        w[i] = col_w > 0 ? col_w : ui_score_badge_width(&b[i]);
         total += w[i] + (i ? space : 0);
     }
     float x = right_x - total;
@@ -968,7 +998,7 @@ float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float 
         switch (b[i].kind) {
         case BADGE_TOMATOMETER: if (b[i].score >= 60) mark_tomato(cx, cy, icon, a); else mark_splat(cx, cy, icon, a); break;
         case BADGE_POPCORNMETER: mark_popcorn(cx, cy, icon, a, b[i].score >= 60); break;
-        case BADGE_METASCORE: mark_metascore(cx, cy, icon, a, b[i].score, b[i].value); break;
+        case BADGE_METASCORE: mark_metascore(cx, cy, icon * 0.86f, a, b[i].score, "M"); break;
         case BADGE_LETTERBOXD: mark_letterboxd(cx, cy, icon, a); break;
         case BADGE_LIVE: {   /* a live dot, breathing */
             float k = 0.5f + 0.5f * sinf(g_app.time * 3);
@@ -978,14 +1008,15 @@ float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float 
             break;
         }
         case BADGE_WATCHERS: ui_icon(ICON_USER, cx, cy, icon * 0.7f, RGBA(0xF2, 0xF2, 0xF2, a)); break;
+        case BADGE_EBERT: ui_icon(ICON_STAR, cx, cy, icon * 0.8f, RGBA(0xFF, 0xC8, 0x3D, a)); break;
+        case BADGE_TRAKT: mark_trakt(cx, cy, icon, a); break;
+        case BADGE_TMDB: mark_tmdb(cx, cy, icon, a); break;
+        case BADGE_MDBLIST: mark_ring(cx, cy, icon, a, b[i].score); break;
         default: ui_icon(ICON_PLAY, cx, cy, icon * 0.6f, RGBA(0xF2, 0xF2, 0xF2, a)); break;
         }
         float tx = x + icon + gap;
-        if (b[i].kind == BADGE_METASCORE) font_draw(b[i].label, tx, cy - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, RGBA(0xB4, 0xB4, 0xB8, a));
-        else {
-            font_draw_shadow(b[i].value, tx, y - 4, FONT_L | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), RGBA(0, 0, 0, a / 3));
-            font_draw(b[i].label, tx, y + h - font_height(FONT_XS | FONT_B) + 2, FONT_XS | FONT_B, RGBA(0xB4, 0xB4, 0xB8, a));
-        }
+        font_draw_shadow(b[i].value, tx, y - 4, FONT_L | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), RGBA(0, 0, 0, a / 3));
+        font_draw(b[i].label, tx, y + h - font_height(FONT_XS | FONT_B) + 2, FONT_XS | FONT_B, RGBA(0xB4, 0xB4, 0xB8, a));
         x += w[i] + space;
     }
     return h;
@@ -1001,6 +1032,10 @@ float ui_score_inline(float x, float y, const ScoreBadge *b, int n)
         case BADGE_TOMATOMETER: if (b[i].score >= 60) mark_tomato(cx, cy, icon, 255); else mark_splat(cx, cy, icon, 255); break;
         case BADGE_POPCORNMETER: mark_popcorn(cx, cy, icon, 255, b[i].score >= 60); break;
         case BADGE_LETTERBOXD: mark_letterboxd(cx, cy, icon, 255); break;
+        case BADGE_EBERT: ui_icon(ICON_STAR, cx, cy, icon * 0.8f, RGBA(0xFF, 0xC8, 0x3D, 0xFF)); break;
+        case BADGE_TRAKT: mark_trakt(cx, cy, icon, 255); break;
+        case BADGE_TMDB: mark_tmdb(cx, cy, icon, 255); break;
+        case BADGE_MDBLIST: mark_ring(cx, cy, icon, 255, b[i].score); break;
         case BADGE_METASCORE: {   /* the box holds the score itself */
             float bw = font_measure(b[i].value, FONT_XS | FONT_B) + 16;
             Color c = b[i].score >= 61 ? RGBA(0x00, 0xCE, 0x7A, 0xFF) : b[i].score >= 40 ? RGBA(0xFF, 0xBD, 0x3F, 0xFF) : RGBA(0xFF, 0x68, 0x74, 0xFF);

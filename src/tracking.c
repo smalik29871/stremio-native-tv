@@ -555,7 +555,8 @@ static void mdb_parse(int slot, const char *json)
     /* in MDB_* order; the audience score has gone by both names (Kometa reads it as "tomatoesaudience") */
     static const struct { const char *src, *alt, *name, *fmt; } S[] = {
         { "tomatoes", NULL, "Tomatometer", "%.0f%%" }, { "tomatoesaudience", "popcorn", "Popcornmeter", "%.0f%%" },
-        { "metacritic", NULL, "Metacritic", "%.0f" }, { "letterboxd", NULL, "Letterboxd", "%.1f" }, { "tmdb", NULL, "TMDB", "%.0f%%" } };
+        { "metacritic", NULL, "Metacritic", "%.0f" }, { "letterboxd", NULL, "Letterboxd", "%.1f" }, { "tmdb", NULL, "TMDB", "%.0f%%" },
+        { "trakt", NULL, "Trakt", "%.0f%%" }, { "rogerebert", NULL, "Roger Ebert", "%.1f" } };
     for (size_t k = 0; k < sizeof S / sizeof S[0]; k++)
         if (cJSON_IsArray(rs)) cJSON_ArrayForEach(it, rs) {
             const cJSON *src = cJSON_GetObjectItemCaseSensitive(it, "source"), *v = cJSON_GetObjectItemCaseSensitive(it, "value");
@@ -566,7 +567,11 @@ static void mdb_parse(int slot, const char *json)
             g_mdb[slot].score[k] = v->valuedouble;
             break;
         }
-    g_mdb[slot].state = o[0] ? 2 : 3;
+    const cJSON *all = cJSON_GetObjectItemCaseSensitive(j, "score");   /* MDBList's own blend of them */
+    if (cJSON_IsNumber(all) && all->valuedouble > 0) g_mdb[slot].score[MDB_SCORE] = all->valuedouble;
+    for (int k = MDB_TMDB; k <= MDB_TRAKT; k++)   /* out of 100, whichever way the answer put it */
+        if (g_mdb[slot].score[k] > 0 && g_mdb[slot].score[k] <= 10) g_mdb[slot].score[k] *= 10;
+    g_mdb[slot].state = o[0] || g_mdb[slot].score[MDB_SCORE] > 0 ? 2 : 3;
     cJSON_Delete(j);
 }
 

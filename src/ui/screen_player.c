@@ -2970,23 +2970,29 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     if (about) y += font_draw_wrapped(about, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
     /* the right-hand corner: what critics and audiences make of it, then Trakt's viewers */
     {
-        static const struct { int src, kind; const char *fmt, *label, *log; } R[] = {
-            { MDB_TOMATOMETER, BADGE_TOMATOMETER, "%.0f%%", "Tomatometer", "Tomatometer" },
-            { MDB_POPCORNMETER, BADGE_POPCORNMETER, "%.0f%%", "Popcornmeter", "Popcornmeter" },
-            { MDB_METACRITIC, BADGE_METASCORE, "%.0f", "Metascore", "Metacritic" },
-            { MDB_LETTERBOXD, BADGE_LETTERBOXD, "%.1f", "Letterboxd", "Letterboxd" } };
-        ScoreBadge rb[4], tb[3];
-        char text[7][16], all[400];
-        int nr = 0, nt = 0, l = 0;
+        /* critics first, then audiences closing on MDBList's blend of them all */
+        static const struct { int src, kind; const char *fmt, *label, *log; double scale; } R[] = {
+            { MDB_TOMATOMETER, BADGE_TOMATOMETER, "%.0f%%", "Tomatometer", "Tomatometer", 1 },
+            { MDB_POPCORNMETER, BADGE_POPCORNMETER, "%.0f%%", "Popcornmeter", "Popcornmeter", 1 },
+            { MDB_METACRITIC, BADGE_METASCORE, "%.0f", "Metascore", "Metacritic", 1 },
+            { MDB_ROGEREBERT, BADGE_EBERT, "%.1f", "Roger Ebert", "Roger Ebert", 1 },
+            { MDB_LETTERBOXD, BADGE_LETTERBOXD, "%.1f", "Letterboxd", "Letterboxd", 1 },
+            { MDB_TRAKT, BADGE_TRAKT, "%.0f%%", "Trakt", "Trakt", 1 },
+            { MDB_TMDB, BADGE_TMDB, "%.0f%%", "TMDB", "TMDB", 1 },
+            { MDB_SCORE, BADGE_MDBLIST, "%.1f", "MDBList", "MDBList", 0.1 } };
+        ScoreBadge rb[2][4], tb[3];
+        char text[11][16], all[500];
+        int nr[2] = { 0, 0 }, nt = 0, l = 0, used = 0;
         double sc[MDB_SOURCES];
         all[0] = 0;
         if (mdblist_scores(p->meta.id, p->meta.type, sc))
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 8; i++) {
                 if (sc[R[i].src] <= 0) continue;
-                snprintf(text[nr], 16, R[i].fmt, sc[R[i].src]);
-                rb[nr] = (ScoreBadge){ R[i].kind, sc[R[i].src], text[nr], R[i].label };
-                l += snprintf(all + l, sizeof all - l, "%s%s %s", l ? ", " : "", R[i].log, text[nr]);
-                nr++;
+                int row = i < 4 ? 0 : 1;
+                snprintf(text[used], 16, R[i].fmt, sc[R[i].src] * R[i].scale);
+                rb[row][nr[row]++] = (ScoreBadge){ R[i].kind, sc[R[i].src], text[used], R[i].label };
+                l += snprintf(all + l, sizeof all - l, "%s%s %s", l ? ", " : "", R[i].log, text[used]);
+                used++;
             }
         long tv[3] = { 0, 0, 0 };
         if (trakt_stats(p->meta.id, p->meta.type, &tv[0], &tv[1], &tv[2])) {
@@ -2994,16 +3000,20 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
                 { BADGE_LIVE, "watching now", "Watching now" }, { BADGE_WATCHERS, "watched it on Trakt", "Trakt watchers" }, { BADGE_PLAYS, "plays on Trakt", "Trakt plays" } };
             for (int i = 0; i < 3; i++) {
                 if (tv[i] <= 0) continue;
-                tracking_count_text(tv[i], text[4 + nt], 16);
-                tb[nt] = (ScoreBadge){ T[i].kind, (double)tv[i], text[4 + nt], T[i].label };
-                l += snprintf(all + l, sizeof all - l, "%s%s %s", l ? ", " : "", T[i].log, text[4 + nt]);
-                nt++;
+                tracking_count_text(tv[i], text[used], 16);
+                tb[nt++] = (ScoreBadge){ T[i].kind, (double)tv[i], text[used], T[i].label };
+                l += snprintf(all + l, sizeof all - l, "%s%s %s", l ? ", " : "", T[i].log, text[used]);
+                used++;
             }
         }
+        /* one column width for every row, so the badges line up as a grid from the right */
+        float col = 0;
+        for (int r = 0; r < 2; r++) for (int i = 0; i < nr[r]; i++) { float w = ui_score_badge_width(&rb[r][i]); if (w > col) col = w; }
+        for (int i = 0; i < nt; i++) { float w = ui_score_badge_width(&tb[i]); if (w > col) col = w; }
         float ry = 120;
-        if (nr) ry += ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry, rb, nr, k) + 34;
-        ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry, tb, nt, k);
-        if (nr + nt > p->corner_logged) { LOGI("player: paused corner: %s", all); p->corner_logged = nr + nt; }   /* once more is known */
+        for (int r = 0; r < 2; r++) if (nr[r]) ry += ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry, rb[r], nr[r], k, col) + 30;
+        if (nt) ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry + 10, tb, nt, k, col);   /* a little apart: these are people, not scores */
+        if (used > p->corner_logged) { LOGI("player: paused corner: %s", all); p->corner_logged = used; }   /* once more is known */
     }
     if (n_cast && y < SNTV_UI_H - 300) {
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
