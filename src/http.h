@@ -49,6 +49,9 @@ void http_shutdown(void);
 int  http_request(const char *url, const char *post_json, HttpResponse *out);
 int  http_request_ex(const char *url, const HttpOptions *opt, HttpResponse *out);
 void http_response_free(HttpResponse *r);
+/* An answer to a range request that looks like the start of a video (or a playlist):
+ * 200/206, not an HTML or JSON error page served with a 200. */
+int  http_looks_like_media(const HttpResponse *r);
 
 /* Async: the request runs on a worker thread and `cb` is invoked on the main
  * thread from http_pump(), which the main loop calls once per frame. */

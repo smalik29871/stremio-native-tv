@@ -124,7 +124,7 @@ static const char *ineligible(const Streams *st, const Stream *s)
     if (is_notice(s)) return "a notice, not a video";
     if (!playable(s)) return "it cannot play on this TV";
     if (s->probe_state == 4) return "its link does not answer";
-    if (s->url && app_link_dead(s->url)) return "its link failed a moment ago";
+    /* a link that failed a moment ago only goes last (rank): asked again, debrid links often come back */
     const char *rule = rule_broken(s);
     if (rule) return rule;
     if (st && st->video_id) {   /* named for another episode: "S01E04" when this is E05 */
@@ -225,7 +225,7 @@ static void on_probe(HttpResponse *r, void *user)
         char host[96];
         const char *hs = strstr(q->url, "://"); hs = hs ? hs + 3 : q->url;
         snprintf(host, sizeof host, "%.*s", (int)strcspn(hs, "/:?"), hs);
-        if ((r->status != 200 && r->status != 206) || r->len == 0) {
+        if (!http_looks_like_media(r)) {   /* not answering, or answering with a page instead of the file */
             s->probe_state = 4;
             LOGW("probe: %s -> HTTP %ld %s", host, r->status, r->error);
             break;
@@ -1057,8 +1057,8 @@ static void on_race(HttpResponse *resp, void *user)
     Race *r = &g_race;
     if (q->round == g_race_round && r->busy && !r->done) {
         r->pending--;
-        int ok = resp->status == 200 || resp->status == 206;
-        if (!ok && r->c && q->idx < r->n) { app_link_failed(r->c[q->idx].url); LOGI("streams: source %d did not answer the race", q->idx + 1); }   /* the player skips it */
+        int ok = http_looks_like_media(resp);   /* a 200 with an error page is no video */
+        if (!ok && r->c && q->idx < r->n) { app_link_failed(r->c[q->idx].url); LOGI("streams: source %d did not answer the race%s", q->idx + 1, resp->status == 200 || resp->status == 206 ? " with a video (an error page)" : ""); }   /* the player skips it */
         if (ok) { r->done = 1; LOGI("streams: source %d answered first (%.2f s)", q->idx + 1, resp->seconds); race_launch(q->idx); }
         else if (r->pending == 0) { r->done = 1; race_launch(-1); }
     }

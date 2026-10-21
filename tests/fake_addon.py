@@ -344,6 +344,19 @@ class H(BaseHTTPRequestHandler):
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
+        # /errpage/...: its best-looking source answers 200 with an HTML "link expired" page
+        if p.startswith("/errpage/"):
+            p = p[8:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.errpage", name="Error Page", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                url = STREAMS["streams"][0]["url"]
+                return self.send(200, json.dumps({"streams": [
+                    {"name": "ErrPage\n2160p", "title": "Movie.2024.2160p.WEB.h265\n\U0001F4BE 9.0 GB", "url": f"{BASE}/expiredpage/movie.mkv"},
+                    {"name": "ErrPage\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 2.0 GB", "url": url + "?real=1"}]}).encode())
+            return self.send(404, b"{}")
+        if p.startswith("/expiredpage/"):
+            return self.send(200, b"<html><body><h1>This link has expired</h1></body></html>", "text/html")
         # /wrongep/...: its best-looking source for an episode is another episode (a 4K "S01E04" for E1)
         if p.startswith("/wrongep/"):
             p = p[8:]

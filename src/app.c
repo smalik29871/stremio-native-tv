@@ -1674,6 +1674,9 @@ static void tv_profile_load(void)
 void app_tv_learn(unsigned needs, int worked)
 {
     if (!needs) return;
+    char names[80] = "";
+    for (int c = 0; c < TVCAP_COUNT; c++) if (needs >> c & 1) { size_t l = strlen(names); snprintf(names + l, sizeof names - l, "%s%s", l ? "," : "", TVCAP_NAMES[c]); }
+    LOGI("tv profile: %s %s here", names, worked ? "plays" : "failed");
     quality_tv_learn(&g_app.tv, needs, worked);
     cJSON *caps = cJSON_CreateObject();
     for (int c = 0; c < TVCAP_COUNT; c++) {

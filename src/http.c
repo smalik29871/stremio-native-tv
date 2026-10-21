@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <SDL.h>
 
 /* Minimal libcurl ABI surface. The numeric values are part of curl's stable
@@ -249,6 +250,20 @@ int http_request_ex(const char *url, const HttpOptions *opt, HttpResponse *out)
     int rc = request_with(h, url, opt ? opt->post_json : NULL, opt, out);
     C.easy_cleanup(h);
     return rc;
+}
+
+int http_looks_like_media(const HttpResponse *r)
+{
+    if (!r || (r->status != 200 && r->status != 206) || r->len == 0) return 0;
+    const char *ct = r->content_type;
+    if (!strncasecmp(ct, "text/html", 9) || !strncasecmp(ct, "application/json", 16)) return 0;
+    const char *b = r->body;
+    size_t i = 0;
+    while (i < r->len && i < 64 && (b[i] == ' ' || b[i] == '\t' || b[i] == '\r' || b[i] == '\n' || (unsigned char)b[i] == 0xEF || (unsigned char)b[i] == 0xBB || (unsigned char)b[i] == 0xBF)) i++;
+    if (i >= r->len) return 0;
+    if (!strncmp(b + i, "#EXTM3U", 7) || !strncmp(b + i, "<?xml", 5) || !strncasecmp(b + i, "<MPD", 4)) return 1;   /* HLS / DASH */
+    if (b[i] == '<' || b[i] == '{' || b[i] == '[') return 0;   /* a page or an error in JSON */
+    return 1;
 }
 
 void http_response_free(HttpResponse *r)

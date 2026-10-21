@@ -147,6 +147,10 @@ grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { e
 run wrong_episode_skipped 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
 grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep "player: candidate" "$OUT/wrong_episode_skipped.log" | grep -q "?ep=4" \
   || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
+# a link answering 200 with an HTML error page is not a video: it loses the start race
+run race_error_page 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with errpage '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/errpage/manifest.json"
+grep -q "streams: source [0-9] did not answer the race with a video (an error page)" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q expiredpage \
+  || { echo "an HTML error page won the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_error_page.log"; exit 1; }
 run player_next_loading 300 "right,ok,down,down,ok,wait,down,right" "$SLOW" SNTV_FAKE_START=300
 run player_next_ring 300 "right,ok,down,down,ok,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
 run player_skipped 300 "right,ok,down,down,ok,wait,ok"
@@ -286,6 +290,13 @@ grep -q "player: the connection dropped (Network error (code 300)); the same sou
 # a server that ignores Range sends the whole file: a 64 KB check keeps 64 KB, not 20 MB
 run http_norange 30 "" SNTV_HTTP_PROBE=http://127.0.0.1:$PORT/norange
 grep -q "http probe: status 200, 65536 bytes, cut at its budget" "$OUT/http_norange.log" || { echo "a range request kept more than it asked for"; grep "http probe" "$OUT/http_norange.log"; exit 1; }
+# audio this TV can't decode: another track by itself; no track at all: another source from the same moment
+run audio_repair_track 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with audfix '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_BAD_AUDIO=0
+grep -q "player: audio track 0 can't be played here; switching to spa AC3" "$OUT/audio_repair_track.log" \
+  || { echo "an undecodable audio track was not replaced by itself"; grep -E "audio|player" "$OUT/audio_repair_track.log"; exit 1; }
+run audio_repair_source 700 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with audsrc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_BAD_AUDIO="*" SNTV_FAKE_START=300 SNTV_NO_RACE=1
+grep -q "player: no audio track of source 1 plays here; another source" "$OUT/audio_repair_source.log" && grep -q "player: rescue (This TV can't play this source's audio) -> source 2 at 30[0-9]s" "$OUT/audio_repair_source.log" \
+  || { echo "a source with no playable audio was not replaced"; grep -E "audio|player: (rescue|candidate)" "$OUT/audio_repair_source.log"; exit 1; }
 # fallbacks: a source that dies mid-film is replaced at the same moment with the same subtitles;
 # the next source is checked while playing; a draining buffer moves to a lighter copy first;
 # Play races the top sources; when all fail the addons are asked again
@@ -309,8 +320,8 @@ grep -q "player: the connection dropped (Network Error (code 300)); the same sou
   || { echo "a link that failed to open on a network error was not tried again"; grep -E "player" "$OUT/open_net_retry.log"; exit 1; }
 # only when every source, every retry and every fresh link failed does the error card come up
 run all_failed_card 3000 "right,ok,down,down,ok,wait,wait" "$LIGHTER" HOME="$(home_with allfail '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=99 SNTV_REASK_AFTER=0.2 SNTV_NO_RACE=1
-grep -q "player: error card" "$OUT/all_failed_card.log" && [ "$(grep -c "player: asked the addons again" "$OUT/all_failed_card.log")" = 2 ] \
-  || { echo "the error card did not wait for the addons to be asked again twice"; grep -E "player" "$OUT/all_failed_card.log"; exit 1; }
+grep -q "player: error card" "$OUT/all_failed_card.log" && [ "$(grep -c "player: asked the addons again" "$OUT/all_failed_card.log")" = 2 ] && ! grep -q "tv profile: .* failed here" "$OUT/all_failed_card.log" \
+  || { echo "the error card did not wait for the addons to be asked again twice (or links that failed taught the TV profile)"; grep -E "player|tv profile" "$OUT/all_failed_card.log"; exit 1; }
 # a source that loads and then waits for data for ever (a torrent nobody seeds) gives way to the next
 run fallback_stuck 1200 "right,ok,down,down,ok,wait" "$LIGHTER" HOME="$(home_with fb5 "$NO_PREFLIGHT")" SNTV_FAKE_STUCK=1 SNTV_START_TIMEOUT=1
 grep -q "player: source 1 did not start in [0-9]*s" "$OUT/fallback_stuck.log" && grep -q "player: candidate 2/[0-9]*" "$OUT/fallback_stuck.log" \

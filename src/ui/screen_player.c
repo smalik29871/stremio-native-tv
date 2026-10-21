@@ -148,6 +148,7 @@ struct Player {
     int sync_retries, sync_first;
     int last_tracks_version;
     int last_warning_version;
+    unsigned audio_bad;       /* audio tracks this TV said it can't decode, on this source (bit per index) */
     char audio_lang[16]; int audio_lang_known;
     time_t clock_minute;
     int prefetched;           /* next episode's streams requested */
@@ -1262,6 +1263,7 @@ static void start_candidate(Player *p, int idx, double start)
 {
     if (idx != p->cur) { p->net_retries = 0; p->net_played = 0; }   /* another source: its own count */
     p->attempt++;
+    p->audio_bad = 0;
     p->net_retry_at = 0; p->net_reconnecting = 0;   /* a source chosen meanwhile, or Reload, replaces a pending reconnect */
     for (int r = 0; r < 2; r++)
         if (torbox_is_hash_link(p->cands[idx].url) && p->ready[r].url && p->ready[r].link && !strcmp(p->ready[r].link, p->cands[idx].url)
@@ -1404,12 +1406,55 @@ static int net_retry(Player *p, const VideoInfo *vi)
     return 1;
 }
 
+/* The TV can't decode the audio track on: another one, the same language first (a
+ * stereo AAC next to the DTS), else any other; none left: another source, from here. */
+static void audio_repair(Player *p, const VideoInfo *vi)
+{
+    VideoTrack tr[MAX_TRACKS];
+    int n = video_tracks(TRACK_AUDIO, tr, MAX_TRACKS), cur = -1;
+    for (int i = 0; i < n; i++) if (tr[i].selected) cur = i;
+    if (cur >= 0 && tr[cur].index < 32) p->audio_bad |= 1u << tr[cur].index;
+    int pick = -1;
+    for (int pass = 0; pass < 2 && pick < 0; pass++)
+        for (int i = 0; i < n && pick < 0; i++) {
+            if (i == cur || (tr[i].index < 32 && (p->audio_bad >> tr[i].index & 1))) continue;
+            if (pass == 0 && !(cur >= 0 && lang_same(tr[i].lang, tr[cur].lang))) continue;
+            pick = i;
+        }
+    if (pick >= 0) {
+        LOGI("player: audio track %d can't be played here; switching to %s %s", cur, tr[pick].lang, tr[pick].codec);
+        video_select_track(TRACK_AUDIO, tr[pick].index);
+        app_toast("This TV can't play that audio. Switched to %s", tr[pick].label[0] ? tr[pick].label : lang_display(tr[pick].lang));
+        return;
+    }
+    if (next_candidate(p) >= 0) {
+        LOGI("player: no audio track of source %d plays here; another source", p->cur + 1);
+        keep_choices(p);
+        rescue(p, "This TV can't play this source's audio", vi->position > 5 ? vi->position : p->start_at);
+        return;
+    }
+    app_toast("This TV can't play any audio track of this source");
+}
+
+/* Only a failure the TV's decoders could cause teaches "this TV can't play that": the
+ * pipeline refused the file (an error with a code) after opening it, not a network or
+ * expired-link code, not TorBox, not a stall (no error at all). */
+static int decoder_failure(const Player *p, const VideoInfo *vi)
+{
+    if (vi->state != VIDEO_ERROR || p->tb_error[0]) return 0;
+    const char *c = strstr(vi->error, "(code ");
+    int code = c ? atoi(c + 6) : 0;
+    if (!code || code == 300 || (code >= 40000 && code < 50000)) return 0;   /* network, or no code: nothing about decoding */
+    if (strstr(vi->error, "xpired") || strstr(vi->error, "403") || strstr(vi->error, "404")) return 0;
+    return 1;
+}
+
 static void fail_over(Player *p, const char *why)
 {
     VideoInfo vi;
     video_info(&vi);
     double resume = vi.position > 5 ? vi.position : 0;
-    if (!p->learned) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
+    if (!p->learned && decoder_failure(p, &vi)) { app_tv_learn(p->cands[p->cur].needs, 0); p->learned = 1; }
     if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
     if (vi.position < 5) youtube_note_result(p->cands[p->cur].url, 0);   /* this TV and that way of playing YouTube */
     health_record(p, HEALTH_FAIL);
@@ -1435,7 +1480,7 @@ static void on_warm(HttpResponse *r, void *user)
     Player *p = q->owner;
     if (p == g_live && q->gen == p->gen && q->attempt == p->attempt && q->idx == p->warm[q->slot].idx) {
         p->warm[q->slot].at = g_app.time;
-        if (r->status == 200 || r->status == 206) {
+        if (http_looks_like_media(r)) {
             p->warm[q->slot].state = 2; p->warm[q->slot].s = (float)r->seconds;
             LOGI("player: next source %d answers (%.1f s)", q->idx + 1, r->seconds);
         } else {
@@ -1856,11 +1901,13 @@ static void update(Screen *s, float dt)
     if (vi.tracks_version != p->last_tracks_version) { p->last_tracks_version = vi.tracks_version; app_redraw(); }
     if (vi.warning_version != p->last_warning_version) {
         p->last_warning_version = vi.warning_version;
-        if (vi.warning[0]) app_toast("%s", vi.warning);
-        if (vi.warning[0] && !p->learned) {   /* "can't play this audio": remember the audio codec */
+        int audio = vi.warning[0] && strstr(vi.warning, "audio");
+        if (vi.warning[0] && !audio) app_toast("%s", vi.warning);
+        if (audio && !p->learned) {   /* "can't play this audio": remember the audio codec */
             app_tv_learn(p->cands[p->cur].needs & ((1u << TVCAP_DTS) | (1u << TVCAP_TRUEHD)), 0);
             p->learned = 1;
         }
+        if (audio) audio_repair(p, &vi);
     }
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
     night_tick(p, &vi);

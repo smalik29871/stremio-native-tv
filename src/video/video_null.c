@@ -11,6 +11,7 @@
 static VideoInfo g;
 static Uint32 g_last;
 static int g_audio_sel = 0, g_text_sel = -1;
+static int g_bad_warned = -1;   /* SNTV_FAKE_BAD_AUDIO: the track already reported unplayable */
 static double g_rate = 1.0;
 
 int video_init(SDL_Window *win) { (void)win; g.state = VIDEO_IDLE; return 0; }
@@ -24,7 +25,7 @@ static int g_muted;
 
 int video_load(const char *url, const char *title, double start)
 {
-    g_loads++; g_played_here = 0; g_muted = 0;
+    g_loads++; g_played_here = 0; g_muted = 0; g_bad_warned = -1;
     LOGI("video(null): load %s (%s) from %.0fs", url, title ? title : "", start);
     memset(&g, 0, sizeof g);
     g.state = VIDEO_LOADING;
@@ -114,6 +115,18 @@ void video_update(void)
             if (ahead <= 0) { g.buffering = 1; return; }
         }
     } else if (g_loads > 1) g.buffer_ahead = 120;
+    /* test hook: SNTV_FAKE_BAD_AUDIO="0" or "0,1": those audio tracks can't be decoded here
+     * (the warning webOS gives, code 200); "*" for every track of the first source */
+    const char *bad = getenv("SNTV_FAKE_BAD_AUDIO");
+    if (bad && g.state == VIDEO_PLAYING && g_bad_warned != g_audio_sel) {
+        char k[4]; snprintf(k, sizeof k, "%d", g_audio_sel);
+        if ((bad[0] == '*' && g_loads == 1) || strstr(bad, k)) {
+            g_bad_warned = g_audio_sel;
+            snprintf(g.warning, sizeof g.warning, "This TV can't play this audio track. Try another one from the audio menu.");
+            g.warning_version++;
+            LOGI("video(null): audio track %d can't be played here (SNTV_FAKE_BAD_AUDIO)", g_audio_sel);
+        }
+    }
     if (g.state == VIDEO_PLAYING) {
         g.position += dt * g_rate;
         if (g.duration && g.position >= g.duration) { g.position = g.duration; g.state = VIDEO_ENDED; }
