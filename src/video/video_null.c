@@ -80,7 +80,7 @@ void video_update(void)
     g_last = now;
     /* test hook: SNTV_FAKE_FAIL_LOADS=n fails the first n sources opened */
     const char *fl = getenv("SNTV_FAKE_FAIL_LOADS");
-    if (g.state == VIDEO_LOADING && fl && g_loads <= atoi(fl)) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The link expired (SNTV_FAKE_FAIL_LOADS)"); return; }
+    if (g.state == VIDEO_LOADING && fl && g_loads <= atoi(fl)) { g.state = VIDEO_ERROR; g.position = 0; snprintf(g.error, sizeof g.error, "The link expired (SNTV_FAKE_FAIL_LOADS)"); return; }
     /* test hook: SNTV_FAKE_STUCK=1 has the first source load and then wait for data for ever,
      * buffering from before it is ready (a torrent nobody seeds) */
     const char *stuck = getenv("SNTV_FAKE_STUCK");

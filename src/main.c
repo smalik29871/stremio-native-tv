@@ -27,6 +27,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <sys/vfs.h>
+#include <signal.h>
 #include <SDL.h>
 #include <GLES2/gl2.h>
 
@@ -168,7 +169,8 @@ static int ambient_due(const Screen *top)
     float limit = idle_after > 0 ? idle_after : g_app.ambient_minutes * 60.0f;
     if (!g_app.ambient_minutes && idle_after <= 0) return 0;
     if (g_app.time - g_app.last_input < limit) return 0;
-    if (strcmp(top->name, "ambient") == 0 || strcmp(top->name, "login") == 0) return 0;
+    static const char *const NEVER_UNDER[] = { "ambient", "login", "break", "pin", "update" };   /* a break counts down and resumes the film itself */
+    for (size_t i = 0; i < sizeof NEVER_UNDER / sizeof *NEVER_UNDER; i++) if (strcmp(top->name, NEVER_UNDER[i]) == 0) return 0;
     VideoInfo vi;
     video_info(&vi);
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) return 0;   /* full screen or in the corner */
@@ -285,6 +287,9 @@ int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
     int frame = 0;
+#ifdef SIGPIPE
+    signal(SIGPIPE, SIG_IGN);   /* a player hanging up on the phone server must not end the app */
+#endif
 #ifdef SNTV_PLATFORM_WEBOS
     /* Without these the remote's Back/Exit keys never reach the app. Must be set before the window exists. */
     SDL_SetHint("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");

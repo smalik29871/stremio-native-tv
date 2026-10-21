@@ -62,7 +62,7 @@ static const char *ci_find(const char *hay, const char *needle)   /* strcasestr 
     return NULL;
 }
 
-static void send_all(int fd, const char *s, size_t n) { while (n) { ssize_t w = send(fd, s, n, 0); if (w <= 0) return; s += w; n -= (size_t)w; } }
+static void send_all(int fd, const char *s, size_t n) { while (n) { ssize_t w = send(fd, s, n, MSG_NOSIGNAL); if (w <= 0) return; s += w; n -= (size_t)w; } }
 
 static void respond(int fd, const char *status, const char *body)
 {

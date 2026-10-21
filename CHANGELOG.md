@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **The film comes back properly after a break.** A paused film no longer restarts from
+  0:00 after the azaan: it returns to where it was, still paused. The screensaver no
+  longer opens over a break (it froze the countdown, so the film never came back by
+  itself), and a fireplace video waits for the break to finish instead of replacing it.
+- **Resume points survive a dead link.** When the first source fails before it plays
+  (an expired debrid link, a timeout), the next one starts at your resume point instead
+  of the beginning, so the account's progress is no longer reset to the start.
+- **No more sudden exits** when the TV's player hangs up on the app's own server, for
+  example leaving the YouTube screensaver.
+- **Trakt and SimKL renew calmly.** A renewal that fails (offline, the service down) waits
+  2 minutes, then longer, instead of retrying every frame; a token that lasts a day is
+  renewed once, halfway through, instead of every second.
+- **Profiles stay apart.** A library reply for the previous profile no longer lands in
+  the new one's file (from where it was merged into and uploaded to that account), and
+  progress kept from this TV is saved to flash.
+- **Fewer crashes on Back:** replies held over to the next frame can be cancelled, and
+  Search drops the replies for a closed search or an older query.
+- Longer audio and subtitle language tags (e.g. `zh-Hant-TW`) are kept on a source switch,
+  and repeated retries reset once a source has played well for a while.
+
 ## 0.10.35
 
 - **Four new screensavers** (Settings > System > Screensaver style), drawn live and

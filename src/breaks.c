@@ -37,8 +37,14 @@ static struct tm now_tm(void)
 {
     time_t t = time(NULL); struct tm tmv; localtime_r(&t, &tmv);
     const char *o = getenv("SNTV_NOW");
-    int hh, mm;
-    if (o && sscanf(o, "%d:%d", &hh, &mm) == 2) { tmv.tm_hour = hh; tmv.tm_min = mm; tmv.tm_sec = time(NULL) % 60; }
+    int hh, mm, after = 0;   /* tests: "12:00", or "12:00+5" (a minute earlier until 5 s after the start) */
+    static time_t started;
+    if (!started) started = t;
+    if (o && sscanf(o, "%d:%d+%d", &hh, &mm, &after) >= 2) {
+        int m = hh * 60 + mm - (t - started < after ? 1 : 0);
+        if (m < 0) m += 24 * 60;
+        tmv.tm_hour = m / 60; tmv.tm_min = m % 60; tmv.tm_sec = time(NULL) % 60;
+    }
     return tmv;
 }
 
