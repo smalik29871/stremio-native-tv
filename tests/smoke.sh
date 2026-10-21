@@ -573,6 +573,10 @@ run episode_options 400 "right,ok,down,down,right,hold,$HOLD,release"
 # timing for a subtitle track inside the file (the TV draws it; the player sends the offset)
 run player_subs_timing_embedded 460 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,down,right,right,right" SNTV_FAKE_START=300 HOME="$(home_with substime '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Timing +0.3 s" "$OUT/player_subs_timing_embedded.log" || { echo "the video's subtitles were not retimed"; grep -E "subtitles" "$OUT/player_subs_timing_embedded.log"; exit 1; }
+# Look and timing steps aside to a narrow panel so the subtitles show while they change; Back brings the drawer back
+run player_subs_panel 460 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,down,down,right" HOME="$(home_with subspanel '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: subtitles Look and timing panel, the drawer aside" "$OUT/player_subs_panel.log" && grep -q "player: subtitles sheet: Size Large" "$OUT/player_subs_panel.log" \
+  || { echo "the Look and timing panel did not open, or Size did not change in it"; grep -E "subtitles" "$OUT/player_subs_panel.log"; exit 1; }
 run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok" HOME="$(home_with ep_marked '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run options_yellow 200 "right,right,right,yellow"

@@ -145,6 +145,7 @@ struct Player {
     double known_dur;                       /* the duration last reported (0 while a source loads) */
     double jump_pos;                        /* where the last jump landed */
     float menu_t; int menu_seen;           /* the side menu slides in */
+    float tune_t; int tune_on;             /* subtitles drawer (0) to the Look and timing panel (1) */
     int embedded_text_sel;    /* -1 off */
     double embedded_offset;   /* timing for the TV's own subtitles, seconds (positive = later) */
     int auto_selected;        /* audio preference applied */
@@ -260,7 +261,6 @@ static void describe_track(const Player *p, int kind, const VideoTrack *tr, int 
 static int xl_available(Player *p);
 static void draw_subs_panel(Player *p);
 static int subs_tuning(const Player *p);
-static int tuner_style(void) { const char *v = getenv("SNTV_TUNER_STYLE"); return v ? atoi(v) : 0; }   /* MOCKUP ONLY */
 static int cast_n(const Player *p, const TmdbInfo **tm);
 static int open_cast(Player *p);
 static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n);
@@ -2279,8 +2279,8 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && !subs_tuning(p) && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
     int r = subs_tuning(p) ? p->subs_row : -1;
     if (!text && !text2 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS)) text = "Subtitles will look like this";   /* nothing said right now: a sample to judge by */
-    float shift = r >= 0 && tuner_style() == 1 ? -250 : 0;   /* clear of the side panel */
-    gfx_set_translate(shift, 0);
+    float k = p->menu == MENU_SUBS ? 1 - (1 - p->tune_t) * (1 - p->tune_t) : 0;
+    gfx_set_translate(-250 * k, 0);   /* clear of the Look and timing panel */
     if (text) ui_subtitle(text, bottom, sub_size(p), g_app.subs_style);
     if (text2) {   /* the second language sits above the first (or where it would be) */
         float lift = text ? font_height(ui_subtitle_font(sub_size(p))) * 1.04f * 2 + 24 : 0;
@@ -4200,12 +4200,13 @@ static int subs_tuning(const Player *p)
     return p->menu == MENU_SUBS && p->subs_col == 1 && p->subs_group == SG_LOOK;
 }
 
-/* A small card with only the setting being changed, at the top (or the bottom when the
- * subtitles are at the top), the picture and its subtitles left clear. */
-static void draw_tuner_side(Player *p, float e)
+/* The Look and timing panel: narrow, on the right, every setting in it, so the picture and
+ * its subtitles (moved a little left meanwhile) show each change as it is made. */
+static void draw_subs_tuner(Player *p, float e)
 {
     const float W = 460, RH = 84, H = 110 + (SUB_SYNC + 1) * RH + 56, X = SNTV_UI_W - 48 - W, Y = (SNTV_UI_H - H) / 2, PAD = 28;
     gfx_set_alpha(e);
+    gfx_set_translate(60 * (1 - e), 0);
     gfx_rrect(X, Y, W, H, 32, RGBA(0x15, 0x16, 0x1A, 0xE8));
     font_draw_tracked("LOOK AND TIMING", X + PAD, Y + 30, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x73), 1.5f);
     font_draw("Subtitles", X + PAD, Y + 56, FONT_M | FONT_B, THEME_TEXT);
@@ -4224,84 +4225,24 @@ static void draw_tuner_side(Player *p, float e)
     }
     font_draw_fit("Up/Down  setting   \xC2\xB7   Left/Right  change   \xC2\xB7   Back", X + PAD, Y + H - 44, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
     gfx_set_alpha(1);
-}
-
-static void draw_tuner_chip(Player *p, float e)
-{
-    int row = p->subs_row;
-    char v[160];
-    subs_setting(p, row, v, sizeof v);
-    const float X = 48, Y = 40, H = 76;
-    float lw = font_measure(SET_LABEL[row], FONT_S | FONT_B), vw = font_measure(v, FONT_M | FONT_B), W = 40 + lw + 28 + 30 + vw + 30 + 40;
-    gfx_set_alpha(e);
-    gfx_rrect(X, Y, W, H, H / 2, RGBA(0x15, 0x16, 0x1A, 0xE8));
-    font_draw(SET_LABEL[row], X + 40, Y + (H - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT_DIM);
-    float vx = X + 40 + lw + 28 + 30, cy = Y + H / 2;
-    ui_icon(ICON_CHEVRON_LEFT, vx - 20, cy, 22, THEME_ACCENT);
-    font_draw(v, vx, cy - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, THEME_TEXT);
-    ui_icon(ICON_CHEVRON_RIGHT, vx + vw + 20, cy, 22, THEME_ACCENT);
-    for (int i = 0; i <= SUB_SYNC; i++)
-        gfx_circle(X + 40 + i * 16, Y + H + 18, i == row ? 5 : 4, i == row ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x50));
-    font_draw("Up/Down  more settings", X + 40 + 6 * 16 + 10, Y + H + 18 - font_height(FONT_XS) / 2, FONT_XS, COLOR_ALPHA(THEME_TEXT, 0xA0));
-    gfx_set_alpha(1);
-}
-
-static void draw_tuner_bar(Player *p, float e)
-{
-    const float H = 110, Y = SNTV_UI_H - H, W = SNTV_UI_W, TW = (W - 96) / (SUB_SYNC + 1);
-    gfx_set_alpha(e);
-    gfx_gradient_v(0, Y - 40, W, H + 40, RGBA(0, 0, 0, 0), RGBA(0x10, 0x11, 0x14, 0xF0));
-    for (int r = 0; r <= SUB_SYNC; r++) {
-        float x = 48 + r * TW;
-        int foc = r == p->subs_row;
-        char v[160];
-        subs_setting(p, r, v, sizeof v);
-        if (r == SUB_SYNC) { char *d = strstr(v, "  \xC2\xB7"); if (d) *d = 0; }
-        if (foc) gfx_rrect(x + 4, Y + 14, TW - 8, H - 28, R_KEY, THEME_FOCUS);
-        font_draw_center(SET_LABEL[r], x + TW / 2, Y + 24, FONT_XS | FONT_B, foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED);
-        font_draw_center(v, x + TW / 2, Y + 50, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : THEME_TEXT);
-    }
-    gfx_set_alpha(1);
-}
-
-static void draw_subs_tuner(Player *p, float e)
-{
-    if (tuner_style() == 1) { draw_tuner_side(p, e); return; }
-    if (tuner_style() == 2) { draw_tuner_chip(p, e); return; }
-    if (tuner_style() == 3) { draw_tuner_bar(p, e); return; }
-    const float W = 1040, H = 176, X = (SNTV_UI_W - W) / 2, Y = g_app.subs_pos == 2 ? SNTV_UI_H - H - 48 : 40, PAD = 40;
-    int row = p->subs_row < 0 ? 0 : p->subs_row > SUB_SYNC ? SUB_SYNC : p->subs_row;
-    gfx_set_alpha(e);
-    gfx_rrect(X, Y, W, H, 32, RGBA(0x15, 0x16, 0x1A, 0xE8));
-    char kick[64];
-    snprintf(kick, sizeof kick, "LOOK AND TIMING  \xC2\xB7  %d OF %d", row + 1, SUB_SYNC + 1);
-    font_draw_tracked(kick, X + PAD, Y + 26, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x73), 1.5f);
-    for (int i = 0; i <= SUB_SYNC; i++)   /* where this one sits among them */
-        gfx_circle(X + W - PAD - (SUB_SYNC - i) * 22 - 5, Y + 34, i == row ? 5 : 4, i == row ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x30));
-    char v[160];
-    subs_setting(p, row, v, sizeof v);
-    int adj = row != SUB_SYNC;
-    float ry = Y + 62, rh = 64, vy = ry + rh / 2;
-    gfx_rrect(X + 20, ry, W - 40, rh, R_KEY, THEME_FOCUS);
-    font_draw(SET_LABEL[row], X + PAD + 4, vy - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, THEME_ON_FOCUS);
-    float vw = font_measure(v, FONT_M | FONT_B), vr = X + W - PAD - (adj ? 30 : 0);
-    font_draw(v, vr - vw, vy - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, THEME_ON_FOCUS);
-    if (adj) { ui_icon(ICON_CHEVRON_LEFT, vr - vw - 22, vy, 22, THEME_ON_FOCUS); ui_icon(ICON_CHEVRON_RIGHT, vr + 16, vy, 22, THEME_ON_FOCUS); }
-    char hint[200];
-    snprintf(hint, sizeof hint, "%s%sUp/Down  other settings   \xC2\xB7   Back  all subtitles", adj ? "Left/Right  change   \xC2\xB7   " : "OK  on or off   \xC2\xB7   ",
-             row == SUB_TIMING ? "OK  reset   \xC2\xB7   " : "");
-    font_draw_fit(hint, X + PAD, Y + H - 40, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
-    gfx_set_alpha(1);
+    gfx_set_translate(0, 0);
 }
 
 static void draw_subs_panel(Player *p)
 {
-    const float SW = 1180, SX = SNTV_UI_W - 64 - SW, SY = 32, SH = SNTV_UI_H - SY - 48, PAD = 40;
-    const float LW = 360, ROW = 76, OROW = 92;
+    const float SW = 960, SX = SNTV_UI_W - 64 - SW, SY = 32, SH = SNTV_UI_H - SY - 48, PAD = 36;
+    const float LW = 300, ROW = 76, OROW = 92;
     if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; if (getenv("SNTV_SCREENSHOT")) LOGI("UI check: player drawer=%d", p->menu); }
     if (p->menu_t < 1) { p->menu_t += 0.1f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
     float e = 1 - (1 - p->menu_t) * (1 - p->menu_t);
-    if (subs_tuning(p)) { draw_subs_tuner(p, e); return; }
+    float want = subs_tuning(p) ? 1 : 0;   /* the drawer gives way to the panel, and back */
+    if ((int)want != p->tune_on) { p->tune_on = (int)want; LOGI("player: subtitles %s", want ? "Look and timing panel, the drawer aside" : "drawer"); }
+    if (g_app.fx_light || p->menu_t < 1) p->tune_t = want;
+    else if (p->tune_t != want) { p->tune_t += want > p->tune_t ? 0.125f : -0.125f; if (p->tune_t < 0) p->tune_t = 0; if (p->tune_t > 1) p->tune_t = 1; app_redraw(); }
+    float k = 1 - (1 - p->tune_t) * (1 - p->tune_t);
+    if (k > 0) draw_subs_tuner(p, e * k);
+    if (k >= 1) return;
+    e *= 1 - k;
     gfx_gradient_h(SX - 700, 0, 700 + SW + 64, SNTV_UI_H, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x6B * e)));
     gfx_set_alpha(e);
     gfx_set_translate(40 * (1 - e), 0);
