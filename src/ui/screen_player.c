@@ -2971,7 +2971,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     /* the right-hand corner: what critics and Trakt's viewers make of it */
     {
         const char *names[8], *values[8];
-        char store[8][2][40];
+        char store[8][2][64];
         int nf = 0;
         const char *line = mdblist_line(p->meta.id, p->meta.type);
         for (const char *q = line; q && *q && nf < 5; ) {   /* "Tomatometer 93%  ·  Popcornmeter 88%  ·  Metacritic 80" */
@@ -2981,7 +2981,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             char *sp = strrchr(seg, ' ');
             if (sp) {
                 *sp = 0;
-                snprintf(store[nf][0], 40, "%s", seg); snprintf(store[nf][1], 40, "%s", sp + 1);
+                snprintf(store[nf][0], 64, "%s", seg); snprintf(store[nf][1], 64, "%s", sp + 1);
                 names[nf] = store[nf][0]; values[nf] = store[nf][1]; nf++;
             }
             q = end ? end + 5 : NULL;
@@ -2990,7 +2990,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         if (trakt_stats(p->meta.id, p->meta.type, &now_w, &watchers, &plays)) {
             static const char *const TK[3] = { "Watching now", "Trakt watchers", "Trakt plays" };
             long v[3] = { now_w, watchers, plays };
-            for (int i = 0; i < 3 && nf < 8; i++) if (v[i] > 0) { tracking_count_text(v[i], store[nf][1], 40); names[nf] = TK[i]; values[nf] = store[nf][1]; nf++; }
+            for (int i = 0; i < 3 && nf < 8; i++) if (v[i] > 0) { tracking_count_text(v[i], store[nf][1], 64); names[nf] = TK[i]; values[nf] = store[nf][1]; nf++; }
         }
         ui_facts(SNTV_UI_W - THEME_MARGIN, 120, names, values, nf, k, 1);
         if (nf > p->corner_logged) {   /* once more is known */
