@@ -106,7 +106,8 @@ static const char *rule_broken(const Stream *s)
         for (char *c = text; *c; c++) if (*c >= 'A' && *c <= 'Z') *c += 32;
         snprintf(words, sizeof words, "%s", g_app.src_exclude);
         for (char *c = words; *c; c++) if (*c >= 'A' && *c <= 'Z') *c += 32;
-        for (char *w = strtok(words, ","); w; w = strtok(NULL, ",")) {
+        char *save = NULL;
+        for (char *w = strtok_r(words, ",", &save); w; w = strtok_r(NULL, ",", &save)) {
             while (*w == ' ') w++;
             size_t n = strlen(w); while (n && w[n - 1] == ' ') w[--n] = 0;
             if (n && strstr(text, w)) return "named with a word your rules exclude";
@@ -195,6 +196,7 @@ static long rank(const Streams *st, const Stream *s)
     if (s->tags.cached < 0) r += 6000000L;             /* needs a debrid download first: after P2P */
     if (!playable(s)) r += 100000000L;
     if (is_notice(s)) r += 200000000L;
+    if (s->headers) r += 3000000L;   /* it asks for request headers the TV's player can't send: after the others */
     { const char *g = ineligible(st, s); if (g && !strcmp(g, "it is another episode")) r += 150000000L; }   /* below every source that is this episode */
     if (s->url && app_link_dead(s->url)) r += 20000000L;
     if (st->chaining) {   /* the next episode: like the one just played, below the working-link penalties */
@@ -272,7 +274,7 @@ static void probe_next(Streams *st)
     st->probe_inflight = 1;
     ProbeReq *q = malloc(sizeof *q);
     q->owner = st; q->gen = st->probe_gen; q->url = strdup(s->url);
-    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = s->headers };   /* the headers it asks for */
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1 };   /* no headers: the TV's player can't send them either */
     http_request_async_ex(s->url, &opt, on_probe, q);
 }
 
@@ -551,7 +553,7 @@ int streams_prefetch_warm(const char *video_id, const char *binge_group)
         }
     if (pick < 0) return 0;
     LOGI("streams: warming the next episode's file (%s)", g_pre.items[pick].addon_name ? g_pre.items[pick].addon_name : "addon");
-    HttpOptions o = { .range_bytes = 2u << 20, .timeout_s = 20, .no_json_accept = 1, .headers = g_pre.items[pick].headers };
+    HttpOptions o = { .range_bytes = 2u << 20, .timeout_s = 20, .no_json_accept = 1 };
     http_request_async_ex(g_pre.items[pick].url, &o, on_warm_next, NULL);
     return 1;
 }
@@ -1088,7 +1090,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
         RaceReq *q = malloc(sizeof *q);
         q->idx = i; q->round = g_race_round;
         r->pending++;
-        HttpOptions o = { .range_bytes = 2, .timeout_s = 3, .no_json_accept = 1, .headers = c[i].headers };   /* none answering costs 3 s at most, then they play in order */
+        HttpOptions o = { .range_bytes = 2, .timeout_s = 3, .no_json_accept = 1 };   /* none answering costs 3 s at most, then they play in order */
         http_request_async_ex(c[i].url, &o, on_race, q);
     }
     LOGI("streams: racing %d sources", r->pending);
@@ -1218,15 +1220,15 @@ void streams_lookup_cancel(void)
     free(g_look.video_id); g_look.video_id = NULL; g_look.auto_only = 0;
 }
 
-void streams_lookup_auto(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user)
-{
-    streams_lookup(meta, video_id, cb, user);
-    g_look.auto_only = 1;
-}
+static void lookup_start(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user, int auto_only);
 
-void streams_lookup(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user)
+void streams_lookup_auto(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user) { lookup_start(meta, video_id, cb, user, 1); }
+void streams_lookup(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user) { lookup_start(meta, video_id, cb, user, 0); }
+
+static void lookup_start(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user, int auto_only)
 {
     streams_lookup_cancel();
+    g_look.auto_only = auto_only;   /* before anything can finish it */
     meta_preview_copy(&g_look.meta, meta);
     g_look.video_id = video_id ? strdup(video_id) : NULL;
     g_look.cb = cb; g_look.user = user;

@@ -270,8 +270,9 @@ static long pick_episode(const Open *o, PackFile *f, int n)
         LOGI("torbox: the episode's file by its name: %s", f[best].name);
         return f[best].id;
     }
-    /* the pack names its episodes and none is this one (or every file is another): not here */
-    if (f[best].score < 0 || others) {
+    /* the pack names its episodes and none is this one (or every file is another): not here;
+     * one stray file named for another (a preview) does not make it such a pack */
+    if (f[best].score < 0 || others >= 2) {
         LOGI("torbox: no file in this torrent is S%dE%d (it names other episodes)", o->ep.season, o->ep.episode);
         return -1;
     }
@@ -313,7 +314,11 @@ static long pick_episode(const Open *o, PackFile *f, int n)
         }
         LOGI("torbox: the AI did not pick a file (%d)", pick);
     }
-    /* several files and nothing says which is the episode: another source, not a guess */
+    if (tied == 2) {   /* two: one copy in two formats, or an episode in two parts: the larger, as always */
+        LOGI("torbox: no episode named; the larger of two files plays: %s", f[best].name);
+        return f[best].id;
+    }
+    /* several alike and nothing says which is the episode (a disc rip): another source, not a guess */
     LOGI("torbox: can't tell which of %d files is S%dE%d; leaving this torrent", tied, o->ep.season, o->ep.episode);
     return -1;
 }

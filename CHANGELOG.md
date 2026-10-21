@@ -26,9 +26,16 @@ From a review of how sources are chosen and played:
   TorBox error no longer counts as "this TV can't play HEVC / DTS / ...".
 - **An error page is not a video.** A link answering 200 with an HTML or JSON page ("link
   expired") loses the start race and fails its checks.
-- **What an addon says about its stream is kept:** the request headers it needs (sent with
-  every check), the file's hash (subtitles matched to that exact file, without working it
-  out) and the subtitles it sends with the stream.
+- **What an addon says about its stream is kept:** the request headers it needs, the file's
+  hash (subtitles matched to that exact file, without working it out) and the subtitles it
+  sends with the stream. The TV's player can't send request headers, so a source that asks
+  for them is checked as the TV will open it (without) and ranks after the others.
+- Also from a second look: a number after the episode in a name ("24 S01E01 12 00 A M") is
+  no episode range; the switch back from P2P to a cached copy goes through the same gate;
+  subtitles matched to one source's file no longer count as matched after a switch; a
+  YouTube file cut short is not saved as whole; the TV profile learns from Tizen player
+  errors again; a pack with a single stray "other episode" file, or two unnamed files,
+  plays as before.
 
 ## 0.10.39
 

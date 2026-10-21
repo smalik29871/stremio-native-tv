@@ -133,6 +133,7 @@ static size_t on_header(char *ptr, size_t size, size_t nmemb, void *user)
     if (n >= sizeof line) n = sizeof line - 1;
     memcpy(line, ptr, n);
     line[n] = 0;
+    if (!strncmp(line, "HTTP/", 5)) { out->content_type[0] = 0; out->total_size = 0; }   /* a new answer (after a redirect): its own headers */
     if (!strncasecmp(line, "Content-Range:", 14)) {
         const char *slash = strrchr(line, '/');
         if (slash && slash[1] != '*') out->total_size = strtoull(slash + 1, NULL, 10);
@@ -262,6 +263,7 @@ int http_looks_like_media(const HttpResponse *r)
     while (i < r->len && i < 64 && (b[i] == ' ' || b[i] == '\t' || b[i] == '\r' || b[i] == '\n' || (unsigned char)b[i] == 0xEF || (unsigned char)b[i] == 0xBB || (unsigned char)b[i] == 0xBF)) i++;
     if (i >= r->len) return 0;
     if (!strncmp(b + i, "#EXTM3U", 7) || !strncmp(b + i, "<?xml", 5) || !strncasecmp(b + i, "<MPD", 4)) return 1;   /* HLS / DASH */
+    if (r->len - i < 5 && (b[i] == '<' || b[i] == '#')) return !strncasecmp(ct, "application/dash", 16) || !strncasecmp(ct, "application/vnd.apple", 21) || !strncasecmp(ct, "application/x-mpegurl", 21) || !ct[0];   /* two bytes of a manifest */
     if (b[i] == '<' || b[i] == '{' || b[i] == '[') return 0;   /* a page or an error in JSON */
     return 1;
 }

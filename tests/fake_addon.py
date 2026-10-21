@@ -354,9 +354,7 @@ class H(BaseHTTPRequestHandler):
                     "behaviorHints": {"proxyHeaders": {"request": {"Referer": "https://rich.example/"}}, "videoHash": "0123456789abcdef", "videoSize": 6442450944},
                     "subtitles": [{"id": "r1", "url": f"{BASE}/richsub/fr.srt", "lang": "fra"}]}]}).encode())
             return self.send(404, b"{}")
-        if p.startswith("/needref/"):   # only with the Referer the addon asked for
-            if self.headers.get("Referer") != "https://rich.example/":
-                return self.send(403, b"forbidden", "text/plain")
+        if p.startswith("/needref/"):   # the addon asks for a Referer; this host answers either way
             return self.send(206, b"\x1a\x45\xdf\xa3" + b"\0" * 60, "video/x-matroska")
         if p.startswith("/richsub/"):
             return self.send(200, SRT.encode(), "text/plain")

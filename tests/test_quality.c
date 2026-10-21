@@ -116,6 +116,11 @@ int main(void)
     CHECK(quality_episode_score("Show.S01E05.1080p.x264", &(EpisodeHint){ .season = 1, .episode = 6 }) == -1);
     CHECK(quality_episode_score("Show.S01E05.720p.x264", &(EpisodeHint){ .season = 1, .episode = 6 }) == -1);
     CHECK(quality_episode_score("Show.S01E05.720p.x264", &(EpisodeHint){ .season = 1, .episode = 5 }) == 3);
+    /* a number after the episode is a title, not a range end: "24 S01E01 12 00 A M", "S01E01 33" */
+    CHECK(quality_episode_score("24.S01E01.12.00.A.M.-.1.00.A.M.mkv", &(EpisodeHint){ .season = 1, .episode = 5 }) == -1);
+    CHECK(quality_episode_score("Battlestar.Galactica.S01E01.33.1080p.mkv", &(EpisodeHint){ .season = 1, .episode = 5 }) == -1);
+    CHECK(quality_episode_score("Show.S01E03.10.bit.mkv", &(EpisodeHint){ .season = 1, .episode = 5 }) == -1);
+    CHECK(quality_episode_score("Show.S01E01-08.1080p", &(EpisodeHint){ .season = 1, .episode = 5 }) == 3);
     /* kitsu: an id per season, the season unknown; the episode number decides */
     CHECK(quality_episode_score("Show S2/Show.S02E05.1080p.mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == 3);
     CHECK(quality_episode_score("Show S2/Show.S02E04.1080p.mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == -1);

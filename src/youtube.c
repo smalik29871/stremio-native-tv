@@ -549,7 +549,8 @@ static int download(const char *url, const char *headers, const char *path, uint
         HttpResponse c;
         HttpOptions o = { .range_start = pos, .range_bytes = CHUNK, .timeout_s = 120, .no_json_accept = 1, .headers = headers };
         http_request_ex(url, &o, &c);
-        int whole = c.status == 200, ok = (c.status == 206 || whole) && c.len > 0;
+        /* a 200 is the whole file; cut at the chunk's budget it is not, and asking on would get it from the start again */
+        int whole = c.status == 200, ok = (c.status == 206 || whole) && c.len > 0 && !(whole && c.cut);
         if (ok && fwrite(c.body, 1, c.len, f) != c.len) ok = 0;
         if (!ok) {
             char why[300];
@@ -685,7 +686,8 @@ static char *reachable_mirror(const char *url)
     const char *dash = hs ? strstr(hs, "---") : NULL;
     const char *dot = dash ? strchr(dash, '.') : NULL;
     char *found = NULL; int idx = 1;
-    for (char *srv = strtok(mn, ","); srv && !found && dash && dot && he && dot < he; srv = strtok(NULL, ","), idx++) {
+    char *save = NULL;
+    for (char *srv = strtok_r(mn, ",", &save); srv && !found && dash && dot && he && dot < he; srv = strtok_r(NULL, ",", &save), idx++) {
         size_t l = strlen(url) + strlen(srv) + 16;
         char *alt = malloc(l);
         snprintf(alt, l, "%.*srr%d---%s%s", (int)(hs + 3 - url), url, idx, srv, dot);

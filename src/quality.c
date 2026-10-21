@@ -300,9 +300,10 @@ static int names_exact(const char *w, int season, int episode, int *other)
             || (isdigit((unsigned char)p[0]) && sscanf(p, "%dx%d%n", &s, &e, &len) == 2 && s < 100)) {
             const char *q = p + len;
             int e2 = -1, l2 = 0;
-            /* a range: "s01e01-e08" / "s01e01 e08" / "s01e01-08" / "s01e01 s01e08" */
-            if ((sscanf(q, " e%d%n", &e2, &l2) == 1 || sscanf(q, " s%*de%d%n", &e2, &l2) == 1 || (q[0] == ' ' && isdigit((unsigned char)q[1]) && sscanf(q, " %d%n", &e2, &l2) == 1 && e2 < 1000))
-                && (q[l2] == ' ' || !q[l2]) && e2 > e && (season <= 0 || s == season)) {   /* a whole word: "720p" is no range */
+            /* a range written with the letters: "s01e01-e08", "s01e01 s01e08" (a bare "-08" is
+             * found in the raw text, quality_episode_score: here "s01e01 12" could be a title) */
+            if ((sscanf(q, " e%d%n", &e2, &l2) == 1 || sscanf(q, " s%*de%d%n", &e2, &l2) == 1)
+                && (q[l2] == ' ' || !q[l2]) && e2 > e && (season <= 0 || s == season)) {
                 if (episode >= e && episode <= e2) hit = 1; else *other = 1;
                 continue;
             }
@@ -316,11 +317,26 @@ static int names_exact(const char *w, int season, int episode, int *other)
     return hit;
 }
 
+/* "S01E01-08" in the raw text (the dash matters, words() drops it): 1 holds the episode,
+ * -1 a range without it, 0 none */
+static int raw_range(const char *t, int season, int episode)
+{
+    for (const char *p = t; *p; p++) {
+        if ((*p != 's' && *p != 'S') || (p > t && isalnum((unsigned char)p[-1]))) continue;
+        int s, a, b, len = 0;
+        if (sscanf(p + 1, "%d%*[eE]%d-%d%n", &s, &a, &b, &len) == 3 && !isalnum((unsigned char)p[1 + len]) && b > a && b < 1000 && (season <= 0 || s == season))
+            return episode >= a && episode <= b ? 1 : -1;
+    }
+    return 0;
+}
+
 int quality_episode_score(const char *path, const EpisodeHint *e)
 {
     if (!path || !e || e->episode <= 0) return 0;
     const char *slash = strrchr(path, '/');
     const char *base = slash ? slash + 1 : path;
+    int rr = raw_range(base, e->season, e->episode);
+    if (rr) return rr > 0 ? 3 : -1;
     char all[768], file[512];
     ep_words(path, all, sizeof all);
     ep_words(base, file, sizeof file);

@@ -149,6 +149,7 @@ struct Player {
     int last_tracks_version;
     int last_warning_version;
     unsigned audio_bad;       /* audio tracks this TV said it can't decode, on this source (bit per index) */
+    int audio_req; float audio_req_at;   /* the audio track last asked for (the TV reports the switch later) */
     char audio_lang[16]; int audio_lang_known;
     time_t clock_minute;
     int prefetched;           /* next episode's streams requested */
@@ -327,9 +328,10 @@ static void on_hash_part(HttpResponse *r, void *user)
 {
     SubReq *q = user;
     Player *p = q->owner;
-    int tail = q->slot, stale = q->attempt != p->attempt || q->gen != p->gen;
+    int tail = q->slot;
+    unsigned qa = q->attempt, qg = q->gen;
     free(q);
-    if (p != g_live || stale) return;   /* about an earlier source */
+    if (p != g_live || qa != p->attempt || qg != p->gen) return;   /* the player closed, or about an earlier source */
     if ((r->status != 200 && r->status != 206) || r->len < 8) { p->hash_state = 4; LOGI("subs: file hash unavailable (%ld)", r->status); return; }
     p->os_sum += sum64((const uint8_t *)r->body, r->len);
     if (!tail) {
@@ -453,8 +455,10 @@ static void on_os_results(const OsSub *subs, int n, void *user)
     SubReq *q = user;
     Player *p = q->owner;
     if (p != g_live || q->gen != p->gen) { free(q); return; }
+    unsigned qa = q->attempt;
     free(q);
     p->subs_pending--;
+    if (qa != p->attempt) return;   /* matched to an earlier source's file */
     int fresh_match = 0;
     for (int i = 0; i < n && p->n_addon_subs < MAX_ADDON_SUBS; i++) {
         char url[48]; snprintf(url, sizeof url, "os://%ld", subs[i].file_id);
@@ -484,7 +488,7 @@ static void opensubs_tick(Player *p)
     const char *l1 = lang_iso1(g_app.pref_subs);
     char langs[32]; snprintf(langs, sizeof langs, "%s", l1 ? l1 : "en");
     SubReq *q = calloc(1, sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0;
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0; q->attempt = p->attempt;   /* searched with this file's hash */
     p->subs_pending++;
     opensubs_search(imdb, season, episode, p->hash_state == 3 ? p->os_hash : "", langs, on_os_results, q);
 }
@@ -607,7 +611,7 @@ static void auto_select_tracks(Player *p)
                     if (pass == 0 && risky) continue;
                     pick = i; break;
                 }
-            if (pick >= 0 && !tr[pick].selected) { video_select_track(TRACK_AUDIO, tr[pick].index); for (int k = 0; k < n; k++) tr[k].selected = k == pick; }
+            if (pick >= 0 && !tr[pick].selected) { video_select_track(TRACK_AUDIO, tr[pick].index); p->audio_req = tr[pick].index; p->audio_req_at = g_app.time; for (int k = 0; k < n; k++) tr[k].selected = k == pick; }
         }
         const char *audio = current_audio_lang(tr, n);
         LOGI("player: audio %s (%s)", audio ? audio : "unknown", has_mem && mem.audio[0] ? "remembered for this series" : "preference");
@@ -1284,7 +1288,7 @@ static void add_stream_subs(Player *p, const PlayCandidate *c)
         snprintf(url, sizeof url, "%.*s", (int)(end - tab - 1), tab + 1);
         line = end + 1;
         int seen = 0;
-        for (int k = 0; k < p->n_addon_subs && !seen; k++) seen = !strcmp(p->addon_subs[k].url, url);
+        for (int k = 0; k < p->n_addon_subs && !seen; k++) if (!strcmp(p->addon_subs[k].url, url)) { seen = 1; p->addon_subs[k].matched = 1; }
         if (seen) continue;
         AddonSub *as = &p->addon_subs[p->n_addon_subs++];
         memset(as, 0, sizeof *as);
@@ -1298,9 +1302,13 @@ static void add_stream_subs(Player *p, const PlayCandidate *c)
 
 static void start_candidate(Player *p, int idx, double start)
 {
-    if (idx != p->cur) { p->net_retries = 0; p->net_played = 0; }   /* another source: its own count */
+    if (idx != p->cur) {   /* another source: its own count, and its own file */
+        p->net_retries = 0; p->net_played = 0;
+        p->os_asked = 0;
+        for (int k = 0; k < p->n_addon_subs; k++) p->addon_subs[k].matched = 0;   /* matched to the old file; this one's hash re-marks them */
+    }
     p->attempt++;
-    p->audio_bad = 0;
+    p->audio_bad = 0; p->audio_req_at = -100;
     p->net_retry_at = 0; p->net_reconnecting = 0;   /* a source chosen meanwhile, or Reload, replaces a pending reconnect */
     for (int r = 0; r < 2; r++)
         if (torbox_is_hash_link(p->cands[idx].url) && p->ready[r].url && p->ready[r].link && !strcmp(p->ready[r].link, p->cands[idx].url)
@@ -1452,6 +1460,8 @@ static void audio_repair(Player *p, const VideoInfo *vi)
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(TRACK_AUDIO, tr, MAX_TRACKS), cur = -1;
     for (int i = 0; i < n; i++) if (tr[i].selected) cur = i;
+    if (g_app.time - p->audio_req_at < 3)   /* just asked for: that is the one the warning is about */
+        for (int i = 0; i < n; i++) if (tr[i].index == p->audio_req) cur = i;
     if (cur >= 0 && tr[cur].index < 32) p->audio_bad |= 1u << tr[cur].index;
     int pick = -1;
     for (int pass = 0; pass < 2 && pick < 0; pass++)
@@ -1463,6 +1473,7 @@ static void audio_repair(Player *p, const VideoInfo *vi)
     if (pick >= 0) {
         LOGI("player: audio track %d can't be played here; switching to %s %s", cur, tr[pick].lang, tr[pick].codec);
         video_select_track(TRACK_AUDIO, tr[pick].index);
+        p->audio_req = tr[pick].index; p->audio_req_at = g_app.time;
         app_toast("This TV can't play that audio. Switched to %s", tr[pick].label[0] ? tr[pick].label : lang_display(tr[pick].lang));
         return;
     }
@@ -1481,6 +1492,8 @@ static void audio_repair(Player *p, const VideoInfo *vi)
 static int decoder_failure(const Player *p, const VideoInfo *vi)
 {
     if (vi->state != VIDEO_ERROR || p->tb_error[0]) return 0;
+    if (strstr(vi->error, "player error")) return 1;   /* Tizen's player: the file */
+    if (strstr(vi->error, "refused this stream")) return 0;   /* webOS would not even load it: the link, not the decoders */
     const char *c = strstr(vi->error, "(code ");
     int code = c ? atoi(c + 6) : 0;
     if (!code || code == 300 || (code >= 40000 && code < 50000)) return 0;   /* network, or no code: nothing about decoding */
@@ -1656,7 +1669,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
             p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
             q->owner = p; q->gen = p->gen; q->attempt = p->attempt; q->idx = idx; q->slot = w;
-            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1, .headers = p->cands[idx].headers };
+            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1 };   /* as the TV's player will ask: no headers */
             http_request_async_ex(p->cands[idx].url, &o, on_warm, q);
         } else p->warm[w].at = now + 60;
     }
@@ -1905,7 +1918,7 @@ static void p2p_tick(Player *p, const VideoInfo *vi, float dt)
     if ((p->p2p_recheck_in -= dt) <= 0 && p->more_state != 1) {   /* not over the Sources panel's own lookup */
         const char *e = getenv("SNTV_P2P_RECHECK");
         p->p2p_recheck_in = e ? (float)atof(e) : 120;
-        streams_lookup(&p->meta, p->video_id, on_p2p_recheck, p);
+        streams_lookup_auto(&p->meta, p->video_id, on_p2p_recheck, p);
     }
 }
 
@@ -3786,7 +3799,7 @@ static void menu_activate(Player *p)
     if (p->menu == MENU_AUDIO) {
         if (f == 0) { set_rate(p, p->rate_idx + 1 < N_RATES ? p->rate_idx + 1 : 0); return; }
         f--;
-        if (f < n) { video_select_track(TRACK_AUDIO, tr[f].index); remember_audio(p, &tr[f]); }
+        if (f < n) { video_select_track(TRACK_AUDIO, tr[f].index); p->audio_req = tr[f].index; p->audio_req_at = g_app.time; remember_audio(p, &tr[f]); }
         return;
     }
     if (f == SUB_CHOOSE) { p->assign_second = !p->assign_second; return; }

@@ -151,10 +151,11 @@ grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.lo
 run race_error_page 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with errpage '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/errpage/manifest.json"
 grep -q "streams: racing" "$OUT/race_error_page.log" && grep -q "player: candidate 1/" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q expiredpage \
   || { echo "an HTML error page won the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_error_page.log"; exit 1; }
-# what an addon says about its stream is kept: the headers it needs (on every check), the
-# file's hash (subtitles matched to it), and the subtitles it sends along
+# what an addon says about its stream is kept: the headers it needs (the TV's player can't send
+# them, so the checks don't either and the source ranks after others), the file's hash
+# (subtitles matched to it), and the subtitles it sends along
 run stream_hints 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with rich '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/rich/manifest.json" SNTV_NO_RACE=1
-grep -q "subs: file hash 0123456789abcdef from the addon" "$OUT/stream_hints.log" && grep -q "subs: 1 subtitle(s) came with the source" "$OUT/stream_hints.log" && ! grep -q "probe: 127.0.0.1 -> HTTP 403" "$OUT/stream_hints.log" \
+grep -q "subs: file hash 0123456789abcdef from the addon" "$OUT/stream_hints.log" && grep -q "subs: 1 subtitle(s) came with the source" "$OUT/stream_hints.log" && grep -q "player: source 1 asks for request headers" "$OUT/stream_hints.log" \
   || { echo "the stream's headers, hash or subtitles were dropped"; grep -E "subs:|probe:|player: candidate" "$OUT/stream_hints.log"; exit 1; }
 run player_next_loading 300 "right,ok,down,down,ok,wait,down,right" "$SLOW" SNTV_FAKE_START=300
 run player_next_ring 300 "right,ok,down,down,ok,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
