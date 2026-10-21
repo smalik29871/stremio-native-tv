@@ -522,7 +522,7 @@ grep -q "UI check: screen=break" "$OUT/break_no_saver.log" || { echo "the screen
 # nor a playing video; only one the viewer paused (a stall webOS reports as a pause is not one)
 run player_no_saver 700 "right,ok,down,down,play,wait,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=player" "$OUT/player_no_saver.log" || { echo "the screensaver covered a playing video"; grep "UI check" "$OUT/player_no_saver.log"; exit 1; }
-run player_paused_saver 700 "right,ok,down,down,play,wait,ok,wait" HOME="$(home_with pausesaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
+run player_paused_saver 700 "right,ok,down,down,play,wait,ok,wait" SNTV_FAKE_START=200 HOME="$(home_with pausesaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=ambient" "$OUT/player_paused_saver.log" || { echo "the screensaver did not come over a video the viewer paused"; grep "UI check" "$OUT/player_paused_saver.log"; exit 1; }
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 # no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
