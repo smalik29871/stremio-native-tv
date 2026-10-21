@@ -70,6 +70,13 @@ typedef struct EpisodeHint {
  * 3 it names it, 2 it names its title or its number within its season's folder,
  * 0 it does not say, -1 it names another episode. */
 int quality_episode_score(const char *path, const EpisodeHint *e);
+/* Which file of a torrent is the episode, by the names alone: its id, PICK_NONE
+ * (none is: another source plays), or PICK_ASK (look-alikes: only the AI may say).
+ * addon_file: the file the addon named, -1 none; it plays unless named for another episode. */
+typedef struct { long id; double size; const char *name; int score; } PackFile;
+#define PICK_NONE (-1L)
+#define PICK_ASK (-2L)
+long quality_pick_episode_file(const EpisodeHint *ep, PackFile *f, int n, long addon_file);
 /* "25 min", "1h 40min", "95" -> minutes; 0 when unparsable */
 double quality_runtime_minutes(const char *runtime);
 

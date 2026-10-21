@@ -335,8 +335,7 @@ static void on_hash_part(HttpResponse *r, void *user)
     if (p != g_live || qa != p->attempt || qg != p->gen) return;   /* the player closed, or about an earlier source */
     /* both 64 KB pieces whole, and the end really from the end: a server that ignored the
      * Range sends the start again, and that hash would look right and match nothing */
-    if ((r->status != 200 && r->status != 206) || r->len < 65536
-        || (tail && (r->status != 206 || !r->has_range || r->range_from != p->os_size - 65536))) {
+    if (!http_has_bytes(r, tail ? p->os_size - 65536 : 0, 65536)) {
         p->hash_state = 4;
         LOGI("subs: file hash unavailable (%ld, %zu bytes%s)", r->status, r->len, tail && r->status == 200 ? ", the end was not sent" : "");
         return;
@@ -387,7 +386,11 @@ static void on_sub_file(HttpResponse *r, void *user)
 {
     SubReq *q = user;
     Player *p = q->owner;
-    if (p != g_live || q->gen != p->gen || q->seq != p->sub_seq[q->slot] || (q->slot == 2 && q->attempt != p->attempt)) { free(q); return; }   /* replaced by a newer download, or a reference for an earlier source */
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    if (q->seq != p->sub_seq[q->slot] || (q->slot == 2 && q->attempt != p->attempt)) {   /* replaced by a newer choice (or Off), or a reference for an earlier source */
+        LOGI("subs: a %s download that was replaced is dropped", q->slot == 2 ? "timing reference" : q->slot ? "second subtitles" : "subtitle");
+        free(q); return;
+    }
     SubTrack *t = q->slot == 2 ? &p->ref : q->slot ? &p->track2 : &p->track;
     int *loaded = q->slot == 2 ? &p->ref_loaded : q->slot ? &p->track2_loaded : &p->track_loaded;
     if (!q->slot) p->sub_req = 0;
@@ -879,7 +882,8 @@ static void on_bm_file(HttpResponse *r, void *user)
 {
     SubReq *q = user;
     Player *p = q->owner;
-    if (p != g_live || q->gen != p->gen || q->attempt != p->attempt) { free(q); return; }   /* a comparison for an earlier source */
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    if (q->attempt != p->attempt) { LOGI("subs: a best-fit file for an earlier source is dropped"); free(q); return; }
     int k = q->slot;
     p->bm_ok[k] = sub_take(r, &p->bm_track[k]);
     p->bm_pending--;

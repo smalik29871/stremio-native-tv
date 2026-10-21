@@ -40,6 +40,28 @@ int main(void)
     CHECK(!M(200, "", "{\"error\":\"expired\"}"));
     CHECK(!M(404, "video/mp4", "\x00\x00\x00\x20" "ftypisom"));
     CHECK(!M(200, "video/mp4", ""));
+    /* the subtitle hash's two 64 KB pieces: the start, and the end of a 1 MB file */
+    static char piece[70000];
+    const uint64_t size = 1 << 20, tail = size - 65536;
+    HttpResponse h = { 0 };
+    h.body = piece;
+    h.status = 206; h.len = 65536; h.has_range = 1; h.range_from = 0;
+    CHECK(http_has_bytes(&h, 0, 65536));                 /* the start, as asked */
+    h.range_from = tail;
+    CHECK(http_has_bytes(&h, tail, 65536));              /* the end, as asked */
+    h.status = 200; h.has_range = 0; h.range_from = 0; h.len = 65536;
+    CHECK(http_has_bytes(&h, 0, 65536));                 /* Range ignored: the start is still the start */
+    CHECK(!http_has_bytes(&h, tail, 65536));             /* ...but not the end: the tail range was ignored */
+    h.status = 206; h.has_range = 1; h.range_from = tail - 4096;
+    CHECK(!http_has_bytes(&h, tail, 65536));             /* the wrong offset */
+    h.range_from = tail; h.len = 8;
+    CHECK(!http_has_bytes(&h, tail, 65536));             /* a short piece */
+    h.len = 65535;
+    CHECK(!http_has_bytes(&h, tail, 65536));
+    h.len = 65536; h.has_range = 0;
+    CHECK(!http_has_bytes(&h, tail, 65536));             /* 206 saying nothing of where: not the end */
+    h.has_range = 1; h.status = 404;
+    CHECK(!http_has_bytes(&h, tail, 65536));
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("http checks ok\n");
     return 0;

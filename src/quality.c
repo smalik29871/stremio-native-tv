@@ -1,4 +1,5 @@
 #include "quality.h"
+#include "log.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -368,4 +369,44 @@ int quality_episode_score(const char *path, const EpisodeHint *e)
         }
     }
     return 0;
+}
+
+/* The episode's file in a season pack, by the names: the one its name says is it, else its
+ * one main file; never a file named for another episode, never a guess between look-alikes
+ * (those are PICK_ASK: only the AI, reading the list as a person would, may say). */
+long quality_pick_episode_file(const EpisodeHint *ep, PackFile *f, int n, long addon_file)
+{
+    for (int i = 0; i < n && addon_file >= 0; i++) {   /* the addon's file, unless its name says another episode */
+        if (f[i].id != addon_file) continue;
+        if (quality_episode_score(f[i].name, ep) < 0) {
+            LOGI("torbox: the addon's file is another episode (%s); not S%dE%d", f[i].name, ep->season, ep->episode);
+            return PICK_NONE;
+        }
+        return addon_file;
+    }
+    int best = -1;
+    for (int i = 0; i < n; i++) {
+        f[i].score = quality_episode_score(f[i].name, ep);
+        if (best < 0 || f[i].score > f[best].score || (f[i].score == f[best].score && f[i].size > f[best].size)) best = i;
+    }
+    if (best < 0) return PICK_NONE;
+    int tied = 0, others = 0;
+    for (int i = 0; i < n; i++) { tied += f[i].score == f[best].score && f[i].size > f[best].size * 0.25; others += f[i].score < 0; }
+    if (f[best].score > 0) {   /* named for it (two copies so named: the larger) */
+        LOGI("torbox: the episode's file by its name: %s", f[best].name);
+        return f[best].id;
+    }
+    /* the pack names its episodes and none is this one (or every file is another): not here;
+     * one stray file named for another (a preview) does not make it such a pack */
+    if (f[best].score < 0 || others >= 2) {
+        LOGI("torbox: no file in this torrent is S%dE%d (it names other episodes)", ep->season, ep->episode);
+        return PICK_NONE;
+    }
+    if (tied == 1) {   /* nothing named: the one main file */
+        LOGI("torbox: no episode named; its one main file plays: %s", f[best].name);
+        return f[best].id;
+    }
+    if (tied > 1) return PICK_ASK;
+    LOGI("torbox: can't tell which file is S%dE%d; leaving this torrent", ep->season, ep->episode);
+    return PICK_NONE;
 }

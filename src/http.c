@@ -276,6 +276,13 @@ int http_looks_like_media(const HttpResponse *r)
     return 1;
 }
 
+int http_has_bytes(const HttpResponse *r, uint64_t from, size_t len)
+{
+    if (!r || (r->status != 200 && r->status != 206) || r->len < len) return 0;
+    if (r->status == 200) return from == 0;   /* the whole file from its start: only a piece from 0 is in it */
+    return r->has_range ? r->range_from == from : from == 0;
+}
+
 void http_response_free(HttpResponse *r)
 {
     free(r->body);

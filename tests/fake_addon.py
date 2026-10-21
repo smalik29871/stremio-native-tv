@@ -337,6 +337,10 @@ class H(BaseHTTPRequestHandler):
         bestfit = p.startswith("/bestfit/")
         if bestfit:
             p = p[8:]
+        # /latesubs/...: the same addon, its first English file 4 s late (a choice made meanwhile wins)
+        latesubs = p.startswith("/latesubs/")
+        if latesubs:
+            p = p[9:]
         # /pot/...: its trailer's separate video and audio want a token from the visionOS client
         pot = p.startswith("/pot/")
         if pot:
@@ -496,6 +500,17 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [{"name": f"Many\n{r}p", "title": f"Movie.2024.{r}p.WEB-DL.Copy{i}", "url": first["url"] + f"?many={i}"}
                                                               for i, r in enumerate([1080, 1080, 720, 720, 1080, 480, 720, 1080, 480, 720])]}).encode())
             return self.send(404, b"{}")
+        # /caps/<dts|dvtruehd>/...: a stream-only addon whose one source needs those features of the TV
+        if p.startswith("/caps/"):
+            kind, rest = p[6:].split("/", 1)
+            if rest == "manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.caps." + kind, name="Caps Addon",
+                                                      resources=["stream"], catalogs=[])).encode())
+            if rest.startswith("stream/"):
+                tags = {"dts": "1080p.WEB.DTS.x264", "dvtruehd": "1080p.WEB.DV.TrueHD.x264"}[kind]
+                return self.send(200, json.dumps({"streams": [{"name": "Caps\n1080p", "title": f"Breaking.Bad.S01E01.{tags}-CAPS",
+                                                               "url": f"{BASE}/video/sample_h264_aac.mkv?caps={kind}"}]}).encode())
+            return self.send(404, b"{}")
         if p.startswith("/slow/"):
             p = p[5:]
             if p == "/manifest.json":
@@ -605,6 +620,9 @@ class H(BaseHTTPRequestHandler):
                 t = h * 3600 + mi * 60 + s + ms / 1000 + 2.0
                 return "%02d:%02d:%02d,%03d" % (t // 3600, (t % 3600) // 60, t % 60, round((t - int(t)) * 1000))
             return self.send(200, _re.sub(r"(\d\d):(\d\d):(\d\d),(\d\d\d)", shift, src).encode("latin-1"), "text/plain")
+        if latesubs and p.startswith("/subtitles/"):
+            return self.send(200, json.dumps({"subtitles": [{"id": "late", "url": f"{BASE}/gen.srt?n=7&delay=4", "lang": "eng"},
+                                                            {"id": "quick", "url": f"{BASE}/gen.srt?n=5", "lang": "eng"}]}).encode())
         if bestfit:   # the same addon, with two English files: one stops an hour early
             if p.startswith("/subtitles/"):
                 if "videoHash=" in p:
@@ -613,6 +631,9 @@ class H(BaseHTTPRequestHandler):
                                                                 {"id": "full", "url": f"{BASE}/gen.srt?n=650", "lang": "eng"}]}).encode())
         if p.startswith("/gen.srt"):   # n lines, one every 10 s
             n = int(p.split("n=")[1].split("&")[0])
+            if "delay=" in p:
+                import time
+                time.sleep(float(p.split("delay=")[1].split("&")[0]))
             fmt = lambda t: "%02d:%02d:%02d,000" % (t // 3600, t % 3600 // 60, t % 60)
             body = "".join(f"{i + 1}\n{fmt(30 + i * 10)} --> {fmt(32 + i * 10)}\nLine {i + 1}\n\n" for i in range(n))
             return self.send(200, body.encode(), "text/plain")

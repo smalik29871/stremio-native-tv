@@ -54,6 +54,9 @@ void http_response_free(HttpResponse *r);
 /* An answer to a range request that looks like the start of a video (or a playlist):
  * 200/206, not an HTML or JSON error page served with a 200. */
 int  http_looks_like_media(const HttpResponse *r);
+/* The answer holds len bytes of the file from `from`: a server that ignored the Range sent
+ * the start instead, and a short or shifted answer is not that piece. */
+int  http_has_bytes(const HttpResponse *r, uint64_t from, size_t len);
 
 /* Async: the request runs on a worker thread and `cb` is invoked on the main
  * thread from http_pump(), which the main loop calls once per frame. */

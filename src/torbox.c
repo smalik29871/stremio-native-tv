@@ -251,40 +251,19 @@ static long add_torrent(const char *hash, char *err, size_t en)
 
 typedef struct { char hash[41]; int file_idx; EpisodeHint ep; AiSnap ai; TorboxOpenCb cb; void *user; } Open;
 
-typedef struct { long id; double size; const char *name; int score; } PackFile;
 
-/* The episode's file in a season pack: the one its name says is it, the AI's pick when
- * the names leave several (asked with the list, as a person would read it), else its one
- * main file; never a file named for another episode, never a guess between look-alikes. */
 static long pick_episode(const Open *o, PackFile *f, int n)
 {
-    int best = -1;
-    for (int i = 0; i < n; i++) {
-        f[i].score = quality_episode_score(f[i].name, &o->ep);
-        if (best < 0 || f[i].score > f[best].score || (f[i].score == f[best].score && f[i].size > f[best].size)) best = i;
-    }
-    if (best < 0) return -1;
-    int tied = 0, others = 0;
-    for (int i = 0; i < n; i++) { tied += f[i].score == f[best].score && f[i].size > f[best].size * 0.25; others += f[i].score < 0; }
-    if (f[best].score > 0) {   /* named for it (two copies so named: the larger) */
-        LOGI("torbox: the episode's file by its name: %s", f[best].name);
-        return f[best].id;
-    }
-    /* the pack names its episodes and none is this one (or every file is another): not here;
-     * one stray file named for another (a preview) does not make it such a pack */
-    if (f[best].score < 0 || others >= 2) {
-        LOGI("torbox: no file in this torrent is S%dE%d (it names other episodes)", o->ep.season, o->ep.episode);
-        return -1;
-    }
-    if (tied == 1) {   /* nothing named: the one main file */
-        LOGI("torbox: no episode named; its one main file plays: %s", f[best].name);
-        return f[best].id;
-    }
+    long r = quality_pick_episode_file(&o->ep, f, n, o->file_idx);
+    if (r != PICK_ASK) return r;
+    int best = 0, tied = 0;
+    for (int i = 1; i < n; i++) if (f[i].score > f[best].score || (f[i].score == f[best].score && f[i].size > f[best].size)) best = i;
+    for (int i = 0; i < n; i++) tied += f[i].score == f[best].score && f[i].size > f[best].size * 0.25;
     /* the AI's answer for this torrent and episode, kept: standby sources re-open it now and then */
     static pthread_mutex_t memo_lock = PTHREAD_MUTEX_INITIALIZER;
     static struct { char hash[41]; int season, episode; long fid; } memo[8];
     static int memo_next;
-    if (tied > 1 && o->ai.url[0]) {
+    if (o->ai.url[0]) {
         long known = -1;
         pthread_mutex_lock(&memo_lock);
         for (int m = 0; m < 8; m++) if (!strcmp(memo[m].hash, o->hash) && memo[m].season == o->ep.season && memo[m].episode == o->ep.episode) known = memo[m].fid;
@@ -336,7 +315,7 @@ static void open_task(HttpResponse *out, void *arg)
     const cJSON *t = cJSON_GetObjectItemCaseSensitive(root, "data"), *f;
     if (cJSON_IsArray(t)) t = cJSON_GetArrayItem(t, 0);
     long fid = -1; double best = -1;
-    PackFile pack[200]; int n_pack = 0;
+    PackFile pack[200]; int n_pack = 0, addon_has = 0;
     if (!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "download_present")) && !cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "download_finished")))
         snprintf(out->error, sizeof out->error, "TorBox is still downloading it");
     else cJSON_ArrayForEach(f, cJSON_GetObjectItemCaseSensitive(t, "files")) {
@@ -344,20 +323,13 @@ static void open_task(HttpResponse *out, void *arg)
         const cJSON *nm = cJSON_GetObjectItemCaseSensitive(f, "name");   /* "Pack Folder/file.mkv", the folder can name the season */
         if (!cJSON_IsString(nm)) nm = cJSON_GetObjectItemCaseSensitive(f, "short_name");
         if (!cJSON_IsNumber(id) || !is_video(f)) continue;
-        if (o->file_idx >= 0 && (long)id->valuedouble == o->file_idx) {   /* the addon's file, unless its name says another episode */
-            const char *fname = cJSON_IsString(nm) ? nm->valuestring : "";
-            if (o->ep.episode > 0 && quality_episode_score(fname, &o->ep) < 0) {
-                LOGI("torbox: the addon's file is another episode (%s); not S%dE%d", fname, o->ep.season, o->ep.episode);
-                snprintf(out->error, sizeof out->error, "No file in that torrent is this episode");
-                fid = -1; n_pack = 0; break;
-            }
-            fid = (long)id->valuedouble; n_pack = 0; break;
-        }
         double size = cJSON_IsNumber(sz) ? sz->valuedouble : 0;
         if (n_pack < 200) pack[n_pack++] = (PackFile){ (long)id->valuedouble, size, cJSON_IsString(nm) ? nm->valuestring : "", 0 };
+        if (o->file_idx >= 0 && (long)id->valuedouble == o->file_idx) addon_has = 1;
         if (size > best) { best = size; fid = (long)id->valuedouble; }   /* else the largest video */
     }
-    if (o->ep.episode > 0 && n_pack > 0) {   /* one file too: it may be named for another episode */
+    if (o->ep.episode == 0 && addon_has) fid = o->file_idx;   /* a film: the addon's file */
+    if (o->ep.episode > 0 && n_pack > 0) {   /* every file of an episode is checked, one alone or the addon's too */
         fid = pick_episode(o, pack, n_pack);
         if (fid < 0 && !out->error[0]) snprintf(out->error, sizeof out->error, "No file in that torrent is this episode");
     }
