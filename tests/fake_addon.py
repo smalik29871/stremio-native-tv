@@ -428,7 +428,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.tbsrc", name="Torrents", resources=["stream"], catalogs=[])).encode())
             if p.startswith("/stream/series/"):   # a whole season, no file named
                 return self.send(200, json.dumps({"streams": [
-                    {"name": "Torrents\n1080p", "title": "Breaking Bad S01 1080p WEB x264-PACK", "infoHash": ("CAFE0D15" if disc else "CAFE5EED") * 5}]}).encode())
+                    {"name": "Torrents\n1080p", "title": "Breaking Bad S01 1080p WEB x264-PACK", "infoHash": ("CAFE0D15" if disc else "CAFE5EED") * 5}]
+                    + ([{"name": "Torrents\n720p", "title": "Breaking Bad S01 720p WEB x264-PACK", "infoHash": "CAFE5EED" * 5}] if disc else [])}).encode())
             if p.startswith("/stream/"):
                 return self.send(200, json.dumps({"streams": [
                     {"name": "Torrents\n1080p", "title": "Movie.2024.1080p.WEB.x264.mkv", "infoHash": "CAFE" * 10, "fileIdx": 1},

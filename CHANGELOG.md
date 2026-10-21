@@ -33,6 +33,12 @@
   episode; a file named for another episode is never taken for it. When the names
   leave several (a disc rip's title_t00, title_t01...), your AI (Settings > API keys) is
   shown the list and picks; without it, or if it is unsure, the largest file plays.
+- **A TorBox source stands by.** While a video plays, the next source in line was already
+  checked so a switch is quick, but a torrent on TorBox was skipped, and switching to one
+  meant waiting for TorBox then. Now it is made ready on TorBox ahead (its file found and
+  linked), so when the playing source stops, the next one takes over at once from the
+  same moment; with a backup known to work, the switch comes after 12 seconds of
+  stalling instead of 20.
 - **Subtitles grouped by language.** The player's Subtitles sheet now lists languages on
   the left (yours first, then the ones in the video, then the rest, each with how many
   choices it has) and that language's choices on the right: the video's own tracks
