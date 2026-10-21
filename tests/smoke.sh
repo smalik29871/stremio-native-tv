@@ -392,6 +392,7 @@ run player_sources_tabs 520 "right,ok,down,down,play,wait,down,right,right,right
 grep -q "player: sources shown for Many Addon" "$OUT/player_sources_tabs.log" && grep -q "player: sources shown for Fake Addon" "$OUT/player_sources_tabs.log" \
   || { echo "the Sources sheet's addon tabs did not switch"; grep -E "player: sources" "$OUT/player_sources_tabs.log"; exit 1; }
 run player_lighter 700 "right,ok,down,down,play,wait" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter "$NO_PREFLIGHT")"
+grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
 # a connection that drops after the video played: the same source again from the same moment, not the next one
 run net_reconnect 1600 "right,ok,down,down,play,wait" HOME="$(home_with netre '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_START=600 SNTV_FAKE_NET_ERROR_AFTER=3 SNTV_NET_RETRY_SCALE=0.2
 grep -q "player: the connection dropped (Network error (code 300)); the same source again" "$OUT/net_reconnect.log" && grep -q "player: reconnecting to source 1 at 60[0-9]s (try 1 of 3)" "$OUT/net_reconnect.log" && ! grep -q "Trying the next source\|player: rescue" "$OUT/net_reconnect.log" \
@@ -435,7 +436,6 @@ grep -q "player: error card" "$OUT/all_failed_card.log" && [ "$(grep -c "player:
 run fallback_stuck 1200 "right,ok,down,down,play,wait" "$LIGHTER" HOME="$(home_with fb5 "$NO_PREFLIGHT")" SNTV_FAKE_STUCK=1 SNTV_START_TIMEOUT=1
 grep -q "player: source 1 did not start in [0-9]*s" "$OUT/fallback_stuck.log" && grep -q "player: candidate 2/[0-9]*" "$OUT/fallback_stuck.log" \
   || { echo "a source stuck at the start was not replaced"; grep -E "player|video" "$OUT/fallback_stuck.log"; exit 1; }
-grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
 run player_lighter_ok 820 "right,ok,down,down,play,wait$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
 grep -q "player: switching to the lighter source [0-9]" "$OUT/player_lighter_ok.log" || { echo "OK did not take the lighter source"; grep player "$OUT/player_lighter_ok.log"; exit 1; }
 run player_lighter_seek 700 "right,ok,down,down,play,wait,right,right,right,right,right,left,left,left,right,right,right" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_seek "$NO_PREFLIGHT")"
