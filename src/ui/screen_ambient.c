@@ -43,6 +43,7 @@ typedef struct {
     /* a real fireplace video (Settings > Interface), played full screen and looped */
     int fv_state;         /* 0 none, 1 asking YouTube, 2 playing, 3 gave up (the drawn fire), 4 ready under another screen */
     float fv_kick;        /* when it was last (re)started */
+    int fv_restarts;      /* found stopped and started again; a few and it gives way to the drawn fire */
     char fv_urls[YT_PLAY_URLS][4608]; int fv_n, fv_i;
 } Ambient;
 
@@ -226,7 +227,10 @@ static void update(Screen *s, float dt)
         int settled = g_app.time - a->fv_kick > 2;   /* the backend takes a moment to say it is playing again */
         if (vi.state == VIDEO_ENDED && settled) { a->fv_kick = g_app.time; video_seek(0); video_play(); }
         else if (vi.state == VIDEO_ERROR) { a->fv_i++; fv_play(a); }
-        else if (vi.state == VIDEO_IDLE && settled) fv_play(a);   /* stopped under us (a break): start it again */
+        else if (vi.state == VIDEO_IDLE && settled) {   /* stopped under us (a break): start it again, a few times at most */
+            if (++a->fv_restarts > 5) { a->fv_state = 3; LOGW("ambient: the fireplace video keeps stopping; the drawn fire instead"); }
+            else fv_play(a);
+        }
         return;
     }
     if (g_app.ambient_style == AMBIENT_FIRE) {   /* 24 steps a second, whatever the frame rate */

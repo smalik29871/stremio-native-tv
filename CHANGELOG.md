@@ -35,7 +35,9 @@
   the new one's file (from where it was merged into and uploaded to that account), and
   progress kept from this TV is saved to flash.
 - **Fewer crashes on Back:** replies held over to the next frame can be cancelled, and
-  Search drops the replies for a closed search or an older query.
+  Search drops the replies for a closed search or an older query, while a search left
+  open under a cast member's films still gets its own (its spinner no longer runs on).
+- A fireplace video that keeps stopping gives way to the drawn fire after a few restarts.
 - Longer audio and subtitle language tags (e.g. `zh-Hant-TW`) are kept on a source switch,
   and repeated retries reset once a source has played well for a while.
 

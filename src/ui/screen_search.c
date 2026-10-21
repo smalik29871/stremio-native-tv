@@ -28,9 +28,14 @@ typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; } Pending;
-/* The latest query of any Search: a reply for an older one (or a Search since closed and
- * freed) is dropped before its owner is looked at. */
+/* Every query of every Search gets its own number, never reused; a reply counts only when
+ * its Search is still open and still on that query. A Search under another one (a cast
+ * member's films opened from its results) keeps receiving its own answers, and one closed
+ * meanwhile is never touched, even if a new Search now sits at the same address. */
 static unsigned g_search_gen;
+#define OPEN_MAX 8
+static Search *g_open[OPEN_MAX];
+
 
 struct Search {
     Keyboard kb;
@@ -181,11 +186,17 @@ static int in_row(const Search *s, int row, int col)
     return s->row_first[row] + (col < n ? col : n - 1);
 }
 
+static Search *still_open(Search *s, unsigned generation)
+{
+    for (int i = 0; i < OPEN_MAX; i++) if (g_open[i] && g_open[i] == s) return s->generation == generation ? s : NULL;
+    return NULL;
+}
+
 static void on_result(HttpResponse *r, void *user)
 {
     Pending *p = user;
-    if (p->generation != g_search_gen) { free(p); return; }
-    Search *s = p->owner;
+    Search *s = still_open(p->owner, p->generation);
+    if (!s) { free(p); return; }
     s->pending--;
     MetaPreview *metas; int n;
     if (p->pick) {   /* a title the assistant suggested: keep the one result that is that title, at the front, in the assistant's order */
@@ -254,8 +265,8 @@ static void search_addons(Search *s, const char *q, int pick, int rank)
 static void on_ai_titles(const char *text, const char *error, void *user)
 {
     Pending *p = user;
-    if (p->generation != g_search_gen) { free(p); return; }
-    Search *s = p->owner;
+    Search *s = still_open(p->owner, p->generation);
+    if (!s) { free(p); return; }
     s->ai_req = 0;
     cJSON *root = text ? cJSON_Parse(text) : NULL;
     const cJSON *titles = root ? cJSON_GetObjectItemCaseSensitive(root, "titles") : NULL;
@@ -569,7 +580,7 @@ static void text(Screen *sc, const char *utf8)
 static void destroy(Screen *sc)
 {
     Search *s = sc->st;
-    if (s->generation == g_search_gen) ++g_search_gen;   /* orphan in-flight replies */
+    for (int i = 0; i < OPEN_MAX; i++) if (g_open[i] == s) g_open[i] = NULL;   /* its replies still on their way are dropped */
     if (g_person_live == s) g_person_live = NULL;
     if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
@@ -585,6 +596,7 @@ Screen *screen_search_create(void)
     Search *s = calloc(1, sizeof *s);
     keyboard_init(&s->kb, 0, NULL);
     recent_load(s);
+    for (int i = 0; i < OPEN_MAX; i++) if (!g_open[i]) { g_open[i] = s; break; }   /* (past eight deep, its replies are just dropped) */
     sc->name = "search"; sc->st = s; sc->long_ok = 1;
     sc->update = update; sc->draw = draw; sc->key = key; sc->text = text; sc->destroy = destroy;
     return sc;
