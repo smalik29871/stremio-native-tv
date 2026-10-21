@@ -2,11 +2,12 @@
 
 ## Unreleased
 
-- **What critics and viewers make of it, in the paused screen's corner**: Rotten
-  Tomatoes' Tomatometer (critics) and Popcornmeter (audience), Metacritic and
-  Letterboxd (with an MDBList key; title pages show the Popcornmeter too), and from Trakt how many
-  are watching it right now, how many have watched it and how often, in the same
-  "Name · value" lines as the advisory, against a bar at the right edge.
+- **What critics and viewers make of it, in the paused screen's corner**, as score
+  badges with their own marks: Rotten Tomatoes' Tomatometer (a tomato, or a green
+  splat when rotten) and Popcornmeter (a full popcorn bucket, or tipped over), the
+  Metascore in Metacritic's green, yellow or red box, and Letterboxd's three dots (with
+  an MDBList key); below them Trakt's viewers: a live dot for how many are watching it
+  right now, how many have watched it, and how often.
 - **Content advisory when a video starts**, as streaming services show: a line for
   each thing the title contains and how much ("Violence · Moderate", "Nudity · Mild":
   violence, profanity, frightening scenes, nudity, alcohol and drugs), from IMDb's

@@ -542,7 +542,7 @@ static const char *mdb_key(void)
 }
 int mdblist_enabled(void) { return mdb_key()[0] != 0; }
 
-static struct { char imdb[24]; int state; char line[200]; } g_mdb[8];
+static struct { char imdb[24]; int state; char line[200]; double score[MDB_SOURCES]; } g_mdb[8];
 static int g_mdb_next;
 
 static void mdb_parse(int slot, const char *json)
@@ -551,7 +551,8 @@ static void mdb_parse(int slot, const char *json)
     const cJSON *rs = cJSON_GetObjectItemCaseSensitive(j, "ratings"), *it;
     char *o = g_mdb[slot].line; size_t n = sizeof g_mdb[slot].line, l = 0;
     o[0] = 0;
-    static const struct { const char *src, *name, *fmt; } S[] = {
+    memset(g_mdb[slot].score, 0, sizeof g_mdb[slot].score);
+    static const struct { const char *src, *name, *fmt; } S[] = {   /* in MDB_* order */
         { "tomatoes", "Tomatometer", "%.0f%%" }, { "popcorn", "Popcornmeter", "%.0f%%" }, { "metacritic", "Metacritic", "%.0f" },
         { "letterboxd", "Letterboxd", "%.1f" }, { "tmdb", "TMDB", "%.0f%%" } };
     for (size_t k = 0; k < sizeof S / sizeof S[0]; k++)
@@ -560,6 +561,7 @@ static void mdb_parse(int slot, const char *json)
             if (!cJSON_IsString(src) || strcmp(src->valuestring, S[k].src) || !cJSON_IsNumber(v) || v->valuedouble <= 0) continue;
             char val[16]; snprintf(val, sizeof val, S[k].fmt, v->valuedouble);
             if (l < n) l += (size_t)snprintf(o + l, n - l, "%s%s %s", l ? "  \xC2\xB7  " : "", S[k].name, val);
+            g_mdb[slot].score[k] = v->valuedouble;
             break;
         }
     g_mdb[slot].state = o[0] ? 2 : 3;
@@ -575,6 +577,14 @@ static void on_mdb(HttpResponse *r, void *user)
         mdb_parse(slot, r->body);
     } else g_mdb[slot].state = 3;
     app_redraw();
+}
+
+int mdblist_scores(const char *imdb_id, const char *type, double out[MDB_SOURCES])
+{
+    if (!mdblist_line(imdb_id, type)) return 0;   /* asks once, like the line */
+    for (int i = 0; i < 8; i++)
+        if (!strcmp(g_mdb[i].imdb, imdb_id)) { memcpy(out, g_mdb[i].score, sizeof g_mdb[i].score); return 1; }
+    return 0;
 }
 
 const char *mdblist_line(const char *imdb_id, const char *type)

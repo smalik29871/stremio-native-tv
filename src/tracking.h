@@ -45,5 +45,8 @@ int  trakt_stats(const char *imdb_id, const char *type, long *watching, long *wa
 /* 1,204 / 23K / 1.4M */
 void tracking_count_text(long v, char *out, size_t n);
 int  mdblist_enabled(void);
+/* The same scores as numbers (0 where a source has none): 1 when known. */
+enum { MDB_TOMATOMETER, MDB_POPCORNMETER, MDB_METACRITIC, MDB_LETTERBOXD, MDB_TMDB, MDB_SOURCES };
+int  mdblist_scores(const char *imdb_id, const char *type, double out[MDB_SOURCES]);
 const char *mdblist_line(const char *imdb_id, const char *type);
 #endif

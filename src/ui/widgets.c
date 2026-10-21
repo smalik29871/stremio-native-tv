@@ -895,6 +895,102 @@ void ui_facts(float x, float y, const char *const *name, const char *const *valu
     }
 }
 
+/* ---- the marks on score badges, drawn so they stay sharp and follow the score ---- */
+
+static void mark_tomato(float cx, float cy, float s, int a)
+{
+    gfx_circle(cx, cy + s * 0.06f, s * 0.42f, RGBA(0xFA, 0x32, 0x0A, a));
+    gfx_circle(cx - s * 0.14f, cy - s * 0.08f, s * 0.1f, RGBA(0xFF, 0x8A, 0x6A, a / 2));   /* the shine */
+    for (int i = 0; i < 5; i++) {   /* the leaves on top, a star */
+        float ang = -1.5708f + (i - 2) * 0.62f;
+        gfx_circle(cx + cosf(ang) * s * 0.13f, cy - s * 0.34f + sinf(ang) * s * 0.06f, s * 0.085f, RGBA(0x00, 0x9A, 0x3C, a));
+    }
+}
+
+static void mark_splat(float cx, float cy, float s, int a)
+{
+    Color g = RGBA(0x0A, 0xC8, 0x55, a);
+    gfx_circle(cx, cy, s * 0.28f, g);
+    for (int i = 0; i < 7; i++) {
+        float ang = i * 0.9f + 0.3f, r = s * (0.33f + 0.06f * (i % 3));
+        gfx_circle(cx + cosf(ang) * r, cy + sinf(ang) * r, s * (0.06f + 0.03f * (i % 2)), g);
+    }
+}
+
+static void mark_popcorn(float cx, float cy, float s, int a, int full)
+{
+    Color cream = RGBA(0xFF, 0xF1, 0xC6, a), red = RGBA(0xE5, 0x1C, 0x23, a);
+    if (!full) {   /* tipped over: the bucket on its side, the corn spilt */
+        gfx_rrect(cx - s * 0.36f, cy + s * 0.02f, s * 0.56f, s * 0.36f, s * 0.05f, RGBA(0x8A, 0x8A, 0x90, a));
+        for (int i = 0; i < 3; i++) gfx_rect(cx - s * 0.3f + i * s * 0.18f, cy + s * 0.02f, s * 0.07f, s * 0.36f, RGBA(0xD8, 0xD8, 0xDC, a));
+        gfx_circle(cx + s * 0.3f, cy + s * 0.3f, s * 0.09f, cream);
+        gfx_circle(cx + s * 0.42f, cy + s * 0.22f, s * 0.07f, cream);
+        return;
+    }
+    gfx_circle(cx - s * 0.18f, cy - s * 0.2f, s * 0.14f, cream);   /* the corn heaped over the top */
+    gfx_circle(cx + s * 0.18f, cy - s * 0.2f, s * 0.14f, cream);
+    gfx_circle(cx, cy - s * 0.3f, s * 0.15f, cream);
+    gfx_rrect(cx - s * 0.32f, cy - s * 0.12f, s * 0.64f, s * 0.54f, s * 0.06f, red);
+    for (int i = 0; i < 3; i++) gfx_rect(cx - s * 0.2f + i * s * 0.16f, cy - s * 0.12f, s * 0.07f, s * 0.54f, RGBA(0xFF, 0xFF, 0xFF, a));
+}
+
+static void mark_letterboxd(float cx, float cy, float s, int a)
+{
+    gfx_circle(cx - s * 0.3f, cy, s * 0.17f, RGBA(0xFF, 0x80, 0x00, a));
+    gfx_circle(cx, cy, s * 0.17f, RGBA(0x00, 0xE0, 0x54, a));
+    gfx_circle(cx + s * 0.3f, cy, s * 0.17f, RGBA(0x40, 0xBC, 0xF4, a));
+}
+
+/* Metacritic's own way: the score in a box, green, yellow or red */
+static void mark_metascore(float cx, float cy, float s, int a, double v, const char *text)
+{
+    Color c = v >= 61 ? RGBA(0x00, 0xCE, 0x7A, a) : v >= 40 ? RGBA(0xFF, 0xBD, 0x3F, a) : RGBA(0xFF, 0x68, 0x74, a);
+    gfx_rrect(cx - s * 0.48f, cy - s * 0.48f, s * 0.96f, s * 0.96f, s * 0.14f, c);
+    font_draw_center(text, cx, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0x10, 0x10, 0x12, a));
+}
+
+float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha)
+{
+    if (n <= 0) return 0;
+    int a = (int)(255 * alpha);
+    const float icon = 46, gap = 14, space = 40, h = 64;
+    float w[16], total = 0;
+    for (int i = 0; i < n && i < 16; i++) {
+        float vw = b[i].kind == BADGE_METASCORE ? 0 : font_measure(b[i].value, FONT_L | FONT_B);
+        float lw = font_measure(b[i].label, FONT_XS | FONT_B);
+        w[i] = icon + gap + (vw > lw ? vw : lw);
+        total += w[i] + (i ? space : 0);
+    }
+    float x = right_x - total;
+    gfx_shadow(x - 30, y - 18, total + 60, h + 36, 36, 80, RGBA(0, 0, 0, (int)(0x78 * alpha)));   /* readable over any picture */
+    for (int i = 0; i < n && i < 16; i++) {
+        float cx = x + icon / 2, cy = y + h / 2;
+        switch (b[i].kind) {
+        case BADGE_TOMATOMETER: if (b[i].score >= 60) mark_tomato(cx, cy, icon, a); else mark_splat(cx, cy, icon, a); break;
+        case BADGE_POPCORNMETER: mark_popcorn(cx, cy, icon, a, b[i].score >= 60); break;
+        case BADGE_METASCORE: mark_metascore(cx, cy, icon, a, b[i].score, b[i].value); break;
+        case BADGE_LETTERBOXD: mark_letterboxd(cx, cy, icon, a); break;
+        case BADGE_LIVE: {   /* a live dot, breathing */
+            float k = 0.5f + 0.5f * sinf(g_app.time * 3);
+            gfx_circle(cx, cy, icon * (0.22f + 0.1f * k), RGBA(0xED, 0x1C, 0x24, (int)(a * 0.35f * (1 - k))));
+            gfx_circle(cx, cy, icon * 0.18f, RGBA(0xED, 0x1C, 0x24, a));
+            app_redraw();
+            break;
+        }
+        case BADGE_WATCHERS: ui_icon(ICON_USER, cx, cy, icon * 0.7f, RGBA(0xF2, 0xF2, 0xF2, a)); break;
+        default: ui_icon(ICON_PLAY, cx, cy, icon * 0.6f, RGBA(0xF2, 0xF2, 0xF2, a)); break;
+        }
+        float tx = x + icon + gap;
+        if (b[i].kind == BADGE_METASCORE) font_draw(b[i].label, tx, cy - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, RGBA(0xB4, 0xB4, 0xB8, a));
+        else {
+            font_draw_shadow(b[i].value, tx, y - 4, FONT_L | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), RGBA(0, 0, 0, a / 3));
+            font_draw(b[i].label, tx, y + h - font_height(FONT_XS | FONT_B) + 2, FONT_XS | FONT_B, RGBA(0xB4, 0xB4, 0xB8, a));
+        }
+        x += w[i] + space;
+    }
+    return h;
+}
+
 void ui_advisory(float x, float y, const int level[5], float alpha)
 {
     /* the themes in the order they are listed at the same strength (advisory.h's indices) */

@@ -59,6 +59,11 @@ void ui_advisory(float x, float y, const int level[5], float alpha);
 /* The same look for any list: "Name · value" lines beside a white bar; right = 1 puts
  * the bar at x with the lines right-aligned against it. */
 void ui_facts(float x, float y, const char *const *name, const char *const *value, int n, float alpha, int right);
+/* Score badges: each its own mark (a tomato, a popcorn bucket, ...), the score large
+ * and what it is under it; a row right-aligned to right_x. Returns the row's height. */
+enum { BADGE_TOMATOMETER, BADGE_POPCORNMETER, BADGE_METASCORE, BADGE_LETTERBOXD, BADGE_LIVE, BADGE_WATCHERS, BADGE_PLAYS };
+typedef struct { int kind; double score; const char *value, *label; } ScoreBadge;
+float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha);
 /* A person's photo cropped to the box (faces sit high), or their initials when there is none. */
 void ui_portrait(const char *photo, const char *name, float x, float y, float w, float h, float r, int initials_font);
 /* "New episode" ("3 new episodes") with a bell, its right edge at x: a series card whose show has aired more. */
