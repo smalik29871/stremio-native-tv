@@ -20,5 +20,8 @@ int  island_has_focus(void);
 /* Keys while it has the focus: OK opens the title, Down or Back hand the focus back. */
 void island_focus_key(int ok);
 void island_draw(int in_player, int show_clock);
+/* The bottom edge of the island in the corner as last drawn (0 when none), so things
+ * placed under it move down as it grows into a notice instead of hiding behind it. */
+float island_bottom(void);
 
 #endif

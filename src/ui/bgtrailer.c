@@ -12,6 +12,7 @@
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
+#include "island.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -202,6 +203,7 @@ void bgtrailer_draw_badge(const char *id, int with_key)
     const char *label = !B.muted ? "Sound on" : with_key ? "Sound off  \xC2\xB7  Play/Pause turns it on" : "Sound off";
     int fs = FONT_XS | FONT_B;
     float h = 48, w = 24 + 28 + 12 + font_measure(label, fs) + 24, x = SNTV_UI_W - THEME_MARGIN - w, y = 96;
+    if (island_bottom() + 14 > y) y = island_bottom() + 14;   /* under the island, whatever it is showing */
     Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * t));
     gfx_rrect(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), (int)(0x99 * t)));
     float ix = x + 24 + 14, iy = y + h / 2;

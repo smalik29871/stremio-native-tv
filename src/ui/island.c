@@ -85,6 +85,9 @@ static int current_kind(int show_clock)
     return IS_NONE;
 }
 
+static float g_bottom;   /* how far down the island reached last frame, for what sits under it */
+float island_bottom(void) { return g_bottom; }
+
 void island_draw(int in_player, int show_clock)
 {
     int kind = current_kind(show_clock);
@@ -122,6 +125,7 @@ void island_draw(int in_player, int show_clock)
         gfx_circle(ox + 30, y + oh / 2, 7, THEME_DANGER);
         font_draw(t, ox + 48, y + (oh - font_height(fs)) / 2, fs, THEME_TEXT);
     }
+    g_bottom = in_player || I.w < 2 || I.h < 2 ? 0 : y + I.h;
     if (I.w < 2 || I.h < 2) return;
 
     float r = theme_pill_r(I.h), busy = kind == IS_NOTICE || kind == IS_PROGRESS || kind == IS_RESUME;

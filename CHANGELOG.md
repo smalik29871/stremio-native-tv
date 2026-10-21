@@ -5,6 +5,9 @@
 - **Title pages show the scores and the advisory too**, not only the paused screen: the
   Tomatometer, Popcornmeter, Metascore and Letterboxd marks beside the genres, and a
   line of what the title contains ("Violence Severe · Profanity Moderate").
+- **The trailer's "Sound off" pill moves out from under the island**: it sits just below
+  the clock and slides down when the island grows into a notice ("Press Back again to
+  leave"), instead of being hidden behind it.
 - **The Popcornmeter shows**: MDBList calls the audience score "tomatoesaudience",
   which the app did not read (it looked for "popcorn"); both names count now.
 
