@@ -54,6 +54,42 @@ jobs:
       - name: P2P engine tests
         run: cd tools/torrentd && go vet ./... && go test ./...
 
+  ui:
+    # The scripted UI runs (tests/smoke.sh) under Xvfb against the fake addon; a release
+    # waits for them. They stop at the first failure; its log and screenshots are uploaded.
+    name: UI scenarios
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake libsdl2-dev libgles-dev libegl-dev libcurl4-openssl-dev nasm \
+            xvfb xauth libgl1-mesa-dri libegl-mesa0 python3-pil
+      - name: Cache FFmpeg (seek preview decoder)
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-host
+          key: ffmpeg-host-${{ hashFiles('tools/ffmpeg.sh') }}
+      - name: FFmpeg
+        run: bash tools/ffmpeg.sh host ffmpeg-host
+      - name: Build
+        run: |
+          cmake -S . -B build -DSNTV_PLATFORM=linux -DCMAKE_BUILD_TYPE=Release -DSNTV_FFMPEG_PREFIX="$PWD/ffmpeg-host"
+          cmake --build build -j"$(nproc)"
+      - name: UI scenarios
+        run: bash tests/smoke.sh build
+      - name: Logs and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-scenarios
+          path: |
+            tests/out/*.log
+            tests/out/*.png
+          retention-days: 7
+
   webos:
     name: LG webOS package
     runs-on: ubuntu-24.04
@@ -110,7 +146,7 @@ jobs:
   release:
     name: Publish release
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [desktop, webos]
+    needs: [desktop, webos, ui]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
