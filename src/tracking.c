@@ -552,13 +552,13 @@ void tracking_progress(const MetaPreview *m, const char *video_id, double pos, d
     if (!split_id(video_id, imdb, sizeof imdb, &season, &episode)) return;
     double pct = pos / dur * 100;
     if (pct > 100) pct = 100;
-    if (!played_through && pct >= 80) pct = 79;   /* sought to the end: not watched (Trakt's stop and SimKL count 80%) */
+    double done = !played_through && pct >= 80 ? 79 : pct;   /* sought to the end: not watched (Trakt's stop and SimKL count 80%) */
     if (strcmp(g_play.vid, video_id) != 0) { memset(&g_play, 0, sizeof g_play); snprintf(g_play.vid, sizeof g_play.vid, "%s", video_id); }
     if (tracking_connected(TRACK_TRAKT)) {
-        if (final) { if (g_play.started) scrobble(pct >= 80 ? "stop" : "pause", imdb, season, episode, pct); g_play.started = 0; }
+        if (final) { if (g_play.started) scrobble(done >= 80 ? "stop" : "pause", imdb, season, episode, done); g_play.started = 0; }
         else if (!g_play.started) { scrobble("start", imdb, season, episode, pct); g_play.started = 1; }
     }
-    if (pct >= 80 && !g_play.simkl_done && tracking_connected(TRACK_SIMKL)) { g_play.simkl_done = 1; simkl_watched(imdb, season, episode); }
+    if (done >= 80 && !g_play.simkl_done && tracking_connected(TRACK_SIMKL)) { g_play.simkl_done = 1; simkl_watched(imdb, season, episode); }
 }
 
 /* ---- MDBList ---- */

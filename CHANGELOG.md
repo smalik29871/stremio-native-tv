@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.46
 
 - **A more accurate recommended source.**
   - Names are read more carefully: "1080p.UHD.BluRay" and "4K Remastered ... 1080p" are
@@ -22,8 +22,6 @@
     small for its resolution counts against it.
   - The TV profile needs two failures before it avoids something (three for HEVC and 4K),
     and features this TV already played are not blamed.
-
-## 0.10.46
 
 From an audit of whole evenings of use rather than single features:
 
