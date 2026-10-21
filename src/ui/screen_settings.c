@@ -281,7 +281,7 @@ static const char *row_desc(int id)
     case IT_SIMKL: return "Titles you finish are added to your SimKL history.";
     case IT_OS_KEY: return "Built-in subtitle search, with release names to find the subtitle made for your file's release.";
     case IT_OS_LOGIN: return "Optional: a free account allows more subtitle downloads a day.";
-    case IT_MDBLIST: return "Rotten Tomatoes, Metacritic and Letterboxd scores on title pages. Free key at mdblist.com.";
+    case IT_MDBLIST: return "Rotten Tomatoes (critics and audience), Metacritic and Letterboxd scores on title pages and the paused screen. Free key at mdblist.com.";
     case IT_TORBOX: return "Torrent sources TorBox has cached play from it instead of peers, and what you keep there plays here: films, the fireplace video, a break's recording.";
     case IT_TORBOX_FILES: return "Everything in your TorBox, to watch here at full quality.";
     case IT_FIRE_TORBOX: return "A video in your TorBox as the fireplace; it plays through a fresh link each time.";

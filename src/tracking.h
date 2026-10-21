@@ -38,7 +38,7 @@ extern const char *const TROW_NAMES[TROW_COUNT];
 int  tracking_row(int which, MetaPreview **out);
 int  tracking_version(void);           /* grows when a row changes */
 
-/* MDBList: "RT 93%  ·  Metacritic 80  ·  Letterboxd 4.1" for an IMDb id, NULL while unknown. */
+/* MDBList: "Tomatometer 93%  ·  Popcornmeter 88%  ·  Metacritic 80  ·  Letterboxd 4.1" for an IMDb id, NULL while unknown. */
 /* Trakt's numbers for a title (any app id will do, no sign-in): 1 with the people
  * watching it now, all who watched, and the plays; 0 while unknown (the first call asks). */
 int  trakt_stats(const char *imdb_id, const char *type, long *watching, long *watchers, long *plays);

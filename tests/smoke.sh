@@ -192,7 +192,12 @@ run player_paused 320 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200
 run player_advisory 300 "right,ok,down,down,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
 grep -q "player: advisory shown: Severe violence, severe drugs, moderate language, mild nudity" "$OUT/player_advisory.log" || { echo "the content advisory did not show"; grep -E "advisory" "$OUT/player_advisory.log"; exit 1; }
 run player_advisory_off 300 "right,ok,down,down,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 HOME="$(home_with adv_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"advisory":0}')"
-grep -q "advisory" "$OUT/player_advisory_off.log" && { echo "the content advisory showed while off"; exit 1; }
+grep -qE "advisory: |advisory shown" "$OUT/player_advisory_off.log" && { echo "the content advisory showed while off"; exit 1; }
+# paused: the critics' and audience scores and Trakt's numbers in the right-hand corner
+run player_corner 330 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 SNTV_MDBLIST_API=http://127.0.0.1:$PORT/mdblist SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt \
+  HOME="$(home_with corner '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"mdblistKey":"k","traktClientId":"cid"}')"
+grep -q "player: paused corner: Tomatometer 91%, Popcornmeter 96%, Metacritic 82, Letterboxd 4.5, Watching now 37, Trakt watchers 23K, Trakt plays 1.4M" "$OUT/player_corner.log" \
+  || { echo "the paused corner did not show the scores and Trakt's numbers"; grep -E "corner|mdblist|trakt" "$OUT/player_corner.log"; exit 1; }
 run player_rest 330 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
 grep -q "player: paused and idle, the controls step aside" "$OUT/player_rest.log" || { echo "the paused player never leaned back"; grep player "$OUT/player_rest.log"; exit 1; }
 run player_rest_ok 360 "right,ok,down,down,ok,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05

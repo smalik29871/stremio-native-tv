@@ -52,8 +52,8 @@ float ui_icon_button(Icon icon, float cx, float cy, float radius, int focused);
 /* Small rounded badges. Returns width. */
 float ui_chip(const char *text, float x, float y, Color bg, Color fg);
 float ui_chip_outline(const char *text, float x, float y, Color line, Color fg);
-/* The content advisory a video opens with: a white bar and a line per theme the title
- * contains ("Violence · Moderate"), strongest first. level: nudity, violence, language,
+/* The content advisory a video opens with: a line per theme the title contains
+ * ("Violence · Moderate"), strongest first, right-aligned against a white bar at x. level: nudity, violence, language,
  * drugs, frightening; 0 none to 3 severe. alpha 0..1 fades it. */
 void ui_advisory(float x, float y, const int level[5], float alpha);
 /* The same look for any list: "Name · value" lines beside a white bar; right = 1 puts

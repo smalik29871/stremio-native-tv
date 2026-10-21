@@ -552,7 +552,7 @@ static void mdb_parse(int slot, const char *json)
     char *o = g_mdb[slot].line; size_t n = sizeof g_mdb[slot].line, l = 0;
     o[0] = 0;
     static const struct { const char *src, *name, *fmt; } S[] = {
-        { "tomatoes", "Rotten Tomatoes", "%.0f%%" }, { "metacritic", "Metacritic", "%.0f" },
+        { "tomatoes", "Tomatometer", "%.0f%%" }, { "popcorn", "Popcornmeter", "%.0f%%" }, { "metacritic", "Metacritic", "%.0f" },
         { "letterboxd", "Letterboxd", "%.1f" }, { "tmdb", "TMDB", "%.0f%%" } };
     for (size_t k = 0; k < sizeof S / sizeof S[0]; k++)
         if (cJSON_IsArray(rs)) cJSON_ArrayForEach(it, rs) {

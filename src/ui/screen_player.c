@@ -145,6 +145,7 @@ struct Player {
     int night, night_applied; long night_minute; unsigned night_load;   /* night mode on; the volume set for this load */
     int stinger_noted;        /* "stay for the scene after the credits" said */
     float played_at, adv_at;  /* when playback first ran; when the content advisory came up (0 not yet) */
+    int corner_logged;        /* lines in the paused corner last logged */
     float prefetch_tried;     /* when; a stale or empty prefetch is retried after a while */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
@@ -2973,7 +2974,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         char store[8][2][40];
         int nf = 0;
         const char *line = mdblist_line(p->meta.id, p->meta.type);
-        for (const char *q = line; q && *q && nf < 5; ) {   /* "Rotten Tomatoes 93%  ·  Metacritic 80" */
+        for (const char *q = line; q && *q && nf < 5; ) {   /* "Tomatometer 93%  ·  Popcornmeter 88%  ·  Metacritic 80" */
             const char *end = strstr(q, "  \xC2\xB7  ");
             int len = end ? (int)(end - q) : (int)strlen(q);
             char seg[64]; snprintf(seg, sizeof seg, "%.*s", len, q);
@@ -2992,6 +2993,12 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             for (int i = 0; i < 3 && nf < 8; i++) if (v[i] > 0) { tracking_count_text(v[i], store[nf][1], 40); names[nf] = TK[i]; values[nf] = store[nf][1]; nf++; }
         }
         ui_facts(SNTV_UI_W - THEME_MARGIN, 120, names, values, nf, k, 1);
+        if (nf > p->corner_logged) {   /* once more is known */
+            char all[400]; int l = 0;
+            for (int i = 0; i < nf && l < (int)sizeof all; i++) l += snprintf(all + l, sizeof all - l, "%s%s %s", i ? ", " : "", names[i], values[i]);
+            LOGI("player: paused corner: %s", all);
+            p->corner_logged = nf;
+        }
     }
     if (n_cast && y < SNTV_UI_H - 300) {
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
@@ -3045,7 +3052,7 @@ static void draw(Screen *s)
     if (adv_t >= 0 && adv_t < ADVISORY_S && !p->menu && !overlay && !p->pip) {   /* fades in, stays, fades out */
         float k = adv_t < 0.5f ? adv_t / 0.5f : adv_t > ADVISORY_S - 0.8f ? (ADVISORY_S - adv_t) / 0.8f : 1;
         const Advisory *adv = advisory_get(p->meta.id);
-        if (adv) ui_advisory(THEME_MARGIN + 120, 56, adv->level, k);
+        if (adv) ui_advisory(SNTV_UI_W - THEME_MARGIN, 120, adv->level, k);   /* the top-right corner, under the clock */
         app_redraw();
     }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */

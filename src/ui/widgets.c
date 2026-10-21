@@ -906,7 +906,7 @@ void ui_advisory(float x, float y, const int level[5], float alpha)
     for (int lvl = 3; lvl >= 1; lvl--)
         for (int i = 0; i < 5; i++)
             if (level[SHOWN[i]] == lvl) { names[n] = NAME[SHOWN[i]]; values[n] = LEVEL[lvl]; n++; }
-    ui_facts(x, y, names, values, n, alpha, 0);
+    ui_facts(x, y, names, values, n, alpha, 1);
 }
 
 float ui_imdb(const char *rating, float x, float y)

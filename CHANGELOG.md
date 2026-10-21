@@ -3,13 +3,14 @@
 ## Unreleased
 
 - **What critics and viewers make of it, in the paused screen's corner**: Rotten
-  Tomatoes, Metacritic and Letterboxd (with an MDBList key), and from Trakt how many
+  Tomatoes' Tomatometer (critics) and Popcornmeter (audience), Metacritic and
+  Letterboxd (with an MDBList key; title pages show the Popcornmeter too), and from Trakt how many
   are watching it right now, how many have watched it and how often, in the same
   "Name · value" lines as the advisory, against a bar at the right edge.
 - **Content advisory when a video starts**, as streaming services show: a line for
   each thing the title contains and how much ("Violence · Moderate", "Nudity · Mild":
   violence, profanity, frightening scenes, nudity, alcohol and drugs), from IMDb's
-  parents guide, strongest first. It appears once the starting controls step aside and fades after a few
+  parents guide, strongest first, in the top-right corner. It appears once the starting controls step aside and fades after a few
   seconds; Settings > Player > Content advisory turns it off.
 - **The remote's Play button works on LG webOS 10**: it arrives with a code the app
   didn't know (found with the new unknown-key log in Diagnostics); it now plays on
