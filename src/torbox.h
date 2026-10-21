@@ -39,7 +39,10 @@ void torbox_open_hash(const char *link, const struct EpisodeHint *ep, TorboxOpen
 /* On a network thread: the videos in your TorBox that are this title (a film by its name
  * and year, an episode by its name and SxxEyy), as sources; the list is kept 5 minutes.
  * Returns how many (*out malloc'd, NULL when none). */
-int  torbox_library_streams(const char *type, const char *video_id, const char *name, const char *year, struct Stream **out);
+/* others: titles of the season's other episodes; a file naming one of them (and not
+ * own, this episode's title) is that episode whatever its number says. */
+int  torbox_library_streams(const char *type, const char *video_id, const char *name, const char *year,
+                            const char *own, const char *const *others, int n_others, struct Stream **out);
 /* Starts TorBox downloading a torrent this TV is playing over P2P, so it can switch back. */
 void torbox_queue_hash(const char *info_hash);
 #endif

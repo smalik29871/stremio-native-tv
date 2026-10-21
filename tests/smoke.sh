@@ -500,7 +500,7 @@ done
 # your own video on TorBox: the picker lists the videos, the pick is kept, the fireplace plays it through TorBox's permanent link
 TB="SNTV_TORBOX_API=http://127.0.0.1:$PORT/torbox"
 run torbox_pick 600 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,down,ok,wait,down,ok" "$TB" HOME="$(home_with tbpick '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"torboxKey":"tbkey"}')"
-grep -q "torbox: 4 video files" "$OUT/torbox_pick.log" && grep -q "torbox: break recording set to torbox://torrents/42/3/adhan.mkv" "$OUT/torbox_pick.log" \
+grep -q "torbox: 8 video files" "$OUT/torbox_pick.log" && grep -q "torbox: break recording set to torbox://torrents/42/3/adhan.mkv" "$OUT/torbox_pick.log" \
   || { echo "the TorBox picker did not set the break recording"; grep -E "torbox" "$OUT/torbox_pick.log"; exit 1; }
 run torbox_fireplace 500 "" SNTV_AMBIENT_SECONDS=1 "$TB" HOME="$(home_with tbfire '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"torbox://torrents/41/0/fireplace.mp4","torboxKey":"tbkey"}')"
 grep -q "video(null): load http://127.0.0.1:[0-9]*/torbox/torrents/requestdl?token=\*\*\*&torrent_id=41&file_id=0&redirect=true (Fireplace)" "$OUT/torbox_fireplace.log" \
@@ -516,6 +516,11 @@ run torbox_library 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,up,ok
 grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" && grep -q "streams: #1 score [0-9]*  My TorBox Your copy" "$OUT/torbox_library.log" \
   && grep -q "player: candidate 1/[0-9]* My TorBox - Your copy @0s -> http://127.0.0.1:[0-9]*/video/sample_h264_aac.mkv?torbox=43" "$OUT/torbox_library.log" \
   || { echo "your TorBox copy did not come first"; grep -E "torbox|streams: #|candidate" "$OUT/torbox_library.log"; exit 1; }
+# Your TorBox for an episode: only files that are this show (not "Breaking Bad Insider"), named
+# for this episode by their own name (not the item's), and not titled as another episode
+run torbox_library_episode 600 "right,ok,down,down,ok,wait" "$TB" HOME="$(home_with tblibep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')"
+grep -q "torbox: 1 of your videos matches tt0903747:1:1" "$OUT/torbox_library_episode.log" && grep -q "torbox: Breaking.Bad.S01E01.Cats.in.the.Bag.1080p.mkv names \"Cat's in the Bag...\", another episode: left out" "$OUT/torbox_library_episode.log" \
+  || { echo "your TorBox offered files of another show or episode"; grep -E "torbox" "$OUT/torbox_library_episode.log"; exit 1; }
 # A season pack with no file named: the episode's own file plays, not the largest (another episode)
 run torbox_pack 600 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbpack '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
 grep -q "torbox: the episode's file by its name: Breaking Bad S01 1080p/Breaking.Bad.S01E01.1080p.mkv" "$OUT/torbox_pack.log" \

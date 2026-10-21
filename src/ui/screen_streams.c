@@ -387,13 +387,15 @@ static void on_streams(HttpResponse *r, void *user)
 }
 
 /* Your TorBox, asked like one more addon: the videos there that are this title */
-typedef struct { char type[16], video_id[160], name[256], year[8]; } LibAsk;
+typedef struct { char type[16], video_id[160], name[256], year[8], own[96], others[40][96]; int n_others; } LibAsk;
 
 static void library_task(HttpResponse *r, void *arg)
 {
     LibAsk *a = arg;
     ParsedStreams *ps = calloc(1, sizeof *ps);
-    ps->n = torbox_library_streams(a->type, a->video_id, a->name, a->year[0] ? a->year : NULL, &ps->s);
+    const char *others[40];
+    for (int i = 0; i < a->n_others; i++) others[i] = a->others[i];
+    ps->n = torbox_library_streams(a->type, a->video_id, a->name, a->year[0] ? a->year : NULL, a->own, others, a->n_others, &ps->s);
     r->status = 200;
     r->parsed = ps;
     free(a);
@@ -408,6 +410,11 @@ static void query_addons(const MetaPreview *meta, const char *video_id, Streams 
         snprintf(a->video_id, sizeof a->video_id, "%s", video_id);
         snprintf(a->name, sizeof a->name, "%s", meta->name);
         if (meta->release_info) snprintf(a->year, sizeof a->year, "%.4s", meta->release_info);
+        int nv = 0, season = -1, episode = -1;   /* this episode's title and its season's others (the episode list is loaded) */
+        const MetaVideo *v = app_videos(meta->id, &nv);
+        for (int i = 0; i < nv; i++) if (v[i].id && !strcmp(v[i].id, video_id)) { season = v[i].season; episode = v[i].episode; if (v[i].title) snprintf(a->own, sizeof a->own, "%s", v[i].title); }
+        for (int i = 0; i < nv && a->n_others < 40 && season >= 0; i++)
+            if (v[i].season == season && v[i].episode != episode && v[i].title && v[i].title[0]) snprintf(a->others[a->n_others++], sizeof a->others[0], "%s", v[i].title);
         Pending *p = malloc(sizeof *p);
         p->owner = owner; p->addon = -1; p->generation = generation;
         (*pending)++;

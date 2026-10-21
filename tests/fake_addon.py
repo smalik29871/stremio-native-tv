@@ -682,7 +682,18 @@ class H(BaseHTTPRequestHandler):
                     {"id": 43, "name": "The.Shawshank.Redemption.1994.1080p.BluRay", "files": [
                         {"id": 5, "short_name": "The.Shawshank.Redemption.1994.1080p.BluRay.x264.mkv", "mimetype": "video/x-matroska", "size": 8589934592}]},
                     {"id": 44, "name": "The Shawshank Redemption 2031 remake", "files": [
-                        {"id": 6, "short_name": "Shawshank.Redemption.2031.2160p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]}]}).encode())
+                        {"id": 6, "short_name": "Shawshank.Redemption.2031.2160p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]},
+                    # Breaking Bad S01E01 "Pilot": one right file; another show starting with the same
+                    # words, a file of episode 2 in an item named for episode 1, and a file numbered 1
+                    # titled as episode 2 (orderings differ between services) are all left out
+                    {"id": 45, "name": "Breaking.Bad.S01E01.Pilot.1080p", "files": [
+                        {"id": 7, "short_name": "Breaking.Bad.S01E01.Pilot.1080p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]},
+                    {"id": 46, "name": "Breaking.Bad.Insider.S01E01", "files": [
+                        {"id": 8, "short_name": "Breaking.Bad.Insider.S01E01.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]},
+                    {"id": 47, "name": "Breaking.Bad.S01E01.Pack", "files": [
+                        {"id": 9, "short_name": "Breaking.Bad.S01E02.1080p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]},
+                    {"id": 48, "name": "Breaking.Bad.S01E01.NF", "files": [
+                        {"id": 10, "short_name": "Breaking.Bad.S01E01.Cats.in.the.Bag.1080p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]}]}).encode())
             if "/requestdl" in q:
                 if "token=tbkey" not in q:
                     return self.send(403, b'{"success":false}')

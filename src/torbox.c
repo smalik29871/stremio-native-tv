@@ -495,6 +495,26 @@ static int names_episode(const char *w, int season, int episode)
     return 0;
 }
 
+/* The title as the whole name, not the start of another: what follows it is a year, an
+ * episode or season, a quality or source tag, or nothing. " ted " is not in
+ * " ted lasso s01e05 ", but is in " ted 2024 s01e05 " and " ted s01e05 1080p ". */
+static int title_in(const char *w, const char *title)
+{
+    static const char *const TAGS[] = { "2160p", "1080p", "720p", "576p", "480p", "4k", "uhd", "hdr", "dv", "bluray", "blu", "bdrip", "brrip",
+        "web", "webrip", "webdl", "hdtv", "dvdrip", "dvd", "remux", "proper", "repack", "extended", "unrated", "directors", "complete",
+        "multi", "internal", "imax", "season", "series", "x264", "x265", "h264", "h265", "hevc", "avc", "mkv", "mp4", NULL };
+    size_t tl = strlen(title);
+    for (const char *p = strstr(w, title); p; p = strstr(p + 1, title)) {
+        const char *n = p + tl;   /* title ends with a space: n starts the next word */
+        if (!*n) return 1;
+        int len = 0, a, b;
+        if ((n[0] == '1' || n[0] == '2') && isdigit((unsigned char)n[1]) && isdigit((unsigned char)n[2]) && isdigit((unsigned char)n[3]) && n[4] == ' ') return 1;   /* a year */
+        if ((sscanf(n, "s%d%n", &a, &len) == 1 && (n[len] == ' ' || n[len] == 'e')) || sscanf(n, "%dx%d", &a, &b) == 2) return 1;   /* s01, s01e05, 1x05 */
+        for (int t = 0; TAGS[t]; t++) { size_t k = strlen(TAGS[t]); if (!strncmp(n, TAGS[t], k) && n[k] == ' ') return 1; }
+    }
+    return 0;
+}
+
 /* the first year in the text (1900..2099), or 0 */
 static int year_in(const char *w)
 {
@@ -506,7 +526,8 @@ static int year_in(const char *w)
     return 0;
 }
 
-int torbox_library_streams(const char *type, const char *video_id, const char *name, const char *year, Stream **out)
+int torbox_library_streams(const char *type, const char *video_id, const char *name, const char *year,
+                           const char *own, const char *const *others, int n_others, Stream **out)
 {
     *out = NULL;
     if (!name || !*name || !video_id) return 0;
@@ -521,10 +542,21 @@ int torbox_library_streams(const char *type, const char *video_id, const char *n
         char fw[600], iw[600];
         words(files[i].name, fw, sizeof fw);
         words(files[i].item, iw, sizeof iw);
-        if (!strstr(fw, title) && !strstr(iw, title)) continue;   /* the title's words, together */
+        if (!title_in(fw, title) && !title_in(iw, title)) continue;   /* the title's words, together, as the whole name */
         /* the file's own name decides when it names an episode: a season pack called
          * "S01E01-E08" names the first, and every file in it would pass for that one */
         if (series && (names_episode(fw, -1, -1) ? !names_episode(fw, season, episode) : !names_episode(iw, season, episode))) continue;
+        if (series) {   /* "S01E05.Subway.Bicycles..." when episode 5 is another title: it is that other episode */
+            char ow[200] = "", xw[200];
+            if (own && strlen(own) >= 5) words(own, ow, sizeof ow);
+            int other = -1;
+            for (int k = 0; k < n_others && other < 0; k++) {
+                if (!others[k] || strlen(others[k]) < 5) continue;
+                words(others[k], xw, sizeof xw);
+                if (strlen(xw) > 6 && strstr(fw, xw) && !(ow[0] && strstr(fw, ow))) other = k;
+            }
+            if (other >= 0) { LOGI("torbox: %s names \"%s\", another episode: left out", files[i].name, others[other]); continue; }
+        }
         if (!series && want_year) {   /* a remake is not the film: when a year is written, it is this one (or one off) */
             int y = year_in(fw); if (!y) y = year_in(iw);
             if (y && (y < want_year - 1 || y > want_year + 1)) continue;

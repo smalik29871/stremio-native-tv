@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Your TorBox offers only this episode of this show.** The show's name was looked for
+  anywhere in a file's name, so "Ted" took Ted Lasso's S01E05; it must now be the whole
+  name (followed by a year, the episode, a quality tag or nothing). And a file numbered as
+  this episode but titled as another one of the season (services number some episodes
+  differently) is left out: "Ted.2024.S01E05.Subway.Bicycles..." is not "Desperately
+  Seeking Susan". A file of another episode inside a TorBox item named for this one was
+  already left out in 0.10.38.
+
 ## 0.10.38
 
 - **No more freeze while sources come in.** With many addons answering (a few thousand
