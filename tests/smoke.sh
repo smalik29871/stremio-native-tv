@@ -366,10 +366,10 @@ FREE_MB=$(df -m --output=avail "$DH" | tail -1)
 run disk_full 120 "" HOME="$DH" SNTV_DISK_KEEP_FREE_MB=$((FREE_MB + 10)) SNTV_TIDY_AFTER_S=0
 grep -q "image: .* MB free on the cache's drive; artwork cache kept to" "$OUT/disk_full.log" && [ "$(ls "$DH/.local/share/stremio/nativetv/img" | wc -l)" -lt 15 ] \
   || { echo "the artwork cache did not make room on a full drive"; grep image "$OUT/disk_full.log"; exit 1; }
-# webOS 10: sign-in kept in the developer partition's temp folder moves to internal storage
+# webOS 10: sign-in kept in the developer partition's temp folder moves to internal storage (no account server is reached)
 MH="$OUT/home_migrate"; rm -rf "$MH"; mkdir -p "$MH/internal" "$MH/devtemp/org.stremio.nativetv/img"
 echo '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"moved-key"}' > "$MH/devtemp/org.stremio.nativetv/settings.json"
-run data_move 90 "" HOME="$MH" SNTV_FLASH_ROOTS="$MH/internal,$MH/devtemp"
+run data_move 90 "" HOME="$MH" SNTV_FLASH_ROOTS="$MH/internal,$MH/devtemp" SNTV_API_URL=http://127.0.0.1:9   # its key is made up: no real server may sign it out
 grep -q "store: data moved here from $MH/devtemp/org.stremio.nativetv" "$OUT/data_move.log" && grep -q "moved-key" "$MH/internal/.org.stremio.nativetv/settings.json" && [ ! -e "$MH/devtemp/org.stremio.nativetv" ] \
   || { echo "sign-in did not move off the developer partition"; grep -E "data dir|store" "$OUT/data_move.log"; exit 1; }
 # Sources panel > Find more sources: every addon is asked while the video plays on, and the new ones join the list
