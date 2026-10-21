@@ -17,8 +17,8 @@
   brick wall that now and then flickers), **Rolling** (odometer drums, the seconds rolling
   over), **Orbit** (the hour, minute and second as planets round a glowing sun) and
   **Daylight** (the sky of the hour, dawn to night, with the sun or moon crossing it).
-- **The paused panel says more and sits lower**: it rests just above the paused line,
-  shows this episode's own synopsis, the genres, the picture's quality (4K, 1080p, HDR,
+- **The paused panel says more and sits centred**: it is centred on the screen
+  (clear of the paused line), shows this episode's own synopsis, the genres, the picture's quality (4K, 1080p, HDR,
   Dolby Vision) and what's up next; the paused line adds when it would end if played on.
 - Signed out, the default addons keep their listed order instead of the order their
   manifests answered in, so Home's rows and the Sources panel's addon tabs no longer

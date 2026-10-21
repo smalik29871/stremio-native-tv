@@ -2863,7 +2863,7 @@ static void draw_veil(Player *p, const VideoInfo *vi)
 }
 
 /* What is on: title, episode, year and runtime, synopsis, cast. Shown once playback has
- * been paused for a moment, at the left, resting just above the paused line. */
+ * been paused for a moment, at the left, centred on the screen. */
 static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
 {
     if (g_theme.id == THEME_APERTURE) {
@@ -2913,7 +2913,8 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
                + (ep ? font_height(FONT_M | FONT_B) + 12 : 0) + (has_meta ? 50 : 0)
                + (about ? font_draw_wrapped(about, x, 0, FONT_S, 0, maxw, 4) * font_height(FONT_S) + 26 : 0)
                + (n_cast ? 36 + 64 : 0) + (next ? 58 : 0);
-    float y = SNTV_UI_H - 230 - need;
+    float y = (SNTV_UI_H - need) / 2 - 20;   /* centred, but never down on the paused line */
+    if (y > SNTV_UI_H - 230 - need) y = SNTV_UI_H - 230 - need;
     if (y < 110) y = 110;
     y += (1 - k) * 16;
     gfx_gradient_h(0, 0, 1300, SNTV_UI_H, RGBA(0, 0, 0, (int)(0xB8 * k)), RGBA(0, 0, 0, 0));
