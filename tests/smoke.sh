@@ -147,6 +147,25 @@ grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { e
 run wrong_episode_skipped 500 "right,ok,down,down,play,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
 grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep "player: candidate" "$OUT/wrong_episode_skipped.log" | grep -q "?ep=4" \
   || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
+# Sources that ask for request headers play through the local relay (the test player
+# fetches what it opens: /hdrvideo/ refuses anyone without its Referer); with the relay off
+# they fail as before; a seek's mid-file bytes come through; a source the relay doesn't get
+# playing is opened directly, then the next source as usual
+HDR="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/hdr/manifest.json"
+HDRP='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'
+run relay_plays 600 "right,ok,down,down,play,wait,wait" "$HDR" SNTV_FAKE_FETCH=1 HOME="$(home_with relay1 "$HDRP")"
+grep -q "player: source 1 asks for request headers; it plays through the local relay" "$OUT/relay_plays.log" && grep -q "video(null): fetched 65536 bytes, status 206" "$OUT/relay_plays.log" \
+  && grep -q "start: [0-9.]* s Play:" "$OUT/relay_plays.log" && ! grep -q "start: .*(failed)" "$OUT/relay_plays.log" && ! grep -qE "relay: .*(Referer|hdr\.example)" "$OUT/relay_plays.log" \
+  || { echo "a source asking for a Referer did not play through the relay"; grep -E "relay|player: (candidate|source)|video\(null\)" "$OUT/relay_plays.log"; exit 1; }
+run relay_off 600 "right,ok,down,down,play,wait,wait" "$HDR" SNTV_FAKE_FETCH=1 SNTV_NO_RELAY=1 HOME="$(home_with relay2 "$HDRP")"
+grep -q "the TV's player can't send them" "$OUT/relay_off.log" && ! grep -q "relay:" "$OUT/relay_off.log" \
+  || { echo "with the relay off, the header source did not open directly"; grep -E "relay|player: (candidate|source)" "$OUT/relay_off.log"; exit 1; }
+run relay_seek 600 "right,ok,down,down,play,wait,wait" "$HDR" SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=131072 HOME="$(home_with relay3 "$HDRP")"
+grep -q "relay: 127.0.0.1 from 131072-196607, 206" "$OUT/relay_seek.log" && grep -q "video(null): fetched 65536 bytes, status 206" "$OUT/relay_seek.log" \
+  || { echo "a seek's bytes did not come through the relay"; grep -E "relay|video\(null\)" "$OUT/relay_seek.log"; exit 1; }
+run relay_fallback 900 "right,ok,down,down,play,wait,wait" "$HDR" SNTV_FAKE_FETCH=1 SNTV_FAKE_FAIL_LOADS=1 HOME="$(home_with relay4 "$HDRP")"
+grep -q "player: source 1 did not start through the relay; opening its link directly" "$OUT/relay_fallback.log" && grep -q "player: candidate 2/" "$OUT/relay_fallback.log" \
+  || { echo "a source the relay did not get playing was not opened directly, then the next"; grep -E "relay|player: (candidate|source)" "$OUT/relay_fallback.log"; exit 1; }
 # Faster starts. Resting on an episode checks the source Play would start (the /fast addon's
 # cached copy, behind a redirect): Play reuses that check, runs no race, opens where the
 # link led, and the start is timed

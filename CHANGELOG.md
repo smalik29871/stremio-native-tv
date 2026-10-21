@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.43
 
 - **Sources that need request headers now play.** Some addons hand out links that only
   answer when asked with a particular header (a Referer, a cookie), which the TV's
