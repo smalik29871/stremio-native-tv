@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **See the subtitles while you change them.** Moving into Look and timing shrinks the
+  drawer to a small card with just the setting you're on, at the top of the screen (at the
+  bottom when subtitles are set to the top). The controls hide, and when nobody is speaking a
+  sample line shows the size, style and position. Back opens the full drawer again.
+
 ## 0.10.47
 
 - **Subtitle settings are easy to find.** In the player's Subtitles drawer, Look and timing

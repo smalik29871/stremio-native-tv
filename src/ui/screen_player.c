@@ -259,6 +259,7 @@ static void cand_addon(const PlayCandidate *c, char *out, size_t n);
 static void describe_track(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn);
 static int xl_available(Player *p);
 static void draw_subs_panel(Player *p);
+static int subs_tuning(const Player *p);
 static int cast_n(const Player *p, const TmdbInfo **tm);
 static int open_cast(Player *p);
 static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n);
@@ -2274,7 +2275,9 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     const char *text = p->track_loaded ? subs_at(&p->track, vi->position) : NULL;
     const char *text2 = p->track2_loaded ? subs_at(&p->track2, vi->position) : NULL;
     float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
-    if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
+    if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && !subs_tuning(p) && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
+    int r = subs_tuning(p) ? p->subs_row : -1;
+    if (!text && !text2 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS)) text = "Subtitles will look like this";   /* nothing said right now: a sample to judge by */
     if (text) ui_subtitle(text, bottom, sub_size(p), g_app.subs_style);
     if (text2) {   /* the second language sits above the first (or where it would be) */
         float lift = text ? font_height(ui_subtitle_font(sub_size(p))) * 1.04f * 2 + 24 : 0;
@@ -3450,6 +3453,7 @@ static void draw(Screen *s)
         app_redraw();
     }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */
+    if (subs_tuning(p)) overlay = 0;   /* the subtitles being changed have the screen */
     if (error_final(p, &vi)) {
         if (!p->card_logged) { p->card_logged = 1; p->menu = 0; perf_start_done(0); LOGI("player: error card (%s): every source and fresh link tried", p->tb_error[0] ? p->tb_error : vi.error); }
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
@@ -4186,6 +4190,41 @@ static float sheet_chip(const char *t, float x, float y, int foc, int accent)
     return w + 8;
 }
 
+/* Changing a look or timing setting: the drawer steps aside so the subtitles can be seen */
+static int subs_tuning(const Player *p)
+{
+    return p->menu == MENU_SUBS && p->subs_col == 1 && p->subs_group == SG_LOOK;
+}
+
+/* A small card with only the setting being changed, at the top (or the bottom when the
+ * subtitles are at the top), the picture and its subtitles left clear. */
+static void draw_subs_tuner(Player *p, float e)
+{
+    const float W = 1040, H = 176, X = (SNTV_UI_W - W) / 2, Y = g_app.subs_pos == 2 ? SNTV_UI_H - H - 48 : 40, PAD = 40;
+    int row = p->subs_row < 0 ? 0 : p->subs_row > SUB_SYNC ? SUB_SYNC : p->subs_row;
+    gfx_set_alpha(e);
+    gfx_rrect(X, Y, W, H, 32, RGBA(0x15, 0x16, 0x1A, 0xE8));
+    char kick[64];
+    snprintf(kick, sizeof kick, "LOOK AND TIMING  \xC2\xB7  %d OF %d", row + 1, SUB_SYNC + 1);
+    font_draw_tracked(kick, X + PAD, Y + 26, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x73), 1.5f);
+    for (int i = 0; i <= SUB_SYNC; i++)   /* where this one sits among them */
+        gfx_circle(X + W - PAD - (SUB_SYNC - i) * 22 - 5, Y + 34, i == row ? 5 : 4, i == row ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x30));
+    char v[160];
+    subs_setting(p, row, v, sizeof v);
+    int adj = row != SUB_SYNC;
+    float ry = Y + 62, rh = 64, vy = ry + rh / 2;
+    gfx_rrect(X + 20, ry, W - 40, rh, R_KEY, THEME_FOCUS);
+    font_draw(SET_LABEL[row], X + PAD + 4, vy - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, THEME_ON_FOCUS);
+    float vw = font_measure(v, FONT_M | FONT_B), vr = X + W - PAD - (adj ? 30 : 0);
+    font_draw(v, vr - vw, vy - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, THEME_ON_FOCUS);
+    if (adj) { ui_icon(ICON_CHEVRON_LEFT, vr - vw - 22, vy, 22, THEME_ON_FOCUS); ui_icon(ICON_CHEVRON_RIGHT, vr + 16, vy, 22, THEME_ON_FOCUS); }
+    char hint[200];
+    snprintf(hint, sizeof hint, "%s%sUp/Down  other settings   \xC2\xB7   Back  all subtitles", adj ? "Left/Right  change   \xC2\xB7   " : "OK  on or off   \xC2\xB7   ",
+             row == SUB_TIMING ? "OK  reset   \xC2\xB7   " : "");
+    font_draw_fit(hint, X + PAD, Y + H - 40, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
+    gfx_set_alpha(1);
+}
+
 static void draw_subs_panel(Player *p)
 {
     const float SW = 1180, SX = SNTV_UI_W - 64 - SW, SY = 32, SH = SNTV_UI_H - SY - 48, PAD = 40;
@@ -4193,6 +4232,7 @@ static void draw_subs_panel(Player *p)
     if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; if (getenv("SNTV_SCREENSHOT")) LOGI("UI check: player drawer=%d", p->menu); }
     if (p->menu_t < 1) { p->menu_t += 0.1f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
     float e = 1 - (1 - p->menu_t) * (1 - p->menu_t);
+    if (subs_tuning(p)) { draw_subs_tuner(p, e); return; }
     gfx_gradient_h(SX - 700, 0, 700 + SW + 64, SNTV_UI_H, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x6B * e)));
     gfx_set_alpha(e);
     gfx_set_translate(40 * (1 - e), 0);
