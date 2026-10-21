@@ -143,6 +143,10 @@ grep -q "streams: prefetching tt0903747:1:2" "$OUT/next_early.log" || { echo "th
 # and asked again in the last minutes when the answers have aged (here after 1 s)
 run next_renewed 600 "right,ok,down,down,ok,wait,wait,wait" HOME="$(home_with nextrenew '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=200 SNTV_PREFETCH_RENEW=1
 grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { echo "the next episode's sources were not renewed near the end"; grep -E "streams:" "$OUT/next_renewed.log"; exit 1; }
+# a source named for another episode never plays by itself, however good it looks
+run wrong_episode_skipped 500 "right,ok,down,down,ok,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
+grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep "player: candidate" "$OUT/wrong_episode_skipped.log" | grep -q "?ep=4" \
+  || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
 run player_next_loading 300 "right,ok,down,down,ok,wait,down,right" "$SLOW" SNTV_FAKE_START=300
 run player_next_ring 300 "right,ok,down,down,ok,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
 run player_skipped 300 "right,ok,down,down,ok,wait,ok"

@@ -30,6 +30,7 @@ static Streams *g_live;
 struct Streams {
     MetaPreview meta;
     char *video_id, *video_title;
+    EpisodeHint ep; int ep_known;   /* what video_id is, for the episode check (worked out once) */
     int chaining;             /* from Up Next: plays the source most like `chain` by itself */
     ChainHint chain;
     Stream *items; int n;
@@ -114,6 +115,36 @@ static const char *rule_broken(const Stream *s)
     return NULL;
 }
 
+/* The one gate for every automatic choice (the recommendation, Play, the next episode,
+ * the fallbacks behind a source, the start race, asking again): the reason this source
+ * must not be played without the viewer picking it, or NULL. Ranking only orders what
+ * passes. A source picked by hand from the list still plays. */
+static const char *ineligible(const Streams *st, const Stream *s)
+{
+    if (is_notice(s)) return "a notice, not a video";
+    if (!playable(s)) return "it cannot play on this TV";
+    if (s->probe_state == 4) return "its link does not answer";
+    if (s->url && app_link_dead(s->url)) return "its link failed a moment ago";
+    const char *rule = rule_broken(s);
+    if (rule) return rule;
+    if (st && st->video_id) {   /* named for another episode: "S01E04" when this is E05 */
+        Streams *m = (Streams *)st;
+        if (!m->ep_known) { app_episode_hint(m->meta.id, m->meta.name, m->video_id, &m->ep); m->ep_known = 1; }
+        if (m->ep.episode > 0) {
+            char line[300];
+            const char *nl;
+            if (s->filename && quality_episode_score(s->filename, &m->ep) < 0) return "it is another episode";
+            const char *t = s->title ? s->title : s->description;
+            if (t) {
+                nl = strchr(t, '\n');
+                snprintf(line, sizeof line, "%.*s", nl ? (int)(nl - t) : (int)strlen(t), t);
+                if (quality_episode_score(line, &m->ep) < 0 && !(s->filename && quality_episode_score(s->filename, &m->ep) > 0)) return "it is another episode";
+            }
+        }
+    }
+    return NULL;
+}
+
 /* The source's name mentions the preferred audio language (or MULTI / DUAL). */
 static int has_audio_lang(const Stream *s)
 {
@@ -164,6 +195,7 @@ static long rank(const Streams *st, const Stream *s)
     if (s->tags.cached < 0) r += 6000000L;             /* needs a debrid download first: after P2P */
     if (!playable(s)) r += 100000000L;
     if (is_notice(s)) r += 200000000L;
+    { const char *g = ineligible(st, s); if (g && !strcmp(g, "it is another episode")) r += 150000000L; }   /* below every source that is this episode */
     if (s->url && app_link_dead(s->url)) r += 20000000L;
     if (st->chaining) {   /* the next episode: like the one just played, below the working-link penalties */
         int m = same_release(st, s);
@@ -274,7 +306,7 @@ static int recommended(const Streams *st)
     int best = -1;
     for (int pass = 0; pass < 2 && best < 0; pass++)   /* P2P only when nothing else plays */
         for (int i = 0; i < st->n; i++)
-            if (playable(&st->items[i]) && st->items[i].probe_state != 4 && st->items[i].score > -500 && is_p2p(&st->items[i]) == pass
+            if (!ineligible(st, &st->items[i]) && st->items[i].score > -500 && is_p2p(&st->items[i]) == pass
                 && (best < 0 || st->items[i].score > st->items[best].score)) best = i;
     return best;
 }
@@ -362,7 +394,7 @@ static void autoplay_check(Streams *st)
 {
     if (!st->chaining || st->autoplayed || !st->n) return;
     int best = -1;
-    for (int i = 0; i < st->n && best < 0; i++) if (!is_notice(&st->items[i]) && playable(&st->items[i])) best = i;
+    for (int i = 0; i < st->n && best < 0; i++) if (!ineligible(st, &st->items[i])) best = i;
     if (best < 0) return;
     int match = same_release(st, &st->items[best]) > 0;
     float waited_s = g_app.time - st->started;
@@ -507,13 +539,13 @@ int streams_prefetch_warm(const char *video_id, const char *binge_group)
     if (streams_prefetch_progress(video_id) < 1 || !g_pre.n) return 0;
     Streams st;
     memset(&st, 0, sizeof st);
-    st.items = g_pre.items; st.n = g_pre.n;
+    st.items = g_pre.items; st.n = g_pre.n; st.video_id = g_pre.video_id;
     sort_items(&st);   /* the order the Sources screen will have */
     int pick = -1;
     for (int pass = 0; pass < 2 && pick < 0; pass++)
         for (int i = 0; i < g_pre.n && pick < 0; i++) {
             const Stream *s = &g_pre.items[i];
-            if (!s->url || strncmp(s->url, "http", 4) || !playable(s) || is_notice(s)) continue;
+            if (!s->url || strncmp(s->url, "http", 4) || ineligible(&st, s)) continue;
             if (pass == 0 && !(binge_group && s->binge_group && !strcmp(binge_group, s->binge_group))) continue;
             pick = i;
         }
@@ -788,7 +820,8 @@ static void draw_aperture(Streams *st)
         const char *warn[1];
         char why[160] = "";
         if (!ok) { char *u = app_stream_playable_url(sm, why, sizeof why); free(u); }   /* the reason it cannot play here */
-        const char *note = !ok ? (why[0] ? why : "Cannot play on this TV") : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
+        const char *gate = ok ? ineligible(st, sm) : NULL;
+        const char *note = !ok ? (why[0] ? why : "Cannot play on this TV") : gate && !strcmp(gate, "it is another episode") ? "Another episode" : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
             : sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85 ? "Heavier than this connection"
             : quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 1) ? warn[0] : sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
         const char *flag = is_mine(sm) ? "In your TorBox" : from_torbox(sm) ? "From your TorBox" : is_p2p(sm) ? "P2P on this TV" : NULL;
@@ -1112,10 +1145,11 @@ static void play_from(Streams *st, int index)
             if (pass == 1 && i != rec) continue;
             if (pass == 2 && !(group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0)) continue;
             if (pass == 3 && group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0) continue;
+            if (pass > 0 && ineligible(st, &st->items[i])) continue;   /* behind the picked one: only what may play by itself */
             if (streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p |= is_p2p(&st->items[i]); c[n].recommended = i == rec; n++; }
         }
     for (int i = 0; i < st->n && !p2p; i++)
-        if (is_p2p(&st->items[i]) && streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p = 1; n++; }
+        if (is_p2p(&st->items[i]) && !ineligible(st, &st->items[i]) && streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p = 1; n++; }
     if (torrent_engine_url_is(c[0].url)) torrent_engine_start(0);   /* warm up while the player opens */
     LibraryItem *li = app_library_find(st->meta.id);
     double start = (li && li->video_id && strcmp(li->video_id, st->video_id) == 0) ? li->time_offset / 1000.0 : 0;
@@ -1137,6 +1171,7 @@ static struct {
     unsigned generation;
     float started;
     StreamsLookupCb cb; void *user;
+    char *video_id; int auto_only;   /* for the player asking by itself: only what may play by itself */
 } g_look;
 
 static void lookup_finish(void)
@@ -1145,10 +1180,18 @@ static void lookup_finish(void)
     void *user = g_look.user;
     Streams tmp;   /* ranked exactly like the Sources screen */
     memset(&tmp, 0, sizeof tmp);
-    tmp.meta = g_look.meta; tmp.items = g_look.items; tmp.n = g_look.n;
+    tmp.meta = g_look.meta; tmp.items = g_look.items; tmp.n = g_look.n; tmp.video_id = g_look.video_id;
     sort_items(&tmp);
+    int n = g_look.n;
+    if (g_look.auto_only) {   /* the eligible ones first, in their order, and only they are handed over */
+        int k = 0;
+        for (int i = 0; i < g_look.n; i++)
+            if (!ineligible(&tmp, &g_look.items[i])) { Stream t = g_look.items[k]; g_look.items[k] = g_look.items[i]; g_look.items[i] = t; k++; }
+        if (k < g_look.n) LOGI("streams: %d of %d sources may play by themselves", k, g_look.n);
+        n = k;
+    }
     g_look.cb = NULL;
-    if (cb) cb(g_look.items, g_look.n, user);
+    if (cb) cb(g_look.items, n, user);
     streams_lookup_cancel();
 }
 
@@ -1169,12 +1212,20 @@ void streams_lookup_cancel(void)
     g_look.items = NULL; g_look.n = 0; g_look.pending = 0; g_look.cb = NULL;
     meta_preview_free(&g_look.meta);
     memset(&g_look.meta, 0, sizeof g_look.meta);
+    free(g_look.video_id); g_look.video_id = NULL; g_look.auto_only = 0;
+}
+
+void streams_lookup_auto(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user)
+{
+    streams_lookup(meta, video_id, cb, user);
+    g_look.auto_only = 1;
 }
 
 void streams_lookup(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user)
 {
     streams_lookup_cancel();
     meta_preview_copy(&g_look.meta, meta);
+    g_look.video_id = video_id ? strdup(video_id) : NULL;
     g_look.cb = cb; g_look.user = user;
     g_look.started = g_app.time;
     g_look.generation += 1000;

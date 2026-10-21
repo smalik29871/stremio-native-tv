@@ -344,6 +344,17 @@ class H(BaseHTTPRequestHandler):
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
+        # /wrongep/...: its best-looking source for an episode is another episode (a 4K "S01E04" for E1)
+        if p.startswith("/wrongep/"):
+            p = p[8:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.wrongep", name="Wrong Episode", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/series/"):
+                url = STREAMS["streams"][0]["url"]
+                return self.send(200, json.dumps({"streams": [
+                    {"name": "Wrong\n2160p", "title": "Breaking.Bad.S01E04.2160p.WEB.h265-GRP\n\U0001F4BE 4.0 GB", "url": url + "?ep=4"},
+                    {"name": "Wrong\n1080p", "title": "Breaking.Bad.S01E01.1080p.WEB.h264-GRP\n\U0001F4BE 1.2 GB", "url": url + "?ep=1"}]}).encode())
+            return self.send(404, b"{}")
         # /chain/...: episode sources with no bingeGroup, only release names; episode 1 has
         # only NTb, the others list another group first (Up Next should stay on NTb); NTb's
         # files are named as in a season pack, the group only in the torrent's name

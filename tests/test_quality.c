@@ -108,6 +108,14 @@ int main(void)
     CHECK(quality_episode_score("Show.S01.DD5.1.x264.mkv", &(EpisodeHint){ .season = 1, .episode = 5 }) == 0);
     CHECK(quality_episode_score("[Group] Show - 14 [1080p].mkv", &(EpisodeHint){ .season = 2, .episode = 1, .absolute = 14 }) == 2);
     CHECK(quality_episode_score("Show.S01E02.mkv", &(EpisodeHint){ 0 }) == 0);
+    /* ranges: a pack named for episodes 1 to 8 holds episode 5, not episode 9 */
+    CHECK(quality_episode_score("Show.S01E01-E08.1080p.WEB", &(EpisodeHint){ .season = 1, .episode = 5 }) == 3);
+    CHECK(quality_episode_score("Show S01E01-08 1080p", &(EpisodeHint){ .season = 1, .episode = 5 }) == 3);
+    CHECK(quality_episode_score("Show.S01E01-E08.1080p.WEB", &(EpisodeHint){ .season = 1, .episode = 9 }) == -1);
+    CHECK(quality_episode_score("Show.S01E05.1080p.x264", &(EpisodeHint){ .season = 1, .episode = 5 }) == 3);
+    CHECK(quality_episode_score("Show.S01E05.1080p.x264", &(EpisodeHint){ .season = 1, .episode = 6 }) == -1);
+    CHECK(quality_episode_score("Show.S01E05.720p.x264", &(EpisodeHint){ .season = 1, .episode = 6 }) == -1);
+    CHECK(quality_episode_score("Show.S01E05.720p.x264", &(EpisodeHint){ .season = 1, .episode = 5 }) == 3);
     /* kitsu: an id per season, the season unknown; the episode number decides */
     CHECK(quality_episode_score("Show S2/Show.S02E05.1080p.mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == 3);
     CHECK(quality_episode_score("Show S2/Show.S02E04.1080p.mkv", &(EpisodeHint){ .season = 0, .episode = 5 }) == -1);

@@ -298,11 +298,17 @@ static int names_exact(const char *w, int season, int episode, int *other)
         if (sscanf(p, "s%de%d%n", &s, &e, &len) == 2 || sscanf(p, "s%d e%d%n", &s, &e, &len) == 2
             || sscanf(p, "season %d episode %d%n", &s, &e, &len) == 2
             || (isdigit((unsigned char)p[0]) && sscanf(p, "%dx%d%n", &s, &e, &len) == 2 && s < 100)) {
+            const char *q = p + len;
+            int e2 = -1, l2 = 0;
+            /* a range: "s01e01-e08" / "s01e01 e08" / "s01e01-08" / "s01e01 s01e08" */
+            if ((sscanf(q, " e%d%n", &e2, &l2) == 1 || sscanf(q, " s%*de%d%n", &e2, &l2) == 1 || (q[0] == ' ' && isdigit((unsigned char)q[1]) && sscanf(q, " %d%n", &e2, &l2) == 1 && e2 < 1000))
+                && (q[l2] == ' ' || !q[l2]) && e2 > e && (season <= 0 || s == season)) {   /* a whole word: "720p" is no range */
+                if (episode >= e && episode <= e2) hit = 1; else *other = 1;
+                continue;
+            }
             if ((season <= 0 || s == season) && e == episode) hit = 1;
             else if (season <= 0 || s == season) {   /* s01e04e05: a double episode */
-                const char *q = p + len;
-                int e2;
-                while (*q == 'e' && sscanf(q, "e%d%n", &e2, &len) == 1) { if (e2 == episode) hit = 1; q += len; }
+                while (*q == 'e' && sscanf(q, "e%d%n", &e2, &l2) == 1) { if (e2 == episode) hit = 1; q += l2; }
                 if (!hit) *other = 1;
             } else *other = 1;
         }

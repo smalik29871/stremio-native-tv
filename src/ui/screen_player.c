@@ -51,7 +51,7 @@ enum { N_RATES = 7, RATE_NORMAL = 2 };
 typedef struct AddonSub { char *url, *lang, *addon, *release; int matched, sync_failed; int fit; char fit_why[48]; int name; } AddonSub;   /* name: release-name match 0..100 (OpenSubtitles) */   /* fit: 0 not checked, else 1..101 */
 
 typedef struct Player Player;
-typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; } SubReq;
+typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; unsigned attempt; } SubReq;   /* attempt: 0, or the source start it is about */
 
 struct Player {
     MetaPreview meta;
@@ -96,6 +96,7 @@ struct Player {
     AddonSub addon_subs[MAX_ADDON_SUBS]; int n_addon_subs;
     int subs_pending;
     unsigned gen;
+    unsigned attempt;         /* bumps at every source start: late answers about an earlier one are dropped */
     SubTrack track; int track_loaded; int active_addon_sub;   /* -1 none */
     unsigned sub_req;
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
@@ -248,6 +249,7 @@ static void on_addon_subs(HttpResponse *r, void *user)
     Player *p = q->owner;
     if (p != g_live || q->gen != p->gen) { free(q); return; }
     p->subs_pending--;
+    if (q->attempt && q->attempt != p->attempt) { free(q); return; }   /* matched to an earlier source's file */
     Subtitle *subs; int n;
     if (r->status == 200 && addon_parse_subtitles(r->body, &subs, &n) == 0) {
         const char *addon_name = q->addon < g_app.n_addons ? g_app.addons[q->addon].manifest.name : "addon";
@@ -299,8 +301,8 @@ static void query_addon_subs_ex(Player *p, int hashed)
         if (!addon_supports(&g_app.addons[i], "subtitles", p->meta.type, p->video_id)) continue;
         char url[1400];
         addon_url_subtitles(&g_app.addons[i], p->meta.type, p->video_id, extra[0] ? extra : NULL, url, sizeof url);
-        SubReq *q = malloc(sizeof *q);
-        q->owner = p; q->gen = p->gen; q->addon = i; q->slot = 0; q->hashed = hashed;
+        SubReq *q = calloc(1, sizeof *q);
+        q->owner = p; q->gen = p->gen; q->addon = i; q->slot = 0; q->hashed = hashed; q->attempt = hashed ? p->attempt : 0;
         p->subs_pending++;
         http_request_async(url, NULL, on_addon_subs, q);
     }
@@ -324,17 +326,17 @@ static void on_hash_part(HttpResponse *r, void *user)
 {
     SubReq *q = user;
     Player *p = q->owner;
-    int tail = q->slot;
+    int tail = q->slot, stale = q->attempt != p->attempt || q->gen != p->gen;
     free(q);
-    if (p != g_live) return;
+    if (p != g_live || stale) return;   /* about an earlier source */
     if ((r->status != 200 && r->status != 206) || r->len < 8) { p->hash_state = 4; LOGI("subs: file hash unavailable (%ld)", r->status); return; }
     p->os_sum += sum64((const uint8_t *)r->body, r->len);
     if (!tail) {
         p->os_size = r->total_size ? r->total_size : (uint64_t)r->len;
         if (p->os_size < 131072) { p->hash_state = 4; return; }
         p->hash_state = 2;
-        SubReq *q2 = malloc(sizeof *q2);
-        q2->owner = p; q2->gen = p->gen; q2->addon = -1; q2->slot = 1; q2->hashed = 0;
+        SubReq *q2 = calloc(1, sizeof *q2);
+        q2->owner = p; q2->gen = p->gen; q2->addon = -1; q2->slot = 1; q2->hashed = 0; q2->attempt = p->attempt;
         HttpOptions opt = { .range_bytes = 65536, .range_start = p->os_size - 65536, .timeout_s = 8, .no_json_accept = 1 };
         http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q2);
         return;
@@ -350,8 +352,8 @@ static void hash_start(Player *p)
 {
     p->hash_state = 1; p->os_sum = 0; p->os_size = 0;
     if (strncmp(p->cands[p->cur].url, "http", 4) != 0) { p->hash_state = 4; return; }
-    SubReq *q = malloc(sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0;
+    SubReq *q = calloc(1, sizeof *q);
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0; q->attempt = p->attempt;
     HttpOptions opt = { .range_bytes = 65536, .range_start = 0, .timeout_s = 8, .no_json_accept = 1 };
     http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q);
 }
@@ -471,7 +473,7 @@ static void opensubs_tick(Player *p)
     if (c && sscanf(c + 1, "%d:%d", &season, &episode) != 2) season = episode = -1;
     const char *l1 = lang_iso1(g_app.pref_subs);
     char langs[32]; snprintf(langs, sizeof langs, "%s", l1 ? l1 : "en");
-    SubReq *q = malloc(sizeof *q);
+    SubReq *q = calloc(1, sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0;
     p->subs_pending++;
     opensubs_search(imdb, season, episode, p->hash_state == 3 ? p->os_hash : "", langs, on_os_results, q);
@@ -490,7 +492,7 @@ static void select_addon_sub_slot(Player *p, int idx, int slot)
         xl_stop(p);
     }
     if (idx < 0) return;
-    SubReq *q = malloc(sizeof *q);
+    SubReq *q = calloc(1, sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = slot;
     unsigned req = sub_get(p->addon_subs[idx].url, on_sub_file, q);
     if (!slot) p->sub_req = req;
@@ -882,7 +884,7 @@ static void bestmatch_tick(Player *p, const VideoInfo *vi)
         p->bm_state = 1; p->bm_pending = p->bm_n;
         for (int k = 0; k < p->bm_n; k++) {
             memset(&p->bm_track[k], 0, sizeof p->bm_track[k]); p->bm_ok[k] = 0;
-            SubReq *q = malloc(sizeof *q);
+            SubReq *q = calloc(1, sizeof *q);
             q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = k; q->hashed = 0;
             sub_get(p->addon_subs[p->bm_idx[k]].url, on_bm_file, q);
         }
@@ -922,7 +924,7 @@ static void autosync_tick(Player *p)
     if (p->ref_idx != ref || (!p->ref_loaded && p->sync_state != 1)) {   /* fetch the reference */
         p->ref_idx = ref; p->sync_state = 1; p->ref_loaded = 0;
         subs_free(&p->ref);
-        SubReq *q = malloc(sizeof *q);
+        SubReq *q = calloc(1, sizeof *q);
         q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 2; q->hashed = 0;
         sub_get(p->addon_subs[ref].url, on_sub_file, q);
         return;
@@ -967,7 +969,7 @@ static void on_player_probe(HttpResponse *r, void *user)
 {
     SubReq *q = user;
     Player *p = q->owner;
-    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    if (p != g_live || q->gen != p->gen || q->attempt != p->attempt) { free(q); return; }   /* the file of an earlier source */
     free(q);
     if ((r->status != 200 && r->status != 206) || r->len == 0) return;
     ProbeInfo *info = malloc(sizeof *info);
@@ -986,8 +988,8 @@ static void probe_current(Player *p)
     p->probe_asked = 1;
     const char *url = p->cands[p->cur].url;
     if (strncmp(url, "http", 4) != 0) return;
-    SubReq *q = malloc(sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0;
+    SubReq *q = calloc(1, sizeof *q);
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->attempt = p->attempt;
     HttpOptions opt = { .range_bytes = 2u << 20, .range_start = 0, .timeout_s = 8, .no_json_accept = 1 };
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
@@ -1147,7 +1149,7 @@ static void ask_aniskip(Player *p, long mal)
     video_info(&vi);
     char url[400];
     skip_url_aniskip(mal, p->skip_id.episode, vi.duration, url, sizeof url);
-    SubReq *q = malloc(sizeof *q);
+    SubReq *q = calloc(1, sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1;
     http_request_async(url, NULL, on_aniskip, q);
 }
@@ -1174,7 +1176,7 @@ static void skip_fetch(Player *p, const VideoInfo *vi)
     p->skip_state = 1;
     if (skip_parse_video_id(p->video_id, &p->skip_id) != 0) { p->skip_state = 2; return; }
     char url[400];
-    SubReq *q = malloc(sizeof *q);
+    SubReq *q = calloc(1, sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1;
     switch (p->skip_id.src) {
     case SKIP_SRC_IMDB:
@@ -1236,13 +1238,13 @@ static void start_candidate(Player *p, int idx, double start);
 static void fail_over(Player *p, const char *why);
 
 /* A torrent TorBox has cached: its link comes from TorBox when the source's turn comes */
-typedef struct { Player *owner; int idx; double start; char *link; } TbReq;
+typedef struct { Player *owner; int idx; double start; char *link; unsigned attempt; } TbReq;
 
 static void on_torbox_open(const char *url, const char *error, void *user)
 {
     TbReq *q = user;
     Player *p = q->owner;
-    int current = p == g_live && !p->finished && q->idx == p->cur && !strcmp(p->cands[q->idx].url, q->link);
+    int current = p == g_live && !p->finished && q->attempt == p->attempt && q->idx == p->cur && !strcmp(p->cands[q->idx].url, q->link);
     if (current && url) {
         free(p->cands[q->idx].url);
         p->cands[q->idx].url = strdup(url);
@@ -1259,6 +1261,7 @@ static void on_torbox_open(const char *url, const char *error, void *user)
 static void start_candidate(Player *p, int idx, double start)
 {
     if (idx != p->cur) { p->net_retries = 0; p->net_played = 0; }   /* another source: its own count */
+    p->attempt++;
     p->net_retry_at = 0; p->net_reconnecting = 0;   /* a source chosen meanwhile, or Reload, replaces a pending reconnect */
     for (int r = 0; r < 2; r++)
         if (torbox_is_hash_link(p->cands[idx].url) && p->ready[r].url && p->ready[r].link && !strcmp(p->ready[r].link, p->cands[idx].url)
@@ -1296,7 +1299,7 @@ static void start_candidate(Player *p, int idx, double start)
         if (video_load_count() != p->own_load) video_stop();   /* a trailer still on the plane; this player's own source plays on meanwhile */
         p->error_handled = 1;   /* nothing to watch over until TorBox answers */
         TbReq *q = malloc(sizeof *q);
-        q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url);
+        q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url); q->attempt = p->attempt;
         EpisodeHint ep;
         app_episode_hint(p->meta.id, p->meta.name, p->video_id, &ep);
         torbox_open_hash(p->cands[idx].url, &ep, on_torbox_open, q);
@@ -1425,12 +1428,12 @@ static void fail_over(Player *p, const char *why)
 /* ---- fallback while watching ------------------------------------------------------ */
 
 
-typedef struct { Player *owner; unsigned gen; int idx, slot; } WarmReq;
+typedef struct { Player *owner; unsigned gen, attempt; int idx, slot; } WarmReq;
 static void on_warm(HttpResponse *r, void *user)
 {
     WarmReq *q = user;
     Player *p = q->owner;
-    if (p == g_live && q->gen == p->gen && q->idx == p->warm[q->slot].idx) {
+    if (p == g_live && q->gen == p->gen && q->attempt == p->attempt && q->idx == p->warm[q->slot].idx) {
         p->warm[q->slot].at = g_app.time;
         if (r->status == 200 || r->status == 206) {
             p->warm[q->slot].state = 2; p->warm[q->slot].s = (float)r->seconds;
@@ -1450,7 +1453,7 @@ static void on_warm_tb(const char *url, const char *error, void *user)
 {
     WarmReq *q = user;
     Player *p = q->owner;
-    if (p == g_live && q->gen == p->gen && q->idx == p->warm[q->slot].idx) {
+    if (p == g_live && q->gen == p->gen && q->attempt == p->attempt && q->idx == p->warm[q->slot].idx) {
         p->warm[q->slot].at = g_app.time;
         if (url && torbox_is_hash_link(p->cands[q->idx].url)) {
             const char *key = p->cands[q->idx].url;
@@ -1560,14 +1563,14 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
         if (torbox_is_hash_link(p->cands[idx].url)) {
             p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
-            q->owner = p; q->gen = p->gen; q->idx = idx; q->slot = w;
+            q->owner = p; q->gen = p->gen; q->attempt = p->attempt; q->idx = idx; q->slot = w;
             EpisodeHint ep;
             app_episode_hint(p->meta.id, p->meta.name, p->video_id, &ep);
             torbox_open_hash(p->cands[idx].url, &ep, on_warm_tb, q);
         } else if (!strncmp(p->cands[idx].url, "http", 4) && !torrent_engine_url_is(p->cands[idx].url)) {
             p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
-            q->owner = p; q->gen = p->gen; q->idx = idx; q->slot = w;
+            q->owner = p; q->gen = p->gen; q->attempt = p->attempt; q->idx = idx; q->slot = w;
             HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1 };
             http_request_async_ex(p->cands[idx].url, &o, on_warm, q);
         } else p->warm[w].at = now + 60;
@@ -1605,7 +1608,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     /* 5. nothing left to try: ask the addons again, twice at most */
     if ((vi->state == VIDEO_ERROR || p->tb_error[0]) && p->error_handled && !p->net_retry_at && next_candidate(p) < 0 && p->reask_count < 2) {
         if (p->reask_at == 0) { p->reask_at = now + env_s("SNTV_REASK_AFTER", 2); LOGI("player: every source failed; asking the addons again for fresh links"); }
-        else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; if (p->more_state == 1) p->more_state = 0; streams_lookup(&p->meta, p->video_id, on_reask, p); }
+        else if (p->reask_at > 0 && now >= p->reask_at) { p->reask_at = -1; if (p->more_state == 1) p->more_state = 0; streams_lookup_auto(&p->meta, p->video_id, on_reask, p); }
     }
     if (p->reask_at < 0 || p->more_state == 1) streams_lookup_tick();
 }

@@ -346,6 +346,9 @@ int streams_prefetch_warm(const char *video_id, const char *binge_group);
  * drops the previous. The player uses it to leave P2P when TorBox has the title again. */
 typedef void (*StreamsLookupCb)(const Stream *items, int n, void *user);
 void streams_lookup(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user);
+/* The same, for the player asking by itself: only the sources that may play without the
+ * viewer picking them (no notices, other episodes, dead links, broken rules). */
+void streams_lookup_auto(const MetaPreview *meta, const char *video_id, StreamsLookupCb cb, void *user);
 void streams_lookup_cancel(void);
 void streams_lookup_tick(void);
 /* A player candidate for one of those sources (0 when it cannot play here). */
