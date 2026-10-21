@@ -344,6 +344,22 @@ class H(BaseHTTPRequestHandler):
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
+        # /rich/...: a stream that needs a Referer, knows its file's hash and brings its own subtitles
+        if p.startswith("/rich/"):
+            p = p[5:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.rich", name="Rich Addon", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                return self.send(200, json.dumps({"streams": [{"name": "Rich\n4K", "title": "Movie.2024.2160p.WEB.h265\n\U0001F4BE 6.0 GB", "url": f"{BASE}/needref/movie.mkv",
+                    "behaviorHints": {"proxyHeaders": {"request": {"Referer": "https://rich.example/"}}, "videoHash": "0123456789abcdef", "videoSize": 6442450944},
+                    "subtitles": [{"id": "r1", "url": f"{BASE}/richsub/fr.srt", "lang": "fra"}]}]}).encode())
+            return self.send(404, b"{}")
+        if p.startswith("/needref/"):   # only with the Referer the addon asked for
+            if self.headers.get("Referer") != "https://rich.example/":
+                return self.send(403, b"forbidden", "text/plain")
+            return self.send(206, b"\x1a\x45\xdf\xa3" + b"\0" * 60, "video/x-matroska")
+        if p.startswith("/richsub/"):
+            return self.send(200, SRT.encode(), "text/plain")
         # /errpage/...: its best-looking source answers 200 with an HTML "link expired" page
         if p.startswith("/errpage/"):
             p = p[8:]

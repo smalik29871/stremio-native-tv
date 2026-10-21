@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+From a review of how sources are chosen and played:
+
+- **Answers have a size budget.** A check asks for a few kilobytes of a file, but a server
+  may ignore that and send the whole file; it was all kept in memory. Every answer now
+  stops at its budget (what was asked for, or 64 MB at most).
+- **One gate for every automatic choice.** The recommendation, Play, the next episode, the
+  sources queued behind the one playing, the start race and asking the addons again each
+  had their own rules, some only lowering a score. Now a source that is a notice, cannot
+  play here, does not answer, breaks your rules or is named for another episode never
+  plays by itself (it stays in the list, marked, for you to pick). Episode ranges
+  ("S01E01-E08") count as holding their episodes.
+- **A season pack never plays a file that says it is another episode.** When the pack
+  names its episodes and this one is missing, or several files could be it and nothing
+  tells which, the next source plays instead of the largest file.
+- **Late answers about an earlier source are dropped.** Switching source now starts a new
+  attempt; a file header, file hash, matched subtitles, TorBox link or backup check that
+  arrives for the source before is ignored instead of applied to the new one.
+- **Audio this TV can't decode is fixed by itself.** Instead of asking you to pick another
+  track, the player switches to one (the same language first); when no track plays, it
+  moves to another source at the same moment.
+- **The TV profile learns only from decoder failures.** A network drop, an expired link or a
+  TorBox error no longer counts as "this TV can't play HEVC / DTS / ...".
+- **An error page is not a video.** A link answering 200 with an HTML or JSON page ("link
+  expired") loses the start race and fails its checks.
+- **What an addon says about its stream is kept:** the request headers it needs (sent with
+  every check), the file's hash (subtitles matched to that exact file, without working it
+  out) and the subtitles it sends with the stream.
+
 ## 0.10.39
 
 - **A Cast button in the player.** The full cast opened only with the Info key, which most

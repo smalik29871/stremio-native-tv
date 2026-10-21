@@ -93,6 +93,9 @@ typedef struct Stream {
     int not_web_ready;
     char *binge_group, *filename;
     char *trackers;             /* "tr=<enc>&tr=<enc>" from "sources" (tracker:...), for torrents */
+    char *headers;              /* behaviorHints.proxyHeaders.request as "Name: value" lines, NULL none */
+    char *video_hash;           /* behaviorHints.videoHash (OpenSubtitles hash of the file), NULL unknown */
+    char *subs;                 /* the stream's own subtitles as "lang\turl" lines, NULL none */
     uint64_t video_size;
     char *addon_name;           /* filled by the aggregator, not the parser */
     int addon_order;            /* position of that addon in the user's list */

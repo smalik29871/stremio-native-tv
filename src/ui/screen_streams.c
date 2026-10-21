@@ -272,7 +272,7 @@ static void probe_next(Streams *st)
     st->probe_inflight = 1;
     ProbeReq *q = malloc(sizeof *q);
     q->owner = st; q->gen = st->probe_gen; q->url = strdup(s->url);
-    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1 };
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = s->headers };   /* the headers it asks for */
     http_request_async_ex(s->url, &opt, on_probe, q);
 }
 
@@ -551,7 +551,7 @@ int streams_prefetch_warm(const char *video_id, const char *binge_group)
         }
     if (pick < 0) return 0;
     LOGI("streams: warming the next episode's file (%s)", g_pre.items[pick].addon_name ? g_pre.items[pick].addon_name : "addon");
-    HttpOptions o = { .range_bytes = 2u << 20, .timeout_s = 20, .no_json_accept = 1 };
+    HttpOptions o = { .range_bytes = 2u << 20, .timeout_s = 20, .no_json_accept = 1, .headers = g_pre.items[pick].headers };
     http_request_async_ex(g_pre.items[pick].url, &o, on_warm_next, NULL);
     return 1;
 }
@@ -1022,6 +1022,9 @@ int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c
     c->release = rel[0] ? strdup(rel) : NULL;
     c->addon_order = s->addon_order;
     c->video_size = s->video_size;
+    c->headers = s->headers ? strdup(s->headers) : NULL;
+    c->video_hash = s->video_hash ? strdup(s->video_hash) : NULL;
+    c->subs = s->subs ? strdup(s->subs) : NULL;
     c->needs = quality_needs(&s->tags);
     c->res = s->tags.res;
     char b[8][24];
@@ -1085,7 +1088,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
         RaceReq *q = malloc(sizeof *q);
         q->idx = i; q->round = g_race_round;
         r->pending++;
-        HttpOptions o = { .range_bytes = 2, .timeout_s = 3, .no_json_accept = 1 };   /* none answering costs 3 s at most, then they play in order */
+        HttpOptions o = { .range_bytes = 2, .timeout_s = 3, .no_json_accept = 1, .headers = c[i].headers };   /* none answering costs 3 s at most, then they play in order */
         http_request_async_ex(c[i].url, &o, on_race, q);
     }
     LOGI("streams: racing %d sources", r->pending);

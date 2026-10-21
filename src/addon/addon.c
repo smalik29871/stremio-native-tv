@@ -596,9 +596,27 @@ int addon_parse_streams(const char *json, Stream **out, int *n)
             s->filename = jstr(bh, "filename");
             const cJSON *vs = cJSON_GetObjectItemCaseSensitive(bh, "videoSize");
             if (cJSON_IsNumber(vs)) s->video_size = (uint64_t)vs->valuedouble;
+            s->video_hash = jstr(bh, "videoHash");
+            /* headers the source needs ("proxyHeaders": {"request": {"Referer": ...}}) */
+            const cJSON *req = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(bh, "proxyHeaders"), "request"), *h;
+            char hb[1024] = ""; size_t hu = 0;
+            cJSON_ArrayForEach(h, req)
+                if (cJSON_IsString(h) && h->string && !strpbrk(h->string, "\r\n:") && !strpbrk(h->valuestring, "\r\n") && hu + strlen(h->string) + strlen(h->valuestring) + 4 < sizeof hb)
+                    hu += (size_t)snprintf(hb + hu, sizeof hb - hu, "%s%s: %s", hu ? "\n" : "", h->string, h->valuestring);
+            if (hu) s->headers = strdup(hb);
         }
+        /* subtitles that come with the stream: made for this file */
+        const cJSON *ss = cJSON_GetObjectItemCaseSensitive(it, "subtitles"), *sub;
+        char sb[4096] = ""; size_t su = 0;
+        cJSON_ArrayForEach(sub, ss) {
+            const cJSON *u = cJSON_GetObjectItemCaseSensitive(sub, "url"), *l = cJSON_GetObjectItemCaseSensitive(sub, "lang");
+            if (!cJSON_IsString(u) || strpbrk(u->valuestring, "\t\n") || su + strlen(u->valuestring) + 16 >= sizeof sb) continue;
+            su += (size_t)snprintf(sb + su, sizeof sb - su, "%.8s\t%s\n", cJSON_IsString(l) ? l->valuestring : "und", u->valuestring);
+        }
+        if (su) s->subs = strdup(sb);
         if (s->url || s->yt_id || s->info_hash || s->external_url) (*n)++;
-        else { free(s->url); free(s->yt_id); free(s->info_hash); free(s->external_url); free(s->name); free(s->title); free(s->description); free(s->binge_group); free(s->filename); free(s->trackers); memset(s, 0, sizeof *s); }
+        else { free(s->url); free(s->yt_id); free(s->info_hash); free(s->external_url); free(s->name); free(s->title); free(s->description); free(s->binge_group); free(s->filename); free(s->trackers);
+               free(s->headers); free(s->video_hash); free(s->subs); memset(s, 0, sizeof *s); }
     }
     cJSON_Delete(root);
     *out = arr;
@@ -612,6 +630,7 @@ void streams_free(Stream *s, int n)
         free(s[i].name); free(s[i].title); free(s[i].description);
         free(s[i].binge_group); free(s[i].filename); free(s[i].addon_name);
         free(s[i].trackers); free(s[i].probe);
+        free(s[i].headers); free(s[i].video_hash); free(s[i].subs);
     }
     if (n) free(s);
 }

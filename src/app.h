@@ -36,6 +36,7 @@ typedef struct PlayCandidate {
     int res;                    /* vertical resolution from the source's name, 0 unknown */
     char badges[96];            /* "4K|DOLBY VISION|HEVC|CACHED|2.1 GB", as the Sources page shows them */
     int recommended;            /* the Sources page's pick */
+    char *headers, *video_hash, *subs;   /* from the stream (Stream.headers, .video_hash, .subs), NULL none */
 } PlayCandidate;
 
 /* The source an episode played from, so the next one can match it (Up Next) */

@@ -338,7 +338,7 @@ static void on_hash_part(HttpResponse *r, void *user)
         p->hash_state = 2;
         SubReq *q2 = calloc(1, sizeof *q2);
         q2->owner = p; q2->gen = p->gen; q2->addon = -1; q2->slot = 1; q2->hashed = 0; q2->attempt = p->attempt;
-        HttpOptions opt = { .range_bytes = 65536, .range_start = p->os_size - 65536, .timeout_s = 8, .no_json_accept = 1 };
+        HttpOptions opt = { .range_bytes = 65536, .range_start = p->os_size - 65536, .timeout_s = 8, .no_json_accept = 1, .headers = p->cands[p->cur].headers };
         http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q2);
         return;
     }
@@ -351,11 +351,20 @@ static void on_hash_part(HttpResponse *r, void *user)
 
 static void hash_start(Player *p)
 {
+    const PlayCandidate *c = &p->cands[p->cur];
+    if (c->video_hash && strlen(c->video_hash) == 16 && strspn(c->video_hash, "0123456789abcdefABCDEF") == 16) {   /* the addon knows it */
+        snprintf(p->os_hash, sizeof p->os_hash, "%s", c->video_hash);
+        p->os_size = c->video_size;
+        p->hash_state = 3;
+        LOGI("subs: file hash %s from the addon, asking for matched subtitles", p->os_hash);
+        query_addon_subs_ex(p, 1);
+        return;
+    }
     p->hash_state = 1; p->os_sum = 0; p->os_size = 0;
     if (strncmp(p->cands[p->cur].url, "http", 4) != 0) { p->hash_state = 4; return; }
     SubReq *q = calloc(1, sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->hashed = 0; q->attempt = p->attempt;
-    HttpOptions opt = { .range_bytes = 65536, .range_start = 0, .timeout_s = 8, .no_json_accept = 1 };
+    HttpOptions opt = { .range_bytes = 65536, .range_start = 0, .timeout_s = 8, .no_json_accept = 1, .headers = p->cands[p->cur].headers };
     http_request_async_ex(p->cands[p->cur].url, &opt, on_hash_part, q);
 }
 
@@ -991,7 +1000,7 @@ static void probe_current(Player *p)
     if (strncmp(url, "http", 4) != 0) return;
     SubReq *q = calloc(1, sizeof *q);
     q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = 0; q->attempt = p->attempt;
-    HttpOptions opt = { .range_bytes = 2u << 20, .range_start = 0, .timeout_s = 8, .no_json_accept = 1 };
+    HttpOptions opt = { .range_bytes = 2u << 20, .range_start = 0, .timeout_s = 8, .no_json_accept = 1, .headers = p->cands[p->cur].headers };
     http_request_async_ex(url, &opt, on_player_probe, q);
 }
 
@@ -1259,6 +1268,34 @@ static void on_torbox_open(const char *url, const char *error, void *user)
     free(q);
 }
 
+/* Subtitles that come with the stream ("subtitles" in its answer): made for this file. */
+static void add_stream_subs(Player *p, const PlayCandidate *c)
+{
+    if (!c->subs) return;
+    int added = 0;
+    char addon[96];
+    snprintf(addon, sizeof addon, "%.*s", c->label ? (int)strcspn(c->label, "-") : 0, c->label ? c->label : "");
+    while (addon[0] && addon[strlen(addon) - 1] == ' ') addon[strlen(addon) - 1] = 0;
+    for (const char *line = c->subs; *line && p->n_addon_subs < MAX_ADDON_SUBS; ) {
+        const char *tab = strchr(line, '\t'), *end = strchr(line, '\n');
+        if (!tab || !end || tab > end) break;
+        char lang[16], url[1024];
+        snprintf(lang, sizeof lang, "%.*s", (int)(tab - line), line);
+        snprintf(url, sizeof url, "%.*s", (int)(end - tab - 1), tab + 1);
+        line = end + 1;
+        int seen = 0;
+        for (int k = 0; k < p->n_addon_subs && !seen; k++) seen = !strcmp(p->addon_subs[k].url, url);
+        if (seen) continue;
+        AddonSub *as = &p->addon_subs[p->n_addon_subs++];
+        memset(as, 0, sizeof *as);
+        as->url = strdup(url); as->lang = strdup(lang[0] ? lang : "und");
+        as->addon = strdup(addon[0] ? addon : "This source");
+        as->matched = 1;   /* sent with the file itself */
+        added++;
+    }
+    if (added) { LOGI("subs: %d subtitle(s) came with the source", added); if (!p->subs_user) p->subs_auto_done = 0; }
+}
+
 static void start_candidate(Player *p, int idx, double start)
 {
     if (idx != p->cur) { p->net_retries = 0; p->net_played = 0; }   /* another source: its own count */
@@ -1295,6 +1332,8 @@ static void start_candidate(Player *p, int idx, double start)
     p->drain_n = 0; p->drain_t = 0;
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
+    add_stream_subs(p, &p->cands[idx]);
+    if (p->cands[idx].headers) LOGI("player: source %d asks for request headers; the TV's player can't send them (its checks did), so it may not play", idx + 1);
     p->p2p_status[0] = 0;
     p->tb_error[0] = 0;
     if (torbox_is_hash_link(p->cands[idx].url)) {
@@ -1540,6 +1579,7 @@ static void on_reask(const Stream *items, int n, void *user)
 static void cand_drop(PlayCandidate *c)
 {
     free(c->url); free(c->label); free(c->binge_group); free(c->filename); free(c->detail); free(c->release);
+    free(c->headers); free(c->video_hash); free(c->subs);
 }
 
 /* "Find more sources": every addon's answer joins the panel's list while the video plays on. */
@@ -1616,7 +1656,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
             p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
             q->owner = p; q->gen = p->gen; q->attempt = p->attempt; q->idx = idx; q->slot = w;
-            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1 };
+            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1, .headers = p->cands[idx].headers };
             http_request_async_ex(p->cands[idx].url, &o, on_warm, q);
         } else p->warm[w].at = now + 60;
     }

@@ -2046,7 +2046,8 @@ const char *app_art_poster(const MetaPreview *p, char *buf, size_t n)
 
 void play_candidates_free(PlayCandidate *c, int n)
 {
-    for (int i = 0; i < n; i++) { free(c[i].url); free(c[i].label); free(c[i].binge_group); free(c[i].filename); free(c[i].detail); free(c[i].release); }
+    for (int i = 0; i < n; i++) { free(c[i].url); free(c[i].label); free(c[i].binge_group); free(c[i].filename); free(c[i].detail); free(c[i].release);
+                                  free(c[i].headers); free(c[i].video_hash); free(c[i].subs); }
     free(c);
 }
 
