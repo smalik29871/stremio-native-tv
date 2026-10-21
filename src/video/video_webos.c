@@ -763,6 +763,14 @@ void video_app_foreground(void) { g_background = 0; acb_state(ACB_STATE_PAUSED);
 static pthread_mutex_t g_install_lock = PTHREAD_MUTEX_INITIALIZER;
 static char g_install_text[160];
 static int g_install_state;
+/* The app's own bus call can be refused (the service is not among those its
+ * permissions name). The same request then goes out through luna-send-pub, the
+ * public command any app may run, with its replies written to a file. */
+#define PUB_TOOL "/usr/bin/luna-send-pub"
+#define PUB_LOG "/tmp/sntv-install.log"
+static int g_install_moved;   /* progress seen: a refusal now is a real failure */
+static int g_pub_wanted, g_pub;   /* the public way: to start / started */
+static char g_pub_payload[900];
 
 static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
 {
@@ -772,13 +780,17 @@ static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
     const cJSON *status = cJSON_GetObjectItemCaseSensitive(r, "statusText"), *pct = cJSON_GetObjectItemCaseSensitive(r, "progress");
     const cJSON *err = cJSON_GetObjectItemCaseSensitive(r, "errorText"), *ok = cJSON_GetObjectItemCaseSensitive(r, "returnValue");
     pthread_mutex_lock(&g_install_lock);
-    if (cJSON_IsFalse(ok) || cJSON_IsString(err)) {
+    if ((cJSON_IsFalse(ok) || cJSON_IsString(err)) && !g_install_moved && !g_pub) {
+        g_pub_wanted = 1;   /* refused before anything moved: the public way, from the app's thread */
+        snprintf(g_install_text, sizeof g_install_text, "Asking the Homebrew Channel another way\xE2\x80\xA6");
+    } else if (cJSON_IsFalse(ok) || cJSON_IsString(err)) {
         g_install_state = -1;
         snprintf(g_install_text, sizeof g_install_text, "%.150s", cJSON_IsString(err) ? err->valuestring : "the Homebrew Channel refused the update");
     } else if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "finished"))) {
         g_install_state = 2;
         snprintf(g_install_text, sizeof g_install_text, "Installed");
     } else if (cJSON_IsString(status)) {
+        g_install_moved = 1;
         if (cJSON_IsNumber(pct)) snprintf(g_install_text, sizeof g_install_text, "%.100s  %d%%", status->valuestring, (int)pct->valuedouble);
         else snprintf(g_install_text, sizeof g_install_text, "%.140s", status->valuestring);
     }
@@ -788,9 +800,54 @@ static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
     return 1;
 }
 
+/* the request through luna-send-pub; 0 when it went out */
+static int install_pub(void)
+{
+    if (access(PUB_TOOL, X_OK) != 0) return -1;
+    for (const char *c = g_pub_payload; *c; c++) if (*c == '\'') return -1;   /* it goes in single quotes */
+    unlink(PUB_LOG);
+    char cmd[1200];
+    snprintf(cmd, sizeof cmd, "nohup " PUB_TOOL " -i -f luna://org.webosbrew.hbchannel.service/install '%s' > " PUB_LOG " 2>&1 &", g_pub_payload);
+    LOGI("update: asking the Homebrew Channel through luna-send-pub");
+    return system(cmd) == 0 ? 0 : -1;
+}
+
+/* the latest of each field in the replies written so far */
+static void pub_read(void)
+{
+    FILE *f = fopen(PUB_LOG, "rb");
+    if (!f) return;
+    static char buf[16384];
+    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    const char *p, *last;
+    char status[100] = "";
+    double pct = -1;
+    for (p = buf, last = NULL; (p = strstr(p, "\"progress\"")) != NULL; p++) last = p;
+    if (last) { const char *c = strchr(last, ':'); if (c) pct = atof(c + 1); }
+    for (p = buf, last = NULL; (p = strstr(p, "\"statusText\"")) != NULL; p++) last = p;
+    if (last) { const char *a = strchr(last + 12, '"'); const char *b = a ? strchr(a + 1, '"') : NULL; if (a && b && b - a - 1 < (long)sizeof status) { memcpy(status, a + 1, (size_t)(b - a - 1)); status[b - a - 1] = 0; } }
+    int done = strstr(buf, "\"finished\": true") || strstr(buf, "\"finished\":true");
+    const char *err = strstr(buf, "\"errorText\"");
+    pthread_mutex_lock(&g_install_lock);
+    if (done) { g_install_state = 2; snprintf(g_install_text, sizeof g_install_text, "Installed"); }
+    else if (err) {
+        const char *a = strchr(err + 11, '"'); const char *b = a ? strchr(a + 1, '"') : NULL;
+        g_install_state = -1;
+        snprintf(g_install_text, sizeof g_install_text, "%.*s", a && b ? (int)(b - a - 1 > 150 ? 150 : b - a - 1) : 40, a && b ? a + 1 : "the Homebrew Channel refused the update");
+    } else if (status[0]) {
+        if (pct >= 0) snprintf(g_install_text, sizeof g_install_text, "%s  %d%%", status, (int)pct);
+        else snprintf(g_install_text, sizeof g_install_text, "%s", status);
+    }
+    int st = g_install_state;
+    pthread_mutex_unlock(&g_install_lock);
+    static int logged;
+    if (st != 1 && !logged) { logged = 1; LOGI("update: installer (luna-send-pub) says %.200s", buf); }
+}
+
 int video_install_update(const char *ipk_url, const char *sha256, const char *app_id)
 {
-    if (!g_bus || !L.Call) return -1;
     cJSON *p = cJSON_CreateObject();
     cJSON_AddStringToObject(p, "ipkUrl", ipk_url);
     cJSON_AddStringToObject(p, "ipkHash", sha256);
@@ -798,26 +855,48 @@ int video_install_update(const char *ipk_url, const char *sha256, const char *ap
     cJSON_AddTrueToObject(p, "subscribe");   /* progress comes as further replies */
     char *payload = cJSON_PrintUnformatted(p);
     cJSON_Delete(p);
+    snprintf(g_pub_payload, sizeof g_pub_payload, "%s", payload);
     pthread_mutex_lock(&g_install_lock);
-    g_install_state = 1;
+    g_install_state = 1; g_install_moved = 0; g_pub = 0; g_pub_wanted = 0;
     snprintf(g_install_text, sizeof g_install_text, "Asking the Homebrew Channel\xE2\x80\xA6");
     pthread_mutex_unlock(&g_install_lock);
+    if (!g_bus || !L.Call) {   /* no bus of our own: the public way only */
+        free(payload);
+        if (install_pub() != 0) return -1;
+        g_pub = 1;
+        return 0;
+    }
     LSError e; L.ErrorInit(&e);
     int sent = L.Call(g_bus, "luna://org.webosbrew.hbchannel.service/install", payload, on_install, NULL, NULL, &e);
     if (!sent) {
-        pthread_mutex_lock(&g_install_lock);
-        g_install_state = -1;
-        snprintf(g_install_text, sizeof g_install_text, "%.150s", e.message ? e.message : "the Homebrew Channel service did not answer");
-        pthread_mutex_unlock(&g_install_lock);
         ls_error_log("hbchannel install", &e);
+        pthread_mutex_lock(&g_install_lock);
+        g_pub_wanted = 1;   /* the public way, next time the screen asks */
+        pthread_mutex_unlock(&g_install_lock);
     }
     L.ErrorFree(&e);
     free(payload);
-    return sent ? 0 : -1;
+    return 0;
 }
 
 int video_install_status(char *out, size_t n)
 {
+    pthread_mutex_lock(&g_install_lock);
+    int start_pub = g_pub_wanted;
+    g_pub_wanted = 0;
+    pthread_mutex_unlock(&g_install_lock);
+    if (start_pub) {
+        LOGI("update: the app's own call was refused; trying luna-send-pub");
+        if (install_pub() == 0) g_pub = 1;
+        else {
+            pthread_mutex_lock(&g_install_lock);
+            g_install_state = -1;
+            snprintf(g_install_text, sizeof g_install_text, "The Homebrew Channel did not take the update (luna-send-pub missing)");
+            pthread_mutex_unlock(&g_install_lock);
+        }
+    }
+    static unsigned polls;
+    if (g_pub && polls++ % 15 == 0) pub_read();   /* a few times a second */
     pthread_mutex_lock(&g_install_lock);
     snprintf(out, n, "%s", g_install_text);
     int s = g_install_state;

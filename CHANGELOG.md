@@ -33,6 +33,11 @@
   episode; a file named for another episode is never taken for it. When the names
   leave several (a disc rip's title_t00, title_t01...), your AI (Settings > API keys) is
   shown the list and picks; without it, or if it is unsure, the largest file plays.
+- **Update now works on more TVs.** The app asked the Homebrew Channel to install the
+  update over its own system-bus connection, which webOS can refuse (the app's
+  permissions do not name that service): "Update failed". When that happens before
+  anything downloads, the same request now goes through luna-send-pub, the public tool
+  any app may run, and its progress shows as before.
 - **The screensaver no longer covers a video.** It came on when a video was paused, or
   stalled (webOS reports a stall as a pause), or between two sources; now nothing but a
   break takes over the player, full screen or in the corner.
