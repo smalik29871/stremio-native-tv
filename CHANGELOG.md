@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.42
 
 - **Sources start faster.**
   - Resting on an episode or a film now also checks the source Play would start, so
