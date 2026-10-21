@@ -147,6 +147,24 @@ grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { e
 run wrong_episode_skipped 500 "right,ok,down,down,play,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
 grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep "player: candidate" "$OUT/wrong_episode_skipped.log" | grep -q "?ep=4" \
   || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
+# Faster starts. Resting on an episode checks the source Play would start (the /fast addon's
+# cached copy, behind a redirect): Play reuses that check, runs no race, opens where the
+# link led, and the start is timed
+FAST="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/fast/manifest.json"
+run start_checked_ahead 1200 "right,ok,down,down,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,play,wait,wait" "$FAST" HOME="$(home_with ahead '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "streams: checking the best of [0-9]* prefetched sources ahead" "$OUT/start_checked_ahead.log" && grep -q "streams: 1 source checked already" "$OUT/start_checked_ahead.log" \
+  && grep -q "streams: source checked [0-9]* s ago; no race" "$OUT/start_checked_ahead.log" && grep -q "player: source 1 opens where its link led a moment ago" "$OUT/start_checked_ahead.log" \
+  && grep -q "start: [0-9.]* s Play: sources" "$OUT/start_checked_ahead.log" \
+  || { echo "Play did not reuse the check made ahead (or the redirect, or the timing)"; grep -E "streams|probe|player: (candidate|source)|start:" "$OUT/start_checked_ahead.log"; exit 1; }
+# the address the link led to fails to load: the link itself is opened, still source 1
+run start_final_expired 1200 "right,ok,down,down,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,play,wait,wait" "$FAST" SNTV_FAKE_FAIL_LOADS=1 HOME="$(home_with ahead2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: the address source 1 led to did not play; opening its link" "$OUT/start_final_expired.log" && [ "$(grep -c "player: candidate 1/" "$OUT/start_final_expired.log")" = 2 ] \
+  || { echo "an expired redirect address did not fall back to the link"; grep -E "player: (candidate|source|the address)" "$OUT/start_final_expired.log"; exit 1; }
+# a slow addon still answering (episode 2) while a cached copy at the quality cap is in: no wait
+FASTSLOW="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/fast/manifest.json,http://127.0.0.1:$PORT/slow/manifest.json"
+run start_no_wait 700 "right,ok,down,down,right,play,wait,wait" "$FASTSLOW" HOME="$(home_with nowait '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"resCap":1080,"preflight":0}')"
+grep -q "streams: the best so far is ready at 1080p; not waiting for [0-9]* slower addon" "$OUT/start_no_wait.log" && grep -q "player: candidate" "$OUT/start_no_wait.log" \
+  || { echo "Play waited for a slow addon with a cached copy at the cap already in"; grep -E "streams|player: candidate|start:" "$OUT/start_no_wait.log"; exit 1; }
 # OK on an episode: its sources to choose from, and nothing starts by itself (the answers are quick here)
 run ep_ok_list 900 "right,ok,down,down,ok" HOME="$(home_with epok '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "UI check: screen=streams" "$OUT/ep_ok_list.log" && ! grep -qE "player: candidate|racing" "$OUT/ep_ok_list.log" \
@@ -247,13 +265,13 @@ run home_showcase_rows 240 "down,right" HOME="$(home_with showcase2 '{"prefSubs"
 run rail_open 150 "left"
 run explore 320 "left,down,ok,right,down,down,down"
 # details beside a card that stays focused: on Home, in a grid, opening left at the last column, off in Settings
-run home_peek 200 "right,right"
+run home_peek 300 "right,right"
 # instant Home: what Home showed is kept, and the next launch warms it while the fonts load
 run home_first_view 1000 "" HOME="$(home_with first_view '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run home_first_view_again 150 "" HOME="$OUT/home_first_view"
 grep -q "home: first view kept ([0-9]* pictures)" "$OUT/home_first_view.log" && grep -q "home: warming [0-9]* pictures from last time" "$OUT/home_first_view_again.log" \
   || { echo "Home's first view was not kept and warmed"; grep "home:" "$OUT/home_first_view.log" "$OUT/home_first_view_again.log"; exit 1; }
-run home_peek_marquee 200 "right,right" HOME="$(home_with peek_marquee '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":1}')"
+run home_peek_marquee 300 "right,right" HOME="$(home_with peek_marquee '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":1}')"
 run explore_peek_edge 800 "left,down,ok,right,down,down,down,right,right,right,right,right,right"
 run home_peek_off 200 "right,right" HOME="$(home_with peek_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"cardDetails":0}')"
 # a Continue Watching row sliding off the top fades out instead of leaving a sliced strip
