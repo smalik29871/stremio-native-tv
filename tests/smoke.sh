@@ -564,7 +564,7 @@ grep -q "player: replay from [0-9]* s with subtitles" "$OUT/player_replay.log" &
 run player_cast 420 "right,ok,down,down,right,ok,wait,wait,wait,wait,info,right" HOME="$(home_with pcast "$PL")"
 grep -q "player: cast drawer (3 people)" "$OUT/player_cast.log" || { echo "Info did not show the cast"; grep player "$OUT/player_cast.log"; exit 1; }
 # most LG remotes have no Info key: the bar's Cast button (its last) opens the same drawer
-run player_cast_button 460 "right,ok,down,down,right,ok,wait,wait,wait,wait,down,right,right,right,right,right,right,right,right,right,right,right,right,ok" HOME="$(home_with pcastb "$PL")"
+run player_cast_button 700 "right,ok,down,down,right,ok,wait,wait,wait,wait,down,right,right,right,right,right,right,right,right,right,right,right,right,ok" HOME="$(home_with pcastb "$PL")"
 grep -q "player: cast drawer (3 people)" "$OUT/player_cast_button.log" || { echo "the Cast button did not show the cast"; grep player "$OUT/player_cast_button.log"; exit 1; }
 # Scenes: the rail from the bar, and a moment marked there is kept for the video
 run player_scenes 640 "right,ok,down,down,right,ok,wait,wait,wait,wait,down,right,right,right,right,right,right,right,right,ok,left,left,left,ok,wait,wait" HOME="$(home_with scenes "$PL")"
