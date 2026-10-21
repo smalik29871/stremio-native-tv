@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.47
 
 - **Subtitle settings are easy to find.** In the player's Subtitles drawer, Look and timing
   (size, style, position, timing, auto-sync, second subtitles) is now at the top, above Off,
