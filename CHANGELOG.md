@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A Cast button in the player.** The full cast opened only with the Info key, which most
+  LG remotes do not send to apps (the Magic Remote has none; on the standard remote the TV
+  can keep INFO for itself), so "Info for all" led nowhere. The control bar now ends with
+  a Cast button, and the paused screen points to it. An Info or Guide key that reaches the
+  app still opens it.
 - **No error card while the player can still fix it.** When every source in the list had
   failed it showed "This source can't be played" at once, though it then asked the addons
   for fresh links after 8 seconds. Now it asks after 2, shows what it is doing

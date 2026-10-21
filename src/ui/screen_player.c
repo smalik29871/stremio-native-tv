@@ -42,7 +42,7 @@ enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
 enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_SOURCES, MENU_EPISODES };
 /* Subtitles menu rows: the controls first, then Off and the tracks */
 enum { SUB_CHOOSE, SUB_TIMING, SUB_SIZE, SUB_STYLE, SUB_POS, SUB_SYNC, SUB_OFF, SUB_TRACKS };
-enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_COUNT };
+enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_CAST, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
 static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen", "Zoom" };
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
@@ -218,6 +218,8 @@ static void cand_addon(const PlayCandidate *c, char *out, size_t n);
 static void describe_track(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn);
 static int xl_available(Player *p);
 static void draw_subs_panel(Player *p);
+static int cast_n(const Player *p, const TmdbInfo **tm);
+static int open_cast(Player *p);
 static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n);
 
 static int subs_key(Player *p, KeyAction a);
@@ -2509,6 +2511,8 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     if (n_eps > 1 && !p->trailer) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
     if (!p->trailer && vi.duration > 0) { ids[k] = BTN_SCENES; labels[k] = "Scenes"; icons[k++] = ICON_CLOCK; }
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
+    const TmdbInfo *tm;   /* who's in it: most LG remotes have no Info key, so a button too */
+    if (!p->trailer && cast_n(p, &tm) > 0) { ids[k] = BTN_CAST; labels[k] = "Cast"; icons[k++] = ICON_USER; }
     return k;
 }
 
@@ -2639,6 +2643,7 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;
     case BTN_SCENES: p->scenes_open = 1; p->scenes_focus = scene_now(p, vi->position); p->overlay_until = 0; LOGI("player: scenes rail (%d)", scenes_list(p, vi->duration, NULL, NULL, 0)); break;
     case BTN_STATS: p->stats = !p->stats; break;
+    case BTN_CAST: open_cast(p); break;
     }
     show_overlay(p);
 }
@@ -2859,6 +2864,18 @@ static int cast_n(const Player *p, const TmdbInfo **tm)
     if (*tm && (*tm)->n_cast) return (*tm)->n_cast;
     *tm = NULL;
     return p->meta.cast.n > 12 ? 12 : p->meta.cast.n;
+}
+
+/* Who's in it, over the picture (Info, or the Cast button). 1 when there is a cast to show. */
+static int open_cast(Player *p)
+{
+    const TmdbInfo *tm;
+    int n = p->trailer ? 0 : cast_n(p, &tm);
+    if (n <= 0) return 0;
+    p->cast_open = 1; p->cast_focus = 0; p->overlay_until = 0; p->bar_focus = 0;
+    LOGI("player: cast drawer (%d people)", n);
+    app_redraw();
+    return 1;
 }
 
 static void cast_person(const Player *p, const TmdbInfo *tm, int i, const char **name, const char **role, const char **photo)
@@ -3122,7 +3139,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         float cx = x;
         int shown = 0;
         char more[48];
-        snprintf(more, sizeof more, "+%d more  \xC2\xB7  Info for all", n_cast);   /* widest it can be, room kept for it */
+        snprintf(more, sizeof more, "+%d more  \xC2\xB7  Cast button for all", n_cast);   /* widest it can be, room kept for it */
         float more_w = font_measure(more, FONT_XS | FONT_B) + 24;
         for (int i = 0; i < n_cast && i < 6; i++) {
             const char *name = tm && tm->n_cast ? tm->cast[i].name : p->meta.cast.v[i];
@@ -3151,7 +3168,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             cx += w + 12;
         }
         if (shown < n_cast) {   /* the rest are in the cast drawer */
-            snprintf(more, sizeof more, "+%d more  \xC2\xB7  Info for all", n_cast - shown);
+            snprintf(more, sizeof more, "+%d more  \xC2\xB7  Cast button for all", n_cast - shown);
             font_draw(more, cx + 12, y + (64 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
         }
         y += 64;
@@ -4263,12 +4280,9 @@ keys:
         return 1;
     case KEY_UP: p->bar_focus = 0; show_overlay(p); return 1;
     case KEY_DOWN: p->bar_focus = 1; show_overlay(p); return 1;
-    case KEY_INFO: {
-        const TmdbInfo *tm;
-        if (!p->trailer && cast_n(p, &tm) > 0) { p->cast_open = 1; p->cast_focus = 0; p->overlay_until = 0; LOGI("player: cast drawer (%d people)", cast_n(p, &tm)); app_redraw(); return 1; }
-        show_overlay(p);
+    case KEY_INFO:
+        if (!open_cast(p)) show_overlay(p);
         return 1;
-    }
     case KEY_MENU: show_overlay(p); return 1;
     case KEY_GREEN: if (p->next_video_id) go_up_next(p); return 1;
     case KEY_RED: p->stats = !p->stats; app_redraw(); return 1;
