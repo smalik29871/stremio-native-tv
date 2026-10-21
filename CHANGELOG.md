@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.36
 
 - **What critics and viewers make of it, in the paused screen's corner**, as score
   badges with their own marks: Rotten Tomatoes' Tomatometer (a tomato, or a green
