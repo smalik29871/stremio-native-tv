@@ -29,6 +29,7 @@
 #include "theme.h"
 #include "widgets.h"
 #include "island.h"
+#include "../advisory.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,6 +144,7 @@ struct Player {
     int next_warmed;          /* and the start of its likely file fetched */
     int night, night_applied; long night_minute; unsigned night_load;   /* night mode on; the volume set for this load */
     int stinger_noted;        /* "stay for the scene after the credits" said */
+    float played_at, adv_at;  /* when playback first ran; when the content advisory came up (0 not yet) */
     float prefetch_tried;     /* when; a stale or empty prefetch is retried after a while */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
@@ -177,6 +179,7 @@ static Player *g_live;
 
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
 #define PAUSE_REST 6.0f   /* seconds paused and untouched before the controls step aside */
+#define ADVISORY_S 7.0f   /* seconds the content advisory stays when a video starts */
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
 static void instant_replay(Player *p, double pos);
@@ -1799,6 +1802,16 @@ static void update(Screen *s, float dt)
     int at_credits = credits > 60 && vi.duration > 0 && credits < vi.duration - 10 && vi.position >= credits && vi.position < vi.duration - 1;
     int near_end = vi.duration > 120 && vi.position > vi.duration - 45;
     const TmdbInfo *tmi = p->trailer ? NULL : tmdb_get(p->meta.id, p->meta.type);
+    /* the rating and what it contains, once the starting controls step aside, if IMDb
+     * answered within the first twenty seconds */
+    if (vi.state == VIDEO_PLAYING && !p->played_at) p->played_at = g_app.time;
+    if (p->played_at && !p->adv_at && !p->trailer && g_app.advisory && g_app.time - p->played_at > 1.5f && g_app.time - p->played_at < 20
+        && g_app.time >= p->overlay_until && !p->menu) {
+        const Advisory *adv = advisory_get(p->meta.id);
+        char d[160] = "";
+        if (adv) advisory_describe(adv, d, sizeof d);
+        if (d[0] || (adv && tmi && tmi->cert[0])) { p->adv_at = g_app.time; LOGI("player: advisory shown: %s %s", tmi && tmi->cert[0] ? tmi->cert : "", d); }
+    }
     int stinger = tmi ? tmi->stinger : 0;
     if (stinger && !p->stinger_noted && vi.state == VIDEO_PLAYING && vi.duration > 600
         && (credits > 60 ? vi.position >= credits : vi.position > vi.duration - 420)) {   /* the credits start (or roughly, without markers) */
@@ -3002,6 +3015,15 @@ static void draw(Screen *s)
     draw_subtitle(p, &vi);
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
+    float adv_t = p->adv_at ? g_app.time - p->adv_at : -1;
+    if (adv_t >= 0 && adv_t < ADVISORY_S && !p->menu && !overlay && !p->pip) {   /* fades in, stays, fades out */
+        float k = adv_t < 0.5f ? adv_t / 0.5f : adv_t > ADVISORY_S - 0.8f ? (ADVISORY_S - adv_t) / 0.8f : 1;
+        const TmdbInfo *tm = tmdb_get(p->meta.id, p->meta.type);
+        const Advisory *adv = advisory_get(p->meta.id);
+        static const int none[ADV_THEMES];
+        ui_advisory(THEME_MARGIN, 96, tm && tm->cert[0] ? tm->cert : NULL, adv ? adv->level : none, k);
+        app_redraw();
+    }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */
     if (error_final(p, &vi)) {
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
@@ -3850,6 +3872,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     s->name = "player"; s->st = p;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
     if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
+    if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);
     query_addon_subs(p);
     return s;

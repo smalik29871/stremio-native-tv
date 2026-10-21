@@ -79,6 +79,7 @@ typedef struct App {
     FxLevel fx_setting;        /* what the user chose */
     int fx_light;              /* effective: 1 = light effects (resolved from Auto) */
     int spoiler_blur;          /* blur thumbnails of unwatched episodes */
+    int advisory;              /* the rating and content advisory when a video starts */
     char pref_audio[8], pref_subs[8];   /* ISO 639-2/3 like "eng", or "" */
     int subs_size;             /* 0 small, 1 medium, 2 large, 3 extra large */
     int subs_pos;              /* 0 bottom, 1 raised, 2 top */

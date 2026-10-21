@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Content advisory when a video starts**, as streaming services show: the age rating
+  and a chip for each thing the title contains (violence, language, nudity, drugs,
+  frightening scenes) with bars for how much, from IMDb's parents guide, strongest
+  first. It appears once the starting controls step aside and fades after a few
+  seconds; Settings > Player > Content advisory turns it off.
 - **The remote's Play button works on LG webOS 10**: it arrives with a code the app
   didn't know (found with the new unknown-key log in Diagnostics); it now plays on
   title pages and resumes a paused video.

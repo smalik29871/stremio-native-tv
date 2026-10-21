@@ -873,6 +873,32 @@ float ui_chip_outline(const char *text, float x, float y, Color line, Color fg)
     return w;
 }
 
+void ui_advisory(float x, float y, const char *rating, const int level[5], float alpha)
+{
+    static const char *const NAME[5] = { "Nudity", "Violence", "Language", "Drugs", "Frightening" };
+    int a = (int)(255 * alpha), order[5], n = 0;
+    for (int lvl = 3; lvl >= 1; lvl--) for (int t = 0; t < 5; t++) if (level[t] == lvl) order[n++] = t;   /* strongest first */
+    if (!n && !rating) return;
+    float head = rating ? font_height(FONT_L | FONT_B) : font_height(FONT_M | FONT_B), ch = 46, h = head + (n ? 14 + ch : 0);
+    gfx_shadow(x - 40, y - 30, 900, h + 60, 60, 120, RGBA(0, 0, 0, (int)(0x90 * alpha)));   /* readable over any picture */
+    gfx_rrect(x, y + 4, 6, h - 8, 3, COLOR_ALPHA(THEME_ACCENT, a));
+    float tx = x + 26;
+    if (rating) font_draw_shadow(rating, tx, y, FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, a), RGBA(0, 0, 0, a / 2));
+    else font_draw_shadow("Contains", tx, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), RGBA(0, 0, 0, a / 2));
+    float cx = tx, cy = y + head + 14;
+    for (int i = 0; i < n; i++) {   /* a chip per theme: its name and three bars, lit to its level */
+        int t = order[i];
+        float tw = font_measure(NAME[t], FONT_XS | FONT_B), w = tw + 28 + 3 * 10 + 14;
+        gfx_rrect(cx, cy, w, ch, ch / 2, RGBA(0x10, 0x10, 0x14, (int)(0xB0 * alpha)));
+        font_draw(NAME[t], cx + 18, cy + (ch - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+        for (int b = 0; b < 3; b++) {
+            float bh = 10 + b * 5, bx = cx + 18 + tw + 12 + b * 10;
+            gfx_rrect(bx, cy + ch / 2 + 10 - bh, 6, bh, 2, b < level[t] ? COLOR_ALPHA(level[t] == 3 ? THEME_ACCENT : THEME_TEXT, a) : RGBA(0xFF, 0xFF, 0xFF, a / 5));
+        }
+        cx += w + 10;
+    }
+}
+
 float ui_imdb(const char *rating, float x, float y)
 {
     int fs = FONT_XS | FONT_B;

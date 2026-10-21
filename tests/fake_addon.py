@@ -163,6 +163,11 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"success": True, "data": {"torrent_id": 77 if cached else 78, "hash": m.group(1).decode().lower()}}).encode())
         # IMDb's GraphQL stand-in: /imdbgql has no trailer for anything, /imdbgql/with has one in three qualities
         if p.startswith("/imdbgql"):
+            if b"parentsGuide" in body:   # the parents guide: what a title contains, None to Severe
+                cats = [("Sex & Nudity", "Mild"), ("Violence & Gore", "Severe"), ("Profanity", "Moderate"),
+                        ("Alcohol, Drugs & Smoking", "Severe"), ("Frightening & Intense Scenes", "None")]
+                return self.send(200, json.dumps({"data": {"title": {"parentsGuide": {"categories": [
+                    {"category": {"text": c}, "severity": {"text": v}} for c, v in cats]}}}}).encode())
             if not p.startswith("/imdbgql/with"):
                 return self.send(200, json.dumps({"data": {"title": {"latestTrailer": None}}}).encode())
             q = json.loads(body.decode("utf-8") or "{}")

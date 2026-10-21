@@ -188,6 +188,11 @@ run pip_focus_close 460 "$P,back,back,down,down,down,down,down,down,down,right,o
 run player_subs_scrolled 420 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,down,down"
 run player_episodes 400 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,right,ok"
 run player_paused 320 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200
+# the content advisory as a video starts: IMDb's parents guide, once the controls step aside; off in Settings, none
+run player_advisory 300 "right,ok,down,down,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
+grep -q "player: advisory shown: .*Severe violence, severe drugs, moderate language, mild nudity" "$OUT/player_advisory.log" || { echo "the content advisory did not show"; grep -E "advisory" "$OUT/player_advisory.log"; exit 1; }
+run player_advisory_off 300 "right,ok,down,down,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 HOME="$(home_with adv_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"advisory":0}')"
+grep -q "advisory" "$OUT/player_advisory_off.log" && { echo "the content advisory showed while off"; exit 1; }
 run player_rest 330 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
 grep -q "player: paused and idle, the controls step aside" "$OUT/player_rest.log" || { echo "the paused player never leaned back"; grep player "$OUT/player_rest.log"; exit 1; }
 run player_rest_ok 360 "right,ok,down,down,ok,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
