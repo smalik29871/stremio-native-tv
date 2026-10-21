@@ -669,7 +669,8 @@ class H(BaseHTTPRequestHandler):
                     {"id": 0, "short_name": "Sample.txt", "mimetype": "text/plain", "size": 10},
                     {"id": 1, "short_name": "Movie.2024.1080p.mkv", "mimetype": "video/x-matroska", "size": 2147483648}] if ready else []}}).encode())
             if "/mylist" in q:
-                if self.headers.get("Authorization") != "Bearer tbkey":
+                lib = self.headers.get("Authorization") == "Bearer tbkeylib"   # the account with Breaking Bad copies
+                if self.headers.get("Authorization") != "Bearer tbkey" and not lib:
                     return self.send(401, b'{"success":false,"error":"AUTH_ERROR"}')
                 kind = q.split("/")[0]
                 if kind != "torrents":
@@ -682,7 +683,7 @@ class H(BaseHTTPRequestHandler):
                     {"id": 43, "name": "The.Shawshank.Redemption.1994.1080p.BluRay", "files": [
                         {"id": 5, "short_name": "The.Shawshank.Redemption.1994.1080p.BluRay.x264.mkv", "mimetype": "video/x-matroska", "size": 8589934592}]},
                     {"id": 44, "name": "The Shawshank Redemption 2031 remake", "files": [
-                        {"id": 6, "short_name": "Shawshank.Redemption.2031.2160p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]},
+                        {"id": 6, "short_name": "Shawshank.Redemption.2031.2160p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]}] + ([
                     # Breaking Bad S01E01 "Pilot": one right file; another show starting with the same
                     # words, a file of episode 2 in an item named for episode 1, and a file numbered 1
                     # titled as episode 2 (orderings differ between services) are all left out
@@ -693,7 +694,7 @@ class H(BaseHTTPRequestHandler):
                     {"id": 47, "name": "Breaking.Bad.S01E01.Pack", "files": [
                         {"id": 9, "short_name": "Breaking.Bad.S01E02.1080p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]},
                     {"id": 48, "name": "Breaking.Bad.S01E01.NF", "files": [
-                        {"id": 10, "short_name": "Breaking.Bad.S01E01.Cats.in.the.Bag.1080p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]}]}).encode())
+                        {"id": 10, "short_name": "Breaking.Bad.S01E01.Cats.in.the.Bag.1080p.mkv", "mimetype": "video/x-matroska", "size": 1073741824}]}] if lib else [])}).encode())
             if "/requestdl" in q:
                 if "token=tbkey" not in q:
                     return self.send(403, b'{"success":false}')
