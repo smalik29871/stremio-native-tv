@@ -33,7 +33,9 @@ char *torbox_hash_link(const char *info_hash, int file_idx);   /* malloc'd */
 /* Adds the torrent to your TorBox (if it is not there) and gives the link for its file;
  * url is NULL with the reason when TorBox does not have it ready. */
 typedef void (*TorboxOpenCb)(const char *url, const char *error, void *user);
-void torbox_open_hash(const char *link, TorboxOpenCb cb, void *user);
+/* video_id ("tt1:2:3", or NULL) picks the episode's file in a season pack when the link
+ * names no file. */
+void torbox_open_hash(const char *link, const char *video_id, TorboxOpenCb cb, void *user);
 /* On a network thread: the videos in your TorBox that are this title (a film by its name
  * and year, an episode by its name and SxxEyy), as sources; the list is kept 5 minutes.
  * Returns how many (*out malloc'd, NULL when none). */

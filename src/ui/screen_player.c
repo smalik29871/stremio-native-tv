@@ -518,6 +518,18 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
                     p->embedded_text_sel = tr[i].index;
                     return 1;
                 }
+            /* a file whose one subtitle track has no language ("und") nearly always has it in
+             * the release's own language: it wins over another file from an addon, and is
+             * what "und" remembered for a series means */
+            int unl = -1, labelled = 0;
+            for (int i = 0; i < nt; i++) { if (lang_known(tr[i].lang)) labelled++; else if (unl < 0) unl = i; else unl = -2; }
+            if (unl >= 0 && !labelled) {
+                select_addon_sub(p, -1);
+                video_select_track(TRACK_TEXT, tr[unl].index);
+                p->embedded_text_sel = tr[unl].index;
+                LOGI("player: subtitles: the file's own track (no language given)");
+                return 1;
+            }
         } else {
             for (int pass = 0; pass < 3; pass++) {   /* made for this file, then for the same release (its name), then any */
                 int best = -1;
@@ -672,7 +684,8 @@ static void second_auto(Player *p)
 
 static void remember_subs(Player *p, const char *lang, SubsSource src)
 {
-    if (!memory_key(p) || (lang && !lang_known(lang))) return;
+    if (lang && !lang_known(lang) && src == SUBS_SRC_EMBEDDED) lang = "und";   /* the file's own track, no language given: kept as that */
+    if (!memory_key(p) || (lang && !lang_known(lang) && strcmp(lang, "und"))) return;
     trackmem_set(memory_key(p), NULL, lang ? lang : "", src);
 }
 
@@ -1251,7 +1264,7 @@ static void start_candidate(Player *p, int idx, double start)
         p->error_handled = 1;   /* nothing to watch over until TorBox answers */
         TbReq *q = malloc(sizeof *q);
         q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url);
-        torbox_open_hash(p->cands[idx].url, on_torbox_open, q);
+        torbox_open_hash(p->cands[idx].url, p->video_id, on_torbox_open, q);
         show_overlay(p);
         return;
     }
@@ -1511,7 +1524,8 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
     const PlayCandidate *c = &p->cands[p->cur];
     ChainHint hint = { .addon_order = c->addon_order, .res = c->res, .needs = c->needs };
     if (c->binge_group) snprintf(hint.binge_group, sizeof hint.binge_group, "%s", c->binge_group);
-    quality_release_group(c->filename ? c->filename : c->release, hint.group, sizeof hint.group);
+    quality_release_group(c->filename, hint.group, sizeof hint.group);
+    if (!hint.group[0]) quality_release_group(c->release, hint.group, sizeof hint.group);
     p->finished = 1;
     app_pop();   /* destroys this screen */
     app_replace(screen_streams_create_chain(&meta, vid, title, &hint));

@@ -20,6 +20,17 @@
 - **Home shows the scores too**: the hero has the same strip of score pills as title
   pages (Tomatometer, Popcornmeter, Metascore, Roger Ebert, Letterboxd, Trakt, TMDB and
   MDBList's ring), the genres moving into the facts line.
+- **The right episode from a season pack.** A torrent holding a whole season, opened
+  through TorBox with no file named by the addon, played its largest file, which could be
+  another episode (episode 1 playing episode 2). It now plays the file named for the
+  episode. Your own TorBox library also matches each file's name, not the pack's.
+- **The next episode stays on the release you picked** when the files are named
+  "Show - S01E02.mkv", as in many season packs: the release group (PSA, NTb...) is read
+  from the torrent's name then, and it counts from any addon that lists it.
+- **The video's own subtitles win again** when the file's only text track gives no
+  language ("und"): it is picked over an addon's, and remembered as your choice.
+- **No more `<font>` and `<i>` tags in subtitles**: tags written out as text (escaped,
+  as some files carry them) are removed too.
 
 ## 0.10.37
 

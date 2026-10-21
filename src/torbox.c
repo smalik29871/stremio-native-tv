@@ -247,7 +247,10 @@ static long add_torrent(const char *hash, char *err, size_t en)
     return tid;
 }
 
-typedef struct { char hash[41]; int file_idx; TorboxOpenCb cb; void *user; } Open;
+typedef struct { char hash[41]; int file_idx, season, episode; TorboxOpenCb cb; void *user; } Open;
+
+static int names_episode(const char *w, int season, int episode);
+static void words(const char *in, char *out, size_t n);
 
 static void open_task(HttpResponse *out, void *arg)
 {
@@ -272,6 +275,12 @@ static void open_task(HttpResponse *out, void *arg)
         if (!cJSON_IsNumber(id) || !is_video(f)) continue;
         if (o->file_idx >= 0 && (long)id->valuedouble == o->file_idx) { fid = (long)id->valuedouble; break; }   /* the addon's file */
         double size = cJSON_IsNumber(sz) ? sz->valuedouble : 0;
+        if (o->episode > 0) {   /* a season pack: the episode's own file beats any size */
+            const cJSON *nm = cJSON_GetObjectItemCaseSensitive(f, "name");
+            char w[512];
+            words(cJSON_IsString(nm) ? nm->valuestring : "", w, sizeof w);
+            if (names_episode(w, o->season, o->episode)) size += 1e15;
+        }
         if (size > best) { best = size; fid = (long)id->valuedouble; }   /* else the largest video */
     }
     if (fid < 0 && !out->error[0]) snprintf(out->error, sizeof out->error, "No video in that torrent on TorBox");
@@ -298,10 +307,12 @@ static void on_open(HttpResponse *r, void *user)
     free(o);
 }
 
-void torbox_open_hash(const char *link, TorboxOpenCb cb, void *user)
+void torbox_open_hash(const char *link, const char *video_id, TorboxOpenCb cb, void *user)
 {
     Open *o = calloc(1, sizeof *o);
     o->cb = cb; o->user = user; o->file_idx = -1;
+    const char *c = video_id ? strchr(video_id, ':') : NULL;
+    if (c && sscanf(c, ":%d:%d", &o->season, &o->episode) != 2) o->season = o->episode = 0;
     if (!torbox_is_hash_link(link) || !torbox_enabled() || sscanf(link + 14, "%40[0-9a-fA-F]/%d", o->hash, &o->file_idx) < 1) {
         free(o); cb(NULL, "Not a TorBox link, or no TorBox key", user); return;
     }
@@ -419,12 +430,13 @@ static void words(const char *in, char *out, size_t n)
     out[o] = 0;
 }
 
-/* S02E03, s2e3, 2x03: 1 when the text names this episode */
+/* S02E03, s2e3, 2x03: 1 when the text names this episode; season or episode -1 for any */
 static int names_episode(const char *w, int season, int episode)
 {
     for (const char *p = w; *p; p++) {
         int s, e, len = 0;
-        if ((sscanf(p, "s%de%d%n", &s, &e, &len) == 2 || sscanf(p, "%dx%d%n", &s, &e, &len) == 2) && (p == w || p[-1] == ' ') && s == season && e == episode) return 1;
+        if ((sscanf(p, "s%de%d%n", &s, &e, &len) == 2 || sscanf(p, "%dx%d%n", &s, &e, &len) == 2) && (p == w || p[-1] == ' ')
+            && (season < 0 || s == season) && (episode < 0 || e == episode)) return 1;
     }
     return 0;
 }
@@ -456,7 +468,9 @@ int torbox_library_streams(const char *type, const char *video_id, const char *n
         words(files[i].name, fw, sizeof fw);
         words(files[i].item, iw, sizeof iw);
         if (!strstr(fw, title) && !strstr(iw, title)) continue;   /* the title's words, together */
-        if (series && !names_episode(fw, season, episode) && !names_episode(iw, season, episode)) continue;
+        /* the file's own name decides when it names an episode: a season pack called
+         * "S01E01-E08" names the first, and every file in it would pass for that one */
+        if (series && (names_episode(fw, -1, -1) ? !names_episode(fw, season, episode) : !names_episode(iw, season, episode))) continue;
         if (!series && want_year) {   /* a remake is not the film: when a year is written, it is this one (or one off) */
             int y = year_in(fw); if (!y) y = year_in(iw);
             if (y && (y < want_year - 1 || y > want_year + 1)) continue;

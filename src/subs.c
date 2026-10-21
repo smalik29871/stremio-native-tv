@@ -73,6 +73,20 @@ static char *clean_text(const char *raw, int is_utf8)
     }
     while (o && (out[o - 1] == '\n' || out[o - 1] == ' ')) o--;
     out[o] = 0;
+    /* tags that were written escaped ("&lt;i&gt;") are tags too once decoded: a second pass
+     * drops <i>, </i>, <b>, <u>, <font ...> and the like, leaving a lone "<" (as in "<3") */
+    size_t w = 0;
+    for (size_t r = 0; out[r];) {
+        if (out[r] == '<') {
+            size_t q = r + 1 + (out[r + 1] == '/');
+            if ((out[q] >= 'a' && out[q] <= 'z') || (out[q] >= 'A' && out[q] <= 'Z')) {
+                const char *e = strchr(out + q, '>');
+                if (e && e - (out + q) < 60) { r = (size_t)(e - out) + 1; continue; }
+            }
+        }
+        out[w++] = out[r++];
+    }
+    out[w] = 0;
     return out;
 }
 

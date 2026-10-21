@@ -137,15 +137,17 @@ static int is_p2p(const Stream *s)
     return s->info_hash && !s->url && !torbox_hash_cached(s->info_hash) && !(g_app.streaming_server && *g_app.streaming_server) && g_app.p2p_fallback && torrent_engine_available();
 }
 
-/* 2: the addon's own tag for the same release; 1: the same release group (and addon); 0 */
+/* 2: the addon's own tag for the same release; 1: the same release group; 0 */
 static int same_release(const Streams *st, const Stream *s)
 {
     if (!st->chaining) return 0;
     if (st->chain.binge_group[0] && s->binge_group && !strcmp(st->chain.binge_group, s->binge_group)) return 2;
     if (!st->chain.group[0]) return 0;
-    char g[24];
-    quality_release_group(s->filename ? s->filename : s->title ? s->title : s->description, g, sizeof g);
-    return g[0] && !strcasecmp(g, st->chain.group) && (st->chain.addon_order < 0 || s->addon_order == st->chain.addon_order);
+    char g[24] = "";
+    /* a season pack's file can be "Show - S01E02.mkv": the torrent's name then holds the group */
+    const char *from[] = { s->filename, s->title, s->description };
+    for (int i = 0; i < 3 && !g[0]; i++) quality_release_group(from[i], g, sizeof g);
+    return g[0] && !strcasecmp(g, st->chain.group);   /* any addon: the same encode wherever it is listed */
 }
 
 /* a video in your own TorBox (it heads the list) */

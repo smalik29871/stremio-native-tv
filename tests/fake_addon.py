@@ -339,7 +339,8 @@ class H(BaseHTTPRequestHandler):
         if notrailer:
             p = p[10:]
         # /chain/...: episode sources with no bingeGroup, only release names; episode 1 has
-        # only NTb, the others list another group first (Up Next should stay on NTb)
+        # only NTb, the others list another group first (Up Next should stay on NTb); NTb's
+        # files are named as in a season pack, the group only in the torrent's name
         chain = p.startswith("/chain/")
         if chain:
             p = p[6:]
@@ -348,7 +349,7 @@ class H(BaseHTTPRequestHandler):
                 vid = _unq(p.split("/stream/series/")[1].split(".json")[0])
                 ep = vid.rsplit(":", 1)[-1]
                 url = STREAMS["streams"][0]["url"]
-                ntb = {"name": "Example\n1080p", "title": f"Breaking.Bad.S01E{int(ep):02d}.1080p.WEB.h264-NTb\n\U0001F4BE 1.1 GB", "url": url + "?rel=ntb"}
+                ntb = {"name": "Example\n1080p", "title": f"Breaking.Bad.S01E{int(ep):02d}.1080p.WEB.h264-NTb\n\U0001F4BE 1.1 GB", "url": url + "?rel=ntb", "behaviorHints": {"filename": f"Breaking Bad - S01E{int(ep):02d}.mkv"}}
                 other = {"name": "Example\n2160p", "title": f"Breaking.Bad.S01E{int(ep):02d}.2160p.WEB.h265-OTHER\n\U0001F4BE 4.2 GB", "url": url + "?rel=other"}
                 return self.send(200, json.dumps({"streams": [ntb] if ep == "1" else [other, ntb]}).encode())
         # /slow/...: a second, stream-only addon that answers after FAKE_SLOW_S seconds for

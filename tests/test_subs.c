@@ -161,6 +161,11 @@ int main(void)
     CHECK(strcmp(t.cues[1].text, "Line A\nLine B") == 0 && t.cues[1].end == 12.0);
     subs_free(&t);
 
+    {   /* tags written escaped are dropped once decoded; a lone "<" stays */
+        const char *esc = "1\n00:00:01,000 --> 00:00:02,000\n&lt;i&gt;Hello&lt;/i&gt; &lt;font color=\"#fff\"&gt;there&lt;/font&gt; <3\n";
+        CHECK(subs_parse(esc, strlen(esc), &t) == 1 && strcmp(t.cues[0].text, "Hello there <3") == 0);
+        subs_free(&t);
+    }
     CHECK(subs_parse("garbage without cues", 20, &t) == -1);
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("all subtitle tests passed\n");
