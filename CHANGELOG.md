@@ -33,6 +33,10 @@
   episode; a file named for another episode is never taken for it. When the names
   leave several (a disc rip's title_t00, title_t01...), your AI (Settings > API keys) is
   shown the list and picks; without it, or if it is unsure, the largest file plays.
+- **Subtitle colour, for accessibility** (Settings > Audio & subtitles): the caption
+  colours TVs offer (white, yellow, cyan, green, magenta, red, blue, black) over any
+  style; blue and black letters get a light outline or box. It reaches the video's own
+  subtitles too, and the player's subtitle menu shows it next to the style.
 - **Four more subtitle styles**: Bright (heavier letters in a wide dark outline, for
   bright pictures), Raised, Soft box (a light see-through box) and Cyan. They apply to
   the video's own subtitles too, and those are now set to full opacity, so a TV that

@@ -2227,7 +2227,7 @@ static void draw_menu(Player *p)
         else snprintf(v, sizeof v, "Turn on subtitles to adjust their timing");
         ROW("Timing", v, 0);
         snprintf(v, sizeof v, "%s", SIZES[g_app.subs_size]); ROW("Size", v, 0);
-        snprintf(v, sizeof v, "%s", SUBS_STYLE_NAMES[g_app.subs_style]); ROW("Style", v, 0);
+        snprintf(v, sizeof v, "%s%s%s", SUBS_STYLE_NAMES[g_app.subs_style], g_app.subs_colour ? "  \xC2\xB7  " : "", g_app.subs_colour ? SUBS_COLOUR_NAMES[g_app.subs_colour] : ""); ROW("Style", v, 0);
         snprintf(v, sizeof v, "%s", POS[g_app.subs_pos]); ROW("Position", v, 0);
         if (!g_app.subs_autosync) snprintf(v, sizeof v, "Off  \xC2\xB7  OK turns it on");
         else if (p->sync_state == 2 && p->active_addon_sub >= 0 && p->addon_subs[p->active_addon_sub].matched) snprintf(v, sizeof v, "On  \xC2\xB7  this file is matched to the video");
@@ -3453,7 +3453,7 @@ static int source_rows(const Player *p, int *rows)
  * (the app draws addon subtitles itself, straight from g_app). */
 static void push_sub_style(const Player *p)
 {
-    video_subtitle_style(sub_size(p), g_app.subs_style, g_app.subs_pos, (int)(p->embedded_offset * 1000));
+    video_subtitle_style(sub_size(p), g_app.subs_style, ui_subs_colour_tv(g_app.subs_colour), g_app.subs_pos, (int)(p->embedded_offset * 1000));
 }
 
 static void adjust_subs(Player *p, int row, int dir)

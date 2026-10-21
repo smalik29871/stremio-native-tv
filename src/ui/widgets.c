@@ -1220,6 +1220,14 @@ float ui_dot_sep(float x, float y, Color c)
 const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT] = { "Soft shadow", "Bold outline", "Classic yellow", "Black box",
                                                           "Bright", "Raised", "Soft box", "Cyan" };
 
+const char *const SUBS_COLOUR_NAMES[SUBS_COLOUR_COUNT] = { "From the style", "White", "Yellow", "Cyan", "Green", "Magenta", "Red", "Blue", "Black" };
+static const char *const COLOUR_TV[SUBS_COLOUR_COUNT] = { NULL, "white", "yellow", "cyan", "green", "magenta", "red", "blue", "black" };
+/* bright enough on a dark outline; blue and black get a light one instead */
+static const Color COLOUR_RGB[SUBS_COLOUR_COUNT] = { 0, RGBA(255, 255, 255, 255), RGBA(0xFF, 0xE1, 0x3C, 0xFF), RGBA(0x6E, 0xF0, 0xFF, 0xFF),
+    RGBA(0x5C, 0xF5, 0x6E, 0xFF), RGBA(0xFF, 0x6E, 0xF5, 0xFF), RGBA(0xFF, 0x5A, 0x50, 0xFF), RGBA(0x5A, 0x8C, 0xFF, 0xFF), RGBA(0x08, 0x08, 0x08, 0xFF) };
+
+const char *ui_subs_colour_tv(int colour) { return colour > 0 && colour < SUBS_COLOUR_COUNT ? COLOUR_TV[colour] : NULL; }
+
 int ui_subtitle_font(int size_setting)
 {
     static const int F[] = { FONT_M, FONT_L, FONT_XL, FONT_TITLE };
@@ -1234,6 +1242,12 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
     int lines = font_draw_wrapped(text, 0, 0, size, 0, max_w, 3);
     float y = bottom - lines * lh;
     Color fg = style == SUBS_STYLE_YELLOW ? RGBA(0xFF, 0xE1, 0x3C, 0xFF) : style == SUBS_STYLE_CYAN ? RGBA(0x6E, 0xF0, 0xFF, 0xFF) : RGBA(255, 255, 255, 255);
+    int colour = g_app.subs_colour;
+    if (colour > 0 && colour < SUBS_COLOUR_COUNT) fg = COLOUR_RGB[colour];
+    /* dark letters: the outline and box turn light, so they still stand out */
+    int dark = colour == SUBS_COLOUR_BLUE || colour == SUBS_COLOUR_BLACK;
+    Color e = dark ? RGBA(0xF2, 0xF2, 0xF2, 0) : RGBA(0, 0, 0, 0);
+#define EDGE(a) (Color)(e | (Color)(a))
     char tmp[512];
     snprintf(tmp, sizeof tmp, "%s", text);
     int i = 0;
@@ -1243,41 +1257,42 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
         float lx = (SNTV_UI_W - lw) / 2, ly = y + i * lh;
         switch (style) {
         case SUBS_STYLE_BOXED:
-            gfx_rrect(lx - 18, ly - 2, lw + 36, lh + 4, 8, RGBA(0, 0, 0, 0xB8));
+            gfx_rrect(lx - 18, ly - 2, lw + 36, lh + 4, 8, EDGE(0xB8));
             break;
         case SUBS_STYLE_SOFT_BOX:   /* a light veil: the picture still shows through */
-            gfx_rrect(lx - 22, ly - 2, lw + 44, lh + 4, lh * 0.3f, RGBA(0x10, 0x10, 0x14, 0x78));
-            font_draw_fit(l, lx + 2, ly + 2, size, RGBA(0, 0, 0, 0x90), max_w);
+            gfx_rrect(lx - 22, ly - 2, lw + 44, lh + 4, lh * 0.3f, EDGE(0x78));
+            font_draw_fit(l, lx + 2, ly + 2, size, EDGE(0x90), max_w);
             break;
         case SUBS_STYLE_BRIGHT:
             /* the widest dark ring and the letters drawn twice, a hair apart: heavier,
              * so they read brighter on a bright picture */
             for (int dx = -4; dx <= 4; dx += 2) for (int dy = -4; dy <= 4; dy += 2)
-                if (dx * dx + dy * dy >= 8) font_draw_fit(l, lx + dx, ly + dy, size, RGBA(0, 0, 0, 0xF0), max_w);
+                if (dx * dx + dy * dy >= 8) font_draw_fit(l, lx + dx, ly + dy, size, EDGE(0xF0), max_w);
             font_draw_fit(l, lx + 1, ly, size, fg, max_w);
             break;
         case SUBS_STYLE_RAISED:   /* lit from the top left: a dark edge below, a faint light one above */
-            font_draw_fit(l, lx + 3, ly + 3, size, RGBA(0, 0, 0, 0xE8), max_w);
-            font_draw_fit(l, lx + 2, ly + 2, size, RGBA(0, 0, 0, 0xE8), max_w);
-            font_draw_fit(l, lx - 1, ly - 1, size, RGBA(0xFF, 0xFF, 0xFF, 0x50), max_w);
+            font_draw_fit(l, lx + 3, ly + 3, size, EDGE(0xE8), max_w);
+            font_draw_fit(l, lx + 2, ly + 2, size, EDGE(0xE8), max_w);
+            font_draw_fit(l, lx - 1, ly - 1, size, dark ? RGBA(0, 0, 0, 0x50) : RGBA(0xFF, 0xFF, 0xFF, 0x50), max_w);
             break;
         case SUBS_STYLE_OUTLINE:
         case SUBS_STYLE_YELLOW:
         case SUBS_STYLE_CYAN:
             /* a thick ring of dark copies: holds up on bright, busy pictures */
             for (int dx = -3; dx <= 3; dx += 3) for (int dy = -3; dy <= 3; dy += 3)
-                if (dx || dy) font_draw_fit(l, lx + dx, ly + dy, size, RGBA(0, 0, 0, 0xE0), max_w);
-            font_draw_fit(l, lx, ly + 4, size, RGBA(0, 0, 0, 0xE0), max_w);
+                if (dx || dy) font_draw_fit(l, lx + dx, ly + dy, size, EDGE(0xE0), max_w);
+            font_draw_fit(l, lx, ly + 4, size, EDGE(0xE0), max_w);
             break;
         default:
             /* soft shadow + thin outline: readable on any picture without a box */
-            font_draw_fit(l, lx + 3, ly + 3, size, RGBA(0, 0, 0, 0xB0), max_w);
+            font_draw_fit(l, lx + 3, ly + 3, size, EDGE(0xB0), max_w);
             for (int dx = -2; dx <= 2; dx += 2) for (int dy = -2; dy <= 2; dy += 2)
-                if (dx || dy) font_draw_fit(l, lx + dx, ly + dy, size, RGBA(0, 0, 0, 0x90), max_w);
+                if (dx || dy) font_draw_fit(l, lx + dx, ly + dy, size, EDGE(0x90), max_w);
             break;
         }
         font_draw_fit(l, lx, ly, size, fg, max_w);
     }
+#undef EDGE
 }
 
 void ui_toggle(float x, float y, int on, int focused)

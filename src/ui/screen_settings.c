@@ -49,7 +49,7 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "Logs, device information and setup." };
 static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_PALETTE, ICON_LIST, ICON_LIBRARY, ICON_KEY, ICON_LOCK, ICON_INFO };
 
-enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE,
+enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_SUBS_COLOUR,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
@@ -113,7 +113,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG:
         SEC(SEC_LANGS); ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN;
-        SEC(SEC_SUBS_LOOK); ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE;
+        SEC(SEC_SUBS_LOOK); ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; ids[n++] = IT_SUBS_COLOUR;
         SEC(SEC_SUBS_SMART); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL;
         break;
     case CAT_SOURCES:
@@ -165,6 +165,7 @@ static const char *row_title(int id)
     case IT_PREF_SUBS: return "Preferred subtitles";
     case IT_SUBS_SIZE: return "Subtitle size";
     case IT_SUBS_STYLE: return "Subtitle style";
+    case IT_SUBS_COLOUR: return "Subtitle colour";
     case IT_SUBS_SYNC: return "Auto-sync subtitles to the file";
     case IT_BR_VIDEO: return "Show the video";
     case IT_P2P: return "P2P fallback on this TV";
@@ -271,6 +272,7 @@ static const char *row_desc(int id)
     case IT_SUBS_WHEN: return "Always, or only when the audio is in another language.";
     case IT_SUBS_SIZE: return "For subtitles from addons and those inside the video.";
     case IT_SUBS_STYLE: return "Colour, outline or a box behind the text.";
+    case IT_SUBS_COLOUR: return "The letters in a caption colour, over any style; easier to tell apart for some eyes.";
     case IT_SUBS_SYNC: return "Lines addon subtitles up with the video's own timing.";
     case IT_QUALITY: return "Which source comes first in the list.";
     case IT_RES_CAP: return "Recommended sources stay at or below this.";
@@ -335,7 +337,7 @@ static int row_takes_left(int id)
 {
     if (id >= IT_ROWS_BASE && id < IT_ACCT_BASE) return 1;   /* home rows and addons move */
     switch (id) {
-    case IT_PREF_AUDIO: case IT_PREF_SUBS: case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_ADDON_WAIT: case IT_SKIP: case IT_NIGHT:
+    case IT_PREF_AUDIO: case IT_PREF_SUBS: case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_SUBS_COLOUR: case IT_ADDON_WAIT: case IT_SKIP: case IT_NIGHT:
     case IT_SUBS_WHEN: case IT_CLOCK: case IT_ISLAND_STYLE: case IT_CLOCK_FACE: case IT_QUALITY: case IT_RES_CAP: case IT_SRC_SIZE: case IT_SRC_HDR: case IT_AI_PROVIDER: case IT_MEMORY:
     case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
     case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
@@ -568,7 +570,7 @@ static PreviewKind preview_for(int id)
     switch (id) {
     case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: return PV_THEME;
     case IT_HOME_STYLE: return PV_HOME_STYLE;
-    case IT_SUBS_SIZE: case IT_SUBS_STYLE: return PV_SUBS;
+    case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_SUBS_COLOUR: return PV_SUBS;
     case IT_CLOCK: case IT_ISLAND_STYLE: return PV_CLOCK;
     case IT_CLOCK_FACE: return PV_AMBIENT;
     case IT_CARD_DETAILS: return PV_CARD_DETAILS;
@@ -749,6 +751,7 @@ static void draw(Screen *s)
         case IT_PREF_SUBS: draw_row(y, ICON_SUBS, "Preferred subtitles", lang_name(g_app.pref_subs), foc, KIND_CHOICE, 0); break;
         case IT_SUBS_SIZE: draw_row(y, ICON_SUBS, "Subtitle size", SIZE_NAMES[g_app.subs_size], foc, KIND_CHOICE, 0); break;
         case IT_SUBS_STYLE: draw_row(y, ICON_SUBS, "Subtitle style", SUBS_STYLE_NAMES[g_app.subs_style], foc, KIND_CHOICE, 0); break;
+        case IT_SUBS_COLOUR: draw_row(y, ICON_SUBS, "Subtitle colour", SUBS_COLOUR_NAMES[g_app.subs_colour], foc, KIND_CHOICE, 0); break;
         case IT_SUBS_SYNC: draw_row(y, ICON_SUBS, "Auto-sync subtitles to the file", NULL, foc, KIND_TOGGLE, g_app.subs_autosync); break;
         case IT_BR_VIDEO: draw_row(y, ICON_TV, "Show the video", NULL, foc, KIND_TOGGLE, g_app.break_video); break;
         case IT_P2P: draw_row(y, ICON_SWAP, "P2P fallback on this TV", NULL, foc, KIND_TOGGLE, g_app.p2p_fallback); break;
@@ -1385,6 +1388,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_PREF_SUBS: cycle_lang(g_app.pref_subs, sizeof g_app.pref_subs, dir); break;
     case IT_SUBS_SIZE: g_app.subs_size = (g_app.subs_size + dir + 4) % 4; break;
     case IT_SUBS_STYLE: g_app.subs_style = (g_app.subs_style + dir + SUBS_STYLE_COUNT) % SUBS_STYLE_COUNT; break;
+    case IT_SUBS_COLOUR: g_app.subs_colour = (g_app.subs_colour + dir + SUBS_COLOUR_COUNT) % SUBS_COLOUR_COUNT; break;
     case IT_FX: g_app.fx_setting = (FxLevel)(((int)g_app.fx_setting + dir + 3) % 3); break;
     case IT_AUTOPLAY: g_app.autoplay_next = !g_app.autoplay_next; break;
     case IT_SKIP: g_app.skip_mode = (g_app.skip_mode + dir + 3) % 3; break;

@@ -105,6 +105,12 @@ void ui_toggle(float x, float y, int on, int focused);
 enum { SUBS_STYLE_SHADOW, SUBS_STYLE_OUTLINE, SUBS_STYLE_YELLOW, SUBS_STYLE_BOXED, SUBS_STYLE_BRIGHT, SUBS_STYLE_RAISED,
        SUBS_STYLE_SOFT_BOX, SUBS_STYLE_CYAN, SUBS_STYLE_COUNT };   /* stored by number: add at the end */
 extern const char *const SUBS_STYLE_NAMES[SUBS_STYLE_COUNT];
+/* The caption colours TVs offer for accessibility (CEA-708), over any style */
+enum { SUBS_COLOUR_STYLE, SUBS_COLOUR_WHITE, SUBS_COLOUR_YELLOW, SUBS_COLOUR_CYAN, SUBS_COLOUR_GREEN, SUBS_COLOUR_MAGENTA,
+       SUBS_COLOUR_RED, SUBS_COLOUR_BLUE, SUBS_COLOUR_BLACK, SUBS_COLOUR_COUNT };
+extern const char *const SUBS_COLOUR_NAMES[SUBS_COLOUR_COUNT];
+/* the name the TV's caption setter takes ("yellow"), NULL for the style's own */
+const char *ui_subs_colour_tv(int colour);
 void ui_subtitle(const char *text, float bottom, int size_setting, int style);
 int  ui_subtitle_font(int size_setting);   /* 0 small .. 3 extra large */
 void ui_progress(float x, float y, float w, float h, float frac, Color fill);

@@ -164,7 +164,7 @@ static void media_call_id(const char *method, const char *extra);
  * pipeline starts at every load, so the style is sent again after each loadCompleted
  * and each track selection. Ranges as the service takes them: fontSize 0..4,
  * position -3..4 (0 = default), sync in ms, colours by name, opacities 0..255. */
-static struct { int size, style, position, sync_ms, have, pending; } g_sub;
+static struct { int size, style, position, sync_ms, have, pending; char colour[16]; } g_sub;
 
 static void subtitle_style_send(void)
 {
@@ -173,7 +173,8 @@ static void subtitle_style_send(void)
     static const int POS[] = { 0, 2, 4 };
     int st = g_sub.style;
     /* SUBS_STYLE_*: shadow, outline, yellow, boxed, bright, raised, soft box, cyan */
-    const char *colour = st == 2 ? "yellow" : st == 7 ? "cyan" : "white";
+    const char *colour = g_sub.colour[0] ? g_sub.colour : st == 2 ? "yellow" : st == 7 ? "cyan" : "white";
+    int dark = !strcmp(colour, "black") || !strcmp(colour, "blue");   /* a light edge and box behind them */
     const char *edge = st == 0 ? "dropShadow" : st == 3 || st == 6 ? "none" : st == 5 ? "raised" : "uniform";
     int box = st == 3 ? 190 : st == 6 ? 110 : 0;
     char x[96];
@@ -184,8 +185,8 @@ static void subtitle_style_send(void)
     media_call_id("setSubtitleCharacterOpacity", "\"charOpacity\":255");   /* full white: some TVs start them dimmed */
     snprintf(x, sizeof x, "\"charEdgeType\":\"%s\"", edge);
     media_call_id("setSubtitleCharacterEdge", x);
-    media_call_id("setSubtitleCharacterEdgeColor", "\"charEdgeColor\":\"black\"");
-    media_call_id("setSubtitleBackgroundColor", "\"bgColor\":\"black\"");
+    media_call_id("setSubtitleCharacterEdgeColor", dark ? "\"charEdgeColor\":\"white\"" : "\"charEdgeColor\":\"black\"");
+    media_call_id("setSubtitleBackgroundColor", dark ? "\"bgColor\":\"white\"" : "\"bgColor\":\"black\"");
     snprintf(x, sizeof x, "\"bgOpacity\":%d", box);
     media_call_id("setSubtitleBackgroundOpacity", x);
     snprintf(x, sizeof x, "\"position\":%d", POS[g_sub.position < 0 ? 0 : g_sub.position > 2 ? 2 : g_sub.position]);
@@ -194,10 +195,12 @@ static void subtitle_style_send(void)
     media_call_id("setSubtitleSync", x);
 }
 
-void video_subtitle_style(int size, int style, int position, int sync_ms)
+void video_subtitle_style(int size, int style, const char *colour, int position, int sync_ms)
 {
-    int same = g_sub.have && g_sub.size == size && g_sub.style == style && g_sub.position == position && g_sub.sync_ms == sync_ms;
+    if (!colour) colour = "";
+    int same = g_sub.have && g_sub.size == size && g_sub.style == style && g_sub.position == position && g_sub.sync_ms == sync_ms && !strcmp(g_sub.colour, colour);
     g_sub.size = size; g_sub.style = style; g_sub.position = position; g_sub.sync_ms = sync_ms; g_sub.have = 1;
+    snprintf(g_sub.colour, sizeof g_sub.colour, "%s", colour);
     if (!same) subtitle_style_send();
 }
 

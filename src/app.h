@@ -84,6 +84,7 @@ typedef struct App {
     int subs_size;             /* 0 small, 1 medium, 2 large, 3 extra large */
     int subs_pos;              /* 0 bottom, 1 raised, 2 top */
     int subs_style;            /* SUBS_STYLE_* for addon subtitles */
+    int subs_colour;           /* SUBS_COLOUR_*: the letters' colour, 0 the style's own */
     int autoplay_next;         /* Up Next at the credits */
     int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
     int night_mode;            /* quieter, larger subtitles: 0 off, 1 from 11 pm to 6 am, 2 always */

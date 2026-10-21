@@ -59,7 +59,7 @@ void video_select_track(TrackKind kind, int index);  /* index -1 disables text t
  * size 0..3, style SUBS_STYLE_*, position 0 bottom / 1 raised / 2 top, sync in ms
  * (positive shows them later). Kept and re-sent after every load and track change;
  * backends that cannot style the TV's own subtitles ignore it. */
-void video_subtitle_style(int size, int style, int position, int sync_ms);
+void video_subtitle_style(int size, int style, const char *colour, int position, int sync_ms);   /* colour: a caption colour name, NULL for the style's */
 
 /* Window-pixel rectangle the video should cover (full window by default). */
 void video_set_display_rect(int x, int y, int w, int h);
