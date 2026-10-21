@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.37
 
 - **Title pages show the scores and the advisory too**, not only the paused screen: the
   Tomatometer, Popcornmeter, Metascore and Letterboxd marks beside the genres, and a
