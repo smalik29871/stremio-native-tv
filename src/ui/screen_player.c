@@ -1592,6 +1592,7 @@ static void fail_over(Player *p, const char *why)
     double resume = vi.position > 5 ? vi.position : 0;
     if (!p->learned && decoder_failure(p, &vi)) {   /* the error never names the decoder: only a source needing one feature says which failed */
         unsigned needs = p->cands[p->cur].needs;
+        for (int c = 0; c < TVCAP_COUNT; c++) if (g_app.tv.ok[c] > g_app.tv.fail[c]) needs &= ~(1u << c);   /* played fine here before: not the cause */
         if (needs && !(needs & (needs - 1))) app_tv_learn(needs, 0);
         else if (needs) LOGI("tv profile: a source needing several features failed; none is blamed");
         p->learned = 1;

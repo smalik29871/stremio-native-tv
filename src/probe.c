@@ -326,7 +326,7 @@ void probe_apply(const ProbeInfo *p, StreamTags *t)
     else if (p->height >= 700 || p->width >= 1200) t->res = 720;
     else if (p->height > 0) t->res = 480;
     if (p->vcodec) t->codec = p->vcodec;
-    t->hdr = p->hdr;
+    if (p->hdr > t->hdr) t->hdr = p->hdr;   /* only up: many files don't say, and silence is not "no HDR" (a DV-only file would pass as SDR) */
     if (p->acodec) t->audio = p->acodec;
     if (p->acodec != AUDIO_TRUEHD) t->atmos = 0;
 }

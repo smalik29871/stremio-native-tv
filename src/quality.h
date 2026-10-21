@@ -25,6 +25,7 @@ typedef struct StreamTags {
     int threed;
     int avc10;          /* 10-bit H.264: no TV decodes it */
     int hardsub;        /* subtitles burned into the picture (HC) */
+    int dv_fallback;    /* Dolby Vision with an HDR10 layer: a TV without DV plays it as HDR */
 } StreamTags;
 
 /* Capabilities a source can depend on; the TV profile keeps a belief per entry. */

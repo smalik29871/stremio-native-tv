@@ -155,6 +155,21 @@ static const char *ineligible(const Streams *st, const Stream *s)
 }
 
 /* The source's name mentions the preferred audio language (or MULTI / DUAL). */
+/* Dub languages as release names and Torrentio's flags give them. Korean, Japanese and
+ * Chinese are left out: there they are usually the original. */
+static const struct { const char *code, *words[5], *flags[2]; } DUB_LANGS[] = {
+    { "eng", { " english ", " eng ", NULL }, { "\xF0\x9F\x87\xAC\xF0\x9F\x87\xA7", "\xF0\x9F\x87\xBA\xF0\x9F\x87\xB8" } },
+    { "ita", { " italian ", " ita ", NULL }, { "\xF0\x9F\x87\xAE\xF0\x9F\x87\xB9", NULL } },
+    { "fra", { " french ", " truefrench ", " vff ", " vfq ", " fre " }, { "\xF0\x9F\x87\xAB\xF0\x9F\x87\xB7", NULL } },
+    { "spa", { " spanish ", " latino ", " castellano ", " spa ", " esp " }, { "\xF0\x9F\x87\xAA\xF0\x9F\x87\xB8", "\xF0\x9F\x87\xB2\xF0\x9F\x87\xBD" } },
+    { "deu", { " german ", " deutsch ", " ger ", NULL }, { "\xF0\x9F\x87\xA9\xF0\x9F\x87\xAA", NULL } },
+    { "rus", { " russian ", " rus ", NULL }, { "\xF0\x9F\x87\xB7\xF0\x9F\x87\xBA", NULL } },
+    { "hin", { " hindi ", NULL }, { "\xF0\x9F\x87\xAE\xF0\x9F\x87\xB3", NULL } },
+    { "por", { " portuguese ", " dublado ", NULL }, { "\xF0\x9F\x87\xA7\xF0\x9F\x87\xB7", "\xF0\x9F\x87\xB5\xF0\x9F\x87\xB9" } },
+};
+
+/* 2 it names the preferred audio language, 1 several ("multi"), -1 it names only other
+ * languages (a dub), 0 it says nothing. */
 static int has_audio_lang(const Stream *s)
 {
     if (!g_app.src_audio_lang || !lang_known(g_app.pref_audio)) return 0;
@@ -167,8 +182,17 @@ static int has_audio_lang(const Stream *s)
     snprintf(name, sizeof name, " %s ", lang_display_english(canon));
     snprintf(code, sizeof code, " %s ", canon);
     if (strstr(text, name) || strstr(text, code)) return 2;
+    int other = 0;
+    for (size_t l = 0; l < sizeof DUB_LANGS / sizeof *DUB_LANGS; l++) {
+        int named = 0;
+        for (int w = 0; w < 5 && DUB_LANGS[l].words[w]; w++) if (strstr(text, DUB_LANGS[l].words[w])) named = 1;
+        for (int f = 0; f < 2 && DUB_LANGS[l].flags[f]; f++) if (strstr(text, DUB_LANGS[l].flags[f])) named = 1;
+        if (!named) continue;
+        if (!strcmp(DUB_LANGS[l].code, canon)) return 2;   /* by its flag, or another of its words */
+        other = 1;
+    }
     if (strstr(text, " multi ") || strstr(text, " dual ")) return 1;
-    return 0;
+    return other ? -1 : 0;
 }
 
 /* A torrent this TV plays itself (no streaming server set): the fallback. */
@@ -209,7 +233,9 @@ static long rank(const Streams *st, const Stream *s)
     if (s->url && app_link_dead(s->url)) r += 20000000L;
     if (st->chaining) {   /* the next episode: like the one just played, below the working-link penalties */
         int m = same_release(st, s);
-        if (m == 2) r -= 50000000L;
+        int works = s->tags.cached >= 0 && !(s->url && app_link_dead(s->url)) && !s->headers;
+        if (m == 2 && works) r -= 50000000L;   /* the same release first, if it is a working copy: never an uncached or dead one over a cached one */
+        else if (m == 2) r -= 1000000L;
         else {
             long b = m ? 4000000L : 0;
             if (st->chain.addon_order >= 0 && s->addon_order == st->chain.addon_order) b += 2000000L;
@@ -283,7 +309,8 @@ static const LinkCheck *check_record(const char *url, const HttpResponse *r)
         return c;
     }
     final_note(url, r);
-    c->measured_mbps = r->seconds > 0.05 ? (double)r->len * 8.0 / r->seconds / 1e6 : 0;
+    double moving = r->seconds - (r->first_byte_s > 0 && r->first_byte_s < r->seconds ? r->first_byte_s : 0);   /* the transfer, not the wait for a debrid link */
+    c->measured_mbps = moving > 0.05 && r->len >= (1u << 20) ? (double)r->len * 8.0 / moving / 1e6 : 0;   /* under 1 MB says nothing about speed */
     ProbeInfo *info = malloc(sizeof *info);
     char d[200];
     if (probe_parse((const uint8_t *)r->body, r->len, info)) {
@@ -403,10 +430,13 @@ static void why_not_sharper(const Streams *st, int rec, char *out, size_t n)
 static int recommended(const Streams *st)
 {
     int best = -1;
-    for (int pass = 0; pass < 2 && best < 0; pass++)   /* P2P only when nothing else plays */
-        for (int i = 0; i < st->n; i++)
-            if (!ineligible(st, &st->items[i]) && st->items[i].score > -500 && is_p2p(&st->items[i]) == pass
-                && (best < 0 || st->items[i].score > st->items[best].score)) best = i;
+    for (int pass = 0; pass < 4 && best < 0; pass++)   /* a link that failed in the last hours only when nothing else; P2P only when nothing else plays */
+        for (int i = 0; i < st->n; i++) {
+            const Stream *s = &st->items[i];
+            int dead = s->url && app_link_dead(s->url);
+            if (dead != (pass & 1) || is_p2p(s) != (pass >> 1)) continue;
+            if (!ineligible(st, s) && s->score > -500 && (best < 0 || s->score > st->items[best].score)) best = i;
+        }
     return best;
 }
 
@@ -428,9 +458,10 @@ static void sort_items(Streams *st)
     for (int i = 0; i < st->n; i++) {
         Stream *s = &st->items[i];
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
-        { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; }
+        { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; else if (al < 0) s->score -= 300; }   /* only another language: a dub */
         if (is_mine(s)) s->score += 1500;           /* your TorBox first: it is what you chose to keep */
-        else if (from_torbox(s)) s->score += 600;
+        else if (from_torbox(s) && s->tags.cached <= 0) s->score += 150;   /* cached on TorBox: as any cached copy, not above a better one */
+        if (s->headers) s->score -= 100;            /* needs headers: the relay sends them, the direct link does not */
         if (rule_broken(s)) s->score -= 2000;                            /* Settings > Sources > Rules */
         if (s->url) s->score -= srchealth_penalty(s->url, s->addon_name);   /* servers that keep failing here, at this hour */
         if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */

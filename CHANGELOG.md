@@ -2,10 +2,26 @@
 
 ## Unreleased
 
-- **The recommended source reads names more carefully.** A screener (DVDSCR and the like)
-  counts as a cinema recording, and so does a telesync whose name also says WEB; 10-bit
-  H.264, which no TV decodes, goes to the bottom from its name alone, not only after the
-  file is checked; subtitles burned into the picture (HC) count against a source.
+- **A more accurate recommended source.**
+  - Names are read more carefully: "1080p.UHD.BluRay" and "4K Remastered ... 1080p" are
+    1080p; Comet's ⬇️ means not cached; Atmos on a streaming release is DD+ (TrueHD only on
+    discs); screeners, PreDVDRip, HQCAM, R5 and telesyncs named WEB are cinema copies;
+    10-bit H.264 (no TV decodes it) and burned-in subtitles count against a source.
+  - Dubs: with an audio language set, a source that names only other languages (in words,
+    or Torrentio's flags) counts against it; a flag of your language counts for it.
+  - Dolby Vision with an HDR10 layer plays as HDR on a TV without Dolby Vision, so it is no
+    longer treated as Dolby Vision only; a check of the file no longer turns HDR off when
+    the file just doesn't say.
+  - A link that failed in the last hours is recommended only when nothing else is; a
+    source cached on TorBox counts like any cached copy, not above a better one.
+  - The next episode keeps to the same release only while that copy works: not an
+    uncached or failed one over a cached one.
+  - The connection speed is measured from the file's first byte (not the wait for a debrid
+    link), so 4K files no longer look too heavy for a fast connection; the exact file size
+    an addon gives beats one in the text (often the whole torrent's), and a file far too
+    small for its resolution counts against it.
+  - The TV profile needs two failures before it avoids something (three for HEVC and 4K),
+    and features this TV already played are not blamed.
 
 ## 0.10.46
 

@@ -41,12 +41,17 @@ void quality_parse(const char *name, const char *title, const char *description,
     char text[2400];
     snprintf(text, sizeof text, "%s\n%s\n%s\n%s", name ? name : "", title ? title : "", description ? description : "", filename ? filename : "");
 
-    if (has(text, "2160p") || has_token(text, "4k") || has_token(text, "uhd")) out->res = 2160;
+    /* the pixel count first: "1080p.UHD.BluRay" (an encode from a UHD disc) and "4K
+     * Remastered ... 1080p" are 1080p; "4K"/"UHD" alone mean 2160 */
+    if (has(text, "2160p")) out->res = 2160;
     else if (has(text, "1440p")) out->res = 1440;
-    else if (has(text, "1080p") || has_token(text, "fhd") || has(text, "1080i")) out->res = 1080;
+    else if (has(text, "1080p") || has(text, "1080i")) out->res = 1080;
     else if (has(text, "720p")) out->res = 720;
-    else if (has(text, "480p") || has(text, "576p") || has_token(text, "sd")) out->res = 480;
-    else if (has(text, "360p") || has(text, "240p")) out->res = 360;   /* unknown would be scored like 1080p */
+    else if (has(text, "480p") || has(text, "576p")) out->res = 480;
+    else if (has(text, "360p") || has(text, "240p")) out->res = 360;
+    else if (has_token(text, "4k") || has_token(text, "uhd")) out->res = 2160;
+    else if (has_token(text, "fhd")) out->res = 1080;
+    else if (has_token(text, "sd")) out->res = 480;   /* unknown would be scored like 1080p */
 
     if (has_token(text, "av1")) out->codec = CODEC_AV1;
     else if (has(text, "hevc") || has(text, "x265") || has(text, "h265") || has(text, "h.265")) out->codec = CODEC_HEVC;
@@ -63,11 +68,11 @@ void quality_parse(const char *name, const char *title, const char *description,
     else if (has_token(text, "ac3") || has(text, "ac-3") || has_token(text, "dd5") || has(text, "dd5.1") || has(text, "dd2.0")) out->audio = AUDIO_AC3;
     else if (has_token(text, "aac")) out->audio = AUDIO_AAC;
     else if (has_token(text, "opus") || has_token(text, "flac") || has_token(text, "pcm")) out->audio = AUDIO_OTHER;
-    if (out->atmos && out->audio == AUDIO_UNKNOWN) out->audio = AUDIO_TRUEHD;   /* Atmos rips are mostly TrueHD */
+
 
     if (has(text, "\xE2\x9A\xA1") || has(text, "[rd+]") || has(text, "[tb+]") || has(text, "[ad+]") || has(text, "[pm+]") || has(text, "[dl+]")
         || has(text, "[oc+]") || has(text, "[ed+]") || has(text, "cached") || has(text, "instant")) out->cached = 1;
-    if (has(text, "\xE2\x8F\xB3") || has(text, "[rd download]") || has(text, "[tb download]") || has(text, "download only") || has(text, "not cached")
+    if (has(text, "\xE2\x8F\xB3") || has(text, "\xE2\xAC\x87") || has(text, "[rd download]") || has(text, "[tb download]") || has(text, "download only") || has(text, "not cached")
         || has(text, "uncached") || has(text, "[rd]") || has(text, "[tb]") || has(text, "[ad]") || has(text, "[pm]")) out->cached = -1;
 
     const char *s = strstr(text, "\xF0\x9F\x91\xA4");   /* person emoji precedes the seeder count */
@@ -83,25 +88,30 @@ void quality_parse(const char *name, const char *title, const char *description,
         if (!strncasecmp(end, "MB", 2) || !strncasecmp(end, "MiB", 3)) { out->size_gb = v / 1024.0; break; }
         p = end > p ? end - 1 : p;
     }
-    if (out->size_gb <= 0 && size_bytes) out->size_gb = size_bytes / 1073741824.0;
+    if (size_bytes) out->size_gb = size_bytes / 1073741824.0;   /* the addon's exact file size beats one in the text (often the whole torrent's) */
 
     /* a cinema recording or a screener says so whatever else the name has ("HDTS WEB"); the
      * bare "TS"/"TC" are ambiguous and only count when nothing better is named */
     int cam = has(text, "hdcam") || has(text, "hdts") || has(text, "telesync") || has(text, "telecine") || has(text, "camrip") || has_token(text, "cam")
-              || has(text, "dvdscr") || has(text, "bdscr") || has(text, "webscr") || has(text, "screener") || has_token(text, "scr") || has(text, "workprint") || has_token(text, "hdtc");
+              || has(text, "dvdscr") || has(text, "bdscr") || has(text, "webscr") || has(text, "screener") || has_token(text, "scr") || has(text, "workprint") || has_token(text, "hdtc")
+              || has(text, "predvd") || has(text, "hqcam") || has_token(text, "r5");
     if (cam) out->tier = TIER_CAM;
     else if (has(text, "remux")) out->tier = TIER_REMUX;
     else if (has(text, "bluray") || has(text, "blu-ray") || has(text, "bdrip") || has(text, "brrip") || has(text, "web-dl") || has(text, "webdl") || has_token(text, "web")) out->tier = TIER_WEB;
     else if (has(text, "webrip") || has(text, "hdtv") || has(text, "dvdrip") || has(text, "hdrip")) out->tier = TIER_TV;
     else if (has_token(text, "ts") || has_token(text, "tc")) out->tier = TIER_CAM;
     out->threed = has_token(text, "3d") || has(text, "half-sbs") || has(text, "h-sbs");
+    if (out->atmos && out->audio == AUDIO_UNKNOWN)   /* Atmos alone: DD+ on streaming releases, TrueHD on discs */
+        out->audio = out->tier == TIER_REMUX || has(text, "bluray") || has(text, "blu-ray") ? AUDIO_TRUEHD : AUDIO_DDP;
+    out->dv_fallback = out->hdr == 2 && (has(text, "hdr10") || has_token(text, "hdr") || has(text, "dv.hdr") || has(text, "dv | hdr"));
     out->avc10 = out->codec == CODEC_AVC && (has(text, "10bit") || has(text, "10-bit") || has(text, "hi10"));
     out->hardsub = has_token(text, "hc") || has(text, "hardsub") || has(text, "hardcoded");
 }
 
 int quality_cap_ok(const TvProfile *tv, int cap)
 {
-    if (tv->fail[cap] > tv->ok[cap]) return 0;
+    int enough = cap == TVCAP_HEVC || cap == TVCAP_4K ? 3 : 2;   /* one bad file is not the TV: HEVC and 4K play on nearly every set here */
+    if (tv->fail[cap] > tv->ok[cap] && tv->fail[cap] >= enough) return 0;
     if (tv->ok[cap] > 0) return 1;
     switch (cap) {   /* nothing observed yet: what LG's own tables say */
     case TVCAP_DTS: return tv->webos_major == 0 || tv->webos_major >= 8;   /* dropped on 2020-2022 sets, back on some 2023+ */
@@ -117,7 +127,7 @@ unsigned quality_needs(const StreamTags *t)
     if (t->audio == AUDIO_DTS) m |= 1u << TVCAP_DTS;
     if (t->audio == AUDIO_TRUEHD) m |= 1u << TVCAP_TRUEHD;
     if (t->codec == CODEC_AV1) m |= 1u << TVCAP_AV1;
-    if (t->hdr == 2) m |= 1u << TVCAP_DV;
+    if (t->hdr == 2 && !t->dv_fallback) m |= 1u << TVCAP_DV;   /* with an HDR10 layer it plays as HDR without DV */
     if (t->codec == CODEC_HEVC) m |= 1u << TVCAP_HEVC;
     if (t->res >= 2160) m |= 1u << TVCAP_4K;
     return m;
@@ -151,7 +161,7 @@ long quality_score(const StreamTags *t, const TvProfile *tv, const QualityPrefs 
     case CODEC_OLD: s -= 60; break;
     default: break;
     }
-    if (t->hdr == 2) s += quality_cap_ok(tv, TVCAP_DV) ? 30 : -150;
+    if (t->hdr == 2) s += quality_cap_ok(tv, TVCAP_DV) ? 30 : t->dv_fallback ? 10 : -150;   /* with an HDR10 layer it plays as HDR anyway */
     else if (t->hdr == 1) s += res >= 2160 ? 25 : 10;
     if (t->res >= 2160 && !quality_cap_ok(tv, TVCAP_4K)) s -= 600;
 
@@ -180,6 +190,8 @@ long quality_score(const StreamTags *t, const TvProfile *tv, const QualityPrefs 
     double mb = mbits(t, runtime_min);
     double limit = mode == QUAL_SAVER ? 8 : mode == QUAL_BALANCED ? 25 : mode == QUAL_HIGHEST ? 120 : 60;
     if (mb > limit) s -= (long)((mb - limit) * 4);
+    /* far too small for its resolution: a fake, or squeezed until it looks worse than 1080p */
+    if (mb > 0 && ((t->res >= 2160 && mb < 6) || (t->res == 1080 && mb < 1.5))) s -= 250;
     if (mode == QUAL_SAVER) s -= (long)(t->size_gb * 10);
     return s;
 }

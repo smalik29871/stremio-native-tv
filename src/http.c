@@ -25,6 +25,7 @@ enum {
     SHOPT_SHARE = 1, SHOPT_LOCKFUNC = 3, SHOPT_UNLOCKFUNC = 4, LOCK_DNS = 3, LOCK_SSL_SESSION = 4,
     INFO_RESPONSE_CODE = 0x200002,
     INFO_EFFECTIVE_URL = 0x100001,   /* where the redirects ended */
+    INFO_STARTTRANSFER_TIME = 0x300011,   /* seconds until the first byte (redirects, TLS, the server's own wait) */
     GLOBAL_DEFAULT = 3,
 };
 
@@ -225,6 +226,8 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     }
     if (rc == 0) {
         C.easy_getinfo(h, INFO_RESPONSE_CODE, &out->status);
+        double ttfb = 0;
+        if (C.easy_getinfo(h, INFO_STARTTRANSFER_TIME, &ttfb) == 0 && ttfb > 0) out->first_byte_s = ttfb;
         char *eff = NULL;
         if (C.easy_getinfo(h, INFO_EFFECTIVE_URL, &eff) == 0 && eff && strcmp(eff, url)) snprintf(out->final_url, sizeof out->final_url, "%s", eff);
     } else if (!out->error[0]) {

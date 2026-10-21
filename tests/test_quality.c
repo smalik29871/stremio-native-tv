@@ -90,7 +90,25 @@ int main(void)
     quality_parse("x", "Show.2160p.DV.HDR.DDP5.1.Atmos.x265 \xE2\x9A\xA1 9 GB", NULL, NULL, 0, &t);
     quality_summary(&t, 60, sum, sizeof sum);
     CHECK(strstr(sum, "4K HEVC Dolby Vision") && strstr(sum, "Dolby Digital+ Atmos") && strstr(sum, "cached") && strstr(sum, "20 Mbit/s"));
-    CHECK(quality_needs(&t) == ((1u << TVCAP_DV) | (1u << TVCAP_HEVC) | (1u << TVCAP_4K)));
+    CHECK(t.dv_fallback && quality_needs(&t) == ((1u << TVCAP_HEVC) | (1u << TVCAP_4K)));   /* DV with HDR10 under it: plays as HDR without DV */
+    quality_parse("x", "Show.2160p.WEB-DL.DV.DDP5.1.x265", NULL, NULL, 0, &t);
+    CHECK(!t.dv_fallback && quality_needs(&t) == ((1u << TVCAP_DV) | (1u << TVCAP_HEVC) | (1u << TVCAP_4K)));   /* DV only: needs DV */
+    quality_parse("Torrentio\n1080p", "Movie.2019.1080p.UHD.BluRay.DDP7.1.HDR.x265-NCmt", NULL, NULL, 0, &t);
+    CHECK(t.res == 1080);   /* an encode from a UHD disc is 1080p */
+    quality_parse("x", "Movie.4K.Remastered.1080p.BluRay.x264", NULL, NULL, 0, &t);
+    CHECK(t.res == 1080);
+    quality_parse("Comet 4K", "Movie 2024 WEB H265", NULL, NULL, 0, &t);
+    CHECK(t.res == 2160);   /* "4K" alone still means 2160 */
+    quality_parse("[TB\xE2\xAC\x87\xEF\xB8\x8F] Comet 2160p", NULL, "WEB H265 DV DDP5.1", NULL, 0, &t);
+    CHECK(t.cached == -1);   /* Comet's download arrow: not cached */
+    quality_parse("x", "Movie.2024.2160p.WEB-DL.Atmos.DV.H265", NULL, NULL, 0, &t);
+    CHECK(t.audio == AUDIO_DDP);   /* Atmos on a streaming release is DD+ */
+    quality_parse("x", "Movie.2024.2160p.BluRay.REMUX.Atmos.HEVC", NULL, NULL, 0, &t);
+    CHECK(t.audio == AUDIO_TRUEHD);
+    quality_parse("x", "Movie.2024.PreDVDRip.x264", NULL, NULL, 0, &t);
+    CHECK(t.tier == TIER_CAM);
+    quality_parse("x", "Movie 2024 1080p WEB 50 GB", NULL, NULL, 2147483648ULL, &t);
+    CHECK(fabs(t.size_gb - 2.0) < 0.01);   /* the addon's file size beats the text's (the torrent's) */
 
     CHECK(fabs(quality_runtime_minutes("49 min") - 49) < 0.01);
     CHECK(fabs(quality_runtime_minutes("1h 40min") - 100) < 0.01);
