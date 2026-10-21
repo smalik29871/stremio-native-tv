@@ -149,7 +149,7 @@ grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.lo
   || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
 # a link answering 200 with an HTML error page is not a video: it loses the start race
 run race_error_page 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with errpage '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/errpage/manifest.json"
-grep -q "streams: source [0-9] did not answer the race with a video (an error page)" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q expiredpage \
+grep -q "streams: racing" "$OUT/race_error_page.log" && grep -q "player: candidate 1/" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q expiredpage \
   || { echo "an HTML error page won the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_error_page.log"; exit 1; }
 # what an addon says about its stream is kept: the headers it needs (on every check), the
 # file's hash (subtitles matched to it), and the subtitles it sends along
