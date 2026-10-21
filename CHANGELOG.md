@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.38
 
 - **No more freeze while sources come in.** With many addons answering (a few thousand
   sources), the list was re-sorted with a comparison that looked through the TorBox and
