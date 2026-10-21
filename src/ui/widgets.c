@@ -1013,7 +1013,7 @@ float ui_score_card(float right_x, float center_y, const ScoreBadge *scores, int
 {
     if (n + np <= 0) return 0;
     int a = (int)(255 * alpha);
-    const float w = 660, pad = 26, row = 44, colgap = 40, cw = (w - 2 * pad - colgap) / 2;
+    const float w = SCORE_CARD_W, pad = 26, row = 44, colgap = 40, cw = (w - 2 * pad - colgap) / 2;
     const ScoreBadge *ring = NULL;
     const ScoreBadge *cells[8];
     int nc = 0;

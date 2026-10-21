@@ -2930,7 +2930,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     float y = (SNTV_UI_H - need) / 2 - 20;   /* centred, but never down on the paused line */
     if (y > SNTV_UI_H - 230 - need) y = SNTV_UI_H - 230 - need;
     if (y < 110) y = 110;
-    float block_mid = y + need / 2;
+    float block_mid = y + need / 2, right_edge = SNTV_UI_W - 600;
     y += (1 - k) * 16;
     gfx_gradient_h(0, 0, 1300, SNTV_UI_H, RGBA(0, 0, 0, (int)(0xB8 * k)), RGBA(0, 0, 0, 0));
     gfx_gradient_v(0, y - 120, SNTV_UI_W, SNTV_UI_H - y + 120, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x60 * k)));
@@ -3010,7 +3010,8 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         ScoreBadge cardrows[8];
         int nc = 0;
         for (int r = 0; r < 2; r++) for (int i = 0; i < nr[r]; i++) cardrows[nc++] = rb[r][i];
-        ui_score_card(SNTV_UI_W - THEME_MARGIN, block_mid, cardrows, nc, tb, nt, k);   /* level with the details on the left */
+        if (ui_score_card(SNTV_UI_W - THEME_MARGIN, block_mid, cardrows, nc, tb, nt, k) > 0)   /* level with the details on the left */
+            right_edge = SNTV_UI_W - THEME_MARGIN - SCORE_CARD_W - 40;   /* the cast stops short of it */
         if (used > p->corner_logged) { LOGI("player: paused corner: %s", all); p->corner_logged = used; }   /* once more is known */
     }
     if (n_cast && y < SNTV_UI_H - 300) {
@@ -3022,7 +3023,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             const char *role = tm && tm->n_cast ? tm->cast[i].character : (i < p->meta.cast_roles.n ? p->meta.cast_roles.v[i] : "");
             const char *photo = tm && tm->n_cast && tm->cast[i].photo[0] ? tm->cast[i].photo : (i < p->meta.cast_photos.n && p->meta.cast_photos.v[i][0] ? p->meta.cast_photos.v[i] : NULL);
             float w = (font_measure(name, FONT_XS | FONT_B) > font_measure(role, FONT_XS) ? font_measure(name, FONT_XS | FONT_B) : font_measure(role, FONT_XS)) + (photo ? 90 : 74);
-            if (cx + w > SNTV_UI_W - 600) break;
+            if (cx + w > right_edge) break;
             float hh = role[0] ? 64 : 48;
             gfx_rrect(cx, y, w, hh, hh / 2, COLOR_ALPHA(THEME_TEXT, (int)(0x1C * k)));
             int pw = 0, ph = 0;

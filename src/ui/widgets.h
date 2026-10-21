@@ -71,6 +71,7 @@ float ui_score_badge_width(const ScoreBadge *b);
  * one, the scores in two columns (mark, name, value on the right), then Trakt's people
  * under "On Trakt"; right edge at right_x, centred on center_y. Returns its height. */
 float ui_score_card(float right_x, float center_y, const ScoreBadge *scores, int n, const ScoreBadge *people, int np, float alpha);
+#define SCORE_CARD_W 660.0f   /* its width, for what sits beside it */
 /* The title page's strip: a pill per score, its mark and value; returns the width. */
 float ui_score_pills(float x, float y, const ScoreBadge *b, int n, float max_w);
 /* The same marks small, each with its score beside it, in a 36-high line from x; returns the width. */
