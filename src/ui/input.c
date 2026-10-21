@@ -12,6 +12,7 @@
 #define WEBOS_SC_YELLOW  488
 #define WEBOS_SC_BLUE    489
 #define WEBOS_SC_GUIDE   495
+#define WEBOS_SC_INFO    499   /* the standard LG remote's INFO (seen on a webOS TV with an AKB-style remote) */
 #define WEBOS_SC_EXIT    505
 #define WEBOS_SC_PLAY    450   /* LG's Play arrives as this, with no key symbol (seen on webOS 10.3) */
 
@@ -31,6 +32,7 @@ KeyAction input_map(const SDL_Event *e)
     case WEBOS_SC_CH_UP:  return KEY_UP;
     case WEBOS_SC_CH_DOWN:return KEY_DOWN;
     case WEBOS_SC_GUIDE:  return KEY_INFO;
+    case WEBOS_SC_INFO:   return KEY_INFO;
     case WEBOS_SC_PLAY:   return KEY_PLAY;
     /* the media keys by position too: the TV's keymap can leave their symbol empty */
     case SDL_SCANCODE_AUDIOPLAY: return KEY_PLAY;

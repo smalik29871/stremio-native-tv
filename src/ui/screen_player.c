@@ -3139,7 +3139,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         float cx = x;
         int shown = 0;
         char more[48];
-        snprintf(more, sizeof more, "+%d more  \xC2\xB7  Cast button for all", n_cast);   /* widest it can be, room kept for it */
+        snprintf(more, sizeof more, "+%d more  \xC2\xB7  INFO or Cast for all", n_cast);   /* widest it can be, room kept for it */
         float more_w = font_measure(more, FONT_XS | FONT_B) + 24;
         for (int i = 0; i < n_cast && i < 6; i++) {
             const char *name = tm && tm->n_cast ? tm->cast[i].name : p->meta.cast.v[i];
@@ -3168,7 +3168,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
             cx += w + 12;
         }
         if (shown < n_cast) {   /* the rest are in the cast drawer */
-            snprintf(more, sizeof more, "+%d more  \xC2\xB7  Cast button for all", n_cast - shown);
+            snprintf(more, sizeof more, "+%d more  \xC2\xB7  INFO or Cast for all", n_cast - shown);
             font_draw(more, cx + 12, y + (64 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
         }
         y += 64;
