@@ -186,7 +186,7 @@ run player_bar_style 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,d
 run player_bar_sources 380 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,ok"
 run pip_focus 420 "$P,back,back,down,down,down,down,down,down,down"
 run pip_focus_close 460 "$P,back,back,down,down,down,down,down,down,down,right,ok"
-run player_subs_scrolled 420 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,down,down"
+run player_subs_scrolled 420 "right,ok,down,down,ok,wait,down,right,right,right,ok,right,down,down,down"
 run player_episodes 400 "right,ok,down,down,ok,wait,down,right,right,right,right,right,right,right,ok"
 run player_paused 320 "right,ok,down,down,ok,wait,ok" SNTV_FAKE_START=200
 # the content advisory as a video starts: IMDb's parents guide, once the controls step aside; off in Settings, none
@@ -295,7 +295,10 @@ run library_stats 280 "left,down,down,down,ok,up,right,right,right,right,ok"
 run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
-run player_subs_second 480 "right,ok,down,down,ok,wait,down,right,right,right,ok,ok,down,down,down,down,down,down,down,down,down,ok" SNTV_FAKE_START=200
+# the subtitles sheet: languages, then their choices; Look and timing at the end
+run player_subs_second 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,right,back,up,up,up,ok" SNTV_FAKE_START=200
+grep -q "player: subtitles sheet: Choose for Second subtitles" "$OUT/player_subs_second.log" && grep -q "player: subtitles sheet: a file from Fake Addon in Portugu.*, as the second" "$OUT/player_subs_second.log" \
+  || { echo "a second subtitle language was not chosen in the sheet"; grep -E "subtitles" "$OUT/player_subs_second.log"; exit 1; }
 run player_seek_thumb 238 "right,ok,down,down,ok,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
 # no helper: the TV decodes the keyframe itself (bundled FFmpeg) through its local /frame
 if grep -q "^SNTV_FFMPEG_PREFIX:PATH=." "$BUILD/CMakeCache.txt" 2>/dev/null; then
@@ -422,7 +425,8 @@ run options_sheet 400 "right,right,hold,$HOLD,release"
 run hold_hint 200 "right,ok,down,down,right,hold,wait,wait"
 run episode_options 400 "right,ok,down,down,right,hold,$HOLD,release"
 # timing for a subtitle track inside the file (the TV draws it; the player sends the offset)
-run player_subs_timing_embedded 420 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,right,right,right" SNTV_FAKE_START=300
+run player_subs_timing_embedded 460 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,right,right,right" SNTV_FAKE_START=300
+grep -q "player: subtitles sheet: Timing +0.3 s" "$OUT/player_subs_timing_embedded.log" || { echo "the video's subtitles were not retimed"; grep -E "subtitles" "$OUT/player_subs_timing_embedded.log"; exit 1; }
 run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok" HOME="$(home_with ep_marked '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run options_yellow 200 "right,right,right,yellow"
@@ -449,7 +453,8 @@ run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,do
 grep -q "breaks: prayer times by Umm al-Qura" "$OUT/break_settings.log" || { echo "the location did not pick the local prayer time method"; grep breaks "$OUT/break_settings.log"; exit 1; }
 run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
 run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run player_autosync 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200
+run player_autosync 520 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,ok,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200
+grep -q "player: subtitles sheet: Auto-sync Off" "$OUT/player_autosync.log" || { echo "auto-sync was not switched in the sheet"; grep -E "subtitles" "$OUT/player_autosync.log"; exit 1; }
 # two English files, no file-matched one: the one that runs to the end of the video wins
 run player_subs_bestfit 420 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with bestfit '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1
 grep -q "subs: switching to file 1, it fits better" "$OUT/player_subs_bestfit.log" || { echo "the better-fitting subtitle was not picked"; grep subs "$OUT/player_subs_bestfit.log"; exit 1; }
@@ -461,7 +466,8 @@ AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_s
 run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
-run player_translate 600 "right,ok,down,down,ok,wait,down,right,right,right,ok,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,ok" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+run player_translate 600 "right,ok,down,down,ok,wait,down,right,right,right,ok,up,up,up,up,up,up,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+grep -q "player: subtitles sheet: AI translation in Fran" "$OUT/player_translate.log" || { echo "the AI translation was not offered under its language"; grep -E "subtitles" "$OUT/player_translate.log"; exit 1; }
 run settings_ai 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,down" HOME="$(home_with ai4 "$AI")"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"

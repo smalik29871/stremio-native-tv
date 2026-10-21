@@ -100,6 +100,7 @@ struct Player {
     unsigned sub_req;
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
     int assign_second;        /* the subtitles menu picks for the second slot */
+    int subs_col, subs_group, subs_row;   /* the subtitles sheet: column (0 languages, 1 options), language, option */
     int second_done;          /* the show's second language put on (or nothing to do) */
     int forced_checked;       /* looked for a forced track in the audio language */
     /* OpenSubtitles-style file hash -> subtitles matched to this exact file -> auto-sync */
@@ -205,6 +206,9 @@ static int cand_group(const PlayCandidate *c);
 static void cand_addon(const PlayCandidate *c, char *out, size_t n);
 static void describe_track(const Player *p, int kind, const VideoTrack *tr, int i, int n, char *title, size_t tn, char *sub, size_t sn);
 static int xl_available(Player *p);
+static void draw_subs_panel(Player *p);
+static int subs_key(Player *p, KeyAction a);
+static void subs_open(Player *p);
 static void xl_start(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
 
@@ -2087,6 +2091,7 @@ static void draw_sources_panel(Player *p)
 static void draw_menu(Player *p)
 {
     if (p->menu == MENU_SOURCES) { draw_sources_panel(p); return; }
+    if (p->menu == MENU_SUBS) { draw_subs_panel(p); return; }
     float w = 600, x = SNTV_UI_W - w - 40, y = 40, h = SNTV_UI_H - 80;
     int aperture = g_theme.id == THEME_APERTURE;
     if (aperture) { w = 640; x = SNTV_UI_W - w; y = 0; h = SNTV_UI_H; }
@@ -2110,8 +2115,6 @@ static void draw_menu(Player *p)
     }
     VideoTrack tr[MAX_TRACKS];
     int n = video_tracks(p->menu == MENU_AUDIO ? TRACK_AUDIO : TRACK_TEXT, tr, MAX_TRACKS);
-    int order[MAX_ADDON_SUBS];
-    int ng = p->menu == MENU_SUBS ? sorted_subs(p, order) : 0;   /* every file, one row each */
     /* keep the focused row inside the panel: rows are 78 px, section labels 40 px */
     int n_eps = 0;
     const MetaVideo *eps = p->menu == MENU_EPISODES ? app_videos(p->meta.id, &n_eps) : NULL;
@@ -2129,8 +2132,6 @@ static void draw_menu(Player *p)
     int sections_before = p->menu == MENU_AUDIO ? 1 + ((n && p->menu_focus >= 1) ? 1 : 0)
                         : p->menu == MENU_SOURCES ? src_sections
                         : p->menu == MENU_EPISODES ? ep_sections
-                        : p->menu == MENU_SUBS ? (p->menu_focus >= SUB_TIMING) + (p->menu_focus >= SUB_OFF) + ((p->menu_focus >= SUB_TRACKS && n) ? 1 : 0)
-                                                 + ((p->menu_focus >= SUB_TRACKS + n && (ng || p->subs_pending)) ? 1 : 0)
                         : 0;
     float step = p->menu == MENU_SOURCES ? 100 : 78;   /* a source row carries its badges and file name */
     float focus_y = 120 + sections_before * 40 + p->menu_focus * step;
@@ -2216,30 +2217,7 @@ static void draw_menu(Player *p)
         SECTION("PLAYBACK");
         ROW("Speed", sp, 0);
     }
-    if (p->menu == MENU_SUBS) {
-        static const char *SIZES[] = { "Small", "Medium", "Large", "Extra large" };
-        static const char *POS[] = { "Bottom", "Raised", "Top" };
-        char v[120];
-        ROW("Choose for", p->assign_second ? "Second subtitles (above the main ones)  \xC2\xB7  Left/Right" : "Main subtitles  \xC2\xB7  Left/Right for a second language", 0);
-        SECTION("LOOK AND TIMING  \xC2\xB7  LEFT/RIGHT CHANGES");
-        if (p->track_loaded) snprintf(v, sizeof v, "%+.1f s  \xC2\xB7  earlier \xE2\x86\x90  \xE2\x86\x92 later  \xC2\xB7  OK resets", p->track.offset);
-        else if (p->embedded_text_sel >= 0) snprintf(v, sizeof v, "%+.1f s  \xC2\xB7  earlier \xE2\x86\x90  \xE2\x86\x92 later  \xC2\xB7  OK resets", p->embedded_offset);
-        else snprintf(v, sizeof v, "Turn on subtitles to adjust their timing");
-        ROW("Timing", v, 0);
-        snprintf(v, sizeof v, "%s", SIZES[g_app.subs_size]); ROW("Size", v, 0);
-        snprintf(v, sizeof v, "%s%s%s", SUBS_STYLE_NAMES[g_app.subs_style], g_app.subs_colour ? "  \xC2\xB7  " : "", g_app.subs_colour ? SUBS_COLOUR_NAMES[g_app.subs_colour] : ""); ROW("Style", v, 0);
-        snprintf(v, sizeof v, "%s", POS[g_app.subs_pos]); ROW("Position", v, 0);
-        if (!g_app.subs_autosync) snprintf(v, sizeof v, "Off  \xC2\xB7  OK turns it on");
-        else if (p->sync_state == 2 && p->active_addon_sub >= 0 && p->addon_subs[p->active_addon_sub].matched) snprintf(v, sizeof v, "On  \xC2\xB7  this file is matched to the video");
-        else if (p->sync_state == 2) snprintf(v, sizeof v, "On  \xC2\xB7  synced %+.1f s to a file-matched subtitle", p->sync_offset);
-        else if (p->sync_state == 1) snprintf(v, sizeof v, "On  \xC2\xB7  aligning\xE2\x80\xA6");
-        else if (p->sync_state == 3) snprintf(v, sizeof v, "On  \xC2\xB7  no file-matched subtitle to align with");
-        else snprintf(v, sizeof v, p->hash_state < 3 ? "On  \xC2\xB7  reading the file's fingerprint\xE2\x80\xA6" : "On  \xC2\xB7  waits for a matched subtitle");
-        ROW("Auto-sync", v, 0);
-        SECTION("SUBTITLES");
-        ROW("Off", "", p->assign_second ? p->active_addon_sub2 < 0 : (p->embedded_text_sel < 0 && p->active_addon_sub < 0));
-    }
-    if (n) SECTION(p->menu == MENU_AUDIO ? "IN THIS FILE" : "IN THE VIDEO FILE");
+    if (n) SECTION("IN THIS FILE");
     for (int i = 0; i < n; i++) {
         char title[96], sub[160];
         describe_track(p, p->menu == MENU_AUDIO ? 2 : 3, tr, i, n, title, sizeof title, sub, sizeof sub);
@@ -2247,31 +2225,6 @@ static void draw_menu(Player *p)
         ROW(title, sub, on);
     }
     if (p->menu == MENU_AUDIO && !n) font_draw_wrapped("The stream reports a single audio track.", x + 40, ry, FONT_S, THEME_TEXT_MUTED, w - 80, 2);
-    if (p->menu == MENU_SUBS) {
-        if (ng || p->subs_pending) SECTION(p->subs_pending ? "DOWNLOADED BY YOUR ADDONS  (SEARCHING)" : "DOWNLOADED BY YOUR ADDONS");
-        for (int g = 0; g < ng; g++) {
-            int idx = order[g], nth = 0, of = 0;
-            const char *ln = lang_display(p->addon_subs[idx].lang);
-            for (int j = 0; j < ng; j++) if (strcmp(lang_display(p->addon_subs[order[j]].lang), ln) == 0) { of++; if (j < g) nth++; }
-            char label[80], pick[40] = "";
-            snprintf(label, sizeof label, "%s", ln);
-            if (of > 1) snprintf(pick, sizeof pick, "  \xC2\xB7  option %d of %d", nth + 1, of);
-            char who[160];
-            char fit[72] = "";
-            if (!p->addon_subs[idx].matched && p->addon_subs[idx].fit && p->addon_subs[idx].fit_why[0]) snprintf(fit, sizeof fit, "  \xC2\xB7  %s", p->addon_subs[idx].fit_why);
-            else if (p->addon_subs[idx].release) snprintf(fit, sizeof fit, "  \xC2\xB7  %.40s%s", p->addon_subs[idx].release, p->addon_subs[idx].name >= 60 ? " (same release)" : "");
-            snprintf(who, sizeof who, "%s%s%s%s%s", p->addon_subs[idx].addon, pick, p->addon_subs[idx].matched ? "  \xC2\xB7  matched to this file" : "", fit, p->active_addon_sub2 == idx ? "  \xC2\xB7  second" : "");
-            ROW(label, who, p->active_addon_sub == idx || p->active_addon_sub2 == idx);
-        }
-        if (xl_available(p)) {
-            char tl[100], ts[120];
-            snprintf(tl, sizeof tl, "Translate to %s", lang_display(g_app.pref_subs));
-            if (p->xl_on == 1) snprintf(ts, sizeof ts, "AI translating\xE2\x80\xA6  %d of %d lines%s", p->xl_n_done, p->track.n, p->xl_fails ? "  \xC2\xB7  waiting for the service" : "");
-            else if (p->xl_on == 2) snprintf(ts, sizeof ts, "Translated by AI  \xC2\xB7  %d lines", p->track.n);
-            else snprintf(ts, sizeof ts, "AI, from the %s file  \xC2\xB7  nobody offers %s for this title", lang_display(p->addon_subs[xl_source(p)].lang), lang_display(g_app.pref_subs));
-            ROW(tl, ts, p->xl_on != 0);
-        }
-    }
     gfx_clip_pop();
     gfx_set_translate(0, 0);
     #undef ROW
@@ -2563,7 +2516,7 @@ static void bar_activate(Player *p, const VideoInfo *vi)
         break;
     case BTN_NEXT: go_up_next(p); return;
     case BTN_RELOAD: app_toast("Reloading"); start_candidate(p, p->cur, vi->position); break;
-    case BTN_SUBS: p->menu = MENU_SUBS; p->menu_focus = current_track_row(p, MENU_SUBS); break;
+    case BTN_SUBS: p->menu = MENU_SUBS; subs_open(p); break;
     case BTN_AUDIO: p->menu = MENU_AUDIO; p->menu_focus = current_track_row(p, MENU_AUDIO); break;
     case BTN_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); break;
     case BTN_SOURCES: {   /* opens on All, on the source playing */
@@ -3635,6 +3588,356 @@ static void menu_activate(Player *p)
     if (xl_available(p) && f == 0) { if (p->xl_on) { int src = p->active_addon_sub; xl_stop(p); if (src >= 0) select_addon_sub(p, src); app_toast("Translation stopped"); } else xl_start(p); }
 }
 
+/* ---- the subtitles sheet: languages on the left, that language's choices on the right -- */
+
+enum { SI_OFF, SI_EMB, SI_ADDON, SI_XL, SI_SET };
+typedef struct { int kind, flat, ref; } SubItem;   /* flat: the row menu_activate knows; ref: track or file */
+enum { SUB_GROUPS = 40, SUB_ITEMS = MAX_ADDON_SUBS + MAX_TRACKS + 2 };
+typedef struct { char name[48]; int n, in_video, files; SubItem it[SUB_ITEMS]; } SubGroup;
+
+/* the language a track of the file is in (its own tag, else the probe's), or NULL */
+static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n)
+{
+    if (lang_known(tr[i].lang)) return tr[i].lang;
+    if (p->probe) {
+        int count = 0;
+        for (int k = 0; k < p->probe->n_tracks; k++) count += p->probe->tracks[k].kind == 3;
+        if (count == n)
+            for (int k = 0, seen = 0; k < p->probe->n_tracks; k++)
+                if (p->probe->tracks[k].kind == 3 && seen++ == i) return lang_known(p->probe->tracks[k].lang) ? p->probe->tracks[k].lang : NULL;
+    }
+    return NULL;
+}
+
+static SubGroup *group_for(SubGroup *g, int *ng, const char *name)
+{
+    for (int i = 1; i < *ng; i++) if (!strcmp(g[i].name, name)) return &g[i];
+    if (*ng >= SUB_GROUPS - 1) return NULL;
+    SubGroup *x = &g[(*ng)++];
+    memset(x, 0, sizeof *x);
+    snprintf(x->name, sizeof x->name, "%s", name);
+    return x;
+}
+
+/* Off, then a group per language (yours first, then those in the file, then by name),
+ * then Look and timing. Returns the number of groups. */
+static int subs_groups(Player *p, SubGroup *g)
+{
+    VideoTrack tr[MAX_TRACKS];
+    int n = video_tracks(TRACK_TEXT, tr, MAX_TRACKS), ng = 1;
+    memset(&g[0], 0, sizeof g[0]);
+    snprintf(g[0].name, sizeof g[0].name, "Off");
+    g[0].it[g[0].n++] = (SubItem){ SI_OFF, SUB_OFF, -1 };
+    for (int i = 0; i < n; i++) {
+        const char *l = emb_lang(p, tr, i, n);
+        SubGroup *x = group_for(g, &ng, l ? lang_display(l) : "No language given");
+        if (x && x->n < SUB_ITEMS) { x->it[x->n++] = (SubItem){ SI_EMB, SUB_OFF + 1 + i, i }; x->in_video = 1; }
+    }
+    int order[MAX_ADDON_SUBS], nf = sorted_subs(p, order);
+    for (int k = 0; k < nf; k++) {
+        const char *l = p->addon_subs[order[k]].lang;
+        SubGroup *x = group_for(g, &ng, lang_known(l) ? lang_display(l) : "No language given");
+        if (x && x->n < SUB_ITEMS) { x->it[x->n++] = (SubItem){ SI_ADDON, SUB_OFF + 1 + n + k, order[k] }; x->files++; }
+    }
+    if (xl_available(p)) {
+        SubGroup *x = group_for(g, &ng, lang_display(g_app.pref_subs));
+        if (x && x->n < SUB_ITEMS) x->it[x->n++] = (SubItem){ SI_XL, SUB_OFF + 1 + n + nf, -1 };
+    }
+    /* yours first, then the file's own languages, then by name */
+    const char *mine = g_app.pref_subs[0] ? lang_display(g_app.pref_subs) : "";
+    for (int i = 2; i < ng; i++)
+        for (int j = i; j > 1; j--) {
+            SubGroup *a = &g[j], *b = &g[j - 1];
+            int ka = !strcmp(a->name, mine) * 4 + a->in_video * 2 + (strcmp(a->name, "No language given") != 0);
+            int kb = !strcmp(b->name, mine) * 4 + b->in_video * 2 + (strcmp(b->name, "No language given") != 0);
+            if (ka > kb || (ka == kb && strcasecmp(a->name, b->name) < 0)) { SubGroup t = *a; *a = *b; *b = t; } else break;
+        }
+    SubGroup *x = &g[ng++];
+    memset(x, 0, sizeof *x);
+    snprintf(x->name, sizeof x->name, "Look and timing");
+    for (int r = SUB_CHOOSE; r <= SUB_SYNC; r++) x->it[x->n++] = (SubItem){ SI_SET, r, r };
+    return ng;
+}
+
+/* the choice showing now (the second slot's while choosing for it) */
+static int item_on(const Player *p, const VideoTrack *tr, const SubItem *it)
+{
+    switch (it->kind) {
+    case SI_OFF: return p->assign_second ? p->active_addon_sub2 < 0 : (p->embedded_text_sel < 0 && p->active_addon_sub < 0);
+    case SI_EMB: return !p->assign_second && p->embedded_text_sel == tr[it->ref].index;
+    case SI_ADDON: return p->assign_second ? p->active_addon_sub2 == it->ref : (p->active_addon_sub == it->ref || p->active_addon_sub2 == it->ref);
+    case SI_XL: return p->xl_on != 0;
+    default: return 0;
+    }
+}
+
+static int group_on(const Player *p, const VideoTrack *tr, const SubGroup *g)
+{
+    for (int i = 0; i < g->n; i++) if (g->it[i].kind != SI_SET && item_on(p, tr, &g->it[i])) return i;
+    return -1;
+}
+
+/* Opens on what shows now: its language, and the choice in it. */
+static void subs_open(Player *p)
+{
+    SubGroup *g = malloc(sizeof(SubGroup) * SUB_GROUPS);
+    VideoTrack tr[MAX_TRACKS];
+    video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+    int ng = subs_groups(p, g);
+    p->subs_col = 0; p->subs_group = 0; p->subs_row = 0;
+    for (int i = 1; i < ng; i++) { int r = group_on(p, tr, &g[i]); if (r >= 0) { p->subs_group = i; p->subs_row = r; break; } }
+    LOGI("player: subtitles in %d language%s, on %s", ng - 2, ng - 2 == 1 ? "" : "s", g[p->subs_group].name);
+    free(g);
+}
+
+static void subs_setting(const Player *p, int row, char *v, size_t n)
+{
+    static const char *SIZES[] = { "Small", "Medium", "Large", "Extra large" };
+    static const char *POS[] = { "Bottom", "Raised", "Top" };
+    switch (row) {
+    case SUB_CHOOSE: snprintf(v, n, "%s", p->assign_second ? "Second subtitles" : "Main subtitles"); break;
+    case SUB_TIMING:
+        if (p->track_loaded) snprintf(v, n, "%+.1f s", p->track.offset);
+        else if (p->embedded_text_sel >= 0) snprintf(v, n, "%+.1f s", p->embedded_offset);
+        else snprintf(v, n, "Subtitles off");
+        break;
+    case SUB_SIZE: snprintf(v, n, "%s", SIZES[g_app.subs_size]); break;
+    case SUB_STYLE: snprintf(v, n, "%s%s%s", SUBS_STYLE_NAMES[g_app.subs_style], g_app.subs_colour ? "  \xC2\xB7  " : "", g_app.subs_colour ? SUBS_COLOUR_NAMES[g_app.subs_colour] : ""); break;
+    case SUB_POS: snprintf(v, n, "%s", POS[g_app.subs_pos]); break;
+    default:
+        if (!g_app.subs_autosync) snprintf(v, n, "Off");
+        else if (p->sync_state == 2 && p->active_addon_sub >= 0 && p->addon_subs[p->active_addon_sub].matched) snprintf(v, n, "On  \xC2\xB7  matched to the video");
+        else if (p->sync_state == 2) snprintf(v, n, "On  \xC2\xB7  synced %+.1f s", p->sync_offset);
+        else if (p->sync_state == 1) snprintf(v, n, "On  \xC2\xB7  aligning\xE2\x80\xA6");
+        else snprintf(v, n, "On");
+    }
+}
+
+static const char *const SET_LABEL[] = { "Choose for", "Timing", "Size", "Style", "Position", "Auto-sync" };
+static const char *const SET_HINT[] = { "Left/Right: a second language above the main one", "Left/Right: earlier or later  \xC2\xB7  OK resets",
+    "", "Colour in Settings > Audio & subtitles", "", "OK turns it on or off: lines addon files up with the video" };
+
+/* "SRT" from a file's address */
+static void sub_format(const char *url, char *out, size_t n)
+{
+    out[0] = 0;
+    if (!url) return;
+    const char *q = strchr(url, '?'), *end = q ? q : url + strlen(url), *dot = end;
+    while (dot > url && *dot != '.' && *dot != '/') dot--;
+    if (*dot != '.' || end - dot < 3 || end - dot > 4) return;
+    size_t k = 0;
+    for (const char *c = dot + 1; c < end && k + 1 < n; c++) out[k++] = (char)toupper((unsigned char)*c);
+    out[k] = 0;
+    if (strcmp(out, "SRT") && strcmp(out, "VTT") && strcmp(out, "ASS") && strcmp(out, "SSA") && strcmp(out, "SUB")) out[0] = 0;
+}
+
+static float sheet_chip(const char *t, float x, float y, int foc, int accent)
+{
+    float w = font_measure(t, FONT_XS | FONT_B) + 20;
+    gfx_rrect(x, y, w, 30, 8, foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0x22) : accent ? COLOR_ALPHA(THEME_ACCENT, 0x40) : COLOR_ALPHA(THEME_TEXT, 0x18));
+    font_draw(t, x + 10, y + (30 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, foc ? THEME_ON_FOCUS : accent ? THEME_ACCENT : THEME_TEXT_DIM);
+    return w + 8;
+}
+
+static void draw_subs_panel(Player *p)
+{
+    const float SW = 1180, SX = SNTV_UI_W - 64 - SW, SY = 32, SH = SNTV_UI_H - SY - 48, PAD = 40;
+    const float LW = 360, ROW = 76, OROW = 92;
+    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; if (getenv("SNTV_SCREENSHOT")) LOGI("UI check: player drawer=%d", p->menu); }
+    if (p->menu_t < 1) { p->menu_t += 0.1f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
+    float e = 1 - (1 - p->menu_t) * (1 - p->menu_t);
+    gfx_gradient_h(SX - 700, 0, 700 + SW + 64, SNTV_UI_H, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x6B * e)));
+    gfx_set_alpha(e);
+    gfx_set_translate(40 * (1 - e), 0);
+    gfx_rrect(SX, SY, SW, SH, 36, RGBA(0x15, 0x16, 0x1A, 0xF6));
+    SubGroup *g = malloc(sizeof(SubGroup) * SUB_GROUPS);
+    VideoTrack tr[MAX_TRACKS];
+    int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS), ng = subs_groups(p, g);
+    if (p->subs_group >= ng) p->subs_group = ng - 1;
+    const SubGroup *cur = &g[p->subs_group];
+    if (p->subs_row >= cur->n) p->subs_row = cur->n - 1;
+    float cx = SX + PAD, top = SY + 150, bottom = SY + SH - 64;
+
+    char kick[200];
+    ui_upper(p->title ? p->title : "", kick, sizeof kick);
+    font_draw_tracked(kick, cx, SY + 34, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x73), 1.5f);
+    font_draw("Subtitles", cx, SY + 70, FONT_L | FONT_B, THEME_TEXT);
+    if (p->assign_second) sheet_chip("CHOOSING THE SECOND", cx + font_measure("Subtitles", FONT_L | FONT_B) + 24, SY + 82, 0, 1);
+    if (p->subs_pending) {
+        const char *t = "ASKING YOUR ADDONS\xE2\x80\xA6";
+        font_draw(t, SX + SW - PAD - font_measure(t, FONT_XS | FONT_B), SY + 34, FONT_XS | FONT_B, THEME_ACCENT);
+    }
+
+    /* languages */
+    float lscroll = 0, fy = p->subs_group * ROW;
+    if (fy + ROW > bottom - top) lscroll = fy + ROW - (bottom - top);
+    gfx_clip_push(SX, top - 4, LW + PAD + 8, bottom - top + 8);
+    for (int i = 0; i < ng; i++) {
+        float y = top + i * ROW - lscroll + (i == ng - 1 ? 14 : 0);
+        if (y + ROW < top - 4 || y > bottom) continue;
+        if (i == ng - 1) gfx_rect(cx + 12, y - 10, LW - 24, 1, COLOR_ALPHA(THEME_TEXT, 0x18));
+        int sel = i == p->subs_group, foc = sel && p->subs_col == 0;
+        if (foc) gfx_rrect(cx, y, LW, ROW - 8, R_KEY, THEME_FOCUS);
+        else if (sel) gfx_rrect(cx, y, LW, ROW - 8, R_KEY, COLOR_ALPHA(THEME_TEXT, 0x12));
+        Color fg = foc ? THEME_ON_FOCUS : sel ? THEME_TEXT : THEME_TEXT_DIM;
+        int on = i < ng - 1 && group_on(p, tr, &g[i]) >= 0;
+        font_draw_fit(g[i].name, cx + 24, y + (ROW - 8 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, on && !foc ? THEME_ACCENT : fg, LW - 120);
+        if (i > 0 && i < ng - 1) {
+            char c[16]; snprintf(c, sizeof c, "%d", g[i].n);
+            font_draw(c, cx + LW - 64 - font_measure(c, FONT_XS | FONT_B) / 2, y + (ROW - 8 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xA0) : THEME_TEXT_MUTED);
+        }
+        if (on) ui_icon(ICON_CHECK, cx + LW - 28, y + (ROW - 8) / 2, 22, foc ? THEME_ON_FOCUS : THEME_ACCENT);
+        else if (i == ng - 1) ui_icon(ICON_SUBS, cx + LW - 28, y + (ROW - 8) / 2, 22, fg);
+    }
+    gfx_clip_pop();
+    float ox = cx + LW + 36, ow = SX + SW - PAD - ox;
+    gfx_rect(ox - 18, top, 1, bottom - top, COLOR_ALPHA(THEME_TEXT, 0x14));
+
+    /* that language's choices */
+    char head[96];
+    if (p->subs_group == 0) snprintf(head, sizeof head, "NO SUBTITLES");
+    else if (p->subs_group == ng - 1) snprintf(head, sizeof head, "LOOK AND TIMING  \xC2\xB7  LEFT/RIGHT CHANGES");
+    else { char up[64]; ui_upper(cur->name, up, sizeof up); snprintf(head, sizeof head, "%s  \xC2\xB7  %d CHOICE%s", up, cur->n, cur->n == 1 ? "" : "S"); }
+    font_draw_tracked(head, ox, top - 40, FONT_XS | FONT_B, THEME_TEXT_MUTED, 1.2f);
+    float oscroll = 0, oy = p->subs_row * OROW;
+    if (p->subs_col == 1 && oy + OROW > bottom - top) oscroll = oy + OROW - (bottom - top);
+    gfx_clip_push(ox - 8, top - 4, ow + 16, bottom - top + 8);
+    for (int r = 0; r < cur->n; r++) {
+        const SubItem *it = &cur->it[r];
+        float y = top + r * OROW - oscroll, rh = OROW - 10;
+        if (y + OROW < top - 4 || y > bottom) continue;
+        int foc = p->subs_col == 1 && r == p->subs_row, on = item_on(p, tr, it);
+        if (foc) gfx_rrect(ox, y, ow, rh, R_KEY, THEME_FOCUS);
+        else if (on) gfx_rrect(ox, y, ow, rh, R_KEY, COLOR_ALPHA(THEME_TEXT, 0x12));
+        Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, dim = foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED;
+        char title[160] = "", sub[200] = "", fmt[8] = "";
+        float tx = ox + 24, room = ow - 48 - (on ? 50 : 0);
+        if (it->kind == SI_SET) {
+            subs_setting(p, it->ref, sub, sizeof sub);
+            int adj = it->ref != SUB_SYNC;
+            Color vc = foc ? THEME_ON_FOCUS : THEME_ACCENT;
+            float vw = font_measure(sub, FONT_S | FONT_B), vr = ox + ow - 24 - (adj ? 30 : 0), vy = y + rh / 2;
+            font_draw(sub, vr - vw, vy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, vc);
+            if (adj) { ui_icon(ICON_CHEVRON_LEFT, vr - vw - 22, vy, 20, vc); ui_icon(ICON_CHEVRON_RIGHT, vr + 16, vy, 20, vc); }
+            font_draw(SET_LABEL[it->ref], tx, y + (SET_HINT[it->ref][0] ? 14 : (rh - font_height(FONT_S | FONT_B)) / 2), FONT_S | FONT_B, fg);
+            if (SET_HINT[it->ref][0]) font_draw_fit(SET_HINT[it->ref], tx, y + 50, FONT_XS, dim, vr - vw - (adj ? 50 : 20) - tx);
+            continue;
+        }
+        if (it->kind == SI_OFF) { snprintf(title, sizeof title, "No subtitles"); snprintf(sub, sizeof sub, p->assign_second ? "Only the main subtitles show" : "The picture alone"); }
+        else if (it->kind == SI_EMB) {
+            char t2[96], s2[160];
+            describe_track(p, 3, tr, it->ref, nt, t2, sizeof t2, s2, sizeof s2);
+            snprintf(title, sizeof title, "%s", tr[it->ref].label[0] && strcasecmp(tr[it->ref].label, t2) ? tr[it->ref].label : t2);
+            char up[8]; ui_upper(s2, up, sizeof up);   /* a bare format ("SRT") reads as a chip, as for files */
+            if (s2[0] && !strchr(s2, ' ') && strlen(s2) <= 6) snprintf(fmt, sizeof fmt, "%s", up); else snprintf(sub, sizeof sub, "%s", s2);
+        } else if (it->kind == SI_ADDON) {
+            const AddonSub *a = &p->addon_subs[it->ref];
+            snprintf(title, sizeof title, "%s", a->addon);
+            if (!a->matched && a->fit && a->fit_why[0]) snprintf(sub, sizeof sub, "%s", a->fit_why);
+            else if (a->release) snprintf(sub, sizeof sub, "%s%s", a->release, a->name >= 60 ? "  \xC2\xB7  same release" : "");
+            else {   /* nothing else to tell them apart: which of the addon's files in this language */
+                int nth = 0, of = 0;
+                for (int k = 0; k < cur->n; k++) if (cur->it[k].kind == SI_ADDON && !strcmp(p->addon_subs[cur->it[k].ref].addon, a->addon)) { of++; if (k < r) nth++; }
+                if (of > 1) snprintf(sub, sizeof sub, "File %d of %d from this addon", nth + 1, of);
+            }
+            sub_format(a->url, fmt, sizeof fmt);
+        } else {   /* SI_XL */
+            snprintf(title, sizeof title, "Translated by AI");
+            if (p->xl_on == 1) snprintf(sub, sizeof sub, "Translating\xE2\x80\xA6  %d of %d lines", p->xl_n_done, p->track.n);
+            else if (p->xl_on == 2) snprintf(sub, sizeof sub, "%d lines", p->track.n);
+            else snprintf(sub, sizeof sub, "From the %s file: nobody offers %s for this title", lang_display(p->addon_subs[xl_source(p)].lang), lang_display(g_app.pref_subs));
+        }
+        float w0 = font_measure(title, FONT_S | FONT_B), bx = tx + (w0 < room - 260 ? w0 : room - 260) + 14;
+        float ty = sub[0] ? y + 12 : y + (rh - font_height(FONT_S | FONT_B)) / 2, cy = ty + 1;   /* one line: centred */
+        font_draw_fit(title, tx, ty, FONT_S | FONT_B, on && !foc ? THEME_ACCENT : fg, room - 260);
+        if (it->kind == SI_EMB) bx += sheet_chip("IN THE VIDEO", bx, cy, foc, 0);
+        if (fmt[0]) bx += sheet_chip(fmt, bx, cy, foc, 0);
+        if (it->kind == SI_ADDON && p->addon_subs[it->ref].matched) bx += sheet_chip("MATCHED", bx, cy, foc, 1);
+        if (it->kind == SI_ADDON && p->active_addon_sub2 == it->ref) bx += sheet_chip("SECOND", bx, cy, foc, 1);
+        if (sub[0]) font_draw_fit(sub, tx, y + 50, FONT_XS, dim, room);
+        if (on) { gfx_circle(ox + ow - 40, y + rh / 2, 17, foc ? THEME_ON_FOCUS : THEME_ACCENT); ui_icon(ICON_CHECK, ox + ow - 40, y + rh / 2, 20, foc ? THEME_FOCUS : THEME_ON_ACCENT); }
+    }
+    gfx_clip_pop();
+    const char *hint = p->subs_col == 0 ? "Up/Down  language   \xC2\xB7   OK  its first choice   \xC2\xB7   Right  all its choices   \xC2\xB7   Back  close"
+                                        : p->subs_group == ng - 1 ? "Left/Right  change   \xC2\xB7   OK  reset or switch   \xC2\xB7   Back  languages"
+                                        : "OK  choose   \xC2\xB7   Left  languages   \xC2\xB7   Back  languages";
+    font_draw_fit(hint, cx, SY + SH - 44, FONT_XS, THEME_TEXT_MUTED, SW - 2 * PAD);
+    gfx_set_alpha(1);
+    gfx_set_translate(0, 0);
+    free(g);
+}
+
+/* chooses item it as menu_activate would its row; 1 when the sheet should stay open */
+static int subs_choose(Player *p, const SubItem *it, const char *group)
+{
+    int keep = it->kind == SI_SET || it->kind == SI_XL || p->assign_second;
+    static const char *const KIND[] = { "off", "the video's track", "a file from ", "AI translation", "setting" };
+    if (it->kind != SI_SET)
+        LOGI("player: subtitles sheet: %s%s in %s%s", KIND[it->kind], it->kind == SI_ADDON ? p->addon_subs[it->ref].addon : "",
+             group, p->assign_second ? ", as the second" : "");
+    p->menu_focus = it->flat;
+    menu_activate(p);
+    return keep;
+}
+
+static int subs_key(Player *p, KeyAction a)
+{
+    SubGroup *g = malloc(sizeof(SubGroup) * SUB_GROUPS);
+    int ng = subs_groups(p, g), close = 0;
+    if (p->subs_group >= ng) p->subs_group = ng - 1;
+    SubGroup *cur = &g[p->subs_group];
+    if (p->subs_row >= cur->n) p->subs_row = cur->n ? cur->n - 1 : 0;
+    VideoTrack tr[MAX_TRACKS];
+    video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+    const SubItem *it = cur->n ? &cur->it[p->subs_row] : NULL;
+    int adjustable = p->subs_col == 1 && it && it->kind == SI_SET && it->ref != SUB_SYNC;
+    switch (a) {
+    case KEY_UP: case KEY_DOWN: {
+        int d = a == KEY_DOWN ? 1 : -1;
+        if (p->subs_col == 0) {
+            int ngp = p->subs_group + d;
+            if (ngp >= 0 && ngp < ng) { p->subs_group = ngp; int r = group_on(p, tr, &g[ngp]); p->subs_row = r > 0 ? r : 0; }
+        } else if (p->subs_row + d >= 0 && p->subs_row + d < cur->n) p->subs_row += d;
+        break;
+    }
+    case KEY_LEFT: case KEY_RIGHT: {
+        int dir = a == KEY_RIGHT ? 1 : -1;
+        if (adjustable) {
+            if (it->ref == SUB_CHOOSE) p->assign_second = !p->assign_second;
+            else if (it->ref == SUB_TIMING) shift_subs(p, 0.1 * dir);
+            else adjust_subs(p, it->ref, dir);
+            char v[160]; subs_setting(p, it->ref, v, sizeof v);
+            LOGI("player: subtitles sheet: %s %s", SET_LABEL[it->ref], v);
+        } else if (p->subs_col == 0 && dir > 0 && p->subs_group > 0 && cur->n) {
+            p->subs_col = 1; int r = group_on(p, tr, cur); p->subs_row = r > 0 ? r : 0;
+        } else if (p->subs_col == 1 && dir < 0) p->subs_col = 0;
+        break;
+    }
+    case KEY_OK:
+        if (!it) break;
+        if (p->subs_col == 0 && p->subs_group == ng - 1) { p->subs_col = 1; p->subs_row = 0; break; }
+        if (p->subs_col == 0) {   /* a language: its first choice (the file's own, or the best-matched file) */
+            int first = 0;   /* the second slot takes files only: the TV draws one track at a time */
+            while (p->assign_second && first < cur->n - 1 && cur->it[first].kind == SI_EMB) first++;
+            LOGI("player: subtitles: %s, its first choice", cur->name);
+            close = !subs_choose(p, &cur->it[first], cur->name);
+            if (!close) { p->subs_col = 1; p->subs_row = first; }
+            break;
+        }
+        close = !subs_choose(p, it, cur->name);
+        if (it->kind == SI_SET) { char v[160]; subs_setting(p, it->ref, v, sizeof v); LOGI("player: subtitles sheet: %s %s", SET_LABEL[it->ref], v); }
+        break;
+    case KEY_BACK:
+        if (p->subs_col == 1) p->subs_col = 0; else close = 1;
+        break;
+    default: break;
+    }
+    free(g);
+    if (close) p->menu = MENU_NONE;
+    show_overlay(p);
+    return 1;
+}
+
 static void seek_by(Player *p, double base)
 {
     VideoInfo vi;
@@ -3705,6 +4008,7 @@ static int key(Screen *s, KeyAction a)
 keys:
     if (p->catchup_until > g_app.time && !p->menu && (a == KEY_OK || a == KEY_BACK)) { p->catchup_until = 0; app_redraw(); return 1; }   /* puts "Previously" away */
     if (p->menu == MENU_SOURCES) return sources_key(p, a);
+    if (p->menu == MENU_SUBS) return subs_key(p, a);
     if (p->menu) {
         int rows = menu_rows(p);
         switch (a) {
