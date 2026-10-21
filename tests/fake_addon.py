@@ -500,6 +500,22 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [{"name": f"Many\n{r}p", "title": f"Movie.2024.{r}p.WEB-DL.Copy{i}", "url": first["url"] + f"?many={i}"}
                                                               for i, r in enumerate([1080, 1080, 720, 720, 1080, 480, 720, 1080, 480, 720])]}).encode())
             return self.send(404, b"{}")
+        # /fast/...: a stream-only addon with one cached debrid copy, reached through a redirect
+        # (as a debrid link resolves to its file); /redir/<path> sends 302 to /<path>
+        if p.startswith("/fast/"):
+            rest = p[6:]
+            if rest == "manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.fast", name="Fast Addon", resources=["stream"], catalogs=[])).encode())
+            if rest.startswith("stream/"):
+                return self.send(200, json.dumps({"streams": [{"name": "[RD+] Fast\n1080p", "title": "Breaking.Bad.1080p.WEB.x264-FAST",
+                                                               "url": f"{BASE}/redir/video/sample_h264_aac.mkv"}]}).encode())
+            return self.send(404, b"{}")
+        if p.startswith("/redir/"):
+            self.send_response(302)
+            self.send_header("Location", f"{BASE}/{p[7:]}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         # /caps/<dts|dvtruehd>/...: a stream-only addon whose one source needs those features of the TV
         if p.startswith("/caps/"):
             kind, rest = p[6:].split("/", 1)

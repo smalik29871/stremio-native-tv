@@ -14,6 +14,7 @@ typedef struct HttpResponse {
     double seconds;     /* wall time of the transfer, connection included */
     uint64_t total_size; /* from Content-Range (range requests) or Content-Length; 0 unknown */
     int has_range;       /* answered with a Content-Range: */
+    char final_url[1024]; /* where redirects led, when that is not the address asked; "" none */
     uint64_t range_from; /* the offset its bytes start at */
     char content_type[64];
     int cut;            /* the body was cut at its budget (a server that ignored Range, or a runaway answer) */

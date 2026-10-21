@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Sources start faster.**
+  - Resting on an episode or a film now also checks the source Play would start, so
+    Play has nothing left to check.
+  - A source checked in the last minute plays without the race to see which link
+    answers first.
+  - The player opens the file a debrid link redirects to (found by that check moments
+    before), skipping the hops; if that address has expired, it opens the link itself.
+  - Play no longer waits for slow addons once the best source so far is ready on
+    debrid or your TorBox at your quality cap. Their answers still join the list.
+- **How long each start took** is on Diagnostics > Speed: the last five, from the
+  press to the first frame, split into waiting for sources, the check, the race and the
+  player.
 - **Card details wait longer.** The panel beside a focused card opens after 1.5 s instead
   of 0.6 s, so moving along a row no longer opens it on the way.
 

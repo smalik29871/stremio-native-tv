@@ -2,6 +2,7 @@
  * addon + embedded subtitles, audio/subtitle menu, auto-fallback across stream
  * candidates, intro/recap skipping, Up Next at the credits, and progress sync to
  * the Stremio library. */
+#include "../perfstat.h"
 #include "../app.h"
 #include "../http.h"
 #include "../image.h"
@@ -165,6 +166,9 @@ struct Player {
     int net_reconnecting;     /* this load is such a retry: failing before it plays still counts as the dropped connection */
     int net_played;           /* this source has played (a link that never did gets one retry, not three) */
     int card_logged;          /* the error card was put up (once in the log) */
+    int start_timed;          /* its first frame closed the start timing (perfstat) */
+    int final_used;           /* this load opened where the link's redirects led (found moments ago) */
+    unsigned char final_off[16];   /* that address failed for this source: its link from now on */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
     int pip, pip_done;        /* parked in a corner; finished there */
@@ -1376,7 +1380,14 @@ static void start_candidate(Player *p, int idx, double start)
         app_toast("No cached copy: playing P2P on this TV. It switches back when TorBox has it.");
         torbox_queue_hash(p->cands[idx].url + strlen("http://127.0.0.1:11490/"));   /* your TorBox fetches it meanwhile */
     }
-    if (video_load(p->cands[idx].url, p->title, start) != 0) app_toast("Could not start playback");
+    const char *load = p->cands[idx].url, *final = idx < 16 && !p->final_off[idx] ? streams_final_url(load) : NULL;
+    p->final_used = final != NULL;
+    if (final) {   /* checked moments ago: straight to the file, without the redirects */
+        const char *hs = strstr(final, "://"); hs = hs ? hs + 3 : final;
+        LOGI("player: source %d opens where its link led a moment ago (%.*s)", idx + 1, (int)strcspn(hs, "/:?"), hs);
+        load = final;
+    }
+    if (video_load(load, p->title, start) != 0) app_toast("Could not start playback");
     p->own_load = video_load_count();
     push_sub_style(p);   /* re-sent by the backend once the new pipeline has loaded */
     show_overlay(p);
@@ -1947,6 +1958,7 @@ static void update(Screen *s, float dt)
     VideoInfo vi;
     video_info(&vi);
     if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
+    if (vi.state == VIDEO_PLAYING && !p->start_timed) { p->start_timed = 1; perf_start_done(1); }   /* the first frame: the start is over */
     if (vi.state == VIDEO_PAUSED && p->paused_since == 0) { p->paused_since = g_app.time; app_redraw(); }
     if (vi.state != VIDEO_PAUSED && p->paused_since != 0) p->paused_since = 0;
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) p->viewer_paused = 0;
@@ -1983,6 +1995,12 @@ static void update(Screen *s, float dt)
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
     night_tick(p, &vi);
 
+    if (vi.state == VIDEO_ERROR && !p->error_handled && p->final_used && !p->net_played && p->cur < 16) {   /* the address it led to may have expired: the link itself */
+        p->final_off[p->cur] = 1;
+        LOGI("player: the address source %d led to did not play; opening its link", p->cur + 1);
+        start_candidate(p, p->cur, p->start_at);
+        video_info(&vi);
+    }
     if (vi.state == VIDEO_ERROR && !p->error_handled) { p->error_handled = 1; if (!net_retry(p, &vi)) fail_over(p, vi.error[0] ? vi.error : "Playback failed"); }
     if (p->net_retry_at > 0 && g_app.time >= p->net_retry_at) {
         p->net_retry_at = 0;
@@ -3320,7 +3338,7 @@ static void draw(Screen *s)
     }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */
     if (error_final(p, &vi)) {
-        if (!p->card_logged) { p->card_logged = 1; LOGI("player: error card (%s): every source and fresh link tried", p->tb_error[0] ? p->tb_error : vi.error); }
+        if (!p->card_logged) { p->card_logged = 1; perf_start_done(0); LOGI("player: error card (%s): every source and fresh link tried", p->tb_error[0] ? p->tb_error : vi.error); }
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
         float w = 900, h = 360, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
         ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
@@ -4431,6 +4449,7 @@ void player_save_progress(void)
 static void destroy(Screen *s)
 {
     Player *p = s->st;
+    if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */
     report(p, 1);   /* the app closing with the film on: the last position still counts */
     streams_lookup_cancel();
     if (p->cur < p->n_cands) torrent_engine_drop(p->cands[p->cur].url);

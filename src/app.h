@@ -332,6 +332,8 @@ void player_reload_at(Screen *s, double position_s, int paused);   /* the same s
 
 /* Fetch an episode's streams ahead of time so Up Next starts without a spinner. */
 void streams_prefetch(const MetaPreview *meta, const char *video_id);
+/* Where this link's redirects ended, found by a check moments ago; NULL none (open the link). */
+const char *streams_final_url(const char *url);
 /* Share of addons that have answered that prefetch, 0..1 (1 = ready to start at once);
  * -1 when none is running or it went stale. */
 float streams_prefetch_progress(const char *video_id);

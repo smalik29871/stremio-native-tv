@@ -1,6 +1,7 @@
 /* See perfstat.h. Histograms in whole milliseconds, so a percentile is a short walk
  * and nothing is allocated while frames run. */
 #include "perfstat.h"
+#include "log.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <string.h>
@@ -62,6 +63,55 @@ void perf_shown(void)
     g_key_at = 0;
 }
 
+/* ---- stream starts ---- */
+enum { STARTS = 5, PHASES = 6 };
+typedef struct { char how[16]; int n, ok; struct { char name[12]; Uint32 ms; } ph[PHASES]; Uint32 total; } Start;
+static Start g_starts[STARTS], g_run;
+static int g_n_starts, g_running;
+static Uint32 g_run_t0, g_run_last;
+
+void perf_start_begin(const char *how)
+{
+    memset(&g_run, 0, sizeof g_run);
+    snprintf(g_run.how, sizeof g_run.how, "%s", how);
+    g_run_t0 = g_run_last = SDL_GetTicks();
+    g_running = 1;
+}
+
+void perf_start_phase(const char *phase)
+{
+    if (!g_running) return;
+    Uint32 now = SDL_GetTicks();
+    if (g_run.n > 0 && !strcmp(g_run.ph[g_run.n - 1].name, phase)) { g_run.ph[g_run.n - 1].ms += now - g_run_last; g_run_last = now; return; }   /* again: a fallback */
+    if (g_run.n == PHASES) return;
+    snprintf(g_run.ph[g_run.n].name, sizeof g_run.ph[0].name, "%s", phase);
+    g_run.ph[g_run.n++].ms = now - g_run_last;
+    g_run_last = now;
+}
+
+void perf_start_cancel(void) { g_running = 0; }
+
+static void start_line(const Start *s, char *out, size_t n)
+{
+    size_t o = (size_t)snprintf(out, n, "%.1f s %s%s:", s->total / 1000.0, s->how, s->ok ? "" : " (failed)");
+    for (int i = 0; i < s->n && o < n; i++) o += (size_t)snprintf(out + o, n - o, "%s %s %.1f", i ? "," : "", s->ph[i].name, s->ph[i].ms / 1000.0);
+}
+
+void perf_start_done(int ok)
+{
+    if (!g_running) return;
+    perf_start_phase("player");
+    g_run.ok = ok;
+    g_run.total = SDL_GetTicks() - g_run_t0;
+    g_running = 0;
+    memmove(g_starts + 1, g_starts, sizeof g_starts[0] * (STARTS - 1));
+    g_starts[0] = g_run;
+    if (g_n_starts < STARTS) g_n_starts++;
+    char line[200];
+    start_line(&g_run, line, sizeof line);
+    LOGI("start: %s", line);
+}
+
 void perf_report(char *out, size_t n)
 {
     size_t o = 0;
@@ -73,6 +123,10 @@ void perf_report(char *out, size_t n)
     ADD("\n");
     if (g_keys.n) ADD("Key to screen: typical %d ms, slow (1 in 20) %d ms, %u keys\n", hist_pct(&g_keys, 0.5f), hist_pct(&g_keys, 0.95f), g_keys.n);
     else ADD("Key to screen: no keys yet\n");
+    if (g_n_starts) {
+        ADD("Stream starts, newest first (press to first frame):\n");
+        for (int i = 0; i < g_n_starts; i++) { char line[200]; start_line(&g_starts[i], line, sizeof line); ADD("  %s\n", line); }
+    } else ADD("Stream starts: none yet\n");
     ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20, frames:\n");
     for (int i = 0; i < g_n_screens; i++) {
         const Hist *h = &g_screens[i].h, *t = &g_screens[i].total;

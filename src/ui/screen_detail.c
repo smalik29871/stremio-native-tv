@@ -4,6 +4,7 @@
  * badges, resume progress and spoiler blur for what you haven't seen yet.
  * Below the fold (Down) the page scrolls to About: the facts, a ratings card, the
  * cast with their photos and more titles of the same genre. */
+#include "../perfstat.h"
 #include "../app.h"
 #include "../tmdb.h"
 #include "../newep.h"
@@ -1231,6 +1232,7 @@ static int key(Screen *s, KeyAction a)
                 c->label = strdup("Resume");
                 char nid[128] = "", nt[200] = "";
                 int has_next = app_next_video(d->preview.id, d->resume_video, nid, sizeof nid, nt, sizeof nt);
+                perf_start_begin("Resume");   /* the saved link: straight to the player */
                 app_push(screen_player_create(&d->preview, d->resume_video, d->preview.name, c, 1, 0, d->resume_pos, has_next ? nid : NULL, has_next ? nt : NULL));
                 return 1;
             }

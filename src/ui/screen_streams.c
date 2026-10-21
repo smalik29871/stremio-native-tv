@@ -5,6 +5,7 @@
 #include "../youtube.h"
 #include "../srchealth.h"
 #include "../probe.h"
+#include "../perfstat.h"
 #include "../store.h"
 #include "../torrent.h"
 #include "../torbox.h"
@@ -43,6 +44,7 @@ struct Streams {
     int from_prefetch;        /* answers still arriving belong to the prefetch */
     int check_autoplay;
     int auto_rec_done;        /* the recommended source was started by itself */
+    int sources_timed;        /* the start timing has its "sources" phase */
     int play_now;             /* opened to play: the recommended source starts by itself, whatever the setting */
     int probes_started, probe_inflight;
     int ranks_logged;
@@ -63,6 +65,7 @@ static struct {
     unsigned generation;
     float started;
     int addons_version;   /* the addons it was asked of: new ones make it stale */
+    MetaPreview meta; int has_meta;   /* the title, to rank what came in (its best is checked ahead) */
 } g_pre;
 #define PREFETCH_FRESH_S 10800.0f   /* the answers hold for hours; near the end of the episode they are asked again (streams_prefetch_again) */
 
@@ -215,41 +218,115 @@ static long rank(const Streams *st, const Stream *s)
 
 static void sort_items(Streams *st);
 
+/* ---- checks kept a while ----
+ * A link's check (its first 2 MB) holds for minutes: the file behind it doesn't change.
+ * The title page checks the best of the sources it fetched ahead, so Play has nothing
+ * left to check; a Sources page opened again reuses its checks. Where a link's redirects
+ * ended is kept a minute: the player opens that and skips the hops (it may expire, so
+ * the link itself stays the fallback). */
+#define CHECK_FRESH_S 600.0f
+#define FINAL_FRESH_S 60.0f
+#define RACE_SKIP_S 60.0f      /* checked this recently: no race to see whether it answers */
+typedef struct { char *url; float at; int state; ProbeInfo *info; double measured_mbps, file_mbps; char final_url[1024]; float final_at; } LinkCheck;
+static LinkCheck g_checks[16];
+static int g_checks_next;
+
+static LinkCheck *check_find(const char *url, float fresh_s)
+{
+    for (int i = 0; i < 16; i++)
+        if (g_checks[i].url && !strcmp(g_checks[i].url, url) && g_app.time - g_checks[i].at < fresh_s) return &g_checks[i];
+    return NULL;
+}
+
+static LinkCheck *check_slot(const char *url)
+{
+    for (int i = 0; i < 16; i++) if (g_checks[i].url && !strcmp(g_checks[i].url, url)) return &g_checks[i];
+    LinkCheck *c = &g_checks[g_checks_next];
+    g_checks_next = (g_checks_next + 1) % 16;
+    free(c->url); free(c->info);
+    memset(c, 0, sizeof *c);
+    c->url = strdup(url);
+    return c;
+}
+
+static void host_of(const char *url, char *out, size_t n)   /* the host only: a link can carry a key */
+{
+    const char *hs = strstr(url, "://"); hs = hs ? hs + 3 : url;
+    snprintf(out, n, "%.*s", (int)strcspn(hs, "/:?"), hs);
+}
+
+static void final_note(const char *url, const HttpResponse *r)
+{
+    if (!r->final_url[0] || strncmp(r->final_url, "http", 4)) return;
+    LinkCheck *c = check_slot(url);
+    snprintf(c->final_url, sizeof c->final_url, "%s", r->final_url);
+    c->final_at = g_app.time;
+}
+
+/* What a check found, kept for the link. */
+static const LinkCheck *check_record(const char *url, const HttpResponse *r)
+{
+    char host[96];
+    host_of(url, host, sizeof host);
+    LinkCheck *c = check_slot(url);
+    c->at = g_app.time;
+    free(c->info); c->info = NULL;
+    c->measured_mbps = c->file_mbps = 0;
+    if (!http_looks_like_media(r)) {   /* not answering, or answering with a page instead of the file */
+        c->state = 4;
+        LOGW("probe: %s -> HTTP %ld %s", host, r->status, r->error);
+        return c;
+    }
+    final_note(url, r);
+    c->measured_mbps = r->seconds > 0.05 ? (double)r->len * 8.0 / r->seconds / 1e6 : 0;
+    ProbeInfo *info = malloc(sizeof *info);
+    char d[200];
+    if (probe_parse((const uint8_t *)r->body, r->len, info)) {
+        c->state = 2;
+        c->info = info;
+        c->file_mbps = probe_mbits(info, r->total_size);
+        probe_describe(info, d, sizeof d);
+        LOGI("probe: %s -> %s; file %.0f Mbit/s, link %.0f Mbit/s, %d chapters", host, d, c->file_mbps, c->measured_mbps, info->n_chapters);
+    } else {
+        c->state = 3;
+        probe_describe(info, d, sizeof d);
+        LOGI("probe: %s -> alive, %s (%s), link %.0f Mbit/s", host, d, r->content_type, c->measured_mbps);
+        free(info);
+    }
+    return c;
+}
+
+static void check_apply(const LinkCheck *c, Stream *s)
+{
+    s->probe_state = c->state;
+    s->measured_mbps = c->measured_mbps;
+    s->file_mbps = c->file_mbps;
+    if (c->info) {
+        free(s->probe);
+        s->probe = malloc(sizeof *s->probe);
+        *s->probe = *c->info;
+        probe_apply(s->probe, &s->tags);
+    }
+}
+
+const char *streams_final_url(const char *url)
+{
+    for (int i = 0; url && i < 16; i++)
+        if (g_checks[i].url && !strcmp(g_checks[i].url, url) && g_checks[i].final_url[0] && g_app.time - g_checks[i].final_at < FINAL_FRESH_S) return g_checks[i].final_url;
+    return NULL;
+}
+
 static void on_probe(HttpResponse *r, void *user)
 {
     ProbeReq *q = user;
     Streams *st = q->owner;
+    const LinkCheck *c = check_record(q->url, r);   /* kept even when the screen is gone */
     if (st != g_live || q->gen != st->probe_gen) { free(q->url); free(q); return; }
     st->probe_inflight = 0;
     for (int i = 0; i < st->n; i++) {
         Stream *s = &st->items[i];
         if (!s->url || strcmp(s->url, q->url) != 0) continue;
-        char host[96];
-        const char *hs = strstr(q->url, "://"); hs = hs ? hs + 3 : q->url;
-        snprintf(host, sizeof host, "%.*s", (int)strcspn(hs, "/:?"), hs);
-        if (!http_looks_like_media(r)) {   /* not answering, or answering with a page instead of the file */
-            s->probe_state = 4;
-            LOGW("probe: %s -> HTTP %ld %s", host, r->status, r->error);
-            break;
-        }
-        s->measured_mbps = r->seconds > 0.05 ? (double)r->len * 8.0 / r->seconds / 1e6 : 0;
-        ProbeInfo *info = malloc(sizeof *info);
-        if (probe_parse((const uint8_t *)r->body, r->len, info)) {
-            s->probe_state = 2;
-            free(s->probe);
-            s->probe = info;
-            probe_apply(info, &s->tags);
-            s->file_mbps = probe_mbits(info, r->total_size);
-            char d[200];
-            probe_describe(info, d, sizeof d);
-            LOGI("probe: %s -> %s; file %.0f Mbit/s, link %.0f Mbit/s, %d chapters", host, d, s->file_mbps, s->measured_mbps, info->n_chapters);
-        } else {
-            s->probe_state = 3;
-            char d[200];
-            probe_describe(info, d, sizeof d);
-            LOGI("probe: %s -> alive, %s (%s), link %.0f Mbit/s", host, d, r->content_type, s->measured_mbps);
-            free(info);
-        }
+        check_apply(c, s);
         break;
     }
     free(q->url); free(q);
@@ -261,6 +338,21 @@ static void on_probe(HttpResponse *r, void *user)
 static void probe_next(Streams *st)
 {
     if (!g_app.preflight || st->probe_inflight || st->probes_started >= PROBE_MAX) return;
+    int reused = 0;
+    for (int i = 0; i < st->n; i++) {   /* checked ahead or a moment ago: no need to ask again */
+        Stream *s = &st->items[i];
+        if (s->probe_state || !s->url) continue;
+        const LinkCheck *c = check_find(s->url, CHECK_FRESH_S);
+        if (!c || !c->state || (c->state == 4 && g_app.time - c->at > 120)) continue;   /* a dead link is asked again soon: debrid links come back */
+        check_apply(c, s);
+        reused++;
+    }
+    if (reused) {
+        st->probes_started += reused;
+        LOGI("streams: %d source%s checked already (ahead, or moments ago)", reused, reused == 1 ? "" : "s");
+        sort_items(st);
+        if (st->probes_started >= PROBE_MAX) return;
+    }
     int best = -1;
     for (int i = 0; i < st->n; i++) {
         Stream *s = &st->items[i];
@@ -416,6 +508,7 @@ static void on_streams(HttpResponse *r, void *user)
     if (st != g_live || p->generation != g_generation) { free(p); return; }
     st->pending--;
     if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
+    if (!st->pending && !st->sources_timed) { st->sources_timed = 1; perf_start_phase("sources"); }
     free(p);
     autoplay_check(st);
 }
@@ -474,8 +567,34 @@ static void prefetch_clear(void)
     g_pre.generation++;   /* answers still in flight are dropped */
     streams_free(g_pre.items, g_pre.n);
     free(g_pre.video_id);
+    if (g_pre.has_meta) meta_preview_free(&g_pre.meta);
     memset(&g_pre, 0, sizeof g_pre);
     g_pre.generation = g_generation + 1000;
+}
+
+static void on_ahead(HttpResponse *r, void *user)
+{
+    char *url = user;
+    check_record(url, r);
+    free(url);
+}
+
+/* Every answer is in: the source Play would start is checked now, while the viewer reads
+ * the page, so Play has nothing left to wait for. */
+static void check_ahead(void)
+{
+    if (!g_app.preflight || !g_pre.n || !g_pre.has_meta || getenv("SNTV_NO_CHECK_AHEAD")) return;
+    Streams tmp;
+    memset(&tmp, 0, sizeof tmp);
+    tmp.items = g_pre.items; tmp.n = g_pre.n; tmp.meta = g_pre.meta; tmp.video_id = g_pre.video_id;   /* borrowed: ranked as the screen would */
+    sort_items(&tmp);
+    int r = recommended(&tmp);
+    if (r < 0) return;
+    const Stream *s = &tmp.items[r];
+    if (!s->url || strncmp(s->url, "http", 4) || torrent_engine_url_is(s->url) || check_find(s->url, CHECK_FRESH_S)) return;
+    LOGI("streams: checking the best of %d prefetched sources ahead", g_pre.n);
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1 };   /* as the screen checks it */
+    http_request_async_ex(s->url, &opt, on_ahead, strdup(s->url));
 }
 
 static void on_prefetch(HttpResponse *r, void *user)
@@ -493,7 +612,7 @@ static void on_prefetch(HttpResponse *r, void *user)
     }
     absorb(&g_pre.items, &g_pre.n, r, p->addon);
     free(p);
-    if (g_pre.pending == 0) LOGI("streams: prefetched %d sources for %s", g_pre.n, g_pre.video_id);
+    if (g_pre.pending == 0) { LOGI("streams: prefetched %d sources for %s", g_pre.n, g_pre.video_id); check_ahead(); }
 }
 
 void streams_prefetch(const MetaPreview *meta, const char *video_id)
@@ -502,6 +621,7 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id)
     if (g_pre.video_id && strcmp(g_pre.video_id, video_id) == 0 && g_app.time - g_pre.started < PREFETCH_FRESH_S && g_pre.addons_version == g_app.addons_version) return;
     prefetch_clear();
     g_pre.video_id = strdup(video_id);
+    meta_preview_copy(&g_pre.meta, meta); g_pre.has_meta = 1;
     g_pre.started = g_app.time;
     g_pre.addons_version = g_app.addons_version;
     query_addons(meta, video_id, NULL, g_pre.generation, on_prefetch, &g_pre.pending, NULL);
@@ -617,6 +737,21 @@ static void log_ranking(Streams *st)
     }
 }
 
+/* While slow addons are still answering: the best so far is already what they could
+ * bring (ready on debrid or your TorBox, at your quality cap, its check passed), so the
+ * start does not wait for them. Their answers still join the list. */
+static int good_enough(const Streams *st)
+{
+    if (!st->pending) return 0;
+    int r = recommended(st);
+    if (r < 0) return 0;
+    const Stream *s = &st->items[r];
+    if (s->tags.res < g_app.res_cap) return 0;
+    if (s->tags.cached <= 0 && !is_mine(s) && !from_torbox(s)) return 0;
+    if (g_app.preflight && s->probe_state != 2 && s->probe_state != 3) return 0;
+    return 1;
+}
+
 static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
@@ -629,8 +764,10 @@ static void update(Screen *s, float dt)
     int checks_done = !g_app.preflight || (!st->probe_inflight && (st->probes_started >= PROBE_MAX || g_app.time - st->started > 12));
     if (st->play_now)   /* asked to play: the best-ranked link's check is enough */
         checks_done = !g_app.preflight || (!st->probe_inflight && st->probes_started >= 1) || g_app.time - st->started > 5;
-    if ((g_app.auto_recommended || st->play_now) && !st->chaining && !st->auto_rec_done && st->n && checks_done && (st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6))) {
+    int waited = st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6);
+    if ((g_app.auto_recommended || st->play_now) && !st->chaining && !st->auto_rec_done && st->n && checks_done && (waited || good_enough(st))) {
         int r = recommended(st);
+        if (!waited) LOGI("streams: the best so far is ready at %dp; not waiting for %d slower addon%s", st->items[r].tags.res, st->pending, st->pending == 1 ? "" : "s");
         for (int i = 0; r < 0 && st->play_now && i < st->n; i++) if (playable(&st->items[i])) r = i;   /* asked to play: the top source that can, the player falls back from there */
         if (r >= 0) {
             st->auto_rec_done = 1;
@@ -1045,11 +1182,12 @@ typedef struct {
 } Race;
 static Race g_race;
 
-static void race_launch(int first)
+static void race_launch(int first)   /* -2: no race, the first plays as chosen */
 {
     Race *r = &g_race;
     if (first > 0) { PlayCandidate t = r->c[first]; memmove(r->c + 1, r->c, sizeof *r->c * (size_t)first); r->c[0] = t; }
-    LOGI("streams: %s", first >= 0 ? "the quickest source starts" : "no source answered the race; trying them in order");
+    if (first != -2) LOGI("streams: %s", first >= 0 ? "the quickest source starts" : "no source answered the race; trying them in order");
+    perf_start_phase("race");
     app_push(screen_player_create(&r->meta, r->video_id, r->title, r->c, r->n, 0, r->start, r->has_next ? r->next_id : NULL, r->has_next ? r->next_title : NULL));
     meta_preview_free(&r->meta);
     r->c = NULL; r->busy = 0;
@@ -1077,7 +1215,7 @@ static void on_race(HttpResponse *resp, void *user)
         r->pending--;
         int ok = http_looks_like_media(resp);   /* a 200 with an error page is no video */
         if (!ok && r->c && q->idx < r->n) { app_link_failed(r->c[q->idx].url); LOGI("streams: source %d did not answer the race%s", q->idx + 1, resp->status == 200 || resp->status == 206 ? " with a video (an error page)" : ""); }   /* the player skips it */
-        if (ok) { r->done = 1; LOGI("streams: source %d answered first (%.2f s)", q->idx + 1, resp->seconds); race_launch(q->idx); }
+        if (ok) { r->done = 1; LOGI("streams: source %d answered first (%.2f s)", q->idx + 1, resp->seconds); final_note(r->c[q->idx].url, resp); race_launch(q->idx); }
         else if (r->pending == 0) { r->done = 1; race_launch(-1); }
     }
     free(q);
@@ -1096,7 +1234,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
     snprintf(r->title, sizeof r->title, "%s", title);
     if (has_next) { snprintf(r->next_id, sizeof r->next_id, "%s", next_id); snprintf(r->next_title, sizeof r->next_title, "%s", next_title); }
     r->busy = 1;
-    if (!race || racers < 2 || getenv("SNTV_NO_RACE")) { race_launch(0); return; }   /* a source the viewer chose plays as chosen */
+    if (!race || racers < 2 || getenv("SNTV_NO_RACE")) { race_launch(-2); return; }   /* a source the viewer chose plays as chosen */
     g_race_round++;
     for (int i = 0; i < n && i < 3; i++) {
         if (strncmp(c[i].url, "http", 4) || torrent_engine_url_is(c[i].url)) continue;
@@ -1147,6 +1285,8 @@ static void play_yt(Streams *st, const Stream *s)
 static void play_from(Streams *st, int index)
 {
     if (app_pip_claim(st->video_id)) return;
+    if (!st->sources_timed) { st->sources_timed = 1; perf_start_phase("sources"); }
+    perf_start_phase("check");
     if (st->items[index].yt_id && !st->items[index].url) { play_yt(st, &st->items[index]); return; }
     char reason[160];
     char *url = app_stream_playable_url(&st->items[index], reason, sizeof reason);
@@ -1178,7 +1318,10 @@ static void play_from(Streams *st, int index)
     char next_id[128] = "", next_title[200] = "";
     int has_next = app_next_video(st->meta.id, st->video_id, next_id, sizeof next_id, next_title, sizeof next_title);
     /* no race for the next episode's same-release source: it plays as matched */
-    play_raced(st, c, n, start, title, has_next, next_id, next_title, index == recommended(st) && !same_release(st, &st->items[index]) && !is_mine(&st->items[index]) && !from_torbox(&st->items[index]));   /* TorBox's copy: no race either */
+    const LinkCheck *just = st->items[index].url ? check_find(st->items[index].url, RACE_SKIP_S) : NULL;
+    int fresh = just && (just->state == 2 || just->state == 3);   /* its check passed moments ago: it answers, no race to find out */
+    if (fresh) LOGI("streams: source checked %.0f s ago; no race", g_app.time - just->at);
+    play_raced(st, c, n, start, title, has_next, next_id, next_title, !fresh && index == recommended(st) && !same_release(st, &st->items[index]) && !is_mine(&st->items[index]) && !from_torbox(&st->items[index]));   /* TorBox's copy: no race either */
 }
 
 /* ---- a quiet lookup for the player ---- */
@@ -1269,7 +1412,8 @@ static int key(Screen *s, KeyAction a)
         app_redraw();
         return 1;
     case KEY_DOWN: st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
-    case KEY_OK:
+    case KEY_OK:   /* a choice: timed from here, the sources are in */
+        perf_start_begin("chosen"); st->sources_timed = 1;
         if (st->focus == -1) { int r = recommended(st); if (r >= 0) play_from(st, r); return 1; }
         if (st->focus < st->n) play_from(st, st->focus);
         return 1;
@@ -1291,6 +1435,7 @@ static void destroy(Screen *s)
     Streams *st = s->st;
     if (g_live == st) { g_live = NULL; g_generation++; }
     race_cancel();   /* left with Back while it ran: only the screen on top races */
+    perf_start_cancel();   /* left before anything played (after a start, nothing is running) */
     st->probe_gen++;
     if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */
     streams_free(st->items, st->n);
@@ -1308,6 +1453,8 @@ Screen *screen_streams_create_chain(const MetaPreview *meta, const char *video_i
     st->video_id = strdup(video_id);
     st->video_title = video_title ? strdup(video_title) : NULL;
     st->chaining = hint != NULL;
+    if (hint) perf_start_begin("next episode");
+    else if (g_app.auto_recommended) perf_start_begin("recommended");
     if (hint) {
         st->chain = *hint;
         LOGI("streams: next episode like %s%s%s%s, addon %d, %dp", hint->group[0] ? "group " : "", hint->group,
@@ -1338,6 +1485,9 @@ Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, con
 Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id, const char *video_title)
 {
     Screen *s = screen_streams_create_chain(meta, video_id, video_title, NULL);
-    ((Streams *)s->st)->play_now = 1;
+    Streams *st = s->st;
+    st->play_now = 1;
+    perf_start_begin("Play");
+    if (!st->pending && st->n) { st->sources_timed = 1; perf_start_phase("sources"); }   /* all in from the prefetch */
     return s;
 }
