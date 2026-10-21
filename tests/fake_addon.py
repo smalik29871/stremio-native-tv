@@ -163,6 +163,11 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"success": True, "data": {"torrent_id": 77 if cached else 78, "hash": m.group(1).decode().lower()}}).encode())
         # IMDb's GraphQL stand-in: /imdbgql has no trailer for anything, /imdbgql/with has one in three qualities
         if p.startswith("/imdbgql"):
+            if b"parentsGuide" in body:   # the parents guide: what a title contains, None to Severe
+                cats = [("Sex & Nudity", "Mild"), ("Violence & Gore", "Severe"), ("Profanity", "Moderate"),
+                        ("Alcohol, Drugs & Smoking", "Severe"), ("Frightening & Intense Scenes", "None")]
+                return self.send(200, json.dumps({"data": {"title": {"parentsGuide": {"categories": [
+                    {"category": {"text": c}, "severity": {"text": v}} for c, v in cats]}}}}).encode())
             if not p.startswith("/imdbgql/with"):
                 return self.send(200, json.dumps({"data": {"title": {"latestTrailer": None}}}).encode())
             q = json.loads(body.decode("utf-8") or "{}")
@@ -359,6 +364,10 @@ class H(BaseHTTPRequestHandler):
             data = [{"id": "1", "attributes": {"language": "en", "release": "Some.Other.Cut.720p.HDTV-XYZ", "download_count": 900, "moviehash_match": False, "files": [{"file_id": 111}]}},
                     {"id": "2", "attributes": {"language": "en", "release": "Movie.2024.1080p.WEB-DL", "download_count": 12, "moviehash_match": hashed, "files": [{"file_id": 222}]}}]
             return self.send(200, json.dumps({"data": data}).encode())
+        if p.startswith("/trakt/") and p.endswith("/stats"):   # a title's numbers on Trakt
+            return self.send(200, json.dumps({"watchers": 23456, "plays": 1400000, "collectors": 900, "comments": 12, "lists": 40, "votes": 800}).encode())
+        if p.startswith("/trakt/") and p.endswith("/watching"):   # the people watching it right now
+            return self.send(200, json.dumps([{"username": f"u{i}"} for i in range(37)]).encode())
         if p.startswith("/trakt/sync/playback"):   # paused on another device: a film past half, an episode at 40%
             if self.headers.get("Authorization") != "Bearer tokresume":   # only the resume test's account has any
                 return self.send(200, b"[]")
@@ -385,7 +394,7 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/simkl/oauth/pin"):
             return self.send(200, json.dumps({"result": "OK", "user_code": "SIM12", "verification_url": "https://simkl.com/pin", "expires_in": 900, "interval": 1}).encode())
         if p.startswith("/mdblist/"):
-            return self.send(200, json.dumps({"title": "x", "ratings": [{"source": "imdb", "value": 9.3}, {"source": "tomatoes", "value": 91},
+            return self.send(200, json.dumps({"title": "x", "ratings": [{"source": "imdb", "value": 9.3}, {"source": "tomatoes", "value": 91}, {"source": "popcorn", "value": 96},
                                                                        {"source": "metacritic", "value": 82}, {"source": "letterboxd", "value": 4.5}, {"source": "tmdb", "value": None}]}).encode())
         if p.startswith("/p2p/") or p.startswith("/p2ponly/"):
             only = p.startswith("/p2ponly/")

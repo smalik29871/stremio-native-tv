@@ -236,6 +236,18 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         caption(g_app.hide_watched ? "Watched titles leave the catalog rows" : "Watched titles stay, marked with a tick", x, base + 6, w);
         return;
     }
+    case PV_ADVISORY: {
+        art(sx, sy, sw, sh, R_KEY, 5, 0);
+        if (g_app.advisory) {
+            gfx_clip_push(sx, sy, sw, sh);
+            gfx_rrect_grad_h(sx + sw * 0.2f, sy, sw * 0.8f, sh, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0xA0));
+            static const int lv[5] = { 1, 2, 2, 0, 0 };
+            ui_advisory(sx + sw - 26, sy + 26, lv, 1);
+            gfx_clip_pop();
+        }
+        caption(g_app.advisory ? "For a few seconds as a video starts, from IMDb's parents guide" : "Videos start without it", x, base + 6, w);
+        return;
+    }
     case PV_BLUR: {
         float gap = 16, cw = (sw - 2 * gap) / 3, ch = cw * 0.5625f, cy = sy + (sh - ch) / 2 - 10;
         for (int i = 0; i < 3; i++) {

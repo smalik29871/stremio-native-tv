@@ -29,6 +29,7 @@
 #include "theme.h"
 #include "widgets.h"
 #include "island.h"
+#include "../advisory.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -145,6 +146,8 @@ struct Player {
     int next_warmed;          /* and the start of its likely file fetched */
     int night, night_applied; long night_minute; unsigned night_load;   /* night mode on; the volume set for this load */
     int stinger_noted;        /* "stay for the scene after the credits" said */
+    float played_at, adv_at;  /* when playback first ran; when the content advisory came up (0 not yet) */
+    int corner_logged;        /* lines in the paused corner last logged */
     float prefetch_tried;     /* when; a stale or empty prefetch is retried after a while */
     float next_prog;          /* shown share of the prefetch (eases toward the real one) */
     float next_ready_at;      /* when it reached 1, for the ready pulse */
@@ -179,6 +182,7 @@ static Player *g_live;
 
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
 #define PAUSE_REST 6.0f   /* seconds paused and untouched before the controls step aside */
+#define ADVISORY_S 7.0f   /* seconds the content advisory stays when a video starts */
 static void url_host(const char *url, char *out, size_t n);
 static void go_up_next(Player *p);
 static void instant_replay(Player *p, double pos);
@@ -1804,6 +1808,16 @@ static void update(Screen *s, float dt)
     int at_credits = credits > 60 && vi.duration > 0 && credits < vi.duration - 10 && vi.position >= credits && vi.position < vi.duration - 1;
     int near_end = vi.duration > 120 && vi.position > vi.duration - 45;
     const TmdbInfo *tmi = p->trailer ? NULL : tmdb_get(p->meta.id, p->meta.type);
+    /* the rating and what it contains, once the starting controls step aside, if IMDb
+     * answered within the first twenty seconds */
+    if (vi.state == VIDEO_PLAYING && !p->played_at) p->played_at = g_app.time;
+    if (p->played_at && !p->adv_at && !p->trailer && g_app.advisory && g_app.time - p->played_at > 1.5f && g_app.time - p->played_at < 20
+        && g_app.time >= p->overlay_until && !p->menu) {
+        const Advisory *adv = advisory_get(p->meta.id);
+        char d[160] = "";
+        if (adv) advisory_describe(adv, d, sizeof d);
+        if (d[0]) { p->adv_at = g_app.time; LOGI("player: advisory shown: %s", d); }
+    }
     int stinger = tmi ? tmi->stinger : 0;
     if (stinger && !p->stinger_noted && vi.state == VIDEO_PLAYING && vi.duration > 600
         && (credits > 60 ? vi.position >= credits : vi.position > vi.duration - 420)) {   /* the credits start (or roughly, without markers) */
@@ -2960,6 +2974,43 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     }
     if (np || mx > x) y += 50;
     if (about) y += font_draw_wrapped(about, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
+    /* the right-hand corner: what critics and audiences make of it, then Trakt's viewers */
+    {
+        static const struct { int src, kind; const char *fmt, *label, *log; } R[] = {
+            { MDB_TOMATOMETER, BADGE_TOMATOMETER, "%.0f%%", "Tomatometer", "Tomatometer" },
+            { MDB_POPCORNMETER, BADGE_POPCORNMETER, "%.0f%%", "Popcornmeter", "Popcornmeter" },
+            { MDB_METACRITIC, BADGE_METASCORE, "%.0f", "Metascore", "Metacritic" },
+            { MDB_LETTERBOXD, BADGE_LETTERBOXD, "%.1f", "Letterboxd", "Letterboxd" } };
+        ScoreBadge rb[4], tb[3];
+        char text[7][16], all[400];
+        int nr = 0, nt = 0, l = 0;
+        double sc[MDB_SOURCES];
+        all[0] = 0;
+        if (mdblist_scores(p->meta.id, p->meta.type, sc))
+            for (int i = 0; i < 4; i++) {
+                if (sc[R[i].src] <= 0) continue;
+                snprintf(text[nr], 16, R[i].fmt, sc[R[i].src]);
+                rb[nr] = (ScoreBadge){ R[i].kind, sc[R[i].src], text[nr], R[i].label };
+                l += snprintf(all + l, sizeof all - l, "%s%s %s", l ? ", " : "", R[i].log, text[nr]);
+                nr++;
+            }
+        long tv[3] = { 0, 0, 0 };
+        if (trakt_stats(p->meta.id, p->meta.type, &tv[0], &tv[1], &tv[2])) {
+            static const struct { int kind; const char *label, *log; } T[3] = {
+                { BADGE_LIVE, "watching now", "Watching now" }, { BADGE_WATCHERS, "watched it on Trakt", "Trakt watchers" }, { BADGE_PLAYS, "plays on Trakt", "Trakt plays" } };
+            for (int i = 0; i < 3; i++) {
+                if (tv[i] <= 0) continue;
+                tracking_count_text(tv[i], text[4 + nt], 16);
+                tb[nt] = (ScoreBadge){ T[i].kind, (double)tv[i], text[4 + nt], T[i].label };
+                l += snprintf(all + l, sizeof all - l, "%s%s %s", l ? ", " : "", T[i].log, text[4 + nt]);
+                nt++;
+            }
+        }
+        float ry = 120;
+        if (nr) ry += ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry, rb, nr, k) + 34;
+        ui_score_badges(SNTV_UI_W - THEME_MARGIN, ry, tb, nt, k);
+        if (nr + nt > p->corner_logged) { LOGI("player: paused corner: %s", all); p->corner_logged = nr + nt; }   /* once more is known */
+    }
     if (n_cast && y < SNTV_UI_H - 300) {
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
         y += 36;
@@ -3008,6 +3059,13 @@ static void draw(Screen *s)
     draw_subtitle(p, &vi);
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
+    float adv_t = p->adv_at ? g_app.time - p->adv_at : -1;
+    if (adv_t >= 0 && adv_t < ADVISORY_S && !p->menu && !overlay && !p->pip) {   /* fades in, stays, fades out */
+        float k = adv_t < 0.5f ? adv_t / 0.5f : adv_t > ADVISORY_S - 0.8f ? (ADVISORY_S - adv_t) / 0.8f : 1;
+        const Advisory *adv = advisory_get(p->meta.id);
+        if (adv) ui_advisory(SNTV_UI_W - THEME_MARGIN, 120, adv->level, k);   /* the top-right corner, under the clock */
+        app_redraw();
+    }
     if ((p->scenes_open || p->cast_open) && !p->menu) overlay = 0;   /* the rail or the cast has the bottom of the screen */
     if (error_final(p, &vi)) {
         gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xD8));
@@ -3856,6 +3914,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     s->name = "player"; s->st = p;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
     if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
+    if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);
     query_addon_subs(p);
     return s;

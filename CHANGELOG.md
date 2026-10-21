@@ -22,6 +22,23 @@
 - Longer audio and subtitle language tags (e.g. `zh-Hant-TW`) are kept on a source switch,
   and repeated retries reset once a source has played well for a while.
 
+## 0.10.36
+
+- **What critics and viewers make of it, in the paused screen's corner**, as score
+  badges with their own marks: Rotten Tomatoes' Tomatometer (a tomato, or a green
+  splat when rotten) and Popcornmeter (a full popcorn bucket, or tipped over), the
+  Metascore in Metacritic's green, yellow or red box, and Letterboxd's three dots (with
+  an MDBList key); below them Trakt's viewers: a live dot for how many are watching it
+  right now, how many have watched it, and how often.
+- **Content advisory when a video starts**, as streaming services show: a line for
+  each thing the title contains and how much ("Violence · Moderate", "Nudity · Mild":
+  violence, profanity, frightening scenes, nudity, alcohol and drugs), from IMDb's
+  parents guide, strongest first, in the top-right corner. It appears once the starting controls step aside and fades after a few
+  seconds; Settings > Player > Content advisory turns it off.
+- **The remote's Play button works on LG webOS 10**: it arrives with a code the app
+  didn't know (found with the new unknown-key log in Diagnostics); it now plays on
+  title pages and resumes a paused video.
+
 ## 0.10.35
 
 - **Four new screensavers** (Settings > System > Screensaver style), drawn live and

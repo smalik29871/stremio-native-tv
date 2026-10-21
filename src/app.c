@@ -1693,6 +1693,7 @@ static void load_prefs(void)
     g_app.fx_setting = (FxLevel)store_get_int("fx", FX_AUTO);
     g_app.fx_light = g_app.fx_setting == FX_LIGHT;
     g_app.spoiler_blur = store_get_int("spoilerBlur", 1);
+    g_app.advisory = store_get_int("advisory", 1);
     g_app.subs_size = store_get_int("subsSize", 1);
     g_app.subs_pos = store_get_int("subsPos", 0);
     g_app.subs_style = store_get_int("subsStyle", 0);
@@ -1799,6 +1800,7 @@ void app_save_prefs(void)
 {
     store_set_int("fx", g_app.fx_setting);
     store_set_int("spoilerBlur", g_app.spoiler_blur);
+    store_set_int("advisory", g_app.advisory);
     store_set_int("subsSize", g_app.subs_size);
     store_set_int("subsPos", g_app.subs_pos);
     store_set_int("subsStyle", g_app.subs_style);

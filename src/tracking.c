@@ -573,7 +573,7 @@ static const char *mdb_key(void)
 }
 int mdblist_enabled(void) { return mdb_key()[0] != 0; }
 
-static struct { char imdb[24]; int state; char line[200]; } g_mdb[8];
+static struct { char imdb[24]; int state; char line[200]; double score[MDB_SOURCES]; } g_mdb[8];
 static int g_mdb_next;
 
 static void mdb_parse(int slot, const char *json)
@@ -582,8 +582,9 @@ static void mdb_parse(int slot, const char *json)
     const cJSON *rs = cJSON_GetObjectItemCaseSensitive(j, "ratings"), *it;
     char *o = g_mdb[slot].line; size_t n = sizeof g_mdb[slot].line, l = 0;
     o[0] = 0;
-    static const struct { const char *src, *name, *fmt; } S[] = {
-        { "tomatoes", "Rotten Tomatoes", "%.0f%%" }, { "metacritic", "Metacritic", "%.0f" },
+    memset(g_mdb[slot].score, 0, sizeof g_mdb[slot].score);
+    static const struct { const char *src, *name, *fmt; } S[] = {   /* in MDB_* order */
+        { "tomatoes", "Tomatometer", "%.0f%%" }, { "popcorn", "Popcornmeter", "%.0f%%" }, { "metacritic", "Metacritic", "%.0f" },
         { "letterboxd", "Letterboxd", "%.1f" }, { "tmdb", "TMDB", "%.0f%%" } };
     for (size_t k = 0; k < sizeof S / sizeof S[0]; k++)
         if (cJSON_IsArray(rs)) cJSON_ArrayForEach(it, rs) {
@@ -591,6 +592,7 @@ static void mdb_parse(int slot, const char *json)
             if (!cJSON_IsString(src) || strcmp(src->valuestring, S[k].src) || !cJSON_IsNumber(v) || v->valuedouble <= 0) continue;
             char val[16]; snprintf(val, sizeof val, S[k].fmt, v->valuedouble);
             if (l < n) l += (size_t)snprintf(o + l, n - l, "%s%s %s", l ? "  \xC2\xB7  " : "", S[k].name, val);
+            g_mdb[slot].score[k] = v->valuedouble;
             break;
         }
     g_mdb[slot].state = o[0] ? 2 : 3;
@@ -608,6 +610,14 @@ static void on_mdb(HttpResponse *r, void *user)
     app_redraw();
 }
 
+int mdblist_scores(const char *imdb_id, const char *type, double out[MDB_SOURCES])
+{
+    if (!mdblist_line(imdb_id, type)) return 0;   /* asks once, like the line */
+    for (int i = 0; i < 8; i++)
+        if (!strcmp(g_mdb[i].imdb, imdb_id)) { memcpy(out, g_mdb[i].score, sizeof g_mdb[i].score); return 1; }
+    return 0;
+}
+
 const char *mdblist_line(const char *imdb_id, const char *type)
 {
     (void)type;
@@ -622,4 +632,62 @@ const char *mdblist_line(const char *imdb_id, const char *type)
     char url[300]; snprintf(url, sizeof url, "%s/?apikey=%s&i=%s", mdb_api(), mdb_key(), imdb_id);
     http_request_async(url, NULL, on_mdb, (void *)(intptr_t)slot);
     return NULL;
+}
+
+/* ---- Trakt: how many watch a title, and how many right now ---- */
+static struct { char imdb[24]; int state, watching; long watchers, plays; } g_tks[8];   /* state: 1 asked, 2 known, 3 none */
+static int g_tks_next;
+
+void tracking_count_text(long v, char *o, size_t n)
+{
+    if (v >= 1000000) snprintf(o, n, "%.1fM", v / 1e6);
+    else if (v >= 10000) snprintf(o, n, "%ldK", v / 1000);
+    else if (v >= 1000) snprintf(o, n, "%ld,%03ld", v / 1000, v % 1000);
+    else snprintf(o, n, "%ld", v);
+}
+
+static void on_tk_stats(HttpResponse *r, void *user)
+{
+    int slot = (int)(intptr_t)user;
+    cJSON *j = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
+    const cJSON *w = cJSON_GetObjectItemCaseSensitive(j, "watchers"), *p = cJSON_GetObjectItemCaseSensitive(j, "plays");
+    if (cJSON_IsNumber(w) || cJSON_IsNumber(p)) {
+        g_tks[slot].watchers = cJSON_IsNumber(w) ? (long)w->valuedouble : 0;
+        g_tks[slot].plays = cJSON_IsNumber(p) ? (long)p->valuedouble : 0;
+        g_tks[slot].state = 2;
+    } else if (g_tks[slot].state != 2) g_tks[slot].state = 3;
+    cJSON_Delete(j);
+    app_redraw();
+}
+
+static void on_tk_watching(HttpResponse *r, void *user)
+{
+    int slot = (int)(intptr_t)user;
+    cJSON *j = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
+    if (cJSON_IsArray(j)) g_tks[slot].watching = cJSON_GetArraySize(j);   /* the people watching it now */
+    cJSON_Delete(j);
+    app_redraw();
+}
+
+int trakt_stats(const char *imdb_id, const char *type, long *watching, long *watchers, long *plays)
+{
+    if (!tracking_configured(TRACK_TRAKT) || !imdb_id || strncmp(imdb_id, "tt", 2)) return 0;
+    char id[24]; snprintf(id, sizeof id, "%.*s", (int)strcspn(imdb_id, ":"), imdb_id);
+    for (int i = 0; i < 8; i++) {
+        if (strcmp(g_tks[i].imdb, id)) continue;
+        if (g_tks[i].state != 2) return 0;
+        *watching = g_tks[i].watching; *watchers = g_tks[i].watchers; *plays = g_tks[i].plays;
+        return 1;
+    }
+    int slot = g_tks_next; g_tks_next = (g_tks_next + 1) % 8;
+    memset(&g_tks[slot], 0, sizeof g_tks[slot]);
+    snprintf(g_tks[slot].imdb, sizeof g_tks[slot].imdb, "%s", id);
+    g_tks[slot].state = 1;
+    const char *kind = type && !strcmp(type, "series") ? "shows" : "movies";
+    char url[200];
+    snprintf(url, sizeof url, "%s/%s/%s/stats", trakt_api(), kind, id);
+    request(TRACK_TRAKT, url, NULL, on_tk_stats, (void *)(intptr_t)slot);
+    snprintf(url, sizeof url, "%s/%s/%s/watching", trakt_api(), kind, id);
+    request(TRACK_TRAKT, url, NULL, on_tk_watching, (void *)(intptr_t)slot);
+    return 0;
 }
