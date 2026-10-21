@@ -55,11 +55,16 @@ jobs:
         run: cd tools/torrentd && go vet ./... && go test ./...
 
   ui:
-    # The scripted UI runs (tests/smoke.sh) under Xvfb against the fake addon; a release
-    # waits for them. They stop at the first failure; its log and screenshots are uploaded.
-    name: UI scenarios
+    # The scripted UI runs (tests/smoke.sh) under Xvfb against the fake addon, in four parts
+    # on four machines (tests/shard.py); a release waits for all of them. Each part stops at
+    # its first failure; its logs and screenshots are uploaded.
+    name: UI scenarios ${{ matrix.part }}/4
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false   # every part's result, not only the first failure
+      matrix:
+        part: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
@@ -80,11 +85,13 @@ jobs:
           cmake --build build -j"$(nproc)"
       - name: UI scenarios
         run: bash tests/smoke.sh build
+        env:
+          SMOKE_PART: ${{ matrix.part }}/4
       - name: Logs and screenshots
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ui-scenarios
+          name: ui-scenarios-${{ matrix.part }}
           path: |
             tests/out/*.log
             tests/out/*.png

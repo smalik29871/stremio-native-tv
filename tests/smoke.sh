@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # Headless UI smoke test: runs the desktop build under Xvfb against the fake
 # addon, drives a few keys, and writes screenshots to tests/out/.
-# Usage: bash tests/smoke.sh [build-dir]
+# Usage: bash tests/smoke.sh [build-dir]   (SMOKE_PART=K/N runs part K of N: tests/shard.py)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${1:-$ROOT/build}"
 OUT="$ROOT/tests/out"
 mkdir -p "$OUT"
+if [ -n "${SMOKE_PART:-}" ] && [ -z "${SMOKE_PART_OF:-}" ]; then   # SMOKE_PART=2/4: one part of the runs (CI spreads them over machines)
+  python3 -I "$ROOT/tests/shard.py" "$ROOT/tests/smoke.sh" "${SMOKE_PART%/*}" "${SMOKE_PART#*/}" > "$OUT/part.sh"
+  SMOKE_PART_OF=1 exec bash "$OUT/part.sh" "$BUILD"
+fi
 PORT=8765
 export FAKE_PUT_LOG="$OUT/datastore_put.log" FAKE_LIBRARY="$ROOT/tests/fixtures/library.json"   # the fake Stremio account
 rm -f "$FAKE_PUT_LOG"
