@@ -2967,6 +2967,32 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     }
     if (np || mx > x) y += 50;
     if (about) y += font_draw_wrapped(about, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
+    /* the right-hand corner: what critics and Trakt's viewers make of it */
+    {
+        const char *names[8], *values[8];
+        char store[8][2][40];
+        int nf = 0;
+        const char *line = mdblist_line(p->meta.id, p->meta.type);
+        for (const char *q = line; q && *q && nf < 5; ) {   /* "Rotten Tomatoes 93%  ·  Metacritic 80" */
+            const char *end = strstr(q, "  \xC2\xB7  ");
+            int len = end ? (int)(end - q) : (int)strlen(q);
+            char seg[64]; snprintf(seg, sizeof seg, "%.*s", len, q);
+            char *sp = strrchr(seg, ' ');
+            if (sp) {
+                *sp = 0;
+                snprintf(store[nf][0], 40, "%s", seg); snprintf(store[nf][1], 40, "%s", sp + 1);
+                names[nf] = store[nf][0]; values[nf] = store[nf][1]; nf++;
+            }
+            q = end ? end + 5 : NULL;
+        }
+        long now_w = 0, watchers = 0, plays = 0;
+        if (trakt_stats(p->meta.id, p->meta.type, &now_w, &watchers, &plays)) {
+            static const char *const TK[3] = { "Watching now", "Trakt watchers", "Trakt plays" };
+            long v[3] = { now_w, watchers, plays };
+            for (int i = 0; i < 3 && nf < 8; i++) if (v[i] > 0) { tracking_count_text(v[i], store[nf][1], 40); names[nf] = TK[i]; values[nf] = store[nf][1]; nf++; }
+        }
+        ui_facts(SNTV_UI_W - THEME_MARGIN, 120, names, values, nf, k, 1);
+    }
     if (n_cast && y < SNTV_UI_H - 300) {
         font_draw("CAST", x, y, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, a));
         y += 36;

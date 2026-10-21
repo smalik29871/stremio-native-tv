@@ -873,25 +873,40 @@ float ui_chip_outline(const char *text, float x, float y, Color line, Color fg)
     return w;
 }
 
+void ui_facts(float x, float y, const char *const *name, const char *const *value, int n, float alpha, int right)
+{
+    if (n <= 0) return;
+    int a = (int)(255 * alpha);
+    float lh = 50, h = n * lh, w = 0;
+    for (int i = 0; i < n; i++) {
+        char rest[48]; snprintf(rest, sizeof rest, " \xC2\xB7 %s", value[i]);
+        float lw = font_measure(name[i], FONT_M | FONT_B) + font_measure(rest, FONT_M);
+        if (lw > w) w = lw;
+    }
+    float bar = right ? x - 6 : x, left = right ? x - 32 - w : x + 32;
+    gfx_shadow(left - 30, y - 20, w + 92, h + 40, 40, 90, RGBA(0, 0, 0, (int)(0x70 * alpha)));   /* readable over any picture */
+    gfx_rrect(bar, y, 6, h, 3, RGBA(0xFF, 0xFF, 0xFF, a));
+    for (int i = 0; i < n; i++) {
+        char rest[48]; snprintf(rest, sizeof rest, " \xC2\xB7 %s", value[i]);
+        float lw = font_measure(name[i], FONT_M | FONT_B) + font_measure(rest, FONT_M);
+        float tx = right ? x - 32 - lw : left, ty = y + i * lh + (lh - font_height(FONT_M | FONT_B)) / 2;
+        font_draw_shadow(name[i], tx, ty, FONT_M | FONT_B, RGBA(0xF2, 0xF2, 0xF2, a), RGBA(0, 0, 0, a / 3));
+        font_draw_shadow(rest, tx + font_measure(name[i], FONT_M | FONT_B), ty, FONT_M, RGBA(0x9A, 0x9A, 0x9A, a), RGBA(0, 0, 0, a / 3));
+    }
+}
+
 void ui_advisory(float x, float y, const int level[5], float alpha)
 {
     /* the themes in the order they are listed at the same strength (advisory.h's indices) */
     static const int SHOWN[5] = { 1, 2, 4, 0, 3 };
     static const char *const NAME[5] = { "Nudity", "Violence", "Profanity", "Alcohol/Drugs", "Frightening" };
     static const char *const LEVEL[4] = { "", "Mild", "Moderate", "Severe" };
-    int a = (int)(255 * alpha), order[5], n = 0;
-    for (int lvl = 3; lvl >= 1; lvl--) for (int i = 0; i < 5; i++) if (level[SHOWN[i]] == lvl) order[n++] = SHOWN[i];
-    if (!n) return;
-    float lh = 50, h = n * lh;
-    gfx_shadow(x - 30, y - 20, 560, h + 40, 40, 90, RGBA(0, 0, 0, (int)(0x70 * alpha)));   /* readable over any picture */
-    gfx_rrect(x, y, 6, h, 3, RGBA(0xFF, 0xFF, 0xFF, a));
-    for (int i = 0; i < n; i++) {
-        float tx = x + 32, ty = y + i * lh + (lh - font_height(FONT_M | FONT_B)) / 2;
-        font_draw_shadow(NAME[order[i]], tx, ty, FONT_M | FONT_B, RGBA(0xF2, 0xF2, 0xF2, a), RGBA(0, 0, 0, a / 3));
-        tx += font_measure(NAME[order[i]], FONT_M | FONT_B);
-        char rest[24]; snprintf(rest, sizeof rest, " \xC2\xB7 %s", LEVEL[level[order[i]]]);
-        font_draw_shadow(rest, tx, ty, FONT_M, RGBA(0x9A, 0x9A, 0x9A, a), RGBA(0, 0, 0, a / 3));
-    }
+    const char *names[5], *values[5];
+    int n = 0;
+    for (int lvl = 3; lvl >= 1; lvl--)
+        for (int i = 0; i < 5; i++)
+            if (level[SHOWN[i]] == lvl) { names[n] = NAME[SHOWN[i]]; values[n] = LEVEL[lvl]; n++; }
+    ui_facts(x, y, names, values, n, alpha, 0);
 }
 
 float ui_imdb(const char *rating, float x, float y)

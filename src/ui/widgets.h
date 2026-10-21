@@ -56,6 +56,9 @@ float ui_chip_outline(const char *text, float x, float y, Color line, Color fg);
  * contains ("Violence · Moderate"), strongest first. level: nudity, violence, language,
  * drugs, frightening; 0 none to 3 severe. alpha 0..1 fades it. */
 void ui_advisory(float x, float y, const int level[5], float alpha);
+/* The same look for any list: "Name · value" lines beside a white bar; right = 1 puts
+ * the bar at x with the lines right-aligned against it. */
+void ui_facts(float x, float y, const char *const *name, const char *const *value, int n, float alpha, int right);
 /* A person's photo cropped to the box (faces sit high), or their initials when there is none. */
 void ui_portrait(const char *photo, const char *name, float x, float y, float w, float h, float r, int initials_font);
 /* "New episode" ("3 new episodes") with a bell, its right edge at x: a series card whose show has aired more. */

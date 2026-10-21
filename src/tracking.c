@@ -592,3 +592,61 @@ const char *mdblist_line(const char *imdb_id, const char *type)
     http_request_async(url, NULL, on_mdb, (void *)(intptr_t)slot);
     return NULL;
 }
+
+/* ---- Trakt: how many watch a title, and how many right now ---- */
+static struct { char imdb[24]; int state, watching; long watchers, plays; } g_tks[8];   /* state: 1 asked, 2 known, 3 none */
+static int g_tks_next;
+
+void tracking_count_text(long v, char *o, size_t n)
+{
+    if (v >= 1000000) snprintf(o, n, "%.1fM", v / 1e6);
+    else if (v >= 10000) snprintf(o, n, "%ldK", v / 1000);
+    else if (v >= 1000) snprintf(o, n, "%ld,%03ld", v / 1000, v % 1000);
+    else snprintf(o, n, "%ld", v);
+}
+
+static void on_tk_stats(HttpResponse *r, void *user)
+{
+    int slot = (int)(intptr_t)user;
+    cJSON *j = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
+    const cJSON *w = cJSON_GetObjectItemCaseSensitive(j, "watchers"), *p = cJSON_GetObjectItemCaseSensitive(j, "plays");
+    if (cJSON_IsNumber(w) || cJSON_IsNumber(p)) {
+        g_tks[slot].watchers = cJSON_IsNumber(w) ? (long)w->valuedouble : 0;
+        g_tks[slot].plays = cJSON_IsNumber(p) ? (long)p->valuedouble : 0;
+        g_tks[slot].state = 2;
+    } else if (g_tks[slot].state != 2) g_tks[slot].state = 3;
+    cJSON_Delete(j);
+    app_redraw();
+}
+
+static void on_tk_watching(HttpResponse *r, void *user)
+{
+    int slot = (int)(intptr_t)user;
+    cJSON *j = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
+    if (cJSON_IsArray(j)) g_tks[slot].watching = cJSON_GetArraySize(j);   /* the people watching it now */
+    cJSON_Delete(j);
+    app_redraw();
+}
+
+int trakt_stats(const char *imdb_id, const char *type, long *watching, long *watchers, long *plays)
+{
+    if (!tracking_configured(TRACK_TRAKT) || !imdb_id || strncmp(imdb_id, "tt", 2)) return 0;
+    char id[24]; snprintf(id, sizeof id, "%.*s", (int)strcspn(imdb_id, ":"), imdb_id);
+    for (int i = 0; i < 8; i++) {
+        if (strcmp(g_tks[i].imdb, id)) continue;
+        if (g_tks[i].state != 2) return 0;
+        *watching = g_tks[i].watching; *watchers = g_tks[i].watchers; *plays = g_tks[i].plays;
+        return 1;
+    }
+    int slot = g_tks_next; g_tks_next = (g_tks_next + 1) % 8;
+    memset(&g_tks[slot], 0, sizeof g_tks[slot]);
+    snprintf(g_tks[slot].imdb, sizeof g_tks[slot].imdb, "%s", id);
+    g_tks[slot].state = 1;
+    const char *kind = type && !strcmp(type, "series") ? "shows" : "movies";
+    char url[200];
+    snprintf(url, sizeof url, "%s/%s/%s/stats", trakt_api(), kind, id);
+    request(TRACK_TRAKT, url, NULL, on_tk_stats, (void *)(intptr_t)slot);
+    snprintf(url, sizeof url, "%s/%s/%s/watching", trakt_api(), kind, id);
+    request(TRACK_TRAKT, url, NULL, on_tk_watching, (void *)(intptr_t)slot);
+    return 0;
+}

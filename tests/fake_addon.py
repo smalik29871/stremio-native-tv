@@ -360,6 +360,10 @@ class H(BaseHTTPRequestHandler):
             data = [{"id": "1", "attributes": {"language": "en", "release": "Some.Other.Cut.720p.HDTV-XYZ", "download_count": 900, "moviehash_match": False, "files": [{"file_id": 111}]}},
                     {"id": "2", "attributes": {"language": "en", "release": "Movie.2024.1080p.WEB-DL", "download_count": 12, "moviehash_match": hashed, "files": [{"file_id": 222}]}}]
             return self.send(200, json.dumps({"data": data}).encode())
+        if p.startswith("/trakt/") and p.endswith("/stats"):   # a title's numbers on Trakt
+            return self.send(200, json.dumps({"watchers": 23456, "plays": 1400000, "collectors": 900, "comments": 12, "lists": 40, "votes": 800}).encode())
+        if p.startswith("/trakt/") and p.endswith("/watching"):   # the people watching it right now
+            return self.send(200, json.dumps([{"username": f"u{i}"} for i in range(37)]).encode())
         if p.startswith("/trakt/sync/playback"):   # paused on another device: a film past half, an episode at 40%
             if self.headers.get("Authorization") != "Bearer tokresume":   # only the resume test's account has any
                 return self.send(200, b"[]")

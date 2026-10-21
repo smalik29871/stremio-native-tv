@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **What critics and viewers make of it, in the paused screen's corner**: Rotten
+  Tomatoes, Metacritic and Letterboxd (with an MDBList key), and from Trakt how many
+  are watching it right now, how many have watched it and how often, in the same
+  "Name · value" lines as the advisory, against a bar at the right edge.
 - **Content advisory when a video starts**, as streaming services show: a line for
   each thing the title contains and how much ("Violence · Moderate", "Nudity · Mild":
   violence, profanity, frightening scenes, nudity, alcohol and drugs), from IMDb's
