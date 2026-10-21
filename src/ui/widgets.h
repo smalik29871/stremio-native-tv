@@ -67,10 +67,10 @@ typedef struct { int kind; double score; const char *value, *label; } ScoreBadge
 float ui_score_badges(float right_x, float y, const ScoreBadge *b, int n, float alpha, float col_w);
 /* A badge's own width, to line several rows up in columns (pass the widest as col_w). */
 float ui_score_badge_width(const ScoreBadge *b);
-/* The ratings card (the paused screen's corner): MDBList's ring on top when there is one,
- * then a row per score (mark, name, value on the right), then Trakt's people under "On
- * Trakt"; right edge at right_x. */
-void ui_score_card(float right_x, float y, const ScoreBadge *scores, int n, const ScoreBadge *people, int np, float alpha);
+/* The ratings card (the paused screen's right side): MDBList's ring on top when there is
+ * one, the scores in two columns (mark, name, value on the right), then Trakt's people
+ * under "On Trakt"; right edge at right_x, centred on center_y. Returns its height. */
+float ui_score_card(float right_x, float center_y, const ScoreBadge *scores, int n, const ScoreBadge *people, int np, float alpha);
 /* The title page's strip: a pill per score, its mark and value; returns the width. */
 float ui_score_pills(float x, float y, const ScoreBadge *b, int n, float max_w);
 /* The same marks small, each with its score beside it, in a 36-high line from x; returns the width. */

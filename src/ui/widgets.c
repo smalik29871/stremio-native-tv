@@ -999,16 +999,29 @@ static void draw_mark(const ScoreBadge *b, float cx, float cy, float s, int a)
     }
 }
 
-void ui_score_card(float right_x, float y, const ScoreBadge *scores, int n, const ScoreBadge *people, int np, float alpha)
+/* one cell of the card: mark, name, and the value against the cell's right edge */
+static void card_cell(const ScoreBadge *b, float x, float y, float w, float h, int a, Color sh)
 {
-    if (n + np <= 0) return;
+    const float icon = 30, my = y + h / 2;
+    draw_mark(b, x + icon / 2, my, icon, a);
+    font_draw_shadow(b->label, x + icon + 14, my - font_height(FONT_S) / 2, FONT_S, RGBA(0xEC, 0xEC, 0xF0, a), sh);
+    float vw = font_measure(b->value, FONT_S | FONT_B);
+    font_draw_shadow(b->value, x + w - vw, my - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0xFF, 0xFF, 0xFF, a), sh);
+}
+
+float ui_score_card(float right_x, float center_y, const ScoreBadge *scores, int n, const ScoreBadge *people, int np, float alpha)
+{
+    if (n + np <= 0) return 0;
     int a = (int)(255 * alpha);
-    const float w = 440, pad = 28, row = 50, icon = 32;
+    const float w = 660, pad = 26, row = 44, colgap = 40, cw = (w - 2 * pad - colgap) / 2;
     const ScoreBadge *ring = NULL;
-    int rows = 0;
-    for (int i = 0; i < n; i++) { if (scores[i].kind == BADGE_MDBLIST) ring = &scores[i]; else rows++; }
-    float head = ring ? 104 : 0, h = pad + head + rows * row + (np ? (rows || ring ? 26 : 0) + 34 + np * row : 0) + pad - 8;
-    float x = right_x - w;
+    const ScoreBadge *cells[8];
+    int nc = 0;
+    for (int i = 0; i < n; i++) { if (scores[i].kind == BADGE_MDBLIST) ring = &scores[i]; else if (nc < 8) cells[nc++] = &scores[i]; }
+    int srows = (nc + 1) / 2, prows = (np + 1) / 2;
+    float head = ring ? 92 : 0, h = pad + head + srows * row + (np ? (srows || ring ? 20 : 0) + 30 + prows * row : 0) + pad - 6;
+    float x = right_x - w, y = center_y - h / 2;
+    if (y < 110) y = 110;   /* under the clock */
     /* glass: the picture shows through, a soft dark only where the text needs it */
     gfx_shadow(x, y + 8, w, h, 22, 40, RGBA(0, 0, 0, (int)(0x38 * alpha)));
     gfx_rrect(x, y, w, h, 22, RGBA(0x20, 0x20, 0x28, (int)(0x6A * alpha)));
@@ -1016,36 +1029,24 @@ void ui_score_card(float right_x, float y, const ScoreBadge *scores, int n, cons
     Color sh = RGBA(0, 0, 0, a / 2);
     float cy = y + pad;
     if (ring) {   /* MDBList's blend: the ring large, the score in it */
-        float rc = x + pad + 40, rm = cy + 40;
-        ui_arc(rc, rm, 36, 8, 0, 1, RGBA(0xFF, 0xFF, 0xFF, a / 6));
-        ui_arc(rc, rm, 36, 8, 0, (float)(ring->score / 100), score_colour(ring->score, a));
+        float rc = x + pad + 36, rm = cy + 36;
+        ui_arc(rc, rm, 32, 7, 0, 1, RGBA(0xFF, 0xFF, 0xFF, a / 6));
+        ui_arc(rc, rm, 32, 7, 0, (float)(ring->score / 100), score_colour(ring->score, a));
         font_draw_shadow(ring->value, rc - font_measure(ring->value, FONT_M | FONT_B) / 2, rm - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), sh);
-        font_draw_shadow("MDBList score", rc + 64, rm - 30, FONT_S | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), sh);
-        font_draw_shadow("every rating, weighed together", rc + 64, rm + 4, FONT_XS, RGBA(0xC8, 0xC8, 0xD0, a), sh);
+        font_draw_shadow("MDBList score", rc + 56, rm - 28, FONT_S | FONT_B, RGBA(0xF6, 0xF6, 0xF6, a), sh);
+        font_draw_shadow("every rating, weighed together", rc + 56, rm + 4, FONT_XS, RGBA(0xC8, 0xC8, 0xD0, a), sh);
         cy += head;
     }
-    for (int i = 0; i < n; i++) {
-        if (scores[i].kind == BADGE_MDBLIST) continue;
-        float my = cy + row / 2;
-        draw_mark(&scores[i], x + pad + icon / 2, my, icon, a);
-        font_draw_shadow(scores[i].label, x + pad + icon + 18, my - font_height(FONT_S) / 2, FONT_S, RGBA(0xEC, 0xEC, 0xF0, a), sh);
-        float vw = font_measure(scores[i].value, FONT_S | FONT_B);
-        font_draw_shadow(scores[i].value, x + w - pad - vw, my - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0xFF, 0xFF, 0xFF, a), sh);
-        cy += row;
-    }
+    for (int i = 0; i < nc; i++)   /* two columns, read across */
+        card_cell(cells[i], x + pad + (i % 2) * (cw + colgap), cy + (i / 2) * row, cw, row, a, sh);
+    cy += srows * row;
     if (np) {
-        if (rows || ring) { gfx_rect(x + pad, cy + 12, w - 2 * pad, 1, RGBA(0xFF, 0xFF, 0xFF, a / 5)); cy += 26; }
+        if (srows || ring) { gfx_rect(x + pad, cy + 10, w - 2 * pad, 1, RGBA(0xFF, 0xFF, 0xFF, a / 5)); cy += 20; }
         font_draw_tracked("ON TRAKT", x + pad, cy + 4, FONT_XS | FONT_B, RGBA(0xC0, 0xC0, 0xC8, a), 2);
-        cy += 34;
-        for (int i = 0; i < np; i++) {
-            float my = cy + row / 2;
-            draw_mark(&people[i], x + pad + icon / 2, my, icon, a);
-            font_draw_shadow(people[i].label, x + pad + icon + 18, my - font_height(FONT_S) / 2, FONT_S, RGBA(0xEC, 0xEC, 0xF0, a), sh);
-            float vw = font_measure(people[i].value, FONT_S | FONT_B);
-            font_draw_shadow(people[i].value, x + w - pad - vw, my - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, RGBA(0xFF, 0xFF, 0xFF, a), sh);
-            cy += row;
-        }
+        cy += 30;
+        for (int i = 0; i < np; i++) card_cell(&people[i], x + pad + (i % 2) * (cw + colgap), cy + (i / 2) * row, cw, row, a, sh);
     }
+    return h;
 }
 
 float ui_score_pills(float x, float y, const ScoreBadge *b, int n, float max_w)

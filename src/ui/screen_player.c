@@ -2930,6 +2930,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     float y = (SNTV_UI_H - need) / 2 - 20;   /* centred, but never down on the paused line */
     if (y > SNTV_UI_H - 230 - need) y = SNTV_UI_H - 230 - need;
     if (y < 110) y = 110;
+    float block_mid = y + need / 2;
     y += (1 - k) * 16;
     gfx_gradient_h(0, 0, 1300, SNTV_UI_H, RGBA(0, 0, 0, (int)(0xB8 * k)), RGBA(0, 0, 0, 0));
     gfx_gradient_v(0, y - 120, SNTV_UI_W, SNTV_UI_H - y + 120, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x60 * k)));
@@ -3009,7 +3010,7 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
         ScoreBadge cardrows[8];
         int nc = 0;
         for (int r = 0; r < 2; r++) for (int i = 0; i < nr[r]; i++) cardrows[nc++] = rb[r][i];
-        ui_score_card(SNTV_UI_W - THEME_MARGIN, 110, cardrows, nc, tb, nt, k);
+        ui_score_card(SNTV_UI_W - THEME_MARGIN, block_mid, cardrows, nc, tb, nt, k);   /* level with the details on the left */
         if (used > p->corner_logged) { LOGI("player: paused corner: %s", all); p->corner_logged = used; }   /* once more is known */
     }
     if (n_cast && y < SNTV_UI_H - 300) {
