@@ -292,7 +292,7 @@ static void apply_collection_json(const char *json, int from_cache)
 
 /* Which account a reply was asked for: one signed in since then drops it (a profile picked
  * while the last one's library or addons were still on their way). */
-static uintptr_t g_account_gen = 1;
+static volatile uintptr_t g_account_gen = 1;   /* read by the library worker too */
 
 /* ---- an account whose addons were saved without their manifests ----------------------
  * Up to 0.10.23 this app saved the collection (after installing, removing or moving an
@@ -940,7 +940,7 @@ static void work_library(HttpResponse *r, const char *url)
     ParsedLibrary *pl = calloc(1, sizeof *pl);
     ApiError err;
     if (api_parse_library(r->body, &pl->items, &pl->n, &err) != 0) { LOGW("library: %s", err.message); free(pl); return; }
-    store_write_file("library.json", r->body, r->len);
+    if ((uintptr_t)r->user == g_account_gen) store_write_file("library.json", r->body, r->len);   /* not the last profile's over this one's */
     r->parsed = pl;
 }
 
@@ -956,7 +956,7 @@ static void push_library_item(const LibraryItem *it);
 /* The account's library replaces ours, except items changed here later than there:
  * progress that never reached the server (the TV went off, the app was killed, no
  * network) stays, and is sent again. */
-static void keep_newer_local(LibraryItem **items, int *n)
+static int keep_newer_local(LibraryItem **items, int *n)
 {
     int resent = 0;
     for (int i = 0; i < g_app.n_library; i++) {
@@ -977,7 +977,10 @@ static void keep_newer_local(LibraryItem **items, int *n)
         resent++;
     }
     if (resent) LOGI("library: %d item%s newer on this TV than on the account; sent again", resent, resent == 1 ? "" : "s");
+    return resent;
 }
+
+static void save_library_cache(void);
 
 static void on_library(HttpResponse *r, void *user)
 {
@@ -986,9 +989,10 @@ static void on_library(HttpResponse *r, void *user)
     ParsedLibrary *pl = r->parsed;
     if (!pl) return;
     r->parsed = NULL;
-    keep_newer_local(&pl->items, &pl->n);
+    int resent = keep_newer_local(&pl->items, &pl->n);
     set_library(pl->items, pl->n, 0);
     free(pl);
+    if (resent) save_library_cache();   /* the file has the account's copy: keep this TV's newer progress on flash too */
 }
 
 void app_load_library(void)

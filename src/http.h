@@ -15,6 +15,7 @@ typedef struct HttpResponse {
     uint64_t total_size; /* from Content-Range (range requests) or Content-Length; 0 unknown */
     char content_type[64];
     void *parsed;       /* set by HttpOptions.work on the worker; the callback may take it (set NULL) */
+    void *user;         /* the request's user pointer, for HttpOptions.work to read (not to use) */
 } HttpResponse;
 
 /* Runs on the network thread after the transfer, before the main-thread callback:

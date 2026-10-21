@@ -21,7 +21,7 @@ typedef struct {
     int until_media;       /* the break lasts as long as the recording */
     int media_started;
     float closing_at;      /* elapsed when the closing recording started */
-    Screen *player; int paused_video, took_media, show_video; double resume_pos;
+    Screen *player; int paused_video, was_paused, took_media, show_video; double resume_pos;
     int stage;             /* 0 opening sound, 1 the break, 2 closing sound, 3 done */
     int focus;             /* 0 continue, 1 skip today */
     int finished;
@@ -40,7 +40,7 @@ static void finish(Screen *s)
     Brk *b = s->st;
     if (b->finished) return;
     b->finished = 1;
-    if (b->took_media) { video_stop(); if (b->player && b->kind != BRK_KIND_BEDTIME) player_reload_at(b->player, b->resume_pos); }
+    if (b->took_media) { video_stop(); if (b->player && b->kind != BRK_KIND_BEDTIME) player_reload_at(b->player, b->resume_pos, b->was_paused); }
     else if (b->paused_video && b->kind != BRK_KIND_BEDTIME) video_play();
     if (b->kind == BRK_KIND_BEDTIME && b->player) app_toast("Bedtime: playback stays paused");
     app_pop();
@@ -191,6 +191,7 @@ Screen *screen_break_create(const char *name, const char *detail, int kind)
     b->player = find_player();
     VideoInfo vi; video_info(&vi);
     if (b->player && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING)) { b->paused_video = 1; b->resume_pos = vi.position; video_pause(); }
+    else if (b->player && vi.state == VIDEO_PAUSED) { b->was_paused = 1; b->resume_pos = vi.position; }   /* a recording replaces it: back to this spot, still paused */
     int custom = g_app.break_sound == 1 && g_app.break_audio && *g_app.break_audio && kind != BRK_KIND_HEALTH && !g_app.pip;
     if (custom && play_url(g_app.break_audio, name, &b->show_video)) b->took_media = 1;
     else if (g_app.break_sound != 2) audio_chime();

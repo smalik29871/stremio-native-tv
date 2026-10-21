@@ -8,12 +8,36 @@
 - **The trailer's "Sound off" pill moves out from under the island**: it sits just below
   the clock and slides down when the island grows into a notice ("Press Back again to
   leave"), instead of being hidden behind it.
+- **The ratings, redone**: on the paused screen one see-through card on the right, level
+  with the details on the left: MDBList's score as a ring on top, then the scores in two
+  columns (mark, name, value) and Trakt's numbers under "On Trakt". Title pages show the
+  scores as a strip of pills, the genres moving into the facts line. When the cast row
+  runs out of room it ends on "+4 more · Info for all" (the Info key opens them all).
 - **More scores**: Roger Ebert (a gold star, out of 4), Trakt's and TMDB's ratings, and
   MDBList's own blend of them all as a ring that fills in green, yellow or red.
 - **The left menu is centred**: its sections sit in the middle of the screen, between
   the logo and the account button, instead of bunched under the logo.
 - **The Popcornmeter shows**: MDBList calls the audience score "tomatoesaudience",
   which the app did not read (it looked for "popcorn"); both names count now.
+- **The film comes back properly after a break.** A paused film no longer restarts from
+  0:00 after the azaan: it returns to where it was, still paused. The screensaver no
+  longer opens over a break (it froze the countdown, so the film never came back by
+  itself), and a fireplace video waits for the break to finish instead of replacing it.
+- **Resume points survive a dead link.** When the first source fails before it plays
+  (an expired debrid link, a timeout), the next one starts at your resume point instead
+  of the beginning, so the account's progress is no longer reset to the start.
+- **No more sudden exits** when the TV's player hangs up on the app's own server, for
+  example leaving the YouTube screensaver.
+- **Trakt and SimKL renew calmly.** A renewal that fails (offline, the service down) waits
+  2 minutes, then longer, instead of retrying every frame; a token that lasts a day is
+  renewed once, halfway through, instead of every second.
+- **Profiles stay apart.** A library reply for the previous profile no longer lands in
+  the new one's file (from where it was merged into and uploaded to that account), and
+  progress kept from this TV is saved to flash.
+- **Fewer crashes on Back:** replies held over to the next frame can be cancelled, and
+  Search drops the replies for a closed search or an older query.
+- Longer audio and subtitle language tags (e.g. `zh-Hant-TW`) are kept on a source switch,
+  and repeated retries reset once a source has played well for a while.
 
 ## 0.10.36
 

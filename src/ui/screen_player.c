@@ -119,12 +119,14 @@ struct Player {
     int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
     int tracked;                            /* Trakt was told this one started */
     /* fallback: what the viewer had on, carried to the next source */
-    char keep_audio[8]; int keep_sub_kind, keep_sub_idx; char keep_sub_lang[8];   /* kind: 0 none, 1 addon file, 2 file track, 3 off */
+    char keep_audio[16]; int keep_sub_kind, keep_sub_idx; char keep_sub_lang[16];   /* kind: 0 none, 1 addon file, 2 file track, 3 off */
     unsigned char dead[16];                 /* sources found not to answer */
     int more_state;                         /* every addon asked from the Sources panel: 0 not yet, 1 asking, 2 answered */
     int warm_idx, warm_state; float warm_at, warm_s;   /* the next source, checked while this one plays (state 0 -, 1 asking, 2 answers) */
     float drain_at[6], drain_v[6]; int drain_n; float drain_t;   /* seconds buffered ahead, sampled */
     int reask_count; float reask_at; double reask_pos;   /* every source failed: the addons asked again */
+    double start_at;                        /* where this source was asked to start (a failed one reports 0) */
+    int pause_when_started;                 /* reloaded after a break over a paused film: paused again once it shows */
     float good_since; int good_recorded;   /* this source has played well for a while */
     int lighter_to; int lighter_offered;    /* buffering keeps stopping: a lower resolution offered (-1 none) */
     int stalls_here;                        /* stalls since this source started */
@@ -1223,6 +1225,7 @@ static void on_torbox_open(const char *url, const char *error, void *user)
 static void start_candidate(Player *p, int idx, double start)
 {
     p->cur = idx;
+    p->start_at = start;
     p->error_handled = 0;
     p->learned = 0;
     p->probe_asked = 0;
@@ -1334,7 +1337,7 @@ static void fail_over(Player *p, const char *why)
         if (resume > 0) { rescue(p, why, resume); return; }   /* mid-film: carry on as it was */
         p->tries++;
         app_toast(torrent_engine_url_is(p->cands[next].url) ? "%s. Trying P2P on this TV..." : "%s. Trying the next source...", why);
-        start_candidate(p, next, resume);
+        start_candidate(p, next, p->start_at);   /* a resumed start keeps its place */
     } else {
         p->error_handled = 1;   /* stay on the error screen */
     }
@@ -1375,6 +1378,7 @@ static void on_reask(const Stream *items, int n, void *user)
     p->reask_count++;
     p->reask_at = 0;
     if (!k) { free(c); LOGI("player: asked again, still nothing to play"); app_toast("Still no source plays this. Try again in a little while"); return; }
+    if (p->reask_pos <= 0) p->reask_pos = p->start_at;   /* it never played: where it was meant to start */
     LOGI("player: asked the addons again: %d sources, resuming at %.0fs", k, p->reask_pos);
     play_candidates_free(p->cands, p->n_cands);
     p->cands = c; p->n_cands = k; p->tries = 0;
@@ -1441,7 +1445,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     /* 2. a while of good playing counts for this server */
     if (playing && !vi->buffering) { if (!p->good_since) p->good_since = now; }
     else if (vi->buffering) p->good_since = 0;
-    if (p->good_since && !p->good_recorded && now - p->good_since > env_s("SNTV_GOOD_AFTER", 600)) { p->good_recorded = 1; health_record(p, HEALTH_OK); }
+    if (p->good_since && !p->good_recorded && now - p->good_since > env_s("SNTV_GOOD_AFTER", 600)) { p->good_recorded = 1; p->tries = 0; health_record(p, HEALTH_OK); }   /* later trouble starts the count afresh */
     /* 3. the next source checked while this one plays, so a switch is quick */
     if (p->warm_state == 2 && now - p->warm_at > 600) p->warm_state = 0;   /* links age: check again */
     int room = !vi->buffering && (vi->buffer_ahead < 0 || vi->buffer_ahead > 30);   /* never competes with a tight connection */
@@ -1744,6 +1748,7 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    if (p->started && p->pause_when_started) { p->pause_when_started = 0; video_pause(); LOGI("player: paused again at %.0fs, as before the break", vi.position); }
     if (p->catchup_until < 0 && p->started) p->catchup_until = g_app.time + 12;
     if (p->replay_until > 0 && vi.state == VIDEO_PLAYING && vi.position >= p->replay_until + 1) {
         if (p->replay_subs) { select_addon_sub(p, -1); video_select_track(TRACK_TEXT, -1); p->embedded_text_sel = -1; LOGI("player: replay over, subtitles off again"); }
@@ -1940,6 +1945,7 @@ static void draw_sources_panel(Player *p)
         snprintf(label, sizeof label, "%s  %d", t ? names[t - 1] : "All", count);
         tw[t] = font_measure(label, FONT_XS | FONT_B) + 40; tx[t] = at; at += tw[t] + 6;
     }
+    if (p->src_filter > na) p->src_filter = 0;   /* the sources were replaced while the panel was open */
     float shift = tx[p->src_filter] + tw[p->src_filter] > cw - 12 ? tx[p->src_filter] + tw[p->src_filter] - (cw - 12) : 0;
     gfx_clip_push(cx + 6, ty, cw - 12, th);
     for (int t = 0; t <= na; t++) {
@@ -3968,7 +3974,7 @@ void player_set_pip(Screen *s, int on)
 }
 
 void player_pip_update(Screen *s, float dt) { update(s, dt); }
-void player_reload_at(Screen *s, double position_s) { Player *p = s->st; start_candidate(p, p->cur, position_s); }
+void player_reload_at(Screen *s, double position_s, int paused) { Player *p = s->st; p->pause_when_started = paused; start_candidate(p, p->cur, position_s); }
 int player_pip_done(Screen *s) { return ((Player *)s->st)->pip_done; }
 const char *player_video_id(Screen *s) { return ((Player *)s->st)->video_id; }
 

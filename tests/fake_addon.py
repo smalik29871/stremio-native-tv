@@ -189,6 +189,10 @@ class H(BaseHTTPRequestHandler):
                 if H.trakt_polls < 2:
                     return self.send(400, b"{}")
                 return self.send(200, json.dumps({"access_token": "tok1", "refresh_token": "ref1", "expires_in": 7776000}).encode())
+            if q == "/oauth/token":   # a renewal: "refdown" while the service is down; else a token for a day
+                if json.loads(body.decode() or "{}").get("refresh_token") == "refdown":
+                    return self.send(503, b"{}")
+                return self.send(200, json.dumps({"access_token": "tok1", "refresh_token": "ref1", "expires_in": 86400}).encode())
             if q.startswith("/scrobble/"):
                 if self.headers.get("Authorization") != "Bearer tok1":
                     return self.send(401, b"{}")

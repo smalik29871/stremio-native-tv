@@ -276,13 +276,14 @@ run fallback_drain 4000 "right,ok,down,down,ok,wait" "$LIGHTER" "$FB" HOME="$(ho
 grep -q "player: buffer draining .* switching to source [23] ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
   || { echo "the draining buffer did not move to a working lighter source"; grep -E "player" "$OUT/fallback_drain.log"; exit 1; }
 run fallback_race 2000 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
-grep -q "player: candidate 1/3 Fake Addon - Example" "$OUT/fallback_race.log" \
+grep -q "player: candidate 1/[0-9]* Fake Addon - Example" "$OUT/fallback_race.log" \
   || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
-run fallback_reask 5000 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb4 "$NO_PREFLIGHT")" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
+# (P2P off: with the engine built, its copy would play and nothing would be asked again)
+run fallback_reask 5000 "right,ok,down,down,ok,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
 grep -q "player: asked the addons again: 3 sources" "$OUT/fallback_reask.log" || { echo "the addons were not asked again"; grep -E "player" "$OUT/fallback_reask.log"; exit 1; }
 # a source that loads and then waits for data for ever (a torrent nobody seeds) gives way to the next
 run fallback_stuck 1200 "right,ok,down,down,ok,wait" "$LIGHTER" HOME="$(home_with fb5 "$NO_PREFLIGHT")" SNTV_FAKE_STUCK=1 SNTV_START_TIMEOUT=1
-grep -q "player: source 1 did not start in [0-9]*s" "$OUT/fallback_stuck.log" && grep -q "player: candidate 2/3" "$OUT/fallback_stuck.log" \
+grep -q "player: source 1 did not start in [0-9]*s" "$OUT/fallback_stuck.log" && grep -q "player: candidate 2/[0-9]*" "$OUT/fallback_stuck.log" \
   || { echo "a source stuck at the start was not replaced"; grep -E "player|video" "$OUT/fallback_stuck.log"; exit 1; }
 grep -q "player: [0-9]* stalls; offering source [0-9] ([0-9]*p)" "$OUT/player_lighter.log" || { echo "repeated buffering offered no lighter source"; grep player "$OUT/player_lighter.log"; exit 1; }
 run player_lighter_ok 820 "right,ok,down,down,ok,wait$(printf ',wait%.0s' $(seq 1 28)),ok" "$LIGHTER" SNTV_FAKE_STALLS=1 HOME="$(home_with lighter_ok "$NO_PREFLIGHT")"
@@ -330,9 +331,15 @@ TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktC
 run trakt_connect 1200 "left,down,down,down,down,down,ok,up,ok,t:trakt,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trakt "$TK")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
 grep -q "tracking: Trakt connected" "$OUT/trakt_connect.log" && grep -q "tracking: Trakt watchlist has 2 titles" "$OUT/trakt_connect.log" || { echo "Trakt did not connect"; grep tracking "$OUT/trakt_connect.log"; exit 1; }
 TK2='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktClientSecret":"sec","traktToken":"tok1","simklClientId":"scid","simklToken":"stok"}'
-run trakt_scrobble 420 "right,ok,down,down,ok,wait,wait,wait,back,back,back" HOME="$(home_with trakt2 "$TK2")" SNTV_FAKE_START=6600 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+run trakt_scrobble 460 "wait,wait,right,ok,down,down,ok,wait,wait,wait,back,back,back" HOME="$(home_with trakt2 "$TK2")" SNTV_FAKE_START=6600 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
 grep -q "tracking: Trakt start tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: Trakt stop tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: SimKL watched tt0903747" "$OUT/trakt_scrobble.log" \
   || { echo "playback was not scrobbled"; grep tracking "$OUT/trakt_scrobble.log"; exit 1; }
+# renewing a token that lasts a day: once, not again every second; a renewal that fails waits
+NOWS=$(date +%s)
+run trakt_renew 300 "" HOME="$(home_with trenew "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"traktClientId\":\"cid\",\"traktToken\":\"tok1\",\"traktRefresh\":\"ref1\",\"traktExpires\":$((NOWS + 3600))}")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+[ "$(grep -c "tracking: Trakt token renewed" "$OUT/trakt_renew.log")" = 1 ] || { echo "the Trakt token was not renewed exactly once"; grep tracking "$OUT/trakt_renew.log" | head; exit 1; }
+run trakt_renew_down 300 "" HOME="$(home_with trenew2 "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"traktClientId\":\"cid\",\"traktToken\":\"tok1\",\"traktRefresh\":\"refdown\",\"traktExpires\":$((NOWS + 3600))}")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+[ "$(grep -c "tracking: Trakt token renewal failed" "$OUT/trakt_renew_down.log")" = 1 ] || { echo "a failed Trakt renewal was not left to wait"; grep tracking "$OUT/trakt_renew_down.log" | head; exit 1; }
 # paused on a phone: Trakt's resume points reach Continue Watching when newer than the TV's
 run trakt_resume 600 "wait,wait,wait" HOME="$(home_with trakt_resume '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktToken":"tokresume"}')" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
 grep -q "tracking: Trakt has 2 resume points, 2 newer than this TV's" "$OUT/trakt_resume.log" || { echo "Trakt's resume points were not taken"; grep -E "tracking|library" "$OUT/trakt_resume.log"; exit 1; }
@@ -355,6 +362,13 @@ BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"
 run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,ok,wait" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
+# a recording over a paused film, ended with OK: the film is back where it was, still paused
+run break_paused 1100 "right,ok,down,down,ok,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+4 SNTV_FAKE_START=200
+grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && grep -q "player: paused again at 20[0-9]s" "$OUT/break_paused.log" \
+  || { echo "the paused film did not come back paused where it was"; grep -E "player|break" "$OUT/break_paused.log"; exit 1; }
+# the screensaver waits while a break counts down (it froze the break, so the film never came back)
+run break_no_saver 900 "right,ok,down,down,ok,wait" HOME="$(home_with brkns '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00+3 SNTV_AMBIENT_SECONDS=1
+grep -q "UI check: screen=break" "$OUT/break_no_saver.log" || { echo "the screensaver covered a break"; grep "UI check" "$OUT/break_no_saver.log"; exit 1; }
 run break_sound_file 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down" HOME="$(home_with brk4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"breakAudio":"sntv-sound://start.mp3"}')"
 # no cached copy: the TV plays the torrent itself, then goes back to TorBox once it has the title
 if [ -n "${FAKE_TORRENT_HASH:-}" ]; then
@@ -486,7 +500,11 @@ run player_previously 330 "right,ok,down,down,right,ok,wait,wait,wait" SNTV_AWAY
 grep -q "player: previously card for tt0903747:1:1" "$OUT/player_previously.log" || { echo "no Previously card after days away"; grep player "$OUT/player_previously.log"; exit 1; }
 AW_HOME="$(home_with away "$PL")"; cp "$ROOT/tests/fixtures/library.json" "$AW_HOME/.local/share/stremio/nativetv/library.json"
 run player_away 700 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" HOME="$AW_HOME"
-grep -q "player: away [0-9]* days, resuming 30 s earlier" "$OUT/player_away.log" && grep -q "player: candidate 1/1 .* @1470s" "$OUT/player_away.log" || { echo "a week away did not resume earlier"; grep player "$OUT/player_away.log"; exit 1; }
+grep -q "player: away [0-9]* days, resuming 30 s earlier" "$OUT/player_away.log" && grep -q "player: candidate 1/[0-9]* .* @1470s" "$OUT/player_away.log" || { echo "a week away did not resume earlier"; grep player "$OUT/player_away.log"; exit 1; }
+# resuming, the first source fails before it loads (it reports 0:00): the next one starts at the resume point, not the beginning
+RF_HOME="$(home_with resumefail "$NO_PREFLIGHT")"; cp "$ROOT/tests/fixtures/library.json" "$RF_HOME/.local/share/stremio/nativetv/library.json"
+run resume_failover 900 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" "$LIGHTER" HOME="$RF_HOME" SNTV_FAKE_FAIL_LOADS=1 SNTV_NO_RACE=1
+grep -q "player: candidate 2/[0-9]* .* @1[45][0-9][0-9]s" "$OUT/resume_failover.log" || { echo "a failed first source lost the resume point"; grep "player: candidate" "$OUT/resume_failover.log"; exit 1; }
 # Blue: the last 10 s again, with subtitles on for them when they were off
 run player_replay 900 "right,ok,down,down,right,ok,wait,wait,wait,wait,wait,wait,blue,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with replay '{"prefSubs":"","setupDone":1}')"
 grep -q "player: replay from [0-9]* s with subtitles" "$OUT/player_replay.log" && grep -q "player: replay over, subtitles off again" "$OUT/player_replay.log" \

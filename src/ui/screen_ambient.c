@@ -41,7 +41,8 @@ typedef struct {
      * drawn through a palette into a small texture the GPU stretches */
     unsigned char *heat; uint8_t *px; unsigned fire_tex; float fire_acc, fire_t; unsigned seed;
     /* a real fireplace video (Settings > Interface), played full screen and looped */
-    int fv_state;         /* 0 none, 1 asking YouTube, 2 playing, 3 gave up (the drawn fire) */
+    int fv_state;         /* 0 none, 1 asking YouTube, 2 playing, 3 gave up (the drawn fire), 4 ready under another screen */
+    float fv_kick;        /* when it was last (re)started */
     char fv_urls[YT_PLAY_URLS][4608]; int fv_n, fv_i;
 } Ambient;
 
@@ -54,6 +55,7 @@ static void fv_play(Ambient *a)
     video_load(a->fv_urls[a->fv_i], "Fireplace", 0);
     video_play();
     a->fv_state = 2;
+    a->fv_kick = g_app.time;
 }
 
 static void on_fv(const char *answer, const char *error, void *user)
@@ -65,6 +67,8 @@ static void on_fv(const char *answer, const char *error, void *user)
     a->fv_n = answer ? youtube_player_urls(answer, id, a->fv_urls, YT_PLAY_URLS) : 0;
     if (!a->fv_n) { a->fv_state = 3; LOGW("ambient: fireplace video unavailable: %s", error ? error : "?"); return; }
     a->fv_i = 0;
+    Screen *top = app_top();
+    if (top && top->st != a) { a->fv_state = 4; return; }   /* a break is on top: its recording keeps the video plane */
     fv_play(a);
 }
 
@@ -216,10 +220,13 @@ static void update(Screen *s, float dt)
         return;
     }
     if (g_app.ambient_style == AMBIENT_WALL) { a->wall_y += dt * 18; return; }
+    if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 4) fv_play(a);
     if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real one: looped, or the next way to play it */
         VideoInfo vi; video_info(&vi);
-        if (vi.state == VIDEO_ENDED) { video_seek(0); video_play(); }
+        int settled = g_app.time - a->fv_kick > 2;   /* the backend takes a moment to say it is playing again */
+        if (vi.state == VIDEO_ENDED && settled) { a->fv_kick = g_app.time; video_seek(0); video_play(); }
         else if (vi.state == VIDEO_ERROR) { a->fv_i++; fv_play(a); }
+        else if (vi.state == VIDEO_IDLE && settled) fv_play(a);   /* stopped under us (a break): start it again */
         return;
     }
     if (g_app.ambient_style == AMBIENT_FIRE) {   /* 24 steps a second, whatever the frame rate */

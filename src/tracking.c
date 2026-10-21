@@ -104,7 +104,10 @@ static void on_token(HttpResponse *r, void *user)
         const cJSON *rt = cJSON_GetObjectItemCaseSensitive(j, "refresh_token"), *ex = cJSON_GetObjectItemCaseSensitive(j, "expires_in");
         if (svc == TRACK_TRAKT || si->v2) {   /* SimKL V2 tokens last a week; the refresh token renews them */
             if (cJSON_IsString(rt)) store_set_str(svc == TRACK_TRAKT ? "traktRefresh" : "simklRefresh", rt->valuestring);
-            if (cJSON_IsNumber(ex)) store_set_int(svc == TRACK_TRAKT ? "traktExpires" : "simklExpires", (int)(now_s() + ex->valuedouble));
+            if (cJSON_IsNumber(ex)) {
+                store_set_int(svc == TRACK_TRAKT ? "traktExpires" : "simklExpires", (int)(now_s() + ex->valuedouble));
+                store_set_int(svc == TRACK_TRAKT ? "traktLife" : "simklLife", (int)ex->valuedouble);
+            }
         }
         store_save();
         si->active = 0;
@@ -231,8 +234,8 @@ void tracking_disconnect(int svc)
 {
     g_sign[svc].active = 0;
     store_set_str(K_TOKEN[svc], NULL);
-    if (svc == TRACK_TRAKT) { store_set_str("traktRefresh", NULL); store_set_int("traktExpires", 0); }
-    else { store_set_str("simklRefresh", NULL); store_set_int("simklExpires", 0); }
+    if (svc == TRACK_TRAKT) { store_set_str("traktRefresh", NULL); store_set_int("traktExpires", 0); store_set_int("traktLife", 0); }
+    else { store_set_str("simklRefresh", NULL); store_set_int("simklExpires", 0); store_set_int("simklLife", 0); }
     store_save();
     g_version++;
 }
@@ -240,6 +243,27 @@ void tracking_disconnect(int svc)
 /* ---- Trakt token refresh, rows ---- */
 static MetaPreview *g_rows[TROW_COUNT]; static int g_n_rows[TROW_COUNT];
 static double g_rows_at = -1; static int g_rows_inflight, g_refreshing;
+
+/* Renewing: a day before the token runs out, or halfway through one that lasts two days
+ * or less. A renewal that fails waits 2 min, then 4, 8 ... up to an hour (offline, the
+ * service down), never once a frame. */
+static double g_renew_retry[TRACK_SERVICES]; static int g_renew_fails[TRACK_SERVICES];
+static void renew_done(int svc, int ok)
+{
+    if (ok) { g_renew_fails[svc] = 0; g_renew_retry[svc] = now_s() + 60; return; }
+    if (g_renew_fails[svc] < 6) g_renew_fails[svc]++;
+    double wait = 60.0 * (1 << g_renew_fails[svc]);
+    g_renew_retry[svc] = now_s() + (wait > 3600 ? 3600 : wait);
+}
+
+static int renew_due(int svc, double t)
+{
+    int exp = store_get_int(svc == TRACK_TRAKT ? "traktExpires" : "simklExpires", 0);
+    int life = store_get_int(svc == TRACK_TRAKT ? "traktLife" : "simklLife", 0);
+    if (!exp || t < g_renew_retry[svc]) return 0;
+    int margin = life > 0 && life <= 2 * 86400 ? life / 2 : 86400;
+    return t > exp - margin;
+}
 
 static void on_refresh(HttpResponse *r, void *user)
 {
@@ -251,10 +275,14 @@ static void on_refresh(HttpResponse *r, void *user)
     if (cJSON_IsString(at)) {
         store_set_str("traktToken", at->valuestring);
         if (cJSON_IsString(rt)) store_set_str("traktRefresh", rt->valuestring);
-        store_set_int("traktExpires", (int)(now_s() + (cJSON_IsNumber(ex) ? ex->valuedouble : 86400)));
+        double life = cJSON_IsNumber(ex) ? ex->valuedouble : 86400;
+        store_set_int("traktExpires", (int)(now_s() + life));
+        store_set_int("traktLife", (int)life);
         store_save();
         LOGI("tracking: Trakt token renewed");
     } else if (r->status == 400 || r->status == 401) { LOGW("tracking: Trakt sign-in no longer valid"); tracking_disconnect(TRACK_TRAKT); }
+    else LOGW("tracking: Trakt token renewal failed (%ld); trying again later", r->status);
+    renew_done(TRACK_TRAKT, cJSON_IsString(at));
     cJSON_Delete(j);
 }
 
@@ -288,10 +316,14 @@ static void on_simkl_refresh(HttpResponse *r, void *user)
     if (cJSON_IsString(at)) {
         store_set_str("simklToken", at->valuestring);
         if (cJSON_IsString(rt)) store_set_str("simklRefresh", rt->valuestring);
-        store_set_int("simklExpires", (int)(now_s() + (cJSON_IsNumber(ex) ? ex->valuedouble : 604800)));
+        double life = cJSON_IsNumber(ex) ? ex->valuedouble : 604800;
+        store_set_int("simklExpires", (int)(now_s() + life));
+        store_set_int("simklLife", (int)life);
         store_save();
         LOGI("tracking: SimKL token renewed");
     } else if (r->status == 400 || r->status == 401) { LOGW("tracking: SimKL sign-in no longer valid"); tracking_disconnect(TRACK_SIMKL); }
+    else LOGW("tracking: SimKL token renewal failed (%ld); trying again later", r->status);
+    renew_done(TRACK_SIMKL, cJSON_IsString(at));
     cJSON_Delete(j);
 }
 
@@ -441,10 +473,9 @@ void tracking_tick(void)
         si->next = t + si->interval;
         poll(s);
     }
-    if (tracking_connected(TRACK_SIMKL)) { int se = store_get_int("simklExpires", 0); if (se && t > se - 86400) refresh_simkl(); }
+    if (tracking_connected(TRACK_SIMKL) && renew_due(TRACK_SIMKL, t)) refresh_simkl();
     if (!tracking_connected(TRACK_TRAKT)) { if (g_n_rows[0] || g_n_rows[1]) { for (int i = 0; i < TROW_COUNT; i++) { meta_previews_free(g_rows[i], g_n_rows[i]); g_rows[i] = NULL; g_n_rows[i] = 0; } g_version++; } g_rows_at = -1; return; }
-    int exp = store_get_int("traktExpires", 0);
-    if (exp && t > exp - 86400) refresh_trakt();
+    if (renew_due(TRACK_TRAKT, t)) refresh_trakt();
     if (!g_rows_inflight && (g_rows_at < 0 || t - g_rows_at > 1800)) { g_rows_at = t; fetch_rows(); }
 }
 

@@ -28,6 +28,9 @@ typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; } Pending;
+/* The latest query of any Search: a reply for an older one (or a Search since closed and
+ * freed) is dropped before its owner is looked at. */
+static unsigned g_search_gen;
 
 struct Search {
     Keyboard kb;
@@ -39,7 +42,7 @@ struct Search {
     int want_results;         /* a search was asked for: focus moves to the results when they arrive */
     float debounce;
     int dirty;
-    unsigned generation;      /* increments per query; stale replies are dropped */
+    unsigned generation;      /* a new number per query (g_search_gen); stale replies are dropped */
     float focus_t, grid_scroll;
     Peek peek;                /* details beside the focused result */
     int pending;
@@ -181,8 +184,8 @@ static int in_row(const Search *s, int row, int col)
 static void on_result(HttpResponse *r, void *user)
 {
     Pending *p = user;
+    if (p->generation != g_search_gen) { free(p); return; }
     Search *s = p->owner;
-    if (p->generation != s->generation) { free(p); return; }
     s->pending--;
     MetaPreview *metas; int n;
     if (p->pick) {   /* a title the assistant suggested: keep the one result that is that title, at the front, in the assistant's order */
@@ -251,8 +254,8 @@ static void search_addons(Search *s, const char *q, int pick, int rank)
 static void on_ai_titles(const char *text, const char *error, void *user)
 {
     Pending *p = user;
+    if (p->generation != g_search_gen) { free(p); return; }
     Search *s = p->owner;
-    if (p->generation != s->generation) { free(p); return; }
     s->ai_req = 0;
     cJSON *root = text ? cJSON_Parse(text) : NULL;
     const cJSON *titles = root ? cJSON_GetObjectItemCaseSensitive(root, "titles") : NULL;
@@ -286,8 +289,9 @@ static void run_query(Search *s)
     s->want_results = 0;   /* the caller asks again when this search should take the focus */
     if (strcmp(q, s->last_query) == 0) return;
     snprintf(s->last_query, sizeof s->last_query, "%s", q);
-    s->generation++;
+    s->generation = ++g_search_gen;
     s->pending = 0;
+    if (s->ai_req) ai_cancel(s->ai_req);   /* the last question is no longer wanted */
     s->ai_state = 0; s->ai_req = 0; s->ai_note[0] = 0;
     clear_results(s);
     if (strlen(q) < 2) return;
@@ -565,7 +569,7 @@ static void text(Screen *sc, const char *utf8)
 static void destroy(Screen *sc)
 {
     Search *s = sc->st;
-    s->generation++;   /* orphan in-flight replies */
+    if (s->generation == g_search_gen) ++g_search_gen;   /* orphan in-flight replies */
     if (g_person_live == s) g_person_live = NULL;
     if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
@@ -626,7 +630,7 @@ Screen *screen_search_create_person(const char *name, int person_id)
     LOGI("search: the films of \"%s\" from a title page", name);
     keyboard_init(&s->kb, 0, name);
     snprintf(s->last_query, sizeof s->last_query, "%s", name);   /* typing something else searches as usual */
-    s->generation++;
+    s->generation = ++g_search_gen;
     s->pending = 1;
     g_person_live = s;
     PersonReq *q = malloc(sizeof *q);

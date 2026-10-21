@@ -293,7 +293,7 @@ static int worker_main(void *arg)
             if (j->task) { memset(&j->resp, 0, sizeof j->resp); j->task(&j->resp, j->task_arg); if (!j->resp.body) j->resp.body = calloc(1, 1); }
             else if (h) request_with(h, j->url, j->post, &j->opt, &j->resp);
             else http_request(j->url, j->post, &j->resp);
-            if (j->opt.work && !j->cancelled) j->opt.work(&j->resp, j->url);
+            if (j->opt.work && !j->cancelled) { j->resp.user = j->user; j->opt.work(&j->resp, j->url); }
         }
 
         SDL_LockMutex(g_qlock);
@@ -361,6 +361,8 @@ unsigned http_request_async_ex(const char *url, const HttpOptions *opt, HttpCall
     return enqueue(url, NULL, opt, cb, user);
 }
 
+static Job *g_carry;   /* replies to deliver, in order; left over from the last frame */
+
 void http_cancel(unsigned id)
 {
     SDL_LockMutex(g_qlock);
@@ -369,6 +371,7 @@ void http_cancel(unsigned id)
     for (Job *j = g_inflight; j; j = j->next) if (j->id == id) j->cancelled = 1;
     for (Job *j = g_done; j; j = j->next) if (j->id == id) j->cancelled = 1;
     SDL_UnlockMutex(g_qlock);
+    for (Job *j = g_carry; j; j = j->next) if (j->id == id) j->cancelled = 1;   /* main thread only, as is the pump */
 }
 
 static void job_free(Job *j)
@@ -386,7 +389,6 @@ static void job_free(Job *j)
 /* Replies are handed to the UI with a time budget per frame: a burst of answers
  * spreads over a few frames instead of stalling one. Slow callbacks are logged with
  * their host so a TV's Diagnostics shows what was heavy. */
-static Job *g_carry;   /* ordered, left over from the last frame */
 
 void http_pump(void)
 {
@@ -398,12 +400,15 @@ void http_pump(void)
     /* g_done is LIFO; reverse so callbacks fire in completion order, after the carry-over. */
     Job *ordered = NULL;
     while (done) { Job *n = done->next; done->next = ordered; ordered = done; done = n; }
-    if (g_carry) { Job *t = g_carry; while (t->next) t = t->next; t->next = ordered; ordered = g_carry; g_carry = NULL; }
+    if (g_carry) { Job *t = g_carry; while (t->next) t = t->next; t->next = ordered; }
+    else g_carry = ordered;
 
+    /* the replies still to deliver stay in g_carry, so a callback that cancels another
+     * request (its screen closing) reaches the ones waiting here too */
     Uint32 start = SDL_GetTicks();
-    while (ordered) {
-        Job *j = ordered;
-        ordered = j->next;
+    while (g_carry) {
+        Job *j = g_carry;
+        g_carry = j->next;
         if (!j->cancelled && j->cb) {
             Uint32 t0 = SDL_GetTicks();
             j->cb(&j->resp, j->user);
@@ -414,7 +419,7 @@ void http_pump(void)
             }
         }
         job_free(j);
-        if (ordered && SDL_GetTicks() - start > 8) { g_carry = ordered; break; }
+        if (g_carry && SDL_GetTicks() - start > 8) break;
     }
 }
 
