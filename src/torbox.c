@@ -264,10 +264,19 @@ static long pick_episode(const Open *o, PackFile *f, int n)
         if (best < 0 || f[i].score > f[best].score || (f[i].score == f[best].score && f[i].size > f[best].size)) best = i;
     }
     if (best < 0) return -1;
-    int tied = 0;
-    for (int i = 0; i < n; i++) tied += f[i].score == f[best].score && f[i].size > f[best].size * 0.25;
-    if (f[best].score > 0 && tied == 1) {
+    int tied = 0, others = 0;
+    for (int i = 0; i < n; i++) { tied += f[i].score == f[best].score && f[i].size > f[best].size * 0.25; others += f[i].score < 0; }
+    if (f[best].score > 0) {   /* named for it (two copies so named: the larger) */
         LOGI("torbox: the episode's file by its name: %s", f[best].name);
+        return f[best].id;
+    }
+    /* the pack names its episodes and none is this one (or every file is another): not here */
+    if (f[best].score < 0 || others) {
+        LOGI("torbox: no file in this torrent is S%dE%d (it names other episodes)", o->ep.season, o->ep.episode);
+        return -1;
+    }
+    if (tied == 1) {   /* nothing named: the one main file */
+        LOGI("torbox: no episode named; its one main file plays: %s", f[best].name);
         return f[best].id;
     }
     /* the AI's answer for this torrent and episode, kept: standby sources re-open it now and then */
@@ -302,10 +311,11 @@ static long pick_episode(const Open *o, PackFile *f, int n)
             pthread_mutex_unlock(&memo_lock);
             return f[pick].id;
         }
-        LOGI("torbox: the AI did not pick a file (%d); the largest plays", pick);
+        LOGI("torbox: the AI did not pick a file (%d)", pick);
     }
-    LOGI("torbox: no file named for the episode; the largest plays: %s", f[best].name);
-    return f[best].id;
+    /* several files and nothing says which is the episode: another source, not a guess */
+    LOGI("torbox: can't tell which of %d files is S%dE%d; leaving this torrent", tied, o->ep.season, o->ep.episode);
+    return -1;
 }
 
 static void open_task(HttpResponse *out, void *arg)
@@ -337,7 +347,10 @@ static void open_task(HttpResponse *out, void *arg)
         if (n_pack < 200) pack[n_pack++] = (PackFile){ (long)id->valuedouble, size, cJSON_IsString(nm) ? nm->valuestring : "", 0 };
         if (size > best) { best = size; fid = (long)id->valuedouble; }   /* else the largest video */
     }
-    if (o->ep.episode > 0 && n_pack > 1) fid = pick_episode(o, pack, n_pack);
+    if (o->ep.episode > 0 && n_pack > 1) {
+        fid = pick_episode(o, pack, n_pack);
+        if (fid < 0 && !out->error[0]) snprintf(out->error, sizeof out->error, "No file in that torrent is this episode");
+    }
     if (fid < 0 && !out->error[0]) snprintf(out->error, sizeof out->error, "No video in that torrent on TorBox");
     if (fid >= 0) {
         char k[160], enc[256], link[700];

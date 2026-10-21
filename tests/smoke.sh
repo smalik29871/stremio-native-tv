@@ -279,6 +279,9 @@ run player_lighter 700 "right,ok,down,down,ok,wait" "$LIGHTER" SNTV_FAKE_STALLS=
 run net_reconnect 1600 "right,ok,down,down,ok,wait" HOME="$(home_with netre '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_FAKE_START=600 SNTV_FAKE_NET_ERROR_AFTER=3 SNTV_NET_RETRY_SCALE=0.2
 grep -q "player: the connection dropped (Network error (code 300)); the same source again" "$OUT/net_reconnect.log" && grep -q "player: reconnecting to source 1 at 60[0-9]s (try 1 of 3)" "$OUT/net_reconnect.log" && ! grep -q "Trying the next source\|player: rescue" "$OUT/net_reconnect.log" \
   || { echo "a dropped connection did not reconnect to the same source"; grep -E "player: (the conn|reconn|candidate|rescue)|toast" "$OUT/net_reconnect.log"; exit 1; }
+# a server that ignores Range sends the whole file: a 64 KB check keeps 64 KB, not 20 MB
+run http_norange 30 "" SNTV_HTTP_PROBE=http://127.0.0.1:$PORT/norange
+grep -q "http probe: status 200, 65536 bytes, cut at its budget" "$OUT/http_norange.log" || { echo "a range request kept more than it asked for"; grep "http probe" "$OUT/http_norange.log"; exit 1; }
 # fallbacks: a source that dies mid-film is replaced at the same moment with the same subtitles;
 # the next source is checked while playing; a draining buffer moves to a lighter copy first;
 # Play races the top sources; when all fail the addons are asked again
@@ -538,6 +541,10 @@ grep -q "torbox: the episode's file by its name: Breaking Bad S01 1080p/Breaking
 run torbox_disc 600 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbdisc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json"
 grep -q "torbox: the AI picked the episode's file: BREAKING_BAD_D1/title_t01.mkv" "$OUT/torbox_disc.log" && ! grep -q "gsk_" "$OUT/torbox_disc.log" \
   || { echo "the AI did not pick the disc rip's episode"; grep -E "torbox|ai:" "$OUT/torbox_disc.log"; exit 1; }
+# A pack that names its episodes but not this one: no extra or other episode plays; the next source does
+run torbox_pack_missing 700 "right,ok,down,down,ok,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbmiss '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbmiss/manifest.json"
+grep -q "torbox: no file in this torrent is S1E1 (it names other episodes)" "$OUT/torbox_pack_missing.log" && grep -q "player: candidate 2/" "$OUT/torbox_pack_missing.log" && ! grep -q "torbox=81" "$OUT/torbox_pack_missing.log" \
+  || { echo "a pack without the episode played something else"; grep -E "torbox|player: (candidate|source)" "$OUT/torbox_pack_missing.log"; exit 1; }
 # The next source a TorBox torrent: made ready on TorBox while the first plays, so when the first dies it takes over at once
 run torbox_standby 4000 "right,ok,down,down,ok,wait" "$TB" HOME="$(home_with tbstand '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
 grep -q "player: next source 2 is ready on TorBox" "$OUT/torbox_standby.log" && grep -q "player: next source 3 answers" "$OUT/torbox_standby.log" && grep -q "player: source 2 was made ready on TorBox ahead" "$OUT/torbox_standby.log" \

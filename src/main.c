@@ -355,6 +355,13 @@ int main(int argc, char **argv)
     /* the network and the artwork loader first: what Home showed last time is read from
      * the disk cache and decoded on its threads while the fonts load */
     if (http_init() != 0) LOGE("network unavailable: libcurl missing");
+    if (getenv("SNTV_HTTP_PROBE")) {   /* test hook: a 64 KB range request, as the source checks make */
+        HttpOptions po = { .range_bytes = 65536, .timeout_s = 20, .no_json_accept = 1 };
+        HttpResponse pr;
+        http_request_ex(getenv("SNTV_HTTP_PROBE"), &po, &pr);
+        LOGI("http probe: status %ld, %zu bytes%s", pr.status, pr.len, pr.cut ? ", cut at its budget" : "");
+        http_response_free(&pr);
+    }
     {   /* artwork off the developer partition: the installer unpacks updates there, and a
          * full cache there makes the next update fail ("ipk extraction failure") */
         char cache[1024];

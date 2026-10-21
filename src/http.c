@@ -94,12 +94,20 @@ static void share_init(void)
 
 /* ---- blocking request ---------------------------------------------------- */
 
-typedef struct { char *buf; size_t len, cap; } Buf;
+typedef struct { char *buf; size_t len, cap, max; int cut; } Buf;
+
+#define HTTP_MAX_BODY (64u << 20)   /* no answer this app asks for is bigger; a runaway one stops here */
 
 static size_t on_write(char *ptr, size_t size, size_t nmemb, void *user)
 {
     Buf *b = user;
     size_t n = size * nmemb;
+    if (b->max && b->len + n > b->max) {   /* past the budget: keep what fits, stop the transfer */
+        size_t room = b->max - b->len;
+        if (room) on_write(ptr, 1, room, user);
+        b->cut = 1;
+        return 0;
+    }
     if (b->len + n + 1 > b->cap) {
         size_t cap = b->cap ? b->cap * 2 : 16384;
         while (cap < b->len + n + 1) cap *= 2;
@@ -154,6 +162,7 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     C.easy_reset(h);
 
     Buf b = {0};
+    b.max = opt && opt->range_bytes ? (size_t)opt->range_bytes : opt && opt->max_bytes ? (size_t)opt->max_bytes : HTTP_MAX_BODY;
     struct curl_slist *hdrs = NULL;
     if (!opt || !opt->no_json_accept) hdrs = C.slist_append(hdrs, "Accept: application/json");
     int own_type = opt && opt->headers && (strstr(opt->headers, "Content-Type:") || strstr(opt->headers, "content-type:"));
@@ -202,6 +211,14 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     if (rc == 0 || b.len > 0) { g_net_fail = 0; g_last_ok = SDL_GetTicks(); }
     else if (rc == 6 || rc == 7 || rc == 28 || rc == 35) { if (g_net_fail < 1000) g_net_fail++; }
     out->seconds = (SDL_GetTicks() - t0) / 1000.0;
+    if (rc == 23 && b.cut) {   /* stopped at the budget on purpose: an answer, cut */
+        rc = 0; out->error[0] = 0; out->cut = 1;
+        g_net_fail = 0; g_last_ok = SDL_GetTicks();
+        if (!(opt && opt->range_bytes)) {   /* the host only: a link can carry a key */
+            const char *hs = strstr(url, "://"); hs = hs ? hs + 3 : url;
+            LOGW("http: %.*s sent more than %zu bytes; cut there", (int)strcspn(hs, "/:?"), hs, b.max);
+        }
+    }
     if (rc == 0) {
         C.easy_getinfo(h, INFO_RESPONSE_CODE, &out->status);
     } else if (!out->error[0]) {

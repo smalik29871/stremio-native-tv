@@ -14,6 +14,7 @@ typedef struct HttpResponse {
     double seconds;     /* wall time of the transfer, connection included */
     uint64_t total_size; /* from Content-Range (range requests) or Content-Length; 0 unknown */
     char content_type[64];
+    int cut;            /* the body was cut at its budget (a server that ignored Range, or a runaway answer) */
     void *parsed;       /* set by HttpOptions.work on the worker; the callback may take it (set NULL) */
     void *user;         /* the request's user pointer, for HttpOptions.work to read (not to use) */
 } HttpResponse;
@@ -25,7 +26,9 @@ typedef void (*HttpFreeFn)(void *parsed);
 
 /* Extra knobs for http_request_async_ex; zero means the default. */
 typedef struct HttpOptions {
-    uint64_t range_bytes;   /* fetch only N bytes (Range: bytes=start-(start+N-1)) */
+    uint64_t range_bytes;   /* fetch only N bytes (Range: bytes=start-(start+N-1)); the body is cut there too,
+                               as a server may ignore Range and send the whole file */
+    uint64_t max_bytes;     /* the body's budget otherwise (0: HTTP_MAX_BODY) */
     uint64_t range_start;   /* from this offset (0 = the start of the file) */
     long timeout_s;         /* whole-transfer timeout */
     int no_json_accept;     /* don't ask for application/json */
