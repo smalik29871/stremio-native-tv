@@ -27,7 +27,8 @@ typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
-typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; } Pending;
+enum { PICKS_MAX = 32, AI_TITLES = 12 };
+typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; int year, kind; } Pending;   /* kind: -1 any, 0 movie, 1 series */
 /* Every query of every Search gets its own number, never reused; a reply counts only when
  * its Search is still open and still on that query. A Search under another one (a cast
  * member's films opened from its results) keeps receiving its own answers, and one closed
@@ -53,8 +54,8 @@ struct Search {
     int pending;
     char last_query[256];
     unsigned ai_req; int ai_state;   /* 0 off, 1 asking, 2 answered, 3 failed */
-    int n_picks;                     /* results at the front that the assistant suggested */
-    int pick_rank[16];               /* the assistant's order for those, so they stay in it */
+    int n_picks;                     /* results at the front that the assistant suggested (and TMDB found for its filters) */
+    int pick_rank[PICKS_MAX];        /* the assistant's order for those, so they stay in it */
     char ai_note[160];
     char recent[10][96]; int n_recent, recent_focus;   /* shown while the field is empty */
     Cell *cell; int cell_cap;        /* where each result sits, from place() */
@@ -109,6 +110,15 @@ static int same_title(const char *a, const char *b)
         a++; b++;
     }
     return !*b && (!*a || *a == ' ' || *a == ':' || *a == '(');
+}
+
+/* The result's year is the one asked for, give or take one (a festival year, a late
+ * release); a result or a suggestion without a year passes. */
+static int year_fits(const MetaPreview *m, int want)
+{
+    if (!want || !m->release_info || strlen(m->release_info) < 4) return 1;
+    int y = atoi(m->release_info);
+    return !y || (y >= want - 1 && y <= want + 1);
 }
 
 /* 0 movies, 1 series, 2 anything else */
@@ -205,8 +215,9 @@ static void on_result(HttpResponse *r, void *user)
             for (int i = 0; i < n; i++) {
                 int dup = -1;
                 for (int j = 0; j < s->n; j++) if (strcmp(s->results[j].id, metas[i].id) == 0) { dup = j; break; }
-                int want = dup < 0 && !took && s->n_picks < 16 && same_title(metas[i].name, p->want);
-                int promote = dup >= s->n_picks && s->n_picks < 16 && same_title(metas[i].name, p->want);
+                int fits = same_title(metas[i].name, p->want) && year_fits(&metas[i], p->year) && (p->kind < 0 || kind_of(&metas[i]) == p->kind);
+                int want = dup < 0 && !took && s->n_picks < PICKS_MAX && fits;
+                int promote = dup >= s->n_picks && s->n_picks < PICKS_MAX && fits;
                 if (want || promote) {
                     MetaPreview item = want ? metas[i] : s->results[dup];
                     if (promote) memmove(&s->results[s->n_picks + 1], &s->results[s->n_picks], sizeof item * (size_t)(dup - s->n_picks));
@@ -239,26 +250,81 @@ static void on_result(HttpResponse *r, void *user)
     free(p);
 }
 
-static void search_addons(Search *s, const char *q, int pick, int rank)
+/* kind 0 or 1: only the movie or the series catalogs, unless no addon has one */
+static void search_addons(Search *s, const char *q, int pick, int rank, int year, int kind)
 {
     char extra[600];
     const char *kv[] = { "search", q, NULL };
     addon_extra_query(extra, sizeof extra, kv);
+    int typed = 0;
+    for (int a = 0; a < g_app.n_addons && kind >= 0 && !typed; a++)
+        for (int c = 0; c < g_app.addons[a].manifest.n_catalogs; c++) {
+            const AddonCatalog *cat = &g_app.addons[a].manifest.catalogs[c];
+            if (addon_catalog_extra(cat, "search") && cat->type && !strcmp(cat->type, kind ? "series" : "movie")) { typed = 1; break; }
+        }
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];
         if (g_app.hide_adult && ad->manifest.bh_adult) continue;
         for (int c = 0; c < ad->manifest.n_catalogs; c++) {
             const AddonCatalog *cat = &ad->manifest.catalogs[c];
             if (!addon_catalog_extra(cat, "search")) continue;
+            if (typed && (!cat->type || strcmp(cat->type, kind ? "series" : "movie"))) continue;
             char url[1200];
             addon_url_catalog(ad, cat->type, cat->id, extra, url, sizeof url);
             Pending *p = calloc(1, sizeof *p);
-            p->owner = s; p->generation = s->generation; p->pick = pick; p->rank = rank;
+            p->owner = s; p->generation = s->generation; p->pick = pick; p->rank = rank; p->year = year; p->kind = kind;
             snprintf(p->want, sizeof p->want, "%s", q);
             s->pending++;
             app_fetch_metas(url, 0, on_result, p);
         }
     }
+}
+
+/* TMDB's titles for the assistant's filters (language, country, genres, years): put after
+ * the assistant's own picks, in TMDB's order (most popular first). */
+static void on_discovered(const MetaPreview *titles, int n, void *user)
+{
+    Pending *p = user;
+    Search *s = still_open(p->owner, p->generation);
+    free(p);
+    if (!s || n <= 0) return;
+    int added = 0;
+    for (int i = 0; i < n && s->n_picks < PICKS_MAX; i++) {
+        int dup = 0;
+        for (int j = 0; j < s->n && !dup; j++) dup = !strcmp(s->results[j].id, titles[i].id);
+        if (dup) continue;
+        s->results = realloc(s->results, sizeof *s->results * (size_t)(s->n + 1));
+        memmove(&s->results[s->n_picks + 1], &s->results[s->n_picks], sizeof *s->results * (size_t)(s->n - s->n_picks));
+        meta_preview_copy(&s->results[s->n_picks], &titles[i]);
+        s->pick_rank[s->n_picks] = 100 + i;
+        s->n_picks++; s->n++; added++;
+        if (s->focus_grid && s->grid_focus >= s->n_picks - 1) s->grid_focus++;
+    }
+    LOGI("search: %d more from TMDB for the assistant's filters", added);
+    regroup(s);
+    app_redraw();
+}
+
+static void discover(Search *s, const cJSON *f)
+{
+    if (!cJSON_IsObject(f) || !tmdb_enabled()) return;
+    TmdbFilter tf = { 0 };
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(f, "type");
+    tf.tv = cJSON_IsString(v) && !strcmp(v->valuestring, "series");
+    v = cJSON_GetObjectItemCaseSensitive(f, "language");
+    if (cJSON_IsString(v) && strlen(v->valuestring) == 2) snprintf(tf.lang, sizeof tf.lang, "%s", v->valuestring);
+    v = cJSON_GetObjectItemCaseSensitive(f, "country");
+    if (cJSON_IsString(v) && strlen(v->valuestring) == 2) snprintf(tf.country, sizeof tf.country, "%s", v->valuestring);
+    const cJSON *g, *gs = cJSON_GetObjectItemCaseSensitive(f, "genres");
+    cJSON_ArrayForEach(g, gs) if (cJSON_IsString(g) && tf.n_genres < 4) snprintf(tf.genres[tf.n_genres++], sizeof tf.genres[0], "%s", g->valuestring);
+    v = cJSON_GetObjectItemCaseSensitive(f, "from"); if (cJSON_IsNumber(v)) tf.from = v->valueint;
+    v = cJSON_GetObjectItemCaseSensitive(f, "to"); if (cJSON_IsNumber(v)) tf.to = v->valueint;
+    if (!tf.lang[0] && !tf.country[0] && !tf.n_genres) return;   /* nothing to narrow TMDB's list by */
+    LOGI("search: the assistant's filters: %s, language %s, country %s, %d genre%s, %d-%d", tf.tv ? "series" : "movies",
+         tf.lang[0] ? tf.lang : "any", tf.country[0] ? tf.country : "any", tf.n_genres, tf.n_genres == 1 ? "" : "s", tf.from, tf.to);
+    Pending *p = calloc(1, sizeof *p);
+    p->owner = s; p->generation = s->generation;
+    tmdb_discover(&tf, on_discovered, p);
 }
 
 /* "something funny with robots": the assistant names titles, the addons find them */
@@ -275,13 +341,21 @@ static void on_ai_titles(const char *text, const char *error, void *user)
         const cJSON *it;
         cJSON_ArrayForEach(it, titles) {
             const cJSON *name = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "name") : it;
-            if (!cJSON_IsString(name) || !name->valuestring[0] || n >= 8) continue;
-            search_addons(s, name->valuestring, 1, n);
+            if (!cJSON_IsString(name) || !name->valuestring[0] || n >= AI_TITLES) continue;
+            const cJSON *y = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "year") : NULL;
+            const cJSON *t = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "type") : NULL;
+            int kind = cJSON_IsString(t) ? (!strcmp(t->valuestring, "movie") ? 0 : !strcmp(t->valuestring, "series") ? 1 : -1) : -1;
+            search_addons(s, name->valuestring, 1, n, cJSON_IsNumber(y) ? y->valueint : 0, kind);
             n++;
         }
     }
+    discover(s, cJSON_GetObjectItemCaseSensitive(root, "filters"));
     s->ai_state = n ? 2 : 3;
-    if (!n) snprintf(s->ai_note, sizeof s->ai_note, "%s", error ? error : "The assistant had no suggestions");
+    if (!n) {
+        snprintf(s->ai_note, sizeof s->ai_note, "%s", error ? error : "The assistant had no suggestions");
+        LOGI("search: no suggestions from the assistant; searching the words instead");
+        search_addons(s, s->last_query, 0, 0, 0, -1);
+    }
     if (root) cJSON_Delete(root);
     app_redraw();
     free(p);
@@ -310,13 +384,20 @@ static void run_query(Search *s)
         Pending *p = calloc(1, sizeof *p);
         p->owner = s; p->generation = s->generation;
         static const char *SYS = "You recommend films and series to a viewer who describes what they feel like watching. "
-            "Reply with JSON only, no markdown: {\"titles\": [{\"name\": \"exact title\", \"year\": 2010}]} with up to 8 well-known titles, best match first. "
-            "If the text is just a title or a person's name, return titles that match it.";
-        s->ai_req = ai_ask(SYS, q, 300, 1, on_ai_titles, p);
+            "Keep to every constraint in the request exactly: language or film industry (Bollywood means Hindi films from India, Tollywood Telugu, "
+            "a K-drama a Korean series, anime Japanese animation), country, era, genre, and film or series. Never suggest a title that breaks one of them. "
+            "Reply with JSON only, no markdown: {\"titles\": [{\"name\": \"title as on IMDb\", \"year\": 2010, \"type\": \"movie\"}], "
+            "\"filters\": {\"type\": \"movie\", \"language\": \"hi\", \"country\": \"IN\", \"genres\": [\"Comedy\"], \"from\": 1990, \"to\": 2009}} "
+            "with up to 12 well-known titles, best match first; type is movie or series. In filters, language is the ISO 639-1 code of the original "
+            "language, country an ISO 3166-1 code, genres only from Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, "
+            "History, Horror, Music, Mystery, Romance, Science Fiction, Thriller, War, Western; use null for whatever the request does not say. "
+            "If the text is just a title or a person's name, return titles that match it and null filters.";
+        s->ai_req = ai_ask(SYS, q, 700, 1, on_ai_titles, p);
         s->ai_state = s->ai_req ? 1 : 0;
-        if (!s->ai_req) free(p);
+        if (s->ai_req) return;   /* a request: the assistant's titles, not every title with one of its words (they come if it has none) */
+        free(p);
     }
-    search_addons(s, q, 0, 0);
+    search_addons(s, q, 0, 0, 0, -1);
 }
 
 static void open_keyboard(Search *s)

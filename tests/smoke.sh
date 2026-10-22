@@ -660,6 +660,11 @@ grep -q "tv profile: a source needing several features failed; none is blamed" "
 run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+grep -q "search: no suggestions from the assistant" "$OUT/search_ai.log" && { echo "the assistant's suggestions were not used"; exit 1; } || true
+# a request with a film industry: the assistant's filters go to TMDB, whose titles join its picks; no word-by-word search
+run search_ai_filters 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1 SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+grep -q "search: the assistant's filters: movies, language hi, country IN, 1 genre, 1990-1999" "$OUT/search_ai_filters.log" && grep -q "search: 2 more from TMDB for the assistant's filters" "$OUT/search_ai_filters.log" \
+  || { echo "the assistant's filters did not bring TMDB's titles"; grep -E "search|tmdb" "$OUT/search_ai_filters.log"; exit 1; }
 run player_translate 600 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,up,up,up,up,down,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 grep -q "player: subtitles sheet: AI translation in Fran" "$OUT/player_translate.log" || { echo "the AI translation was not offered under its language"; grep -E "subtitles" "$OUT/player_translate.log"; exit 1; }
 run settings_ai 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,down" HOME="$(home_with ai4 "$AI")"

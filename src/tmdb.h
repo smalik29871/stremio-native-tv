@@ -37,4 +37,8 @@ void tmdb_imdb_for(int tmdb_id, TmdbImdbCb cb, void *user);
 #include "addon/addon.h"
 typedef void (*TmdbTitlesCb)(const MetaPreview *titles, int n, void *user);
 void tmdb_person_titles(const char *name, int person_id, TmdbTitlesCb cb, void *user);
+/* Titles TMDB lists for filters (an AI search's: "Bollywood comedies of the 90s"), most
+ * popular first, with IMDb ids; same callback contract. Genres by TMDB's English names. */
+typedef struct TmdbFilter { int tv; char lang[8], country[8]; char genres[4][24]; int n_genres; int from, to; } TmdbFilter;
+void tmdb_discover(const TmdbFilter *f, TmdbTitlesCb cb, void *user);
 #endif

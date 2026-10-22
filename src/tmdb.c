@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 enum { SLOTS = 24 };
 typedef struct { char imdb[24]; char type[12]; TmdbInfo info; unsigned stamp; int tmdb_id; } Slot;
@@ -400,4 +401,81 @@ void tmdb_person_titles(const char *name, int person_id, TmdbTitlesCb cb, void *
     snprintf(pj->name, sizeof pj->name, "%s", name ? name : "");
     pj->id = person_id; pj->cb = cb; pj->user = user;
     http_task_async("themoviedb.org", person_task, pj, on_person, pj);
+}
+
+/* ---- titles for filters ---- */
+typedef struct { TmdbFilter f; TmdbTitlesCb cb; void *user; MetaPreview *out; int n; } DiscoverJob;
+
+static int genre_id(const char *name, int tv)
+{
+    static const struct { const char *n; int movie, tv; } G[] = {
+        { "Action", 28, 10759 }, { "Adventure", 12, 10759 }, { "Animation", 16, 16 }, { "Comedy", 35, 35 }, { "Crime", 80, 80 },
+        { "Documentary", 99, 99 }, { "Drama", 18, 18 }, { "Family", 10751, 10751 }, { "Fantasy", 14, 10765 }, { "History", 36, 0 },
+        { "Horror", 27, 0 }, { "Music", 10402, 0 }, { "Mystery", 9648, 9648 }, { "Romance", 10749, 0 }, { "Science Fiction", 878, 10765 },
+        { "Thriller", 53, 0 }, { "War", 10752, 10768 }, { "Western", 37, 37 } };
+    for (size_t i = 0; i < sizeof G / sizeof G[0]; i++) if (!strcasecmp(G[i].n, name)) return tv ? G[i].tv : G[i].movie;
+    return 0;   /* not one of TMDB's (or none for series): left out */
+}
+
+static void discover_task(HttpResponse *r, void *arg)
+{
+    DiscoverJob *dj = arg;
+    const TmdbFilter *f = &dj->f;
+    char url[900], genres[64] = "";
+    for (int i = 0; i < f->n_genres; i++) {
+        int g = genre_id(f->genres[i], f->tv);
+        if (g) snprintf(genres + strlen(genres), sizeof genres - strlen(genres), "%s%d", genres[0] ? "," : "", g);
+    }
+    const char *date = f->tv ? "first_air_date" : "primary_release_date";
+    int n = snprintf(url, sizeof url, "%s/discover/%s?api_key=%s&sort_by=popularity.desc&vote_count.gte=25&include_adult=false",
+                     api_base(), f->tv ? "tv" : "movie", api_key());
+    if (f->lang[0]) n += snprintf(url + n, sizeof url - (size_t)n, "&with_original_language=%s", f->lang);
+    if (f->country[0]) n += snprintf(url + n, sizeof url - (size_t)n, "&with_origin_country=%s", f->country);
+    if (genres[0]) n += snprintf(url + n, sizeof url - (size_t)n, "&with_genres=%s", genres);
+    if (f->from > 1800) n += snprintf(url + n, sizeof url - (size_t)n, "&%s.gte=%d-01-01", date, f->from);
+    if (f->to > 1800) n += snprintf(url + n, sizeof url - (size_t)n, "&%s.lte=%d-12-31", date, f->to);
+    cJSON *j = get_json(url);
+    const cJSON *res = cJSON_GetObjectItemCaseSensitive(j, "results"), *e;
+    enum { MAXD = 12 };
+    dj->out = calloc(MAXD, sizeof *dj->out);
+    cJSON_ArrayForEach(e, res) {
+        if (dj->n >= MAXD) break;
+        const cJSON *tid = cJSON_GetObjectItemCaseSensitive(e, "id");
+        if (!cJSON_IsNumber(tid)) continue;
+        snprintf(url, sizeof url, "%s/%s/%d/external_ids?api_key=%s", api_base(), f->tv ? "tv" : "movie", tid->valueint, api_key());
+        cJSON *x = get_json(url);
+        const cJSON *imdb = cJSON_GetObjectItemCaseSensitive(x, "imdb_id");
+        if (cJSON_IsString(imdb) && !strncmp(imdb->valuestring, "tt", 2)) {
+            MetaPreview *m = &dj->out[dj->n++];
+            const cJSON *t = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "name" : "title");
+            const cJSON *d = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "first_air_date" : "release_date");
+            const cJSON *pp = cJSON_GetObjectItemCaseSensitive(e, "poster_path"), *ov = cJSON_GetObjectItemCaseSensitive(e, "overview");
+            m->id = strdup(imdb->valuestring);
+            m->type = strdup(f->tv ? "series" : "movie");
+            m->name = strdup(cJSON_IsString(t) ? t->valuestring : imdb->valuestring);
+            if (cJSON_IsString(d) && strlen(d->valuestring) >= 4) { char y[8]; snprintf(y, sizeof y, "%.4s", d->valuestring); m->release_info = strdup(y); }
+            if (cJSON_IsString(pp) && pp->valuestring[0]) { char pu[320]; snprintf(pu, sizeof pu, "https://image.tmdb.org/t/p/w342%s", pp->valuestring); m->poster = strdup(pu); }
+            if (cJSON_IsString(ov) && ov->valuestring[0]) m->description = strdup(ov->valuestring);
+        }
+        cJSON_Delete(x);
+    }
+    r->status = j ? 200 : 502;
+    cJSON_Delete(j);
+}
+
+static void on_discover(HttpResponse *r, void *user)
+{
+    DiscoverJob *dj = user;
+    LOGI("tmdb: discover found %d titles", dj->n);
+    dj->cb(dj->out, r->status == 200 ? dj->n : -1, dj->user);
+    meta_previews_free(dj->out, dj->n);
+    free(dj);
+}
+
+void tmdb_discover(const TmdbFilter *f, TmdbTitlesCb cb, void *user)
+{
+    if (!tmdb_enabled()) { cb(NULL, -1, user); return; }
+    DiscoverJob *dj = calloc(1, sizeof *dj);
+    dj->f = *f; dj->cb = cb; dj->user = user;
+    http_task_async("themoviedb.org", discover_task, dj, on_discover, dj);
 }

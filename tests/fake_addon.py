@@ -249,7 +249,10 @@ class H(BaseHTTPRequestHandler):
                 pick = next((int(l.split(".")[0]) for l in user.split("\n") if "title_t01" in l and "season 1, episode 1" in user), -1)
                 answer = json.dumps({"file": pick})
             elif "recommend films" in system:
-                answer = json.dumps({"titles": [{"name": "The Shawshank Redemption", "year": 1994}, {"name": "Breaking Bad", "year": 2008}, {"name": "No Such Title", "year": 2001}]})
+                # a request with a film industry in it gets filters too (TMDB lists titles for them)
+                filters = {"type": "movie", "language": "hi", "country": "IN", "genres": ["Comedy"], "from": 1990, "to": 1999} if "bollywood" in user.lower() else None
+                answer = json.dumps({"titles": [{"name": "The Shawshank Redemption", "year": 1994, "type": "movie"}, {"name": "Breaking Bad", "year": 2008, "type": "series"},
+                                                {"name": "No Such Title", "year": 2001, "type": "movie"}], "filters": filters})
             else:
                 answer = json.dumps({"nutshell": "A quietly devastating prison drama about hope, patience and friendship that keeps rewarding rewatches.",
                                      "good_for": "A slow evening when you want something moving rather than loud.",
@@ -746,6 +749,11 @@ class H(BaseHTTPRequestHandler):
                      {"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png"},
                      {"id": 2, "title": "Fake Saga: Again", "release_date": "2011-07-01", "poster_path": "/p1.png"}]
             return self.send(200, json.dumps({"id": 10, "name": "Fake Saga Collection", "parts": parts}).encode(), "application/json")
+        if p.startswith("/tmdb/3/discover/"):   # titles for filters: only a Hindi comedy of the 90s asked for in full gets any
+            ok = all(k in p for k in ("with_original_language=hi", "with_origin_country=IN", "with_genres=35", "primary_release_date.gte=1990-01-01", "primary_release_date.lte=1999-12-31"))
+            res = [{"id": 4, "title": "Fake Hindi Comedy", "release_date": "1997-05-01", "poster_path": "/p3.png"},
+                   {"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png"}] if ok else []
+            return self.send(200, json.dumps({"results": res}).encode(), "application/json")
         if p.startswith("/tmdb/3/search/person"):
             return self.send(200, json.dumps({"results": [{"id": 17419, "name": "Bryan Cranston"}]}).encode(), "application/json")
         if p.startswith("/tmdb/3/person/") and "combined_credits" in p:   # films, a series, and two that should be left out

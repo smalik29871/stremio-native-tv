@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **AI search keeps to what you ask for.** "Bollywood comedies from the 90s" now brings
+  Hindi comedies of the 90s, not every title with one of your words in it:
+  - The assistant is told to respect language or film industry (Bollywood, Tollywood,
+    K-drama, anime), country, era, genre and film or series exactly, and suggests up to 12.
+  - Each suggestion is found by its name, its year and whether it is a film or a series, so
+    a remake or a namesake no longer stands in for it.
+  - A request no longer searches your addons word by word as well (that brought unrelated
+    Korean and English titles); it does only when the assistant has nothing.
+  - With a TMDB key (Settings > API keys), the assistant's filters (original language,
+    country, genres, years) also fetch TMDB's most popular titles that fit, after its picks.
 - **Your subtitle style on more videos.** When an addon has a subtitle file matched to the
   video you're playing (the MATCHED chip), it is now chosen over the subtitles inside the
   video. The app draws those files itself, so size, style, colour, position, timing and lines
