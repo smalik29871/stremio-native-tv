@@ -1228,17 +1228,26 @@ static const Color COLOUR_RGB[SUBS_COLOUR_COUNT] = { 0, RGBA(255, 255, 255, 255)
 
 const char *ui_subs_colour_tv(int colour) { return colour > 0 && colour < SUBS_COLOUR_COUNT ? COLOUR_TV[colour] : NULL; }
 
+/* As big as the TV draws a video's own subtitles at the same setting (its sizes 1 to 4), so
+ * switching between those and files keeps the size. Extra large is the largest baked size
+ * drawn a third bigger (a 96 px atlas would cost the TV memory for one setting). */
 int ui_subtitle_font(int size_setting)
 {
-    static const int F[] = { FONT_M, FONT_L, FONT_XL, FONT_TITLE };
+    static const int F[] = { FONT_L, FONT_XL, FONT_TITLE, FONT_TITLE };
     return F[size_setting < 0 ? 0 : size_setting > 3 ? 3 : size_setting] | FONT_B;
 }
+
+static float subtitle_scale(int size_setting) { return size_setting >= 3 ? 1.33f : 1; }
+
+float ui_subtitle_line_h(int size_setting) { return font_height(ui_subtitle_font(size_setting)) * 1.04f * subtitle_scale(size_setting); }
 
 void ui_subtitle(const char *text, float bottom, int size_setting, int style)
 {
     if (!text || !*text) return;
     int size = ui_subtitle_font(size_setting);
-    float max_w = SNTV_UI_W * 0.78f, lh = font_height(size) * 1.04f;
+    float zs = subtitle_scale(size_setting);
+    gfx_set_scale(zs, SNTV_UI_W / 2, bottom);   /* grows up and out from the bottom line's centre */
+    float max_w = SNTV_UI_W * 0.78f / zs, lh = font_height(size) * 1.04f;
     int lines = font_draw_wrapped(text, 0, 0, size, 0, max_w, 3);
     float y = bottom - lines * lh;
     Color fg = style == SUBS_STYLE_YELLOW ? RGBA(0xFF, 0xE1, 0x3C, 0xFF) : style == SUBS_STYLE_CYAN ? RGBA(0x6E, 0xF0, 0xFF, 0xFF) : RGBA(255, 255, 255, 255);
@@ -1293,6 +1302,7 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
         font_draw_fit(l, lx, ly, size, fg, max_w);
     }
 #undef EDGE
+    gfx_set_scale(1, 0, 0);
 }
 
 void ui_toggle(float x, float y, int on, int focused)

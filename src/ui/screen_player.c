@@ -2291,7 +2291,7 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     if (top) {   /* the file asks for the top ({\an8}): over a credit or a sign at the bottom */
         int lines = 1;
         for (const char *c = top; *c; c++) lines += *c == '\n';
-        float lh = font_height(ui_subtitle_font(sub_size(p))) * 1.04f, tb = (g_app.time < p->overlay_until && !subs_tuning(p) ? 150 : 72) + lines * lh;   /* under the title while it shows */
+        float lh = ui_subtitle_line_h(sub_size(p)), tb = (g_app.time < p->overlay_until && !subs_tuning(p) ? 150 : 72) + lines * lh;   /* under the title while it shows */
         if (g_app.subs_pos == 2 && bottom < tb + 24 + lh) bottom = tb + 24 + lh * 2;   /* yours at the top too: under it */
         ui_subtitle(top, tb, sub_size(p), g_app.subs_style);
     }
@@ -2302,7 +2302,7 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     gfx_set_translate(-250 * k, 0);   /* clear of the Look and timing panel */
     if (text) ui_subtitle(text, bottom, sub_size(p), g_app.subs_style);
     if (text2) {   /* the second language sits above the first (or where it would be) */
-        float lift = text ? font_height(ui_subtitle_font(sub_size(p))) * 1.04f * 2 + 24 : 0;
+        float lift = text ? ui_subtitle_line_h(sub_size(p)) * 2 + 24 : 0;
         ui_subtitle(text2, bottom - lift, sub_size(p) > 0 ? sub_size(p) - 1 : 0, g_app.subs_style);
     }
     gfx_set_translate(0, 0);
