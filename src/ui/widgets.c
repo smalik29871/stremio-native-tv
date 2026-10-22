@@ -1228,27 +1228,59 @@ static const Color COLOUR_RGB[SUBS_COLOUR_COUNT] = { 0, RGBA(255, 255, 255, 255)
 
 const char *ui_subs_colour_tv(int colour) { return colour > 0 && colour < SUBS_COLOUR_COUNT ? COLOUR_TV[colour] : NULL; }
 
-/* As big as the TV draws a video's own subtitles at the same setting (its sizes 1 to 4), so
- * switching between those and files keeps the size. Extra large is the largest baked size
- * drawn a third bigger (a 96 px atlas would cost the TV memory for one setting). */
-int ui_subtitle_font(int size_setting)
-{
-    static const int F[] = { FONT_L, FONT_XL, FONT_TITLE, FONT_TITLE };
-    return F[size_setting < 0 ? 0 : size_setting > 3 ? 3 : size_setting] | FONT_B;
-}
+/* As big as the TV draws a video's own subtitles at the same setting (its sizes 1 to 4;
+ * Medium measured on an LG at 80 px type), so switching between those and files keeps the
+ * size: 64, 80, 100 and 120 px, all from the largest baked face, scaled (another atlas
+ * would cost the TV memory for a size or two). */
+int ui_subtitle_font(int size_setting) { (void)size_setting; return FONT_TITLE | FONT_B; }
 
-static float subtitle_scale(int size_setting) { return size_setting >= 3 ? 1.33f : 1; }
+static float subtitle_scale(int size_setting)
+{
+    static const float PX[] = { 64, 80, 100, 120 };
+    return PX[size_setting < 0 ? 0 : size_setting > 3 ? 3 : size_setting] / FONT_TITLE;
+}
 
 float ui_subtitle_line_h(int size_setting) { return font_height(ui_subtitle_font(size_setting)) * 1.04f * subtitle_scale(size_setting); }
 
-void ui_subtitle(const char *text, float bottom, int size_setting, int style)
+/* The cue's lines, each broken at spaces to fit max_w, at most `max` (the last one is
+ * shortened by the caller's fit if more is left). */
+static int wrap_lines(const char *text, int size, float max_w, char out[][256], int max)
+{
+    int n = 0;
+    char seg[512];
+    for (const char *p = text; *p && n < max; ) {
+        size_t len = strcspn(p, "\n");
+        snprintf(seg, sizeof seg, "%.*s", (int)len, p);
+        p += len + (p[len] == '\n');
+        char *w = seg;
+        while (n < max) {
+            while (*w == ' ') w++;
+            if (!*w) break;
+            size_t fit = strlen(w);
+            if (font_measure(w, size) > max_w && n < max - 1) {   /* the longest run of whole words that fits */
+                size_t best = 0;
+                for (size_t i = 1; w[i]; i++)
+                    if (w[i] == ' ') { char c = w[i]; w[i] = 0; float m = font_measure(w, size); w[i] = c; if (m <= max_w) best = i; else break; }
+                if (best) fit = best;
+            }
+            snprintf(out[n++], 256, "%.*s", (int)fit, w);
+            w += fit;
+        }
+    }
+    return n;
+}
+
+void ui_subtitle(const char *text, float bottom, int size_setting, int style) { ui_subtitle_ex(text, bottom, size_setting, style, 1, SNTV_UI_W * 0.78f); }
+
+void ui_subtitle_ex(const char *text, float bottom, int size_setting, int style, float k, float width)
 {
     if (!text || !*text) return;
     int size = ui_subtitle_font(size_setting);
-    float zs = subtitle_scale(size_setting);
+    float zs = subtitle_scale(size_setting) * k;
     gfx_set_scale(zs, SNTV_UI_W / 2, bottom);   /* grows up and out from the bottom line's centre */
-    float max_w = SNTV_UI_W * 0.78f / zs, lh = font_height(size) * 1.04f;
-    int lines = font_draw_wrapped(text, 0, 0, size, 0, max_w, 3);
+    float max_w = width / zs, lh = font_height(size) * 1.04f;
+    char wl[3][256];
+    int lines = wrap_lines(text, size, max_w, wl, 3);
     float y = bottom - lines * lh;
     Color fg = style == SUBS_STYLE_YELLOW ? RGBA(0xFF, 0xE1, 0x3C, 0xFF) : style == SUBS_STYLE_CYAN ? RGBA(0x6E, 0xF0, 0xFF, 0xFF) : RGBA(255, 255, 255, 255);
     int colour = g_app.subs_colour;
@@ -1257,10 +1289,8 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style)
     int dark = colour == SUBS_COLOUR_BLUE || colour == SUBS_COLOUR_BLACK;
     Color e = dark ? RGBA(0xF2, 0xF2, 0xF2, 0) : RGBA(0, 0, 0, 0);
 #define EDGE(a) (Color)(e | (Color)(a))
-    char tmp[512];
-    snprintf(tmp, sizeof tmp, "%s", text);
-    int i = 0;
-    for (char *l = strtok(tmp, "\n"); l && i < lines; l = strtok(NULL, "\n"), i++) {
+    for (int i = 0; i < lines; i++) {
+        const char *l = wl[i];
         float lw = font_measure(l, size);
         if (lw > max_w) lw = max_w;
         float lx = (SNTV_UI_W - lw) / 2, ly = y + i * lh;

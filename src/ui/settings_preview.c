@@ -185,7 +185,7 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         gfx_rrect_grad_v(sx, sy + sh * 0.4f, sw, sh * 0.6f, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0x90));
         gfx_clip_push(sx, sy, sw, sh);
         gfx_set_translate(sx + sw / 2 - SNTV_UI_W / 2, 0);
-        ui_subtitle("Subtitles look\nlike this.", sy + sh - 22, g_app.subs_size, g_app.subs_style);
+        ui_subtitle_ex("Subtitles look like this.", sy + sh - 22, g_app.subs_size, g_app.subs_style, sw / SNTV_UI_W * 2, sw * 0.9f);   /* as on the screen, twice over */
         gfx_set_translate(0, 0);
         gfx_clip_pop();
         caption("Also for subtitles inside the video, in the TV's own lettering", x, base + 6, w);

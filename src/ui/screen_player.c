@@ -2297,7 +2297,8 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     }
     if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && !subs_tuning(p) && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
     int r = subs_tuning(p) ? p->subs_row : -1;
-    if (!text && !text2 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS)) text = "Subtitles will look like this";   /* nothing said right now: a sample to judge by */
+    if (!text && !text2 && p->embedded_text_sel < 0 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS))
+        text = "Subtitles will look like this";   /* nothing said right now: a sample to judge by (not over the TV's own subtitles) */
     float k = p->menu == MENU_SUBS ? 1 - (1 - p->tune_t) * (1 - p->tune_t) : 0;
     gfx_set_translate(-250 * k, 0);   /* clear of the Look and timing panel */
     if (text) ui_subtitle(text, bottom, sub_size(p), g_app.subs_style);

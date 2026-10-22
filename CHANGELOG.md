@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Subtitle files really as big as the video's own.** Measured on the TV, its Medium is about
+  80 px type, not the 56 px 0.10.50 used. Files are now drawn at 64, 80, 100 and 120 px for
+  Small to Extra large, and long lines wrap onto a second line instead of being cut short
+  with "...". The Settings preview shows them in proportion.
+- **No sample line over the video's own subtitles.** Changing Size or Style in Look and timing
+  showed "Subtitles will look like this" on top of the TV's subtitles; it now shows only when
+  the app draws the subtitles.
+
 ## 0.10.50
 
 - **A video's own subtitles first again.** 0.10.49 put a subtitle file matched to the video

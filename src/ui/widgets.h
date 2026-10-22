@@ -114,6 +114,7 @@ const char *ui_subs_colour_tv(int colour);
 void ui_subtitle(const char *text, float bottom, int size_setting, int style);
 int  ui_subtitle_font(int size_setting);   /* 0 small .. 3 extra large */
 float ui_subtitle_line_h(int size_setting);   /* a line's height as drawn, at that size */
+void ui_subtitle_ex(const char *text, float bottom, int size_setting, int style, float k, float width);   /* k times the size, lines up to width wide: a preview */
 void ui_progress(float x, float y, float w, float h, float frac, Color fill);
 void ui_skeleton(float x, float y, float w, float h, float r);
 void ui_spinner(float cx, float cy, float radius);
