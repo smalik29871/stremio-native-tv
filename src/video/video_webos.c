@@ -169,7 +169,7 @@ static struct { int size, style, position, sync_ms, have, pending; char colour[1
 static void subtitle_style_send(void)
 {
     if (!g_sub.have) return;
-    static const int FONT[] = { 1, 2, 3, 4 };
+    static const int FONT[] = { 0, 1, 2, 3 };   /* the TV draws a step larger than the app at the same number: Medium is its 1 */
     static const int POS[] = { 0, 2, 4 };
     int st = g_sub.style;
     /* SUBS_STYLE_*: shadow, outline, yellow, boxed, bright, raised, soft box, cyan */

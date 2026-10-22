@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **The video's own subtitles at the size you chose.** The TV drew them a step larger than
+  the app draws subtitle files at the same setting; each size is now one step smaller there.
+  (The TV draws them inside the picture, in its own font, so they can still look a little
+  greyer than files from addons, which the app draws itself.)
+
 ## 0.10.49
 
 - **AI search keeps to what you ask for.** "Bollywood comedies from the 90s" now brings
