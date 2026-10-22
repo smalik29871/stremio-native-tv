@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.50
 
 - **A video's own subtitles first again.** 0.10.49 put a subtitle file matched to the video
   ahead of the video's own track, for your style; but such files can run a little early or
