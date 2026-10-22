@@ -35,10 +35,12 @@ jobs:
   desktop:
     # Actions minutes are counted (private repository) and the full suite runs before every
     # push anyway: an ordinary branch push runs nothing here. Main, tags, a run started by
-    # hand and a release commit ("0.10.49") run everything.
+    # hand and a release commit ("0.10.49") run everything; a release commit saying
+    # "[tested here]" (the whole suite passed where it was made) only builds and publishes.
     if: >-
-      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')) &&
+      !contains(github.event.head_commit.message, '[tested here]')
     name: Desktop build and tests
     runs-on: ubuntu-24.04
     steps:
@@ -70,8 +72,9 @@ jobs:
   ui:
     # (when, as for the desktop build above)
     if: >-
-      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')) &&
+      !contains(github.event.head_commit.message, '[tested here]')
     # The scripted UI runs (tests/smoke.sh) under Xvfb against the fake addon, in four parts
     # on four machines (tests/shard.py); a release waits for all of them. Each part stops at
     # its first failure; its logs and screenshots are uploaded.
@@ -176,7 +179,11 @@ jobs:
     # this run. A push made with this run's token starts no other run, so it is published once.
     # (The token cannot push commits that change workflow files: such a release goes to main by hand.)
     name: Move main to a tested release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/')
+    if: >-
+      always() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/') &&
+      (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
+      needs.webos.result == 'success' &&
+      (needs.ui.result == 'success' || (needs.ui.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]')))
     needs: [desktop, webos, ui]
     runs-on: ubuntu-24.04
     permissions:
@@ -208,7 +215,9 @@ jobs:
     name: Publish release
     if: >-
       always() && github.event_name == 'push' &&
-      needs.desktop.result == 'success' && needs.webos.result == 'success' && needs.ui.result == 'success' &&
+      (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
+      needs.webos.result == 'success' &&
+      (needs.ui.result == 'success' || (needs.ui.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || needs.promote.outputs.promoted == 'true')
     needs: [desktop, webos, ui, promote]
     runs-on: ubuntu-24.04
