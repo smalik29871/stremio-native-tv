@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Your subtitle style on more videos.** When an addon has a subtitle file matched to the
+  video you're playing (the MATCHED chip), it is now chosen over the subtitles inside the
+  video. The app draws those files itself, so size, style, colour, position, timing and lines
+  meant for the top all apply; the TV draws a video's own subtitles its way and may ignore
+  them. A video's own track you choose for a show is still remembered and kept.
+
 ## 0.10.48
 
 - **See the subtitles while you change them.** Opening Look and timing in the Subtitles

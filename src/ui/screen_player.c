@@ -595,7 +595,9 @@ static const char *current_audio_lang(VideoTrack *tr, int n)
 }
 
 /* Turn on subtitles in `lang`: embedded first unless the remembered choice was
- * an addon file (or the other way round). 1 when something was picked. */
+ * an addon file (or the other way round); with no source asked for (SUBS_SRC_ANY), a file
+ * matched to this video comes before the video's own track: the app draws it, so every
+ * subtitle setting applies, where the TV draws its own tracks its way. 1 when picked. */
 static int strcasestr_ci(const char *hay, const char *needle)
 {
     if (!hay || !needle) return 0;
@@ -609,6 +611,12 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
     VideoTrack tr[MAX_TRACKS];
     int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
     /* a remembered addon file: give the addons their 15 s before settling for an embedded track */
+    if (prefer == SUBS_SRC_ANY)
+        for (int i = 0; i < p->n_addon_subs; i++)
+            if (p->addon_subs[i].matched && lang_same(p->addon_subs[i].lang, lang)) {
+                if (p->active_addon_sub != i) { LOGI("player: subtitles: the file matched to this video, before its own track"); select_addon_sub(p, i); }
+                return 1;
+            }
     int passes = prefer == SUBS_SRC_ADDON && p->subs_pending > 0 && g_app.time - p->load_started <= 15 ? 1 : 2;
     for (int pass = 0; pass < passes; pass++) {
         int embedded = (pass == 0) != (prefer == SUBS_SRC_ADDON);
@@ -709,7 +717,7 @@ static void auto_select_tracks(Player *p)
             LOGI("player: subtitles off, the audio is already %s", p->audio_lang);
             SUBS_OFF_DONE();
         }
-        if (pick_subs(p, g_app.pref_subs, SUBS_SRC_EMBEDDED)) { LOGI("player: subtitles %s (preference)", g_app.pref_subs); p->subs_auto_done = 1; return; }
+        if (pick_subs(p, g_app.pref_subs, SUBS_SRC_ANY)) { LOGI("player: subtitles %s (preference)", g_app.pref_subs); p->subs_auto_done = 1; return; }
     }
     if (p->subs_pending == 0 || g_app.time - p->load_started > 15) {
         p->subs_auto_done = 1;
