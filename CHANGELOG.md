@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.49
 
 - **AI search keeps to what you ask for.** "Bollywood comedies from the 90s" now brings
   Hindi comedies of the 90s, not every title with one of your words in it:
