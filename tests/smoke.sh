@@ -112,8 +112,10 @@ run streams 240 "right,ok,down,down,play"
 run streams_best 320 "right,ok,down,down,yellow,down,down,down,ok,up" HOME="$(home_with best '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"qualityMode":1}')"
 run player 280 "right,ok,down,down,play,wait"
 run player_subs 360 "right,ok,down,down,play,wait,down,right,right,right,ok" HOME="$(home_with subs1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-# a file matched to this video comes before the video's own track: the app draws it, so the subtitle settings apply
-grep -q "player: subtitles: the file matched to this video, before its own track" "$OUT/player_subs.log" || { echo "the video's own track kept over a file matched to it"; grep -E "subtitles|subs:" "$OUT/player_subs.log"; exit 1; }
+# the video's own track stays (always in sync) over a file matched to it, unless the setting asks for files
+! grep -q "player: subtitles: the file matched to this video, before its own track" "$OUT/player_subs.log" || { echo "a matched file replaced the video's own track"; grep -E "subtitles|subs:" "$OUT/player_subs.log"; exit 1; }
+run player_subs_files 360 "right,ok,down,down,play,wait" HOME="$(home_with subsfiles '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsPreferFiles":1}')"
+grep -q "player: subtitles: the file matched to this video, before its own track" "$OUT/player_subs_files.log" || { echo "with files preferred, the video's own track was kept"; grep -E "subtitles|subs:" "$OUT/player_subs_files.log"; exit 1; }
 grep -q "player: subtitles in" "$OUT/player_subs.log" || { echo "the Subtitles sheet did not open"; grep -E "drawer|subtitles" "$OUT/player_subs.log"; exit 1; }
 run player_audio 400 "right,ok,down,down,play,wait,down,right,right,right,right,ok,down"
 run player_cue 300 "right,ok,down,down,play,wait" SNTV_FAKE_NO_TEXT_TRACKS=1

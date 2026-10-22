@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A video's own subtitles first again.** 0.10.49 put a subtitle file matched to the video
+  ahead of the video's own track, for your style; but such files can run a little early or
+  late, where the video's own track is always in sync. The video's own track is first again;
+  "Subtitle files over the video's own" (Settings > Audio & subtitles) brings the files first
+  for those who want their style more than exact timing.
 - **The video's own subtitles at the size you chose.** The TV drew them a step larger than
   the app draws subtitle files at the same setting; each size is now one step smaller there.
   (The TV draws them inside the picture, in its own font, so they can still look a little

@@ -51,7 +51,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_SUBS_COLOUR,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -114,7 +114,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_LANG:
         SEC(SEC_LANGS); ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN;
         SEC(SEC_SUBS_LOOK); ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; ids[n++] = IT_SUBS_COLOUR;
-        SEC(SEC_SUBS_SMART); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL;
+        SEC(SEC_SUBS_SMART); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL; ids[n++] = IT_SUBS_FILES;
         break;
     case CAT_SOURCES:
         SEC(SEC_RANKING); ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO;
@@ -167,6 +167,7 @@ static const char *row_title(int id)
     case IT_SUBS_STYLE: return "Subtitle style";
     case IT_SUBS_COLOUR: return "Subtitle colour";
     case IT_SUBS_SYNC: return "Auto-sync subtitles to the file";
+    case IT_SUBS_FILES: return "Subtitle files over the video's own";
     case IT_BR_VIDEO: return "Show the video";
     case IT_P2P: return "P2P fallback on this TV";
     case IT_SRC_AUDIO: return "Sources in my audio language first";
@@ -274,6 +275,7 @@ static const char *row_desc(int id)
     case IT_SUBS_STYLE: return "Colour, outline or a box behind the text.";
     case IT_SUBS_COLOUR: return "The letters in a caption colour, over any style; easier to tell apart for some eyes.";
     case IT_SUBS_SYNC: return "Lines addon subtitles up with the video's own timing.";
+    case IT_SUBS_FILES: return "Off: a video's own subtitles first; always in sync, drawn by the TV. On: a file matched to the video first; your style, though it can be a little off.";
     case IT_QUALITY: return "Which source comes first in the list.";
     case IT_RES_CAP: return "Recommended sources stay at or below this.";
     case IT_SRC_SIZE: return "Bigger files stay in the list but are never picked for you.";
@@ -753,6 +755,7 @@ static void draw(Screen *s)
         case IT_SUBS_STYLE: draw_row(y, ICON_SUBS, "Subtitle style", SUBS_STYLE_NAMES[g_app.subs_style], foc, KIND_CHOICE, 0); break;
         case IT_SUBS_COLOUR: draw_row(y, ICON_SUBS, "Subtitle colour", SUBS_COLOUR_NAMES[g_app.subs_colour], foc, KIND_CHOICE, 0); break;
         case IT_SUBS_SYNC: draw_row(y, ICON_SUBS, "Auto-sync subtitles to the file", NULL, foc, KIND_TOGGLE, g_app.subs_autosync); break;
+        case IT_SUBS_FILES: draw_row(y, ICON_SUBS, "Subtitle files over the video's own", NULL, foc, KIND_TOGGLE, g_app.subs_prefer_files); break;
         case IT_BR_VIDEO: draw_row(y, ICON_TV, "Show the video", NULL, foc, KIND_TOGGLE, g_app.break_video); break;
         case IT_P2P: draw_row(y, ICON_SWAP, "P2P fallback on this TV", NULL, foc, KIND_TOGGLE, g_app.p2p_fallback); break;
         case IT_SRC_AUDIO: { char la[96]; snprintf(la, sizeof la, "Sources in my audio language first%s%s%s", lang_known(g_app.pref_audio) ? " (" : "", lang_known(g_app.pref_audio) ? lang_display(g_app.pref_audio) : "", lang_known(g_app.pref_audio) ? ")" : ""); draw_row(y, ICON_AUDIO, la, NULL, foc, KIND_TOGGLE, g_app.src_audio_lang); break; }
@@ -1439,6 +1442,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_TRANSITIONS: g_app.transitions = !g_app.transitions; break;
     case IT_PIP: g_app.pip_enabled = !g_app.pip_enabled; break;
     case IT_SUBS_SYNC: g_app.subs_autosync = !g_app.subs_autosync; break;
+    case IT_SUBS_FILES: g_app.subs_prefer_files = !g_app.subs_prefer_files; break;
     case IT_SUBS_XL: g_app.subs_autotranslate = !g_app.subs_autotranslate; break;
     case IT_BR_VIDEO:
         g_app.break_video = !g_app.break_video;

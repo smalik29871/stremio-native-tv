@@ -595,9 +595,10 @@ static const char *current_audio_lang(VideoTrack *tr, int n)
 }
 
 /* Turn on subtitles in `lang`: embedded first unless the remembered choice was
- * an addon file (or the other way round); with no source asked for (SUBS_SRC_ANY), a file
- * matched to this video comes before the video's own track: the app draws it, so every
- * subtitle setting applies, where the TV draws its own tracks its way. 1 when picked. */
+ * an addon file (or the other way round). The video's own track is always in sync; with
+ * "Subtitle files over the video's own" on and no source asked for (SUBS_SRC_ANY), a file
+ * matched to this video comes first instead: the app draws it, so every subtitle setting
+ * applies, but such files can be a little off. 1 when picked. */
 static int strcasestr_ci(const char *hay, const char *needle)
 {
     if (!hay || !needle) return 0;
@@ -611,7 +612,7 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
     VideoTrack tr[MAX_TRACKS];
     int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
     /* a remembered addon file: give the addons their 15 s before settling for an embedded track */
-    if (prefer == SUBS_SRC_ANY)
+    if (prefer == SUBS_SRC_ANY && g_app.subs_prefer_files)
         for (int i = 0; i < p->n_addon_subs; i++)
             if (p->addon_subs[i].matched && lang_same(p->addon_subs[i].lang, lang)) {
                 if (p->active_addon_sub != i) { LOGI("player: subtitles: the file matched to this video, before its own track"); select_addon_sub(p, i); }

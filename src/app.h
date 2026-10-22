@@ -120,6 +120,7 @@ typedef struct App {
     int transitions;           /* animated screen changes */
     int pip_enabled;           /* Back in the player parks it in a corner instead of stopping */
     int subs_autosync;         /* shift addon subtitles to match a file-matched subtitle */
+    int subs_prefer_files;     /* a subtitle file matched to the video over the video's own track (your style; may be a little off) */
     int subs_autotranslate;    /* AI: translate when nobody offers the preferred language */
     int addon_wait;            /* seconds auto-play waits for slow addons; 99 = all of them */
     int src_max_gb;            /* source rules: largest file to pick, 0 any */

@@ -1833,6 +1833,7 @@ static void load_prefs(void)
     g_app.transitions = store_get_int("transitions", 1);
     g_app.pip_enabled = store_get_int("pipEnabled", 0);
     g_app.subs_autosync = store_get_int("subsAutosync", 1);
+    g_app.subs_prefer_files = store_get_int("subsPreferFiles", 0);
     g_app.subs_autotranslate = store_get_int("subsAutotranslate", 0);
     g_app.addon_wait = store_get_int("addonWait", 8);
     g_app.break_video = store_get_int("breakVideo", 1);
@@ -1917,6 +1918,7 @@ void app_save_prefs(void)
     store_set_int("transitions", g_app.transitions);
     store_set_int("pipEnabled", g_app.pip_enabled);
     store_set_int("subsAutosync", g_app.subs_autosync);
+    store_set_int("subsPreferFiles", g_app.subs_prefer_files);
     store_set_int("subsAutotranslate", g_app.subs_autotranslate);
     store_set_int("addonWait", g_app.addon_wait);
     store_set_int("breakVideo", g_app.break_video);
