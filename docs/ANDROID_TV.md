@@ -75,8 +75,10 @@ Status: **1, 2 and 3 built** (video: ExoPlayer under the UI, `CuelightPlayer.jav
 
 - Gradle project in `deploy/android`; its `externalNativeBuild` runs the root
   `CMakeLists.txt` with `-DSNTV_PLATFORM=android` for `arm64-v8a` and `armeabi-v7a`.
-- GitHub's Ubuntu runners have the Android SDK and NDK installed: one more job beside
-  `webos`, building and signing the APK. Free while the repository is public; on a
+- The `android` job in `.github/workflows/build.yml` builds and signs the APK and the release
+  carries it (`cuelight-android-<version>.apk`). It needs the release key in two secrets:
+  `ANDROID_KEYSTORE_B64` (the keystore, base64) and `ANDROID_KEY_PASSWORD` (alias `cuelight`,
+  or `ANDROID_KEY_ALIAS`); without them a release goes out without the APK. Free while the repository is public; on a
   private repository it uses Actions minutes (about 10 per release).
 - Tests: the desktop UI suite already covers the shared code. Android adds a build check
   and, later, an emulator smoke run (Home opens, a stream starts).

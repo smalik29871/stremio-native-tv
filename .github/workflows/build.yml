@@ -173,6 +173,67 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  android:
+    # The Android APK (phones, tablets, Android TV and Fire TV), signed with the release key
+    # in the ANDROID_KEYSTORE_B64 / ANDROID_KEY_PASSWORD secrets: one key for every release,
+    # so each installs over the last. Without them nothing is built (a key made here would
+    # differ every time). It never holds the TV release back: a failure here only leaves the
+    # APK out of the release.
+    if: >-
+      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
+    name: Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Release key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::warning::No ANDROID_KEYSTORE_B64 secret: no APK in this release"; echo "have=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "have=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.have == 'true'
+      - uses: actions/setup-java@v4
+        if: steps.key.outputs.have == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.key.outputs.have == 'true'
+        with:
+          gradle-version: "8.14.3"
+      - name: Android SDK parts
+        if: steps.key.outputs.have == 'true'
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+      - name: Build the APK
+        if: steps.key.outputs.have == 'true'
+        env:
+          GRADLE: gradle
+          ANDROID_KEYSTORE: ${{ runner.temp }}/release.jks
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+          MDBLIST_KEY: ${{ secrets.MDBLIST_KEY }}
+          OPENSUBTITLES_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
+        run: |
+          bash tools/android.sh
+          VERSION=$(python3 -c "import json; print(json.load(open('deploy/webos/appinfo.json'))['version'])")
+          mkdir -p dist-android
+          cp deploy/android/app/build/outputs/apk/release/app-release.apk "dist-android/cuelight-android-$VERSION.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "dist-android/cuelight-android-$VERSION.apk" | grep -i "SHA-256" | head -1
+      - uses: actions/upload-artifact@v4
+        if: steps.key.outputs.have == 'true'
+        with:
+          name: android-apk
+          path: dist-android/
+          if-no-files-found: error
+
   promote:
     # A push to a claude/ branch whose appinfo.json version has no release yet, every test
     # green: main is moved up to it (fast-forward only) and the release below is made from
@@ -219,7 +280,7 @@ jobs:
       needs.webos.result == 'success' &&
       (needs.ui.result == 'success' || (needs.ui.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || needs.promote.outputs.promoted == 'true')
-    needs: [desktop, webos, ui, promote]
+    needs: [desktop, webos, ui, promote, android]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -230,6 +291,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: webos-ipk
+          path: dist
+      - uses: actions/download-artifact@v4   # the APK, when the Android job made one
+        if: needs.android.result == 'success'
+        continue-on-error: true
+        with:
+          name: android-apk
           path: dist
       - name: Decide release version
         id: ver
@@ -271,6 +338,11 @@ jobs:
             echo '```'
             echo "https://github.com/${RELEASES_REPO}/releases/latest/download/repo.json"
             echo '```'
+            if ls dist/*.apk >/dev/null 2>&1; then
+              echo
+              echo "### Install on Android (phones, tablets, Android TV, Fire TV)"
+              echo "Download **$(basename dist/*.apk)** below on the device and open it (allow installs from your browser or file app when asked). Later versions install over it."
+            fi
           } >> notes.md
           cat notes.md
       - name: Create the release in the public repository
