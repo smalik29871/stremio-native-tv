@@ -19,7 +19,7 @@
 #include <math.h>
 
 /* Results sit beside the keyboard while typing and use the full width once it closes. */
-enum { SUGG_H = 70, COLS_TYPING = 3, COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, FIELD_Y = 140, FIELD_H = 76 };
+enum { LIST_ROW = 58, LIST_MAX = 5, HERO_H = 400, COLS_TYPING = 5, COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, FIELD_Y = 140, FIELD_H = 76 };
 
 /* Results are grouped by type, each group under its own heading and starting a new row. */
 enum { SECT_MAX = 4, SECT_H = 56 };
@@ -63,11 +63,14 @@ struct Search {
     Section sect[SECT_MAX]; int n_sect;
     int groups_logged;
     char first_logged[64];        /* the leading result last logged */
-    char sugg[5][96]; int n_sugg; /* above the keyboard: titles found for what is typed so far */
+    char sugg[5][96]; char sugg_sub[5][32]; int n_sugg;   /* titles for what is typed so far, and "Film · 1999" */
     int sugg_focus;               /* -1 on the keys, else the suggestion */
     int tvkb;                     /* typing with the TV's own keyboard, not the app's */
+    int hero_btn;                 /* on the top result's buttons (focus_grid 3): which one */
     char sugg_logged[96];
+    char sugg_for[256]; int sugg_n_res, sugg_lib; unsigned sugg_gen;   /* what the suggestions were worked out for */
 };
+static void focus_results(Search *s);
 
 static Search *g_person_live;   /* the screen a filmography lookup answers to */
 
@@ -239,7 +242,7 @@ static void place(Search *s, int nc)
         }
         s->sect[s->n_sect - 1].n++;
     }
-    int headed = s->n_sect > 1, i = 0;
+    int headed = 1, i = 0;   /* a heading over every group, even one (Movies, Series) */
     float y = 0;
     s->n_rows = 0;
     for (int k = 0; k < s->n_sect; k++) {
@@ -308,7 +311,7 @@ static void on_result(HttpResponse *r, void *user)
         }
         free(metas);
         regroup(s);
-        if (s->want_results && s->n && !s->typing && s->focus_grid == 0) { s->focus_grid = 1; s->grid_focus = 0; s->focus_t = 0; s->want_results = 0; }
+        if (s->want_results && s->n && !s->typing && s->focus_grid == 0) { focus_results(s); s->want_results = 0; }
     }
     app_redraw();
     free(p);
@@ -467,32 +470,72 @@ static void run_query(Search *s)
 /* Suggestions while typing, as a TV's own keyboard gives: your recent searches that start
  * with what is typed, then the titles the addons found for it (best match first), each
  * once; never just what is already typed. */
+/* Suggestions as you type, at once on every letter: titles this TV already knows (your
+ * library, the titles on Home's rows) and your recent searches, then what the addons found
+ * for the words so far; the closest match first, each title once, never just what is typed. */
+typedef struct { const char *name, *sub; int tier, from; } Sugg;
+
+static void sugg_offer(Sugg *c, int *n, int max, const char *name, const char *sub, const char *typed, int from)
+{
+    if (!name || !*name || *n >= max) return;
+    char w[256], o[256], tw[256];
+    words_of(name, w, sizeof w); words_of(typed, tw, sizeof tw);
+    int tier = match_tier(name, typed);
+    for (const char *q = tw; *q && tier > 2; ) {   /* every typed word the start of one of its words: "re" finds Redemption */
+        size_t k = strcspn(q, " ");
+        if (!has_word(w, q, k, 1)) return;
+        q += k + (q[k] == ' ');
+    }
+    if (tier > 2) tier = 2;
+    if (!strcmp(w, tw)) return;
+    for (int k = 0; k < *n; k++) { words_of(c[k].name, o, sizeof o); if (!strcmp(o, w)) { if (sub && *sub && !(c[k].sub && *c[k].sub)) c[k].sub = sub; return; } }
+    c[(*n)++] = (Sugg){ name, sub, tier, from };
+}
+
 static void suggest(Search *s)
 {
     const char *t = s->kb.text;
-    char tw[256], w[256];
+    if (!strcmp(t, s->sugg_for) && s->n == s->sugg_n_res && g_app.library_version == s->sugg_lib && s->generation == s->sugg_gen) return;   /* nothing new to suggest from */
+    snprintf(s->sugg_for, sizeof s->sugg_for, "%s", t);
+    s->sugg_n_res = s->n; s->sugg_lib = g_app.library_version; s->sugg_gen = s->generation;
+    char tw[256];
     words_of(t, tw, sizeof tw);
+    Sugg c[96];
     int n = 0;
+    static char subs[96][32];
     if (strlen(tw) >= 2) {
-        for (int i = 0; i < s->n_recent && n < 2; i++) {
-            words_of(s->recent[i], w, sizeof w);
-            if (!strncmp(w, tw, strlen(tw)) && strcmp(w, tw)) snprintf(s->sugg[n++], sizeof s->sugg[0], "%s", s->recent[i]);
+        for (int i = 0; i < s->n_recent; i++) sugg_offer(c, &n, 96, s->recent[i], "Recent", t, 0);
+        for (int i = 0; i < s->n && n < 96; i++) {   /* what the addons found: kind and year */
+            const MetaPreview *m = &s->results[i];
+            snprintf(subs[i], sizeof subs[0], "%s%s%s", m->type && !strcmp(m->type, "series") ? "Series" : "Film", m->release_info ? "  \xC2\xB7  " : "", m->release_info ? m->release_info : "");
+            sugg_offer(c, &n, 96, m->name, subs[i], t, 1);
         }
-        for (int i = 0; i < s->n && n < 5; i++) {
-            const char *name = s->results[i].name;
-            if (!name || !*name || match_tier(name, t) > 3) continue;
-            words_of(name, w, sizeof w);
-            int dup = !strcmp(w, tw);
-            for (int j = 0; j < n && !dup; j++) { char o[256]; words_of(s->sugg[j], o, sizeof o); dup = !strcmp(o, w); }
-            if (!dup) snprintf(s->sugg[n++], sizeof s->sugg[0], "%s", name);
-        }
+        for (int i = 0; i < g_app.n_library && n < 96; i++)   /* known on this TV: no waiting for anyone */
+            if (!g_app.library[i].removed && !g_app.library[i].temp)
+                sugg_offer(c, &n, 96, g_app.library[i].name, g_app.library[i].type && !strcmp(g_app.library[i].type, "series") ? "Series" : "Film", t, 2);
+        const AmbientItem *pool;
+        int np = app_ambient_pool(&pool);
+        for (int i = 0; i < np && n < 96; i++) sugg_offer(c, &n, 96, pool[i].name, "", t, 3);
     }
-    s->n_sugg = n;
-    if (s->sugg_focus >= n) s->sugg_focus = n - 1;
-    if (n && strcmp(s->sugg[0], s->sugg_logged)) { snprintf(s->sugg_logged, sizeof s->sugg_logged, "%s", s->sugg[0]); LOGI("search: %d suggestion%s, first \"%s\"", n, n == 1 ? "" : "s", s->sugg[0]); }
+    for (int a = 1; a < n; a++)   /* the closest first; a tie keeps the order above */
+        for (int b = a; b > 0 && c[b].tier < c[b - 1].tier; b--) { Sugg x = c[b]; c[b] = c[b - 1]; c[b - 1] = x; }
+    int k = n < LIST_MAX ? n : LIST_MAX;
+    for (int i = 0; i < k; i++) {
+        snprintf(s->sugg[i], sizeof s->sugg[0], "%s", c[i].name);
+        snprintf(s->sugg_sub[i], sizeof s->sugg_sub[0], "%s", c[i].sub ? c[i].sub : "");
+    }
+    s->n_sugg = k;
+    if (s->sugg_focus >= k) s->sugg_focus = k - 1;
+    if (k && strcmp(s->sugg[0], s->sugg_logged)) { snprintf(s->sugg_logged, sizeof s->sugg_logged, "%s", s->sugg[0]); LOGI("search: %d suggestion%s, first \"%s\"", k, k == 1 ? "" : "s", s->sugg[0]); }
 }
 
 static int tv_keyboard(void);
+
+static void kb_set(Search *s, const char *text)   /* the compact keyboard, with this text */
+{
+    keyboard_init(&s->kb, 0, text);
+    s->kb.compact = 1;
+}
 
 static void open_keyboard(Search *s)
 {
@@ -525,12 +568,35 @@ static int tv_keyboard(void)
 #endif
 }
 
-static int app_keys(const Search *s) { return s->typing && !s->tvkb; }   /* the app's keyboard is on screen */
-static int cols(const Search *s) { return app_keys(s) ? COLS_TYPING : COLS; }
+static int cols(const Search *s) { (void)s; return COLS_TYPING; }
+
+/* Layout A: the search bar, a list (suggestions, or recent searches) and the keyboard down the
+ * left; the top result as a big card on the right with the rest below it. */
+static float left_w(const Search *s) { return keyboard_width_of(&s->kb); }
+static float right_x(const Search *s) { return THEME_MARGIN + left_w(s) + 64; }
+static float grid_top(void) { return HERO_H + 56; }   /* below the top result, in the right column's scroll */
+
+/* The left list: suggestions for what is typed, else the recent searches (and a row to clear them). */
+static int list_n(Search *s)
+{
+    if (s->kb.text[0]) return s->n_sugg;
+    return s->n_recent ? s->n_recent + 1 : 0;
+}
+
+static int hero_buttons(const Search *s)   /* Play, Details, Sources for a film; Episodes, Details for a series */
+{
+    return s->n && s->results[0].type && !strcmp(s->results[0].type, "series") ? 2 : 3;
+}
+
+static void focus_results(Search *s)   /* the results take the focus: the top result first */
+{
+    if (!s->n) return;
+    s->focus_grid = 3; s->hero_btn = 0; s->focus_t = 0;
+}
 
 static int headed_row(const Search *s, int row)
 {
-    if (s->n_sect < 2) return 0;
+    if (!s->n_sect) return 0;
     for (int k = 0; k < s->n_sect; k++) if (s->sect[k].first_row == row) return 1;
     return 0;
 }
@@ -540,19 +606,22 @@ static void update(Screen *sc, float dt)
     Search *s = sc->st;
     char got[256];
     if (s->typing && phone_take(got, sizeof got)) {   /* sent from the phone: search it right away */
-        keyboard_init(&s->kb, 0, got);
+        kb_set(s, got);
         close_keyboard(s);
         s->dirty = 0; run_query(s);
         app_toast("Received from your phone");
         app_redraw();
     }
     place(s, cols(s));
-    int row = s->grid_focus < s->n ? s->cell[s->grid_focus].row : 0;
-    /* keep the row above in view, and the heading over it */
-    float target = row > 1 ? s->row_y[row - 1] - (headed_row(s, row - 1) ? SECT_H : 0) : 0;
-    if (s->grid_focus < s->n) {   /* and all of the focused row (headings push it lower) */
-        float see = SNTV_UI_H - (FIELD_Y + FIELD_H + 40 + 60), bottom = s->row_y[row] + CELL_H + 80 - see;
-        if (target < bottom) target = bottom;
+    suggest(s);
+    /* the right column scrolls as one: the top result, then the rows under it */
+    float target = 0;
+    if (s->focus_grid == 1 && s->grid_focus < s->n) {
+        int row = s->cell[s->grid_focus].row;
+        float see = SNTV_UI_H - FIELD_Y - 40, top = grid_top() + s->row_y[row] - (headed_row(s, row) ? SECT_H : 0);
+        float bottom = grid_top() + s->row_y[row] + CELL_H + 90 - see;
+        target = bottom > 0 ? bottom : 0;
+        if (row > 0 && target < top - 120) target = top - 120;   /* a row down: the one above stays in sight */
     }
     s->grid_scroll = ui_ease(s->grid_scroll, target, NULL, dt, 14);
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
@@ -588,103 +657,163 @@ static void draw_field(const Search *s, float x, float y, float fw)
 /* Under the keyboard: scan to type on the phone instead. */
 static void draw_phone(const Search *s, float x, float y)
 {
+    float w = keyboard_width_of(&s->kb);
     if (!s->qr_ready) return;
     float qs = 190;
     if (y + qs > SNTV_UI_H - 30) return;
     ui_qr(s->qr, x, y, qs);
     font_draw("Or type on your phone", x + qs + 30, y + 30, FONT_S | FONT_B, THEME_TEXT);
-    font_draw_wrapped("Scan the code, type or paste, then Send. It searches straight away.", x + qs + 30, y + 72, FONT_XS, THEME_TEXT_DIM, keyboard_width() - qs - 30, 3);
+    font_draw_wrapped("Scan the code, type or paste, then Send. It searches straight away.", x + qs + 30, y + 72, FONT_XS, THEME_TEXT_DIM, w - qs - 30, 3);
     font_draw(s->phone_url, x + qs + 30, y + qs - 30, FONT_XS, THEME_TEXT_MUTED);
+}
+
+static void cover(int iw, int ih, float w, float h, float *u0, float *v0, float *u1, float *v1)
+{
+    float ia = ih > 0 ? (float)iw / ih : 1, ba = w / h;
+    *u0 = 0; *v0 = 0; *u1 = 1; *v1 = 1;
+    if (ia > ba) { float k = ba / ia; *u0 = (1 - k) / 2; *u1 = *u0 + k; }
+    else { float k = ia / ba; *v0 = (1 - k) / 2; *v1 = *v0 + k; }
+}
+
+static const char *hero_label(const Search *s, int b)
+{
+    int series = hero_buttons(s) == 2;
+    static const char *FILM[] = { "Play", "Details", "Sources" }, *SHOW[] = { "Episodes", "Details" };
+    return series ? SHOW[b] : FILM[b];
+}
+
+/* The best match, big: its picture, what it is, and Play straight from here. */
+static void draw_hero(const Search *s, float x, float y, float w, float h)
+{
+    const MetaPreview *m = &s->results[0];
+    int foc = s->focus_grid == 3;
+    font_draw(s->n_picks ? "AI PICK" : "TOP RESULT", x, y - 40, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    char b[512];
+    const char *bg = app_art_background(m, b, sizeof b);
+    int iw = 0, ih = 0;
+    unsigned tex = bg ? image_get(bg, &iw, &ih) : 0;
+    if (tex) {
+        float u0, v0, u1, v1;
+        cover(iw, ih, w, h, &u0, &v0, &u1, &v1);
+        gfx_rtex_uv(tex, x, y, w, h, R_PANEL, u0, v0, u1, v1, RGBA(255, 255, 255, 255), 0);
+    } else gfx_rrect_grad_h(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_ACCENT, 0x70), COLOR_ALPHA(THEME_ACCENT2, 0x40));
+    gfx_rrect_grad_h(x, y, w * 0.8f, h, R_PANEL, RGBA(0, 0, 0, 0xD8), RGBA(0, 0, 0, 0));   /* the words stay readable on any picture */
+    if (foc) gfx_rrect_ring(x, y, w, h, R_PANEL, 3, COLOR_ALPHA(THEME_TEXT, 0x90));
+    float tx = x + 44, ty = y + h - 222;
+    font_draw_fit(m->name ? m->name : "", tx, ty, FONT_XL | FONT_B, THEME_TEXT, w - 88);
+    char meta[200] = "";
+    size_t n = 0;
+    const char *kind = m->type && !strcmp(m->type, "series") ? "Series" : m->type && !strcmp(m->type, "movie") ? "Film" : NULL;
+    const char *parts[6] = { m->release_info, kind, m->runtime, m->genres.n ? m->genres.v[0] : NULL, m->genres.n > 1 ? m->genres.v[1] : NULL, NULL };
+    for (int k = 0; k < 5; k++)
+        if (parts[k] && *parts[k] && n < sizeof meta - 8) n += (size_t)snprintf(meta + n, sizeof meta - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
+    if (m->imdb_rating && *m->imdb_rating && n < sizeof meta - 16) snprintf(meta + n, sizeof meta - n, "%sIMDb %s", n ? "  \xC2\xB7  " : "", m->imdb_rating);
+    font_draw_fit(meta, tx, ty + 84, FONT_S, THEME_TEXT_DIM, w - 88);
+    float bx = tx, by = y + h - 96;
+    for (int k = 0; k < hero_buttons(s); k++)
+        bx += ui_pill(hero_label(s, k), k == 0, ICON_PLAY, bx, by, 64, k == 0 ? PILL_PRIMARY : PILL_SECONDARY, foc && s->hero_btn == k) + 16;
+}
+
+/* Down the left: what is typed suggests, else the recent searches (and a row to clear them). */
+static float draw_list(const Search *s, float x, float y, float w)
+{
+    int n = s->kb.text[0] ? s->n_sugg : s->n_recent ? s->n_recent + 1 : 0;
+    int foc = s->typing ? s->sugg_focus : s->focus_grid == 2 ? s->recent_focus : -1;
+    if (!n) return 0;
+    if (!s->kb.text[0]) font_draw("RECENT", x, y + 4, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    float ry = y + (s->kb.text[0] ? 0 : 36);
+    for (int i = 0; i < n; i++, ry += LIST_ROW) {
+        int on = foc == i;
+        if (on) gfx_rrect(x, ry, w, LIST_ROW - 6, R_KEY, THEME_FOCUS);
+        Color fg = on ? THEME_ON_FOCUS : THEME_TEXT;
+        const char *t = s->kb.text[0] ? s->sugg[i] : i < s->n_recent ? s->recent[i] : "Clear recent searches";
+        const char *sub = s->kb.text[0] ? s->sugg_sub[i] : NULL;
+        float sw = sub && *sub ? font_measure(sub, FONT_XS) + 20 : 0;
+        if (!s->kb.text[0] && i < s->n_recent) ui_icon(ICON_CLOCK, x + 26, ry + (LIST_ROW - 6) / 2, 22, on ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
+        float lx = x + (s->kb.text[0] ? 18 : 52);
+        font_draw_fit(t, lx, ry + (LIST_ROW - 6 - font_height(FONT_S | FONT_B)) / 2, FONT_S | (i < (s->kb.text[0] ? n : s->n_recent) ? FONT_B : 0),
+                      i < (s->kb.text[0] ? n : s->n_recent) ? fg : on ? fg : THEME_TEXT_DIM, w - (lx - x) - sw - 12);
+        if (sw) font_draw(sub, x + w - sw + 4, ry + (LIST_ROW - 6 - font_height(FONT_XS)) / 2, FONT_XS, on ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
+    }
+    return ry - y;
 }
 
 static void draw(Screen *sc)
 {
     Search *s = sc->st;
-    const MetaPreview *fp = s->focus_grid && s->grid_focus < s->n ? &s->results[s->grid_focus] : NULL;
+    const MetaPreview *fp = s->focus_grid == 1 && s->grid_focus < s->n ? &s->results[s->grid_focus] : s->focus_grid == 3 && s->n ? &s->results[0] : NULL;
     char buf[512];
     const char *bg = fp ? app_art_background(fp, buf, sizeof buf) : NULL;
     ui_background(bg ? image_tint(bg) : 0);
     if (g_theme.id == THEME_APERTURE) font_draw("Find your next film", THEME_MARGIN, 26, FONT_XL | FONT_ALT, THEME_TEXT);
     else font_draw("Search", THEME_MARGIN, 52, FONT_L | FONT_B, THEME_TEXT);
 
-    float x = THEME_MARGIN, y = FIELD_Y; int nc = cols(s);
-    float fw = app_keys(s) ? keyboard_width() : nc * (CELL_W + CELL_GAP) - CELL_GAP;
-    draw_field(s, x, y, fw);
-    float gx = x, gy = y + FIELD_H + 40;
-    if (s->typing && s->tvkb) {   /* the TV's keyboard covers the bottom: the results fill in above it as you type */
-        font_draw("Typing with the TV's keyboard  \xC2\xB7  its Enter searches  \xC2\xB7  Back closes it", x, y + FIELD_H + 14, FONT_XS, THEME_TEXT_MUTED);
-        gy += 30;
-    } else if (s->typing) {
-        suggest(s);
-        float ky = y + 108 + (s->n_sugg ? SUGG_H : 0);
-        if (s->n_sugg) {   /* Up from the top row of keys reaches them */
-            float px = x;
-            for (int i = 0; i < s->n_sugg; i++) {
-                char lab[64];
-                snprintf(lab, sizeof lab, "%.40s%s", s->sugg[i], strlen(s->sugg[i]) > 40 ? "\xE2\x80\xA6" : "");
-                float pw = ui_pill_width(lab, 0, 48);
-                if (px + pw > x + fw) break;
-                ui_pill(lab, 0, 0, px, y + 100, 48, PILL_SECONDARY, s->sugg_focus == i);
-                px += pw + 12;
-            }
-        }
-        keyboard_draw(&s->kb, x, ky, s->sugg_focus < 0);
-        font_draw(s->n_sugg ? "Done searches  \xC2\xB7  Up for suggestions  \xC2\xB7  Back closes the keyboard" : "Done searches  \xC2\xB7  Back closes the keyboard",
-                  x, ky + keyboard_height() + 20, FONT_XS, THEME_TEXT_MUTED);
-        draw_phone(s, x, ky + keyboard_height() + 70);
-        gx = x + fw + 80; gy = y;
+    /* the left column */
+    float x = THEME_MARGIN, y = FIELD_Y, lw = left_w(s);
+    draw_field(s, x, y, lw);
+    float ly = y + FIELD_H + 20;
+    if (s->typing && s->tvkb) {
+        font_draw("Typing with the TV's keyboard  \xC2\xB7  Enter searches", x, ly, FONT_XS, THEME_TEXT_MUTED);
+        ly += 40;
     }
-    float grid_w = SNTV_UI_W - THEME_MARGIN - gx;
+    ly += draw_list(s, x, ly, lw);
+    if (s->typing && !s->tvkb) {
+        float ky = ly + 16;
+        keyboard_draw(&s->kb, x, ky, s->sugg_focus < 0);
+        font_draw(s->n_sugg ? "Done searches  \xC2\xB7  Up for suggestions" : "Done searches  \xC2\xB7  Back closes the keyboard", x, ky + keyboard_height_of(&s->kb) + 18, FONT_XS, THEME_TEXT_MUTED);
+        draw_phone(s, x, ky + keyboard_height_of(&s->kb) + 64);
+    } else if (!s->typing && !s->focus_grid) {
+        font_draw("OK to type  \xC2\xB7  Right for the results", x, ly + 16, FONT_XS, THEME_TEXT_MUTED);
+    }
+
+    /* the right column: the top result, then every result by kind */
+    float gx = right_x(s), grid_w = SNTV_UI_W - THEME_MARGIN - gx, top = FIELD_Y;
+    int nc = cols(s);
     if ((s->pending || s->ai_state == 1) && !s->n) {
-        for (int i = 0; i < nc * 2; i++) ui_skeleton(gx + (i % nc) * (CELL_W + CELL_GAP), gy + 50 + (i / nc) * (CELL_H + 80), CELL_W, CELL_H, R_CARD);
-    } else if (!s->n && !s->kb.text[0] && s->n_recent) {
-        font_draw("Recent searches", gx, gy + 4, FONT_S | FONT_B, THEME_TEXT_MUTED);
-        float ry = gy + 56;
-        for (int i = 0; i <= s->n_recent; i++, ry += 66) {
-            int foc = s->focus_grid == 2 && s->recent_focus == i;
-            if (foc) gfx_rrect(gx - 16, ry - 6, 640, 58, R_KEY, THEME_FOCUS);
-            if (i < s->n_recent) { ui_icon(ICON_CLOCK, gx + 14, ry + 23, 24, foc ? THEME_ON_FOCUS : THEME_TEXT_MUTED); font_draw_fit(s->recent[i], gx + 46, ry + (46 - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_FOCUS : THEME_TEXT, 560); }
-            else font_draw("Clear recent searches", gx + 46, ry + (46 - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_FOCUS : THEME_TEXT_DIM);
-        }
-        if (s->focus_grid != 2) font_draw(s->typing ? "Right from the keyboard picks one" : "Down picks one", gx, ry + 10, FONT_XS, THEME_TEXT_MUTED);
-    } else if (!s->n) {
-        float cx = gx + grid_w / 2, cy = gy + (s->typing ? 280 : 220);
+        ui_skeleton(gx, top + 40, grid_w, HERO_H, R_PANEL);
+        for (int i = 0; i < nc; i++) ui_skeleton(gx + i * (CELL_W + CELL_GAP), top + grid_top(), CELL_W, CELL_H, R_CARD);
+        if (s->ai_state == 1) font_draw("Asking the assistant\xE2\x80\xA6", gx, top, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        return;
+    }
+    if (!s->n) {
+        float cx = gx + grid_w / 2, cy = top + 260;
         gfx_circle(cx, cy, 80, COLOR_ALPHA(THEME_TEXT, 0x10));
         ui_icon(ICON_SEARCH, cx, cy, 70, THEME_TEXT_MUTED);
         font_draw_center(strlen(s->last_query) >= 2 ? "Nothing found" : "Find something to watch", cx, cy + 120, g_theme.id == THEME_APERTURE ? FONT_XL | FONT_ALT : FONT_L | FONT_B, THEME_TEXT);
         font_draw_center(s->ai_note[0] ? s->ai_note : strlen(s->last_query) >= 2 ? "Try another title, or check your catalog addons." : ai_enabled() ? "Type a title, or describe it: \"something funny with robots\"." : "Results come from every catalog addon that supports search.",
                          cx, cy + 178, FONT_S, THEME_TEXT_DIM);
-    } else {
-        char hdr[160];
-        if (s->n_picks) snprintf(hdr, sizeof hdr, "%d AI pick%s first  \xC2\xB7  %d result%s", s->n_picks, s->n_picks == 1 ? "" : "s", s->n, s->n == 1 ? "" : "s");
-        else snprintf(hdr, sizeof hdr, "%d result%s%s", s->n, s->n == 1 ? "" : "s", s->ai_state == 1 ? "  \xC2\xB7  asking the assistant" : "");
-        font_draw(hdr, gx, gy + 4, FONT_S | FONT_B, THEME_TEXT_MUTED);
-        if (s->pending || s->ai_state == 1) ui_spinner(gx + font_measure(hdr, FONT_S | FONT_B) + 40, gy + 18, 14);
+        return;
     }
-    gfx_clip_push(gx - 30, gy + 40, grid_w + 60, SNTV_UI_H - gy - 40);
-    float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
+    gfx_clip_push(gx - 30, top - 50, grid_w + 60, SNTV_UI_H - top + 50);
+    float off = top - s->grid_scroll;
+    draw_hero(s, gx, off + 40, grid_w, HERO_H);
+    char hdr[160];
+    if (s->ai_note[0] && s->n_picks) snprintf(hdr, sizeof hdr, "%s", s->ai_note);
+    else snprintf(hdr, sizeof hdr, "%d result%s%s", s->n, s->n == 1 ? "" : "s", s->ai_state == 1 ? "  \xC2\xB7  asking the assistant" : "");
+    float hw = font_measure(hdr, FONT_XS | FONT_B);
+    font_draw(hdr, gx + grid_w - hw, off, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    if (s->pending || s->ai_state == 1) ui_spinner(gx + grid_w - hw - 28, off + 10, 10);
+    float gy = off + grid_top(), row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
     place(s, nc);
-    if (s->n_sect > 1)
-        for (int k = 0; k < s->n_sect; k++) {
-            float hy = gy + 60 + s->row_y[s->sect[k].first_row] - SECT_H - s->grid_scroll;
-            if (hy > SNTV_UI_H || hy + SECT_H < gy) continue;
-            char h[64]; snprintf(h, sizeof h, "%s  \xC2\xB7  %d", s->sect[k].label, s->sect[k].n);
-            font_draw(h, gx, hy + 6, FONT_M | FONT_B, THEME_TEXT);
-        }
-    /* details open on the focused card: the others in its row slide aside to make room */
+    for (int k = 0; k < s->n_sect; k++) {   /* a heading per kind: Movies, Series */
+        float hy = gy + s->row_y[s->sect[k].first_row] - SECT_H;
+        if (hy > SNTV_UI_H || hy + SECT_H < top - 50) continue;
+        char h[64]; snprintf(h, sizeof h, "%s  \xC2\xB7  %d", s->sect[k].label, s->sect[k].n);
+        font_draw(h, gx, hy + 6, FONT_M | FONT_B, THEME_TEXT);
+    }
     float room = 0; int room_right = 1, room_row = -1;
     if (s->focus_grid == 1 && s->grid_focus < s->n) {
-        float sc = ui_focus_scale(g_app.fx_light ? 1.0f : s->focus_t), w2 = CELL_W * sc;
+        float sc2 = ui_focus_scale(g_app.fx_light ? 1.0f : s->focus_t), w2 = CELL_W * sc2;
         float fx = gx + s->cell[s->grid_focus].col * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
-        room = ui_peek_room(&s->peek, &s->results[s->grid_focus], fx, w2, CELL_H * sc, gx - 30, gx + grid_w + 30, &room_right);
+        room = ui_peek_room(&s->peek, &s->results[s->grid_focus], fx, w2, CELL_H * sc2, gx - 30, gx + grid_w + 30, &room_right);
         room_row = s->cell[s->grid_focus].row;
     }
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < s->n; i++) {
             int r = s->cell[i].row, c = s->cell[i].col;
-            float px = gx + c * (CELL_W + CELL_GAP), py = gy + 60 + s->row_y[r] - s->grid_scroll;
+            float px = gx + c * (CELL_W + CELL_GAP), py = gy + s->row_y[r];
             if (room > 0 && r == room_row && (room_right ? i > s->grid_focus : i < s->grid_focus)) px += room_right ? room : -room;
-            if (py > SNTV_UI_H || py + row_h < gy) continue;
+            if (py > SNTV_UI_H || py + row_h < top - 50) continue;
             int foc = s->focus_grid == 1 && s->grid_focus == i;
             if ((pass == 1) != foc) continue;
             char pb[512];
@@ -698,55 +827,72 @@ static void draw(Screen *sc)
             else if (s->results[i].release_info) font_draw(s->results[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
     if (s->focus_grid == 1 && s->grid_focus < s->n) {
-        float f = g_app.fx_light ? 1 : s->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
+        float f = g_app.fx_light ? 1 : s->focus_t, sc2 = ui_focus_scale(f), w2 = CELL_W * sc2, h2 = CELL_H * sc2;
         ui_peek_draw(&s->peek, &s->results[s->grid_focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx - 30, gx + grid_w + 30);
     }
     gfx_clip_pop();
 }
 
-/* The keyboard is open: type, Done searches, Back or Right off the edge closes it. */
+/* Take a line of the left list: a suggestion or a recent search is searched at once; the
+ * last recent row clears them. */
+static void take_list(Search *s, int i)
+{
+    if (!s->kb.text[0] && i == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return; }
+    char pick[256];
+    snprintf(pick, sizeof pick, "%s", s->kb.text[0] ? s->sugg[i] : s->recent[i]);
+    if (s->kb.text[0]) LOGI("search: suggestion \"%s\" taken", pick);
+    kb_set(s, pick);
+    close_keyboard(s);
+    s->dirty = 0; s->focus_grid = 0; run_query(s);
+    if (s->n) { focus_results(s); recent_add(s, s->kb.text); }
+    else s->want_results = 1;   /* the results take the focus when they come */
+}
+
+static void searched(Search *s)   /* Done (or the TV keyboard's Enter): search now, the results take the focus */
+{
+    close_keyboard(s);
+    s->dirty = 0; run_query(s);
+    if (s->n) { focus_results(s); recent_add(s, s->kb.text); }
+    else s->want_results = 1;
+}
+
+/* The keyboard is open: type, Done searches, Up reaches the suggestions, Right off the edge
+ * the top result, Back closes it. */
 static int key_typing(Search *s, KeyAction a)
 {
     if (a == KEY_BACK) { close_keyboard(s); return 1; }
     if (s->tvkb) {   /* the TV's keyboard types (text()); its Enter comes as OK */
         if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; }
-        else if (a == KEY_OK) {
-            close_keyboard(s);
-            s->dirty = 0; run_query(s);
-            if (s->n) { s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
-            else s->want_results = 1;
-        } else if ((a == KEY_DOWN || a == KEY_RIGHT) && s->n) { close_keyboard(s); s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
+        else if (a == KEY_OK) searched(s);
+        else if ((a == KEY_DOWN || a == KEY_RIGHT) && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); }
         return 1;
     }
-    if (s->sugg_focus >= 0) {   /* on the suggestions */
-        if (a == KEY_LEFT && s->sugg_focus > 0) s->sugg_focus--;
-        else if (a == KEY_RIGHT && s->sugg_focus < s->n_sugg - 1) s->sugg_focus++;
-        else if (a == KEY_DOWN) s->sugg_focus = -1;
-        else if (a == KEY_OK && s->sugg_focus < s->n_sugg) {   /* that one: typed in and searched */
-            char pick[96];
-            snprintf(pick, sizeof pick, "%s", s->sugg[s->sugg_focus]);
-            LOGI("search: suggestion \"%s\" taken", pick);
-            keyboard_init(&s->kb, 0, pick);
-            close_keyboard(s);
-            s->dirty = 0; run_query(s);
-            if (s->n) { s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
-            else s->want_results = 1;
-        }
+    if (s->sugg_focus >= 0) {   /* on the suggestions, above the keys */
+        if (a == KEY_UP && s->sugg_focus > 0) s->sugg_focus--;
+        else if (a == KEY_DOWN) { if (++s->sugg_focus >= s->n_sugg) s->sugg_focus = -1; }
+        else if (a == KEY_RIGHT && s->n) { close_keyboard(s); focus_results(s); }
+        else if (a == KEY_OK && s->sugg_focus < s->n_sugg) take_list(s, s->sugg_focus);
         return 1;
     }
-    if (a == KEY_RIGHT && s->kb.col == 10 && s->n) { close_keyboard(s); s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); return 1; }
-    if (a == KEY_RIGHT && s->kb.col == 10 && !s->kb.text[0] && s->n_recent) { close_keyboard(s); s->focus_grid = 2; s->recent_focus = 0; return 1; }
+    int last = (int)(keyboard_width_of(&s->kb) / 80);   /* the right-hand column of keys */
+    if (a == KEY_RIGHT && s->kb.col >= last && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); return 1; }
     if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; return 1; }
     KeyboardResult r = keyboard_key(&s->kb, a);
-    if (r == KB_LEAVE_UP && s->n_sugg) { s->sugg_focus = 0; return 1; }
-    if (r == KB_CHANGED) { s->dirty = 1; s->debounce = 0.6f; }
-    else if (r == KB_DONE) {
-        close_keyboard(s);
-        s->dirty = 0; run_query(s);
-        if (s->n) { s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
-        else s->want_results = 1;
-    }
+    if (r == KB_LEAVE_UP && s->n_sugg) { s->sugg_focus = s->n_sugg - 1; return 1; }   /* the nearest suggestion first */
+    if (r == KB_CHANGED) { s->dirty = 1; s->debounce = 0.35f; }
+    else if (r == KB_DONE) searched(s);
     return 1;
+}
+
+static void hero_open(Search *s)   /* the top result's buttons */
+{
+    const MetaPreview *m = &s->results[0];
+    int series = hero_buttons(s) == 2;
+    recent_add(s, s->last_query);
+    LOGI("search: top result %s, %s", m->id, hero_label(s, s->hero_btn));
+    if (series || s->hero_btn == 1) { app_push(screen_detail_create(m)); return; }
+    if (s->hero_btn == 0) app_push(screen_streams_create_play(m, m->id, NULL));
+    else app_push(screen_streams_create(m, m->id, NULL));
 }
 
 static int key(Screen *sc, KeyAction a)
@@ -755,42 +901,50 @@ static int key(Screen *sc, KeyAction a)
     app_redraw();
     if (a == KEY_LONG_OK || a == KEY_YELLOW) {
         if (s->focus_grid == 1 && s->grid_focus < s->n) { screen_options_for_title(&s->results[s->grid_focus]); return 1; }
+        if (s->focus_grid == 3 && s->n) { screen_options_for_title(&s->results[0]); return 1; }
         if (a == KEY_LONG_OK) return 0;
     }
     if (s->typing) return key_typing(s, a);
+    int nl = list_n(s);
     if (!s->focus_grid) {   /* the search bar */
         switch (a) {
         case KEY_OK: open_keyboard(s); return 1;
-        case KEY_DOWN:
-            if (s->n) { s->focus_grid = 1; if (s->grid_focus >= s->n) s->grid_focus = 0; s->focus_t = 0; }
-            else if (!s->kb.text[0] && s->n_recent) { s->focus_grid = 2; s->recent_focus = 0; }
-            return 1;
+        case KEY_DOWN: if (nl) { s->focus_grid = 2; s->recent_focus = 0; } else if (s->n) focus_results(s); return 1;
+        case KEY_RIGHT: if (s->n) focus_results(s); return 1;
         case KEY_BACKSPACE: open_keyboard(s); return key_typing(s, a);
         case KEY_BACK: return 0;
         default: return 1;
         }
     }
     s->focus_t = 0;
-    if (s->focus_grid == 2) {   /* the recent searches list */
+    if (s->focus_grid == 2) {   /* the left list: suggestions, or the recent searches */
         switch (a) {
         case KEY_UP: if (s->recent_focus > 0) s->recent_focus--; else s->focus_grid = 0; return 1;
-        case KEY_DOWN: if (s->recent_focus < s->n_recent) s->recent_focus++; return 1;   /* the last row clears */
+        case KEY_DOWN: if (s->recent_focus < nl - 1) s->recent_focus++; return 1;
+        case KEY_RIGHT: if (s->n) focus_results(s); return 1;
         case KEY_BACK: s->focus_grid = 0; return 1;
-        case KEY_OK:
-            if (s->recent_focus == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return 1; }
-            keyboard_init(&s->kb, 0, s->recent[s->recent_focus]);
-            s->dirty = 0; s->focus_grid = 0; run_query(s);
-            s->want_results = 1;   /* the results take the focus when they come */
-            return 1;
+        case KEY_OK: if (s->recent_focus < nl) take_list(s, s->recent_focus); return 1;
         default: return 1;
         }
     }
-    place(s, COLS);
+    if (s->focus_grid == 3) {   /* the top result */
+        if (!s->n) { s->focus_grid = 0; return 1; }
+        switch (a) {
+        case KEY_LEFT: if (s->hero_btn > 0) s->hero_btn--; else s->focus_grid = nl ? 2 : 0; return 1;
+        case KEY_RIGHT: if (s->hero_btn < hero_buttons(s) - 1) s->hero_btn++; return 1;
+        case KEY_UP: s->focus_grid = 0; return 1;
+        case KEY_DOWN: place(s, cols(s)); if (s->n) { s->focus_grid = 1; s->grid_focus = 0; } return 1;
+        case KEY_OK: hero_open(s); return 1;
+        case KEY_BACK: s->focus_grid = 0; return 1;
+        default: return 0;
+        }
+    }
+    place(s, cols(s));
     Cell at = s->grid_focus < s->n ? s->cell[s->grid_focus] : (Cell){ 0, 0 };
     switch (a) {
-    case KEY_LEFT: if (at.col) s->grid_focus--; return 1;
+    case KEY_LEFT: if (at.col) s->grid_focus--; else s->focus_grid = nl ? 2 : 0; return 1;
     case KEY_RIGHT: if (s->grid_focus + 1 < s->n && s->cell[s->grid_focus + 1].row == at.row) s->grid_focus++; return 1;
-    case KEY_UP: if (at.row) s->grid_focus = in_row(s, at.row - 1, at.col); else s->focus_grid = 0; return 1;
+    case KEY_UP: if (at.row) s->grid_focus = in_row(s, at.row - 1, at.col); else { s->focus_grid = 3; s->hero_btn = 0; } return 1;
     case KEY_DOWN:   /* into the next row or group, the nearest card when it is short */
         if (at.row + 1 < s->n_rows) { s->grid_focus = in_row(s, at.row + 1, at.col); return 1; }
         return 0;
@@ -806,7 +960,7 @@ static void text(Screen *sc, const char *utf8)
     Search *s = sc->st;
     if (!s->typing) open_keyboard(s);
     keyboard_text_input(&s->kb, utf8);
-    s->dirty = 1; s->debounce = 0.6f;
+    s->dirty = 1; s->debounce = 0.35f;
     app_redraw();
 }
 
@@ -827,7 +981,7 @@ Screen *screen_search_create(void)
 {
     Screen *sc = calloc(1, sizeof *sc);
     Search *s = calloc(1, sizeof *s);
-    keyboard_init(&s->kb, 0, NULL);
+    kb_set(s, NULL);
     s->sugg_focus = -1;
     recent_load(s);
     for (int i = 0; i < OPEN_MAX; i++) if (!g_open[i]) { g_open[i] = s; break; }   /* (past eight deep, its replies are just dropped) */
@@ -841,7 +995,7 @@ Screen *screen_search_create_query(const char *q)
     Screen *sc = screen_search_create();
     Search *s = sc->st;
     LOGI("search: \"%s\" from a title page", q);
-    keyboard_init(&s->kb, 0, q);
+    kb_set(s, q);
     run_query(s);
     s->want_results = 1;   /* the results take the focus when they come */
     return sc;
@@ -874,7 +1028,7 @@ Screen *screen_search_create_person(const char *name, int person_id)
     Screen *sc = screen_search_create();
     Search *s = sc->st;
     LOGI("search: the films of \"%s\" from a title page", name);
-    keyboard_init(&s->kb, 0, name);
+    kb_set(s, name);
     snprintf(s->last_query, sizeof s->last_query, "%s", name);   /* typing something else searches as usual */
     s->generation = ++g_search_gen;
     s->pending = 1;

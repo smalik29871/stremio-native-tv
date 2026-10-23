@@ -327,6 +327,12 @@ grep -q 'search: "Breaking Bad" first of [0-9]*' "$OUT/search_exact_first.log" \
 run search_suggest 420 "search,t:br,wait,wait,wait,wait,up,up,up,up,up,ok,wait,wait"
 grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest.log" && grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest.log" \
   || { echo "no suggestions above the keyboard, or one could not be taken"; grep "search" "$OUT/search_suggest.log"; exit 1; }
+# suggestions at once from what this TV knows (the library here), before any addon answers:
+# with no addon that searches at all, the title in the library is still suggested
+SL_HOME="$(home_with suglib '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"; cp "$ROOT/tests/fixtures/library.json" "$SL_HOME/.local/share/stremio/nativetv/library.json"
+run search_suggest_known 300 "search,t:brea,wait" HOME="$SL_HOME" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/tbget/manifest.json
+grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest_known.log" \
+  || { echo "a title in the library was not suggested while typing"; grep "search" "$OUT/search_suggest_known.log"; exit 1; }
 # the TV's own keyboard (Settings, on by default on the TV): opened while typing only, its Enter
 # searches, and the next OK opens the title (it does not bring the keyboard back)
 run search_tv_keyboard 420 "search,ok,t:breaking,wait,wait,ok,wait,ok,wait,wait" HOME="$(home_with tvkb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')"
