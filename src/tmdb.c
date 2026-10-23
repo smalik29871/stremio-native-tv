@@ -296,6 +296,70 @@ const TmdbCollection *tmdb_collection(int id)
     return NULL;
 }
 
+/* ---- an episode's guest stars ---- */
+typedef struct { int tv, season, episode, state, n; TmdbCast cast[12]; unsigned stamp; } EpGuests;
+static EpGuests g_eps[4];
+
+static void ep_key(const EpGuests *e, char *out, size_t n) { snprintf(out, n, "%s/tv/%d/season/%d/episode/%d/credits", api_base(), e->tv, e->season, e->episode); }
+
+static void parse_guests(EpGuests *e, const char *json)
+{
+    cJSON *root = cJSON_Parse(json);
+    const cJSON *arr = root ? cJSON_GetObjectItemCaseSensitive(root, "guest_stars") : NULL, *it;
+    e->n = 0;
+    if (cJSON_IsArray(arr)) cJSON_ArrayForEach(it, arr) {
+        if (e->n >= 12) break;
+        const cJSON *name = cJSON_GetObjectItemCaseSensitive(it, "name"), *ch = cJSON_GetObjectItemCaseSensitive(it, "character");
+        const cJSON *photo = cJSON_GetObjectItemCaseSensitive(it, "profile_path"), *pid = cJSON_GetObjectItemCaseSensitive(it, "id");
+        if (!cJSON_IsString(name)) continue;
+        TmdbCast *c = &e->cast[e->n++];
+        memset(c, 0, sizeof *c);
+        snprintf(c->name, sizeof c->name, "%s", name->valuestring);
+        if (cJSON_IsString(ch)) snprintf(c->character, sizeof c->character, "%s", ch->valuestring);
+        if (cJSON_IsString(photo) && photo->valuestring[0]) snprintf(c->photo, sizeof c->photo, "%s%s", img_base(), photo->valuestring);
+        c->person_id = cJSON_IsNumber(pid) ? pid->valueint : 0;
+    }
+    e->state = root ? 2 : 3;
+    cJSON_Delete(root);
+    LOGI("tmdb: S%dE%d of %d has %d guest star%s", e->season, e->episode, e->tv, e->n, e->n == 1 ? "" : "s");
+}
+
+static void on_guests(HttpResponse *r, void *user)
+{
+    EpGuests *e = user;
+    if (r->status == 200) { char key[256]; ep_key(e, key, sizeof key); app_cache_put(key, r->body, r->len); parse_guests(e, r->body); }
+    else e->state = 3;
+    app_redraw();
+}
+
+const TmdbCast *tmdb_episode_guests(const char *imdb_id, int season, int episode, int *n)
+{
+    *n = 0;
+    const TmdbInfo *info = season >= 0 && episode > 0 ? tmdb_get(imdb_id, "series") : NULL;
+    if (!info || info->tmdb_id <= 0) return NULL;
+    int slot = 0;
+    for (int i = 0; i < 4; i++) {
+        EpGuests *e = &g_eps[i];
+        if (e->tv == info->tmdb_id && e->season == season && e->episode == episode) {
+            e->stamp = ++g_clock;
+            if (e->state != 2 || !e->n) return NULL;
+            *n = e->n;
+            return e->cast;
+        }
+        if (g_eps[i].stamp < g_eps[slot].stamp) slot = i;
+    }
+    EpGuests *e = &g_eps[slot];
+    memset(e, 0, sizeof *e);
+    e->tv = info->tmdb_id; e->season = season; e->episode = episode; e->state = 1; e->stamp = ++g_clock;
+    char key[256], url[400];
+    ep_key(e, key, sizeof key);
+    char *cached = app_cache_get(key, 7 * 24 * 3600);
+    if (cached) { parse_guests(e, cached); free(cached); if (e->n) { *n = e->n; return e->cast; } return NULL; }
+    snprintf(url, sizeof url, "%s?api_key=%s", key, api_key());
+    http_request_async(url, NULL, on_guests, e);
+    return NULL;
+}
+
 typedef struct { TmdbImdbCb cb; void *user; int id; } ImdbReq;
 
 static void imdb_from(const char *json, char *out, size_t n)

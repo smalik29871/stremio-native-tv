@@ -3216,12 +3216,29 @@ static int scenes_key(Player *p, KeyAction a, const VideoInfo *vi)
 
 /* The cast for the drawer: TMDB's (photos and characters) when there is a key, else the
  * names the addon listed. */
-static int cast_n(const Player *p, const TmdbInfo **tm)
+/* This episode's guest stars (TMDB), who come first in the drawer. */
+static const TmdbCast *ep_guests(const Player *p, int *n)
+{
+    int se = -1, ep = -1;
+    const char *c = p->video_id ? strchr(p->video_id, ':') : NULL;
+    *n = 0;
+    if (!c || sscanf(c + 1, "%d:%d", &se, &ep) != 2) return NULL;
+    return tmdb_episode_guests(p->meta.id, se, ep, n);
+}
+
+static int cast_regulars(const Player *p, const TmdbInfo **tm)
 {
     *tm = tmdb_get(p->meta.id, p->meta.type);
     if (*tm && (*tm)->n_cast) return (*tm)->n_cast;
     *tm = NULL;
     return p->meta.cast.n > 12 ? 12 : p->meta.cast.n;
+}
+
+static int cast_n(const Player *p, const TmdbInfo **tm)
+{
+    int ng;
+    ep_guests(p, &ng);
+    return ng + cast_regulars(p, tm);
 }
 
 /* Who's in it, over the picture (Info, or the Cast button). 1 when there is a cast to show. */
@@ -3238,6 +3255,13 @@ static int open_cast(Player *p)
 
 static void cast_person(const Player *p, const TmdbInfo *tm, int i, const char **name, const char **role, const char **photo)
 {
+    int ng;
+    const TmdbCast *g = ep_guests(p, &ng);
+    if (i < ng) {   /* a guest in this episode */
+        *name = g[i].name; *role = g[i].character[0] ? g[i].character : "Guest star"; *photo = g[i].photo[0] ? g[i].photo : NULL;
+        return;
+    }
+    i -= ng;
     if (tm) { *name = tm->cast[i].name; *role = tm->cast[i].character; *photo = tm->cast[i].photo[0] ? tm->cast[i].photo : NULL; return; }
     *name = p->meta.cast.v[i];
     *role = i < p->meta.cast_roles.n ? p->meta.cast_roles.v[i] : "";
@@ -3260,7 +3284,11 @@ static void draw_cast(Player *p)
     const float d = 132, step = 214, h = 360;
     float x = THEME_MARGIN, y = SNTV_UI_H - h - 40, w = SNTV_UI_W - 2 * THEME_MARGIN;
     ui_panel(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
-    font_draw("Who's in this", x + 40, y + 28, FONT_M | FONT_B, THEME_TEXT);
+    int ng; ep_guests(p, &ng);
+    const char *head = ng ? "Who's in this episode" : "Who's in this";
+    font_draw(head, x + 40, y + 28, FONT_M | FONT_B, THEME_TEXT);
+    float tw = font_measure(head, FONT_M | FONT_B);
+    if (ng) { char gl[48]; snprintf(gl, sizeof gl, "%d guest star%s first", ng, ng == 1 ? "" : "s"); font_draw(gl, x + 40 + tw + 24, y + 36, FONT_XS, THEME_TEXT_MUTED); }
     const char *hint = "Left / Right  Browse   /   Info  Close";
     font_draw(hint, x + w - 40 - font_measure(hint, FONT_XS), y + 36, FONT_XS, THEME_TEXT_MUTED);
     int fit = (int)((w - 80) / step), first = p->cast_focus - fit + 1 > 0 ? p->cast_focus - fit + 1 : 0;

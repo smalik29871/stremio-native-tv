@@ -987,6 +987,12 @@ grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cac
 run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 HOME="$(home_with stlow '{"setupDone":1}')"
 grep -q "storage: only .* MB free on the TV; clearing the cache" "$OUT/storage_low.log" && grep -q "toast: The TV was low on storage" "$OUT/storage_low.log" || { echo "a TV low on storage did not get its cache cleared"; grep -E "storage|tidy|toast" "$OUT/storage_low.log"; exit 1; }
 run settings_storage 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down" SNTV_TIDY_DELAY=0
+# an episode's guest stars lead the cast drawer
+run player_guests 480 "right,ok,down,down,right,play,wait,wait,wait,wait,wait,wait,info,wait" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg HOME="$(home_with pguest '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
+grep -q "tmdb: S[0-9]*E[0-9]* of [0-9]* has 2 guest stars" "$OUT/player_guests.log" && grep -q "player: cast drawer (6 people)" "$OUT/player_guests.log" || { echo "the episode's guest stars did not join the cast"; grep -E "tmdb|cast" "$OUT/player_guests.log"; exit 1; }
+# Home's Library row ends in a See all card
+SEEALL="$(home_with seeall '{"prefSubs":"eng","setupDone":1}')"; cp "$ROOT/tests/fixtures/library_six.json" "$SEEALL/.local/share/stremio/nativetv/library.json"
+run home_see_all 300 "wait,down,right,right,right,right,right,right,right,right,right,right,ok,wait" HOME="$SEEALL" SNTV_EXPECT_SCREEN=library
 # the loading screen: the backdrop as a wash, the format, the logo, the ring, the episode and what is happening
 run veil_series 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FAKE_STUCK=1
 python3 -I - "$OUT" <<'PY'

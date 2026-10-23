@@ -862,6 +862,9 @@ class H(BaseHTTPRequestHandler):
                 {"media_type": "tv", "id": 7, "name": "Breaking Bad", "first_air_date": "2008-01-20", "popularity": 80, "episode_count": 62},
                 {"media_type": "tv", "id": 8, "name": "Late Night Talk", "popularity": 99, "episode_count": 3, "genre_ids": [10767]},
                 {"media_type": "tv", "id": 9, "name": "One Cameo", "popularity": 90, "episode_count": 1}]}).encode(), "application/json")
+        if p.startswith("/tmdb/3/tv/") and "/episode/" in p and "/credits" in p:   # an episode's guest stars
+            return self.send(200, json.dumps({"guest_stars": [{"id": 31, "name": "Jonathan Banks", "character": "Mike Ehrmantraut", "profile_path": "/g1.png"},
+                                                              {"id": 32, "name": "Raymond Cruz", "character": "Tuco Salamanca", "profile_path": "/g2.png"}]}).encode(), "application/json")
         if p.startswith("/tmdb/3/tv/") and "/external_ids" in p:
             return self.send(200, json.dumps({"imdb_id": "tt0903747"}).encode(), "application/json")
         if p.startswith("/tmdb/3/movie/") and "/external_ids" in p:

@@ -115,6 +115,21 @@ static int visible_cards(const Row *r) { return (int)((SNTV_UI_W - LX) / (card_w
 static int ph_land(const Row *r);
 static float ph_cw(const Row *r);
 
+/* The Library row ends in a See all card, which opens the whole Library. */
+static int see_all(const Row *r) { return r->kind == ROW_LIBRARY && r->n >= 4; }
+static void see_all_card(float x, float y, float w, float h, float f, int count, int hit)
+{
+    float sc = ui_focus_scale(f), cw = w * sc, ch = h * sc, cx = x - (cw - w) / 2, cy = y - (ch - h) / 2 - ui_focus_lift(f);
+    ui_focus_under(cx, cy, cw, ch, R_CARD, f);
+    gfx_rrect(cx, cy, cw, ch, R_CARD, COLOR_ALPHA(THEME_TEXT, f > 0.5f ? 0x2A : 0x16));
+    if (f > 0.5f) gfx_rrect_ring(cx - 4, cy - 4, cw + 8, ch + 8, R_CARD + 4, 4, THEME_FOCUS);
+    ui_icon(ICON_LIBRARY, cx + cw / 2, cy + ch / 2 - 46, 44, THEME_TEXT);
+    font_draw_center("See all", cx + cw / 2, cy + ch / 2, FONT_M | FONT_B, THEME_TEXT);
+    char n[32]; snprintf(n, sizeof n, "%d titles", count);
+    font_draw_center(n, cx + cw / 2, cy + ch / 2 + 44, FONT_XS, THEME_TEXT_DIM);
+    ui_hit(cx, cy, cw, ch, hit);
+}
+
 /* The picture a card of this row shows (as its draw picks it). */
 static const char *card_art(const Row *r, const MetaPreview *m, char *buf, size_t n)
 {
@@ -478,7 +493,7 @@ static float ph_rows_top(const Home *h) { return ph_hero(h) ? PH_HERO_Y + PH_HER
 static void phone_scroll_row(Row *r, float dt)
 {
     float step = ph_cw(r) + PH_GAP, view = SNTV_UI_W - 2 * PH_X;
-    float max = r->n * step - PH_GAP - view, want = r->scroll_x;
+    float max = (r->n + see_all(r)) * step - PH_GAP - view, want = r->scroll_x;
     if (r->focus * step + ph_cw(r) - view > want) want = r->focus * step + ph_cw(r) - view;
     if (r->focus * step < want) want = r->focus * step;
     if (want > max) want = max;
@@ -556,6 +571,7 @@ static void phone_row(Home *h, int ri, float y)
                 if (m->release_info) font_draw_fit(m->release_info, px, cy + ch + 58, FONT_S, THEME_TEXT_DIM, cw);
             }
         }
+    if (see_all(r)) see_all_card(PH_X + r->n * (cw + PH_GAP) - r->scroll_x, cy, cw, ch, focused_row && r->focus == r->n ? 1 : 0, r->n, HIT_CARD(ri, r->n));
     gfx_set_alpha(1);
 }
 
@@ -642,8 +658,8 @@ static int phone_key(Home *h, KeyAction a)
     case KEY_UP: { int n = next_visible(h, h->focus_row, -1); if (n >= 0) move_focus(h, n, -1); else if (ph_hero(h)) { h->focus_row = FOCUS_SHOWCASE; h->phone_btn = 0; } return 1; }
     case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) move_focus(h, n, -1); return 1; }
     case KEY_LEFT: if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1); return 1;
-    case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
-    case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
+    case KEY_RIGHT: if (r->focus < r->n - 1 + see_all(r)) move_focus(h, h->focus_row, r->focus + 1); return 1;
+    case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); else if (see_all(r)) app_push(screen_library_create()); return 1;
     case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (r->focus < r->n) screen_options_for_title(&r->metas[r->focus]); return 1;
     case KEY_BACK: h->focus_row = ph_hero(h) ? FOCUS_SHOWCASE : next_visible(h, -1, 1); h->phone_btn = 0; return 1;
     default: return 0;
@@ -733,7 +749,7 @@ static void update(Screen *s, float dt)
         int vis = visible_cards(r);
         int first = r->focus - (vis - 2);
         if (first < 0) first = 0;
-        ui_pan(&r->pan, &r->scroll_x, first * (card_w(r) + GAP), r->n * (card_w(r) + GAP) - GAP - (SNTV_UI_W - LX - THEME_MARGIN), dt, 16);
+        ui_pan(&r->pan, &r->scroll_x, first * (card_w(r) + GAP), (r->n + see_all(r)) * (card_w(r) + GAP) - GAP - (SNTV_UI_W - LX - THEME_MARGIN), dt, 16);
     }
     if (SNTV_PHONE) phone_scroll_page(h, dt);
     h->focus_t = ui_ease(h->focus_t * 100, 100, NULL, dt, 16) / 100;
@@ -988,6 +1004,10 @@ static void draw_row(Home *h, int ri, float y, float alpha)
             }
         }
     gfx_set_alpha(alpha);
+    if (see_all(r)) {
+        float px = LX + r->n * (cw + GAP) - r->scroll_x + (focused_row ? nudge(h, 1) : 0);
+        if (px < SNTV_UI_W + 40) see_all_card(px, cy, cw, ch, focused_row && r->focus == r->n ? (g_app.fx_light ? 1.0f : h->focus_t) : 0, r->n, HIT_CARD(ri, r->n));
+    }
     if (m_peek) {   /* in the room its neighbours made, after both passes */
         float sc = ui_focus_scale(f_peek), w2 = cw * sc, h2 = ch * sc;
         ui_peek_draw(&h->peek, m_peek, px_peek - (w2 - cw) / 2, cy - (h2 - ch) / 2 - ui_focus_lift(f_peek), w2, h2, LX, SNTV_UI_W - 40);
@@ -1101,7 +1121,7 @@ static int tap(Screen *s, int id)
     if (id == HIT_SHOWCASE) { h->focus_row = FOCUS_SHOWCASE; return 0; }
     if (id == HIT_HERO) return h->focus_row >= 0 ? 0 : 1;
     int row = id >> 12, col = id & 0xFFF;
-    if (row < 0 || row >= h->n_rows || col >= h->rows[row]->n) return 1;
+    if (row < 0 || row >= h->n_rows || col >= h->rows[row]->n + see_all(h->rows[row])) return 1;
     if (h->focus_row != row || h->rows[row]->focus != col) move_focus(h, row, col);
     return 0;
 }
@@ -1152,10 +1172,10 @@ static int key(Screen *s, KeyAction a)
         else open_rail(h);   /* first card: the rail */
         return 1;
     case KEY_RIGHT:
-        if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1);
+        if (r->focus < r->n - 1 + see_all(r)) move_focus(h, h->focus_row, r->focus + 1);
         else { h->nudge_at = g_app.time; h->nudge_dir = 1; }   /* the end of the row: a nudge, not nothing */
         return 1;
-    case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
+    case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); else if (see_all(r)) app_push(screen_library_create()); return 1;
     case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (r->focus < r->n) screen_options_for_title(&r->metas[r->focus]); return 1;
     case KEY_BACK:
         if (h->focus_row != next_visible(h, -1, 1) || r->focus > 0) { r->focus = 0; move_focus(h, next_visible(h, -1, 1), 0); return 1; }

@@ -34,6 +34,9 @@ const char *tmdb_api_base(void);
 const TmdbInfo *tmdb_get(const char *imdb_id, const char *type);
 /* NULL while loading (a fetch starts) or failed; the app is redrawn when it arrives. */
 const TmdbCollection *tmdb_collection(int id);
+/* An episode's guest stars (who is in this one beyond the regular cast); NULL while
+ * loading or when there are none (*n 0). */
+const TmdbCast *tmdb_episode_guests(const char *imdb_id, int season, int episode, int *n);
 /* The IMDb id of a TMDB film, by callback ("" when unknown). */
 typedef void (*TmdbImdbCb)(const char *imdb_id, void *user);
 void tmdb_imdb_for(int tmdb_id, TmdbImdbCb cb, void *user);

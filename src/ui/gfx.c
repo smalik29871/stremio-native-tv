@@ -65,6 +65,11 @@ static const char *FS =
     "  else { vec4 t=texture2D(u_tex,v_uv); float l=dot(t.rgb,vec3(0.299,0.587,0.114));\n"
     "    vec3 duo=mix(vec3(0.02),v_col.rgb,smoothstep(0.05,0.95,l));\n"
     "    gl_FragColor=vec4(mix(duo,t.rgb,v_misc.y),t.a*v_col.a*cover(sdbox(0.0))); }\n"
+    /* a half step of noise per pixel: a dark gradient or a blurred backdrop on an 8-bit
+     * panel shows no bands (needs highp: mediump cannot hold the pixel positions) */
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+    "  gl_FragColor.rgb += (fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(0.06711056,0.00583715))))-0.5)/255.0;\n"
+    "#endif\n"
     "}\n";
 
 Color color_mul_alpha(Color c, float k)
