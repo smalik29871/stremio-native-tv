@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.51
 
 - **Subtitle files really as big as the video's own.** Measured on the TV, its Medium is about
   80 px type, not the 56 px 0.10.50 used. Files are now drawn at 64, 80, 100 and 120 px for
