@@ -1353,6 +1353,11 @@ static void on_repo(HttpResponse *r, void *user)
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(mf, "version");
     const cJSON *url = cJSON_GetObjectItemCaseSensitive(mf, "ipkUrl");
     const cJSON *sha = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(mf, "ipkHash"), "sha256");
+    if (cJSON_GetObjectItemCaseSensitive(root, "apkUrl")) {   /* Android's: {"version", "apkUrl", "sha256"} */
+        v = cJSON_GetObjectItemCaseSensitive(root, "version");
+        url = cJSON_GetObjectItemCaseSensitive(root, "apkUrl");
+        sha = cJSON_GetObjectItemCaseSensitive(root, "sha256");
+    }
     if (cJSON_IsString(v) && version_newer(v->valuestring, SNTV_APP_VERSION)) {
         snprintf(g_update_version, sizeof g_update_version, "%s", v->valuestring);
         snprintf(g_update_url, sizeof g_update_url, "%s", cJSON_IsString(url) ? url->valuestring : "");
@@ -1370,7 +1375,11 @@ static void on_repo(HttpResponse *r, void *user)
 static const char *repo_url(void)
 {
     const char *url = getenv("SNTV_UPDATE_URL");
+#ifdef SNTV_PLATFORM_ANDROID
+    return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/android.json";   /* the APK of the same release */
+#else
     return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/repo.json";   /* the public releases repository (renamed; the old address still forwards here) */
+#endif
 }
 
 void app_update_check_now(void)
@@ -1391,7 +1400,11 @@ static int quiet_moment(void)
     return g_app.time - g_app.last_input > 2;   /* not in the middle of pressing keys */
 }
 
+#ifdef SNTV_PLATFORM_ANDROID
+int app_update_installs_here(void) { return 1; }   /* Android's own installer is always there */
+#else
 int app_update_installs_here(void) { return !store_get_int("updateNoInstaller", 0); }
+#endif
 
 static void on_update_answer(int choice, void *user)
 {
@@ -1416,8 +1429,13 @@ static void ask_to_update(void)
         app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, HOW, ICONS, 2, on_update_answer, NULL)));
         return;
     }
+#ifdef SNTV_PLATFORM_ANDROID
+    snprintf(body, sizeof body, "It downloads here, then Android asks you to confirm the install (the first time, also to let "
+             "Cuelight install apps). Your sign-in, settings and progress stay. Later asks again next time (Settings > About > Update any time).");
+#else
     snprintf(body, sizeof body, "It takes about half a minute. The app closes while the Homebrew Channel installs it; "
              "open it again afterwards. Later asks again the next time the app starts (Settings > About > Update any time).");
+#endif
     app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL)));
 }
 

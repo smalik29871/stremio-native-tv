@@ -722,6 +722,9 @@ run update_ok_is_later 1600 "${W}ok" HOME="$(home_with upd4 '{"prefSubs":"eng","
 grep -q "update: the viewer said later" "$OUT/update_ok_is_later.log" && ! grep -q "update: installing" "$OUT/update_ok_is_later.log" \
   || { echo "OK on the update prompt installed (Later must come first)"; grep -E "update" "$OUT/update_ok_is_later.log"; exit 1; }
 ASR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":0,"breakMethod":1,"breakAsr":1,"breakLat":"43.676","breakLon":"-79.485","breakCity":"Toronto","breakLead":5,"breaksEverywhere":1}'
+# the Android app's notice (version, apkUrl, sha256) reads the same
+run update_android_notice 600 "" HOME="$(home_with upda '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/android.json
+grep -q "update: 9.9.9 available" "$OUT/update_android_notice.log" || { echo "the Android update notice was not read"; grep update "$OUT/update_android_notice.log"; exit 1; }
 run island_update 900 "$(printf 'wait,%.0s' $(seq 1 35))back" HOME="$(home_with islu '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 run update_refused 1700 "${W}down,ok,wait,wait,wait,ok" HOME="$(home_with upd3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
 grep -q "toast: Open the Homebrew Channel from the Home screen to update" "$OUT/update_refused.log" || { echo "a refused update did not point to the Homebrew Channel"; grep -E "update|toast" "$OUT/update_refused.log"; exit 1; }

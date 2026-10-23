@@ -30,6 +30,10 @@ static void start(Upd *u)
     store_save();
     store_flush();
     LOGI("update: installing %s from %s", g_update_version, g_update_url);
+#ifdef SNTV_PLATFORM_ANDROID
+    if (video_install_update(g_update_url, g_update_sha256, SNTV_APP_ID) != 0) { u->state = -1; snprintf(u->status, sizeof u->status, "The update could not start here"); }
+    return;
+#endif
     if (video_install_update(g_update_url, g_update_sha256, SNTV_APP_ID) != 0) {   /* refused on the spot: not a failed download */
         u->state = -1;
         if (video_install_status(u->status, sizeof u->status) != -1) snprintf(u->status, sizeof u->status, "This TV has no Homebrew Channel installer to ask");
@@ -89,9 +93,34 @@ static void draw(Screen *s)
     float cx = SNTV_UI_W / 2.0f, y = 330;
     char title[96], line[300];
     int steps = u->by_hand && u->state != 1 && u->state != 2;
+#ifdef SNTV_PLATFORM_ANDROID
+    snprintf(title, sizeof title, u->state == 2 ? "Version %s is downloaded" : u->state == -1 ? "The update to %s did not install" : "Updating to %s", g_update_version);
+#else
     snprintf(title, sizeof title, steps ? "Version %s is ready" : u->state == 2 ? "Updated to %s" : u->state == -1 ? "The update to %s did not install" : "Updating to %s", g_update_version);
+#endif
     center_line(title, cx, y - (steps ? 60 : 0), FONT_XL | FONT_B, THEME_TEXT);
     y += 110;
+#ifdef SNTV_PLATFORM_ANDROID
+    if (!u->started) {
+        snprintf(line, sizeof line, "Starting in %d s. Cuelight downloads it, then Android asks you to confirm the install.", (int)u->countdown + 1);
+        center_line(line, cx, y, FONT_S, THEME_TEXT_DIM);
+        center_line("OK: update now   \xC2\xB7   Back: not now", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+    } else if (u->state == 2) {
+        center_line(u->status, cx, y, FONT_S, THEME_TEXT_DIM);
+        center_line("Android reopens Cuelight with the new version. Cancelled it?  OK: ask again   \xC2\xB7   Back: close", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+    } else if (u->state == -1) {
+        snprintf(line, sizeof line, "%.200s", u->status);
+        center_line(line, cx, y, FONT_S, THEME_DANGER);
+        center_line("The APK is also on the release page on GitHub.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
+        center_line("OK: try again   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
+    } else {
+        ui_spinner(cx, y + 10, 26);
+        center_line(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
+        center_line("Keep Cuelight open until Android asks you to install it.", cx, y + 130, FONT_S, THEME_TEXT_DIM);
+    }
+    (void)steps;
+    return;
+#endif
     if (steps) draw_steps(u, cx, y - 60);
     else if (!u->started) {
         snprintf(line, sizeof line, "Starting in %d s. The app closes while it installs; open it again from the Home screen in about half a minute.", (int)u->countdown + 1);
@@ -116,6 +145,10 @@ static int key(Screen *s, KeyAction a)
 {
     Upd *u = s->st;
     if (a == KEY_OK) {
+#ifdef SNTV_PLATFORM_ANDROID
+        if (!u->started || u->state == 2 || u->state == -1) { u->state = 0; start(u); }   /* again: Android asks once more */
+        return 1;
+#endif
         if (!u->started) start(u);
         else if (u->state == 2) g_app.quit = 1;
         else if (u->state == -1) app_toast("Open the Homebrew Channel from the Home screen to update");   /* webOS won't let an app open another */

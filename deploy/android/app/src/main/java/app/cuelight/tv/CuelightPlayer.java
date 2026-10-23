@@ -2,6 +2,8 @@ package app.cuelight.tv;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.media.AudioManager;
@@ -38,6 +40,14 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.SubtitleView;
 
+import androidx.core.content.FileProvider;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -235,6 +245,84 @@ public final class CuelightPlayer {
             sActivity.getWindow().setAttributes(lp);
         });
     }
+
+    // ---- updating the app: download the new APK, check it, hand it to Android's installer ----
+
+    private static volatile int sUpdState;          /* 0 nothing asked, 1 working, 2 handed to the installer, -1 failed */
+    private static volatile String sUpdText = "";
+    private static volatile boolean sUpdWaiting;    /* waiting for "Install unknown apps" to be allowed */
+    private static File sUpdFile;
+
+    public static void installUpdate(final String url, final String sha256) {
+        if (sUpdState == 1) return;
+        sUpdState = 1; sUpdText = "Downloading\u2026"; sUpdWaiting = false;
+        new Thread(() -> {
+            try {
+                File dir = new File(sActivity.getCacheDir(), "updates");
+                if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("No room for the download");
+                File f = new File(dir, "cuelight-update.apk");
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setInstanceFollowRedirects(true);
+                c.setConnectTimeout(15000); c.setReadTimeout(30000);
+                c.setRequestProperty("User-Agent", "Cuelight");
+                if (c.getResponseCode() != 200) throw new Exception("The download failed (" + c.getResponseCode() + ")");
+                long total = c.getContentLengthLong(), got = 0;
+                try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(f)) {
+                    byte[] b = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(b)) > 0) {
+                        out.write(b, 0, n); md.update(b, 0, n); got += n;
+                        if (total > 0) sUpdText = "Downloading\u2026  " + (int) (got * 100 / total) + "%";
+                    }
+                }
+                StringBuilder hex = new StringBuilder();
+                for (byte x : md.digest()) hex.append(String.format(Locale.ROOT, "%02x", x));
+                if (sha256 != null && !sha256.isEmpty() && !hex.toString().equalsIgnoreCase(sha256)) {
+                    f.delete();
+                    throw new Exception("The download was damaged (its checksum is wrong). Try again.");
+                }
+                sUpdFile = f;
+                run(CuelightPlayer::offerInstall);
+            } catch (Exception e) {
+                Log.w(TAG, "update: " + e);
+                sUpdText = e.getMessage() != null ? e.getMessage() : "The download failed";
+                sUpdState = -1;
+            }
+        }, "cuelight-update").start();
+    }
+
+    /* Android asks the viewer: first whether Cuelight may install apps at all (once), then the install itself */
+    private static void offerInstall() {
+        try {
+            if (Build.VERSION.SDK_INT >= 26 && !sActivity.getPackageManager().canRequestPackageInstalls()) {
+                sUpdWaiting = true;
+                sUpdText = "Allow Cuelight to install apps, then come back here";
+                sActivity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + sActivity.getPackageName())));
+                return;
+            }
+            sUpdWaiting = false;
+            Uri u = FileProvider.getUriForFile(sActivity, sActivity.getPackageName() + ".updates", sUpdFile);
+            Intent i = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            sActivity.startActivity(i);
+            sUpdText = "Confirm the install on the screen Android shows";
+            sUpdState = 2;
+        } catch (Exception e) {
+            Log.w(TAG, "update: " + e);
+            sUpdText = "Android's installer did not open: " + e.getMessage();
+            sUpdState = -1;
+        }
+    }
+
+    public static int installState() {
+        if (sUpdWaiting && sUpdFile != null && (Build.VERSION.SDK_INT < 26 || sActivity.getPackageManager().canRequestPackageInstalls())) {
+            sUpdWaiting = false;   /* allowed now: on to the install */
+            run(CuelightPlayer::offerInstall);
+        }
+        return sUpdState;
+    }
+    public static String installText() { return sUpdText; }
 
     public static double[] status() { return sStatus; }
     public static String error() { return sError; }

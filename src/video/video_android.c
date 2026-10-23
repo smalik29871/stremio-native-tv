@@ -11,7 +11,8 @@
 #include <string.h>
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
-       M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT, M_COUNT };
+       M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -19,6 +20,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "status", "()[D" }, { "error", "()Ljava/lang/String;" }, { "codec", "()Ljava/lang/String;" }, { "warning", "()Ljava/lang/String;" },
     { "tracks", "(I)[Ljava/lang/String;" }, { "landscapeOnly", "(Z)V" },
     { "deviceVolume", "()F" }, { "setDeviceVolume", "(F)V" }, { "brightness", "()F" }, { "setBrightness", "(F)V" },
+    { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -104,8 +106,32 @@ void video_keep_awake(int on) { CALL(M_AWAKE, (jboolean)(on != 0)); }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 
 /* Updating itself comes in a later milestone (PackageInstaller); until then the release page. */
-int video_install_update(const char *url, const char *sha256, const char *app_id) { (void)url; (void)sha256; (void)app_id; return -1; }
-int video_install_status(char *out, size_t n) { snprintf(out, n, "%s", ""); return 0; }
+/* The update: CuelightPlayer downloads the APK, checks its SHA-256 and opens Android's
+ * installer, which asks the viewer (and, the first time, whether Cuelight may install apps). */
+int video_install_update(const char *url, const char *sha256, const char *app_id)
+{
+    (void)app_id;
+    JNIEnv *e = env();
+    if (!e || !url || !*url) return -1;
+    jstring u = (*e)->NewStringUTF(e, url), h = (*e)->NewStringUTF(e, sha256 ? sha256 : "");
+    (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_INSTALL], u, h);
+    (*e)->DeleteLocalRef(e, u);
+    (*e)->DeleteLocalRef(e, h);
+    clear(e);
+    return 0;
+}
+int video_install_status(char *out, size_t n)
+{
+    JNIEnv *e = env();
+    if (n) out[0] = 0;
+    if (!e) return 0;
+    int st = (int)(*e)->CallStaticIntMethod(e, g_cls, g_m[M_INSTALL_STATE]);
+    clear(e);
+    jstring t = (jstring)(*e)->CallStaticObjectMethod(e, g_cls, g_m[M_INSTALL_TEXT]);
+    clear(e);
+    if (t) { const char *c = (*e)->GetStringUTFChars(e, t, NULL); if (c) { snprintf(out, n, "%s", c); (*e)->ReleaseStringUTFChars(e, t, c); } (*e)->DeleteLocalRef(e, t); }
+    return st;
+}
 
 static void copy_string(JNIEnv *e, int m, char *out, size_t n)
 {

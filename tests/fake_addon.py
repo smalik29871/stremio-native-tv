@@ -708,6 +708,8 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data[a:b + 1])
             return
+        if p == "/android.json":   # the Android app's update notice
+            return self.send(200, json.dumps({"version": "9.9.9", "apkUrl": f"{BASE}/cuelight-android-9.9.9.apk", "sha256": "cd" * 32}).encode())
         if p == "/repo.json":   # an update notice
             return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {
                 "version": "9.9.9", "ipkUrl": f"{BASE}/org.stremio.nativetv_9.9.9_arm.ipk", "ipkHash": {"sha256": "ab" * 32}}}]}).encode())
