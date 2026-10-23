@@ -173,6 +173,8 @@ void  ui_mark(float x, float y, float size);   /* Cuelight's mark on its tile, u
  * canvas point, of the screen on top. */
 struct Screen;
 enum { HIT_RAIL = 0x7F000000 };
+/* Set while a swipe aims: Screen.tap should only move the focus, never act (open, close, change). */
+extern int g_touch_aim;
 void ui_hit(float x, float y, float w, float h, int id);
 void ui_hits_begin(struct Screen *drawing);   /* app.c, before each screen draws */
 int  ui_hit_find(float x, float y, const struct Screen *top, int *id);

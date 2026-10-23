@@ -105,3 +105,5 @@ int video_tracks(TrackKind kind, VideoTrack *out, int max)
 }
 void video_subtitle_style(int size, int style, const char *colour, int position, int sync_ms) { (void)size; (void)style; (void)colour; (void)position; (void)sync_ms; }
 void video_select_track(TrackKind kind, int index) { js_track_select((int)kind, index); g_info.tracks_version++; }
+
+void video_landscape_only(int on) { (void)on; }   /* TVs and the desktop do not turn */

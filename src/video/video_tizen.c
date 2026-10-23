@@ -147,3 +147,5 @@ void video_select_track(TrackKind kind, int index)
     if (index >= 0) player_select_track(g_player, type, index);
     g_info.tracks_version++;
 }
+
+void video_landscape_only(int on) { (void)on; }   /* TVs and the desktop do not turn */

@@ -1612,6 +1612,7 @@ enum { HITS_MAX = 512 };
 static struct { float x, y, w, h; int id; const Screen *owner; } g_hits[HITS_MAX];
 static int g_n_hits;
 static const Screen *g_hit_owner;
+int g_touch_aim;
 
 void ui_hits_begin(Screen *drawing)
 {

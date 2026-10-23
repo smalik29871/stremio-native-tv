@@ -122,6 +122,9 @@ static void draw_zoom(Screen *under, Screen *page, float k)
 
 void app_draw_screen(Screen *top, float dt)
 {
+    static int sideways = -1;   /* a phone: upright only where the screen on top has a layout for it */
+    int want = gfx_handheld() && top && !top->phone;
+    if (want != sideways) { sideways = want; video_landscape_only(want); }
     if (!g_trans.active) { if (top && top->draw) draw_one(top); return; }
     g_trans.t += dt / (g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.34f : 0.26f);
     if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) draw_one(top); return; }

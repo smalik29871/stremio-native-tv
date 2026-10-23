@@ -942,6 +942,17 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/tap_typing.log" || { 
 run tap_settings_key 260 "wait,tap:52:760,wait,tap:800:714,wait,tap:600:560,tap:700:560,wait" SNTV_EXPECT_SCREEN=settings HOME="$(home_with tap6 '{"setupDone":1}')"
 run handheld_home 160 "wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 HOME="$(home_with hh '{"setupDone":1}')"
 grep -q "handheld: drawn larger" "$OUT/handheld_home.log" || { echo "handheld mode did not turn on"; exit 1; }
+# a phone held upright: its own layouts (780 units across, the tab bar along the bottom)
+PH="SNTV_WINDOW=450x1000 SNTV_HANDHELD=1"
+run phone_home 160 "wait,wait,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with ph1 '{"setupDone":1}')"
+run phone_title 220 "wait,wait,tap:152:1050,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=detail HOME="$(home_with ph2 '{"setupDone":1}')"
+run phone_series 260 "wait,wait,tap:400:1050,wait,wait,wait,up,up,up,up" $PH SNTV_EXPECT_SCREEN=detail HOME="$(home_with ph3 '{"setupDone":1}')"
+run phone_sources 300 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=streams HOME="$(home_with ph4 '{"setupDone":1}')"
+run phone_search 300 "wait,tap:390:1660,wait,tap:390:180,wait,t:brea,wait,wait,ok,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=search HOME="$(home_with ph5 '{"setupDone":1}')"
+run phone_settings 240 "wait,tap:702:1660,wait,tap:300:300,wait,wait" $PH SNTV_EXPECT_SCREEN=settings HOME="$(home_with ph6 '{"setupDone":1}')"
+run phone_explore 220 "wait,tap:234:1660,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=explore HOME="$(home_with ph7 '{"setupDone":1}')"
+run phone_library 200 "wait,tap:546:1660,wait,wait" $PH SNTV_EXPECT_SCREEN=library HOME="$(home_with ph8 '{"setupDone":1}')"
+run phone_setup 160 "wait,wait" $PH SNTV_EXPECT_SCREEN=welcome HOME="$(home_with ph9 '{}')"
 python3 -I - "$OUT" <<'PY'
 import sys, glob, os
 from PIL import Image

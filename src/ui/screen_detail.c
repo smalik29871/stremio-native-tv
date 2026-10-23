@@ -33,6 +33,7 @@
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
 enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
 #define HIT(area, i) ((area) << 12 | (i))   /* touch: what is where, by area and place in it */
+#define HIT_BACK 0x7FFFFF0
 #define EP_W (g_theme.id == THEME_APERTURE ? 456.0f : 384.0f)
 #define EP_H (g_theme.id == THEME_APERTURE ? 256.0f : 216.0f)
 #define EP_GAP 28.0f
@@ -44,6 +45,12 @@ enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT }
 #define SIM_W 200.0f
 #define SIM_H 300.0f
 #define SIM_GAP 26.0f
+/* upright on a phone (780 units across) */
+#define PH_X 40.0f
+#define PH_ART_H 600.0f
+#define PH_CAST_STEP 180.0f
+#define PH_SIM_W 224.0f
+#define PH_SIM_H 336.0f
 #define MAX_SIMILAR 20
 
 typedef struct {
@@ -68,6 +75,7 @@ typedef struct {
     int cast_focus, sim_focus, fr_focus, fr_opening; unsigned fr_gen;
     float cast_x, sim_x, fr_x;
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
+    float ph_fy, ph_fh, ph_total, ph_sx;   /* upright on a phone: the focus on the page, its length, the seasons' offset */
 } Detail;
 
 /* A trailer from YouTube, or from IMDb for any title it knows (its id starts "tt") */
@@ -606,6 +614,19 @@ static void update(Screen *s, float dt)
         d->fr_x = ui_ease(d->fr_x, ft, NULL, dt, 14);
         if (fabsf(d->scroll - st) > 0.5f || fabsf(d->cast_x - ct) > 0.5f || fabsf(d->sim_x - mt) > 0.5f || fabsf(d->fr_x - ft) > 0.5f) app_redraw();
     }
+    if (SNTV_PHONE) {   /* one long page: the focus kept between the top and the bottom */
+        float view = SNTV_UI_H, want = d->scroll;
+        if (d->ph_fy + d->ph_fh > want + view - 40) want = d->ph_fy + d->ph_fh - view + 40;
+        if (d->ph_fy - 140 < want) want = d->ph_fy - 140;
+        if (d->area == AREA_ACTIONS) want = 0;
+        float most = d->ph_total - view + 40;
+        if (want > most) want = most;
+        if (want < 0) want = 0;
+        d->scroll = g_app.fx_light ? want : ui_ease(d->scroll, want, &d->scroll_v, dt, 12);
+        d->cast_x = ui_ease(d->cast_x, row_offset(d->cast_focus, n_cast, PH_CAST_STEP, SNTV_UI_W - 80), NULL, dt, 14);
+        d->sim_x = ui_ease(d->sim_x, row_offset(d->sim_focus, d->n_similar, PH_SIM_W + 24, SNTV_UI_W - 80), NULL, dt, 14);
+        if (fabsf(d->scroll - want) > 0.5f) app_redraw();
+    }
     d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
@@ -960,9 +981,227 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
 }
 
 
+/* ---- upright on a phone: one page down (artwork, Play, the actions, the story, the
+ * episodes, cast and more like this) ---- */
+
+static void ph_focus(Detail *d, int on, float y, float h) { if (on) { d->ph_fy = y; d->ph_fh = h; } }
+
+static void ph_tile(const char *label, Icon icon, float x, float y, float w, float h, int foc)
+{
+    if (foc) ui_focus_under(x, y, w, h, R_PANEL, 1);
+    gfx_rrect(x, y, w, h, R_PANEL, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x16));
+    Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
+    ui_icon(icon, x + w / 2, y + h / 2 - 18, 36, fg);
+    font_draw_center(label, x + w / 2, y + h / 2 + 18, FONT_XS | FONT_B, fg);
+}
+
+static void phone_draw(Detail *d)
+{
+    char buf[512];
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    int series = d->meta.n_videos > 0;
+    float W = SNTV_UI_W, x = PH_X, w = W - 2 * PH_X;
+    gfx_set_translate(0, -d->scroll);
+    const char *bg = app_art_background(&d->preview, buf, sizeof buf);
+    ui_card(bg, 0, 0, W, PH_ART_H, 0, 0, NULL, CARD_TRUE_COLOUR);
+    gfx_gradient_v(0, PH_ART_H * 0.45f, W, PH_ART_H * 0.55f + 2, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
+    float y = PH_ART_H - 130;
+    int lines = font_draw_wrapped(d->preview.name ? d->preview.name : "", x, y, FONT_XL | FONT_B, THEME_TEXT, w, 3);
+    y += (lines ? lines : 1) * font_height(FONT_XL | FONT_B) + 12;
+    {   /* IMDb, year, runtime, seasons, genres */
+        float mx = x;
+        if (d->preview.imdb_rating && *d->preview.imdb_rating) mx += ui_imdb(d->preview.imdb_rating, mx, y) + 10;
+        char line[200] = "", seasons_txt[32] = "";
+        size_t n = 0;
+        if (d->n_seasons) { int real = 0; for (int i = 0; i < d->n_seasons; i++) if (d->seasons[i] > 0) real++; snprintf(seasons_txt, sizeof seasons_txt, "%d Season%s", real, real == 1 ? "" : "s"); }
+        const char *parts[4] = { d->preview.release_info, d->preview.runtime, seasons_txt, d->preview.genres.n ? d->preview.genres.v[0] : NULL };
+        for (int k = 0; k < 4; k++) if (parts[k] && *parts[k]) n += (size_t)snprintf(line + n, sizeof line - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
+        font_draw_fit(line, mx, y + (36 - font_height(FONT_S)) / 2, FONT_S, THEME_TEXT_DIM, x + w - mx);
+        y += 64;
+    }
+    if (d->loading) { ui_spinner(x + 26, y + 30, 22); y += 70; }
+    if (d->error[0]) { y += font_draw_wrapped(d->error, x, y, FONT_S, THEME_DANGER, w, 3) * font_height(FONT_S) + 16; }
+    /* Play, then the rest as tiles */
+    LibraryItem *li = app_library_find(d->preview.id);
+    int in_lib = li && !li->removed;
+    char ep_label[48] = "";
+    if (series && !d->resume_label[0] && d->n_eps) {
+        const MetaVideo *v = &d->meta.videos[d->ep_index[d->ep_focus]];
+        if (v->season >= 0 && v->episode >= 0) snprintf(ep_label, sizeof ep_label, "Play S%d E%d", v->season, v->episode); else snprintf(ep_label, sizeof ep_label, "Play");
+    }
+    const char *play_label = d->resume_label[0] ? d->resume_label : ep_label[0] ? ep_label : series ? "Episodes" : "Play";
+    int foc0 = d->area == AREA_ACTIONS && d->btn == 0;
+    float bh = 100;
+    if (foc0) ui_focus_under(x, y, w, bh, bh / 2, 1);
+    gfx_rrect(x, y, w, bh, bh / 2, RGBA(255, 255, 255, 255));
+    if (foc0) gfx_rrect_ring(x - 6, y - 6, w + 12, bh + 12, bh / 2 + 6, 4, THEME_ACCENT);
+    {
+        float tw = font_measure(play_label, FONT_M | FONT_B), cx = x + (w - tw - 48) / 2;
+        ui_icon(ICON_PLAY, cx + 17, y + bh / 2, 30, RGBA(0x11, 0x11, 0x11, 255));
+        font_draw(play_label, cx + 48, y + (bh - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, RGBA(0x11, 0x11, 0x11, 255));
+    }
+    if (d->resume_label[0] && d->resume_frac > 0) { gfx_rect(x + 60, y + bh - 16, w - 120, 5, COLOR_ALPHA(RGBA(0, 0, 0, 255), 0x30)); gfx_rect(x + 60, y + bh - 16, (w - 120) * (float)d->resume_frac, 5, THEME_ACCENT); }
+    ui_hit(x, y, w, bh, HIT(AREA_ACTIONS, 0));
+    ph_focus(d, foc0, y, bh);
+    y += bh + 20;
+    int nb = n_buttons_d(d) - 1;
+    if (nb > 0) {
+        float gap = 16, tw = (w - gap * (nb - 1)) / nb, th = 128;
+        for (int pos = 1; pos <= nb; pos++) {
+            int b = btn_at(d, pos), foc = d->area == AREA_ACTIONS && d->btn == pos;
+            int getting = b == BTN_TRAILER && g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
+            const char *lab = b == BTN_RESTART ? "From start" : b == BTN_SOURCES ? "Sources" : b == BTN_TRAILER ? (getting ? "Getting\xE2\x80\xA6" : "Trailer") : in_lib ? "In Library" : "Library";
+            Icon ic = b == BTN_RESTART ? ICON_PREV : b == BTN_SOURCES ? ICON_SWAP : b == BTN_TRAILER ? ICON_TV : in_lib ? ICON_CHECK : ICON_PLUS;
+            float tx = x + (pos - 1) * (tw + gap);
+            ph_tile(lab, ic, tx, y, tw, th, foc);
+            ui_hit(tx, y, tw, th, HIT(AREA_ACTIONS, pos));
+            ph_focus(d, foc, y, th);
+        }
+        y += th + 32;
+    }
+    if (d->preview.description && *d->preview.description) {
+        int foc = d->area == AREA_ABOUT;
+        int nl = font_draw_wrapped(d->preview.description, x, y, FONT_S, foc ? THEME_TEXT : THEME_TEXT_DIM, w, foc ? 12 : 4);
+        ui_hit(x, y, w, nl * font_height(FONT_S), HIT(AREA_ABOUT, 0));
+        ph_focus(d, foc, y, nl * font_height(FONT_S));
+        y += nl * font_height(FONT_S) + 36;
+    }
+    if (series && d->n_seasons) {   /* the seasons, a row of pills that scrolls to the chosen one */
+        float px = x - d->ph_sx, sel_x = 0, sel_w = 0;
+        for (int i = 0; i < d->n_seasons; i++) {
+            char lbl[32];
+            if (d->seasons[i] == 0) snprintf(lbl, sizeof lbl, "Specials"); else snprintf(lbl, sizeof lbl, "Season %d", d->seasons[i]);
+            int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel;
+            float pw = font_measure(lbl, FONT_S | FONT_B) + 48;
+            if (sel) { sel_x = px + d->ph_sx; sel_w = pw; }
+            gfx_rrect(px, y, pw, 72, 36, foc ? THEME_FOCUS : sel ? THEME_TEXT : COLOR_ALPHA(THEME_TEXT, 0x16));
+            font_draw(lbl, px + 24, y + (72 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc || sel ? THEME_ON_FOCUS : THEME_TEXT);
+            ui_hit(px, y, pw, 72, HIT(AREA_SEASONS, i));
+            px += pw + 14;
+        }
+        if (sel_x - d->ph_sx + sel_w > W - x) d->ph_sx = sel_x + sel_w - (W - 2 * x);
+        if (sel_x - d->ph_sx < 0) d->ph_sx = sel_x;
+        ph_focus(d, d->area == AREA_SEASONS, y, 72);
+        y += 100;
+    }
+    if (series) {   /* the episodes, one under another */
+        int cur_idx = -1;
+        if (li && li->video_id) for (int kk = 0; kk < d->n_eps; kk++) if (strcmp(d->meta.videos[d->ep_index[kk]].id, li->video_id) == 0) cur_idx = kk;
+        float eh = 160, tw2 = 284, rh = eh + 28;
+        for (int kk = 0; kk < d->n_eps; kk++, y += rh) {
+            int foc = d->area == AREA_EPISODES && d->ep_focus == kk;
+            ph_focus(d, foc, y, eh);
+            if (y - d->scroll > SNTV_UI_H || y + rh - d->scroll < 0) continue;
+            const MetaVideo *v = &d->meta.videos[d->ep_index[kk]];
+            int watched = ep_watched(d, kk, li, cur_idx);
+            if (foc) { ui_focus_under(x - 12, y - 12, w + 24, eh + 24, R_PANEL, 1); gfx_rrect(x - 12, y - 12, w + 24, eh + 24, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); }
+            ui_card(v->thumbnail, x, y, tw2, eh, 0, 0, NULL, CARD_MIP | CARD_TRUE_COLOUR);
+            if (!v->thumbnail) { char nn[16]; snprintf(nn, sizeof nn, "%d", v->episode >= 0 ? v->episode : kk + 1); font_draw_center(nn, x + tw2 / 2, y + eh / 2 - 30, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x50)); }
+            if (watched) { gfx_circle(x + tw2 - 26, y + 26, 18, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_CHECK, x + tw2 - 26, y + 26, 20, THEME_OK); }
+            char head[200];
+            if (v->episode >= 0) snprintf(head, sizeof head, "%d. %s", v->episode, v->title ? v->title : "Episode"); else snprintf(head, sizeof head, "%s", v->title ? v->title : "Episode");
+            float tx = x + tw2 + 24, tww = w - tw2 - 24;
+            int hl = font_draw_wrapped(head, tx, y + 4, FONT_S | FONT_B, THEME_TEXT, tww, 2);
+            float oy = y + 8 + hl * font_height(FONT_S | FONT_B);
+            if (v->overview && *v->overview) font_draw_wrapped(v->overview, tx, oy, FONT_XS, THEME_TEXT_DIM, tww, hl > 1 ? 2 : 3);
+            else if (v->released) { char date[11]; snprintf(date, sizeof date, "%.10s", v->released); font_draw(date, tx, oy, FONT_XS, THEME_TEXT_MUTED); }
+            ui_hit(x, y, w, eh, HIT(AREA_EPISODES, kk));
+        }
+        y += 20;
+    }
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
+    int n_cast = cast_count(d, tm);
+    if (n_cast) {
+        font_draw("Cast", x, y, FONT_L | FONT_B, THEME_TEXT);
+        y += 64;
+        float r0 = 66;
+        for (int i = 0; i < n_cast; i++) {
+            float ix = x + i * PH_CAST_STEP - d->cast_x;
+            if (ix > W || ix + PH_CAST_STEP < 0) continue;
+            int foc = d->area == AREA_CAST && d->cast_focus == i;
+            const char *name, *role, *photo;
+            cast_at(d, tm, i, &name, &role, &photo);
+            float ccx = ix + r0;
+            if (foc) gfx_rrect_ring(ccx - r0 - 6, y - 6, 2 * r0 + 12, 2 * r0 + 12, r0 + 6, 4, THEME_FOCUS);
+            ui_portrait(photo, name, ccx - r0, y, 2 * r0, 2 * r0, r0, FONT_L | FONT_B);
+            draw_center_fit(name, ccx, y + 2 * r0 + 12, FONT_XS | FONT_B, THEME_TEXT, PH_CAST_STEP - 12);
+            if (role && *role) draw_center_fit(role, ccx, y + 2 * r0 + 42, FONT_XS, THEME_TEXT_MUTED, PH_CAST_STEP - 12);
+            ui_hit(ix, y, PH_CAST_STEP, 2 * r0 + 76, HIT(AREA_CAST, i));
+        }
+        ph_focus(d, d->area == AREA_CAST, y - 64, 2 * r0 + 140);
+        y += 2 * r0 + 110;
+    }
+    if (d->n_similar) {
+        font_draw("More like this", x, y, FONT_L | FONT_B, THEME_TEXT);
+        y += 64;
+        for (int i = 0; i < d->n_similar; i++) {
+            float ix = x + i * (PH_SIM_W + 24) - d->sim_x;
+            if (ix > W || ix + PH_SIM_W < 0) continue;
+            int foc = d->area == AREA_SIMILAR && d->sim_focus == i;
+            char pb[512];
+            ui_card(app_art_poster(&d->similar[i], pb, sizeof pb), ix, y, PH_SIM_W, PH_SIM_H, foc ? (g_app.fx_light ? 1 : d->focus_t) : 0, 0, d->similar[i].name, 0);
+            ui_hit(ix, y, PH_SIM_W, PH_SIM_H, HIT(AREA_SIMILAR, i));
+        }
+        ph_focus(d, d->area == AREA_SIMILAR, y - 64, PH_SIM_H + 64);
+        y += PH_SIM_H + 60;
+    }
+    d->ph_total = y;
+    gfx_set_translate(0, 0);
+    /* Back, over the artwork */
+    gfx_circle(PH_X + 40, 72, 40, RGBA(0, 0, 0, 0x70));
+    ui_icon(ICON_CHEVRON_LEFT, PH_X + 38, 72, 34, RGBA(255, 255, 255, 255));
+    ui_hit(PH_X - 10, 22, 100, 100, HIT_BACK);
+    if (d->ask_open) draw_ask(d);
+}
+
+/* Keys upright on a phone: the page is one column, so Up and Down go through it and Left
+ * and Right along a row; OK and the rest are as on the TV. */
+static void focus_ep(Detail *d, int k);
+static int phone_key(Screen *s, KeyAction a)
+{
+    Detail *d = s->st;
+    if (d->ask_open || (a != KEY_UP && a != KEY_DOWN && a != KEY_LEFT && a != KEY_RIGHT)) return -1;
+    app_redraw();
+    int series = d->meta.n_videos > 0, nb = n_buttons_d(d);
+    const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
+    int n_cast = cast_count(d, tm);
+    int has_about = d->preview.description && *d->preview.description;
+    /* the page's areas, top to bottom */
+    int order[8], n = 0;
+    order[n++] = AREA_ACTIONS;
+    if (has_about) order[n++] = AREA_ABOUT;
+    if (series && d->n_seasons) order[n++] = AREA_SEASONS;
+    if (series && d->n_eps) order[n++] = AREA_EPISODES;
+    if (n_cast) order[n++] = AREA_CAST;
+    if (d->n_similar) order[n++] = AREA_SIMILAR;
+    int at = 0;
+    for (int i = 0; i < n; i++) if (order[i] == d->area) at = i;
+    if (a == KEY_LEFT || a == KEY_RIGHT) {
+        int dir = a == KEY_RIGHT ? 1 : -1;
+        switch (d->area) {
+        case AREA_ACTIONS: if (d->btn + dir >= 0 && d->btn + dir < nb) d->btn += dir; return 1;
+        case AREA_SEASONS: if (d->season_idx + dir >= 0 && d->season_idx + dir < d->n_seasons) select_season(d, d->season_idx + dir); return 1;
+        case AREA_CAST: if (d->cast_focus + dir >= 0 && d->cast_focus + dir < n_cast) { d->cast_focus += dir; d->focus_t = 0; } return 1;
+        case AREA_SIMILAR: if (d->sim_focus + dir >= 0 && d->sim_focus + dir < d->n_similar) { d->sim_focus += dir; d->focus_t = 0; } return 1;
+        default: return 1;
+        }
+    }
+    int dir = a == KEY_DOWN ? 1 : -1;
+    if (d->area == AREA_EPISODES && d->ep_focus + dir >= 0 && d->ep_focus + dir < d->n_eps) { focus_ep(d, d->ep_focus + dir); return 1; }
+    if (d->area == AREA_ACTIONS && dir > 0 && d->btn == 0 && nb > 1) { d->btn = 1; return 1; }
+    if (d->area == AREA_ACTIONS && dir < 0 && d->btn > 0) { d->btn = 0; return 1; }
+    if (at + dir < 0 || at + dir >= n) return 1;
+    d->area = order[at + dir];
+    d->focus_t = 0;
+    if (d->area == AREA_ACTIONS) d->btn = dir < 0 && nb > 1 ? 1 : 0;
+    if (d->area == AREA_EPISODES && dir < 0 && d->n_eps) focus_ep(d, d->n_eps - 1);
+    return 1;
+}
+
 static void draw(Screen *s)
 {
     Detail *d = s->st;
+    if (SNTV_PHONE) { phone_draw(d); return; }
     char buf[512], lbuf[512];
     const char *bg = app_art_background(&d->preview, buf, sizeof buf);
     if (bg) ui_set_ambient_art(bg);
@@ -1234,6 +1473,7 @@ static int key(Screen *s, KeyAction a)
 {
     Detail *d = s->st;
     app_redraw();
+    if (SNTV_PHONE) { int r = phone_key(s, a); if (r >= 0) return r; }
     int series = d->meta.n_videos > 0;
     if (d->ask_open) {
         if (a == KEY_BACK || a == KEY_OK || a == KEY_LONG_OK) d->ask_open = 0;
@@ -1425,10 +1665,11 @@ static int tap(Screen *s, int id)
 {
     Detail *d = s->st;
     if (d->ask_open) return 0;
+    if (id == HIT_BACK) { if (!g_touch_aim) app_pop(); return 1; }
     int area = id >> 12, i = id & 0xFFF;
     switch (area) {
     case AREA_ACTIONS: if (i >= n_buttons_d(d)) return 1; d->btn = i; break;
-    case AREA_SEASONS: d->area = AREA_SEASONS; if (i < d->n_seasons && i != d->season_idx) select_season(d, i); return 1;
+    case AREA_SEASONS: d->area = AREA_SEASONS; if (!g_touch_aim && i < d->n_seasons && i != d->season_idx) select_season(d, i); return 1;
     case AREA_EPISODES: if (i >= d->n_eps) return 1; if (d->area != AREA_EPISODES || d->ep_focus != i) focus_ep(d, i); break;
     case AREA_ABOUT: break;
     case AREA_CAST: d->cast_focus = i; break;
@@ -1485,7 +1726,7 @@ Screen *screen_detail_create(const MetaPreview *p)
     meta_preview_copy(&d->preview, p);
     d->focus_t = 1;
     s->name = "detail"; s->st = d; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
     fetch_meta(d);
     load_resume(d);
     return s;

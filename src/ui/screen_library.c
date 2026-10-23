@@ -14,14 +14,19 @@
 #include <string.h>
 #include <time.h>
 
-enum { COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28 };
+/* upright on a phone: three across, under the filters, above the tab bar */
+#define COLS (SNTV_PHONE ? 3 : 7)
+#define CELL_W (SNTV_PHONE ? 220 : 196)
+#define CELL_H (SNTV_PHONE ? 330 : 294)
+#define CELL_GAP (SNTV_PHONE ? 20 : 28)
 enum { F_ALL, F_MOVIES, F_SERIES, F_CONTINUE, F_STATS, F_COUNT };
 enum { S_RECENT, S_NAME, S_COUNT };
 enum { Z_FILTERS, Z_GRID };
-#define LX RAIL_LX
+#define LX (SNTV_PHONE ? 40.0f : RAIL_LX)
 #define GRID_Y 230.0f
 
 static const char *const FILTERS[F_COUNT] = { "All", "Movies", "Series", "Continue watching", "Your stats" };
+static const char *const FILTERS_SHORT[F_COUNT] = { "All", "Films", "Series", "Watching", "Stats" };   /* a phone's width */
 static const char *const SORTS[S_COUNT] = { "Recent", "A to Z" };
 
 typedef struct {
@@ -231,16 +236,16 @@ static void draw(Screen *s)
     float x = LX, y = 134;
     for (int i = 0; i < F_COUNT; i++) {
         int foc = l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == i;
-        float w = ui_pill(FILTERS[i], 0, ICON_PLAY, x, y, 52, l->filter == i ? PILL_PRIMARY : PILL_GHOST, foc);
+        float w = ui_pill((SNTV_PHONE ? FILTERS_SHORT : FILTERS)[i], 0, ICON_PLAY, x, y, 52, l->filter == i ? PILL_PRIMARY : PILL_GHOST, foc);
         ui_hit(x, y, w, 52, HIT_PILL + i);
         if (l->filter == i && !foc) gfx_rrect(x + w / 2 - 10, y + 56, 20, 3, 1.5f, THEME_ACCENT2);
         x += w + 12;
     }
     {
         char sl[32]; snprintf(sl, sizeof sl, "Sort: %s", SORTS[l->sort]);
-        float w = ui_pill_width(sl, 1, 52);
-        ui_pill(sl, 1, ICON_SWAP, SNTV_UI_W - THEME_MARGIN - w, y, 52, PILL_SECONDARY, l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == F_COUNT);
-        ui_hit(SNTV_UI_W - THEME_MARGIN - w, y, w, 52, HIT_PILL + F_COUNT);
+        float w = ui_pill_width(sl, 1, 52), sy = SNTV_PHONE ? 50 : y, sx = SNTV_PHONE ? SNTV_UI_W - LX - w : SNTV_UI_W - THEME_MARGIN - w;   /* a phone: beside the heading */
+        ui_pill(sl, 1, ICON_SWAP, sx, sy, 52, PILL_SECONDARY, l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == F_COUNT);
+        ui_hit(sx, sy, w, 52, HIT_PILL + F_COUNT);
     }
     float gx = LX, gy = GRID_Y, row_h = CELL_H + 80;
     if (l->filter == F_STATS) { draw_stats(); rail_draw(RAIL_LIBRARY, l->rail_focus); return; }
@@ -256,7 +261,7 @@ static void draw(Screen *s)
     float peek_x = 0, peek_y = 0;
     /* details open on the focused card: the others in its row slide aside to make room */
     float room = 0; int room_right = 1, room_row = -1;
-    if (l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
+    if (!SNTV_PHONE && l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
         float sc = ui_focus_scale(g_app.fx_light ? 1.0f : l->focus_t), w2 = CELL_W * sc;
         float fx = gx + (l->focus % COLS) * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
         room = ui_peek_room(&l->peek, &l->items[l->focus], fx, w2, CELL_H * sc, gx, SNTV_UI_W - 40, &room_right);
@@ -292,7 +297,7 @@ static void draw(Screen *s)
                 if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) { snprintf(sub, sizeof sub, "S%d E%d", se, ep); font_draw(sub, px, py + CELL_H + 50, FONT_XS, THEME_TEXT_MUTED); }
             }
         }
-    if (l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
+    if (!SNTV_PHONE && l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
         float f = g_app.fx_light ? 1 : l->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
         ui_peek_draw(&l->peek, &l->items[l->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
     }
@@ -371,7 +376,7 @@ Screen *screen_library_create(void)
     l->rail_focus = -1; l->focus_t = 1; l->seen_version = -1;
     l->zone = Z_GRID;
     s->name = "library"; s->st = l; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
     build(l);
     if (!l->n) l->zone = Z_FILTERS;
     return s;

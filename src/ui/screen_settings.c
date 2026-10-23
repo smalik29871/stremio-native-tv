@@ -23,12 +23,14 @@
 #include "../video/video.h"
 #include "font.h"
 #include "keyboard.h"
+#include "rail.h"
 #include "theme.h"
 #include "widgets.h"
 #include "screen_options.h"
 #include "settings_preview.h"
 #include "clockface.h"
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -69,7 +71,7 @@ static const char *const SEC_NAMES[SEC_COUNT] = { "Sync", "Streaming", "Episodes
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
-enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000 };   /* touch targets besides the rows (their index) */
+enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001 };   /* touch targets besides the rows (their index) */
 static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define SEC_H 70.0f
 /* Choosing a category the rows start at COL_X0; inside one the category list shrinks
@@ -79,7 +81,7 @@ static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define COL_X1 250.0f
 #define COL_R1 1170.0f
 #define PREV_X 1226.0f
-#define ROWS_TOP 230.0f
+#define ROWS_TOP (SNTV_PHONE ? 150.0f : 230.0f)   /* a phone: under the page header */
 
 typedef struct {
     int cat;                 /* the category shown */
@@ -460,7 +462,9 @@ static void draw_row_body(float y, Icon icon, const char *title, const char *val
     const char *sub = s_desc;
     if (kind == KIND_ACTION && !sub && value) { sub = value; value = NULL; }
     float th = font_height(FONT_S | FONT_B), dh = font_height(FONT_XS);
-    float right = kind == KIND_TOGGLE ? 130 : kind == KIND_MOVABLE ? 300 : kind == KIND_CHOICE ? font_measure(value, FONT_S | FONT_B) + 110
+    float cvw = kind == KIND_CHOICE ? font_measure(value, FONT_S | FONT_B) : 0;
+    if (cvw > w * 0.42f) cvw = w * 0.42f;   /* a long value gives way to the title (a phone) */
+    float right = kind == KIND_TOGGLE ? 130 : kind == KIND_MOVABLE ? 300 : kind == KIND_CHOICE ? cvw + 110
                 : value ? (font_measure(value, FONT_XS) < w * 0.45f - 90 ? font_measure(value, FONT_XS) : w * 0.45f - 90) + 80 : 60;
     float text_w = w - 92 - right - 16;
     if (sub) {
@@ -491,8 +495,8 @@ static void draw_row_body(float y, Icon icon, const char *title, const char *val
             if (focused) gfx_circle(kx, ty, 3.5f, THEME_FOCUS);
         }
         ui_icon(ICON_CHEVRON_RIGHT, rx - 10, vy + th / 2, 22, dim);
-        float vw = font_measure(value, FONT_S | FONT_B);
-        font_draw(value, rx - 36 - vw, vy, FONT_S | FONT_B, fg);
+        float vw = cvw;
+        font_draw_fit(value, rx - 36 - vw, vy, FONT_S | FONT_B, fg, vw + 1);
         ui_icon(ICON_CHEVRON_LEFT, rx - 60 - vw, vy + th / 2, 22, dim);
         ui_hit(rx - 100 - vw, y, 80, h, HIT_LEFT + s_hit_row);   /* the rest of the row steps forward */
         return;
@@ -555,6 +559,8 @@ static void update(Screen *s, float dt)
     }
 }
 
+static const char *edit_title(int which);
+static const char *edit_hint(int which);
 static void draw_categories(const Settings *st, float e)
 {
     font_draw("Settings", THEME_MARGIN, g_theme.id == THEME_APERTURE ? 86 : 100, g_theme.id == THEME_APERTURE ? FONT_XL | FONT_ALT : FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * (1 - e))));
@@ -692,14 +698,84 @@ static void draw_panel(const Settings *st, const int *ids, int n, float e)
     gfx_set_alpha(1);
 }
 
+/* ---- upright on a phone: the categories as a list, each opening its rows on a page of
+ * its own; typing with the phone's keyboard ---- */
+
+static void phone_categories(const Settings *st)
+{
+    float W = SNTV_UI_W, x = 40, w = W - 80;
+    font_draw("Settings", x, 36, FONT_XL | FONT_B, THEME_TEXT);
+    float fy = 132, fh = 92;
+    int ff = st->search_foc;
+    gfx_rrect(x, fy, w, fh, fh / 2, COLOR_ALPHA(THEME_TEXT, ff ? 0x26 : 0x18));
+    if (ff) gfx_rrect_ring(x, fy, w, fh, fh / 2, 3, THEME_ACCENT2);
+    ui_icon(ICON_SEARCH, x + 48, fy + fh / 2, 32, THEME_TEXT_MUTED);
+    font_draw("Find a setting", x + 90, fy + (fh - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT_MUTED);
+    ui_hit(x, fy, w, fh, HIT_FIND);
+    float y = fy + fh + 30, rh = 124;
+    for (int i = 0; i < CAT_COUNT; i++, y += rh) {
+        int foc = !st->search_foc && st->cat == i;
+        if (foc) { ui_focus_under(x - 12, y, w + 24, rh - 8, R_PANEL, 1); gfx_rrect(x - 12, y, w + 24, rh - 8, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); }
+        gfx_rrect(x, y + (rh - 8 - 76) / 2, 76, 76, 20, COLOR_ALPHA(THEME_ACCENT, 0x24));
+        ui_icon(CAT_ICONS[i], x + 38, y + (rh - 8) / 2, 34, THEME_ACCENT);
+        font_draw(CAT_NAMES[i], x + 104, y + 22, FONT_M | FONT_B, THEME_TEXT);
+        font_draw_fit(CAT_DESC[i], x + 104, y + 66, FONT_XS, THEME_TEXT_DIM, w - 104 - 50);
+        ui_icon(ICON_CHEVRON_RIGHT, x + w - 14, y + (rh - 8) / 2, 26, THEME_TEXT_MUTED);
+        gfx_rect(x + 104, y + rh - 4, w - 104, 2, THEME_LINE);
+        ui_hit(x - 12, y, w + 24, rh - 8, HIT_CAT + i);
+    }
+    rail_draw(RAIL_SETTINGS, -1);
+}
+
+static void phone_header(const char *title)
+{
+    gfx_rect(0, 0, SNTV_UI_W, 140, THEME_BG);
+    gfx_circle(80, 76, 40, COLOR_ALPHA(THEME_TEXT, 0x16));
+    ui_icon(ICON_CHEVRON_LEFT, 78, 76, 32, THEME_TEXT);
+    ui_hit(30, 26, 100, 100, HIT_BACK);
+    font_draw_fit(title, 144, 76 - font_height(FONT_L | FONT_B) / 2, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 184);
+}
+
+static void phone_edit(const Settings *st)
+{
+    float x = 40, w = SNTV_UI_W - 80;
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    phone_header(edit_title(st->edit));
+    float y = 170;
+    y += font_draw_wrapped(edit_hint(st->edit), x, y, FONT_S, THEME_TEXT_DIM, w, 5) * font_height(FONT_S) + 30;
+    gfx_rrect(x, y, w, 100, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x1C));
+    gfx_rrect_ring(x, y, w, 100, R_PANEL, 3, THEME_ACCENT2);
+    const char *t = st->kb.text;
+    float tx = x + 30, tw = font_measure(t, FONT_M);
+    gfx_clip_push(x + 20, y, w - 40, 100);
+    if (tw > w - 70) tx -= tw - (w - 70);   /* the end of a long key in view */
+    font_draw(t[0] ? t : " ", tx, y + (100 - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT);
+    if (fmodf(g_app.time, 1.0f) < 0.55f) gfx_rect(tx + tw + 4, y + 26, 3, 48, THEME_ACCENT2);
+    gfx_clip_pop();
+    app_redraw();
+    y += 140;
+    float bw = (w - 20) / 2;
+    gfx_rrect(x, y, bw, 96, 48, COLOR_ALPHA(THEME_TEXT, 0x1C));
+    font_draw_center("Cancel", x + bw / 2, y + (96 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT);
+    ui_hit(x, y, bw, 96, HIT_BACK);
+    gfx_rrect(x + bw + 20, y, bw, 96, 48, THEME_ACCENT);
+    font_draw_center("Done", x + bw + 20 + bw / 2, y + (96 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_ON_ACCENT);
+    ui_hit(x + bw + 20, y, bw, 96, HIT_DONE);
+}
+
 static void draw(Screen *s)
 {
     Settings *st = s->st;
     ui_background(0);
+    if (SNTV_PHONE && st->edit != EDIT_NONE && st->edit != EDIT_BACKUP) { phone_edit(st); return; }
+    if (SNTV_PHONE && st->zone == 0 && st->edit == EDIT_NONE) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG); phone_categories(st); return; }
     float e = st->wide_t * st->wide_t * (3 - 2 * st->wide_t);   /* smoothstep */
-    draw_categories(st, e);
-    s_x = COL_X0 + (COL_X1 - COL_X0) * e;
-    s_r = SNTV_UI_W - THEME_MARGIN + (COL_R1 - (SNTV_UI_W - THEME_MARGIN)) * e;
+    if (SNTV_PHONE) { s_x = 40; s_r = SNTV_UI_W - 40; }
+    else {
+        draw_categories(st, e);
+        s_x = COL_X0 + (COL_X1 - COL_X0) * e;
+        s_r = SNTV_UI_W - THEME_MARGIN + (COL_R1 - (SNTV_UI_W - THEME_MARGIN)) * e;
+    }
 
     if (st->edit == EDIT_BACKUP) {   /* no typing: the phone does it all */
         float x = COL_X0;
@@ -735,9 +811,10 @@ static void draw(Screen *s)
     }
 
     /* pane header */
-    if (g_theme.id == THEME_APERTURE) font_draw(CAT_NAMES[st->cat], s_x, 82, FONT_XL | FONT_ALT, THEME_TEXT);
+    if (SNTV_PHONE) {}
+    else if (g_theme.id == THEME_APERTURE) font_draw(CAT_NAMES[st->cat], s_x, 82, FONT_XL | FONT_ALT, THEME_TEXT);
     else font_draw(CAT_NAMES[st->cat], s_x, 100, FONT_L | FONT_B, THEME_TEXT);
-    font_draw_wrapped(CAT_DESC[st->cat], s_x, 156, FONT_S, THEME_TEXT_DIM, s_r - s_x, 2);
+    if (!SNTV_PHONE) font_draw_wrapped(CAT_DESC[st->cat], s_x, 156, FONT_S, THEME_TEXT_DIM, s_r - s_x, 2);
 
     static const char *FX_NAMES[] = { "Automatic", "Full", "Light" };
     static const char *SIZE_NAMES[] = { "Small", "Medium", "Large", "Extra large" };
@@ -1002,6 +1079,7 @@ static void draw(Screen *s)
     }
     gfx_set_translate(0, 0);
     gfx_clip_pop();
+    if (SNTV_PHONE) { phone_header(CAT_NAMES[st->cat]); return; }
     if (e > 0.01f) draw_panel(st, ids, n, e);
 }
 
@@ -1557,7 +1635,13 @@ static int tap(Screen *s, int id)
 {
     Settings *st = s->st;
     if (st->edit == EDIT_BACKUP) return 1;
+    if (st->edit != EDIT_NONE && SNTV_PHONE) {   /* the phone's keyboard types; Done or Cancel */
+        if (g_touch_aim) return 1;
+        if (id == HIT_DONE) finish_edit(st, 1); else if (id == HIT_BACK) finish_edit(st, 0);
+        return 1;
+    }
     if (st->edit != EDIT_NONE) return keyboard_tap(&st->kb, id) ? 0 : 1;
+    if (id == HIT_BACK) { if (!g_touch_aim) { st->cat_focus[st->cat] = st->focus; st->zone = 0; st->confirm_remove = -1; } return 1; }
     if (id == HIT_FIND) { st->zone = 0; st->search_foc = 1; return 0; }
     if (id >= HIT_CAT && id < HIT_CAT + CAT_COUNT) {
         if (st->zone == 1) st->cat_focus[st->cat] = st->focus;
@@ -1572,7 +1656,7 @@ static int tap(Screen *s, int id)
     if (id < 0 || id >= n || IS_SEC(ids[id])) return 1;
     if (st->zone != 1 || st->focus != id) st->confirm_remove = -1;
     st->zone = 1; st->search_foc = 0; st->focus = id;
-    if (back) { adjust(st, ids[id], -1); return 1; }
+    if (back) { if (!g_touch_aim) adjust(st, ids[id], -1); return 1; }
     return 0;
 }
 
@@ -1584,6 +1668,7 @@ static int key(Screen *s, KeyAction a)
     if (st->edit != EDIT_NONE) {
         if (a == KEY_BACK) { finish_edit(st, 0); return 1; }
         if (a == KEY_BACKSPACE) { keyboard_key(&st->kb, KEY_BACKSPACE); return 1; }
+        if (SNTV_PHONE) { if (a == KEY_OK) finish_edit(st, 1); return 1; }   /* the phone's keyboard: Enter is Done */
         if (keyboard_key(&st->kb, a) == KB_DONE) finish_edit(st, 1);
         return 1;
     }
@@ -1702,6 +1787,6 @@ Screen *screen_settings_create(void)
     st->confirm_remove = -1;
     st->rows_seen = -1;
     s->name = "settings"; s->st = st;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy; s->phone = 1;
     return s;
 }

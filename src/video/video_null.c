@@ -180,3 +180,5 @@ void video_select_track(TrackKind kind, int index)
     if (kind == TRACK_AUDIO) g_audio_sel = index; else g_text_sel = index;
     g.tracks_version++;
 }
+
+void video_landscape_only(int on) { (void)on; }   /* TVs and the desktop do not turn */

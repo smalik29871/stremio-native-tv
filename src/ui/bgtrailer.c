@@ -134,7 +134,8 @@ static void on_trailer(const ImdbTrailer *t, int n, long status, void *user)
 
 void bgtrailer_want(const char *id, float height, float dwell)
 {
-    if (!g_app.auto_trailers || !id || strncmp(id, "tt", 2) != 0 || g_app.pip) return;
+    if (!g_app.auto_trailers || SNTV_PHONE ||   /* upright on a phone the artwork is a card: no room behind it */
+         !id || strncmp(id, "tt", 2) != 0 || g_app.pip) return;
     B.wanted = 1;
     if (strcmp(id, B.id) != 0) {
         if (B.state != BT_IDLE) finish(BT_IDLE);

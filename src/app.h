@@ -25,6 +25,7 @@ typedef struct Screen {
      * and return 0 for OK to follow (as if the remote had moved there and pressed it), or
      * 1 when the tap did everything itself. Screens without it get OK on their focus. */
     int  (*tap)(struct Screen *s, int id);
+    int phone;   /* it has a layout for a phone held upright; without one the phone turns sideways */
 } Screen;
 
 typedef enum { FX_AUTO = 0, FX_FULL = 1, FX_LIGHT = 2 } FxLevel;

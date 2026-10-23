@@ -1129,7 +1129,7 @@ static void draw_aperture(Streams *st)
 static void draw(Screen *s)
 {
     Streams *st = s->st;
-    if (g_theme.id == THEME_APERTURE) { draw_aperture(st); return; }
+    if (g_theme.id == THEME_APERTURE && !SNTV_PHONE) { draw_aperture(st); return; }
     char buf[512];
     const char *bg = app_art_background(&st->meta, buf, sizeof buf);
     ui_background(image_tint(bg));
@@ -1137,16 +1137,19 @@ static void draw(Screen *s)
     unsigned bgt = bg ? image_get_ex(bg, IMAGE_MIPMAP, &iw, &ih, NULL) : 0;
     if (bgt && !g_app.fx_light) ui_backdrop_blur(bgt, iw, ih, 0.85f);
 
-    /* left column: poster + titles */
+    /* left column: poster + titles (a phone upright: the list alone, the title above it) */
     float lx = THEME_MARGIN, ly = 120;
     char pbuf[512];
+    if (SNTV_PHONE) font_draw_fit(st->meta.name ? st->meta.name : "", 40, 40, FONT_M | FONT_B, THEME_TEXT_DIM, SNTV_UI_W - 80);
+    else {
     ui_card(app_art_poster(&st->meta, pbuf, sizeof pbuf), lx, ly, 360, 540, 0, 0, st->meta.name, 0);
     font_draw_wrapped(st->meta.name, lx, ly + 570, FONT_L | FONT_B, THEME_TEXT, 420, 2);
     if (st->video_title) font_draw_wrapped(st->video_title, lx, ly + 570 + font_draw_wrapped(st->meta.name, 0, 0, FONT_L | FONT_B, 0, 420, 2) * font_height(FONT_L | FONT_B) + 8,
                                            FONT_S, THEME_TEXT_DIM, 420, 2);
+    }
 
     /* header */
-    float x = LIST_X, w = SNTV_UI_W - THEME_MARGIN - LIST_X;
+    float x = SNTV_PHONE ? 40 : LIST_X, w = SNTV_PHONE ? SNTV_UI_W - 80 : SNTV_UI_W - THEME_MARGIN - LIST_X;
     font_draw("Choose a source", x, 104, FONT_L | FONT_B, THEME_TEXT);
     char msg[128];
     if (st->gave_up && st->n) snprintf(msg, sizeof msg, "None of these can start by itself here  ·  choose one");
@@ -1699,7 +1702,7 @@ Screen *screen_streams_create_chain(const MetaPreview *meta, const char *video_i
     } else st->autoplayed = 1;
     st->started = g_app.time;
     s->name = "streams"; s->st = st; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
     g_live = st;
     g_generation++;
     if (!adopt_prefetch(st)) query(st);

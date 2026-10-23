@@ -7,6 +7,12 @@
   swipe to move, hold for options. Choice settings step back from their left arrow.
 - **Phone screens draw larger**: the layout fills the screen's width, so text and cards are
   about a quarter bigger on a 20:9 phone; Home, Settings, sign-in and setup fit its height.
+- **Phones held upright get their own layout**: a tab bar along the bottom (Home, Explore,
+  Search, Library, Settings), a feature card and rows of cards on Home, title pages as one
+  long page (Play, then the actions, the story, seasons and episodes, cast, more like this),
+  Search with the phone's own keyboard and filters for films and series, Settings as a list
+  with each category on a page of its own, and first-run setup. The player and the screens
+  without an upright layout yet turn the phone sideways.
 - **Android: videos play** (Media3 ExoPlayer under the app's own player screen): play, pause,
   seek, speed, volume, the file's audio and subtitle tracks, buffering and errors.
 

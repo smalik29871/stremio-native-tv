@@ -11,13 +11,13 @@
 #include <string.h>
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
-       M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_COUNT };
+       M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
     { "selectTrack", "(II)V" }, { "subtitleStyle", "(ILjava/lang/String;I)V" },
     { "status", "()[D" }, { "error", "()Ljava/lang/String;" }, { "codec", "()Ljava/lang/String;" }, { "warning", "()Ljava/lang/String;" },
-    { "tracks", "(I)[Ljava/lang/String;" },
+    { "tracks", "(I)[Ljava/lang/String;" }, { "landscapeOnly", "(Z)V" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -85,6 +85,7 @@ unsigned video_load_count(void) { return g_loads; }
 void video_set_display_rect(int x, int y, int w, int h) { CALL(M_RECT, (jint)x, (jint)y, (jint)w, (jint)h); }
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
+void video_landscape_only(int on) { CALL(M_LANDSCAPE, (jboolean)(on != 0)); }
 void video_keep_awake(int on) { CALL(M_AWAKE, (jboolean)(on != 0)); }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 

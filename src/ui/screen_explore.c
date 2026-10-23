@@ -15,9 +15,14 @@
 #include <string.h>
 #include <strings.h>
 
-enum { COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, MAX_TYPES = 8, MAX_CATS = 64, PAGE = 100 };
+enum { MAX_TYPES = 8, MAX_CATS = 64, PAGE = 100 };
+/* upright on a phone: three across, above the tab bar */
+#define COLS (SNTV_PHONE ? 3 : 7)
+#define CELL_W (SNTV_PHONE ? 220 : 196)
+#define CELL_H (SNTV_PHONE ? 330 : 294)
+#define CELL_GAP (SNTV_PHONE ? 20 : 28)
 enum { Z_TYPES, Z_CATS, Z_GENRES, Z_GRID };
-#define LX RAIL_LX
+#define LX (SNTV_PHONE ? 40.0f : RAIL_LX)
 #define GRID_Y 352.0f
 
 typedef struct { int addon, catalog; } CatRef;
@@ -378,7 +383,7 @@ static void draw(Screen *s)
     const char *bg = fp ? app_art_background(fp, buf, sizeof buf) : NULL;
     ui_background(bg ? image_tint(bg) : 0);
     font_draw("Explore", LX, 52, FONT_L | FONT_B, THEME_TEXT);
-    float maxw = SNTV_UI_W - LX - THEME_MARGIN - 220;
+    float maxw = SNTV_PHONE ? SNTV_UI_W - 2 * LX : SNTV_UI_W - LX - THEME_MARGIN - 220;
     if (!e->n_types) {
         font_draw_center(g_app.addons_loading ? "Loading your addons" : "No catalog addons installed", SNTV_UI_W / 2, SNTV_UI_H / 2, FONT_L | FONT_B, THEME_TEXT);
         font_draw_center("Catalog addons (Cinemeta, TMDB, …) appear here by type, list and genre.", SNTV_UI_W / 2, SNTV_UI_H / 2 + 60, FONT_S, THEME_TEXT_DIM);
@@ -426,7 +431,7 @@ static void draw(Screen *s)
     float row_h = CELL_H + 80, peek_x = 0, peek_y = 0;
     /* details open on the focused card: the others in its row slide aside to make room */
     float room = 0; int room_right = 1, room_row = -1;
-    if (e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
+    if (!SNTV_PHONE && e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
         float sc = ui_focus_scale(g_app.fx_light ? 1.0f : e->focus_t), w2 = CELL_W * sc;
         float fx = gx + (e->focus % COLS) * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
         room = ui_peek_room(&e->peek, &e->items[e->focus], fx, w2, CELL_H * sc, gx, SNTV_UI_W - 40, &room_right);
@@ -448,7 +453,7 @@ static void draw(Screen *s)
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
             else if (e->items[i].release_info) font_draw(e->items[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
-    if (e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
+    if (!SNTV_PHONE && e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
         float f = g_app.fx_light ? 1 : e->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
         ui_peek_draw(&e->peek, &e->items[e->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
     }
@@ -527,7 +532,7 @@ static int tap(Screen *s, int id)
     e->rail_focus = -1;
     if (id >= HIT_TYPE && id < HIT_TYPE + e->n_types) {
         e->zone = Z_TYPES;
-        if (id - HIT_TYPE != e->type_i) { e->type_i = id - HIT_TYPE; e->cat_i = e->cat_focus = 0; build_cats(e); reset_items(e); }
+        if (id - HIT_TYPE != e->type_i && !g_touch_aim) { e->type_i = id - HIT_TYPE; e->cat_i = e->cat_focus = 0; build_cats(e); reset_items(e); }
         return 1;
     }
     if (id >= HIT_CAT && id < HIT_CAT + e->n_cats) { e->zone = Z_CATS; e->cat_focus = id - HIT_CAT; return 0; }
@@ -559,6 +564,6 @@ Screen *screen_explore_create(void)
     e->gen = g_next_gen++;
     for (int i = 0; i < MAX_LIVE; i++) if (!g_live[i]) { g_live[i] = e; break; }
     s->name = "explore"; s->st = e; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
     return s;
 }

@@ -72,6 +72,8 @@ typedef struct {
     int feat;                 /* Showcase: which of the featured row's titles is up */
     float feat_timer;
     Peek peek;                /* details beside the focused poster */
+    float phone_y, phone_yv;  /* upright on a phone: the page's scroll */
+    int phone_btn;            /* ...and on its feature card, Play (0) or Library (1) */
 } Home;
 
 static void move_focus(Home *h, int row, int col);
@@ -79,6 +81,19 @@ static void move_focus(Home *h, int row, int col);
 #define HIT_CARD(row, col) (((row) << 12) | (col))
 #define HIT_SHOWCASE 0x7FFFFFF
 #define HIT_HERO 0x7FFFFFE
+#define HIT_HERO_ADD 0x7FFFFFD
+
+/* Upright on a phone (src/ui/gfx.c: 780 units across): a feature card, rows of cards
+ * under it, the tab bar at the bottom. */
+#define PH_X 40.0f
+#define PH_HERO_Y 132.0f
+#define PH_HERO_H 640.0f
+#define PH_POSTER_W 224.0f
+#define PH_POSTER_H 336.0f
+#define PH_LAND_W 440.0f
+#define PH_LAND_H 248.0f
+#define PH_GAP 24.0f
+#define PH_TITLE_H 64.0f
 /* A screen shorter than 1080 units (a phone, drawn larger): the hero gives up most of the
  * difference so a whole row of cards still shows. */
 static float short_by(void) { return SNTV_UI_H < SNTV_UI_BASE_H ? (float)(SNTV_UI_BASE_H - SNTV_UI_H) : 0; }
@@ -414,6 +429,180 @@ static void note_first_view(Home *h)
     last_saved = g_app.time;
 }
 
+/* ---- upright on a phone ---- */
+
+static int ph_land(const Row *r) { return r->kind == ROW_CONTINUE; }
+static float ph_cw(const Row *r) { return ph_land(r) ? PH_LAND_W : PH_POSTER_W; }
+static float ph_ch(const Row *r) { return ph_land(r) ? PH_LAND_H : PH_POSTER_H; }
+static float ph_row_h(const Row *r) { return PH_TITLE_H + ph_ch(r) + (ph_land(r) ? 120 : 56); }
+static const MetaPreview *ph_hero(const Home *h)
+{
+    const Row *r = featured_row(h);
+    return r && r->n ? &r->metas[h->feat % featured_count(h)] : NULL;
+}
+static float ph_rows_top(const Home *h) { return ph_hero(h) ? PH_HERO_Y + PH_HERO_H + 48 : PH_HERO_Y; }
+
+static void phone_scroll_row(Row *r, float dt)
+{
+    int vis = (int)((SNTV_UI_W - PH_X) / (ph_cw(r) + PH_GAP));
+    int first = r->focus - (vis > 1 ? vis - 1 : 0);
+    if (first < 0) first = 0;
+    r->scroll_x = ui_ease(r->scroll_x, first * (ph_cw(r) + PH_GAP), &r->scroll_xv, dt, 16);
+}
+
+/* The focused row kept on screen above the tab bar; the feature card at the top. */
+static void phone_scroll_page(Home *h, float dt)
+{
+    float y = ph_rows_top(h), want = 0, room = SNTV_UI_H - PHONE_TABS_H;
+    if (h->focus_row >= 0)
+        for (int i = 0; i < h->n_rows; i++) {
+            if (!row_visible(h->rows[i])) continue;
+            float rh = ph_row_h(h->rows[i]);
+            if (i == h->focus_row) { want = y + rh > room + h->phone_y ? y + rh - room + 20 : y - 40 < h->phone_y ? y - 40 : h->phone_y; break; }
+            y += rh;
+        }
+    if (want < 0 || h->focus_row == FOCUS_SHOWCASE) want = 0;
+    h->phone_y = ui_ease(h->phone_y, want, &h->phone_yv, dt, 14);
+}
+
+static float ph_button(const char *label, int icon, float x, float y, float w, float hh, int primary, int foc)
+{
+    if (foc) ui_focus_under(x, y, w, hh, hh / 2, 1);
+    gfx_rrect(x, y, w, hh, hh / 2, primary ? RGBA(255, 255, 255, 255) : COLOR_ALPHA(THEME_TEXT, 0x2E));
+    if (foc) gfx_rrect_ring(x - 6, y - 6, w + 12, hh + 12, hh / 2 + 6, 4, THEME_ACCENT);
+    Color fg = primary ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT;
+    float tw = label ? font_measure(label, FONT_M | FONT_B) : 0, iw = icon >= 0 ? 34 : 0, gap = label && icon >= 0 ? 14 : 0;
+    float cx = x + (w - tw - iw - gap) / 2;
+    if (icon >= 0) ui_icon((Icon)icon, cx + iw / 2, y + hh / 2, 30, fg);
+    if (label) font_draw(label, cx + iw + gap, y + (hh - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, fg);
+    return w;
+}
+
+static void phone_row(Home *h, int ri, float y)
+{
+    Row *r = h->rows[ri];
+    int focused_row = h->focus_row == ri;
+    font_draw_fit(r->title, PH_X, y, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * PH_X);
+    float cy = y + PH_TITLE_H, cw = ph_cw(r), ch = ph_ch(r);
+    if (!r->n) {
+        if (r->loading || !r->requested) for (int j = 0; j < 4; j++) ui_skeleton(PH_X + j * (cw + PH_GAP), cy, cw, ch, R_CARD);
+        else if (r->failed) font_draw("Couldn't load this catalog.", PH_X, cy + 20, FONT_S, THEME_TEXT_MUTED);
+        return;
+    }
+    char buf[512];
+    for (int pass = 0; pass < 2; pass++)
+        for (int j = 0; j < r->n; j++) {
+            float px = PH_X + j * (cw + PH_GAP) - r->scroll_x;
+            if (px > SNTV_UI_W || px + cw < 0) continue;
+            int foc = focused_row && r->focus == j;
+            if ((pass == 1) != foc) continue;
+            const MetaPreview *m = &r->metas[j];
+            const char *art = ph_land(r) ? app_art_background(m, buf, sizeof buf) : app_art_poster(m, buf, sizeof buf);
+            ui_card(art, px, cy, cw, ch, foc ? (g_app.fx_light ? 1 : h->focus_t) : 0, 0, m->name, ph_land(r) ? CARD_TRUE_COLOUR : 0);
+            ui_hit(px, cy, cw, ch, HIT_CARD(ri, j));
+            if (ph_land(r)) {
+                const LibraryItem *li = app_library_find(m->id);
+                if (li && li->duration > 0) {
+                    float frac = (float)li->time_offset / (float)li->duration;
+                    gfx_rect(px + 12, cy + ch - 14, cw - 24, 6, COLOR_ALPHA(THEME_TEXT, 0x40));
+                    gfx_rect(px + 12, cy + ch - 14, (cw - 24) * (frac > 1 ? 1 : frac), 6, THEME_ACCENT);
+                }
+                font_draw_fit(m->name ? m->name : "", px, cy + ch + 16, FONT_M | FONT_B, THEME_TEXT, cw);
+                if (m->release_info) font_draw_fit(m->release_info, px, cy + ch + 58, FONT_S, THEME_TEXT_DIM, cw);
+            }
+        }
+}
+
+static void phone_draw(Home *h)
+{
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    float top = -h->phone_y;
+    gfx_set_translate(0, top);
+    /* header: the mark and name; the account at the right */
+    ui_mark(PH_X, 36, 60);
+    font_draw(SNTV_APP_NAME, PH_X + 80, 36 + (60 - font_height(FONT_L | FONT_B)) / 2, FONT_L | FONT_B, THEME_TEXT);
+    float ax = SNTV_UI_W - PH_X - 72;
+    gfx_circle(ax + 36, 66, 36, COLOR_ALPHA(THEME_TEXT, 0x22));
+    ui_icon(ICON_USER, ax + 36, 66, 34, THEME_TEXT);
+    ui_hit(ax - 10, 20, 92, 92, HIT_RAIL + RAIL_ACCOUNT);
+    const MetaPreview *p = ph_hero(h);
+    if (p) {
+        float x = PH_X, y = PH_HERO_Y, w = SNTV_UI_W - 2 * PH_X, hh = PH_HERO_H;
+        char buf[512];
+        const char *bg = app_art_background(p, buf, sizeof buf);
+        ui_card(bg, x, y, w, hh, 0, 0, NULL, CARD_TRUE_COLOUR);
+        gfx_gradient_v(x, y + hh * 0.3f, w, hh * 0.7f, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xD8));
+        float ty = y + hh - 380;
+        font_draw("TONIGHT'S FEATURE", x + 40, ty, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0xC8));
+        int lines = font_draw_wrapped(p->name ? p->name : "", x + 40, ty + 40, FONT_XL | FONT_B, THEME_TEXT, w - 80, 2);
+        float my = ty + 40 + (lines > 1 ? 2 : 1) * font_height(FONT_XL | FONT_B) + 8;
+        char meta[200] = "";
+        const char *type = p->type && !strcmp(p->type, "series") ? "Series" : p->type && !strcmp(p->type, "movie") ? "Film" : NULL;
+        const char *parts[4] = { p->release_info, type, p->genres.n ? p->genres.v[0] : NULL, NULL };
+        size_t n = 0;
+        for (int k = 0; k < 3; k++) if (parts[k] && *parts[k]) n += (size_t)snprintf(meta + n, sizeof meta - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
+        if (p->imdb_rating && *p->imdb_rating) snprintf(meta + n, sizeof meta - n, "%sIMDb %s", n ? "  \xC2\xB7  " : "", p->imdb_rating);
+        font_draw_fit(meta, x + 40, my, FONT_S, COLOR_ALPHA(THEME_TEXT, 0xE0), w - 80);
+        float by = y + hh - 132, bh = 92;
+        int foc = h->focus_row == FOCUS_SHOWCASE;
+        float pw = w - 80 - bh - 20;
+        ph_button("Play", ICON_PLAY, x + 40, by, pw, bh, 1, foc && h->phone_btn == 0);
+        ui_hit(x + 40, by, pw, bh, HIT_HERO);
+        LibraryItem *li = app_library_find(p->id);
+        int in_lib = li && !li->removed && !li->temp;
+        ph_button(NULL, in_lib ? ICON_CHECK : ICON_PLUS, x + 40 + pw + 20, by, bh, bh, 0, foc && h->phone_btn == 1);
+        ui_hit(x + 40 + pw + 20, by, bh, bh, HIT_HERO_ADD);
+    }
+    float y = ph_rows_top(h);
+    int any = 0;
+    for (int i = 0; i < h->n_rows; i++) {
+        Row *r = h->rows[i];
+        if (!row_visible(r)) continue;
+        any = 1;
+        float rh = ph_row_h(r);
+        if (y + top < SNTV_UI_H && y + rh + top > 0) phone_row(h, i, y);
+        y += rh;
+    }
+    gfx_set_translate(0, 0);
+    if (!any) {
+        float cy = SNTV_UI_H / 2;
+        if (g_app.addons_loading) { ui_spinner(SNTV_UI_W / 2, cy, 30); font_draw_center("Loading your addons", SNTV_UI_W / 2, cy + 60, FONT_M | FONT_B, THEME_TEXT_DIM); }
+        else font_draw_center(g_app.addons_error[0] ? g_app.addons_error : "No catalogs yet", SNTV_UI_W / 2, cy, FONT_L | FONT_B, THEME_TEXT);
+    }
+    rail_draw(RAIL_HOME, -1);
+}
+
+static int phone_key(Home *h, KeyAction a)
+{
+    if (h->focus_row == FOCUS_SHOWCASE || h->focus_row < 0) {
+        const MetaPreview *p = ph_hero(h);
+        switch (a) {
+        case KEY_LEFT: h->phone_btn = 0; return 1;
+        case KEY_RIGHT: h->phone_btn = 1; return 1;
+        case KEY_DOWN: { int r = next_visible(h, -1, 1); if (r >= 0) move_focus(h, r, -1); return 1; }
+        case KEY_OK: if (!p) return 1; if (h->phone_btn) app_library_toggle(p); else app_push(screen_detail_create(p)); return 1;
+        case KEY_LONG_OK: if (p) screen_options_for_title(p); return 1;
+        case KEY_BACK:
+            if (h->exit_ask > 0 && g_app.time - h->exit_ask < 2.5f) { g_app.quit = 1; return 1; }
+            h->exit_ask = g_app.time;
+            app_toast("Press Back again to leave");
+            return 1;
+        default: return 1;
+        }
+    }
+    Row *r = h->rows[h->focus_row];
+    switch (a) {
+    case KEY_UP: { int n = next_visible(h, h->focus_row, -1); if (n >= 0) move_focus(h, n, -1); else if (ph_hero(h)) { h->focus_row = FOCUS_SHOWCASE; h->phone_btn = 0; } return 1; }
+    case KEY_DOWN: { int n = next_visible(h, h->focus_row, 1); if (n >= 0) move_focus(h, n, -1); return 1; }
+    case KEY_LEFT: if (r->focus > 0) move_focus(h, h->focus_row, r->focus - 1); return 1;
+    case KEY_RIGHT: if (r->focus < r->n - 1) move_focus(h, h->focus_row, r->focus + 1); return 1;
+    case KEY_OK: if (r->focus < r->n) app_push(screen_detail_create(&r->metas[r->focus])); return 1;
+    case KEY_LONG_OK: case KEY_YELLOW: case KEY_MENU: case KEY_INFO: if (r->focus < r->n) screen_options_for_title(&r->metas[r->focus]); return 1;
+    case KEY_BACK: h->focus_row = ph_hero(h) ? FOCUS_SHOWCASE : next_visible(h, -1, 1); h->phone_btn = 0; return 1;
+    default: return 0;
+    }
+}
+
 static void update(Screen *s, float dt)
 {
     if (g_theme.id == THEME_APERTURE) ui_aperture_drift_tick();
@@ -468,7 +657,7 @@ static void update(Screen *s, float dt)
         if ((int)(was * 34 / SHOWCASE_EVERY) != (int)(h->feat_timer * 34 / SHOWCASE_EVERY) && !g_app.fx_light) app_redraw();   /* the dot's fill, a step a pixel */
         if (h->feat_timer > SHOWCASE_EVERY && h->focus_row != FOCUS_SHOWCASE) { h->feat_timer = 0; h->feat = (h->feat + 1) % featured_count(h); app_redraw(); }
         if (h->focus_row == FOCUS_SHOWCASE) h->feat_timer = 0;
-    } else if (h->focus_row == FOCUS_SHOWCASE) h->focus_row = -1;
+    } else if (h->focus_row == FOCUS_SHOWCASE && !SNTV_PHONE) h->focus_row = -1;
 
     float y = 0;
     for (int i = 0; i < h->n_rows && i < h->focus_row; i++) if (row_visible(h->rows[i])) y += row_h(h->rows[i]);
@@ -489,11 +678,13 @@ static void update(Screen *s, float dt)
     }
     for (int i = 0; i < h->n_rows; i++) {
         Row *r = h->rows[i];
+        if (SNTV_PHONE) { phone_scroll_row(r, dt); continue; }
         int vis = visible_cards(r);
         int first = r->focus - (vis - 2);
         if (first < 0) first = 0;
         r->scroll_x = ui_ease(r->scroll_x, first * (card_w(r) + GAP), &r->scroll_xv, dt, 16);
     }
+    if (SNTV_PHONE) phone_scroll_page(h, dt);
     h->focus_t = ui_ease(h->focus_t * 100, 100, NULL, dt, 16) / 100;
     h->prev_t = ui_ease(h->prev_t * 100, 0, NULL, dt, 16) / 100;
     h->hero_fade = ui_ease(h->hero_fade * 100, 100, NULL, dt, 7) / 100;
@@ -750,6 +941,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
 static void draw(Screen *s)
 {
     Home *h = s->st;
+    if (SNTV_PHONE) { phone_draw(h); return; }
     const MetaPreview *hero = shown_hero(h);
     ui_background(hero ? image_tint(h->hero_bg) : 0);
 
@@ -849,6 +1041,7 @@ static void close_rail(Home *h)
 static int tap(Screen *s, int id)
 {
     Home *h = s->st;
+    if (SNTV_PHONE && (id == HIT_HERO || id == HIT_HERO_ADD)) { h->focus_row = FOCUS_SHOWCASE; h->phone_btn = id == HIT_HERO_ADD; return 0; }
     if (id == HIT_SHOWCASE) { h->focus_row = FOCUS_SHOWCASE; return 0; }
     if (id == HIT_HERO) return h->focus_row >= 0 ? 0 : 1;
     int row = id >> 12, col = id & 0xFFF;
@@ -861,6 +1054,7 @@ static int key(Screen *s, KeyAction a)
 {
     Home *h = s->st;
     app_redraw();
+    if (SNTV_PHONE && a != KEY_SEARCH) return phone_key(h, a);
     if (a == KEY_SEARCH) { app_push(screen_search_create()); return 1; }
     if (a == KEY_LONG_OK && (h->focus_row < 0 || h->focus_row >= h->n_rows)) return 0;   /* the rail or the carousel: a plain OK */
     if (h->focus_row == FOCUS_SHOWCASE) {   /* the carousel View button */
@@ -947,7 +1141,7 @@ Screen *screen_home_create(void)
     h->watched_seen = g_app.hide_watched;
     s->name = "home"; s->st = h; s->long_ok = 1;
     g_home_live = h;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
     rebuild_rows(h);
     return s;
 }

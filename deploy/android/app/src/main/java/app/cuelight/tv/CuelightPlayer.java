@@ -198,6 +198,12 @@ public final class CuelightPlayer {
         });
     }
 
+    /* a phone: sideways only, or as it is held */
+    public static void landscapeOnly(final boolean on) {
+        run(() -> sActivity.setRequestedOrientation(on ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                                       : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER));
+    }
+
     public static double[] status() { return sStatus; }
     public static String error() { return sError; }
     public static String codec() { return sCodec; }

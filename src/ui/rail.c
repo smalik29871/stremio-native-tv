@@ -21,9 +21,27 @@ static float item_y(int i)
 
 static int g_rail_active;   /* the section of the rail drawn last, for a tap */
 
+/* A phone held upright: the sections as tabs along the bottom instead */
+static void draw_tabs(int active)
+{
+    static const int TABS[] = { RAIL_HOME, RAIL_EXPLORE, RAIL_SEARCH, RAIL_LIBRARY, RAIL_SETTINGS };
+    float h = PHONE_TABS_H, y = SNTV_UI_H - h, w = (float)SNTV_UI_W / 5;
+    gfx_rect(0, y, SNTV_UI_W, h, THEME_BG2);
+    gfx_rect(0, y, SNTV_UI_W, 2, THEME_LINE);
+    for (int i = 0; i < 5; i++) {
+        int t = TABS[i], on = t == active || (t == RAIL_LIBRARY && active == RAIL_CALENDAR);
+        Color c = on ? THEME_TEXT : THEME_TEXT_MUTED;
+        float cx = w * i + w / 2;
+        ui_icon(ICONS[t], cx, y + 50, 44, c);
+        font_draw_center(LABELS[t], cx, y + 84, FONT_XS | FONT_B, c);
+        ui_hit(w * i, y, w, h, HIT_RAIL + t);
+    }
+}
+
 void rail_draw(int active, int focus)
 {
     g_rail_active = active;
+    if (SNTV_PHONE) { draw_tabs(active); return; }
     int open = focus >= 0;
     float w = open ? 340 : RAIL_W;
     if (open) {

@@ -173,6 +173,8 @@ static void flush(void)
 
 int g_ui_w = SNTV_UI_BASE_W, g_ui_h = SNTV_UI_BASE_H;
 static int g_handheld;   /* a phone: the screen's width holds 1920 units, so everything is drawn larger */
+int g_ui_portrait;
+int gfx_handheld(void) { return g_handheld; }
 void gfx_set_handheld(int on) { g_handheld = on; }
 
 void gfx_begin_frame(Color clear)
@@ -182,7 +184,9 @@ void gfx_begin_frame(Color clear)
         double aspect = (double)g_draw_w / g_draw_h;
         g_ui_w = aspect > 16.0 / 9.0 + 0.01 ? (int)(SNTV_UI_BASE_H * aspect + 0.5) : SNTV_UI_BASE_W;
         g_ui_h = aspect < 16.0 / 9.0 - 0.01 ? (int)(SNTV_UI_BASE_W / aspect + 0.5) : SNTV_UI_BASE_H;
-        if (g_handheld && g_ui_w > SNTV_UI_BASE_W) {   /* 20:9 is 1920 x 864: no shorter than 820, the layouts' floor */
+        g_ui_portrait = g_handheld && aspect < 1;
+        if (g_ui_portrait) { g_ui_w = 780; g_ui_h = (int)(780 / aspect + 0.5); }   /* upright: its own layouts */
+        else if (g_handheld && g_ui_w > SNTV_UI_BASE_W) {   /* 20:9 is 1920 x 864: no shorter than 820, the layouts' floor */
             g_ui_h = (int)(SNTV_UI_BASE_W / aspect + 0.5);
             if (g_ui_h < 820) g_ui_h = 820;
             g_ui_w = (int)(g_ui_h * aspect + 0.5);

@@ -310,6 +310,16 @@ static void touch_event(const SDL_Event *e)
         if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
         return;
     }
+    {   /* the swipe moves what it started on (a row of cards, a list): its focus goes there first */
+        int pw, ph, id;
+        float ux, uy;
+        gfx_drawable_size(&pw, &ph);
+        gfx_pixels_to_ui(g_touch.x * pw, g_touch.y * ph, &ux, &uy);
+        Screen *top = app_top();
+        if (top && top->tap && ui_hit_find(ux, uy, top, &id) && !(id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT)) {
+            g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;
+        }
+    }
     KeyAction a = SDL_fabsf(dx) > SDL_fabsf(dy) ? (dx < 0 ? KEY_RIGHT : KEY_LEFT) : (dy < 0 ? KEY_DOWN : KEY_UP);   /* content follows the finger */
     int steps = (int)(dist / 0.12f) + 1;
     if (steps > 6) steps = 6;
@@ -473,7 +483,10 @@ int main(int argc, char **argv)
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
 #ifdef SNTV_PLATFORM_ANDROID
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");   /* Back is ours (it closes a screen), not the system's */
-    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    {   /* a phone (CuelightActivity says) also turns upright */
+        const char *hh = getenv("SNTV_HANDHELD");
+        SDL_SetHint(SDL_HINT_ORIENTATIONS, hh && *hh == '1' ? "LandscapeLeft LandscapeRight Portrait" : "LandscapeLeft LandscapeRight");
+    }
 #endif
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {

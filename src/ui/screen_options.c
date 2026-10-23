@@ -39,7 +39,7 @@ static void draw(Screen *s)
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(140 * k)));
     ui_hit(0, 0, SNTV_UI_W, SNTV_UI_H, HIT_OUTSIDE);
 
-    float w = 760, pad = 40, item_h = 74;
+    float w = SNTV_UI_W - 40 < 760 ? SNTV_UI_W - 40 : 760, pad = 40, item_h = SNTV_PHONE ? 96 : 74;
     int body_lines = o->body ? font_draw_wrapped(o->body, 0, 0, FONT_S, 0, w - 2 * pad, 12) : 0;
     float body_h = body_lines ? body_lines * font_height(FONT_S) + 24 : 0;
     float head = o->subtitle[0] ? 120 : 92;
@@ -94,7 +94,7 @@ static int key(Screen *s, KeyAction a)
 static int tap(Screen *s, int id)
 {
     Opt *o = s->st;
-    if (id == HIT_OUTSIDE) { app_pop(); return 1; }
+    if (id == HIT_OUTSIDE) { if (!g_touch_aim) app_pop(); return 1; }
     if (id < 0 || id >= o->n) return 1;
     o->focus = id;
     return 0;
@@ -115,6 +115,8 @@ Screen *screen_options_create_ex(const char *title, const char *subtitle, const 
     o->opened_at = g_app.time;
     s->name = "options"; s->st = o;
     s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy;
+    Screen *under = app_top();
+    s->phone = under ? under->phone : 1;   /* it fits any width; upright only when what it covers is too */
     return s;
 }
 

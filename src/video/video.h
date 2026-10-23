@@ -61,6 +61,9 @@ void video_select_track(TrackKind kind, int index);  /* index -1 disables text t
  * backends that cannot style the TV's own subtitles ignore it. */
 void video_subtitle_style(int size, int style, const char *colour, int position, int sync_ms);   /* colour: a caption colour name, NULL for the style's */
 
+/* A phone: only sideways (1) while the screen on top has no upright layout, else either way. */
+void video_landscape_only(int on);
+
 /* Window-pixel rectangle the video should cover (full window by default). */
 void video_set_display_rect(int x, int y, int w, int h);
 /* App went to background / came back (webOS pauses the pipeline itself, but we keep state honest). */

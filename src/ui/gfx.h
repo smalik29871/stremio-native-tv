@@ -20,7 +20,8 @@ Color color_mul_alpha(Color c, float k);
 Color color_lerp(Color a, Color b, float t);
 
 int  gfx_init(SDL_Window *win);
-void gfx_set_handheld(int on);   /* a phone-sized screen: larger, filling its width */
+void gfx_set_handheld(int on);
+int  gfx_handheld(void);   /* a phone-sized screen: larger, filling its width */
 void gfx_shutdown(void);
 
 /* Logical canvas is SNTV_UI_W x SNTV_UI_H; gfx scales to the real drawable. */

@@ -1,5 +1,6 @@
 /* The island: the clock pill that becomes notices, progress and a resume card. */
 #include "island.h"
+#include "rail.h"
 #include "../http.h"
 #include "font.h"
 #include "theme.h"
@@ -83,7 +84,7 @@ static int current_kind(int show_clock)
     if (g_app.toast[0] && g_app.time < g_app.toast_until) return IS_NOTICE;
     if (I.progress[0] && g_app.time - I.progress_at < 0.5f) return IS_PROGRESS;
     if (I.has_resume && g_app.time - I.resume_at < RESUME_FOR && show_clock) return IS_RESUME;
-    if (show_clock && g_app.clock_mode != 2) return IS_CLOCK;
+    if (show_clock && g_app.clock_mode != 2 && !SNTV_PHONE) return IS_CLOCK;   /* a phone shows its own */
     return IS_NONE;
 }
 
@@ -103,7 +104,7 @@ void island_draw(int in_player, int show_clock)
         tw = font_measure(now, fs) + 44 + dial;
         if (g_update_version[0]) { char up[32]; snprintf(up, sizeof up, "Update %s", g_update_version); tw += font_measure(up, FONT_XS | FONT_B) + 52; }
         break;
-    case IS_NOTICE: tw = font_measure(g_app.toast, fs) + 84; if (tw > 1100) tw = 1100; th = 60; break;
+    case IS_NOTICE: tw = font_measure(g_app.toast, fs) + 84; if (tw > 1100) tw = 1100; if (SNTV_PHONE && tw > SNTV_UI_W - 40) tw = SNTV_UI_W - 40; th = 60; break;
     case IS_PROGRESS: tw = font_measure(I.progress, fs) + 220; th = 60; break;
     case IS_RESUME: {
         float a = font_measure(I.resume_line, fs), b = font_measure("RESUME", FONT_XS | FONT_B) + 200;
@@ -120,6 +121,10 @@ void island_draw(int in_player, int show_clock)
 
     float right = SNTV_UI_W - THEME_MARGIN, y = 47;
     float x = in_player ? (SNTV_UI_W - I.w) / 2 : right - I.w;
+    if (SNTV_PHONE) {   /* upright on a phone: centred above the tab bar, clear of the screens' titles */
+        if (I.w > SNTV_UI_W - 40) I.w = SNTV_UI_W - 40;
+        x = (SNTV_UI_W - I.w) / 2; y = SNTV_UI_H - PHONE_TABS_H - I.h - 28;
+    }
     if (!in_player && !http_online()) {   /* offline, beside the island */
         const char *t = "No internet";
         float ow = font_measure(t, fs) + 74, oh = 52, ox = x - ow - (I.w > 1 ? 14 : 0);

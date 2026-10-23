@@ -9,6 +9,7 @@
 #include "qrcodegen.h"
 #include "font.h"
 #include "keyboard.h"
+#include "rail.h"
 #include "theme.h"
 #include "widgets.h"
 #include "screen_options.h"
@@ -23,7 +24,7 @@ enum { LIST_ROW = 58, LIST_MAX = 5, HERO_H = 400, COLS_TYPING = 5, COLS = 7, CEL
 
 /* Results are grouped by type, each group under its own heading and starting a new row. */
 enum { SECT_MAX = 4, SECT_H = 56 };
-enum { HIT_FIELD = 0x1000, HIT_LIST = 0x2000, HIT_HERO = 0x3000, HIT_HERO_CARD = 0x3100 };   /* touch targets; a result is its index */
+enum { HIT_FIELD = 0x1000, HIT_LIST = 0x2000, HIT_HERO = 0x3000, HIT_HERO_CARD = 0x3100, HIT_CHIP = 0x4000 };   /* touch targets; a result is its index */
 typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
@@ -71,10 +72,14 @@ struct Search {
     int sugg_focus;               /* -1 on the keys, else the suggestion */
     int tvkb;                     /* typing with the TV's own keyboard, not the app's */
     int hero_btn;                 /* on the top result's buttons (focus_grid 3): which one */
+    int ph_filter;                /* upright on a phone: All, Films, Series */
+    float ph_y, ph_yv, ph_fy, ph_fh;   /* ...the page's scroll, and where the focus is on it */
     char sugg_logged[96];
     char sugg_for[256]; int sugg_n_res, sugg_lib; unsigned sugg_gen;   /* what the suggestions were worked out for */
 };
 static void focus_results(Search *s);
+static void phone_draw(Search *s);
+static int phone_key(Search *s, KeyAction a);
 
 static Search *g_person_live;   /* the screen a filmography lookup answers to */
 
@@ -594,6 +599,7 @@ static void close_keyboard(Search *s)
 /* The TV's own keyboard for Search (Settings; on by default on the TV, tests ask for it). */
 static int tv_keyboard(void)
 {
+    if (SNTV_PHONE) return 1;   /* a phone types with its own */
 #ifdef SNTV_PLATFORM_WEBOS
     return store_get_int("tvKeyboard", 1);
 #else
@@ -637,9 +643,19 @@ static int headed_row(const Search *s, int row)
     return 0;
 }
 
+static void ph_focus_at(Search *s, int on, float y, float h) { if (on) { s->ph_fy = y; s->ph_fh = h; } }
+
 static void update(Screen *sc, float dt)
 {
     Search *s = sc->st;
+    if (SNTV_PHONE) {   /* the page follows the focus, the field and the kinds at the top */
+        float view = SNTV_UI_H - PHONE_TABS_H, want = s->ph_y;
+        if (s->ph_fy + s->ph_fh > want + view - 30) want = s->ph_fy + s->ph_fh - view + 30;
+        if (s->ph_fy - 30 < want) want = s->ph_fy - 30;
+        if (!s->focus_grid || want < 0) want = 0;
+        s->ph_y = ui_ease(s->ph_y, want, &s->ph_yv, dt, 14);
+        if (fabsf(s->ph_y - want) > 0.5f) app_redraw();
+    }
     char got[256];
     if (s->typing && phone_take(got, sizeof got)) {   /* sent from the phone: search it right away */
         kb_set(s, got);
@@ -798,6 +814,7 @@ static float draw_list(const Search *s, float x, float y, float w)
 static void draw(Screen *sc)
 {
     Search *s = sc->st;
+    if (SNTV_PHONE) { phone_draw(s); return; }
     const MetaPreview *fp = s->focus_grid == 1 && s->grid_focus < s->n ? &s->results[s->grid_focus] : s->focus_grid == 3 && s->n ? &s->results[0] : NULL;
     char buf[512];
     const char *bg = fp ? app_art_background(fp, buf, sizeof buf) : NULL;
@@ -973,6 +990,7 @@ static int key(Screen *sc, KeyAction a)
         if (s->focus_grid == 3 && s->n) { screen_options_for_title(&s->results[0]); return 1; }
         if (a == KEY_LONG_OK) return 0;
     }
+    if (SNTV_PHONE) { int r = phone_key(s, a); if (r >= 0) return r; }
     if (s->typing) return key_typing(s, a);
     int nl = list_n(s);
     if (!s->focus_grid) {   /* the search bar */
@@ -1023,10 +1041,144 @@ static int key(Screen *sc, KeyAction a)
     }
 }
 
+/* ---- upright on a phone: the field, the kinds, then one list (what is typed suggests, the
+ * recent searches, or the results), the phone's own keyboard ---- */
+
+static int ph_shown(const Search *s, int i)
+{
+    const char *t = s->results[i].type;
+    return !s->ph_filter || (t && !strcmp(t, s->ph_filter == 1 ? "movie" : "series"));
+}
+
+static void ph_line(const char *text, const char *sub, Icon icon, float x, float y, float w, float h, int foc, int hit)
+{
+    if (foc) { ui_focus_under(x - 12, y, w + 24, h, R_PANEL, 1); gfx_rrect(x - 12, y, w + 24, h, R_PANEL, THEME_FOCUS); }
+    Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
+    float tx = x;
+    if ((int)icon >= 0) { ui_icon(icon, x + 22, y + h / 2, 30, foc ? fg : THEME_TEXT_MUTED); tx += 62; }
+    font_draw_fit(text, tx, y + (h - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, fg, w - (tx - x) - (sub ? font_measure(sub, FONT_S) + 24 : 0));
+    if (sub && *sub) font_draw(sub, x + w - font_measure(sub, FONT_S), y + (h - font_height(FONT_S)) / 2, FONT_S, foc ? fg : THEME_TEXT_MUTED);
+    ui_hit(x - 12, y, w + 24, h, hit);
+}
+
+static void phone_draw(Search *s)
+{
+    float W = SNTV_UI_W, x = 40, w = W - 80;
+    gfx_rect(0, 0, W, SNTV_UI_H, THEME_BG);
+    gfx_set_translate(0, -s->ph_y);
+    font_draw("Search", x, 36, FONT_XL | FONT_B, THEME_TEXT);
+    float fy = 130, fh = 100;
+    int ffoc = !s->focus_grid;
+    gfx_rrect(x, fy, w, fh, fh / 2, COLOR_ALPHA(THEME_TEXT, ffoc ? 0x26 : 0x18));
+    if (ffoc && !s->typing) gfx_rrect_ring(x, fy, w, fh, fh / 2, 3, THEME_ACCENT2);
+    ui_icon(ICON_SEARCH, x + 52, fy + fh / 2, 36, THEME_TEXT_DIM);
+    if (s->kb.text[0]) {
+        font_draw_fit(s->kb.text, x + 96, fy + (fh - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT, w - 130);
+        if (s->typing && fmodf(g_app.time, 1.0f) < 0.55f) { float cx = x + 96 + font_measure(s->kb.text, FONT_M) + 4; if (cx < x + w - 30) gfx_rect(cx, fy + 28, 3, fh - 56, THEME_ACCENT2); }
+        if (s->typing) app_redraw();
+    } else font_draw("Movies, series, people\xE2\x80\xA6", x + 96, fy + (fh - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT_MUTED);
+    ui_hit(x, fy, w, fh, HIT_FIELD);
+    ph_focus_at(s, ffoc, fy, fh);
+    float y = fy + fh + 30;
+    static const char *const CHIPS[] = { "All", "Films", "Series" };
+    float cx = x;
+    for (int k = 0; k < 3; k++) {
+        float cw = font_measure(CHIPS[k], FONT_S | FONT_B) + 56;
+        int on = s->ph_filter == k;
+        gfx_rrect(cx, y, cw, 72, 36, on ? THEME_TEXT : COLOR_ALPHA(THEME_TEXT, 0x18));
+        font_draw(CHIPS[k], cx + 28, y + (72 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, on ? THEME_BG : THEME_TEXT);
+        ui_hit(cx, y, cw, 72, HIT_CHIP + k);
+        cx += cw + 16;
+    }
+    y += 110;
+    int nl = list_n(s);
+    int lfoc = s->typing ? s->sugg_focus : s->focus_grid == 2 ? s->recent_focus : -1;
+    if (nl && (s->typing || !s->n || refining(s))) {   /* suggestions, recent searches or the assistant's follow-ups */
+        if (!s->kb.text[0] && !refining(s)) { font_draw("RECENT", x, y, FONT_XS | FONT_B, THEME_TEXT_MUTED); y += 44; }
+        for (int i = 0; i < nl; i++, y += 100) {
+            const char *t = refining(s) ? s->refine[i] : s->kb.text[0] ? s->sugg[i] : i < s->n_recent ? s->recent[i] : "Clear recent searches";
+            const char *sub = !refining(s) && s->kb.text[0] ? s->sugg_sub[i] : NULL;
+            Icon ic = refining(s) ? ICON_STAR : !s->kb.text[0] && i < s->n_recent ? ICON_CLOCK : (Icon)-1;
+            ph_line(t, sub, ic, x, y, w, 88, lfoc == i, HIT_LIST + i);
+            ph_focus_at(s, lfoc == i, y, 88);
+        }
+        y += 20;
+    }
+    if ((s->pending || s->ai_state == 1) && !s->n) { ui_spinner(W / 2, y + 60, 26); y += 140; }
+    else if (!s->n && strlen(s->last_query) >= 2 && !s->typing) { font_draw_center("Nothing found", W / 2, y + 40, FONT_L | FONT_B, THEME_TEXT); y += 120; }
+    if (s->n && !(s->typing && nl)) {
+        char hdr[64]; int shown = 0;
+        for (int i = 0; i < s->n; i++) shown += ph_shown(s, i);
+        snprintf(hdr, sizeof hdr, "%d result%s", shown, shown == 1 ? "" : "s");
+        font_draw(hdr, x, y, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        y += 48;
+        float rh = 230;
+        for (int i = 0; i < s->n; i++) {
+            if (!ph_shown(s, i)) continue;
+            int foc = s->focus_grid == 1 && s->grid_focus == i;
+            ph_focus_at(s, foc, y, rh - 30);
+            if (y - s->ph_y < SNTV_UI_H && y + rh - s->ph_y > 0) {
+                const MetaPreview *m = &s->results[i];
+                if (foc) { ui_focus_under(x - 12, y - 12, w + 24, rh - 6, R_PANEL, 1); gfx_rrect(x - 12, y - 12, w + 24, rh - 6, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x16)); }
+                char pb[512];
+                ui_card(app_art_poster(m, pb, sizeof pb), x, y, 136, 204, 0, 0, m->name, 0);
+                const char *kind = m->type && !strcmp(m->type, "series") ? "Series" : m->type && !strcmp(m->type, "movie") ? "Film" : NULL;
+                char sub[160] = ""; size_t n = 0;
+                const char *parts[4] = { kind, m->release_info, m->genres.n ? m->genres.v[0] : NULL, NULL };
+                for (int k = 0; k < 3; k++) if (parts[k] && *parts[k]) n += (size_t)snprintf(sub + n, sizeof sub - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
+                if (m->imdb_rating && *m->imdb_rating) snprintf(sub + n, sizeof sub - n, "%sIMDb %s", n ? "  \xC2\xB7  " : "", m->imdb_rating);
+                int tl = font_draw_wrapped(m->name ? m->name : "", x + 166, y + 40, FONT_M | FONT_B, THEME_TEXT, w - 166 - 50, 2);
+                font_draw_wrapped(sub, x + 166, y + 52 + tl * font_height(FONT_M | FONT_B), FONT_S, THEME_TEXT_DIM, w - 166 - 50, 2);
+                ui_icon(ICON_CHEVRON_RIGHT, x + w - 16, y + 102, 26, THEME_TEXT_MUTED);
+                ui_hit(x - 12, y - 12, w + 24, rh - 6, i);
+            }
+            y += rh;
+        }
+    }
+    gfx_set_translate(0, 0);
+    rail_draw(RAIL_SEARCH, -1);
+}
+
+static int phone_key(Search *s, KeyAction a)
+{
+    if (s->typing || (a != KEY_UP && a != KEY_DOWN && a != KEY_OK && a != KEY_LEFT && a != KEY_RIGHT)) return -1;
+    int nl = list_n(s);
+    int list_on = nl && (!s->n || refining(s));
+    int first = -1, last = -1;
+    for (int i = 0; i < s->n; i++) if (ph_shown(s, i)) { if (first < 0) first = i; last = i; }
+    if (a == KEY_LEFT || a == KEY_RIGHT) {   /* the kinds */
+        int f = s->ph_filter + (a == KEY_RIGHT ? 1 : -1);
+        if (f >= 0 && f < 3) { s->ph_filter = f; if (s->focus_grid == 1 && !ph_shown(s, s->grid_focus)) s->grid_focus = first; }
+        return 1;
+    }
+    switch (s->focus_grid) {
+    case 0:
+        if (a == KEY_OK) { open_keyboard(s); return 1; }
+        if (a == KEY_DOWN) { if (list_on) { s->focus_grid = 2; s->recent_focus = 0; } else if (first >= 0) { s->focus_grid = 1; s->grid_focus = first; } }
+        return 1;
+    case 2:
+        if (a == KEY_OK) { if (s->recent_focus < nl) take_list(s, s->recent_focus); return 1; }
+        if (a == KEY_UP) { if (s->recent_focus > 0) s->recent_focus--; else s->focus_grid = 0; }
+        else if (s->recent_focus < nl - 1) s->recent_focus++;
+        else if (first >= 0) { s->focus_grid = 1; s->grid_focus = first; }
+        return 1;
+    default: {
+        if (a == KEY_OK) { if (s->grid_focus < s->n) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[s->grid_focus])); } return 1; }
+        int dir = a == KEY_DOWN ? 1 : -1, i = s->grid_focus + dir;
+        while (i >= 0 && i < s->n && !ph_shown(s, i)) i += dir;
+        if (i >= 0 && i < s->n) s->grid_focus = i;
+        else if (dir < 0) { if (list_on) { s->focus_grid = 2; s->recent_focus = nl - 1; } else s->focus_grid = 0; }
+        s->focus_t = 0;
+        return 1;
+    }
+    }
+}
+
 /* Touch: the field opens the keyboard, a key types, a line of the list or a result is taken. */
 static int tap(Screen *sc, int id)
 {
     Search *s = sc->st;
+    if (id >= HIT_CHIP && id < HIT_CHIP + 3) { if (!g_touch_aim) s->ph_filter = id - HIT_CHIP; return 1; }
     if (keyboard_tap(&s->kb, id)) { if (!s->typing) return 1; s->sugg_focus = -1; return 0; }
     if (id == HIT_FIELD) { if (s->typing) return 1; s->focus_grid = 0; return 0; }
     if (id >= HIT_LIST && id < HIT_LIST + 32) {
@@ -1038,6 +1190,7 @@ static int tap(Screen *sc, int id)
         return 0;
     }
     if (id < HIT_FIELD && id >= s->n) return 1;
+    if (g_touch_aim && id >= HIT_FIELD) return 1;
     if (s->typing) { close_keyboard(s); recent_add(s, s->kb.text); }
     s->focus_t = 0;
     if (id == HIT_HERO_CARD) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[0])); return 1; }
@@ -1079,7 +1232,7 @@ Screen *screen_search_create(void)
     recent_load(s);
     for (int i = 0; i < OPEN_MAX; i++) if (!g_open[i]) { g_open[i] = s; break; }   /* (past eight deep, its replies are just dropped) */
     sc->name = "search"; sc->st = s; sc->long_ok = 1;
-    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->text = text; sc->destroy = destroy;
+    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->text = text; sc->destroy = destroy; sc->phone = 1;
     return sc;
 }
 

@@ -18,6 +18,10 @@
  * height, so what is anchored to the right or bottom edge sits at the real edge. Set by
  * gfx_begin_frame for each frame. */
 extern int g_ui_w, g_ui_h;
+/* A phone held upright: a canvas 780 units wide (src/ui/gfx.c) and the screens' phone
+ * layouts; a screen without one turns the phone sideways (Screen.phone). */
+extern int g_ui_portrait;
+#define SNTV_PHONE g_ui_portrait
 #define SNTV_UI_W g_ui_w
 #define SNTV_UI_H g_ui_h
 #define SNTV_UI_BASE_W 1920
