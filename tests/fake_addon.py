@@ -274,7 +274,8 @@ class H(BaseHTTPRequestHandler):
             need = ("id", "name", "version", "description", "resources", "types", "catalogs")
             if not all(all(k in a.get("manifest", {}) for k in need) for a in req.get("addons", [])):
                 return self.send(200, b'{"error":{"message":"missing field","code":24}}')
-            H.repaired = True
+            if b"brokenkey" in body:   # only that account's own save repairs it (others save their lists too)
+                H.repaired = True
             with open(os.environ.get("FAKE_COLLECTION_LOG", os.devnull), "ab") as f:
                 f.write(body + b"\n")
             return self.send(200, b'{"result":{"success":true}}')
