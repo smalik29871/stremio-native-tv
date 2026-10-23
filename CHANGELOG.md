@@ -13,8 +13,10 @@
   Search with the phone's own keyboard and filters for films and series, Settings as a list
   with each category on a page of its own, first-run setup, sign-in (a button opens
   Stremio's page on the phone itself instead of a QR code), What's new, Diagnostics, the
-  PIN pad, profiles, Calendar (from Library), breaks and the screensaver. The player turns
-  the phone sideways.
+  PIN pad, profiles, Calendar (from Library), breaks and the screensaver. The player too:
+  the picture across the top, the time and a scrub bar to tap, play/pause and 10 s each
+  way, Skip intro and the next episode, and lists for subtitles, audio and speed, sources
+  and episodes. Turn the phone (or tap Full screen) for the whole-screen player.
 - **Android: videos play** (Media3 ExoPlayer under the app's own player screen): play, pause,
   seek, speed, volume, the file's audio and subtitle tracks, buffering and errors.
 

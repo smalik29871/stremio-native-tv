@@ -86,6 +86,10 @@ struct Player {
     int rate_idx;             /* index into RATES */
     int rate_applied;         /* the pipeline got the rate for this load */
     int aspect;               /* ASPECT_* */
+    /* upright on a phone: the picture at the top, the controls and a list under it */
+    int ph_sheet, ph_focus, ph_full;   /* the list open (PH_*), its focused row, turned sideways by Full screen */
+    float ph_scroll;
+    int ph_rect[4];           /* the picture's place last given to the video, in pixels */
     float since_report;
     double last_reported;
     int finished, up_next_shown, up_next_accepted;
@@ -267,6 +271,7 @@ static int open_cast(Player *p);
 static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n);
 
 static int subs_key(Player *p, KeyAction a);
+static void phone_draw(Player *p);
 static void subs_open(Player *p);
 static void xl_start(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
@@ -3524,6 +3529,9 @@ static void draw(Screen *s)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
+    if (SNTV_PHONE && !p->pip) { phone_draw(p); return; }
+    if (p->ph_rect[2]) { p->ph_rect[2] = 0; apply_aspect(p); }   /* back from upright: the whole screen again */
+    ui_hit(0, 0, SNTV_UI_W, SNTV_UI_H, 0x7FFFFF00);   /* a tap anywhere is OK, as before */
     draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
     if (p->veil > 0 && !p->pip) { draw_veil(p, &vi); if (p->veil > 0.5f && !p->menu) return; }
     draw_subtitle(p, &vi);
@@ -4555,11 +4563,297 @@ static void offer_resume(Player *p, const VideoInfo *vi)
     island_resume(&p->meta, line, (int)((vi->duration - vi->position) / 60 + 0.5));
 }
 
+
+/* ---- upright on a phone: the picture across the top, under it the title, the time and
+ * scrub bar, play/pause and 10 s each way, then Subtitles, Audio, Sources, Episodes and
+ * Full screen; each of those opens a list in the lower half. Turned sideways (or with Full
+ * screen) the player is the TV's, whole screen. ---- */
+enum { PH_NONE, PH_AUDIO, PH_SUBS, PH_SOURCES, PH_EPISODES, PH_SPEED };
+enum { PHH_BACK = 0x7FFF0000, PHH_PLAY, PHH_BACK10, PHH_FWD10, PHH_SKIP, PHH_NEXT, PHH_STILL_ON, PHH_STILL_STOP, PHH_CLOSE, PHH_SHEET = 0x7FFE0000, PHH_ROW = 0x7FFD0000, PHH_SCRUB = 0x7FFC0000 };
+#define PH_ROWS 72
+
+typedef struct { char label[120], sub[120]; int on, act; } PhRow;
+
+static int ph_rows(Player *p, PhRow *r)
+{
+    int n = 0;
+    VideoTrack tr[MAX_TRACKS];
+    if (p->ph_sheet == PH_SPEED) {
+        for (int i = 0; i < N_RATES && n < PH_ROWS; i++, n++) { snprintf(r[n].label, sizeof r[n].label, i == RATE_NORMAL ? "Normal" : "%gx", RATES[i]); r[n].sub[0] = 0; r[n].on = p->rate_idx == i; r[n].act = i; }
+        return n;
+    }
+    if (p->ph_sheet == PH_AUDIO) {
+        int nt = video_tracks(TRACK_AUDIO, tr, MAX_TRACKS);
+        snprintf(r[n].label, sizeof r[n].label, "Speed"); snprintf(r[n].sub, sizeof r[n].sub, p->rate_idx == RATE_NORMAL ? "Normal" : "%gx", RATES[p->rate_idx]); r[n].on = 0; r[n].act = -1; n++;
+        for (int i = 0; i < nt && n < PH_ROWS; i++, n++) { describe_track(p, 2, tr, i, nt, r[n].label, sizeof r[n].label, r[n].sub, sizeof r[n].sub); r[n].on = tr[i].selected; r[n].act = 1 + i; }
+        return n;
+    }
+    if (p->ph_sheet == PH_SUBS) {
+        int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+        snprintf(r[n].label, sizeof r[n].label, "Off"); r[n].sub[0] = 0; r[n].on = p->embedded_text_sel < 0 && p->active_addon_sub < 0; r[n].act = SUB_OFF; n++;
+        for (int i = 0; i < nt && n < PH_ROWS; i++, n++) { describe_track(p, 3, tr, i, nt, r[n].label, sizeof r[n].label, r[n].sub, sizeof r[n].sub); r[n].on = p->embedded_text_sel == tr[i].index; r[n].act = SUB_OFF + 1 + i; }
+        int order[MAX_ADDON_SUBS], nf = sorted_subs(p, order);
+        for (int k = 0; k < nf && n < PH_ROWS; k++, n++) {
+            const AddonSub *as = &p->addon_subs[order[k]];
+            snprintf(r[n].label, sizeof r[n].label, "%s%s%s", lang_known(as->lang) ? lang_display(as->lang) : "Subtitles", as->addon ? "  \xC2\xB7  " : "", as->addon ? as->addon : "");
+            snprintf(r[n].sub, sizeof r[n].sub, "%s%s", as->matched ? "Matched to this file  \xC2\xB7  " : "", as->release ? as->release : "");
+            r[n].on = p->active_addon_sub == order[k]; r[n].act = SUB_OFF + 1 + nt + k;
+        }
+        if (xl_available(p) && n < PH_ROWS) { snprintf(r[n].label, sizeof r[n].label, "Translate with AI"); snprintf(r[n].sub, sizeof r[n].sub, "Into %s", lang_display(g_app.pref_subs)); r[n].on = p->xl_on != 0; r[n].act = SUB_OFF + 1 + nt + nf; n++; }
+        return n;
+    }
+    if (p->ph_sheet == PH_SOURCES) {
+        int rows[64], k = source_rows(p, rows);
+        for (int i = 0; i < k && n < PH_ROWS; i++, n++) {
+            const PlayCandidate *c = &p->cands[rows[i]];
+            char ad[80]; cand_addon(c, ad, sizeof ad);
+            snprintf(r[n].label, sizeof r[n].label, "%s%s%s", c->recommended ? "Recommended  \xC2\xB7  " : "", c->detail ? c->detail : c->label ? c->label : "Source", "");
+            snprintf(r[n].sub, sizeof r[n].sub, "%s%s%s", ad, ad[0] ? "  \xC2\xB7  " : "", c->filename ? c->filename : c->release ? c->release : "");
+            r[n].on = rows[i] == p->cur; r[n].act = i;
+        }
+        return n;
+    }
+    if (p->ph_sheet == PH_EPISODES) {
+        int n_eps = 0;
+        const MetaVideo *eps = app_videos(p->meta.id, &n_eps);
+        for (int i = 0; i < n_eps && n < PH_ROWS; i++, n++) {
+            if (eps[i].season >= 0 && eps[i].episode >= 0) snprintf(r[n].label, sizeof r[n].label, "S%d E%d  %s", eps[i].season, eps[i].episode, eps[i].title ? eps[i].title : "");
+            else snprintf(r[n].label, sizeof r[n].label, "%s", eps[i].title ? eps[i].title : "Episode");
+            int cur = strcmp(eps[i].id, p->video_id) == 0;
+            snprintf(r[n].sub, sizeof r[n].sub, "%s", cur ? "Now playing" : eps[i].released && strlen(eps[i].released) >= 10 ? eps[i].released : "");
+            if (!cur && r[n].sub[0]) r[n].sub[10] = 0;
+            r[n].on = cur; r[n].act = i;
+        }
+        return n;
+    }
+    return 0;
+}
+
+static void ph_pick(Player *p, const PhRow *r)
+{
+    int sheet = p->ph_sheet;
+    if (sheet == PH_SPEED) { set_rate(p, r->act); p->ph_sheet = PH_AUDIO; return; }
+    if (sheet == PH_AUDIO && r->act < 0) { p->ph_sheet = PH_SPEED; p->ph_focus = p->rate_idx; p->ph_scroll = 0; return; }
+    p->menu = sheet == PH_AUDIO ? MENU_AUDIO : sheet == PH_SUBS ? MENU_SUBS : sheet == PH_SOURCES ? MENU_SOURCES : MENU_EPISODES;
+    if (sheet == PH_SOURCES) p->src_filter = 0;
+    p->menu_focus = r->act;
+    menu_activate(p);
+    p->menu = MENU_NONE;
+    if (sheet == PH_SOURCES || sheet == PH_EPISODES) p->ph_sheet = PH_NONE;   /* something else starts */
+}
+
+static void ph_open(Player *p, int sheet)
+{
+    if (p->ph_sheet == sheet) { p->ph_sheet = PH_NONE; return; }
+    p->ph_sheet = sheet; p->ph_scroll = 0; p->ph_focus = 0;
+    PhRow r[PH_ROWS];
+    int n = ph_rows(p, r);
+    for (int i = 0; i < n; i++) if (r[i].on) { p->ph_focus = i; break; }
+}
+
+static float ph_round(Icon icon, const char *label, float cx, float cy, float rad, int primary, int hit)
+{
+    gfx_circle(cx, cy, rad, primary ? RGBA(255, 255, 255, 255) : COLOR_ALPHA(THEME_TEXT, 0x1C));
+    if (label) font_draw_center(label, cx, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, primary ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT);
+    else ui_icon(icon, cx + (icon == ICON_PLAY ? 4 : 0), cy, rad * 0.9f, primary ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT);
+    ui_hit(cx - rad, cy - rad, 2 * rad, 2 * rad, hit);
+    return rad;
+}
+
+static void ph_time(double t, char *out, size_t n)
+{
+    int s = (int)(t + 0.5); if (s < 0) s = 0;
+    if (s >= 3600) snprintf(out, n, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60); else snprintf(out, n, "%d:%02d", s / 60, s % 60);
+}
+
+static void phone_draw(Player *p)
+{
+    VideoInfo vi;
+    video_info(&vi);
+    float W = SNTV_UI_W, x = 40, w = W - 80;
+    gfx_rect(0, 0, W, SNTV_UI_H, RGBA(0, 0, 0, 255));
+    /* the title bar */
+    gfx_circle(80, 76, 40, COLOR_ALPHA(THEME_TEXT, 0x16));
+    ui_icon(ICON_CHEVRON_LEFT, 78, 76, 32, THEME_TEXT);
+    ui_hit(30, 26, 100, 100, PHH_BACK);
+    font_draw_fit(p->meta.name ? p->meta.name : "", 144, 40, FONT_M | FONT_B, THEME_TEXT, W - 184);
+    if (p->title && *p->title && (!p->meta.name || strcmp(p->title, p->meta.name))) font_draw_fit(p->title, 144, 84, FONT_XS, THEME_TEXT_DIM, W - 184);
+    /* the picture */
+    float vy = 150, vh = W * 9 / 16;
+    gfx_video_hole(0, vy, W, vh);
+    {
+        int px, py, pw, ph;
+        gfx_ui_to_pixels(0, vy, W, vh, &px, &py, &pw, &ph);
+        if (px != p->ph_rect[0] || py != p->ph_rect[1] || pw != p->ph_rect[2] || ph != p->ph_rect[3]) {
+            p->ph_rect[0] = px; p->ph_rect[1] = py; p->ph_rect[2] = pw; p->ph_rect[3] = ph;
+            video_set_display_rect(px, py, pw, ph);
+        }
+    }
+    {   /* the subtitles, as the TV draws them, in the picture's band */
+        int sw = g_ui_w, sh = g_ui_h;
+        float k = W / SNTV_UI_BASE_W;
+        g_ui_w = SNTV_UI_BASE_W; g_ui_h = SNTV_UI_BASE_H;
+        gfx_set_scale(k, 0, 0);
+        gfx_set_translate(0, vy);
+        draw_subtitle(p, &vi);
+        gfx_set_translate(0, 0);
+        gfx_set_scale(1, 0, 0);
+        g_ui_w = sw; g_ui_h = sh;
+    }
+    int rec = recovering(p, &vi);
+    if (error_final(p, &vi)) {
+        gfx_rect(0, vy, W, vh, RGBA(0, 0, 0, 0xD0));
+        font_draw_center("This source can't be played", W / 2, vy + vh / 2 - 60, FONT_M | FONT_B, THEME_TEXT);
+        font_draw_wrapped(p->tb_error[0] ? p->tb_error : vi.error, x, vy + vh / 2, FONT_XS, THEME_TEXT_DIM, w, 3);
+    } else if (rec || vi.state == VIDEO_LOADING || vi.buffering) {
+        ui_spinner(W / 2, vy + vh / 2, 30);
+        app_redraw();
+    }
+    float y = vy + vh + 40;
+    /* time and scrub bar: a tap on it goes there */
+    double pos = p->seek_commit > 0 ? p->seek_target : vi.position, dur = vi.duration > 0 ? vi.duration : p->known_dur;
+    float frac = dur > 0 ? (float)(pos / dur) : 0;
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    gfx_rrect(x, y + 20, w, 8, 4, COLOR_ALPHA(THEME_TEXT, 0x30));
+    if (vi.buffer_ahead > 0 && dur > 0) { float b = (float)((pos + vi.buffer_ahead) / dur); if (b > 1) b = 1; gfx_rrect(x, y + 20, w * b, 8, 4, COLOR_ALPHA(THEME_TEXT, 0x50)); }
+    gfx_rrect(x, y + 20, w * frac, 8, 4, THEME_ACCENT);
+    gfx_circle(x + w * frac, y + 24, 16, RGBA(255, 255, 255, 255));
+    for (int i = 0; i < 100; i++) ui_hit(x + w * i / 100, y - 10, w / 100 + 1, 68, PHH_SCRUB + i);
+    char a[24], b[24];
+    ph_time(pos, a, sizeof a);
+    if (dur > 0) { char t[24]; ph_time(dur - pos, t, sizeof t); snprintf(b, sizeof b, "-%s", t); } else b[0] = 0;
+    font_draw(a, x, y + 52, FONT_S, THEME_TEXT_DIM);
+    font_draw(b, x + w - font_measure(b, FONT_S), y + 52, FONT_S, THEME_TEXT_DIM);
+    y += 150;
+    /* play/pause and 10 s each way */
+    float cy = y + 56;
+    ph_round(ICON_PLAY, "-10", W / 2 - 200, cy, 50, 0, PHH_BACK10);
+    ph_round(vi.state == VIDEO_PLAYING ? ICON_PAUSE : ICON_PLAY, NULL, W / 2, cy, 70, 1, PHH_PLAY);
+    ph_round(ICON_PLAY, "+10", W / 2 + 200, cy, 50, 0, PHH_FWD10);
+    y += 170;
+    /* skip, the next episode */
+    const SkipSeg *sk = g_app.skip_mode == 0 ? skippable(p, &vi) : NULL;
+    if (sk || (p->up_next_shown && p->next_video_id) || p->still_asking) {
+        const char *t = p->still_asking ? "Still watching?  Tap to go on" : sk ? (sk->kind == SKIP_RECAP ? "Skip recap" : "Skip intro") : next_ready(p) ? "Next episode" : "Next episode (preparing\xE2\x80\xA6)";
+        gfx_rrect(x, y, w, 96, 48, THEME_ACCENT);
+        ui_icon(ICON_NEXT, x + 60, y + 48, 32, THEME_ON_ACCENT);
+        font_draw(t, x + 100, y + (96 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_ON_ACCENT);
+        ui_hit(x, y, w, 96, p->still_asking ? PHH_STILL_ON : sk ? PHH_SKIP : PHH_NEXT);
+        y += 124;
+    }
+    /* the lists */
+    static const char *const BL[] = { "Subtitles", "Audio", "Sources", "Episodes", "Full screen" };
+    static const Icon BI[] = { ICON_SUBS, ICON_AUDIO, ICON_SWAP, ICON_LIST, ICON_TV };
+    static const int BS[] = { PH_SUBS, PH_AUDIO, PH_SOURCES, PH_EPISODES, 0 };
+    int n_eps = 0; app_videos(p->meta.id, &n_eps);
+    int nb = 0, ids[5];
+    for (int i = 0; i < 5; i++) if (i != 3 || n_eps > 1) ids[nb++] = i;
+    float bw = w / nb;
+    for (int k = 0; k < nb; k++) {
+        int i = ids[k], on = BS[i] && p->ph_sheet == BS[i];
+        float bx = x + k * bw;
+        if (on) gfx_rrect(bx + 6, y, bw - 12, 120, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x1C));
+        ui_icon(BI[i], bx + bw / 2, y + 42, 36, on ? THEME_ACCENT : THEME_TEXT);
+        font_draw_center(BL[i], bx + bw / 2, y + 78, FONT_XS | FONT_B, on ? THEME_TEXT : THEME_TEXT_DIM);
+        ui_hit(bx, y, bw, 120, PHH_SHEET + i);
+    }
+    y += 150;
+    if (p->ph_sheet) {   /* the open list, to the bottom of the screen */
+        PhRow r[PH_ROWS];
+        int n = ph_rows(p, r);
+        float top = y, bottom = SNTV_UI_H - 20, rh = 112;
+        gfx_rrect(x - 20, top, w + 40, bottom - top, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xF0));
+        if (p->ph_focus >= n) p->ph_focus = n ? n - 1 : 0;
+        float want = p->ph_focus * rh - (bottom - top - 3 * rh);
+        if (want < 0) want = 0;
+        if (want < p->ph_scroll - 0.5f || p->ph_focus * rh < p->ph_scroll) p->ph_scroll = want < p->ph_focus * rh ? want : p->ph_focus * rh;
+        if (want > p->ph_scroll) p->ph_scroll = want;
+        gfx_clip_push(x - 20, top + 10, w + 40, bottom - top - 20);
+        float ry = top + 16 - p->ph_scroll;
+        if (!n) font_draw_center(p->ph_sheet == PH_SUBS ? "No subtitles for this video" : "Nothing here", W / 2, top + 60, FONT_S, THEME_TEXT_MUTED);
+        for (int i = 0; i < n; i++, ry += rh) {
+            if (ry + rh < top || ry > bottom) continue;
+            int foc = i == p->ph_focus;
+            if (foc) gfx_rrect(x - 8, ry, w + 16, rh - 10, R_KEY, COLOR_ALPHA(THEME_TEXT, 0x18));
+            font_draw_fit(r[i].label, x + 12, ry + (r[i].sub[0] ? 16 : (rh - 10 - font_height(FONT_S | FONT_B)) / 2), FONT_S | FONT_B, THEME_TEXT, w - 90);
+            if (r[i].sub[0]) font_draw_fit(r[i].sub, x + 12, ry + 58, FONT_XS, THEME_TEXT_MUTED, w - 90);
+            if (r[i].on) { gfx_circle(x + w - 30, ry + (rh - 10) / 2, 18, THEME_ACCENT); ui_icon(ICON_CHECK, x + w - 30, ry + (rh - 10) / 2, 22, THEME_ON_ACCENT); }
+            ui_hit(x - 8, ry, w + 16, rh - 10, PHH_ROW + i);
+        }
+        gfx_clip_pop();
+    } else if (p->meta.description && *p->meta.description) {
+        font_draw_wrapped(p->meta.description, x, y, FONT_S, THEME_TEXT_DIM, w, 8);
+    }
+}
+
+static int phone_tap(Player *p, int id)
+{
+    VideoInfo vi;
+    video_info(&vi);
+    if (id >= PHH_ROW && id < PHH_ROW + PH_ROWS) {
+        p->ph_focus = id - PHH_ROW;
+        if (g_touch_aim) return 1;
+        PhRow r[PH_ROWS];
+        int n = ph_rows(p, r);
+        if (p->ph_focus < n) ph_pick(p, &r[p->ph_focus]);
+        app_redraw();
+        return 1;
+    }
+    if (g_touch_aim) return 1;
+    if (id >= PHH_SCRUB && id < PHH_SCRUB + 100) {
+        double dur = vi.duration > 0 ? vi.duration : p->known_dur;
+        if (dur > 0) { video_seek(dur * (id - PHH_SCRUB) / 100.0); p->jumped_at = g_app.time; }
+        return 1;
+    }
+    if (id >= PHH_SHEET && id < PHH_SHEET + 5) {
+        int i = id - PHH_SHEET;
+        if (i == 4) { p->ph_full = 1; app_top()->phone = 0; app_toast("Back returns to the upright player"); return 1; }
+        static const int BS[] = { PH_SUBS, PH_AUDIO, PH_SOURCES, PH_EPISODES };
+        ph_open(p, BS[i]);
+        return 1;
+    }
+    switch (id) {
+    case PHH_BACK: return -1;   /* as Back */
+    case PHH_PLAY: return -2;   /* as Play/Pause */
+    case PHH_BACK10: seek_by(p, -10); return 1;
+    case PHH_FWD10: seek_by(p, 10); return 1;
+    case PHH_SKIP: { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); return 1; }
+    case PHH_NEXT: if (next_ready(p)) go_up_next(p); else p->next_wanted = 1; return 1;
+    case PHH_STILL_ON: return -3;   /* as OK on "Still watching?" */
+    default: return 1;
+    }
+}
+
+static int key(Screen *s, KeyAction a);
+/* Touch: upright, what was tapped; sideways, a tap anywhere is OK (as it always was). */
+static int tap(Screen *s, int id)
+{
+    Player *p = s->st;
+    if (!SNTV_PHONE || p->pip) return 0;
+    int r = phone_tap(p, id);
+    if (r == -1) { key(s, KEY_BACK); return 1; }
+    if (r == -2) { key(s, KEY_PLAY_PAUSE); return 1; }
+    if (r == -3) { key(s, KEY_OK); return 1; }
+    app_redraw();
+    return 1;
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
+    if (p->ph_full && a == KEY_BACK && gfx_handheld()) { p->ph_full = 0; s->phone = 1; return 1; }   /* Full screen: Back is upright again */
+    if (SNTV_PHONE && !p->pip && p->ph_sheet) {   /* the open list takes Up, Down, OK and Back */
+        PhRow r[PH_ROWS];
+        int n = ph_rows(p, r);
+        app_redraw();
+        if (a == KEY_BACK) { p->ph_sheet = PH_NONE; return 1; }
+        if (a == KEY_UP) { if (p->ph_focus > 0) p->ph_focus--; return 1; }
+        if (a == KEY_DOWN) { if (p->ph_focus < n - 1) p->ph_focus++; return 1; }
+        if (a == KEY_OK) { if (p->ph_focus < n) ph_pick(p, &r[p->ph_focus]); return 1; }
+    }
     if (p->still_asking) {   /* "Still watching?": OK goes on, Back stops; nothing else */
         if (a == KEY_OK || a == KEY_PLAY || a == KEY_PLAY_PAUSE) { p->still_asking = 0; g_auto_streak = 0; LOGI("player: still watching: on to the next episode"); go_up_next(p); }
         else if (a == KEY_BACK || a == KEY_STOP) { p->still_asking = 0; p->finished = 1; report(p, 1); app_pop(); }
@@ -4687,7 +4981,7 @@ keys:
     case KEY_BLUE: instant_replay(p, vi.position); return 1;
     case KEY_YELLOW: if (p->cur + 1 < p->n_cands) { app_toast("Switching source"); keep_choices(p); start_candidate(p, p->cur + 1, resume_spot(p, &vi)); } return 1;
     case KEY_BACK:
-        if (g_app.pip_enabled && !p->trailer && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
+        if (g_app.pip_enabled && !p->trailer && !gfx_handheld() &&   /* a phone: no corner player (yet) */ (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING) && g_app.depth > 1) { app_pip_enter(); return 1; }
         /* fall through */
     case KEY_STOP:
         report(p, 1);
@@ -4843,7 +5137,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->gen = 1;
     g_live = p;
     s->name = "player"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
     if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
     if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);

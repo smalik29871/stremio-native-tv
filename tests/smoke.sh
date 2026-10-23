@@ -958,6 +958,8 @@ run phone_signin_pw 300 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wai
 run phone_about 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:364,wait,wait" $PH SNTV_EXPECT_SCREEN=whatsnew HOME="$(home_with ph12 '{"setupDone":1}')"
 run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:803,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
 run phone_calendar 220 "wait,tap:546:1660,wait,tap:370:76,wait,wait" $PH SNTV_EXPECT_SCREEN=calendar HOME="$(home_with ph14 '{"setupDone":1}')"
+run phone_player 420 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph15 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+run phone_player_subs 480 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,tap:120:1080,wait,tap:390:1310,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph16 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 python3 -I - "$OUT" <<'PY'
 import sys, glob, os
 from PIL import Image
