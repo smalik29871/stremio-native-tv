@@ -49,13 +49,27 @@ autoplay, background, sign-in by QR code). Everything can be changed later in Se
 
 Captured from the desktop build against the test addon, so the artwork is generated and
 the titles are placeholders. On a TV the player shows video where these show a backdrop.
-They show the default Signal theme.
+
+### Themes
+
+Eight looks, each with its own type, colours and way of showing focus (Settings > Interface >
+Theme; most also take an accent colour and a background).
 
 | | |
 |---|---|
-| ![Marquee](docs/screenshots/home_marquee.jpg) **Marquee theme** | ![Glass](docs/screenshots/home_glass.jpg) **Glass theme** |
-| ![Metro](docs/screenshots/home_metro.jpg) **Metro theme** | ![Settings](docs/screenshots/settings.jpg) **Settings, with a live preview of each setting** |
-| ![Home](docs/screenshots/home.jpg) **Home, Cinematic style** | ![Showcase](docs/screenshots/home_showcase.jpg) **Home, Showcase style** |
+| ![Streaming](docs/screenshots/theme_stream.jpg) **Streaming** (the default): familiar and calm | ![Aperture](docs/screenshots/theme_aperture.jpg) **Aperture**: editorial, serif titles and wide cards |
+| ![Signal](docs/screenshots/theme_signal.jpg) **Signal**: numbered rows and a bright focus ring | ![Marquee](docs/screenshots/theme_marquee.jpg) **Marquee**: cinema gold and uppercase rows |
+| ![Glass](docs/screenshots/theme_glass.jpg) **Glass**: frosted, rounded panels | ![Metro](docs/screenshots/theme_metro.jpg) **Metro**: flat tiles, edge to edge |
+| ![Mist](docs/screenshots/theme_mist.jpg) **Mist**: cool and soft | ![Sunset](docs/screenshots/theme_sunset.jpg) **Sunset**: warm dusk tones |
+
+### Screens
+
+These show the Signal theme.
+
+| | |
+|---|---|
+| ![Settings](docs/screenshots/settings.jpg) **Settings, with a live preview of each setting** | ![Showcase](docs/screenshots/home_showcase.jpg) **Home, Showcase style** |
+| ![Home](docs/screenshots/home.jpg) **Home, Cinematic style** | |
 | ![Explore](docs/screenshots/explore.jpg) **Explore: catalogs, genres, endless grid** | ![Library](docs/screenshots/library.jpg) **Library with filters and sort** |
 | ![Detail](docs/screenshots/detail_tmdb.jpg) **Title page with cast and age rating** | ![Episodes](docs/screenshots/episodes.jpg) **Seasons and episodes** |
 | ![Ask AI](docs/screenshots/detail_ai.jpg) **Ask AI: spoiler-free, with a parents' note** | ![AI search](docs/screenshots/search_ai.jpg) **Search by describing what you want** |

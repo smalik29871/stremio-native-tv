@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fetches what the Android build needs from source (pinned, checksummed) into
-# deploy/android/third_party: SDL2 (its Java activity and the library itself).
+# deploy/android/third_party: SDL2 (its Java activity and the library itself), and curl
+# with mbedTLS (Android has no libcurl to load, so the APK ships one).
 #   tools/android-deps.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,3 +18,20 @@ if [ ! -f "$TP/SDL2/.version" ] || [ "$(cat "$TP/SDL2/.version")" != "$SDL_VER" 
   echo "$SDL_VER" > "$TP/SDL2/.version"
 fi
 echo "SDL2 $SDL_VER in $TP/SDL2"
+
+fetch() {   # name version url sha256 strip
+  local name=$1 ver=$2 url=$3 sum=$4
+  if [ -f "$TP/$name/.version" ] && [ "$(cat "$TP/$name/.version")" = "$ver" ]; then return; fi
+  local tmp; tmp="$(mktemp -d)"
+  curl -sSL -o "$tmp/src" "$url"
+  echo "$sum  $tmp/src" | sha256sum -c - >/dev/null || { echo "$name download does not match its checksum" >&2; rm -rf "$tmp"; exit 1; }
+  rm -rf "$TP/$name"; mkdir -p "$TP/$name"
+  tar xf "$tmp/src" -C "$TP/$name" --strip-components=1
+  echo "$ver" > "$TP/$name/.version"
+  rm -rf "$tmp"
+  echo "$name $ver in $TP/$name"
+}
+fetch mbedtls 3.6.2 https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.2/mbedtls-3.6.2.tar.bz2 \
+  8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca
+fetch curl 8.11.0 https://curl.se/download/curl-8.11.0.tar.gz \
+  264537d90e58d2b09dddc50944baf3c38e7089151c8986715e2aaeaaf2b8118f

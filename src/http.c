@@ -22,7 +22,7 @@ enum {
     OPT_NOSIGNAL = 99, OPT_ACCEPT_ENCODING = 10102, OPT_MAXREDIRS = 68,
     OPT_RANGE = 10007, OPT_HEADERFUNCTION = 20079, OPT_HEADERDATA = 10029,
     OPT_SHARE = 10100, OPT_DNS_CACHE_TIMEOUT = 92, OPT_TCP_KEEPALIVE = 213,
-    OPT_NOPROGRESS = 43, OPT_XFERINFOFUNCTION = 20219,
+    OPT_NOPROGRESS = 43, OPT_XFERINFOFUNCTION = 20219, OPT_CAINFO = 10065,
     SHOPT_SHARE = 1, SHOPT_LOCKFUNC = 3, SHOPT_UNLOCKFUNC = 4, LOCK_DNS = 3, LOCK_SSL_SESSION = 4,
     INFO_RESPONSE_CODE = 0x200002,
     INFO_EFFECTIVE_URL = 0x100001,   /* where the redirects ended */
@@ -165,6 +165,49 @@ int http_online(void)
     return g_net_fail < 3 || SDL_GetTicks() - g_last_ok < 15000;
 }
 
+#ifdef __ANDROID__
+#include <dirent.h>
+/* Android keeps its trusted roots one per file: the system's, and from Android 14 the
+ * updatable ones in the Conscrypt module. The bundled libcurl (mbedTLS) is handed them as
+ * one bundle, made at each start so it follows the system's updates. */
+static char g_ca_bundle[1100];
+
+static void ca_bundle_build(void)
+{
+    static const char *const DIRS[] = { "/apex/com.android.conscrypt/cacerts", "/system/etc/security/cacerts", NULL };
+    const char *root = SDL_AndroidGetInternalStoragePath();
+    if (!root) return;
+    char path[1100];
+    snprintf(path, sizeof path, "%s/cacert.pem", root);
+    FILE *out = fopen(path, "w");
+    if (!out) return;
+    int n = 0;
+    for (int d = 0; DIRS[d] && !n; d++) {   /* the updatable set when it is there, else the system's */
+        DIR *dir = opendir(DIRS[d]);
+        struct dirent *e;
+        while (dir && (e = readdir(dir))) {
+            if (e->d_name[0] == '.') continue;
+            char f[600];
+            snprintf(f, sizeof f, "%s/%s", DIRS[d], e->d_name);
+            FILE *in = fopen(f, "r");
+            if (!in) continue;
+            char buf[8192]; size_t got;
+            while ((got = fread(buf, 1, sizeof buf, in)) > 0) fwrite(buf, 1, got, out);
+            fputc('\n', out);
+            fclose(in);
+            n++;
+        }
+        if (dir) closedir(dir);
+    }
+    fclose(out);
+    if (n) snprintf(g_ca_bundle, sizeof g_ca_bundle, "%s", path);
+    LOGI("http: %d trusted roots from the system", n);
+}
+#define CA_BUNDLE(h) do { if (g_ca_bundle[0]) C.easy_setopt((h), OPT_CAINFO, g_ca_bundle); } while (0)
+#else
+#define CA_BUNDLE(h) do { } while (0)   /* the TV's libcurl knows its own */
+#endif
+
 static HttpLocalMatch g_local_handles;
 static HttpLocalAnswer g_local_answer;
 void http_set_local(HttpLocalMatch handles, HttpLocalAnswer answer) { g_local_handles = handles; g_local_answer = answer; }
@@ -200,6 +243,7 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     C.easy_setopt(h, OPT_WRITEDATA, &b);
     C.easy_setopt(h, OPT_ERRORBUFFER, out->error);
     C.easy_setopt(h, OPT_USERAGENT, SNTV_USER_AGENT);
+    CA_BUNDLE(h);
     C.easy_setopt(h, OPT_HTTPHEADER, hdrs);
     C.easy_setopt(h, OPT_FOLLOWLOCATION, 1L);
     C.easy_setopt(h, OPT_MAXREDIRS, 5L);
@@ -358,6 +402,7 @@ int http_stream(const char *url, const char *headers, const char *range, const H
     C.easy_setopt(h, OPT_WRITEDATA, &r);
     C.easy_setopt(h, OPT_ERRORBUFFER, err);
     C.easy_setopt(h, OPT_USERAGENT, SNTV_USER_AGENT);
+    CA_BUNDLE(h);
     C.easy_setopt(h, OPT_HTTPHEADER, hdrs);
     C.easy_setopt(h, OPT_FOLLOWLOCATION, 1L);
     C.easy_setopt(h, OPT_MAXREDIRS, 5L);
@@ -576,9 +621,13 @@ void http_pump(void)
 
 int http_pending_replies(void) { return g_carry != NULL; }
 
+
 int http_init(void)
 {
     if (load_curl() != 0) return -1;
+#ifdef __ANDROID__
+    ca_bundle_build();
+#endif
     C.global_init(GLOBAL_DEFAULT);
     share_init();
     g_qlock = SDL_CreateMutex();

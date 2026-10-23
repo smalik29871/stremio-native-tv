@@ -106,6 +106,30 @@ elseif(SNTV_PLATFORM STREQUAL "android")
   add_subdirectory(${SNTV_SDL2_SOURCE} sdl2 EXCLUDE_FROM_ALL)
   target_link_libraries(sntv_core PUBLIC SDL2::SDL2 log)
   set(SNTV_LINK_LIBS SDL2::SDL2 GLESv2 log android m dl)
+  # libcurl.so for the APK: curl with mbedTLS (and the NDK's zlib), both from source.
+  # src/http.c loads it at run time, as it loads the TV's own everywhere else.
+  set(SNTV_TP ${CMAKE_SOURCE_DIR}/deploy/android/third_party)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  foreach(o ENABLE_PROGRAMS ENABLE_TESTING GEN_FILES MBEDTLS_FATAL_WARNINGS)
+    set(${o} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  add_subdirectory(${SNTV_TP}/mbedtls mbedtls EXCLUDE_FROM_ALL)
+  set(MBEDTLS_INCLUDE_DIR ${SNTV_TP}/mbedtls/include CACHE PATH "" FORCE)
+  set(MBEDTLS_LIBRARY mbedtls CACHE STRING "" FORCE)
+  set(MBEDX509_LIBRARY mbedx509 CACHE STRING "" FORCE)
+  set(MBEDCRYPTO_LIBRARY mbedcrypto CACHE STRING "" FORCE)
+  foreach(o CURL_USE_MBEDTLS CURL_DISABLE_LDAP CURL_ZLIB)
+    set(${o} ON CACHE BOOL "" FORCE)
+  endforeach()
+  foreach(o CURL_USE_OPENSSL BUILD_CURL_EXE BUILD_TESTING BUILD_LIBCURL_DOCS BUILD_MISC_DOCS ENABLE_CURL_MANUAL CURL_USE_LIBPSL
+            CURL_USE_LIBSSH2 USE_NGHTTP2 USE_LIBIDN2 CURL_USE_PKGCONFIG BUILD_STATIC_LIBS CURL_BROTLI CURL_ZSTD)
+    set(${o} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  set(CURL_CA_BUNDLE none CACHE STRING "" FORCE)   # src/http.c hands it Android's roots
+  set(CURL_CA_PATH none CACHE STRING "" FORCE)
+  set(BUILD_SHARED_LIBS ON)
+  add_subdirectory(${SNTV_TP}/curl curl EXCLUDE_FROM_ALL)
+  set(BUILD_SHARED_LIBS OFF)
 else()
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(SDL2 REQUIRED sdl2)
@@ -169,6 +193,7 @@ set(SNTV_APP_SRC
 if(SNTV_PLATFORM STREQUAL "android")
   add_library(stremio-tv SHARED ${SNTV_APP_SRC})   # libmain.so, what SDL's activity loads
   set_target_properties(stremio-tv PROPERTIES OUTPUT_NAME main)
+  add_dependencies(stremio-tv libcurl_shared)       # built and packaged with it, loaded at run time
 else()
   add_executable(stremio-tv ${SNTV_APP_SRC})
 endif()
