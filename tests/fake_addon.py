@@ -367,6 +367,19 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [{"name": "Drop\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 2.0 GB",
                                                                "url": STREAMS["streams"][0]["url"] + "?" + how + "=100000"}]}).encode())
             # its catalogs and metas are the plain addon's
+        # /dievid/...: a source whose server dies partway (the rest refused), then a mirror of
+        # the very file under another name; /dieother/...: then the same size, other bytes
+        if p.startswith("/dievid/") or p.startswith("/dieother/"):
+            other = p.startswith("/dieother/")
+            p = p[9 if other else 7:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv." + ("dieother" if other else "dievid"), name="Die Video")).encode())
+            if p.startswith("/stream/"):
+                url = STREAMS["streams"][0]["url"]
+                hints = {"filename": "Movie.2024.1080p.WEB.h264.mkv", "videoSize": 1048576}
+                return self.send(200, json.dumps({"streams": [
+                    {"name": "Die\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 1.0 MB", "url": url + "?die=100000", "behaviorHints": hints},
+                    {"name": "Mirror\n720p", "title": "Movie.2024.720p.WEB.h264\n\U0001F4BE 1.0 MB", "url": url + ("?other=1" if other else "?mirror=1"), "behaviorHints": dict(hints, filename="Movie.2024.1080p.WEB.h264-MIRROR.mkv")}]}).encode())
         # /rich/...: a stream that needs a Referer, knows its file's hash and brings its own subtitles
         if p.startswith("/rich/"):
             p = p[5:]
@@ -727,8 +740,12 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/video/"):
             drop = int(p.split("?drop=")[1]) if "?drop=" in p else 0   # the server cuts a download from 0 after this many bytes
             stall = int(p.split("?stall=")[1]) if "?stall=" in p else 0   # or goes quiet there, the connection left open
-            drop = drop or stall
-            name = os.path.basename(p.split("?torbox=")[0].split("?drop=")[0].split("?stall=")[0])   # TorBox links carry their id
+            die = int(p.split("?die=")[1]) if "?die=" in p else 0   # or closes there and refuses the rest
+            if die and self.headers.get("Range", "bytes=0-")[6:].split("-")[0] not in ("", "0"):
+                return self.send(503, b"")
+            drop = drop or stall or die
+            mirror, other = "?mirror=1" in p, "?other=1" in p   # the same file elsewhere; the same size, other bytes
+            name = os.path.basename(re.split(r"\?(torbox|drop|stall|die|mirror|other)=", p)[0])   # TorBox links carry their id
             path = os.path.join(MEDIA_DIR, name)
             if not os.path.isfile(path):
                 return self.send(404, b"")
@@ -736,8 +753,10 @@ class H(BaseHTTPRequestHandler):
                 data = f.read()
             if len(data) < 262144:   # the real files are tiny: pad so the file hash (first + last 64 KB) applies
                 data += b"\0" * (262144 - len(data))
-            if drop:   # big enough that a cut lands in the middle; past the header, byte i is (i * 7 + 3) % 251
+            if drop or mirror:   # big enough that a cut lands in the middle; past the header, byte i is (i * 7 + 3) % 251
                 data += bytes((i * 7 + 3) % 251 for i in range(len(data), 1048576))
+            elif other:   # another encode: other bytes from early on, though the same size
+                data = data[:4096] + bytes(b ^ 0x5A for b in data[4096:]) + bytes((i * 5 + 1) % 251 for i in range(len(data), 1048576))
             rng = self.headers.get("Range")
             if rng and rng.startswith("bytes="):
                 a, _, b = rng[6:].partition("-")

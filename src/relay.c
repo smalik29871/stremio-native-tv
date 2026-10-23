@@ -48,10 +48,11 @@ static SDL_atomic_t g_conns;
  * back). How far ahead it may go is a budget from the TV's free memory, looked at again
  * every few seconds: more room, further ahead (up to two minutes); less, it holds less;
  * too little, it lets go and the source plays on directly. */
-enum { AHEAD_S = 120, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10, NBLK = 64, READERS = 16 };   /* JUMP: further past what is in, it starts again there */
+enum { VLEN = 64 << 10, AHEAD_S = 120, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10, NBLK = 64, READERS = 16 };   /* JUMP: further past what is in, it starts again there */
 #define BUDGET_MAX ((uint64_t)192 << 20)   /* never more than this much memory */
 #define BUDGET_SMALL ((uint64_t)64 << 20)  /* on a 1 GB TV */
 #define BUDGET_MIN ((uint64_t)48 << 20)    /* the budget can't reach this: no buffer (or it lets go) */
+#define MIN_AHEAD ((uint64_t)16 << 20)   /* at least this much ahead, whatever the rate */
 #define MEM_STOP ((uint64_t)120 << 20)     /* the TV's free memory fell under this: the buffer lets go at once */
 typedef struct { int used; uint64_t at; Uint32 seen; } Reader;   /* a connection reading out of it */
 typedef struct {
@@ -69,6 +70,9 @@ typedef struct {
     unsigned route, gen;     /* route: a new source; gen: a jump outside what is in */
     Reader rd[READERS];
     int stopped, fails, running, got_any, dead;   /* got_any: the source sent some of the file; dead: it refused or kept failing before that */
+    int failing, gave_up;    /* failing: it stopped sending partway (what is in plays on); gave_up: it refused the rest */
+    struct { char *url, *headers; int tried; } alt[6];   /* other links to perhaps the same file, for a handoff */
+    int n_alt;
     Uint32 mem_at;           /* when free memory was last looked at */
     SDL_cond *cond;
 } Buf;
@@ -101,6 +105,7 @@ static uint64_t backlog(void)   /* kept behind the reader for a small step back:
 static uint64_t ahead_limit(void)   /* bytes to keep ahead of the reader now */
 {
     uint64_t want = g_buf.rate > 0 ? (uint64_t)(g_buf.rate * AHEAD_S) : g_buf.budget;
+    if (want < MIN_AHEAD) want = MIN_AHEAD;   /* a low guess at the rate never starves the player's first reads */
     uint64_t room = g_buf.budget > backlog() + g_buf.blk_size ? g_buf.budget - backlog() - g_buf.blk_size : 0;   /* a block of slack: a write can start a new one */
     return want < room ? want : room;
 }
@@ -305,6 +310,76 @@ static int dl_data(void *user, const char *data, size_t n)
     return 1;
 }
 
+/* ---- carrying on from an identical copy ---- */
+/* The source stopped partway: another link to the same file (the addon's own link again,
+ * where it led last time having expired; or the same release from another service) takes
+ * over at the very byte, and the player never knows. "The same file" is proved, not
+ * guessed: the same size, and the last bytes in the buffer the same bytes there. */
+typedef struct { const char *mine; size_t len, at; uint64_t size, from; int ok; } Same;
+
+static int same_head(void *user, long status, const char *type, uint64_t length, const char *content_range)
+{
+    Same *c = user;
+    (void)type; (void)length;
+    const char *slash = content_range ? strchr(content_range, '/') : NULL;
+    uint64_t start = content_range ? strtoull(content_range + strcspn(content_range, "0123456789"), NULL, 10) : 0;
+    return status == 206 && slash && strtoull(slash + 1, NULL, 10) == c->size && start == c->from;
+}
+
+static int same_data(void *user, const char *data, size_t n)
+{
+    Same *c = user;
+    size_t k = n < c->len - c->at ? n : c->len - c->at;
+    if (memcmp(data, c->mine + c->at, k)) return 0;   /* another file */
+    c->at += k;
+    if (c->at < c->len) return 1;
+    c->ok = 1;
+    return 0;   /* all of it the same: enough */
+}
+
+static int handoff(unsigned route, char *host, size_t host_len)
+{
+    SDL_LockMutex(g_lock);
+    uint64_t hi = g_buf.hi, from = hi > VLEN ? hi - VLEN : 0;
+    if (route != g_buf.route || g_buf.stopped || !g_buf.size || from < g_buf.lo || hi - from < 4096) { SDL_UnlockMutex(g_lock); return 0; }   /* too little in hand to compare */
+    Same c = { NULL, (size_t)(hi - from), 0, g_buf.size, from, 0 };
+    char *mine = malloc(c.len);
+    if (!mine || !get_locked(from, mine, c.len)) { SDL_UnlockMutex(g_lock); free(mine); return 0; }
+    c.mine = mine;
+    SDL_UnlockMutex(g_lock);
+    char range[64];
+    snprintf(range, sizeof range, "%llu-%llu", (unsigned long long)from, (unsigned long long)(hi - 1));
+    for (int i = 0;; i++) {
+        SDL_LockMutex(g_lock);
+        while (i < g_buf.n_alt && (g_buf.alt[i].tried || !strcmp(g_buf.alt[i].url, g_buf.url))) i++;
+        if (route != g_buf.route || g_buf.stopped || i >= g_buf.n_alt) { SDL_UnlockMutex(g_lock); break; }
+        char *url = strdup(g_buf.alt[i].url), *headers = g_buf.alt[i].headers ? strdup(g_buf.alt[i].headers) : NULL;
+        g_buf.alt[i].tried = 1;
+        SDL_UnlockMutex(g_lock);
+        c.at = 0; c.ok = 0;
+        HttpStream cb = { same_head, same_data, &c };
+        http_stream(url, headers, range, &cb);
+        char other[96];
+        host_of(url, other, sizeof other);
+        SDL_LockMutex(g_lock);
+        if (c.ok && route == g_buf.route && !g_buf.stopped) {
+            LOGI("relay: %s stopped sending at %.1f MB; carrying on from the same file at %s", host, hi / 1048576.0, other);
+            free(g_buf.url); free(g_buf.headers);
+            g_buf.url = url; g_buf.headers = headers;
+            g_buf.fails = 0; g_buf.failing = g_buf.gave_up = 0;
+            SDL_UnlockMutex(g_lock);
+            snprintf(host, host_len, "%s", other);
+            free(mine);
+            return 1;
+        }
+        SDL_UnlockMutex(g_lock);
+        LOGI("relay: %s is not the same file; not carrying on from it", other);
+        free(url); free(headers);
+    }
+    free(mine);
+    return 0;
+}
+
 static int dl_thread(void *arg)
 {
     unsigned route = (unsigned)(uintptr_t)arg;
@@ -337,30 +412,45 @@ static int dl_thread(void *arg)
                 g_buf.fails = 0;
                 if (!logged++) LOGI("relay: buffering %s ahead (up to %.0f MB now)", host, g_buf.budget / 1048576.0);
                 if (!d.held && g_buf.size && g_buf.hi < g_buf.size) LOGI("relay: %s dropped at %.1f MB; going on from there", host, g_buf.hi / 1048576.0);
-            } else if (d.bad) {
-                g_buf.dead = !g_buf.got_any;
-                char why[160];
-                snprintf(why, sizeof why, "%s %s", host, d.status == 200 ? "does not serve byte ranges" : "refused the file");
-                let_go_locked(why);
-            } else if (!d.held && !(g_buf.size && g_buf.hi >= g_buf.size)) {
-                if (++g_buf.fails >= 6) {   /* nothing came, again and again: the source is down */
-                    g_buf.dead = !g_buf.got_any;
+                if (g_buf.failing) LOGI("relay: %s is sending again", host);
+                g_buf.failing = 0;
+            } else if (d.bad || (!d.held && !(g_buf.size && g_buf.hi >= g_buf.size))) {   /* refused, or nothing came */
+                if (!d.bad) g_buf.fails++;
+                if (g_buf.got_any && (d.bad || g_buf.fails >= 2)) {   /* partway through: the same file elsewhere? */
+                    SDL_UnlockMutex(g_lock);
+                    int moved = handoff(route, host, sizeof host);
+                    SDL_LockMutex(g_lock);
+                    if (moved) { SDL_UnlockMutex(g_lock); continue; }
+                }
+                if (route != g_buf.route || g_buf.stopped) {
+                } else if (!g_buf.got_any && (d.bad || g_buf.fails >= 6)) {   /* never sent any of it: the source is down */
+                    g_buf.dead = 1;
                     char why[160];
-                    snprintf(why, sizeof why, "%s keeps failing", host);
+                    snprintf(why, sizeof why, "%s %s", host, !d.bad ? "keeps failing" : d.status == 200 ? "does not serve byte ranges" : "refused the file");
                     let_go_locked(why);
+                } else if (d.bad) {   /* the rest refused: what is in plays on, and the player moves on before it runs out */
+                    if (!g_buf.failing) LOGW("relay: %s refused the rest of the file at %.1f MB; what is in plays on", host, g_buf.hi / 1048576.0);
+                    g_buf.failing = g_buf.gave_up = 1;
+                    g_buf.running = 0;
+                    SDL_CondBroadcast(g_buf.cond);
+                    SDL_UnlockMutex(g_lock);
+                    break;
+                } else if (g_buf.got_any && g_buf.fails >= 3 && !g_buf.failing) {   /* stopped partway: it keeps trying, what is in plays on */
+                    g_buf.failing = 1;
+                    LOGW("relay: %s stopped sending at %.1f MB; what is in plays on while it tries again", host, g_buf.hi / 1048576.0);
                 }
             }
         }
         int fails = g_buf.fails;
         SDL_UnlockMutex(g_lock);
-        if (!d.got && fails) SDL_Delay(500u * (unsigned)fails);   /* a dropped source: again, a little later each time */
+        if (!d.got && fails) SDL_Delay(fails < 10 ? 500u * (unsigned)fails : 5000u);   /* a dropped source: again, a little later each time */
     }
     return 0;
 }
 
 static void dl_start_locked(void)
 {
-    if (g_buf.running || g_buf.stopped || !g_buf.token[0]) return;
+    if (g_buf.running || g_buf.stopped || g_buf.gave_up || !g_buf.token[0]) return;
     g_buf.running = 1;
     SDL_Thread *t = SDL_CreateThread(dl_thread, "relay-ahead", (void *)(uintptr_t)g_buf.route);
     if (t) SDL_DetachThread(t);
@@ -437,7 +527,7 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
         SDL_LockMutex(g_lock);
         int gone = route != g_buf.route || g_buf.stopped;
         if (!gone && (at < g_buf.lo || at >= g_buf.hi)) {   /* not in yet: the download is on its way */
-            if (at < g_buf.lo || at > g_buf.hi + JUMP || ++waited > 60) gone = 1;   /* someone jumped elsewhere, or it is not coming: from the source */
+            if (at < g_buf.lo || at > g_buf.hi + JUMP || g_buf.gave_up || ++waited > 60) gone = 1;   /* someone jumped elsewhere, or it is not coming: from the source */
             else { dl_start_locked(); SDL_CondWaitTimeout(g_buf.cond, g_lock, 1000); SDL_UnlockMutex(g_lock); continue; }
         }
         if (gone) { SDL_UnlockMutex(g_lock); passthrough_rest(fd, url, headers, at, to); break; }   /* straight from the source for the rest */
@@ -606,6 +696,9 @@ static void buf_drop_locked(void)
     g_buf.route++; g_buf.gen++;
     g_buf.token[0] = 0;
     free(g_buf.url); free(g_buf.headers); g_buf.url = g_buf.headers = NULL;
+    for (int i = 0; i < g_buf.n_alt; i++) { free(g_buf.alt[i].url); free(g_buf.alt[i].headers); }
+    g_buf.n_alt = 0;
+    g_buf.failing = g_buf.gave_up = 0;
     free_blocks_locked();
     g_buf.size = g_buf.lo = g_buf.hi = g_buf.pos = 0; g_buf.budget = g_buf.max_budget = 0; g_buf.rate = 0;
     g_buf.stopped = g_buf.fails = g_buf.running = g_buf.got_any = g_buf.dead = 0;
@@ -657,6 +750,28 @@ double relay_buffer_ahead(void)
     double s = g_buf.token[0] && !g_buf.stopped && g_buf.rate > 0 && g_buf.hi > g_buf.pos ? (g_buf.hi - g_buf.pos) / g_buf.rate : -1;
     SDL_UnlockMutex(g_lock);
     return s;
+}
+
+void relay_buffer_alternates(const char *const *urls, const char *const *headers, int n)
+{
+    if (!g_lock) return;
+    SDL_LockMutex(g_lock);
+    for (int i = 0; i < n && g_buf.token[0] && g_buf.n_alt < (int)(sizeof g_buf.alt / sizeof g_buf.alt[0]); i++) {
+        if (!urls[i] || !strcmp(urls[i], g_buf.url)) continue;
+        g_buf.alt[g_buf.n_alt].url = strdup(urls[i]);
+        g_buf.alt[g_buf.n_alt].headers = headers && headers[i] ? strdup(headers[i]) : NULL;
+        g_buf.alt[g_buf.n_alt++].tried = 0;
+    }
+    SDL_UnlockMutex(g_lock);
+}
+
+int relay_buffer_failing(void)
+{
+    if (!g_lock) return 0;
+    SDL_LockMutex(g_lock);
+    int failing = g_buf.token[0] && !g_buf.stopped && g_buf.failing;
+    SDL_UnlockMutex(g_lock);
+    return failing;
 }
 
 int relay_buffer_source_failed(void)

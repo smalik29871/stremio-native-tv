@@ -253,6 +253,18 @@ run buffer_quit 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAK
 ms=$(sed -n 's/.*main: closed in \([0-9]*\) ms.*/\1/p' "$OUT/buffer_quit.log")
 grep -q "relay: buffering 127.0.0.1 ahead\|from the buffer" "$OUT/buffer_quit.log" && [ -n "$ms" ] && [ "$ms" -lt 4000 ] \
   || { echo "the app did not close promptly with a download stuck (${ms:-no} ms)"; grep -E "relay|http:|main: closed" "$OUT/buffer_quit.log"; exit 1; }
+# the source dies partway: the buffer carries on from another link to the very file (proved
+# byte for byte), and the player never knows; a look-alike of the same size is not taken, and
+# the player moves to the next source while the buffer still plays
+run buffer_handoff 900 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=262144 SNTV_FAKE_FETCH_PATTERN=1 SNTV_NO_RACE=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dievid/manifest.json HOME="$(home_with bufhand "$HDRP")"
+grep -q "player: 1 other link may be the same file" "$OUT/buffer_handoff.log" && grep -q "relay: 127.0.0.1 stopped sending at [0-9.]* MB; carrying on from the same file at 127.0.0.1" "$OUT/buffer_handoff.log" \
+  && grep -q "video(null): the bytes are the file's" "$OUT/buffer_handoff.log" && grep -q "relay: 127.0.0.1 from 262144-327679, 206 (from the buffer)" "$OUT/buffer_handoff.log" \
+  && ! grep -q "player: candidate 2/\|player: rescue" "$OUT/buffer_handoff.log" \
+  || { echo "a dying source was not carried on from its identical copy"; grep -E "relay|player: (candidate|source|rescue|[0-9] other)|video\(null\)" "$OUT/buffer_handoff.log"; exit 1; }
+run buffer_switch 900 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_SWITCH_AHEAD=100000 SNTV_NO_RACE=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dieother/manifest.json HOME="$(home_with bufswitch "$HDRP")"
+grep -q "relay: 127.0.0.1 is not the same file; not carrying on from it" "$OUT/buffer_switch.log" && grep -q "relay: 127.0.0.1 stopped sending at [0-9.]* MB; what is in plays on" "$OUT/buffer_switch.log" \
+  && grep -q "player: the source stopped sending; [0-9]* s of video left, switching now" "$OUT/buffer_switch.log" && grep -q "player: candidate 2/" "$OUT/buffer_switch.log" \
+  || { echo "a dying source with no identical copy did not switch before the buffer ran out"; grep -E "relay|player: (candidate|source|rescue|the source)|video\(null\)" "$OUT/buffer_switch.log"; exit 1; }
 # Faster starts. Resting on an episode checks the source Play would start (the /fast addon's
 # cached copy, behind a redirect): Play reuses that check, runs no race, opens where the
 # link led, and the start is timed

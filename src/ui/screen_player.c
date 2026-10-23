@@ -1329,6 +1329,7 @@ static void browse_sources(Player *p)
 /* ---- playback / fallback ------------------------------------------------------ */
 
 static void start_candidate(Player *p, int idx, double start);
+static void buffer_alternates(const Player *p, int idx);
 static void fail_over(Player *p, const char *why);
 
 /* A torrent TorBox has cached: its link comes from TorBox when the source's turn comes */
@@ -1437,6 +1438,7 @@ static void start_candidate(Player *p, int idx, double start)
             double mins = quality_runtime_minutes(p->meta.runtime);
             double rate = p->cands[idx].video_size && mins > 0 ? p->cands[idx].video_size / (mins * 60) : 0;   /* until the file's own length is known */
             relayed = relay_url_buffered(streams_final_url(u) ? streams_final_url(u) : u, p->cands[idx].headers, rate);
+            if (relayed) buffer_alternates(p, idx);
         } else if (p->cands[idx].headers) relayed = relay_url(u, p->cands[idx].headers);
     }
     if (!(bufferable && relayed)) relay_buffer_close();   /* this one isn't buffered: the last one's memory goes */
@@ -1484,6 +1486,26 @@ static void start_candidate(Player *p, int idx, double start)
 
 /* The source to try after this one fails, or -1. After two failures in a row (TorBox
  * down, its links dead) it goes straight to the P2P fallback when there is one. */
+/* Links that may lead to the very file playing, for the buffer to carry on from if its
+ * source stops partway: the link itself (where it led may expire), then other sources
+ * with the same file name, size or hash. The relay proves a copy byte for byte first. */
+static void buffer_alternates(const Player *p, int idx)
+{
+    const PlayCandidate *c = &p->cands[idx];
+    const char *urls[6], *headers[6];
+    int n = 0;
+    if (streams_final_url(c->url)) { urls[n] = c->url; headers[n++] = c->headers; }
+    for (int i = 0; i < p->n_cands && n < 6; i++) {
+        const PlayCandidate *o = &p->cands[i];
+        if (i == idx || (i < 16 && p->dead[i]) || strncmp(o->url, "http", 4) || torrent_engine_url_is(o->url) || torbox_is_hash_link(o->url)) continue;
+        int same = (c->video_size && o->video_size == c->video_size) || (c->filename && o->filename && !strcmp(c->filename, o->filename))
+                   || (c->video_hash && o->video_hash && !strcasecmp(c->video_hash, o->video_hash));
+        if (same) { urls[n] = streams_final_url(o->url) ? streams_final_url(o->url) : o->url; headers[n++] = o->headers; }
+    }
+    if (n) LOGI("player: %d other link%s may be the same file, for the buffer to carry on from", n, n == 1 ? "" : "s");
+    relay_buffer_alternates(urls, headers, n);
+}
+
 static int next_candidate(const Player *p)
 {
     for (int i = p->cur + 1; p->tries >= 2 && i < p->n_cands; i++)
@@ -1758,6 +1780,17 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     float now = g_app.time;
     int playing = vi->state == VIDEO_PLAYING;
     if (playing && vi->position > 5) p->reask_pos = vi->position;
+    /* 0. the buffer's source stopped partway and no copy of the same file took over: the
+     * next source while the buffer still plays, so the switch comes before the picture stops */
+    if (playing && p->relay_used && relay_buffer_failing() && next_candidate(p) >= 0) {
+        double more = relay_buffer_ahead(), ahead = (vi->buffer_ahead > 0 ? vi->buffer_ahead : 0) + (more > 0 ? more : 0);
+        if (ahead < env_s("SNTV_SWITCH_AHEAD", 20)) {
+            health_record(p, HEALTH_STALL);
+            LOGI("player: the source stopped sending; %.0f s of video left, switching now", ahead);
+            rescue(p, "The source stopped sending video", vi->position);
+            return;
+        }
+    }
     /* 1. a source that stopped sending: the next one, from the same moment */
     float dead_after = env_s("SNTV_RESCUE_AFTER", p->warm[0].state == 2 ? 12 : 20);   /* sooner when the next one is known to work */
     if (playing && vi->buffering && p->stall_since > 0 && now - p->stall_since > dead_after && now - p->jumped_at > dead_after && next_candidate(p) >= 0) {
@@ -1798,7 +1831,8 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     if (playing && !vi->buffering && vi->buffer_ahead >= 0 && now - p->jumped_at > 8 && now - p->drain_t >= env_s("SNTV_DRAIN_EVERY", 5)) {
         p->drain_t = now;
         if (p->drain_n == 6) { memmove(p->drain_at, p->drain_at + 1, 5 * sizeof(float)); memmove(p->drain_v, p->drain_v + 1, 5 * sizeof(float)); p->drain_n = 5; }
-        p->drain_at[p->drain_n] = now; p->drain_v[p->drain_n] = (float)vi->buffer_ahead; p->drain_n++;
+        double more = p->relay_used ? relay_buffer_ahead() : -1;   /* with the buffer ahead, the whole of what is ready */
+        p->drain_at[p->drain_n] = now; p->drain_v[p->drain_n] = (float)(vi->buffer_ahead + (more > 0 ? more : 0)); p->drain_n++;
         if (p->drain_n >= 4 && !p->lighter_offered) {
             float span = p->drain_at[p->drain_n - 1] - p->drain_at[0];
             float slope = span > 0 ? (p->drain_v[p->drain_n - 1] - p->drain_v[0]) / span : 0;

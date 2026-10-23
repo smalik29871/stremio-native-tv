@@ -19,5 +19,7 @@ int  relay_buffer_enabled(void);   /* relay on, and "bufferAhead" not 0 (nor SNT
 void relay_set_duration(double seconds);   /* the video's length: the buffer's minutes from its size */
 double relay_buffer_ahead(void);   /* seconds of video loaded past what the player read, -1 none */
 void relay_buffer_close(void);     /* playback over: the buffer's memory goes */
+void relay_buffer_alternates(const char *const *urls, const char *const *headers, int n);   /* links that may lead to the same file: if the source stops partway, the buffer carries on from one that proves identical */
+int  relay_buffer_failing(void);   /* the source stopped sending partway and no identical copy took over: what is in plays on */
 int  relay_buffer_source_failed(void);   /* the buffered source itself refused or kept failing (not the relay) */
 #endif

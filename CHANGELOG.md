@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **A source that dies mid-film is replaced without a pause.** With Load ahead on, the app
+  notices a source has stopped long before the picture would, and acts while minutes of video
+  are still in hand:
+  - If another of your sources is the very same file (the same release from another service,
+    or the addon's own link again after the address it led to expired), the download simply
+    carries on from it at the same byte. The player never notices: no pause, no reload. A
+    copy is only used once it is proved identical, byte for byte against what is already
+    loaded, never by its name alone.
+  - If there is no identical copy, it keeps retrying the source while the buffer plays, so a
+    short outage passes unseen. Only when about 20 seconds are left does it switch to the
+    next source at the same moment (a brief reload instead of a stall).
+  - The lighter-copy switch for a connection falling behind now counts the whole buffer, not
+    only the TV's own 30 seconds, so it steps down in quality only when the minutes in hand
+    are really running out.
+- Load ahead always keeps at least 16 MB ready, even when a source's size suggests a very low
+  bitrate (it could stall before the first picture).
+
 ## 0.10.52
 
 - **Load ahead: up to 2 minutes of the video kept ready.** The TV's player only holds about
