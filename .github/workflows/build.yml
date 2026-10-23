@@ -292,6 +292,41 @@ jobs:
             --repo "$RELEASES_REPO" \
             --title "Cuelight $TAG" \
             --notes-file notes.md
+      - name: Refresh the README in the public repository
+        if: steps.ver.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          # what people see when they open the releases repository: kept current on every release
+          git clone -q --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" pub
+          cat > pub/README.md <<EOF
+          # Cuelight for LG webOS
+
+          *Your cue to press play.* Cuelight is a fast native player for LG webOS TVs (webOS 3.0 and
+          newer) that works with your Stremio account and addons: the same sign-in, addons, Library and
+          Continue Watching.
+
+          > Cuelight is an independent project. It is not affiliated with, endorsed by or made by Stremio.
+
+          ## Install
+
+          1. Install the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) on your TV.
+          2. In the Homebrew Channel, open **Settings > Add repository** and enter:
+
+             \`https://github.com/${RELEASES_REPO}/releases/latest/download/repo.json\`
+          3. Back in the app list, install **Cuelight** (listed as "Stremio (native)" before 0.10.57).
+
+          ## Updates
+
+          Cuelight checks for new versions itself (Settings > About). The newest is **${TAG}**: see
+          [Releases](https://github.com/${RELEASES_REPO}/releases) for what changed.
+          EOF
+          cd pub
+          if ! git diff --quiet; then
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qam "README for ${TAG}"
+            git push -q origin HEAD
+          fi
       - name: Create the release here too
         if: steps.ver.outputs.here == 'true'
         env:
