@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  RELEASES_REPO: smalik29871/stremio-custom-lg-tv-releases
+  RELEASES_REPO: smalik29871/cuelight-releases   # renamed from stremio-custom-lg-tv-releases; GitHub forwards the old address, which installed TVs still use
   # openlgtv buildroot SDK pinned to the release the Nuvio native client ships with.
   WEBOS_SDK_URL: https://github.com/openlgtv/buildroot-nc4/releases/download/webos-a38c582/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
   WEBOS_SDK_SHA256: 04ad3311b48b4557a7002aef56ae2e167478e8e129f37daac04649bddf813616
