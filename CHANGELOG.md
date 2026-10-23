@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.53
 
 - **A source that dies mid-film is replaced without a pause.** With Load ahead on, the app
   notices a source has stopped long before the picture would, and acts while minutes of video
