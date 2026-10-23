@@ -983,6 +983,8 @@ grep -q "player: volume [0-9]*%" "$OUT/fs_player_volume.log" || { echo "sideways
 # Settings > About > Storage: what the app keeps here, and OK clears the cache
 run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:905,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
 grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cache cleared" "$OUT/storage_clear.log" || { echo "Storage did not count or clear the cache"; grep -E "storage|tidy" "$OUT/storage_clear.log"; exit 1; }
+# the loading screen: the backdrop as a wash, the format, the logo, the ring, the episode and what is happening
+run veil_series 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FAKE_STUCK=1
 python3 -I - "$OUT" <<'PY'
 import sys, glob, os
 from PIL import Image

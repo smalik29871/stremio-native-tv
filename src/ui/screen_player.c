@@ -3310,47 +3310,101 @@ static int recovering(const Player *p, const VideoInfo *vi)
     return 0;
 }
 
-/* Until the first picture: the title's artwork and name, with what is happening, instead
- * of a black screen; it fades into the video once that plays. */
+/* Until the first picture: the title's artwork washed into its colours, and in the middle
+ * the picture format, the logo (or the name), a ring that turns, the episode and what is
+ * happening; it fades into the video once that plays. */
+static void veil_ring(float cx, float cy, float r, float k)
+{
+    Color track = COLOR_ALPHA(THEME_TEXT, (int)(0x38 * k)), arc = COLOR_ALPHA(THEME_ACCENT, (int)(255 * k));
+    for (int i = 0; i < 48; i++) {   /* the faint circle */
+        float a0 = i * 6.2832f / 48, a1 = (i + 1) * 6.2832f / 48;
+        gfx_line(cx + cosf(a0) * r, cy + sinf(a0) * r, cx + cosf(a1) * r, cy + sinf(a1) * r, 3, track);
+    }
+    float head = g_app.time * 5.2f, len = 1.3f + 0.5f * sinf(g_app.time * 2.1f);   /* the arc runs round, breathing */
+    for (int i = 0; i < 16; i++) {
+        float a0 = head + len * i / 16, a1 = head + len * (i + 1) / 16;
+        gfx_line(cx + cosf(a0) * r, cy + sinf(a0) * r, cx + cosf(a1) * r, cy + sinf(a1) * r, 4, arc);
+    }
+    app_redraw();
+}
+
 static void draw_veil(Player *p, const VideoInfo *vi)
 {
-    float k = p->veil;
+    float k = p->veil, W = SNTV_UI_W, H = SNTV_UI_H, cx = W / 2;
     char buf[512], lbuf[512];
     const char *bg = app_art_background(&p->meta, buf, sizeof buf);
     int iw, ih;
-    unsigned bgt = bg ? image_get(bg, &iw, &ih) : 0;
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(255 * k)));
-    if (bgt) {
-        float ia = (float)iw / ih, sa = (float)SNTV_UI_W / SNTV_UI_H, u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+    gfx_rect(0, 0, W, H, RGBA(0, 0, 0, (int)(255 * k)));
+    unsigned bgt = bg ? image_get_ex(bg, IMAGE_MIPMAP, &iw, &ih, NULL) : 0;
+    if (bgt) {   /* the backdrop as a wash of its colours, pushing in slowly */
+        float u0, v0, u1, v1;
+        float ia = (float)iw / ih, sa = W / H;
+        u0 = 0; v0 = 0; u1 = 1; v1 = 1;
         if (ia > sa) { float c = sa / ia; u0 = (1 - c) / 2; u1 = 1 - u0; } else { float c = ia / sa; v0 = (1 - c) / 2; v1 = 1 - v0; }
-        float z = 1.0f + 0.04f * (g_app.time - p->load_started < 8 ? (g_app.time - p->load_started) / 8 : 1);   /* a slow push in */
+        float z = 1.0f + 0.06f * (g_app.time - p->load_started < 10 ? (g_app.time - p->load_started) / 10 : 1);
         float cu = (u0 + u1) / 2, cv = (v0 + v1) / 2; u0 = cu - (cu - u0) / z; u1 = cu + (u1 - cu) / z; v0 = cv - (cv - v0) / z; v1 = cv + (v1 - cv) / z;
-        gfx_tex_uv(bgt, 0, 0, SNTV_UI_W, SNTV_UI_H, u0, v0, u1, v1, RGBA(150, 150, 150, (int)(255 * k)));
+        gfx_tex_blur(bgt, 0, 0, W, H, u0, v0, u1, v1, RGBA(225, 225, 225, (int)(255 * k)), 4.5f);
     }
-    gfx_gradient_v(0, SNTV_UI_H * 0.45f, SNTV_UI_W, SNTV_UI_H * 0.55f, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0xE0 * k)));
-    float x = THEME_MARGIN, y = SNTV_UI_H - 300;
+    /* a soft dark pool in the middle, for the words */
+    gfx_shadow(cx - 520, H / 2 - 300, 1040, 600, 300, 260, RGBA(0, 0, 0, (int)(0xB0 * k)));
+    gfx_gradient_v(0, H * 0.7f, W, H * 0.3f + 1, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x90 * k)));
+    Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * k)), dim = COLOR_ALPHA(RGBA(0xE6, 0xE6, 0xE6, 0xFF), (int)(235 * k));
+
+    /* the picture format, as the source says it, between two thin lines */
+    const char *badges = p->cur < p->n_cands ? p->cands[p->cur].badges : "";
+    const char *fmt = strstr(badges, "DOLBY VISION") ? "DOLBY VISION" : strstr(badges, "HDR10+") ? "HDR10+" : strstr(badges, "HDR") ? "HDR"
+                    : strstr(badges, "4K") ? "4K" : strstr(badges, "1080") ? "1080p" : NULL;
+    if (p->probe && p->probe->hdr) fmt = p->probe->hdr == 2 ? "DOLBY VISION" : "HDR";   /* the file itself, once read */
+    float top = H / 2 - 230;
+    if (fmt) {
+        float tw = font_measure(fmt, FONT_XS | FONT_B) + 2 * (float)(strlen(fmt) - 1);   /* tracked 2 apart */
+        font_draw_tracked(fmt, cx - tw / 2, top, FONT_XS | FONT_B, fg, 2);
+        float ly = top + font_height(FONT_XS | FONT_B) / 2;
+        gfx_rect(cx - tw / 2 - 110, ly, 80, 2, COLOR_ALPHA(THEME_TEXT, (int)(0x70 * k)));
+        gfx_rect(cx + tw / 2 + 34, ly, 80, 2, COLOR_ALPHA(THEME_TEXT, (int)(0x70 * k)));
+    }
+    /* the logo, or the name in big type */
     const char *logo = app_art_logo(&p->meta, lbuf, sizeof lbuf);
     unsigned lt = logo ? image_get(logo, &iw, &ih) : 0;
-    Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * k));
+    float ly0 = top + 56, lh = 230;
     if (lt && ih > 0) {
-        float w = 520, h = w * ih / iw;
-        if (h > 150) { h = 150; w = h * iw / ih; }
-        gfx_tex(lt, x, y + 150 - h, w, h, RGBA(255, 255, 255, (int)(255 * k)));
-    } else font_draw_fit(p->title ? p->title : "", x, y + 80, FONT_XL | FONT_B, fg, SNTV_UI_W - 2 * x);
+        float w = 760, h = w * ih / iw;
+        if (h > lh) { h = lh; w = h * iw / ih; }
+        gfx_tex(lt, cx - w / 2, ly0 + (lh - h) / 2, w, h, RGBA(255, 255, 255, (int)(255 * k)));
+    } else {
+        const char *name = p->meta.name ? p->meta.name : p->title ? p->title : "";
+        float h = ui_center_wrapped(name, cx, ly0 + 40, FONT_HUGE | FONT_B, fg, 1100);
+        (void)h;
+    }
+    float ry = ly0 + lh + 70;
+    veil_ring(cx, ry, 30, k);
+
+    /* the episode; after a while a word that it is coming; what is happening now */
+    float ty = ry + 62;
+    char ep[200] = "";   /* "Show  -  S2 E3  Title" (or "S2E3  Title") -> "S2E3  ·  Title" */
+    const char *et = p->title ? strstr(p->title, "  -  ") : NULL;
+    et = et ? et + 5 : p->title;
+    if (et && et[0] == 'S' && et[1] >= '0' && et[1] <= '9') {
+        char code[24]; size_t n = 0;
+        const char *q = et;
+        for (; *q && n < sizeof code - 1 && !(q[0] == ' ' && q[1] == ' '); q++) if (*q != ' ') code[n++] = *q;
+        code[n] = 0;
+        while (*q == ' ') q++;
+        snprintf(ep, sizeof ep, *q ? "%s  \xC2\xB7  %s" : "%s", code, q);
+    }
+    if (ep[0]) { font_draw_center(ep, cx, ty, FONT_S | FONT_B, fg); ty += 46; }
+    float t = g_app.time - p->load_started;
+    const char *wait = t > 20 ? "Still working on it\xE2\x80\xA6" : t > 8 ? "Almost there\xE2\x80\xA6" : t > 4 ? "Just a moment more\xE2\x80\xA6" : NULL;
+    if (wait) { font_draw_center(wait, cx, ty, FONT_S, dim); ty += 42; }
     const char *url = p->cur < p->n_cands ? p->cands[p->cur].url : "";
     int rec = recovering(p, vi);
     const char *what = rec == 1 ? "Reconnecting" : rec == 2 ? "Finding a fresh link" : rec == 3 ? "Trying another source"
                      : torbox_is_hash_link(url) ? "Getting it from TorBox" : torrent_engine_url_is(url) ? "Finding peers"
-                     : vi->buffering || vi->state == VIDEO_PLAYING ? "Buffering" : "Starting";
+                     : vi->buffering || vi->state == VIDEO_PLAYING ? "Buffering" : "Opening the source";
     char line[200];
-    const char *label = p->cur < p->n_cands && p->cands[p->cur].label ? p->cands[p->cur].label : "";
-    snprintf(line, sizeof line, "%s%s%s", what, label[0] ? "  \xC2\xB7  " : "", label);
-    ui_spinner(x + 16, y + 196, 14);
-    font_draw_fit(line, x + 44, y + 196 - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, (int)(255 * k)), SNTV_UI_W - 2 * x - 44);
-    /* a thin line that fills as the pipeline gets ready (no promise of how long) */
-    float bw = SNTV_UI_W - 2 * x, t = g_app.time - p->load_started, f = vi->buffer_percent > 0 ? vi->buffer_percent / 100.0f : 1 - 1 / (1 + t * 0.35f);
-    gfx_rect(x, y + 236, bw, 4, COLOR_ALPHA(THEME_TEXT, (int)(0x30 * k)));
-    gfx_rect(x, y + 236, bw * (f > 1 ? 1 : f), 4, COLOR_ALPHA(THEME_ACCENT, (int)(255 * k)));
+    if ((vi->buffering || vi->state == VIDEO_PLAYING) && vi->buffer_percent > 0 && vi->buffer_percent < 100) snprintf(line, sizeof line, "%s  %d%%", what, vi->buffer_percent);
+    else snprintf(line, sizeof line, "%s", what);
+    font_draw_center(line, cx, ty, FONT_S, dim);
 }
 
 /* What is on: title, episode, year and runtime, synopsis, cast. Shown once playback has
