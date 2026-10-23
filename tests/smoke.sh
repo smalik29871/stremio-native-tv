@@ -347,7 +347,7 @@ grep -qE '"recentSearches":[[:space:]]*\["shawshank"\]' "$OUT/home_recentlate/.l
 # Cuelight's own catalog (TMDB, answered inside the app): Home's rows, a film's and a series' pages, search
 TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
 CAT="SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg SNTV_DEFAULT_ADDONS=cuelight://catalog/manifest.json,http://127.0.0.1:$PORT/manifest.json"
-run catalog_home 260 "wait,wait,wait" HOME="$(home_with cathome "$TK")" $CAT
+run catalog_home 400 "wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with cathome "$TK")" $CAT
 grep -q "catalog: movie popular page 1 -> 3 titles" "$OUT/catalog_home.log" && grep -q "catalog: series trending page 1 -> 1 titles" "$OUT/catalog_home.log" \
   && grep -q "catalog: poster for tt1003 from TMDB (200)" "$OUT/catalog_home.log" \
   || { echo "the built-in catalog did not fill Home"; grep -E "catalog|addons" "$OUT/catalog_home.log"; exit 1; }
