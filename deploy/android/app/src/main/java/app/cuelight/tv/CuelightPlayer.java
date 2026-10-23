@@ -1,16 +1,20 @@
 package app.cuelight.tv;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 
@@ -54,6 +58,7 @@ public final class CuelightPlayer {
     private static SubtitleView sSubs;        // the file's own subtitle tracks
     private static ExoPlayer sPlayer;
     private static boolean sReady, sKeepAwake;
+    private static volatile float sBrightness = -1;   /* the window's own, -1: the system's */
     private static double sStart;
     private static int sRectX, sRectY, sRectW = -1, sRectH = -1;
 
@@ -202,6 +207,33 @@ public final class CuelightPlayer {
     public static void landscapeOnly(final boolean on) {
         run(() -> sActivity.setRequestedOrientation(on ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                                                        : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER));
+    }
+
+    /* the phone's media volume, 0..1 (the player's controls; no system slider pops up) */
+    public static float deviceVolume() {
+        AudioManager am = (AudioManager) sActivity.getSystemService(Context.AUDIO_SERVICE);
+        int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        return max > 0 ? am.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) max : -1;
+    }
+    public static void setDeviceVolume(final float v) {
+        AudioManager am = (AudioManager) sActivity.getSystemService(Context.AUDIO_SERVICE);
+        int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), want = Math.round(Math.max(0, Math.min(1, v)) * max);
+        try { if (want != am.getStreamVolume(AudioManager.STREAM_MUSIC)) am.setStreamVolume(AudioManager.STREAM_MUSIC, want, 0); }
+        catch (SecurityException e) { Log.w(TAG, "volume: not allowed now (Do Not Disturb?)"); }
+    }
+    /* the screen's brightness for this window, 0..1; -1 gives it back to the system */
+    public static float brightness() {
+        if (sBrightness >= 0) return sBrightness;
+        try { return Settings.System.getInt(sActivity.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS) / 255f; }
+        catch (Settings.SettingNotFoundException e) { return 0.5f; }
+    }
+    public static void setBrightness(final float v) {
+        sBrightness = v;
+        run(() -> {
+            WindowManager.LayoutParams lp = sActivity.getWindow().getAttributes();
+            lp.screenBrightness = v < 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.01f, Math.min(1, v));
+            sActivity.getWindow().setAttributes(lp);
+        });
     }
 
     public static double[] status() { return sStatus; }

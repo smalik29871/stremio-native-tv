@@ -1614,10 +1614,100 @@ static int g_n_hits;
 static const Screen *g_hit_owner;
 int g_touch_aim;
 
+enum { PANS_MAX = 64 };
+static struct { float x, y, w, h; int vertical; UiPan *pan; const Screen *owner; } g_pans[PANS_MAX];
+static int g_n_pans;
+static unsigned g_pan_epoch = 1;
+static struct { UiPan *pan; const Screen *owner; float start, d; } g_drag;
+
 void ui_hits_begin(Screen *drawing)
 {
-    if (drawing && drawing == app_top()) g_n_hits = 0;   /* a new frame of the screen on top */
+    if (drawing && drawing == app_top()) g_n_hits = g_n_pans = 0;   /* a new frame of the screen on top */
     g_hit_owner = drawing;
+}
+
+void ui_pan_area(UiPan *p, float x, float y, float w, float h, int vertical)
+{
+    if (g_n_pans >= PANS_MAX || !gfx_visible_rect(&x, &y, &w, &h)) return;
+    g_pans[g_n_pans].x = x; g_pans[g_n_pans].y = y; g_pans[g_n_pans].w = w; g_pans[g_n_pans].h = h;
+    g_pans[g_n_pans].vertical = vertical; g_pans[g_n_pans].pan = p; g_pans[g_n_pans].owner = g_hit_owner;
+    g_n_pans++;
+}
+
+static int pan_at(float x, float y, int vertical)   /* the innermost (last drawn) scroller there */
+{
+    for (int i = g_n_pans - 1; i >= 0; i--)
+        if (g_pans[i].owner == app_top() && g_pans[i].pan->at && (vertical < 0 || g_pans[i].vertical == vertical) &&
+            x >= g_pans[i].x && x < g_pans[i].x + g_pans[i].w && y >= g_pans[i].y && y < g_pans[i].y + g_pans[i].h) return i;
+    return -1;
+}
+
+int ui_pan_catch(float x, float y)
+{
+    int caught = 0;
+    for (int k = 0; k < g_n_pans; k++) {   /* every scroller there that is gliding */
+        UiPan *p = g_pans[k].pan;
+        if (g_pans[k].owner != app_top() || !ui_pan_free(p) || SDL_fabsf(p->vel) < 60) continue;
+        if (x < g_pans[k].x || x >= g_pans[k].x + g_pans[k].w || y < g_pans[k].y || y >= g_pans[k].y + g_pans[k].h) continue;
+        p->vel = 0; caught = 1;
+    }
+    return caught;
+}
+
+int ui_pan_grab(float x, float y, int vertical)
+{
+    int i = pan_at(x, y, vertical);
+    g_drag.pan = NULL;
+    if (i < 0) return 0;
+    g_drag.pan = g_pans[i].pan; g_drag.owner = g_pans[i].owner;
+    g_drag.start = *g_drag.pan->at; g_drag.d = 0;
+    g_drag.pan->free = 1; g_drag.pan->vel = 0; g_drag.pan->epoch = g_pan_epoch;
+    app_redraw();
+    return 1;
+}
+
+void ui_pan_drag(float d)
+{
+    if (!g_drag.pan) return;
+    if (g_drag.owner != app_top()) { g_drag.pan = NULL; return; }   /* the screen went */
+    g_drag.d = d;
+    app_redraw();
+}
+
+void ui_pan_release(float v)
+{
+    if (g_drag.pan && g_drag.owner == app_top()) { g_drag.pan->vel = -v; g_drag.pan->free = 1; }
+    g_drag.pan = NULL;
+    app_redraw();
+}
+
+void ui_pan_keys(void) { g_pan_epoch++; }
+
+int ui_pan_free(const UiPan *p) { return p->free && p->epoch == g_pan_epoch; }
+
+float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed)
+{
+    if (max < 0) max = 0;
+    p->at = pos;
+    if (p->epoch != g_pan_epoch) { p->free = 0; p->epoch = g_pan_epoch; }   /* a key since: the focus leads */
+    if (p == g_drag.pan) {   /* under the finger; past an end it stretches, a third as far */
+        float x = g_drag.start - g_drag.d;
+        if (x < 0) x /= 3; else if (x > max) x = max + (x - max) / 3;
+        *pos = x;
+        return x;
+    }
+    if (!p->free) { *pos = ui_ease(*pos, want, &p->vel, dt, speed); return *pos; }
+    float x = *pos;
+    if (x < 0 || x > max) {   /* past an end: back to it */
+        if ((x < 0 && p->vel < 0) || (x > max && p->vel > 0)) p->vel *= SDL_expf(-dt * 24);   /* a glide running out there */
+        x = ui_ease(x, x < 0 ? 0 : max, &p->vel, dt, 20);
+    } else if (SDL_fabsf(p->vel) > 8) {   /* gliding, slowing down */
+        x += p->vel * dt;
+        p->vel *= SDL_expf(-dt * 2.6f);
+        app_redraw();
+    } else p->vel = 0;
+    *pos = x;
+    return x;
 }
 
 void ui_hit(float x, float y, float w, float h, int id)

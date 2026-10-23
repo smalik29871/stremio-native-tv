@@ -182,3 +182,7 @@ void video_select_track(TrackKind kind, int index)
 }
 
 void video_landscape_only(int on) { (void)on; }   /* TVs and the desktop do not turn */
+float video_device_volume(void) { return -1; }   /* a TV's own remote has those */
+int   video_set_device_volume(float v) { (void)v; return 0; }
+float video_brightness(void) { return -1; }
+int   video_set_brightness(float v) { (void)v; return 0; }

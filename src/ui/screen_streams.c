@@ -44,6 +44,7 @@ struct Streams {
     int focus;
     int moved;                /* the viewer has moved the focus: from then on it follows its source */
     float scroll, scroll_target;
+    float list_h; UiPan pan;   /* how tall the list's window is; a finger on it */
     int autoplayed;
     float started;
     int from_prefetch;        /* answers still arriving belong to the prefetch */
@@ -912,7 +913,7 @@ static void update(Screen *s, float dt)
     if (starting(st) && !st->n && !st->pending && g_app.time - st->started > 1) give_up(st);   /* nobody had anything */
     int first = st->focus - (VISIBLE - 3);
     st->scroll_target = (first < 0 ? 0 : first) * ROW_H;
-    st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 14);
+    ui_pan(&st->pan, &st->scroll, st->scroll_target, st->n * ROW_H - st->list_h + ROW_H / 2, dt, 14);
     if (st->pending) app_redraw();
 }
 
@@ -1073,6 +1074,8 @@ static void draw_aperture(Streams *st)
         list_y += REC_H;
     }
     gfx_clip_push(x - 8, list_y - 8, w + 16, SNTV_UI_H - list_y - 44);
+    st->list_h = SNTV_UI_H - list_y - 44;
+    ui_pan_area(&st->pan, x - 8, list_y - 8, w + 16, st->list_h, 1);
     QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
     for (int i = 0; i < st->n; i++) {
         float y = list_y + i * ROW_H - st->scroll;
@@ -1209,6 +1212,8 @@ static void draw(Screen *s)
     }
 
     gfx_clip_push(0, list_y - 20, SNTV_UI_W, SNTV_UI_H - list_y + 20);
+    st->list_h = SNTV_UI_H - list_y;
+    ui_pan_area(&st->pan, 0, list_y - 20, SNTV_UI_W, st->list_h + 20, 1);
     float ry = list_y - st->scroll;
     for (int i = 0; i < st->n; i++, ry += ROW_H) {
         if (ry + ROW_H < LIST_Y - 20 || ry > SNTV_UI_H) continue;

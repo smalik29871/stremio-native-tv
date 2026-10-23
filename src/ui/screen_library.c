@@ -35,6 +35,7 @@ typedef struct {
     const LibraryItem **src;      /* parallel to items */
     int zone, focus, pill_focus;  /* pill_focus: 0..F_COUNT-1 filters, F_COUNT = sort */
     float focus_t, scroll;
+    float grid_y; UiPan pan;   /* where the grid starts on screen; a finger on it */
     Peek peek;                /* details beside the focused poster */
     int rail_focus;
     int seen_version, built_filter, built_sort;
@@ -212,7 +213,8 @@ static void update(Screen *s, float dt)
     Library *l = s->st;
     if (l->seen_version != g_app.library_version || l->built_filter != l->filter || l->built_sort != l->sort) build(l);
     float target = l->zone == Z_GRID ? (float)(l->focus / COLS) * (CELL_H + 80) : 0;
-    l->scroll = ui_ease(l->scroll, target, NULL, dt, 14);
+    float most = (((l->n + COLS - 1) / COLS) * (CELL_H + 80)) - (SNTV_UI_H - l->grid_y - (SNTV_PHONE ? PHONE_TABS_H : 0)) + 40;
+    ui_pan(&l->pan, &l->scroll, target, most, dt, 14);
     l->focus_t = ui_ease(l->focus_t * 100, 100, NULL, dt, 16) / 100;
     ui_peek_step(&l->peek, l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n ? &l->items[l->focus] : NULL, dt);
     char buf[512];
@@ -263,6 +265,8 @@ static void draw(Screen *s)
         font_draw_center(d, SNTV_UI_W / 2, cy + 70, FONT_S, THEME_TEXT_DIM);
     }
     gfx_clip_push(gx - 30, gy - 20, SNTV_UI_W - gx, SNTV_UI_H - gy + 20);
+    l->grid_y = gy;
+    ui_pan_area(&l->pan, gx - 30, gy - 20, SNTV_UI_W - gx, SNTV_UI_H - gy + 20, 1);
     float peek_x = 0, peek_y = 0;
     /* details open on the focused card: the others in its row slide aside to make room */
     float room = 0; int room_right = 1, room_row = -1;

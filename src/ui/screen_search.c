@@ -73,7 +73,8 @@ struct Search {
     int tvkb;                     /* typing with the TV's own keyboard, not the app's */
     int hero_btn;                 /* on the top result's buttons (focus_grid 3): which one */
     int ph_filter;                /* upright on a phone: All, Films, Series */
-    float ph_y, ph_yv, ph_fy, ph_fh;   /* ...the page's scroll, and where the focus is on it */
+    float ph_y, ph_yv, ph_fy, ph_fh, ph_total;   /* ...the page's scroll, where the focus is on it, how long it is */
+    UiPan ph_pan;
     char sugg_logged[96];
     char sugg_for[256]; int sugg_n_res, sugg_lib; unsigned sugg_gen;   /* what the suggestions were worked out for */
 };
@@ -653,8 +654,7 @@ static void update(Screen *sc, float dt)
         if (s->ph_fy + s->ph_fh > want + view - 30) want = s->ph_fy + s->ph_fh - view + 30;
         if (s->ph_fy - 30 < want) want = s->ph_fy - 30;
         if (!s->focus_grid || want < 0) want = 0;
-        s->ph_y = ui_ease(s->ph_y, want, &s->ph_yv, dt, 14);
-        if (fabsf(s->ph_y - want) > 0.5f) app_redraw();
+        ui_pan(&s->ph_pan, &s->ph_y, want, s->ph_total - view + 30, dt, 14);
     }
     char got[256];
     if (s->typing && phone_take(got, sizeof got)) {   /* sent from the phone: search it right away */
@@ -1065,6 +1065,7 @@ static void phone_draw(Search *s)
 {
     float W = SNTV_UI_W, x = 40, w = W - 80;
     gfx_rect(0, 0, W, SNTV_UI_H, THEME_BG);
+    ui_pan_area(&s->ph_pan, 0, 0, W, SNTV_UI_H - PHONE_TABS_H, 1);
     gfx_set_translate(0, -s->ph_y);
     font_draw("Search", x, 36, FONT_XL | FONT_B, THEME_TEXT);
     float fy = 130, fh = 100;
@@ -1135,6 +1136,7 @@ static void phone_draw(Search *s)
             y += rh;
         }
     }
+    s->ph_total = y;
     gfx_set_translate(0, 0);
     rail_draw(RAIL_SEARCH, -1);
 }

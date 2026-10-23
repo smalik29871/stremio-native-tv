@@ -200,6 +200,15 @@ static void dev_hooks(SDL_Window *win, int frame)
         { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "left", SDLK_LEFT }, { "right", SDLK_RIGHT },
         { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 }, { "yellow", SDLK_F5 },
         { "play", SDLK_p }, { "stop", SDLK_AUDIOSTOP }, { "info", SDLK_HELP }, { "rewind", SDLK_AUDIOREWIND }, { NULL, 0 } };
+    static struct { int left; float x, y, dx, dy; } drag;   /* a scripted drag, one move a frame */
+    if (drag.left > 0) {
+        SDL_Event e; memset(&e, 0, sizeof e);
+        drag.left--;
+        e.type = drag.left ? SDL_FINGERMOTION : SDL_FINGERUP; e.tfinger.fingerId = 1;
+        e.tfinger.x = drag.x + drag.dx * (8 - drag.left) / 8; e.tfinger.y = drag.y + drag.dy * (8 - drag.left) / 8;
+        if (!drag.left) { e.tfinger.x = drag.x + drag.dx; e.tfinger.y = drag.y + drag.dy; }
+        SDL_PushEvent(&e);
+    }
     const char *script = getenv("SNTV_KEYS");
     if (script && frame % 20 == 10) {
         int idx = frame / 20;
@@ -208,7 +217,8 @@ static void dev_hooks(SDL_Window *win, int frame)
         for (char *tok = strtok(copy, ","); tok; tok = strtok(NULL, ","), i++) {
             if (i != idx) continue;
             float tx, ty;
-            if (sscanf(tok, "tap:%f:%f", &tx, &ty) == 2) {   /* a finger tapping at canvas units x:y */
+            int taps = sscanf(tok, "dtap:%f:%f", &tx, &ty) == 2 ? 2 : sscanf(tok, "tap:%f:%f", &tx, &ty) == 2 ? 1 : 0;
+            for (int k = 1; k < taps; k++) {   /* "dtap": a double tap there */
                 int px, py, pw, ph, dw, dh;
                 gfx_ui_to_pixels(tx, ty, 0, 0, &px, &py, &pw, &ph);
                 gfx_drawable_size(&dw, &dh);
@@ -217,6 +227,28 @@ static void dev_hooks(SDL_Window *win, int frame)
                 SDL_PushEvent(&e);
                 e.type = SDL_FINGERUP;
                 SDL_PushEvent(&e);
+            }
+            if (taps) {   /* a finger tapping at canvas units x:y */
+                int px, py, pw, ph, dw, dh;
+                gfx_ui_to_pixels(tx, ty, 0, 0, &px, &py, &pw, &ph);
+                gfx_drawable_size(&dw, &dh);
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_FINGERDOWN; e.tfinger.fingerId = 1; e.tfinger.x = (float)px / dw; e.tfinger.y = (float)py / dh;
+                SDL_PushEvent(&e);
+                e.type = SDL_FINGERUP;
+                SDL_PushEvent(&e);
+                continue;
+            }
+            float tx2, ty2;
+            if (sscanf(tok, "drag:%f:%f:%f:%f", &tx, &ty, &tx2, &ty2) == 4) {   /* a finger dragged from x:y to x2:y2 (canvas units) */
+                int px, py, pw, ph, qx, qy, dw, dh;
+                gfx_ui_to_pixels(tx, ty, 0, 0, &px, &py, &pw, &ph);
+                gfx_ui_to_pixels(tx2, ty2, 0, 0, &qx, &qy, &pw, &ph);
+                gfx_drawable_size(&dw, &dh);
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_FINGERDOWN; e.tfinger.fingerId = 1; e.tfinger.x = (float)px / dw; e.tfinger.y = (float)py / dh;
+                SDL_PushEvent(&e);
+                drag.x = e.tfinger.x; drag.y = e.tfinger.y; drag.dx = (float)(qx - px) / dw; drag.dy = (float)(qy - py) / dh; drag.left = 8;
                 continue;
             }
             if (strncmp(tok, "t:", 2) == 0) {   /* typed text */
@@ -274,56 +306,129 @@ static void dev_hooks(SDL_Window *win, int frame)
 
 static int g_seen_keyup, g_ok_down, g_ok_long;
 
-/* Touch, for phones and tablets (the app is laid out for a remote): a tap is OK on what has
- * the focus, a swipe moves it (a longer swipe, several steps), a press held half a second is
- * the hold-OK menu. The system's back gesture already arrives as Back. */
-static struct { int down; float x, y; Uint32 t; SDL_FingerID id; } g_touch;
+/* Touch, for phones and tablets (the app is laid out for a remote): a tap is on what is under
+ * the finger, a press held half a second is the hold-OK menu. A drag moves the page, list or
+ * row under it with the finger and lets it glide on (ui_pan); where nothing scrolls that way,
+ * it moves the focus as it goes, a step each stretch. The system's back gesture arrives as Back. */
+static struct {
+    int down, mode, steps, caught;   /* mode: 0 not moved yet, 1 a scroller has it, 2 focus steps, 3 the screen's own */
+    float x, y, along, v;            /* where it went down (0..1 of the screen); the drag's travel, speed (canvas units) */
+    Uint32 t, moved_t;
+    SDL_FingerID id;
+    KeyAction step;
+    int vertical;
+} g_touch;
 static void dispatch_key(KeyAction a);
+
+static void touch_to_ui(float fx, float fy, float *ux, float *uy)
+{
+    int pw, ph;
+    gfx_drawable_size(&pw, &ph);
+    gfx_pixels_to_ui(fx * pw, fy * ph, ux, uy);
+}
+
+static void touch_motion(float fx, float fy)
+{
+    if (g_touch.mode == 3) {
+        float ux, uy;
+        touch_to_ui(fx, fy, &ux, &uy);
+        Screen *top = app_top();
+        if (top && top->drag) top->drag(top, 1, ux, uy);
+        app_redraw();
+        return;
+    }
+    float dx = fx - g_touch.x, dy = (fy - g_touch.y) * 9.0f / 16.0f;   /* in screen widths, both ways */
+    float dist = SDL_sqrtf(dx * dx + dy * dy);
+    if (!g_touch.mode) {
+        if (dist < 0.02f) return;   /* still a tap */
+        g_touch.vertical = SDL_fabsf(dy) > SDL_fabsf(dx);
+        float ux, uy;
+        touch_to_ui(g_touch.x, g_touch.y, &ux, &uy);
+        if (ui_pan_grab(ux, uy, g_touch.vertical)) g_touch.mode = 1;
+        else {
+            g_touch.mode = 2;
+            g_touch.step = g_touch.vertical ? (dy < 0 ? KEY_DOWN : KEY_UP) : (dx < 0 ? KEY_RIGHT : KEY_LEFT);   /* content follows the finger */
+            Screen *top = app_top();
+            int id;
+            if (top && top->tap && ui_hit_find(ux, uy, top, &id) && !(id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT)) {
+                g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;   /* the steps move what it started on */
+            }
+        }
+    }
+    float x0, y0, x1, y1;
+    touch_to_ui(g_touch.x, g_touch.y, &x0, &y0);
+    touch_to_ui(fx, fy, &x1, &y1);
+    float along = g_touch.vertical ? y1 - y0 : x1 - x0;
+    Uint32 now = SDL_GetTicks();
+    if (now > g_touch.moved_t) {   /* the speed, smoothed over the last few moves */
+        float inst = (along - g_touch.along) * 1000.0f / (float)(now - g_touch.moved_t);
+        g_touch.v = now - g_touch.moved_t > 80 ? inst : g_touch.v * 0.5f + inst * 0.5f;
+        g_touch.moved_t = now;
+    }
+    g_touch.along = along;
+    if (g_touch.mode == 1) { ui_pan_drag(along); return; }
+    float travel = g_touch.vertical ? SDL_fabsf(dy) : SDL_fabsf(dx);
+    int want = (int)(travel / 0.12f) + 1;
+    if (want > 6) want = 6;
+    while (g_touch.steps < want) { g_touch.steps++; dispatch_key(g_touch.step); }
+    app_redraw();
+}
 
 static void touch_event(const SDL_Event *e)
 {
     if (e->type == SDL_FINGERDOWN && !g_touch.down) {
-        g_touch.down = 1; g_touch.x = e->tfinger.x; g_touch.y = e->tfinger.y; g_touch.t = SDL_GetTicks(); g_touch.id = e->tfinger.fingerId;
+        memset(&g_touch, 0, sizeof g_touch);
+        g_touch.down = 1; g_touch.x = e->tfinger.x; g_touch.y = e->tfinger.y; g_touch.t = g_touch.moved_t = SDL_GetTicks(); g_touch.id = e->tfinger.fingerId;
+        float ux, uy;
+        touch_to_ui(g_touch.x, g_touch.y, &ux, &uy);
+        g_touch.caught = ui_pan_catch(ux, uy);   /* a finger on a gliding list stops it, and is not a tap */
+        Screen *top = app_top();
+        if (!g_touch.caught && top && top->drag && top->drag(top, 0, ux, uy)) { g_touch.mode = 3; app_redraw(); }
         return;
     }
-    if (e->type != SDL_FINGERUP || !g_touch.down || e->tfinger.fingerId != g_touch.id) return;
+    if (!g_touch.down || e->tfinger.fingerId != g_touch.id) return;
+    if (e->type == SDL_FINGERMOTION) { touch_motion(e->tfinger.x, e->tfinger.y); return; }
+    if (e->type != SDL_FINGERUP) return;
+    touch_motion(e->tfinger.x, e->tfinger.y);
     g_touch.down = 0;
     g_app.last_input = g_app.time;
-    float dx = e->tfinger.x - g_touch.x, dy = (e->tfinger.y - g_touch.y) * 9.0f / 16.0f;   /* in screen widths, both ways */
-    float dist = SDL_sqrtf(dx * dx + dy * dy);
-    Uint32 held = SDL_GetTicks() - g_touch.t;
-    static int told;
-    if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Swipe to move  \xC2\xB7  Hold for options"); }
-    if (dist < 0.03f) {   /* a tap: on what is under the finger, where the screen says what that is */
-        KeyAction press = held >= 500 ? KEY_LONG_OK : KEY_OK;
-        int pw, ph, id;
+    if (g_touch.mode == 3) {
         float ux, uy;
-        gfx_drawable_size(&pw, &ph);
-        gfx_pixels_to_ui(e->tfinger.x * pw, e->tfinger.y * ph, &ux, &uy);
+        touch_to_ui(e->tfinger.x, e->tfinger.y, &ux, &uy);
         Screen *top = app_top();
-        if (top && ui_hit_find(ux, uy, top, &id)) {
-            if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
-            if (!top->tap || !top->tap(top, id)) dispatch_key(press);
-            app_redraw();
-            return;
-        }
-        if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
+        if (top && top->drag) top->drag(top, 2, ux, uy);
+        app_redraw();
         return;
     }
-    {   /* the swipe moves what it started on (a row of cards, a list): its focus goes there first */
-        int pw, ph, id;
-        float ux, uy;
-        gfx_drawable_size(&pw, &ph);
-        gfx_pixels_to_ui(g_touch.x * pw, g_touch.y * ph, &ux, &uy);
-        Screen *top = app_top();
-        if (top && top->tap && ui_hit_find(ux, uy, top, &id) && !(id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT)) {
-            g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;
-        }
+    Uint32 now = SDL_GetTicks(), held = now - g_touch.t;
+    float v = now - g_touch.moved_t > 60 ? 0 : g_touch.v;   /* stopped before letting go: no glide */
+    if (v > 9000) v = 9000;
+    if (v < -9000) v = -9000;
+    static int told;
+    if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
+    if (g_touch.mode == 1) { ui_pan_release(v); return; }
+    if (g_touch.mode == 2) {   /* a quick flick goes a few steps further */
+        float fast = SDL_fabsf(v) / SNTV_UI_W;   /* screen widths a second */
+        int more = fast > 1.2f ? (int)(fast * 1.5f) : 0;
+        if (more > 4) more = 4;
+        while (more-- > 0) dispatch_key(g_touch.step);
+        return;
     }
-    KeyAction a = SDL_fabsf(dx) > SDL_fabsf(dy) ? (dx < 0 ? KEY_RIGHT : KEY_LEFT) : (dy < 0 ? KEY_DOWN : KEY_UP);   /* content follows the finger */
-    int steps = (int)(dist / 0.12f) + 1;
-    if (steps > 6) steps = 6;
-    for (int i = 0; i < steps; i++) dispatch_key(a);
+    if (g_touch.caught) { app_redraw(); return; }
+    /* a tap: on what is under the finger, where the screen says what that is */
+    KeyAction press = held >= 500 ? KEY_LONG_OK : KEY_OK;
+    int id;
+    float ux, uy;
+    touch_to_ui(e->tfinger.x, e->tfinger.y, &ux, &uy);
+    ui_pan_keys();   /* what it does may move the focus: the lists follow it again */
+    Screen *top = app_top();
+    if (top && ui_hit_find(ux, uy, top, &id)) {
+        if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
+        if (!top->tap || !top->tap(top, id)) dispatch_key(press);
+        app_redraw();
+        return;
+    }
+    if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
 }
 static int g_backgrounded;   /* hidden or sent to the background (not just an overlay over us) */
 static Uint32 g_ok_t0;
@@ -612,8 +717,8 @@ int main(int argc, char **argv)
         while (SDL_PollEvent(&e)) {
             Screen *top = app_top();
             if (e.type == SDL_QUIT) g_app.quit = 1;
-            else if (e.type == SDL_TEXTINPUT && top && top->text) top->text(top, e.text.text);
-            else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP) touch_event(&e);
+            else if (e.type == SDL_TEXTINPUT && top && top->text) { ui_pan_keys(); top->text(top, e.text.text); }
+            else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
             else if (e.type == SDL_KEYUP) {
                 g_seen_keyup = 1;
                 SDL_Event d = e; d.type = SDL_KEYDOWN;
@@ -627,6 +732,7 @@ int main(int argc, char **argv)
                 perf_key();
                 KeyAction a = input_map(&e);
                 g_app.last_input = g_app.time;
+                ui_pan_keys();   /* a key: the lists follow the focus again */
                 g_app.key_repeat = e.key.repeat != 0;
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) {   /* a remote key the app doesn't know yet: what it was, for Diagnostics */

@@ -63,6 +63,13 @@ void video_subtitle_style(int size, int style, const char *colour, int position,
 
 /* A phone: only sideways (1) while the screen on top has no upright layout, else either way. */
 void video_landscape_only(int on);
+/* A phone's own controls, 0..1: its media volume and the screen's brightness (-1 for the
+ * brightness: the system's own again). The getters give -1 where the device has no such
+ * control and the setters 0 (the player then uses its own loudness, or dims the picture). */
+float video_device_volume(void);
+int   video_set_device_volume(float v);
+float video_brightness(void);
+int   video_set_brightness(float v);
 
 /* Window-pixel rectangle the video should cover (full window by default). */
 void video_set_display_rect(int x, int y, int w, int h);

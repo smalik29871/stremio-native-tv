@@ -49,6 +49,7 @@ typedef struct Row {
     unsigned req;
     int focus;
     float scroll_x, scroll_xv;   /* position and spring velocity */
+    UiPan pan;                    /* ...a finger dragging it */
     float arrived_at;             /* when titles first replaced the placeholders (cards rise in) */
     char url[1024];
 } Row;
@@ -73,6 +74,7 @@ typedef struct {
     float feat_timer;
     Peek peek;                /* details beside the focused poster */
     float phone_y, phone_yv;  /* upright on a phone: the page's scroll */
+    UiPan phone_pan;
     int phone_btn;            /* ...and on its feature card, Play (0) or Library (1) */
 } Home;
 
@@ -442,12 +444,16 @@ static const MetaPreview *ph_hero(const Home *h)
 }
 static float ph_rows_top(const Home *h) { return ph_hero(h) ? PH_HERO_Y + PH_HERO_H + 48 : PH_HERO_Y; }
 
+/* The focused card kept in view (the row stays put while it already is); a finger moves it freely. */
 static void phone_scroll_row(Row *r, float dt)
 {
-    int vis = (int)((SNTV_UI_W - PH_X) / (ph_cw(r) + PH_GAP));
-    int first = r->focus - (vis > 1 ? vis - 1 : 0);
-    if (first < 0) first = 0;
-    r->scroll_x = ui_ease(r->scroll_x, first * (ph_cw(r) + PH_GAP), &r->scroll_xv, dt, 16);
+    float step = ph_cw(r) + PH_GAP, view = SNTV_UI_W - 2 * PH_X;
+    float max = r->n * step - PH_GAP - view, want = r->scroll_x;
+    if (r->focus * step + ph_cw(r) - view > want) want = r->focus * step + ph_cw(r) - view;
+    if (r->focus * step < want) want = r->focus * step;
+    if (want > max) want = max;
+    if (want < 0) want = 0;
+    ui_pan(&r->pan, &r->scroll_x, want, max, dt, 16);
 }
 
 /* The focused row kept on screen above the tab bar; the feature card at the top. */
@@ -462,7 +468,9 @@ static void phone_scroll_page(Home *h, float dt)
             y += rh;
         }
     if (want < 0 || h->focus_row == FOCUS_SHOWCASE) want = 0;
-    h->phone_y = ui_ease(h->phone_y, want, &h->phone_yv, dt, 14);
+    float end = ph_rows_top(h);   /* the whole page, to the last row above the tab bar */
+    for (int i = 0; i < h->n_rows; i++) if (row_visible(h->rows[i])) end += ph_row_h(h->rows[i]);
+    ui_pan(&h->phone_pan, &h->phone_y, want, end + 20 - room, dt, 14);
 }
 
 static float ph_button(const char *label, int icon, float x, float y, float w, float hh, int primary, int foc)
@@ -484,6 +492,7 @@ static void phone_row(Home *h, int ri, float y)
     int focused_row = h->focus_row == ri;
     font_draw_fit(r->title, PH_X, y, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * PH_X);
     float cy = y + PH_TITLE_H, cw = ph_cw(r), ch = ph_ch(r);
+    if (r->n) ui_pan_area(&r->pan, 0, cy, SNTV_UI_W, ch + (ph_land(r) ? 100 : 0), 0);
     if (!r->n) {
         if (r->loading || !r->requested) for (int j = 0; j < 4; j++) ui_skeleton(PH_X + j * (cw + PH_GAP), cy, cw, ch, R_CARD);
         else if (r->failed) font_draw("Couldn't load this catalog.", PH_X, cy + 20, FONT_S, THEME_TEXT_MUTED);
@@ -516,6 +525,7 @@ static void phone_row(Home *h, int ri, float y)
 static void phone_draw(Home *h)
 {
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    ui_pan_area(&h->phone_pan, 0, 0, SNTV_UI_W, SNTV_UI_H - PHONE_TABS_H, 1);
     float top = -h->phone_y;
     gfx_set_translate(0, top);
     /* header: the mark and name; the account at the right */
@@ -682,7 +692,7 @@ static void update(Screen *s, float dt)
         int vis = visible_cards(r);
         int first = r->focus - (vis - 2);
         if (first < 0) first = 0;
-        r->scroll_x = ui_ease(r->scroll_x, first * (card_w(r) + GAP), &r->scroll_xv, dt, 16);
+        ui_pan(&r->pan, &r->scroll_x, first * (card_w(r) + GAP), r->n * (card_w(r) + GAP) - GAP - (SNTV_UI_W - LX - THEME_MARGIN), dt, 16);
     }
     if (SNTV_PHONE) phone_scroll_page(h, dt);
     h->focus_t = ui_ease(h->focus_t * 100, 100, NULL, dt, 16) / 100;
@@ -854,6 +864,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
         else if (r->failed) font_draw("Couldn't load this catalog. It will retry next time.", LX, cy + 20, FONT_S, THEME_TEXT_MUTED);
         return;
     }
+    ui_pan_area(&r->pan, 0, cy, SNTV_UI_W, ch, 0);
     int first = (int)(r->scroll_x / (cw + GAP)) - 1;
     if (first < 0) first = 0;
     char buf[512];

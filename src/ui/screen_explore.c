@@ -52,6 +52,7 @@ struct Explore {
     int zone, focus;          /* grid focus index */
     int cat_focus, genre_focus;
     float focus_t, scroll, genre_scroll, cat_scroll;
+    float grid_y; UiPan pan;   /* where the grid starts on screen; a finger on it */
     Peek peek;                /* details beside the focused poster */
     int rail_focus;           /* -1: content has the focus */
     int addons_seen;
@@ -345,7 +346,9 @@ static void update(Screen *s, float dt)
     if (e->zone == Z_GRID && !e->done && !e->loading && e->n && e->focus >= e->n - COLS * 2 && !(g_app.low_memory && e->n >= 140)) fetch(e, 1);
     float row = e->zone == Z_GRID ? (float)(e->focus / COLS) : 0;
     float target = row * (CELL_H + 80);
-    e->scroll = ui_ease(e->scroll, target, NULL, dt, 14);
+    float most = (((e->n + COLS - 1) / COLS) * (CELL_H + 80)) - (SNTV_UI_H - e->grid_y - (SNTV_PHONE ? PHONE_TABS_H : 0)) + 40;
+    ui_pan(&e->pan, &e->scroll, target, most, dt, 14);
+    if (ui_pan_free(&e->pan) && e->scroll > most - 2 * (CELL_H + 80) && !e->done && !e->loading && e->n && !(g_app.low_memory && e->n >= 140)) fetch(e, 1);   /* dragged near the end */
     e->focus_t = ui_ease(e->focus_t * 100, 100, NULL, dt, 16) / 100;
     if (e->loading) app_redraw();
     char buf[512];
@@ -423,6 +426,8 @@ static void draw(Screen *s)
     /* grid */
     float gx = LX, gy = GRID_Y;
     gfx_clip_push(gx - 30, gy - 20, SNTV_UI_W - gx, SNTV_UI_H - gy + 20);
+    e->grid_y = gy;
+    ui_pan_area(&e->pan, gx - 30, gy - 20, SNTV_UI_W - gx, SNTV_UI_H - gy + 20, 1);
     if (!e->n && (e->loading || !e->requested)) {
         for (int i = 0; i < COLS * 2; i++) ui_skeleton(gx + (i % COLS) * (CELL_W + CELL_GAP), gy + (i / COLS) * (CELL_H + 80), CELL_W, CELL_H, R_CARD);
     } else if (!e->n) {

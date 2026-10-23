@@ -74,6 +74,7 @@ typedef struct {
     int meta_wait, addons_seen;   /* details asked again once the addons have come in */   /* the video whose sources are asked ahead, and since when it has been the one */
     int cast_focus, sim_focus, fr_focus, fr_opening; unsigned fr_gen;
     float cast_x, sim_x, fr_x;
+    UiPan ph_pan, cast_pan, sim_pan;   /* upright on a phone: a finger on the page, the cast, More like this */
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
     float ph_fy, ph_fh, ph_total, ph_sx;   /* upright on a phone: the focus on the page, its length, the seasons' offset */
 } Detail;
@@ -606,7 +607,8 @@ static void update(Screen *s, float dt)
     const TmdbCollection *fc = franchise(d);
     float st = scroll_target(d, n_cast), ct = row_offset(d->cast_focus, n_cast, CAST_STEP, view), mt = row_offset(d->sim_focus, d->n_similar, SIM_W + SIM_GAP, view);
     float ft = row_offset(d->fr_focus, fc ? fc->n : 0, SIM_W + SIM_GAP, view);
-    if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; }
+    if (SNTV_PHONE) ;
+    else if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; }
     else {
         d->scroll = ui_ease(d->scroll, st, &d->scroll_v, dt, 11);
         d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
@@ -622,10 +624,9 @@ static void update(Screen *s, float dt)
         float most = d->ph_total - view + 40;
         if (want > most) want = most;
         if (want < 0) want = 0;
-        d->scroll = g_app.fx_light ? want : ui_ease(d->scroll, want, &d->scroll_v, dt, 12);
-        d->cast_x = ui_ease(d->cast_x, row_offset(d->cast_focus, n_cast, PH_CAST_STEP, SNTV_UI_W - 80), NULL, dt, 14);
-        d->sim_x = ui_ease(d->sim_x, row_offset(d->sim_focus, d->n_similar, PH_SIM_W + 24, SNTV_UI_W - 80), NULL, dt, 14);
-        if (fabsf(d->scroll - want) > 0.5f) app_redraw();
+        ui_pan(&d->ph_pan, &d->scroll, want, most, dt, 12);
+        ui_pan(&d->cast_pan, &d->cast_x, row_offset(d->cast_focus, n_cast, PH_CAST_STEP, SNTV_UI_W - 80), n_cast * PH_CAST_STEP - (SNTV_UI_W - 80), dt, 14);
+        ui_pan(&d->sim_pan, &d->sim_x, row_offset(d->sim_focus, d->n_similar, PH_SIM_W + 24, SNTV_UI_W - 80), d->n_similar * (PH_SIM_W + 24) - 24 - (SNTV_UI_W - 80), dt, 14);
     }
     d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
@@ -1001,6 +1002,7 @@ static void phone_draw(Detail *d)
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
     int series = d->meta.n_videos > 0;
     float W = SNTV_UI_W, x = PH_X, w = W - 2 * PH_X;
+    ui_pan_area(&d->ph_pan, 0, 0, W, SNTV_UI_H, 1);
     gfx_set_translate(0, -d->scroll);
     const char *bg = app_art_background(&d->preview, buf, sizeof buf);
     ui_card(bg, 0, 0, W, PH_ART_H, 0, 0, NULL, CARD_TRUE_COLOUR);
@@ -1115,6 +1117,7 @@ static void phone_draw(Detail *d)
         font_draw("Cast", x, y, FONT_L | FONT_B, THEME_TEXT);
         y += 64;
         float r0 = 66;
+        ui_pan_area(&d->cast_pan, 0, y, W, 2 * r0 + 76, 0);
         for (int i = 0; i < n_cast; i++) {
             float ix = x + i * PH_CAST_STEP - d->cast_x;
             if (ix > W || ix + PH_CAST_STEP < 0) continue;
@@ -1134,6 +1137,7 @@ static void phone_draw(Detail *d)
     if (d->n_similar) {
         font_draw("More like this", x, y, FONT_L | FONT_B, THEME_TEXT);
         y += 64;
+        ui_pan_area(&d->sim_pan, 0, y, W, PH_SIM_H, 0);
         for (int i = 0; i < d->n_similar; i++) {
             float ix = x + i * (PH_SIM_W + 24) - d->sim_x;
             if (ix > W || ix + PH_SIM_W < 0) continue;

@@ -25,6 +25,9 @@ typedef struct Screen {
      * and return 0 for OK to follow (as if the remote had moved there and pressed it), or
      * 1 when the tap did everything itself. Screens without it get OK on their focus. */
     int  (*tap)(struct Screen *s, int id);
+    /* Touch, optional: a finger went down at canvas x, y (phase 0); return 1 to have the whole
+     * gesture, its moves (1) and its lifting (2), instead of a tap or a scroll. */
+    int  (*drag)(struct Screen *s, int phase, float x, float y);
     int phone;   /* it has a layout for a phone held upright; without one the phone turns sideways */
 } Screen;
 

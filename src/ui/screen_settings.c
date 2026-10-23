@@ -82,6 +82,8 @@ static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define COL_R1 1170.0f
 #define PREV_X 1226.0f
 #define ROWS_TOP (SNTV_PHONE ? 150.0f : 230.0f)   /* a phone: under the page header */
+#define PH_CAT_Y 254.0f   /* ...and its list of categories */
+#define PH_CAT_H 124.0f
 
 typedef struct {
     int cat;                 /* the category shown */
@@ -90,7 +92,9 @@ typedef struct {
     int confirm_remove;      /* addon index awaiting the second OK */
     int edit;
     Keyboard kb;
-    float scroll, scroll_target;
+    float scroll, scroll_target, scroll_max;
+    UiPan pan;   /* a finger on the rows */
+    float cat_y; UiPan cat_pan;   /* upright on a phone: the list of categories */
     float pane_t; int pane_cat;   /* rows slide in when the category changes */
     float wide_t;                 /* 0 choosing a category .. 1 inside one (preview shown) */
     int cat_focus[CAT_COUNT];     /* the row each category had focused, for coming back */
@@ -540,12 +544,21 @@ static void update(Screen *s, float dt)
         fix_focus(st, ids, n);
         float yf = 0;
         for (int i = 0; i < n && i < st->focus; i++) yf += row_h(ids[i]);
-        float t = yf - (SNTV_UI_H - ROWS_TOP - 2.5f * ROW_H);
+        float t = yf - (SNTV_UI_H - ROWS_TOP - 2.5f * ROW_H), total = 0;
         st->scroll_target = t < 0 ? 0 : t;
+        for (int i = 0; i < n; i++) total += row_h(ids[i]);
+        st->scroll_max = total - (SNTV_UI_H - ROWS_TOP) + 1.5f * ROW_H;
         int fid = st->zone == 1 && st->focus < n ? ids[st->focus] : -1;
         if (fid != st->panel_id) { st->panel_id = fid; st->panel_t = g_app.fx_light ? 1 : 0; }
     }
-    st->scroll = ui_ease(st->scroll, st->scroll_target, NULL, dt, 12);
+    ui_pan(&st->pan, &st->scroll, st->scroll_target, st->scroll_max, dt, 12);
+    if (SNTV_PHONE) {   /* the categories: the focused one kept above the tab bar */
+        float view = SNTV_UI_H - PHONE_TABS_H, fy = PH_CAT_Y + st->cat * PH_CAT_H, want = st->cat_y;
+        if (fy + PH_CAT_H > want + view - 20) want = fy + PH_CAT_H - view + 20;
+        if (fy - 40 < want) want = fy - 40;
+        if (st->search_foc || want < 0) want = 0;
+        ui_pan(&st->cat_pan, &st->cat_y, want, PH_CAT_Y + CAT_COUNT * PH_CAT_H + 20 - view, dt, 14);
+    }
     if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_light ? 1 : 0; }
     if (st->pane_t < 1) { st->pane_t += dt * 5; if (st->pane_t > 1) st->pane_t = 1; app_redraw(); }
     if (st->panel_t < 1) { st->panel_t += dt * 6; if (st->panel_t > 1) st->panel_t = 1; app_redraw(); }
@@ -701,9 +714,11 @@ static void draw_panel(const Settings *st, const int *ids, int n, float e)
 /* ---- upright on a phone: the categories as a list, each opening its rows on a page of
  * its own; typing with the phone's keyboard ---- */
 
-static void phone_categories(const Settings *st)
+static void phone_categories(Settings *st)
 {
     float W = SNTV_UI_W, x = 40, w = W - 80;
+    ui_pan_area(&st->cat_pan, 0, 0, W, SNTV_UI_H - PHONE_TABS_H, 1);
+    gfx_set_translate(0, -st->cat_y);
     font_draw("Settings", x, 36, FONT_XL | FONT_B, THEME_TEXT);
     float fy = 132, fh = 92;
     int ff = st->search_foc;
@@ -712,7 +727,7 @@ static void phone_categories(const Settings *st)
     ui_icon(ICON_SEARCH, x + 48, fy + fh / 2, 32, THEME_TEXT_MUTED);
     font_draw("Find a setting", x + 90, fy + (fh - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT_MUTED);
     ui_hit(x, fy, w, fh, HIT_FIND);
-    float y = fy + fh + 30, rh = 124;
+    float y = PH_CAT_Y, rh = PH_CAT_H;
     for (int i = 0; i < CAT_COUNT; i++, y += rh) {
         int foc = !st->search_foc && st->cat == i;
         if (foc) { ui_focus_under(x - 12, y, w + 24, rh - 8, R_PANEL, 1); gfx_rrect(x - 12, y, w + 24, rh - 8, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); }
@@ -724,6 +739,7 @@ static void phone_categories(const Settings *st)
         gfx_rect(x + 104, y + rh - 4, w - 104, 2, THEME_LINE);
         ui_hit(x - 12, y, w + 24, rh - 8, HIT_CAT + i);
     }
+    gfx_set_translate(0, 0);
     rail_draw(RAIL_SETTINGS, -1);
 }
 
@@ -824,6 +840,7 @@ static void draw(Screen *s)
     int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
     if (st->focus >= n) st->focus = n ? n - 1 : 0;
     gfx_clip_push(s_x - 40, ROWS_TOP - 20, s_r - s_x + 80, SNTV_UI_H - ROWS_TOP + 20);
+    ui_pan_area(&st->pan, s_x - 40, ROWS_TOP - 20, s_r - s_x + 80, SNTV_UI_H - ROWS_TOP + 20, 1);
     { float e = 1 - (1 - st->pane_t) * (1 - st->pane_t); gfx_set_translate(40 * (1 - e), 0); }
     float y = ROWS_TOP - st->scroll;
     for (int i = 0; i < n; y += row_h(ids[i]), i++) {

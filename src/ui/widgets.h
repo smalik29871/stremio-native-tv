@@ -180,6 +180,23 @@ void ui_hit(float x, float y, float w, float h, int id);
 void ui_hits_begin(struct Screen *drawing);   /* app.c, before each screen draws */
 int  ui_hit_find(float x, float y, const struct Screen *top, int *id);
 
+/* Touch scrolling: a page, list or row that follows the finger. The screen keeps a UiPan
+ * per scroller, says where it is on screen while drawing (ui_pan_area: the visible window,
+ * vertical or not) and moves its scroll with ui_pan instead of ui_ease. Under a finger the
+ * scroll is where the finger puts it (stretching past the ends); let go, it glides on and
+ * slows, springing back from an end, and stays there. A remote key, a typed key or a
+ * tap that acts brings back focus-led scrolling (want). max: the furthest it scrolls. */
+typedef struct UiPan { float vel; int free; unsigned epoch; float *at; } UiPan;
+void  ui_pan_area(UiPan *p, float x, float y, float w, float h, int vertical);
+float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed);
+int   ui_pan_free(const UiPan *p);     /* moved by the finger, not following the focus */
+/* main.c, from the finger: canvas units */
+int   ui_pan_catch(float x, float y);  /* down: stops a glide under the finger (1: it was gliding) */
+int   ui_pan_grab(float x, float y, int vertical);   /* a drag starts there: 1 = a scroller has it */
+void  ui_pan_drag(float d);            /* how far the finger has gone along it since the grab */
+void  ui_pan_release(float v);         /* let go, moving at v canvas units a second */
+void  ui_pan_keys(void);               /* a key: every scroller follows its focus again */
+
 /* A QR code made by qrcodegen, dark modules on a white rounded square. */
 void ui_qr(const uint8_t *qr, float x, float y, float size);
 
