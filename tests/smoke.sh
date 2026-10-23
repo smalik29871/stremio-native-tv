@@ -35,6 +35,7 @@ export SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql"   # a fake IMDb with no tr
 export SNTV_YT_BASE="http://127.0.0.1:$PORT/yt"   # a fake YouTube: TV config, player, formats, ranged media
 export SNTV_YT_SOLVER_URL="http://127.0.0.1:$PORT/yt/ejs"   # the "newest solver" download: refused, so the bundled one is all there is
 export SNTV_NO_TRANSITIONS=1   # screenshots land mid-animation otherwise; transition_push turns them back on
+export SNTV_NO_WHATSNEW=1   # every profile here is "set up", which reads as just updated; the whatsnew run turns it on
 export SNTV_NO_BUFFER=1   # the runs below test what they did before the buffer ahead; the buffer_ runs turn it on
 export HOME="$OUT/home"; mkdir -p "$HOME"
 # preferred subtitles = English so the player auto-loads the fake addon's SRT
@@ -348,11 +349,12 @@ TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef01
 CAT="SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg SNTV_DEFAULT_ADDONS=cuelight://catalog/manifest.json,http://127.0.0.1:$PORT/manifest.json"
 run catalog_home 260 "wait,wait,wait" HOME="$(home_with cathome "$TK")" $CAT
 grep -q "catalog: movie popular page 1 -> 3 titles" "$OUT/catalog_home.log" && grep -q "catalog: series trending page 1 -> 1 titles" "$OUT/catalog_home.log" \
+  && grep -q "catalog: poster for tt1003 from TMDB (200)" "$OUT/catalog_home.log" \
   || { echo "the built-in catalog did not fill Home"; grep -E "catalog|addons" "$OUT/catalog_home.log"; exit 1; }
-run catalog_movie 300 "wait,wait,ok,wait,wait,wait" HOME="$(home_with catm "$TK")" $CAT
+run catalog_movie 420 "wait,wait,wait,wait,wait,wait,ok,wait,wait,wait" HOME="$(home_with catm "$TK")" $CAT
 grep -q "catalog: movie tt1001 -> Fake Saga, trailer, 1 cast, 0 episodes" "$OUT/catalog_movie.log" \
   || { echo "the built-in catalog did not give a film's details"; grep -E "catalog|detail" "$OUT/catalog_movie.log"; exit 1; }
-run catalog_series 340 "wait,wait,down,ok,wait,wait,wait,down" HOME="$(home_with cats "$TK")" $CAT
+run catalog_series 460 "wait,wait,wait,wait,wait,wait,down,ok,wait,wait,wait,down" HOME="$(home_with cats "$TK")" $CAT
 grep -q "catalog: series tt0903747 -> Breaking Bad, trailer, 2 cast, 6 episodes" "$OUT/catalog_series.log" \
   || { echo "the built-in catalog did not give a series' seasons"; grep -E "catalog|detail" "$OUT/catalog_series.log"; exit 1; }
 run catalog_search 400 "search,t:saga,wait,wait,wait,wait,wait,wait" HOME="$(home_with catq "$TK")" $CAT
@@ -366,6 +368,16 @@ grep -q "account: stopped syncing; 1 addons and 2 library items stay on this TV"
   && python3 -I -c "import json,sys; s=json.load(open(sys.argv[1])); l=json.load(open(sys.argv[2])); sys.exit(0 if s.get('localAddons')==['http://127.0.0.1:$PORT/manifest.json'] and 'authKey' not in s and len(l['result'])==2 else 1)" \
      "$SS/.local/share/stremio/nativetv/settings.json" "$SS/.local/share/stremio/nativetv/library.json" \
   || { echo "turning Stremio sync off lost the addons or the library"; grep -E "account|library|addons" "$OUT/sync_stop.log"; exit 1; }
+# an update keeps a Stremio sign-in: a profile saved by 0.10.58 is still signed in and syncing, and sees what is new once
+KEPT="$(home_with kept '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey","email":"sam.rivera@example.com"}')"
+run sync_kept 260 "wait,wait,ok,wait" HOME="$KEPT" SNTV_API_URL=http://127.0.0.1:$PORT SNTV_NO_WHATSNEW=
+grep -q "whatsnew: updated from an earlier version" "$OUT/sync_kept.log" && grep -q "^.* I library: 2 items$" "$OUT/sync_kept.log" && ! grep -q "stopped syncing" "$OUT/sync_kept.log" \
+  && python3 -I -c "import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if s.get('authKey')=='testkey' and s.get('email')=='sam.rivera@example.com' else 1)" "$KEPT/.local/share/stremio/nativetv/settings.json" \
+  || { echo "after the update the Stremio sign-in was not kept"; grep -E "account|library|addons|whatsnew" "$OUT/sync_kept.log"; exit 1; }
+# What's new: once after an update, not again at the next start; About shows what Cuelight is with the same notes
+run whatsnew_update 200 "wait" HOME="$(home_with wn '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"seenVersion":"0.10.1"}')" SNTV_NO_WHATSNEW= SNTV_EXPECT_SCREEN=whatsnew
+run whatsnew_again 200 "wait" HOME="$OUT/home_wn" SNTV_NO_WHATSNEW= SNTV_EXPECT_SCREEN=home
+run about 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,wait,wait" HOME="$(home_with ab '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_EXPECT_SCREEN=whatsnew
 # ...the TV keeps its own list (one addon down at this start stays on it), and signing in adds this TV's addons to the account
 LOCAL='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"localAddons":["http://127.0.0.1:'$PORT'/noisy/manifest.json","http://127.0.0.1:'$PORT'/manifest.json","http://127.0.0.1:1/gone/manifest.json"]}'
 run sync_local 240 "wait,wait" HOME="$(home_with p2local "$LOCAL")" SNTV_DEFAULT_ADDONS=

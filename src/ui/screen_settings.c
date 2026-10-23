@@ -51,21 +51,21 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "Installed addons, in the order they answer. Left/Right moves an addon; the order is kept in your account.",
     "Your own keys for services that need one. Each unlocks a feature; nothing is asked without a key.",
     "A PIN that keeps Settings closed and adult addons out of the catalogs.",
-    "Logs, device information and setup." };
+    "What " SNTV_APP_NAME " is, what is new, updates, logs and setup." };
 static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_PALETTE, ICON_LIST, ICON_LIBRARY, ICON_KEY, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_SUBS_COLOUR,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
-       SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_COUNT };
+       SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_COUNT };
 static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio sync", "Torrents", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
-    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
+    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
@@ -153,7 +153,8 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         for (int i = 0; i < st->n_rows && n < max; i++) ids[n++] = IT_ROWS_BASE + i;
         break;
     case CAT_ADDONS: ids[n++] = IT_INSTALL; for (int i = 0; i < g_app.n_addons && n < max; i++) ids[n++] = IT_ADDON_BASE + i; break;
-    case CAT_ABOUT: SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; SEC(SEC_HELP); ids[n++] = IT_DIAG; ids[n++] = IT_SETUP; break;
+    case CAT_ABOUT: SEC(SEC_CUELIGHT); ids[n++] = IT_ABOUT_APP; ids[n++] = IT_WHATSNEW;
+        SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; SEC(SEC_HELP); ids[n++] = IT_DIAG; ids[n++] = IT_SETUP; break;
     }
 #undef SEC
     return n;
@@ -254,6 +255,8 @@ static const char *row_title(int id)
     case IT_FIRE_VIDEO: return "Fireplace video";
     case IT_BLUR: return "Blur unwatched episodes";
     case IT_DIAG: return "Diagnostics";
+    case IT_WHATSNEW: return "What's new";
+    case IT_ABOUT_APP: return "About " SNTV_APP_NAME;
     case IT_UPDATE: return "Update";
     case IT_AUTO_UPDATE: return "Ask me when an update is out";
     case IT_SETUP: return "Run quick setup again";
@@ -265,6 +268,9 @@ static const char *row_title(int id)
 static const char *row_desc(int id)
 {
     switch (id) {
+    case IT_ABOUT_APP: return SNTV_APP_NAME " is a fast player made for TVs, written from scratch in C for the TV's own hardware. It plays from addons in the open Stremio addon format, "
+                              "has its own catalog of films and series (from TMDB), needs no account, and can sync with Stremio, Trakt and SimKL if you want it to. Not affiliated with Stremio.";
+    case IT_WHATSNEW: return "This version's changes, as shown once after it was installed.";
     case IT_ACCOUNT: if (g_app.auth_key) {
             static char d[300];
             snprintf(d, sizeof d, "Signed in as %s. Your addons, Library and Continue Watching follow that account; turning it off keeps them all on this TV.", g_app.user_email ? g_app.user_email : "your account");
@@ -726,17 +732,6 @@ static void draw(Screen *s)
     if (g_theme.id == THEME_APERTURE) font_draw(CAT_NAMES[st->cat], s_x, 82, FONT_XL | FONT_ALT, THEME_TEXT);
     else font_draw(CAT_NAMES[st->cat], s_x, 100, FONT_L | FONT_B, THEME_TEXT);
     font_draw_wrapped(CAT_DESC[st->cat], s_x, 156, FONT_S, THEME_TEXT_DIM, s_r - s_x, 2);
-    if (st->cat == CAT_ABOUT) {
-        char info[300];
-        char mem[160]; mem_describe(mem, sizeof mem);
-        snprintf(info, sizeof info, SNTV_APP_NAME " %s  \xC2\xB7  %s  \xC2\xB7  %zu MB artwork in memory  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name(), image_cache_bytes() >> 20, mem);
-        font_draw_fit(info, s_x, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
-        font_draw_fit(SNTV_APP_NAME " works with addons in the open Stremio addon format and can sync with a Stremio account; it is not affiliated with or endorsed by Stremio.", s_x, SNTV_UI_H - 140, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
-        char tv[300];
-        if (g_update_version[0]) snprintf(tv, sizeof tv, app_update_installs_here() ? "Version %s is available: Update above installs it" : "Version %s is available: Update above shows how", g_update_version);
-        else snprintf(tv, sizeof tv, "TV profile: %s", "learned from what played here; Diagnostics shows it");
-        font_draw_fit(tv, s_x, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
-    }
 
     static const char *FX_NAMES[] = { "Automatic", "Full", "Light" };
     static const char *SIZE_NAMES[] = { "Small", "Medium", "Large", "Extra large" };
@@ -955,7 +950,15 @@ static void draw(Screen *s)
         }
         case IT_AMBIENT_STYLE: draw_row(y, ICON_TV, "Screensaver style", AMBIENT_STYLE_NAMES[g_app.ambient_style], foc, KIND_CHOICE, 0); break;
         case IT_BLUR: draw_row(y, ICON_EYE, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
-        case IT_DIAG: draw_row(y, ICON_SETTINGS, "Diagnostics", "Log, device info, QR export", foc, KIND_ACTION, 0); break;
+        case IT_DIAG: {   /* what this TV runs, at a glance */
+            char mem[160], info[300];
+            mem_describe(mem, sizeof mem);
+            snprintf(info, sizeof info, "%s  \xC2\xB7  %zu MB artwork  \xC2\xB7  %s", video_backend_name(), image_cache_bytes() >> 20, mem);
+            draw_row(y, ICON_SETTINGS, "Diagnostics", info, foc, KIND_ACTION, 0);
+            break;
+        }
+        case IT_ABOUT_APP: draw_row(y, ICON_INFO, "About " SNTV_APP_NAME, "Version " SNTV_APP_VERSION, foc, KIND_ACTION, 0); break;
+        case IT_WHATSNEW: draw_row(y, ICON_CHECK, "What's new in " SNTV_APP_VERSION, NULL, foc, KIND_ACTION, 0); break;
         case IT_UPDATE: {
             char v[160];
             if (g_update_version[0]) snprintf(v, sizeof v, app_update_installs_here() ? "Version %s is ready  \xC2\xB7  OK installs it now" : "Version %s is ready  \xC2\xB7  OK shows how to install it", g_update_version);
@@ -1592,6 +1595,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));
+        else if (id == IT_WHATSNEW || id == IT_ABOUT_APP) app_push(screen_whatsnew_create(id == IT_ABOUT_APP));
         else if (id == IT_UPDATE) {
             if (g_update_version[0] && g_update_url[0] && g_update_sha256[0]) app_push(screen_update_create(0));
             else { app_toast("Checking for updates\xE2\x80\xA6"); app_update_check_now(); }

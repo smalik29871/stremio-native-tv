@@ -808,7 +808,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, png(320, 180, PALETTE[i % len(PALETTE)], pattern=True), "image/png")
         if p.startswith("/tmdb/3/find/"):     # TMDB stand-in: every IMDb id maps to id 1
             tv = "tt0903747" in p
-            return self.send(200, json.dumps({"movie_results": [] if tv else [{"id": 1}], "tv_results": [{"id": 1}] if tv else []}).encode(), "application/json")
+            return self.send(200, json.dumps({"movie_results": [] if tv else [{"id": 1, "poster_path": "/p5.png", "backdrop_path": "/b5.png"}], "tv_results": [{"id": 1, "poster_path": "/p3.png"}] if tv else []}).encode(), "application/json")
         if p.startswith("/tmdb/3/collection/"):   # a franchise, out of order on purpose
             parts = [{"id": 3, "title": "Fake Saga: Return", "release_date": "2014-05-01", "poster_path": "/p2.png"},
                      {"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png"},
@@ -817,7 +817,7 @@ class H(BaseHTTPRequestHandler):
         # the built-in catalog (cuelight://catalog) asks these: lists, searches, a film's and a series' details
         TM_MOVIES = [{"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png", "backdrop_path": "/b0.png", "overview": "The first one.", "genre_ids": [28, 12]},
                      {"id": 2, "title": "Fake Saga: Again", "release_date": "2011-07-01", "poster_path": "/p1.png", "backdrop_path": "/b1.png", "overview": "The second one.", "genre_ids": [28]},
-                     {"id": 3, "title": "Quiet Harbour", "release_date": "2019-09-12", "poster_path": "/p2.png", "backdrop_path": "/b2.png", "overview": "A drama by the sea.", "genre_ids": [18]}]
+                     {"id": 3, "title": "Quiet Harbour", "release_date": "2019-09-12", "backdrop_path": "/b2.png", "overview": "A drama by the sea.", "genre_ids": [18]}]
         TM_SHOWS = [{"id": 7, "name": "Breaking Bad", "first_air_date": "2008-01-20", "poster_path": "/p3.png", "backdrop_path": "/b3.png", "overview": "A teacher turns.", "genre_ids": [18, 80]}]
         if (p.startswith("/tmdb/3/discover/") and ("vote_count.gte=200" in p or "vote_count.gte=100" in p)) or p.startswith("/tmdb/3/trending/"):
             tv = "/tv" in p.split("?")[0]

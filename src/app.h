@@ -311,6 +311,8 @@ Screen *screen_search_create_person(const char *name, int tmdb_person_id);   /* 
 Screen *screen_settings_create(void);
 Screen *screen_diagnostics_create(int playback_only);
 Screen *screen_welcome_create(void);   /* first-run setup */
+Screen *screen_whatsnew_create(int about);  /* this version's notes (CHANGELOG.md); about: what Cuelight is first */
+void app_whatsnew_check(void);         /* shows them once after an update */
 Screen *screen_pin_create(const char *title, int setting, void (*done)(int ok, void *user), void *user);
 Screen *screen_break_create(const char *name, const char *detail, int kind);
 Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + clock */

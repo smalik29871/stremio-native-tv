@@ -428,6 +428,37 @@ static char *meta(const char *type, const char *imdb)
     return txt;
 }
 
+/* A title's poster, background or logo by IMDb id: the picture itself, from TMDB */
+static int art(const char *kind, const char *imdb, HttpResponse *out)
+{
+    char path[160], file[300] = "";
+    snprintf(path, sizeof path, "/find/%s?external_source=imdb_id", imdb);
+    cJSON *j = tmdb_json(path, 30L * 24 * 3600);
+    const cJSON *hit = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(j, "movie_results"), 0);
+    int tv = 0;
+    if (!hit) { hit = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(j, "tv_results"), 0); tv = 1; }
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(hit, "id");
+    const char *size = !strcmp(kind, "poster") ? "w342" : !strcmp(kind, "logo") ? "w500" : "w1280";
+    if (!strcmp(kind, "logo") && cJSON_IsNumber(id)) {
+        snprintf(path, sizeof path, "/%s/%d/images?include_image_language=en,null", tv ? "tv" : "movie", id->valueint);
+        cJSON *im = tmdb_json(path, 30L * 24 * 3600);
+        const cJSON *lg, *pick = NULL;
+        cJSON_ArrayForEach(lg, cJSON_GetObjectItemCaseSensitive(im, "logos")) {
+            const cJSON *lang = cJSON_GetObjectItemCaseSensitive(lg, "iso_639_1");
+            if (cJSON_IsString(lang) && !strcmp(lang->valuestring, "en")) { pick = lg; break; }
+            if (!pick) pick = lg;
+        }
+        img(file, sizeof file, size, cJSON_GetObjectItemCaseSensitive(pick, "file_path"));
+        cJSON_Delete(im);
+    } else if (hit) img(file, sizeof file, size, cJSON_GetObjectItemCaseSensitive(hit, !strcmp(kind, "poster") ? "poster_path" : "backdrop_path"));
+    cJSON_Delete(j);
+    if (!file[0]) return 0;
+    HttpOptions o = { .no_json_accept = 1 };
+    http_request_ex(file, &o, out);
+    LOGI("catalog: %s for %s from TMDB (%ld)", kind, imdb, out->status);
+    return out->status == 200;
+}
+
 int catalog_answer(const char *url, HttpResponse *out)
 {
     memset(out, 0, sizeof *out);
@@ -437,6 +468,14 @@ int catalog_answer(const char *url, HttpResponse *out)
     size_t pl = strlen(path);
     if (pl > 5 && !strcmp(path + pl - 5, ".json")) path[pl - 5] = 0;
     char *body = NULL;
+    if (!strncmp(path, "/art/", 5) && sscanf(path + 5, "%15[^/]/%255s", type, id) == 2) {   /* a picture: TMDB's bytes as they are */
+        if (art(type, id, out)) return 0;
+        http_response_free(out);
+        memset(out, 0, sizeof *out);
+        out->status = 404; out->body = calloc(1, 1);
+        snprintf(out->error, sizeof out->error, "no %s on TMDB", type);
+        return 0;
+    }
     if (!strcmp(path, "/manifest")) body = manifest();
     else if (!strncmp(path, "/catalog/", 9) && sscanf(path + 9, "%15[^/]/%255[^/]/%699s", type, id, extra) >= 2) body = metas(type, id, extra);
     else if (!strncmp(path, "/meta/", 6) && sscanf(path + 6, "%15[^/]/%255s", type, id) == 2) { url_decode(id); body = meta(type, id); }

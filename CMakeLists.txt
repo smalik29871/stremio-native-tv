@@ -128,6 +128,12 @@ endif()
 
 # ---- app ---------------------------------------------------------------------
 file(GLOB SNTV_UI_SRC CONFIGURE_DEPENDS src/ui/*.c)
+# What's new: this version's CHANGELOG.md section, built in (tools/whatsnew.cmake)
+set(SNTV_WHATSNEW ${CMAKE_BINARY_DIR}/generated/whatsnew.h)
+add_custom_command(OUTPUT ${SNTV_WHATSNEW}
+  COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${SNTV_WHATSNEW} -P ${CMAKE_SOURCE_DIR}/tools/whatsnew.cmake
+  DEPENDS ${CMAKE_SOURCE_DIR}/CHANGELOG.md ${CMAKE_SOURCE_DIR}/src/platform/platform.h ${CMAKE_SOURCE_DIR}/tools/whatsnew.cmake
+  COMMENT "What's new from CHANGELOG.md")
 add_executable(stremio-tv
   src/main.c
   src/app.c
@@ -138,8 +144,9 @@ add_executable(stremio-tv
   src/perfstat.c
   src/memwatch.c
   ${SNTV_UI_SRC}
-  ${SNTV_VIDEO_SRC})
-target_include_directories(stremio-tv PRIVATE ${SNTV_PLATFORM_INCLUDES})
+  ${SNTV_VIDEO_SRC}
+  ${SNTV_WHATSNEW})
+target_include_directories(stremio-tv PRIVATE ${SNTV_PLATFORM_INCLUDES} ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(stremio-tv PRIVATE sntv_core webpdecoder ${SNTV_LINK_LIBS})
 
 install(TARGETS stremio-tv RUNTIME DESTINATION .)

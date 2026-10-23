@@ -13,6 +13,12 @@
   wipe the Library); turning it on adds this TV's own addons to the account. First-run setup
   now starts with "Use Cuelight on its own".
 - Sign-in: text typed on a real keyboard goes into the field that has the focus.
+- **What's new** shows once after each update (this list), and **Settings > About** now says
+  what Cuelight is, with this version's notes under it.
+- Artwork a title is missing comes from TMDB, not Stremio's image service, when TMDB is on.
+  With an OpenSubtitles key, new setups ask OpenSubtitles directly instead of through
+  Stremio's addon; turning sync off drops Stremio's Local Files addon (it needs Stremio's
+  own server).
 
 ## 0.10.58
 

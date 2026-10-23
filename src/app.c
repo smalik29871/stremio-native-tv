@@ -13,6 +13,7 @@
 #include "log.h"
 #include "store.h"
 #include "tmdb.h"
+#include "opensubs.h"
 #include "image.h"
 #include "ui/clockface.h"
 #include "ui/font.h"
@@ -601,7 +602,7 @@ static void load_default_addons(void)
             }
         } else {   /* the first start, or one from before this TV kept the whole list */
             urls[n++] = catalog;
-            urls[n++] = STREMIO_OPENSUBS_URL;
+            if (!opensubs_enabled()) urls[n++] = STREMIO_OPENSUBS_URL;   /* with a key the player asks OpenSubtitles itself */
             cJSON *extra = store_get_json("local_addons");   /* addons installed then: added to the defaults */
             cJSON_ArrayForEach(e, extra) if (cJSON_IsString(e) && n < DEFAULTS_MAX) urls[n++] = e->valuestring;
         }
@@ -960,6 +961,7 @@ void app_logout(void)
             for (int i = 0; i < g_app.n_addons; i++) {
                 const char *u = g_app.addons[i].transport_url;
                 if (!strcmp(u, STREMIO_CINEMETA_URL) && tmdb_enabled()) u = ADDON_BUILTIN_CATALOG;
+                if (strstr(u, "127.0.0.1:11470/local-addon")) continue;   /* Local Files: needs Stremio's own server on this TV */
                 int dup = 0;
                 cJSON_ArrayForEach(e, arr) if (!strcmp(e->valuestring, u)) dup = 1;
                 if (!dup) cJSON_AddItemToArray(arr, cJSON_CreateString(u));
@@ -2156,25 +2158,34 @@ int app_ambient_pool(const AmbientItem **out)
     return g_n_ambient;
 }
 
+/* A title's own artwork when its addon gave none (or the TV could not show it): from TMDB
+ * through the built-in catalog, else metahub (Stremio's image service) */
+static const char *art_fallback(const MetaPreview *p, const char *kind, char *buf, size_t n)
+{
+    if (tmdb_enabled()) snprintf(buf, n, "cuelight://catalog/art/%s/%s", kind, p->id);
+    else snprintf(buf, n, "https://images.metahub.space/%s/medium/%s/img", kind, p->id);
+    return buf;
+}
+
 const char *app_art_background(const MetaPreview *p, char *buf, size_t n)
 {
     if (p->background && *p->background && !(imdb_id(p->id) && image_failed(p->background))) return p->background;
-    if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/background/medium/%s/img", p->id); return buf; }
+    if (imdb_id(p->id)) return art_fallback(p, "background", buf, n);
     return p->poster;
 }
 
 const char *app_art_logo(const MetaPreview *p, char *buf, size_t n)
 {
     if (p->logo && *p->logo) return p->logo;
-    if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/logo/medium/%s/img", p->id); return buf; }
+    if (imdb_id(p->id)) return art_fallback(p, "logo", buf, n);
     return NULL;
 }
 
 const char *app_art_poster(const MetaPreview *p, char *buf, size_t n)
 {
-    /* a poster the TV cannot fetch or decode (WebP, dead link): metahub has a JPEG for IMDb ids */
+    /* a poster the TV cannot fetch or decode (WebP, dead link): TMDB (or metahub) has a JPEG for IMDb ids */
     if (p->poster && *p->poster && !(imdb_id(p->id) && image_failed(p->poster))) return p->poster;
-    if (imdb_id(p->id)) { snprintf(buf, n, "https://images.metahub.space/poster/medium/%s/img", p->id); return buf; }
+    if (imdb_id(p->id)) return art_fallback(p, "poster", buf, n);
     return NULL;
 }
 
@@ -2275,6 +2286,7 @@ void app_init(void)
     app_load_library();
     app_push(screen_home_create());
     if (!store_get_int("setupDone", 0) && !getenv("SNTV_SKIP_SETUP")) app_push(screen_welcome_create());
+    app_whatsnew_check();   /* after an update: what changed, once */
 }
 
 void app_shutdown(void)
@@ -2291,7 +2303,7 @@ void app_shutdown(void)
 /* ---- settings backup ---- */
 static int backup_skips(const char *key)
 {
-    static const char *const SKIP[] = { "authKey", "accounts", "user", "tvCaps", "setupDone", NULL };
+    static const char *const SKIP[] = { "authKey", "accounts", "user", "tvCaps", "setupDone", "seenVersion", NULL };
     for (int i = 0; SKIP[i]; i++) if (strcmp(key, SKIP[i]) == 0) return 1;
     return 0;
 }
