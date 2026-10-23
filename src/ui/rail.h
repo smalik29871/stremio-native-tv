@@ -15,4 +15,6 @@ void rail_draw(int active, int focus);
 int  rail_key(KeyAction a, int *focus, int active);
 /* Switch to a section (pushes or replaces the top-level screen as needed). */
 void rail_go(int active, int target);
+/* Touch: an item of the rail drawn last was tapped. */
+void rail_tap(int target);
 #endif

@@ -75,7 +75,16 @@ typedef struct {
 } Home;
 
 static void move_focus(Home *h, int row, int col);
-static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : g_theme.id == THEME_APERTURE ? 654.0f : g_app.home_style == HOME_SHOWCASE ? 660.0f : ROWS_Y; }
+/* Touch: a card is its row and column; the Showcase button its own */
+#define HIT_CARD(row, col) (((row) << 12) | (col))
+#define HIT_SHOWCASE 0x7FFFFFF
+#define HIT_HERO 0x7FFFFFE
+/* A screen shorter than 1080 units (a phone, drawn larger): the hero gives up most of the
+ * difference so a whole row of cards still shows. */
+static float short_by(void) { return SNTV_UI_H < SNTV_UI_BASE_H ? (float)(SNTV_UI_BASE_H - SNTV_UI_H) : 0; }
+#define ROWS_LIFT (short_by() * 0.62f)
+#define HERO_LIFT (short_by() * 0.46f)
+static float rows_y(void) { return g_app.home_style == HOME_COMPACT ? 150.0f : (g_theme.id == THEME_APERTURE ? 654.0f : g_app.home_style == HOME_SHOWCASE ? 660.0f : ROWS_Y) - ROWS_LIFT; }
 
 /* ---- row geometry ---- */
 
@@ -543,6 +552,9 @@ static void draw_hero(Home *h, const MetaPreview *p)
         ui_spaced_caps("Your evening, in frame", LX, 56, FONT_XS, 7, COLOR_ALPHA(THEME_TEXT_DIM, a), 0);
         const Row *fr = h->focus_row >= 0 && h->focus_row < h->n_rows ? h->rows[h->focus_row] : NULL;
         ui_spaced_caps(fr && fr->kind == ROW_CONTINUE ? "Pick up where you left off" : fr ? fr->title : "Tonight's feature", LX, 132, FONT_XS | FONT_B, 5, COLOR_ALPHA(THEME_ACCENT, a), 760);
+        float tdx, tdy;
+        gfx_get_translate(&tdx, &tdy);
+        gfx_set_translate(tdx, tdy - ROWS_LIFT);   /* the title and buttons ride up with the rows */
         ui_serif_title(p->name, LX, 404, 780, FONT_HERO, 2, COLOR_ALPHA(THEME_TEXT, a));
         const char *type = p->type && !strcmp(p->type, "series") ? "Series" : p->type && !strcmp(p->type, "movie") ? "Film" : p->type;
         const char *parts[3] = { p->release_info, p->runtime, p->genres.n ? p->genres.v[0] : type };
@@ -552,12 +564,14 @@ static void draw_hero(Home *h, const MetaPreview *p)
         else if (p->description) font_draw_wrapped(p->description, LX, 476, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), 640, 2);
         int series = p->type && !strcmp(p->type, "series");
         float bw = ui_aperture_button(series ? "Watch series" : "Watch film", ICON_PLAY, LX, 562, 1, 0);
-        ui_aperture_button("More details", -1, LX + bw + 46, 562, 0, 0);
+        float mw = ui_aperture_button("More details", -1, LX + bw + 46, 562, 0, 0);
+        ui_hit(LX, 562, bw + 46 + mw, 64, HIT_HERO);   /* both open the title in focus */
+        gfx_set_translate(tdx, tdy);
         return;
     }
     float k = g_app.fx_light ? 1.0f : h->hero_text_t;
     int a = (int)(255 * k);
-    float x = LX, y = 168 + (1 - k) * 18;
+    float x = LX, y = 168 - HERO_LIFT + (1 - k) * 18;
     float maxw = 860;
     char buf[512];
     const char *logo = app_art_logo(p, buf, sizeof buf);
@@ -590,7 +604,7 @@ static void draw_hero(Home *h, const MetaPreview *p)
     char sv[8][16];
     int ns = ui_mdb_badges(p->id, p->type, sb, sv);
     if (ns) { ui_score_pills(x, y, sb, ns, maxw + 200, k); y += 60; }
-    if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4);
+    if (p->description) font_draw_wrapped(p->description, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, short_by() > 0 ? 2 : 4);
 }
 
 static void draw_showcase_controls(const Home *h)
@@ -599,7 +613,8 @@ static void draw_showcase_controls(const Home *h)
     if (!n) return;
     int foc = h->focus_row == FOCUS_SHOWCASE;
     float y = rows_y() - 108;
-    ui_pill("View title", 1, ICON_CHEVRON_RIGHT, LX, y, 60, PILL_PRIMARY, foc);
+    float vw = ui_pill("View title", 1, ICON_CHEVRON_RIGHT, LX, y, 60, PILL_PRIMARY, foc);
+    ui_hit(LX, y, vw, 60, HIT_SHOWCASE);
     /* page dots at the right, the current one stretched */
     float dw = 10, gap = 10, cur_w = 34, total = (n - 1) * (dw + gap) + cur_w;
     float x = SNTV_UI_W - THEME_MARGIN - total - 44, cy = y + 30;
@@ -714,6 +729,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
                     ui_new_episodes_dot(ne->count, x2 + w2 - 10, y2 + 10);
                 }
             }
+            ui_hit(px, ry, cw, ch, HIT_CARD(ri, j));
             if (is_focus && r->kind != ROW_CONTINUE) { m_peek = m; px_peek = px; f_peek = f; }
             if (is_focus && g_app.ok_hold > 0) {   /* holding OK: the hint takes the line under the card */
                 float sc = ui_focus_scale(f);
@@ -829,6 +845,18 @@ static void close_rail(Home *h)
     if (n >= 0) move_focus(h, n, -1);
 }
 
+/* A tapped card takes the focus; OK follows (it opens the title). */
+static int tap(Screen *s, int id)
+{
+    Home *h = s->st;
+    if (id == HIT_SHOWCASE) { h->focus_row = FOCUS_SHOWCASE; return 0; }
+    if (id == HIT_HERO) return h->focus_row >= 0 ? 0 : 1;
+    int row = id >> 12, col = id & 0xFFF;
+    if (row < 0 || row >= h->n_rows || col >= h->rows[row]->n) return 1;
+    if (h->focus_row != row || h->rows[row]->focus != col) move_focus(h, row, col);
+    return 0;
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Home *h = s->st;
@@ -919,7 +947,7 @@ Screen *screen_home_create(void)
     h->watched_seen = g_app.hide_watched;
     s->name = "home"; s->st = h; s->long_ok = 1;
     g_home_live = h;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
     rebuild_rows(h);
     return s;
 }

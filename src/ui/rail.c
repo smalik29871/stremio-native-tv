@@ -19,8 +19,11 @@ static float item_y(int i)
     return SNTV_UI_H / 2.0f - (RAIL_ACCOUNT - 1) * RAIL_STEP / 2 + i * RAIL_STEP;
 }
 
+static int g_rail_active;   /* the section of the rail drawn last, for a tap */
+
 void rail_draw(int active, int focus)
 {
+    g_rail_active = active;
     int open = focus >= 0;
     float w = open ? 340 : RAIL_W;
     if (open) {
@@ -46,8 +49,11 @@ void rail_draw(int active, int focus)
         Color fg = foc ? THEME_ON_FOCUS : act ? THEME_TEXT : THEME_TEXT_DIM;
         ui_icon(ICONS[i], cx, cy, 28, fg);
         if (open) font_draw_fit(label, RAIL_W + 8, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, fg, 220);
+        ui_hit(0, cy - RAIL_STEP / 2, open ? w : RAIL_W, RAIL_STEP, HIT_RAIL + i);
     }
 }
+
+void rail_tap(int target) { rail_go(g_rail_active, target); }
 
 int rail_key(KeyAction a, int *focus, int active)
 {

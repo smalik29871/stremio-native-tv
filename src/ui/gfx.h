@@ -20,6 +20,7 @@ Color color_mul_alpha(Color c, float k);
 Color color_lerp(Color a, Color b, float t);
 
 int  gfx_init(SDL_Window *win);
+void gfx_set_handheld(int on);   /* a phone-sized screen: larger, filling its width */
 void gfx_shutdown(void);
 
 /* Logical canvas is SNTV_UI_W x SNTV_UI_H; gfx scales to the real drawable. */
@@ -27,6 +28,7 @@ void gfx_begin_frame(Color clear);
 void gfx_end_frame(void);
 void gfx_flush(void);          /* submit pending quads (e.g. before glReadPixels) */
 float gfx_scale(void);
+void  gfx_pixels_to_ui(float px, float py, float *x, float *y);   /* a window pixel to canvas units */
 void  gfx_drawable_size(int *w, int *h);
 /* UI-canvas rectangle -> window pixels (for the video plane) */
 void  gfx_ui_to_pixels(float x, float y, float w, float h, int *px, int *py, int *pw, int *ph);
@@ -75,6 +77,7 @@ void gfx_set_scale(float s, float cx, float cy);
 void gfx_set_layer(float dx, float dy, float s, float cx, float cy, float alpha);
 void gfx_clip_push(float x, float y, float w, float h);
 void gfx_clip_pop(void);
+int gfx_visible_rect(float *x, float *y, float *w, float *h);
 
 unsigned gfx_texture_rgba(const uint8_t *px, int w, int h);
 unsigned gfx_texture_rgba_mip(const uint8_t *px, int w, int h);

@@ -151,6 +151,7 @@ void gfx_shutdown(void)
 }
 
 float gfx_scale(void) { return g_scale; }
+void gfx_pixels_to_ui(float px, float py, float *x, float *y) { *x = (px - g_off_x) / g_scale; *y = (py - g_off_y) / g_scale; }
 void gfx_drawable_size(int *w, int *h) { *w = g_draw_w; *h = g_draw_h; }
 void gfx_ui_to_pixels(float x, float y, float w, float h, int *px, int *py, int *pw, int *ph)
 {
@@ -170,9 +171,23 @@ static void flush(void)
     g_calls++;
 }
 
+int g_ui_w = SNTV_UI_BASE_W, g_ui_h = SNTV_UI_BASE_H;
+static int g_handheld;   /* a phone: the screen's width holds 1920 units, so everything is drawn larger */
+void gfx_set_handheld(int on) { g_handheld = on; }
+
 void gfx_begin_frame(Color clear)
 {
     SDL_GL_GetDrawableSize(g_win, &g_draw_w, &g_draw_h);
+    if (g_draw_w > 0 && g_draw_h > 0) {   /* the screen's own shape, never smaller than 16:9's */
+        double aspect = (double)g_draw_w / g_draw_h;
+        g_ui_w = aspect > 16.0 / 9.0 + 0.01 ? (int)(SNTV_UI_BASE_H * aspect + 0.5) : SNTV_UI_BASE_W;
+        g_ui_h = aspect < 16.0 / 9.0 - 0.01 ? (int)(SNTV_UI_BASE_W / aspect + 0.5) : SNTV_UI_BASE_H;
+        if (g_handheld && g_ui_w > SNTV_UI_BASE_W) {   /* 20:9 is 1920 x 864: no shorter than 820, the layouts' floor */
+            g_ui_h = (int)(SNTV_UI_BASE_W / aspect + 0.5);
+            if (g_ui_h < 820) g_ui_h = 820;
+            g_ui_w = (int)(g_ui_h * aspect + 0.5);
+        }
+    }
     float sx = (float)g_draw_w / SNTV_UI_W, sy = (float)g_draw_h / SNTV_UI_H;
     g_scale = sx < sy ? sx : sy;
     g_off_x = ((float)g_draw_w - SNTV_UI_W * g_scale) * 0.5f;
@@ -412,6 +427,24 @@ void gfx_clip_push(float x, float y, float w, float h)
     g_clip[g_nclip].x = px; g_clip[g_nclip].y = gy; g_clip[g_nclip].w = pw; g_clip[g_nclip].h = ph;
     g_nclip++;
     apply_clip();
+}
+
+/* A rect as it lands on screen: through the zoom, translate and layer transforms, cut to
+ * the clip in force. 0 when nothing of it shows (touch targets in scrolled-off rows). */
+int gfx_visible_rect(float *x, float *y, float *w, float *h)
+{
+    float rx = *x, ry = *y, rw = *w, rh = *h;
+    rx = g_zx + (rx - g_zx) * g_zs + g_tx; ry = g_zy + (ry - g_zy) * g_zs + g_ty; rw *= g_zs; rh *= g_zs;
+    rx = g_lx + (rx - g_lx) * g_ls + g_ltx; ry = g_ly + (ry - g_ly) * g_ls + g_lty; rw *= g_ls; rh *= g_ls;
+    if (g_nclip) {
+        const float cx = (g_clip[g_nclip - 1].x - g_off_x) / g_scale, cw = g_clip[g_nclip - 1].w / g_scale;
+        const float ch = g_clip[g_nclip - 1].h / g_scale, cy = (g_draw_h - g_clip[g_nclip - 1].y - g_clip[g_nclip - 1].h - g_off_y) / g_scale;
+        float x0 = rx > cx ? rx : cx, y0 = ry > cy ? ry : cy;
+        float x1 = rx + rw < cx + cw ? rx + rw : cx + cw, y1 = ry + rh < cy + ch ? ry + rh : cy + ch;
+        rx = x0; ry = y0; rw = x1 - x0; rh = y1 - y0;
+    }
+    *x = rx; *y = ry; *w = rw; *h = rh;
+    return rw > 0 && rh > 0;
 }
 
 void gfx_clip_pop(void)

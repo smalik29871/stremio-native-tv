@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Touch screens** (Android phones and tablets): tap anything to open it (a card, a button,
+  a setting, a source, a key of the on-screen keyboard), tap beside a pop-up to close it,
+  swipe to move, hold for options. Choice settings step back from their left arrow.
+- **Phone screens draw larger**: the layout fills the screen's width, so text and cards are
+  about a quarter bigger on a 20:9 phone; Home, Settings, sign-in and setup fit its height.
+
 ## 0.10.60
 
 - **Settings > Accounts**: every account and key in one place, grouped by what it does

@@ -16,7 +16,7 @@ enum { ST_AUDIO, ST_SUBS, ST_SUBS_WHEN, ST_SKIP, ST_NEXT, ST_LOOK, ST_ACCOUNT, S
 #define LIST_X 900.0f
 #define LIST_Y 230.0f
 #define ROW 84.0f
-#define VISIBLE 9
+#define VISIBLE (SNTV_UI_H >= 1000 ? 9 : 7)   /* a short screen (a phone) fits fewer */
 
 typedef struct {
     int step, focus;
@@ -174,6 +174,7 @@ static void draw(Screen *s)
         if (foc && !g_app.fx_light) gfx_shadow(LIST_X, y + 6, lw, h, R_PANEL, 24, RGBA(0, 0, 0, 0x80));
         if (foc) ui_focus_under(LIST_X, y, lw, h, R_PANEL, 1);
         gfx_rrect(LIST_X, y, lw, h, R_PANEL, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x10));
+        ui_hit(LIST_X, y, lw, h, i);
         Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
         float ty = hint ? y + 9 : y + (h - font_height(FONT_S | FONT_B)) / 2;
         font_draw_fit(label, LIST_X + 32, ty, FONT_S | FONT_B, fg, lw - 130);
@@ -212,6 +213,14 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+static int tap(Screen *s, int id)
+{
+    Welcome *w = s->st;
+    if (id >= option_count(w->step)) return 1;
+    w->focus = id;
+    return 0;
+}
+
 static void destroy(Screen *s)
 {
     free(s->st);
@@ -224,6 +233,6 @@ Screen *screen_welcome_create(void)
     Welcome *w = calloc(1, sizeof *w);
     enter_step(w, ST_AUDIO);
     s->name = "welcome"; s->st = w;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy;
     return s;
 }

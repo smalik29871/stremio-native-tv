@@ -214,6 +214,8 @@ static void update(Screen *s, float dt)
     for (int i = l->focus - COLS; i < l->focus + COLS * 3 && i < l->n; i++) if (i >= 0) image_prefetch(app_art_poster(&l->items[i], buf, sizeof buf));
 }
 
+enum { HIT_PILL = 0x1000 };   /* touch: the filters, then the sort; a title is its index */
+
 static void draw(Screen *s)
 {
     Library *l = s->st;
@@ -230,6 +232,7 @@ static void draw(Screen *s)
     for (int i = 0; i < F_COUNT; i++) {
         int foc = l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == i;
         float w = ui_pill(FILTERS[i], 0, ICON_PLAY, x, y, 52, l->filter == i ? PILL_PRIMARY : PILL_GHOST, foc);
+        ui_hit(x, y, w, 52, HIT_PILL + i);
         if (l->filter == i && !foc) gfx_rrect(x + w / 2 - 10, y + 56, 20, 3, 1.5f, THEME_ACCENT2);
         x += w + 12;
     }
@@ -237,6 +240,7 @@ static void draw(Screen *s)
         char sl[32]; snprintf(sl, sizeof sl, "Sort: %s", SORTS[l->sort]);
         float w = ui_pill_width(sl, 1, 52);
         ui_pill(sl, 1, ICON_SWAP, SNTV_UI_W - THEME_MARGIN - w, y, 52, PILL_SECONDARY, l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == F_COUNT);
+        ui_hit(SNTV_UI_W - THEME_MARGIN - w, y, w, 52, HIT_PILL + F_COUNT);
     }
     float gx = LX, gy = GRID_Y, row_h = CELL_H + 80;
     if (l->filter == F_STATS) { draw_stats(); rail_draw(RAIL_LIBRARY, l->rail_focus); return; }
@@ -270,6 +274,7 @@ static void draw(Screen *s)
             float f = foc ? (g_app.fx_light ? 1 : l->focus_t) : 0;
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&l->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, f, l->zone == Z_GRID && !foc ? 0.25f : 0, l->items[i].name, 0);
+            ui_hit(px, py, CELL_W, CELL_H, i);
             const LibraryItem *li = l->src[i];
             const NewEp *ne = newep_get(li->id);
             if (ne) {
@@ -339,6 +344,17 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+/* A tapped filter, the sort, or a title: the focus goes there and OK follows. */
+static int tap(Screen *s, int id)
+{
+    Library *l = s->st;
+    l->rail_focus = -1;
+    if (id >= HIT_PILL && id <= HIT_PILL + F_COUNT) { l->zone = Z_FILTERS; l->pill_focus = id - HIT_PILL; return 0; }
+    if (id < 0 || id >= l->n) return 1;
+    if (l->zone != Z_GRID || l->focus != id) { l->zone = Z_GRID; l->focus = id; l->focus_t = 0; }
+    return 0;
+}
+
 static void resume(Screen *s) { Library *l = s->st; l->rail_focus = -1; app_redraw(); }
 
 static void destroy(Screen *s)
@@ -355,7 +371,7 @@ Screen *screen_library_create(void)
     l->rail_focus = -1; l->focus_t = 1; l->seen_version = -1;
     l->zone = Z_GRID;
     s->name = "library"; s->st = l; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
     build(l);
     if (!l->n) l->zone = Z_FILTERS;
     return s;

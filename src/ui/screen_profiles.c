@@ -77,6 +77,7 @@ static void draw(Screen *s)
         char name[128], ini[3];
         name_of(p->emails[i], name, sizeof name, ini);
         Color c = colour_of(p->emails[i]);
+        ui_hit(cx - step / 2, cy - tile / 2, step, tile + 120, i);
         if (foc && !g_app.fx_light) gfx_shadow(cx - r, cy - r + 10, 2 * r, 2 * r, r, 40, COLOR_ALPHA(c, 0x90));
         gfx_set_alpha(k * (foc ? 1.0f : 0.72f));
         gfx_rrect_grad_v(cx - r, cy - r, 2 * r, 2 * r, r * 0.42f, c, COLOR_ALPHA(c, 0xB0));
@@ -91,6 +92,14 @@ static void draw(Screen *s)
         gfx_set_alpha(1);
     }
     font_draw_center("OK  choose   \xC2\xB7   Back  keep the one signed in   \xC2\xB7   Settings > Account adds or forgets profiles", SNTV_UI_W / 2, SNTV_UI_H - 90, FONT_XS, THEME_TEXT_MUTED);
+}
+
+static int tap(Screen *s, int id)   /* a profile: chosen */
+{
+    Profiles *p = s->st;
+    if (id < 0 || id >= p->n) return 1;
+    p->focus = id;
+    return 0;
 }
 
 static int key(Screen *s, KeyAction a)
@@ -120,6 +129,6 @@ Screen *screen_profiles_create(void)
     p->n += app_saved_accounts(p->emails + p->n, MAX_PROFILES - p->n);
     p->focus_t = 1;
     s->name = "profiles"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy;
     return s;
 }

@@ -23,6 +23,7 @@ enum { LIST_ROW = 58, LIST_MAX = 5, HERO_H = 400, COLS_TYPING = 5, COLS = 7, CEL
 
 /* Results are grouped by type, each group under its own heading and starting a new row. */
 enum { SECT_MAX = 4, SECT_H = 56 };
+enum { HIT_FIELD = 0x1000, HIT_LIST = 0x2000, HIT_HERO = 0x3000, HIT_HERO_CARD = 0x3100 };   /* touch targets; a result is its index */
 typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
@@ -668,6 +669,7 @@ static void update(Screen *sc, float dt)
 static void draw_field(const Search *s, float x, float y, float fw)
 {
     int foc = !s->focus_grid;
+    ui_hit(x, y, fw, FIELD_H, HIT_FIELD);
     if (g_theme.id == THEME_APERTURE) {
         gfx_rrect(x, y, fw, FIELD_H, 3, COLOR_ALPHA(THEME_TEXT, 0x0C));
         gfx_rrect_ring(x, y, fw, FIELD_H, 3, foc ? 2 : 1, COLOR_ALPHA(THEME_TEXT, foc ? 0xC0 : 0x40));
@@ -734,6 +736,7 @@ static void draw_hero(const Search *s, float x, float y, float w, float h)
     } else gfx_rrect_grad_h(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_ACCENT, 0x70), COLOR_ALPHA(THEME_ACCENT2, 0x40));
     gfx_rrect_grad_h(x, y, w * 0.8f, h, R_PANEL, RGBA(0, 0, 0, 0xD8), RGBA(0, 0, 0, 0));   /* the words stay readable on any picture */
     if (foc) gfx_rrect_ring(x, y, w, h, R_PANEL, 3, COLOR_ALPHA(THEME_TEXT, 0x90));
+    ui_hit(x, y, w, h, HIT_HERO_CARD);
     float tx = x + 44, ty = y + h - 222;
     font_draw_fit(m->name ? m->name : "", tx, ty, FONT_XL | FONT_B, THEME_TEXT, w - 88);
     char meta[200] = "";
@@ -748,8 +751,11 @@ static void draw_hero(const Search *s, float x, float y, float w, float h)
     if (rank >= 0 && rank < AI_TITLES && s->pick_why[rank][0]) font_draw_fit(s->pick_why[rank], tx, ty - 40, FONT_S | FONT_B, THEME_ACCENT2, w - 88);
     if (app_title_watched(m->id)) ui_chip("Watched", x + w - 150, y + 24, COLOR_ALPHA(THEME_PANEL, 0xD0), THEME_OK);
     float bx = tx, by = y + h - 96;
-    for (int k = 0; k < hero_buttons(s); k++)
-        bx += ui_pill(hero_label(s, k), k == 0, ICON_PLAY, bx, by, 64, k == 0 ? PILL_PRIMARY : PILL_SECONDARY, foc && s->hero_btn == k) + 16;
+    for (int k = 0; k < hero_buttons(s); k++) {
+        float pw = ui_pill(hero_label(s, k), k == 0, ICON_PLAY, bx, by, 64, k == 0 ? PILL_PRIMARY : PILL_SECONDARY, foc && s->hero_btn == k);
+        ui_hit(bx, by, pw, 64, HIT_HERO + k);
+        bx += pw + 16;
+    }
 }
 
 /* Down the left: what is typed suggests, else the recent searches (and a row to clear them). */
@@ -761,6 +767,7 @@ static float draw_list(const Search *s, float x, float y, float w)
         float ry = y + 36;
         for (int i = 0; i < s->n_refine; i++, ry += LIST_ROW) {
             int on = foc == i;
+            ui_hit(x, ry, w, LIST_ROW - 6, HIT_LIST + i);
             if (on) gfx_rrect(x, ry, w, LIST_ROW - 6, R_KEY, THEME_FOCUS);
             ui_icon(ICON_STAR, x + 26, ry + (LIST_ROW - 6) / 2, 20, on ? THEME_ON_FOCUS : THEME_ACCENT2);
             font_draw_fit(s->refine[i], x + 52, ry + (LIST_ROW - 6 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, on ? THEME_ON_FOCUS : THEME_TEXT, w - 64);
@@ -773,6 +780,7 @@ static float draw_list(const Search *s, float x, float y, float w)
     float ry = y + (s->kb.text[0] ? 0 : 36);
     for (int i = 0; i < n; i++, ry += LIST_ROW) {
         int on = foc == i;
+        ui_hit(x, ry, w, LIST_ROW - 6, HIT_LIST + i);
         if (on) gfx_rrect(x, ry, w, LIST_ROW - 6, R_KEY, THEME_FOCUS);
         Color fg = on ? THEME_ON_FOCUS : THEME_TEXT;
         const char *t = s->kb.text[0] ? s->sugg[i] : i < s->n_recent ? s->recent[i] : "Clear recent searches";
@@ -869,6 +877,7 @@ static void draw(Screen *sc)
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
                     s->focus_grid == 1 && !foc ? 0.3f : 0, s->results[i].name, 0);
+            ui_hit(px, py, CELL_W, CELL_H, i);
             if (i < s->n_picks) { gfx_circle(px + CELL_W - 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_STAR, px + CELL_W - 22, py + 22, 18, THEME_ACCENT2); }
             if (app_title_watched(s->results[i].id)) { gfx_circle(px + 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_CHECK, px + 22, py + 22, 18, THEME_OK); }
             if (g_theme.id == THEME_APERTURE) ui_spaced_caps(s->results[i].name, px, py + CELL_H + (foc ? 24 : 14), FONT_S | FONT_ALT, 3, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
@@ -1014,6 +1023,30 @@ static int key(Screen *sc, KeyAction a)
     }
 }
 
+/* Touch: the field opens the keyboard, a key types, a line of the list or a result is taken. */
+static int tap(Screen *sc, int id)
+{
+    Search *s = sc->st;
+    if (keyboard_tap(&s->kb, id)) { if (!s->typing) return 1; s->sugg_focus = -1; return 0; }
+    if (id == HIT_FIELD) { if (s->typing) return 1; s->focus_grid = 0; return 0; }
+    if (id >= HIT_LIST && id < HIT_LIST + 32) {
+        int i = id - HIT_LIST;
+        if (s->typing && !s->tvkb) { if (i >= s->n_sugg) return 1; s->sugg_focus = i; return 0; }
+        if (s->typing) close_keyboard(s);
+        if (i >= list_n(s)) return 1;
+        s->focus_grid = 2; s->recent_focus = i;
+        return 0;
+    }
+    if (id < HIT_FIELD && id >= s->n) return 1;
+    if (s->typing) { close_keyboard(s); recent_add(s, s->kb.text); }
+    s->focus_t = 0;
+    if (id == HIT_HERO_CARD) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[0])); return 1; }
+    if (id >= HIT_HERO && id < HIT_HERO + 4) { if (id - HIT_HERO >= hero_buttons(s)) return 1; s->focus_grid = 3; s->hero_btn = id - HIT_HERO; return 0; }
+    if (id >= HIT_FIELD) return 1;
+    s->focus_grid = 1; s->grid_focus = id;
+    return 0;
+}
+
 /* Typing on a real keyboard (or text from the test driver) opens the on-screen one too. */
 static void text(Screen *sc, const char *utf8)
 {
@@ -1046,7 +1079,7 @@ Screen *screen_search_create(void)
     recent_load(s);
     for (int i = 0; i < OPEN_MAX; i++) if (!g_open[i]) { g_open[i] = s; break; }   /* (past eight deep, its replies are just dropped) */
     sc->name = "search"; sc->st = s; sc->long_ok = 1;
-    sc->update = update; sc->draw = draw; sc->key = key; sc->text = text; sc->destroy = destroy;
+    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->text = text; sc->destroy = destroy;
     return sc;
 }
 

@@ -98,6 +98,8 @@ int app_transition_active(void) { return g_trans.active; }
 /* The page growing out of a card: the card's rectangle opens to the screen (it reaches the
  * edges at 75%, after which the page underneath is no longer drawn), the page inside it
  * settles from 92% and fades in, the page behind dims and steps back a little. k: 0 card .. 1 open. */
+static void draw_one(Screen *s) { ui_hits_begin(s); s->draw(s); }   /* what it draws can be tapped (as its own) */
+
 static void draw_zoom(Screen *under, Screen *page, float k)
 {
     float W = SNTV_UI_W, H = SNTV_UI_H, *r = g_trans.rect;
@@ -106,23 +108,23 @@ static void draw_zoom(Screen *under, Screen *page, float k)
     float cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
     if (o < 1 && under && under->draw) {
         gfx_set_layer(0, 0, 1 - 0.03f * k, W / 2, H / 2, 1);
-        under->draw(under);
+        draw_one(under);
         gfx_set_layer(0, 0, 1, 0, 0, 1);
         gfx_rect(0, 0, W, H, COLOR_ALPHA(THEME_BG, (int)(0xB0 * k)));
     }
     gfx_clip_push(x, y, w, h);
     gfx_rect(x, y, w, h, COLOR_ALPHA(THEME_BG, (int)(255 * (o < 0.4f ? o / 0.4f : 1))));
     gfx_set_layer(0, 0, 0.92f + 0.08f * k, cx, cy, k * 1.6f);
-    page->draw(page);
+    draw_one(page);
     gfx_set_layer(0, 0, 1, 0, 0, 1);
     gfx_clip_pop();
 }
 
 void app_draw_screen(Screen *top, float dt)
 {
-    if (!g_trans.active) { if (top && top->draw) top->draw(top); return; }
+    if (!g_trans.active) { if (top && top->draw) draw_one(top); return; }
     g_trans.t += dt / (g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.34f : 0.26f);
-    if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) top->draw(top); return; }
+    if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) draw_one(top); return; }
     float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
     float W = SNTV_UI_W;
     Screen *from = g_trans.from;
@@ -138,22 +140,22 @@ void app_draw_screen(Screen *top, float dt)
         float edge = W * (1 - e);
         gfx_clip_push(0, 0, edge, SNTV_UI_H);
         gfx_set_layer(-0.22f * W * e, 0, 1, 0, 0, 1);
-        if (from->draw) from->draw(from);
+        if (from->draw) draw_one(from);
         gfx_set_layer(0, 0, 1, 0, 0, 1);
         gfx_rect(0, 0, edge, SNTV_UI_H, COLOR_ALPHA(THEME_BG, (int)(0xA0 * e)));
         gfx_clip_pop();
         gfx_set_layer(edge, 0, 1, 0, 0, 1);
-        top->draw(top);
+        draw_one(top);
     } else {                 /* pop: the page underneath comes forward, the old one slides out to the right */
         float edge = W * e;
         gfx_clip_push(0, 0, edge, SNTV_UI_H);
         gfx_set_layer(-0.22f * W * (1 - e), 0, 1, 0, 0, 1);
-        top->draw(top);
+        draw_one(top);
         gfx_set_layer(0, 0, 1, 0, 0, 1);
         gfx_rect(0, 0, edge, SNTV_UI_H, COLOR_ALPHA(THEME_BG, (int)(0xA0 * (1 - e))));
         gfx_clip_pop();
         gfx_set_layer(edge, 0, 1, 0, 0, 1);
-        if (from->draw) from->draw(from);
+        if (from->draw) draw_one(from);
     }
     gfx_set_layer(0, 0, 1, 0, 0, 1);
     app_redraw();

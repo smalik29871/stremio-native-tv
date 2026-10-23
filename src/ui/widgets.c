@@ -1606,3 +1606,33 @@ void ui_qr(const uint8_t *qr, float x, float y, float size)
     for (int ry = 0; ry < n; ry++) for (int rx = 0; rx < n; rx++)
         if (qrcodegen_getModule(qr, rx, ry)) gfx_rect(x + off + rx * cell, y + off + ry * cell, cell + 0.6f, cell + 0.6f, COLOR_ALPHA(THEME_BG, 255));
 }
+
+/* ---- touch: tappable areas, recorded while drawing ------------------------------------ */
+enum { HITS_MAX = 512 };
+static struct { float x, y, w, h; int id; const Screen *owner; } g_hits[HITS_MAX];
+static int g_n_hits;
+static const Screen *g_hit_owner;
+
+void ui_hits_begin(Screen *drawing)
+{
+    if (drawing && drawing == app_top()) g_n_hits = 0;   /* a new frame of the screen on top */
+    g_hit_owner = drawing;
+}
+
+void ui_hit(float x, float y, float w, float h, int id)
+{
+    if (g_n_hits >= HITS_MAX || !gfx_visible_rect(&x, &y, &w, &h)) return;
+    g_hits[g_n_hits].x = x; g_hits[g_n_hits].y = y; g_hits[g_n_hits].w = w; g_hits[g_n_hits].h = h;
+    g_hits[g_n_hits].id = id; g_hits[g_n_hits].owner = g_hit_owner;
+    g_n_hits++;
+}
+
+int ui_hit_find(float x, float y, const Screen *top, int *id)
+{
+    for (int i = g_n_hits - 1; i >= 0; i--)   /* drawn last = on top */
+        if (g_hits[i].owner == top && x >= g_hits[i].x && x < g_hits[i].x + g_hits[i].w && y >= g_hits[i].y && y < g_hits[i].y + g_hits[i].h) {
+            *id = g_hits[i].id;
+            return 1;
+        }
+    return 0;
+}

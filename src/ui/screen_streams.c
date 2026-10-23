@@ -1061,6 +1061,7 @@ static void draw_aperture(Streams *st)
         const Stream *sm = &st->items[rec];
         int foc = st->focus == -1;
         gfx_rect(x, LIST_Y, w, REC_H - 16, foc ? THEME_FOCUS : THEME_BG2);
+        ui_hit(x, LIST_Y, w, REC_H - 16, -1);
         if (foc) ui_focus_under(x, LIST_Y, w, REC_H - 16, R_PANEL, 1);
         Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
         font_draw_tracked("RECOMMENDED FOR THIS TV", x + 28, LIST_Y + 18, FONT_XS, fg, 1);
@@ -1078,6 +1079,7 @@ static void draw_aperture(Streams *st)
         if (y + ROW_H < list_y || y > SNTV_UI_H) continue;
         const Stream *sm = &st->items[i];
         int foc = st->focus == i, ok = playable(sm);
+        ui_hit(x, y, w, ROW_H - 18, i);
         gfx_rect(x, y + ROW_H - 10, w, 1, THEME_LINE);
         if (foc) { gfx_rect(x, y, w, ROW_H - 18, THEME_SURFACE); gfx_rect(x - 7, y + 20, 3, 40, THEME_ACCENT); }
         first_line(sm->name, line, sizeof line);
@@ -1169,6 +1171,7 @@ static void draw(Screen *s)
         const Stream *sm = &st->items[rec];
         int foc = st->focus == -1;
         float h = REC_H - 16;
+        ui_hit(x, LIST_Y, w, h, -1);
         if (foc) ui_focus_under(x, LIST_Y, w, h, R_PANEL, 1);
         gfx_rrect_grad_h(x, LIST_Y, w, h, R_PANEL, foc ? COLOR_ALPHA(THEME_TEXT, 0x2E) : COLOR_ALPHA(THEME_ACCENT, 0x38), foc ? COLOR_ALPHA(THEME_TEXT, 0x2E) : COLOR_ALPHA(THEME_ACCENT2, 0x30));
         if (foc) gfx_rrect_ring(x, LIST_Y, w, h, R_PANEL, 3, g_theme.focus_style == FOCUS_FRAME ? THEME_ACCENT : THEME_TEXT);
@@ -1210,6 +1213,7 @@ static void draw(Screen *s)
         int foc = st->focus == i;
         int ok = playable(sm);
         float h = ROW_H - 14;
+        ui_hit(x, ry, w, h, i);
         if (foc) ui_focus_under(x, ry, w, h, R_PANEL, 1);
         gfx_rrect(x, ry, w, h, R_PANEL, foc ? COLOR_ALPHA(THEME_TEXT, 0x2A) : COLOR_ALPHA(THEME_TEXT, 0x0E));
         if (foc) gfx_rrect_ring(x, ry, w, h, R_PANEL, 3, g_theme.focus_style == FOCUS_FRAME ? THEME_ACCENT : THEME_TEXT);
@@ -1643,6 +1647,15 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+/* A tapped source (the recommendation is -1) takes the focus; OK plays it. */
+static int tap(Screen *s, int id)
+{
+    Streams *st = s->st;
+    if (id < -1 || id >= st->n) return 1;
+    if (st->focus != id) { st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; st->focus = id; }
+    return 0;
+}
+
 static void resume(Screen *s)
 {
     Streams *st = s->st;
@@ -1686,7 +1699,7 @@ Screen *screen_streams_create_chain(const MetaPreview *meta, const char *video_i
     } else st->autoplayed = 1;
     st->started = g_app.time;
     s->name = "streams"; s->st = st; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
     g_live = st;
     g_generation++;
     if (!adopt_prefetch(st)) query(st);

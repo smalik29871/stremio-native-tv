@@ -13,9 +13,15 @@
 #define SNTV_USER_AGENT  "StremioNativeTV/" SNTV_APP_VERSION
 
 /* Logical UI canvas. Everything is laid out in these units and scaled to the
- * real window so 720p webOS 3 sets and 4K panels share one layout. */
-#define SNTV_UI_W 1920
-#define SNTV_UI_H 1080
+ * real window so 720p webOS 3 sets and 4K panels share one layout. It is 1920x1080 on a
+ * 16:9 screen; a wider one (a phone) gets more width and a taller one (a tablet) more
+ * height, so what is anchored to the right or bottom edge sits at the real edge. Set by
+ * gfx_begin_frame for each frame. */
+extern int g_ui_w, g_ui_h;
+#define SNTV_UI_W g_ui_w
+#define SNTV_UI_H g_ui_h
+#define SNTV_UI_BASE_W 1920
+#define SNTV_UI_BASE_H 1080
 
 /* webOS 3 sets have ~300 MB free. Keep decoded artwork well under that. The size cap is
  * for backdrops and logos (posters are mipmapped at 512): a hero is drawn about 1500 px

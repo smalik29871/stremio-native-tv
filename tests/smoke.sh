@@ -931,6 +931,17 @@ run island_seconds 150 "" HOME="$(home_with isl_sec '{"prefSubs":"eng","subsAlwa
 run ambient_paused 300 "right,ok,down,down,play,wait,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run login_qr 260 "left,down,down,down,down,down,down,ok"
 run login_pw 280 "left,down,down,down,down,down,down,ok,wait"
+# touch: a tap lands on what is drawn there (canvas units), a swipe moves the focus
+run tap_rail 160 "wait,tap:52:496,wait" SNTV_EXPECT_SCREEN=search HOME="$(home_with tap1 '{"setupDone":1}')"
+run tap_card 200 "wait,wait,tap:877:810,wait,wait" SNTV_EXPECT_SCREEN=detail HOME="$(home_with tap2 '{"setupDone":1}')"
+run tap_play 260 "wait,wait,tap:877:810,wait,wait,tap:175:632,wait,wait,wait" SNTV_EXPECT_SCREEN=streams HOME="$(home_with tap3 '{"setupDone":1}')"
+run tap_sheet 240 "wait,wait,yellow,wait,wait,tap:700:562,wait,wait" SNTV_EXPECT_SCREEN=home HOME="$(home_with tap4 '{"setupDone":1}')"
+grep -q "toast: Added to Library" "$OUT/tap_sheet.log" || { echo "tapping a sheet's choice did not take it"; exit 1; }
+run tap_typing 400 "wait,tap:52:496,wait,tap:300:178,wait,tap:212:284,tap:370:428,tap:450:284,tap:132:284,wait,wait" HOME="$(home_with tap5 '{"setupDone":1}')"
+grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/tap_typing.log" || { echo "tapped keys did not type"; exit 1; }
+run tap_settings_key 260 "wait,tap:52:760,wait,tap:800:714,wait,tap:600:560,tap:700:560,wait" SNTV_EXPECT_SCREEN=settings HOME="$(home_with tap6 '{"setupDone":1}')"
+run handheld_home 160 "wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 HOME="$(home_with hh '{"setupDone":1}')"
+grep -q "screen: handheld" "$OUT/handheld_home.log" || { echo "handheld mode did not turn on"; exit 1; }
 python3 -I - "$OUT" <<'PY'
 import sys, glob, os
 from PIL import Image

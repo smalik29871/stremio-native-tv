@@ -3,6 +3,7 @@
 #include "breaks.h"
 #include "phone.h"
 #include "ui/widgets.h"
+#include "ui/rail.h"
 #include "ui/island.h"
 #include "ui/intro.h"
 #include "ui/bgtrailer.h"
@@ -206,6 +207,18 @@ static void dev_hooks(SDL_Window *win, int frame)
         int i = 0;
         for (char *tok = strtok(copy, ","); tok; tok = strtok(NULL, ","), i++) {
             if (i != idx) continue;
+            float tx, ty;
+            if (sscanf(tok, "tap:%f:%f", &tx, &ty) == 2) {   /* a finger tapping at canvas units x:y */
+                int px, py, pw, ph, dw, dh;
+                gfx_ui_to_pixels(tx, ty, 0, 0, &px, &py, &pw, &ph);
+                gfx_drawable_size(&dw, &dh);
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_FINGERDOWN; e.tfinger.fingerId = 1; e.tfinger.x = (float)px / dw; e.tfinger.y = (float)py / dh;
+                SDL_PushEvent(&e);
+                e.type = SDL_FINGERUP;
+                SDL_PushEvent(&e);
+                continue;
+            }
             if (strncmp(tok, "t:", 2) == 0) {   /* typed text */
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_TEXTINPUT;
@@ -280,8 +293,23 @@ static void touch_event(const SDL_Event *e)
     float dist = SDL_sqrtf(dx * dx + dy * dy);
     Uint32 held = SDL_GetTicks() - g_touch.t;
     static int told;
-    if (!told) { told = 1; app_toast("Tap: OK  \xC2\xB7  Swipe: move  \xC2\xB7  Hold: options  \xC2\xB7  Back gesture: back"); }
-    if (dist < 0.03f) { dispatch_key(held >= 500 ? KEY_LONG_OK : KEY_OK); return; }
+    if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Swipe to move  \xC2\xB7  Hold for options"); }
+    if (dist < 0.03f) {   /* a tap: on what is under the finger, where the screen says what that is */
+        KeyAction press = held >= 500 ? KEY_LONG_OK : KEY_OK;
+        int pw, ph, id;
+        float ux, uy;
+        gfx_drawable_size(&pw, &ph);
+        gfx_pixels_to_ui(e->tfinger.x * pw, e->tfinger.y * ph, &ux, &uy);
+        Screen *top = app_top();
+        if (top && ui_hit_find(ux, uy, top, &id)) {
+            if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
+            if (!top->tap || !top->tap(top, id)) dispatch_key(press);
+            app_redraw();
+            return;
+        }
+        if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
+        return;
+    }
     KeyAction a = SDL_fabsf(dx) > SDL_fabsf(dy) ? (dx < 0 ? KEY_RIGHT : KEY_LEFT) : (dy < 0 ? KEY_DOWN : KEY_UP);   /* content follows the finger */
     int steps = (int)(dist / 0.12f) + 1;
     if (steps > 6) steps = 6;
@@ -487,6 +515,8 @@ int main(int argc, char **argv)
     if (SDL_GetCurrentDisplayMode(0, &dm) == 0) { w = dm.w; h = dm.h; }
 #else
     flags |= SDL_WINDOW_RESIZABLE;
+    const char *ws = getenv("SNTV_WINDOW");   /* tests: "2000x900" is a phone's shape, "1440x1080" a tablet's */
+    if (ws && sscanf(ws, "%dx%d", &w, &h) != 2) { w = 1280; h = 720; }
 #endif
     SDL_Window *win = SDL_CreateWindow(SNTV_APP_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
     if (!win) { LOGE("SDL_CreateWindow: %s", SDL_GetError()); return 1; }
@@ -495,6 +525,15 @@ int main(int argc, char **argv)
     SDL_GL_SetSwapInterval(1);
 
     if (gfx_init(win) != 0) return 1;
+    {   /* a phone (under 9 inches across) draws larger; SNTV_HANDHELD=1 tries it on the desktop */
+        const char *hh = getenv("SNTV_HANDHELD");
+        int handheld = hh && *hh == '1';
+#ifdef SNTV_PLATFORM_ANDROID
+        float ddpi = 0;
+        if (SDL_GetDisplayDPI(0, &ddpi, NULL, NULL) == 0 && ddpi > 0 && SDL_sqrtf((float)w * w + (float)h * h) / ddpi < 9.0f) handheld = 1;
+#endif
+        if (handheld) { LOGI("screen: handheld, drawn larger"); gfx_set_handheld(1); }
+    }
     perf_mark("window");
     /* the saved theme picks the typefaces; app_init applies its colours */
     if (!store_get_int("lookStreaming", 0) && store_get_int("theme", THEME_STREAM) != THEME_APERTURE) {   /* preserve an explicitly selected prototype */

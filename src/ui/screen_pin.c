@@ -75,6 +75,7 @@ static void draw(Screen *s)
             const char *k = KEYS[r][c];
             int special = k[0] == '<' || k[0] == 'O';
             if (foc && !g_app.fx_light) gfx_shadow(bx, by + 4, 106, 78, R_PANEL, 18, RGBA(0, 0, 0, 0x70));
+            ui_hit(bx, by, 106, 78, r * 3 + c);
             gfx_rrect(bx, by, 106, 78, R_PANEL, foc ? THEME_FOCUS : special ? COLOR_ALPHA(THEME_TEXT, 0x0C) : COLOR_ALPHA(THEME_TEXT, 0x16));
             Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
             if (k[0] == '<') ui_icon(ICON_BACK, bx + 53, by + 39, 26, fg);
@@ -105,6 +106,14 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+static int tap(Screen *s, int id)   /* a key of the pad: pressed */
+{
+    Pin *p = s->st;
+    if (id < 0 || id >= 12) return 1;
+    p->row = id / 3; p->col = id % 3;
+    return 0;
+}
+
 static void text(Screen *s, const char *utf8)   /* a number key on the remote */
 {
     Pin *p = s->st;
@@ -126,6 +135,6 @@ Screen *screen_pin_create(const char *title, int setting, void (*done)(int ok, v
     p->setting = setting; p->done = done; p->user = user;
     p->row = 0; p->col = 1;
     s->name = "pin"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->text = text; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy;
     return s;
 }

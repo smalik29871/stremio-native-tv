@@ -168,6 +168,14 @@ int   ui_hero_title(const char *text, float x, float bottom, float maxw, Color c
 float ui_meta_line(const char *const *parts, int n, float x, float y, Color c);
 void  ui_row_header(int index, const char *title, const char *source, int count, float x, float y, float right, float k);
 void  ui_mark(float x, float y, float size);   /* Cuelight's mark on its tile, unchanged by themes */
+/* Touch: what can be tapped on the screen being drawn, recorded while it draws (the screen's
+ * own ids; HIT_RAIL + item for the side menu). ui_hit_find gives the last one drawn at a
+ * canvas point, of the screen on top. */
+struct Screen;
+enum { HIT_RAIL = 0x7F000000 };
+void ui_hit(float x, float y, float w, float h, int id);
+void ui_hits_begin(struct Screen *drawing);   /* app.c, before each screen draws */
+int  ui_hit_find(float x, float y, const struct Screen *top, int *id);
 
 /* A QR code made by qrcodegen, dark modules on a white rounded square. */
 void ui_qr(const uint8_t *qr, float x, float y, float size);

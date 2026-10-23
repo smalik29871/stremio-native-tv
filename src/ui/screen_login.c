@@ -187,6 +187,7 @@ static void draw_field(const Login *l, int f, const char *label, float x, float 
     int foc = l->focus == f || (l->focus == F_KEYBOARD && l->editing == f);
     font_draw(label, x + 4, y, FONT_XS | FONT_B, THEME_TEXT_MUTED);
     gfx_rrect(x, y + 32, w, 72, R_PANEL, COLOR_ALPHA(THEME_TEXT, foc ? 0x22 : 0x12));
+    ui_hit(x, y + 32, w, 72, f);
     if (l->focus == f) gfx_rrect_ring(x, y + 32, w, 72, R_PANEL, 3, THEME_TEXT);
     else if (foc) gfx_rrect_ring(x, y + 32, w, 72, R_PANEL, 2, COLOR_ALPHA(THEME_ACCENT2, 0xC0));
     const char *t = l->kb[f].text;
@@ -226,6 +227,8 @@ static void draw(Screen *s)
     ui_brand(THEME_MARGIN, 44, 58);
     float x = THEME_MARGIN;
     if (l->mode == MODE_QR) {
+        float lift = 932 - SNTV_UI_H;   /* a short screen (a phone): all of it up, the buttons still on it */
+        gfx_set_translate(0, lift > 0 ? -(lift < 100 ? lift : 100) : 0);
         float qs = 460, qx = x + 40, qy = 210;
         if (l->qr_ready) draw_qr(l, qx, qy, qs);
         else { gfx_rrect(qx, qy, qs, qs, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x12)); if (l->busy) ui_spinner(qx + qs / 2, qy + qs / 2, 30);
@@ -258,8 +261,11 @@ static void draw(Screen *s)
         }
         float by = 820;
         float w1 = ui_pill("Use e-mail and password", 1, ICON_USER, tx, by, 72, PILL_SECONDARY, l->focus == F_SWITCH);
-        ui_pill("Not now", 0, ICON_BACK, tx + w1 + 18, by, 72, PILL_SECONDARY, l->focus == F_SKIP);
+        float w2 = ui_pill("Not now", 0, ICON_BACK, tx + w1 + 18, by, 72, PILL_SECONDARY, l->focus == F_SKIP);
+        ui_hit(tx, by, w1, 72, F_SWITCH);
+        ui_hit(tx + w1 + 18, by, w2, 72, F_SKIP);
         if (l->message[0]) font_draw_wrapped(l->message, tx, by + 100, FONT_S, l->ok ? THEME_OK : THEME_TEXT_DIM, tw, 2);
+        gfx_set_translate(0, 0);
         return;
     }
     float w = keyboard_width();
@@ -269,9 +275,9 @@ static void draw(Screen *s)
     keyboard_draw(&l->kb[l->editing], x, 510, l->focus == F_KEYBOARD);
     float rx = x + w + 120;
     font_draw_wrapped("Only a session key is kept on this TV. Your password is sent once to Stremio and never stored.", rx, 262, FONT_S, THEME_TEXT_DIM, SNTV_UI_W - rx - THEME_MARGIN, 3);
-    ui_pill(l->busy ? "Signing in\xE2\x80\xA6" : "Sign in", 1, ICON_CHEVRON_RIGHT, rx, 400, 72, PILL_PRIMARY, l->focus == F_SUBMIT);
-    ui_pill("Scan a QR code instead", 1, ICON_LINK, rx, 490, 72, PILL_SECONDARY, l->focus == F_SWITCH);
-    ui_pill("Not now", 0, ICON_BACK, rx, 580, 72, PILL_SECONDARY, l->focus == F_SKIP);
+    ui_hit(rx, 400, ui_pill(l->busy ? "Signing in\xE2\x80\xA6" : "Sign in", 1, ICON_CHEVRON_RIGHT, rx, 400, 72, PILL_PRIMARY, l->focus == F_SUBMIT), 72, F_SUBMIT);
+    ui_hit(rx, 490, ui_pill("Scan a QR code instead", 1, ICON_LINK, rx, 490, 72, PILL_SECONDARY, l->focus == F_SWITCH), 72, F_SWITCH);
+    ui_hit(rx, 580, ui_pill("Not now", 0, ICON_BACK, rx, 580, 72, PILL_SECONDARY, l->focus == F_SKIP), 72, F_SKIP);
     if (l->busy) ui_spinner(rx + 300, 436, 18);
     if (l->message[0]) font_draw_wrapped(l->message, rx, 690, FONT_S, l->ok ? THEME_OK : THEME_DANGER, SNTV_UI_W - rx - THEME_MARGIN, 3);
 }
@@ -337,6 +343,17 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+/* A tapped field takes the keyboard; a key types; a button is pressed. */
+static int tap(Screen *s, int id)
+{
+    Login *l = s->st;
+    if (l->mode == MODE_PASSWORD && keyboard_tap(&l->kb[l->editing], id)) { l->focus = F_KEYBOARD; return 0; }
+    if (id == F_EMAIL || id == F_PASSWORD) { if (l->mode != MODE_PASSWORD) return 1; l->editing = id; l->focus = F_KEYBOARD; return 1; }
+    if (id != F_SUBMIT && id != F_SWITCH && id != F_SKIP) return 1;
+    l->focus = id;
+    return 0;
+}
+
 static void text(Screen *s, const char *utf8)
 {
     Login *l = s->st;
@@ -368,7 +385,7 @@ Screen *screen_login_create(void)
     l->gen = 1;
     g_active = l;
     s->name = "login"; s->st = l;
-    s->update = update; s->draw = draw; s->key = key; s->text = text; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy;
     start_link(l);
     return s;
 }

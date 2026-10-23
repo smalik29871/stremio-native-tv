@@ -197,6 +197,7 @@ static void draw(Screen *s)
         }
         if (y + ROW_H > LIST_Y - 10 && y < SNTV_UI_H) {
             int foc = c->rail_focus < 0 && c->focus == i;
+            ui_hit(LX - 16, y, w + 32, ROW_H - 12, i);
             if (foc) gfx_rrect(LX - 16, y, w + 32, ROW_H - 12, R_PANEL, THEME_FOCUS);
             else gfx_rrect(LX - 16, y, w + 32, ROW_H - 12, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0C));
             Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, dim = foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED;
@@ -245,6 +246,14 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+static int tap(Screen *s, int id)   /* an episode: the focus, and OK opens its show */
+{
+    Calendar *c = s->st;
+    if (id < 0 || id >= c->n) return 1;
+    c->rail_focus = -1; c->focus = id;
+    return 0;
+}
+
 static void resume(Screen *s) { Calendar *c = s->st; c->rail_focus = -1; app_redraw(); }
 
 static void destroy(Screen *s)
@@ -260,6 +269,6 @@ Screen *screen_calendar_create(void)
     Calendar *c = calloc(1, sizeof *c);
     c->rail_focus = -1; c->gen = 1;
     s->name = "calendar"; s->st = c;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
     return s;
 }

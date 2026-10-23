@@ -348,9 +348,10 @@ static void update(Screen *s, float dt)
 }
 
 /* a horizontal row of pills; returns nothing, scrolls so the focused one shows */
-static void draw_pills(float x, float y, float maxw, const char **labels, int n, int sel, int focused, int focus_i, float *scroll, float dt_unused)
+enum { HIT_TYPE = 0x1000, HIT_CAT = 0x2000, HIT_GENRE = 0x3000 };   /* touch: a pill by its row; a title is its index */
+
+static void draw_pills(float x, float y, float maxw, const char **labels, int n, int sel, int focused, int focus_i, float *scroll, int hit)
 {
-    (void)dt_unused;
     float px = 0, fx = 0, fw = 0;
     for (int i = 0; i < n; i++) { float w = ui_pill_width(labels[i], 0, 52); if (i == focus_i) { fx = px; fw = w; } px += w + 12; }
     float want = *scroll;   /* stays put while the focused pill is in view */
@@ -362,7 +363,7 @@ static void draw_pills(float x, float y, float maxw, const char **labels, int n,
     for (int i = 0; i < n; i++) {
         int foc = focused && i == focus_i;
         float w = ui_pill_width(labels[i], 0, 52);
-        if (px + w > x - 20 && px < x + maxw + 20) ui_pill(labels[i], 0, ICON_PLAY, px, y, 52, i == sel ? PILL_PRIMARY : PILL_GHOST, foc);
+        if (px + w > x - 20 && px < x + maxw + 20) { ui_pill(labels[i], 0, ICON_PLAY, px, y, 52, i == sel ? PILL_PRIMARY : PILL_GHOST, foc); ui_hit(px, y, w, 52, hit + i); }
         if (i == sel && !foc) gfx_rrect(px + w / 2 - 10, y + 52 + 4, 20, 3, 1.5f, THEME_ACCENT2);
         px += w + 12;
     }
@@ -387,7 +388,7 @@ static void draw(Screen *s)
     const char *tl[MAX_TYPES];
     for (int i = 0; i < e->n_types; i++) tl[i] = type_label(e->types[i]);
     float dummy = 0;
-    draw_pills(LX, 124, maxw, tl, e->n_types, e->type_i, e->zone == Z_TYPES && e->rail_focus < 0, e->type_i, &dummy, 0);
+    draw_pills(LX, 124, maxw, tl, e->n_types, e->type_i, e->zone == Z_TYPES && e->rail_focus < 0, e->type_i, &dummy, HIT_TYPE);
     /* catalogs */
     const char *cl[MAX_CATS]; char cn[MAX_CATS][96];
     for (int i = 0; i < e->n_cats; i++) {
@@ -402,7 +403,7 @@ static void draw(Screen *s)
         snprintf(mix, sizeof mix, "%s, %s and %s from your catalogs, films and series together", MOODS[e->cat_i].genres[0], MOODS[e->cat_i].genres[1], MOODS[e->cat_i].genres[2]);
         font_draw(mix, LX + 86, 280, FONT_S, THEME_TEXT_DIM);
     }
-    draw_pills(LX + 70, 196, maxw - 70, cl, e->n_cats, e->cat_i, e->zone == Z_CATS && e->rail_focus < 0, e->cat_focus, &e->cat_scroll, 0);
+    draw_pills(LX + 70, 196, maxw - 70, cl, e->n_cats, e->cat_i, e->zone == Z_CATS && e->rail_focus < 0, e->cat_focus, &e->cat_scroll, HIT_CAT);
     int required;
     const AddonExtra *g = genres(e, &required);
     if (g) {
@@ -411,7 +412,7 @@ static void draw(Screen *s)
         if (!required) gl[k++] = "All";
         for (int i = 0; i < g->options.n; i++) gl[k++] = g->options.v[i];
         font_draw("GENRE", LX, 278, FONT_XS | FONT_B, THEME_TEXT_MUTED);
-        draw_pills(LX + 86, 268, maxw - 86, gl, k, e->genre_i, e->zone == Z_GENRES && e->rail_focus < 0, e->genre_focus, &e->genre_scroll, 0);
+        draw_pills(LX + 86, 268, maxw - 86, gl, k, e->genre_i, e->zone == Z_GENRES && e->rail_focus < 0, e->genre_focus, &e->genre_scroll, HIT_GENRE);
         free(gl);
     }
     /* grid */
@@ -442,6 +443,7 @@ static void draw(Screen *s)
             char pb[512];
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&e->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : e->focus_t) : 0, e->zone == Z_GRID && !foc ? 0.25f : 0, e->items[i].name, 0);
+            ui_hit(px, py, CELL_W, CELL_H, i);
             font_draw_fit(e->items[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
             else if (e->items[i].release_info) font_draw(e->items[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
@@ -518,6 +520,23 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+/* A tapped type shows its lists; a list, a genre or a title takes the focus and OK follows. */
+static int tap(Screen *s, int id)
+{
+    Explore *e = s->st;
+    e->rail_focus = -1;
+    if (id >= HIT_TYPE && id < HIT_TYPE + e->n_types) {
+        e->zone = Z_TYPES;
+        if (id - HIT_TYPE != e->type_i) { e->type_i = id - HIT_TYPE; e->cat_i = e->cat_focus = 0; build_cats(e); reset_items(e); }
+        return 1;
+    }
+    if (id >= HIT_CAT && id < HIT_CAT + e->n_cats) { e->zone = Z_CATS; e->cat_focus = id - HIT_CAT; return 0; }
+    if (id >= HIT_GENRE && id < HIT_GENRE + n_genre_choices(e)) { e->zone = Z_GENRES; e->genre_focus = id - HIT_GENRE; return 0; }
+    if (id < 0 || id >= e->n) return 1;
+    if (e->zone != Z_GRID || e->focus != id) { e->zone = Z_GRID; e->focus = id; e->focus_t = 0; }
+    return 0;
+}
+
 static void resume(Screen *s) { Explore *e = s->st; e->rail_focus = -1; app_redraw(); }   /* back from a rail target: the content */
 
 static void destroy(Screen *s)
@@ -540,6 +559,6 @@ Screen *screen_explore_create(void)
     e->gen = g_next_gen++;
     for (int i = 0; i < MAX_LIVE; i++) if (!g_live[i]) { g_live[i] = e; break; }
     s->name = "explore"; s->st = e; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
     return s;
 }

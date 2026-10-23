@@ -104,6 +104,7 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
             float kx = x + c * (KEY_W + GAP), ky = y + r * (KEY_H + GAP);
             int sel = focused && kb->row == r && kb->col == c;
             char ch[2] = { row[c], 0 };
+            ui_hit(kx, ky, KEY_W, KEY_H, KB_HIT | r << 8 | c);
             if (kb->shift && ch[0] >= 'a' && ch[0] <= 'z') ch[0] = (char)(ch[0] - 32);
             if (aperture) {
                 if (sel) { gfx_rrect_ring(kx + 4, ky + 2, KEY_W - 8, KEY_H - 4, 3, 2, THEME_TEXT); gfx_rect(kx + 8, ky + KEY_H - 4, KEY_W - 16, 3, THEME_ACCENT); }
@@ -118,9 +119,10 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
         }
     }
     float kx = x, ky = y + 4 * (KEY_H + GAP);
-    for (int a = 0; a < ACT_COUNT; a++) {
+    for (int a = 0, col = 0; a < ACT_COUNT; col += span_of(kb)[a], a++) {
         if (!span_of(kb)[a]) continue;
         float w = span_of(kb)[a] * (KEY_W + GAP) - GAP;
+        ui_hit(kx, ky, w, KEY_H, KB_HIT | 4 << 8 | col);
         int sel = focused && kb->row == 4 && action_at(kb, kb->col) == a;
         const char *label = kb->compact && a == ACT_SYM ? (kb->symbols ? "abc" : "123") : ACT_LABEL[a];
         int lit = (a == ACT_SHIFT && kb->shift) || (a == ACT_SYM && kb->symbols);
@@ -140,4 +142,12 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
         font_draw(label, kx + (w - tw) / 2, ky + (KEY_H - font_height(fs)) / 2, fs, sel ? THEME_ON_FOCUS : a == ACT_DONE ? THEME_ON_ACCENT : THEME_TEXT);
         kx += w + GAP;
     }
+}
+
+int keyboard_tap(Keyboard *kb, int id)
+{
+    if ((id & ~0xFFFF) != KB_HIT || (id >> 8 & 0xFF) >= ROWS || (id & 0xFF) >= cols_of(kb)) return 0;
+    kb->row = id >> 8 & 0xFF;
+    kb->col = id & 0xFF;
+    return 1;
 }

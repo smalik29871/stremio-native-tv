@@ -69,6 +69,8 @@ static const char *const SEC_NAMES[SEC_COUNT] = { "Sync", "Streaming", "Episodes
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
+enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000 };   /* touch targets besides the rows (their index) */
+static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define SEC_H 70.0f
 /* Choosing a category the rows start at COL_X0; inside one the category list shrinks
  * to its icons, the rows move left to COL_X1..COL_R1 and a preview panel takes the
@@ -396,7 +398,7 @@ static void cycle_lang(char *code, size_t n, int dir)
 
 typedef enum { KIND_ACTION, KIND_TOGGLE, KIND_CHOICE, KIND_MOVABLE } RowKind;
 
-static float s_x = COL_X0, s_r = SNTV_UI_W - THEME_MARGIN;   /* the rows' left and right edges this frame */
+static float s_x = COL_X0, s_r = SNTV_UI_BASE_W - THEME_MARGIN;   /* the rows' left and right edges this frame */
 static const char *s_desc;   /* help line of the row being drawn (set per row in draw) */
 static int s_steps, s_step;  /* a scale: how many steps, and where the value is (a slider under it) */
 
@@ -492,6 +494,7 @@ static void draw_row_body(float y, Icon icon, const char *title, const char *val
         float vw = font_measure(value, FONT_S | FONT_B);
         font_draw(value, rx - 36 - vw, vy, FONT_S | FONT_B, fg);
         ui_icon(ICON_CHEVRON_LEFT, rx - 60 - vw, vy + th / 2, 22, dim);
+        ui_hit(rx - 100 - vw, y, 80, h, HIT_LEFT + s_hit_row);   /* the rest of the row steps forward */
         return;
     }
     if (s_chevron) ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 22, dim);
@@ -560,16 +563,20 @@ static void draw_categories(const Settings *st, float e)
         float fx = THEME_MARGIN, fh = 50, fw = COL_X0 - THEME_MARGIN - 70, fy = ROWS_TOP - fh - 16;
         int foc = st->zone == 0 && st->search_foc;
         gfx_set_alpha(1 - e);
+        ui_hit(fx, fy, fw, fh, HIT_FIND);
         if (foc) { ui_focus_under(fx, fy, fw, fh, theme_pill_r(fh), 1); gfx_rrect(fx, fy, fw, fh, theme_pill_r(fh), THEME_FOCUS); }
         else { gfx_rrect(fx, fy, fw, fh, theme_pill_r(fh), COLOR_ALPHA(THEME_TEXT, 0x10)); gfx_rrect_ring(fx, fy, fw, fh, theme_pill_r(fh), 1, THEME_LINE); }
         ui_icon(ICON_SEARCH, fx + 36, fy + fh / 2, 22, foc ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
         font_draw(t, fx + 70, fy + (fh - font_height(FONT_S)) / 2, FONT_S, foc ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
         gfx_set_alpha(1);
     }
+    float step = (SNTV_UI_H - ROWS_TOP - 24) / CAT_COUNT;   /* closer together on a short screen (a phone) */
+    if (step > 76) step = 76;
     for (int i = 0; i < CAT_COUNT; i++) {
-        float y = ROWS_TOP + i * 76, h = 64, w = (COL_X0 - THEME_MARGIN - 70) * (1 - e) + 72 * e;
+        float y = ROWS_TOP + i * step, h = step - 12, w = (COL_X0 - THEME_MARGIN - 70) * (1 - e) + 72 * e;
         int foc = st->zone == 0 && st->cat == i && !st->search_foc, act = st->cat == i;
         int ap = g_theme.id == THEME_APERTURE;
+        ui_hit(THEME_MARGIN, y, w, h, HIT_CAT + i);
         if (ap) {
             if (act) gfx_rect(THEME_MARGIN - 16, y + 10, 4, h - 20, THEME_ACCENT);
             if (foc) gfx_rrect_ring(THEME_MARGIN, y, w, h, 3, 2, THEME_TEXT);
@@ -748,6 +755,8 @@ static void draw(Screen *s)
         int id = ids[i];
         char v[300];
         if (IS_SEC(id)) { draw_section(y, SEC_NAMES[id - IT_SEC_BASE]); continue; }
+        ui_hit(s_x, y, s_r - s_x, ROW_H - 12, i);
+        s_hit_row = i;
         s_desc = row_desc(id);
         s_steps = scale_of(id, &s_step);
         s_chevron = !(id >= IT_ADDON_BASE && id < IT_ACCT_BASE);
@@ -1543,6 +1552,30 @@ static void on_account_choice(int c, void *user)
 static void after_pin_clear(int ok, void *user) { (void)user; if (ok) { app_set_parental_pin(NULL); app_toast("PIN removed"); } }
 static void after_pin_toggle(int ok, void *user) { if (!ok) return; int *flag = user; *flag = !*flag; app_save_prefs(); }
 
+/* Touch: a category opens its rows; a row takes the focus and OK follows. */
+static int tap(Screen *s, int id)
+{
+    Settings *st = s->st;
+    if (st->edit == EDIT_BACKUP) return 1;
+    if (st->edit != EDIT_NONE) return keyboard_tap(&st->kb, id) ? 0 : 1;
+    if (id == HIT_FIND) { st->zone = 0; st->search_foc = 1; return 0; }
+    if (id >= HIT_CAT && id < HIT_CAT + CAT_COUNT) {
+        if (st->zone == 1) st->cat_focus[st->cat] = st->focus;
+        st->zone = 0; st->search_foc = 0;
+        if (st->cat != id - HIT_CAT) { st->cat = id - HIT_CAT; st->focus = 0; st->scroll = 0; }
+        return 0;   /* OK: into its rows */
+    }
+    int ids[MAX_ROWS + 8];
+    int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
+    int back = id >= HIT_LEFT && id < HIT_LEFT + n;   /* a choice's < */
+    if (back) id -= HIT_LEFT;
+    if (id < 0 || id >= n || IS_SEC(ids[id])) return 1;
+    if (st->zone != 1 || st->focus != id) st->confirm_remove = -1;
+    st->zone = 1; st->search_foc = 0; st->focus = id;
+    if (back) { adjust(st, ids[id], -1); return 1; }
+    return 0;
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Settings *st = s->st;
@@ -1669,6 +1702,6 @@ Screen *screen_settings_create(void)
     st->confirm_remove = -1;
     st->rows_seen = -1;
     s->name = "settings"; s->st = st;
-    s->update = update; s->draw = draw; s->key = key; s->text = text; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy;
     return s;
 }

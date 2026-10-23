@@ -21,6 +21,10 @@ typedef struct Screen {
     void (*resume)(struct Screen *s);                  /* becomes top again */
     void (*destroy)(struct Screen *s);
     int long_ok;   /* OK acts on release here, and holding it sends KEY_LONG_OK (0 from key() = treat as OK) */
+    /* Touch: a tap landed on what the screen drew with ui_hit(..., id). Move the focus there
+     * and return 0 for OK to follow (as if the remote had moved there and pressed it), or
+     * 1 when the tap did everything itself. Screens without it get OK on their focus. */
+    int  (*tap)(struct Screen *s, int id);
 } Screen;
 
 typedef enum { FX_AUTO = 0, FX_FULL = 1, FX_LIGHT = 2 } FxLevel;

@@ -27,6 +27,7 @@ static void update(Screen *s, float dt)
     if (o->t > 1 + o->n * 0.08f) o->t = 1 + o->n * 0.08f; else app_redraw();
 }
 
+enum { HIT_OUTSIDE = -1, HIT_PANEL = -2 };   /* touch: beside the sheet, on it; a choice is its index */
 static float ease_out(float t) { t = t < 0 ? 0 : t > 1 ? 1 : t; return 1 - (1 - t) * (1 - t) * (1 - t); }
 
 static void draw(Screen *s)
@@ -34,8 +35,9 @@ static void draw(Screen *s)
     Opt *o = s->st;
     float k = g_app.fx_light ? 1 : ease_out(o->t);
     Screen *below = g_app.depth >= 2 ? g_app.stack[g_app.depth - 2] : NULL;
-    if (below && below->draw) below->draw(below); else ui_background(0);
+    if (below && below->draw) { ui_hits_begin(below); below->draw(below); ui_hits_begin(s); } else ui_background(0);   /* what is below is not this sheet's to tap */
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(140 * k)));
+    ui_hit(0, 0, SNTV_UI_W, SNTV_UI_H, HIT_OUTSIDE);
 
     float w = 760, pad = 40, item_h = 74;
     int body_lines = o->body ? font_draw_wrapped(o->body, 0, 0, FONT_S, 0, w - 2 * pad, 12) : 0;
@@ -46,6 +48,7 @@ static void draw(Screen *s)
     gfx_set_alpha(k);
     if (!g_app.fx_light) gfx_shadow(x, y + 16, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0x90));
     ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
+    ui_hit(x, y, w, h, HIT_PANEL);
     if (g_theme.focus_style == FOCUS_FRAME) gfx_rect(x, y, 6, h, THEME_ACCENT);
     else if (g_theme.focus_style == FOCUS_LIGHTBAR) gfx_rect(x + R_PANEL, y, w - 2 * R_PANEL, 3, THEME_ACCENT);
     else gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, THEME_LINE);
@@ -58,6 +61,7 @@ static void draw(Screen *s)
         if (ik <= 0) continue;
         int foc = i == o->focus;
         float ix = x + 24 + (1 - ik) * 40, iw = w - 48;
+        ui_hit(ix, ry, iw, item_h - 10, i);
         gfx_set_alpha(k * ik);
         if (foc) { ui_focus_under(ix, ry, iw, item_h - 10, R_KEY, 1); gfx_rrect(ix, ry, iw, item_h - 10, R_KEY, THEME_FOCUS); }
         Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT;
@@ -86,6 +90,16 @@ static int key(Screen *s, KeyAction a)
     }
 }
 
+/* A tapped choice is taken; a tap beside the sheet closes it. */
+static int tap(Screen *s, int id)
+{
+    Opt *o = s->st;
+    if (id == HIT_OUTSIDE) { app_pop(); return 1; }
+    if (id < 0 || id >= o->n) return 1;
+    o->focus = id;
+    return 0;
+}
+
 static void destroy(Screen *s) { Opt *o = s->st; free(o->body); free(o); free(s); }
 
 Screen *screen_options_create_ex(const char *title, const char *subtitle, const char *body,
@@ -100,7 +114,7 @@ Screen *screen_options_create_ex(const char *title, const char *subtitle, const 
     o->fn = fn; o->user = user;
     o->opened_at = g_app.time;
     s->name = "options"; s->st = o;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy;
     return s;
 }
 

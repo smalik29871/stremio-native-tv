@@ -32,6 +32,7 @@
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
 enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
+#define HIT(area, i) ((area) << 12 | (i))   /* touch: what is where, by area and place in it */
 #define EP_W (g_theme.id == THEME_APERTURE ? 456.0f : 384.0f)
 #define EP_H (g_theme.id == THEME_APERTURE ? 256.0f : 216.0f)
 #define EP_GAP 28.0f
@@ -724,6 +725,7 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
     float fw = facts_width(), fy = L.facts, pad = FACTS_PAD, FH = d->facts_h;
     ui_panel(x, fy, fw, FH, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xD0));
     if (d->area == AREA_ABOUT) gfx_rrect_ring(x, fy, fw, FH, R_PANEL, 3, THEME_FOCUS);
+    ui_hit(x, fy, fw, FH, HIT(AREA_ABOUT, 0));
     float py = fy + 30, pw = fw - 2 * pad;
     if (d->preview.description && *d->preview.description)
         py += font_draw_wrapped(d->preview.description, x + pad, py, FONT_S, THEME_TEXT, pw, 3) * font_height(FONT_S) + 24;
@@ -800,6 +802,7 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
                 cast_at(d, tm, i, &name, &role, &photo);
                 float sc = ui_focus_scale(foc ? f : 0), r = r0 * sc, ccx = ix + r0 + 4, ccy = rowy + r0;
                 if (foc) gfx_rrect_ring(ccx - r, ccy - r, 2 * r, 2 * r, r, 4, THEME_FOCUS);
+                ui_hit(ix, rowy, CAST_STEP, CAST_D + 70, HIT(AREA_CAST, i));
                 ui_portrait(photo, name, ccx - r, ccy - r, 2 * r, 2 * r, r, FONT_L | FONT_B);
                 float ty = rowy + CAST_D + 16;
                 draw_center_fit(name, ccx, ty, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CAST_STEP - 14);
@@ -821,6 +824,7 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
                 if ((pass == 1) != foc) continue;
                 const TmdbPart *pt = &fc->parts[i];
                 ui_card(pt->poster[0] ? pt->poster : NULL, ix, rowy, SIM_W, SIM_H, foc ? f : 0, 0, pt->title, 0);
+                ui_hit(ix, rowy, SIM_W, SIM_H, HIT(AREA_FRANCHISE, i));
                 char lbl[32];
                 snprintf(lbl, sizeof lbl, "%d%s%s", i + 1, pt->year[0] ? "  \xC2\xB7  " : "", pt->year);
                 font_draw(lbl, ix, rowy + SIM_H + 14, FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_MUTED);
@@ -842,6 +846,7 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
                 char pb[512];
                 const char *poster = app_art_poster(&d->similar[i], pb, sizeof pb);
                 ui_card(poster, ix, rowy, SIM_W, SIM_H, foc ? f : 0, 0, d->similar[i].name, 0);
+                ui_hit(ix, rowy, SIM_W, SIM_H, HIT(AREA_SIMILAR, i));
             }
     }
 }
@@ -887,6 +892,7 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
         int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel;
         float w = font_measure(lbl, FONT_S | FONT_B) + 44;
         if (sx + w > SNTV_UI_W - THEME_MARGIN) { ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 10, sy + 26, 22, THEME_TEXT_MUTED); break; }
+        ui_hit(sx, sy, g_theme.id == THEME_APERTURE ? font_measure(lbl, FONT_M) : w, 52, HIT(AREA_SEASONS, i));
         if (g_theme.id == THEME_APERTURE) {
             float tw = font_measure(lbl, FONT_M);
             font_draw(lbl, sx, sy + (52 - font_height(FONT_M)) / 2, FONT_M, sel ? THEME_TEXT : THEME_TEXT_MUTED);
@@ -920,6 +926,7 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
             int bc = before_current(d, kk, li);   /* -1: nothing watched of it yet */
             int blur = g_app.spoiler_blur && !watched && !is_cur && (bc == 0 || (bc < 0 && kk > 0));   /* what lies ahead, in any season */
             ui_card(v->thumbnail, px, RAIL_Y, EP_W, EP_H, f, d->area == AREA_EPISODES ? 0 : 0.3f, NULL, (blur ? CARD_BLUR : CARD_MIP) | CARD_TRUE_COLOUR);
+            ui_hit(px, RAIL_Y, EP_W, EP_H, HIT(AREA_EPISODES, kk));
             float sc = ui_focus_scale(f), w2 = EP_W * sc, h2 = EP_H * sc, x2 = px - (w2 - EP_W) / 2, y2 = RAIL_Y - (h2 - EP_H) / 2;
             if (!v->thumbnail) { char n[16]; snprintf(n, sizeof n, "%d", v->episode >= 0 ? v->episode : kk + 1);
                 font_draw_center(n, x2 + w2 / 2, y2 + h2 / 2 - 40, FONT_TITLE | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x40)); }
@@ -1069,29 +1076,38 @@ static void draw(Screen *s)
     if (series && by > 520) by = 520;
     if (g_theme.id == THEME_APERTURE) {
         int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
-        float bx = x + ui_aperture_button(!series && !strcmp(play_label, "Play") ? "Watch film" : play_label, plays ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 1, cur == BTN_PLAY) + 48;
+        int pos = 0;
+        float w0 = ui_aperture_button(!series && !strcmp(play_label, "Play") ? "Watch film" : play_label, plays ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 1, cur == BTN_PLAY);
+        ui_hit(x, by, w0, 64, HIT(AREA_ACTIONS, pos++));
+        float bx = x + w0 + 48, bw;
         if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x, by + 76, 200, 3, (float)d->resume_frac, THEME_ACCENT);
-        if (d->resume_label[0]) bx += ui_aperture_button("From the start", ICON_PREV, bx, by, 0, cur == BTN_RESTART) + 44;
-        if (other_sources(d)) bx += ui_aperture_button("Other sources", ICON_SWAP, bx, by, 0, cur == BTN_SOURCES) + 44;
+        if (d->resume_label[0]) { bw = ui_aperture_button("From the start", ICON_PREV, bx, by, 0, cur == BTN_RESTART); ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44; }
+        if (other_sources(d)) { bw = ui_aperture_button("Other sources", ICON_SWAP, bx, by, 0, cur == BTN_SOURCES); ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44; }
         if (has_trailer(d)) {
             int getting = g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
-            bx += ui_aperture_button(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", ICON_TV, bx, by, 0, cur == BTN_TRAILER) + 44;
+            bw = ui_aperture_button(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", ICON_TV, bx, by, 0, cur == BTN_TRAILER);
+            ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44;
         }
-        ui_aperture_button(in_lib ? "In your library" : "Add to library", in_lib ? ICON_CHECK : ICON_PLUS, bx, by, 0, cur == BTN_LIBRARY);
+        bw = ui_aperture_button(in_lib ? "In your library" : "Add to library", in_lib ? ICON_CHECK : ICON_PLUS, bx, by, 0, cur == BTN_LIBRARY);
+        ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos));
         if (!series) draw_aperture_cast(d, tm, x, by + 130);
     } else {
     float bw = ui_pill(play_label, 1, plays ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 72, PILL_PRIMARY,
                        d->area == AREA_ACTIONS && d->btn == 0);
+    int pos = 0;
+    ui_hit(x, by, bw, 72, HIT(AREA_ACTIONS, pos++));
     if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x + 36, by + 82, bw - 72, 5, (float)d->resume_frac, THEME_ACCENT);
     float bx2 = x + bw + 18;
     int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
-    if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
-    if (other_sources(d)) bx2 += ui_pill("Other sources", 1, ICON_SWAP, bx2, by, 72, PILL_SECONDARY, cur == BTN_SOURCES) + 18;
+    if (d->resume_label[0]) { bw = ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART); ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18; }
+    if (other_sources(d)) { bw = ui_pill("Other sources", 1, ICON_SWAP, bx2, by, 72, PILL_SECONDARY, cur == BTN_SOURCES); ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18; }
     if (has_trailer(d)) {
         int getting = g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
-        bx2 += ui_pill(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", 1, ICON_TV, bx2, by, 72, PILL_SECONDARY, cur == BTN_TRAILER) + 18;
+        bw = ui_pill(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", 1, ICON_TV, bx2, by, 72, PILL_SECONDARY, cur == BTN_TRAILER);
+        ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18;
     }
-    ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
+    bw = ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
+    ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos));
     }
     if (series) draw_series(d, li, x);
     if (d->has_meta && d->scroll < 160 && !(series && g_theme.id == THEME_APERTURE)) {   /* the way down to About; gone once the page moves (Aperture's episodes reach the bottom) */
@@ -1404,6 +1420,27 @@ static int about_key(Detail *d, KeyAction a)
     }
 }
 
+/* A tap takes the focus there; OK follows (a season is chosen at once). */
+static int tap(Screen *s, int id)
+{
+    Detail *d = s->st;
+    if (d->ask_open) return 0;
+    int area = id >> 12, i = id & 0xFFF;
+    switch (area) {
+    case AREA_ACTIONS: if (i >= n_buttons_d(d)) return 1; d->btn = i; break;
+    case AREA_SEASONS: d->area = AREA_SEASONS; if (i < d->n_seasons && i != d->season_idx) select_season(d, i); return 1;
+    case AREA_EPISODES: if (i >= d->n_eps) return 1; if (d->area != AREA_EPISODES || d->ep_focus != i) focus_ep(d, i); break;
+    case AREA_ABOUT: break;
+    case AREA_CAST: d->cast_focus = i; break;
+    case AREA_FRANCHISE: d->fr_focus = i; break;
+    case AREA_SIMILAR: if (i >= d->n_similar) return 1; d->sim_focus = i; break;
+    default: return 1;
+    }
+    if (d->area != area) d->focus_t = 0;
+    d->area = area;
+    return 0;
+}
+
 static void resume(Screen *s)
 {
     Detail *d = s->st;
@@ -1448,7 +1485,7 @@ Screen *screen_detail_create(const MetaPreview *p)
     meta_preview_copy(&d->preview, p);
     d->focus_t = 1;
     s->name = "detail"; s->st = d; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
     fetch_meta(d);
     load_resume(d);
     return s;
