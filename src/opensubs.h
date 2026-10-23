@@ -1,6 +1,6 @@
 /* OpenSubtitles.com, built in: searched by IMDb id (and the episode) plus the file's
  * hash, with release names, so the player can tell which subtitle was made for the
- * same release. Needs an API key (built in from a CI secret, or Settings > API keys);
+ * same release. Needs an API key (built in from a CI secret, or Settings > Accounts);
  * a free account raises the daily download allowance. SNTV_OPENSUBS_API overrides
  * the base URL (tests). */
 #ifndef SNTV_OPENSUBS_H

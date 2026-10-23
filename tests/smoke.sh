@@ -579,8 +579,8 @@ if grep -q "^SNTV_FFMPEG_PREFIX:PATH=." "$BUILD/CMakeCache.txt" 2>/dev/null; the
   [ "$(grep -c "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_fast.log")" -ge 2 ] && ! grep -q "frame?t=.* -> HTTP 503" "$OUT/player_seek_fast.log" \
     || { echo "fast seeking starved the previews"; grep -E "frames|frame\?t" "$OUT/player_seek_fast.log" | head; exit 1; }
 else echo "skip: seek previews decoded on the TV (build FFmpeg: tools/ffmpeg.sh)"; fi
-run settings_parental 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right"
-run pin_pad 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,right,ok,ok,right,ok"
+run settings_parental 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
+run pin_pad 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok,ok,right,ok"
 run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"parentalPin":"1234","pinSettings":1}')"
 run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_with accts '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"accounts":[{"email":"other@example.com","key":"k"}]}')"
 TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
@@ -588,7 +588,7 @@ run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_AP
 run player_paused_tmdb 320 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 run detail_franchise 420 "right,right,ok,down,down,down,right,ok" HOME="$(home_with tmdb3 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 grep -q 'detail: franchise -> tt1002' "$OUT/detail_franchise.log" || { echo "the franchise row did not open the next film"; grep -E "detail|tmdb" "$OUT/detail_franchise.log"; exit 1; }
-run settings_keys 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
+run settings_keys 340 "left,down,down,down,down,down,ok,right"
 run settings_rules 380 "left,down,down,down,down,down,ok,up,ok,t:largest,down,down,down,down,left,ok,right" HOME="$(home_with rules '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"CAM, 3D"}')"
 run streams_rules 240 "right,ok,down,down,play" HOME="$(home_with rules2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"web-dl","preflight":0}')"
 # a YouTube stream from an addon (YouTubio, trailer addons) plays here, streamed as Nuvio does
@@ -734,7 +734,7 @@ run break_media_length 230 "right,ok,down,down,play,wait" HOME="$(home_with bml 
 run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 # the found country picks its own authority's prayer times (Saudi Arabia: Umm al-Qura)
 grep -q "breaks: prayer times by Umm al-Qura" "$OUT/break_settings.log" || { echo "the location did not pick the local prayer time method"; grep breaks "$OUT/break_settings.log"; exit 1; }
-run settings_phone 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,ok" SNTV_PHONE_HOST=192.168.1.20
+run settings_phone 400 "left,down,down,down,down,down,ok,right,down,down,down,down,down,down,ok" SNTV_PHONE_HOST=192.168.1.20
 run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run player_autosync 520 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200 HOME="$(home_with subsync '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Auto-sync Off" "$OUT/player_autosync.log" || { echo "auto-sync was not switched in the sheet"; grep -E "subtitles" "$OUT/player_autosync.log"; exit 1; }
@@ -791,7 +791,7 @@ grep -q "search: the assistant's filters: movies, language hi, country IN, 1 gen
   || { echo "the assistant's filters did not bring TMDB's titles"; grep -E "search|tmdb" "$OUT/search_ai_filters.log"; exit 1; }
 run player_translate 600 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,up,up,up,up,down,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 grep -q "player: subtitles sheet: AI translation in Fran" "$OUT/player_translate.log" || { echo "the AI translation was not offered under its language"; grep -E "subtitles" "$OUT/player_translate.log"; exit 1; }
-run settings_ai 340 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right,down" HOME="$(home_with ai4 "$AI")"
+run settings_ai 340 "left,down,down,down,down,down,ok,right,down,down,down,down,down,down,down,down" HOME="$(home_with ai4 "$AI")"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)

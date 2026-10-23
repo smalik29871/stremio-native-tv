@@ -112,7 +112,7 @@ typedef struct App {
     int pin_settings;          /* ask for the PIN before Settings */
     int ask_profile;           /* "Who's watching?" at start when several accounts are saved */
     int hide_adult;            /* catalogs of addons flagged adult are skipped */
-    char *tmdb_key;            /* Settings > API keys: cast photos and age ratings */
+    char *tmdb_key;            /* Settings > Accounts: cast photos and age ratings */
     int   ai_provider;         /* AI_* in ai.h */
     char *ai_key, *ai_base, *ai_model;
     int memory_mode;           /* 0 automatic, 1 low, 2 normal */

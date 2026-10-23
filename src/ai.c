@@ -124,7 +124,7 @@ static void on_models(HttpResponse *r, void *user)
             send_req(q);
         } else {
             req_unlink(q);
-            if (q->cb) q->cb(NULL, "The AI model is not available: choose one in Settings > API keys > AI model", q->user);
+            if (q->cb) q->cb(NULL, "The AI model is not available: choose one in Settings > Accounts > AI model", q->user);
             req_free(q);
         }
     } else if (l->cb) {
@@ -195,7 +195,7 @@ static void on_reply(HttpResponse *r, void *user)
             return;
         }
         if (r->status == 429) err = "The AI service is busy (rate limit): try again in a minute";
-        else if (r->status == 401 || r->status == 403) err = "The AI key was refused: check Settings > API keys";
+        else if (r->status == 401 || r->status == 403) err = "The AI key was refused: check Settings > Accounts";
         else { snprintf(errbuf, sizeof errbuf, "AI error %ld%s%.100s", r->status, cJSON_IsString(m) ? ": " : "", cJSON_IsString(m) ? m->valuestring : ""); err = errbuf; }
     } else {
         snprintf(errbuf, sizeof errbuf, "Could not reach the AI service%s%.100s", r->error[0] ? ": " : "", r->error);

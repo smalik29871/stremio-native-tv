@@ -131,7 +131,7 @@ static void ask(Job *j)
 
 void torbox_list_videos(TorboxListCb cb, void *user)
 {
-    if (!torbox_enabled()) { cb(NULL, 0, "Add your TorBox API key first (Settings > API keys)", user); return; }
+    if (!torbox_enabled()) { cb(NULL, 0, "Add your TorBox API key first (Settings > Accounts)", user); return; }
     Job *j = calloc(1, sizeof *j);
     j->cb = cb; j->user = user;
     ask(j);

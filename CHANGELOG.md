@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Settings > Accounts**: every account and key in one place, grouped by what it does
+  (Sync: Stremio, Trakt, SimKL; Streaming: TorBox, the streaming server; Subtitles:
+  OpenSubtitles; Artwork and ratings: TMDB, MDBList; the AI assistant), each saying whether
+  it is connected. It replaces Account and API keys; OpenSubtitles moved here from Audio &
+  subtitles.
+
 ## 0.10.59
 
 - **Cuelight no longer needs Stremio's servers.** A built-in catalog (films and series from

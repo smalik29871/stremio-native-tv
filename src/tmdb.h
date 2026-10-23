@@ -1,4 +1,4 @@
-/* The Movie Database, when the viewer adds their own key (Settings > API keys):
+/* The Movie Database, when the viewer adds their own key (Settings > Accounts):
  * cast photos and age ratings for a title, looked up by IMDb id. Everything is
  * cached on disk; nothing is asked without a key. */
 #ifndef SNTV_TMDB_H
@@ -24,7 +24,7 @@ typedef struct TmdbCollection { int id, state; char name[96]; TmdbPart parts[16]
 
 int  tmdb_enabled(void);
 int  tmdb_builtin(void);       /* a key was compiled in (CI secret) */
-/* The viewer's key (Settings > API keys), replacing the one in use; NULL or "" removes it. */
+/* The viewer's key (Settings > Accounts), replacing the one in use; NULL or "" removes it. */
 void tmdb_key_set(const char *key);
 /* The key in use copied out, for network threads (0: none). */
 int  tmdb_key_copy(char *buf, size_t n);

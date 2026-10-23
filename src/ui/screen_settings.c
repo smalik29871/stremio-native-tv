@@ -38,10 +38,10 @@
 #define TV_KB_DEFAULT 0
 #endif
 
-enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_BREAKS, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_KEYS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
-static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Take breaks", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "API keys", "Parental", "About" };
+enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_BREAKS, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
+static const char *const CAT_NAMES[CAT_COUNT] = { "Accounts", "Playback", "Take breaks", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "Parental", "About" };
 static const char *const CAT_DESC[CAT_COUNT] = {
-    "Optional sync with a Stremio account, and the streaming server for torrents.",
+    "Every account and key in one place: sync, streaming, subtitles, artwork, AI.",
     "What happens while a video plays.",
     "Pause for what matters: prayer times computed for your place, a stretch, bedtime, or your own times. A banner warns first; playback continues by itself.",
     "Preferred languages and how subtitles look.",
@@ -49,10 +49,9 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "The look of the app.",
     "Which rows Home shows, and in what order. OK shows or hides a row, Left/Right moves it.",
     "Installed addons, in the order they answer. Left/Right moves an addon; the order is kept in your account.",
-    "Your own keys for services that need one. Each unlocks a feature; nothing is asked without a key.",
     "A PIN that keeps Settings closed and adult addons out of the catalogs.",
     "What " SNTV_APP_NAME " is, what is new, updates, logs and setup." };
-static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_PALETTE, ICON_LIST, ICON_LIBRARY, ICON_KEY, ICON_LOCK, ICON_INFO };
+static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_PALETTE, ICON_LIST, ICON_LIBRARY, ICON_LOCK, ICON_INFO };
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_SUBS_COLOUR,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
@@ -62,10 +61,10 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
-       SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_COUNT };
-static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio sync", "Torrents", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
+       SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_SUBS_ACCT, SEC_COUNT };
+static const char *const SEC_NAMES[SEC_COUNT] = { "Sync", "Streaming", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
-    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME };
+    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME, "Subtitles" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
@@ -103,13 +102,18 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     int n = 0;
 #define SEC(k) (ids[n++] = IT_SEC_BASE + (k))
     switch (cat) {
-    case CAT_ACCOUNT:
+    case CAT_ACCOUNT:   /* every account and key, grouped by what it does */
         SEC(SEC_STREMIO);
         ids[n++] = IT_ACCOUNT;
         st->n_accounts = app_saved_accounts(st->accounts, 8);
         for (int i = 0; i < st->n_accounts && n < max - 3; i++) ids[n++] = IT_ACCT_BASE + i;
         if (st->n_accounts && g_app.auth_key) ids[n++] = IT_ASK_PROFILE;
-        SEC(SEC_SERVER); ids[n++] = IT_SERVER;
+        ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
+        SEC(SEC_SERVER); ids[n++] = IT_TORBOX; if (torbox_enabled()) ids[n++] = IT_TORBOX_FILES; ids[n++] = IT_SERVER;
+        SEC(SEC_SUBS_ACCT); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN;
+        SEC(SEC_META); ids[n++] = IT_TMDB; ids[n++] = IT_MDBLIST;
+        SEC(SEC_AI); ids[n++] = IT_AI_PROVIDER;
+        if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
         break;
     case CAT_PLAYBACK:
         SEC(SEC_EPISODES); ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP;
@@ -119,7 +123,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_LANG:
         SEC(SEC_LANGS); ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN;
         SEC(SEC_SUBS_LOOK); ids[n++] = IT_SUBS_SIZE; ids[n++] = IT_SUBS_STYLE; ids[n++] = IT_SUBS_COLOUR;
-        SEC(SEC_SUBS_SMART); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN; ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL; ids[n++] = IT_SUBS_FILES;
+        SEC(SEC_SUBS_SMART); ids[n++] = IT_SUBS_SYNC; if (ai_enabled()) ids[n++] = IT_SUBS_XL; ids[n++] = IT_SUBS_FILES;
         break;
     case CAT_SOURCES:
         SEC(SEC_RANKING); ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO;
@@ -132,11 +136,6 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
         SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
-        break;
-    case CAT_KEYS:
-        SEC(SEC_META); ids[n++] = IT_TMDB; ids[n++] = IT_MDBLIST; ids[n++] = IT_TORBOX; if (torbox_enabled()) ids[n++] = IT_TORBOX_FILES; ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
-        SEC(SEC_AI); ids[n++] = IT_AI_PROVIDER;
-        if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
         break;
     case CAT_BREAKS:
         SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
@@ -814,9 +813,9 @@ static void draw(Screen *s)
         case IT_PIN_SETTINGS: draw_row(y, ICON_SETTINGS, "Ask for the PIN to open Settings", NULL, foc, KIND_TOGGLE, g_app.pin_settings); break;
         case IT_HIDE_ADULT: draw_row(y, ICON_EYE, "Hide catalogs of addons flagged adult", NULL, foc, KIND_TOGGLE, g_app.hide_adult); break;
         case IT_TMDB: {
-            char masked[96] = "Not set  \xC2\xB7  cast photos, age ratings (PG-13, TV-MA)";
-            if (tmdb_builtin()) snprintf(masked, sizeof masked, "Built-in key in use  \xC2\xB7  yours replaces it");
-            if (g_app.tmdb_key) snprintf(masked, sizeof masked, "%.4s\xE2\x80\xA6%s  \xC2\xB7  cast photos, age ratings on", g_app.tmdb_key, strlen(g_app.tmdb_key) > 4 ? g_app.tmdb_key + strlen(g_app.tmdb_key) - 4 : "");
+            char masked[96] = "Not set  \xC2\xB7  OK to add a key for the built-in catalog";
+            if (tmdb_builtin()) snprintf(masked, sizeof masked, "Built-in key in use  \xC2\xB7  catalog, cast and ratings on");
+            if (g_app.tmdb_key) snprintf(masked, sizeof masked, "Your key %.4s\xE2\x80\xA6%s  \xC2\xB7  catalog, cast and ratings on", g_app.tmdb_key, strlen(g_app.tmdb_key) > 4 ? g_app.tmdb_key + strlen(g_app.tmdb_key) - 4 : "");
             draw_row(y, ICON_KEY, "The Movie Database (TMDB)", masked, foc, KIND_ACTION, 0);
             break;
         }

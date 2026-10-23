@@ -148,7 +148,7 @@ They show the default Signal theme.
   keeps going as you watch.
 
 ### AI assistant (optional, your own free key)
-Settings > API keys > **AI assistant** takes a key from **Groq**, **OpenRouter** or
+Settings > Accounts > **AI assistant** takes a key from **Groq**, **OpenRouter** or
 **Google Gemini** (all have free tiers; the screen says where to get one), or any
 OpenAI-compatible endpoint such as an **Ollama** box on your network (no key). Nothing is
 sent anywhere until you turn it on. It adds:
@@ -178,8 +178,9 @@ plays offline, shown full screen if it is a video), and playback continues where
 ### Keys, phones and safety
 - **Type it on your phone**: every text field shows a QR code; the TV serves a small page
   on your network where you paste the key, URL or password, and it lands in the field.
-- **API keys**: TMDB (cast photos and age ratings; a key baked into CI builds from the
-  `TMDB_API_KEY` repository secret is used when you have none) and the AI assistant.
+- **Accounts** (one place for every account and key): TMDB (the built-in catalog, cast photos and age ratings; a key baked into CI builds from the
+  `TMDB_API_KEY` repository secret is used when you have none), Stremio sync, Trakt, SimKL,
+  TorBox, OpenSubtitles, MDBList and the AI assistant.
 - **Saved sign-ins** you can switch between, and a **parental PIN** that can guard
   Settings and adult addons.
 - **Sign in by QR** or short code via link.stremio.com; e-mail and password as fallback.
@@ -219,7 +220,7 @@ purpose for stability: FFmpeg transcoding, libass, trailers, the Samsung .NET ho
 
 | Category | What is there |
 |---|---|
-| Account | Sign in/out, saved accounts, streaming server URL |
+| Accounts | Stremio sync and saved accounts, Trakt, SimKL, TorBox, streaming server, OpenSubtitles, TMDB, MDBList, AI assistant |
 | Playback | Autoplay, skip intro, picture-in-picture, player clock, scrubbing, optional home helper |
 | Take breaks | Schedules, location, method, lead time, length, sound, stretch, bedtime, custom times |
 | Audio & subtitles | Preferred languages, when subtitles turn on, auto-sync, size, style |
@@ -227,7 +228,6 @@ purpose for stability: FFmpeg transcoding, libass, trailers, the Samsung .NET ho
 | Interface | Home style, hide watched, effects, page transitions, OLED background, screensaver, blur, memory use |
 | Home rows | Order and visibility of rows |
 | Addons | Install from URL, remove, reorder (synced to the account) |
-| API keys | TMDB, AI assistant (provider, key, endpoint, model) |
 | Parental | PIN, PIN for Settings, hide adult addons |
 | About | Version, backend, memory, Diagnostics, run setup again |
 

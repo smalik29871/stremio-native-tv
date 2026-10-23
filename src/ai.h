@@ -1,6 +1,6 @@
 /* An optional language-model helper behind any OpenAI-compatible chat endpoint
  * (Groq, OpenRouter, Google Gemini, Ollama on the LAN, OpenAI, ...). Settings >
- * API keys holds the provider, key and model. Everything here is best-effort: a
+ * Accounts holds the provider, key and model. Everything here is best-effort: a
  * missing key, a rate limit or a bad answer only means the feature stays quiet. */
 #pragma once
 #include <stddef.h>

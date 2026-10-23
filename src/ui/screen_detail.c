@@ -265,7 +265,7 @@ static void ask_open(Detail *d)
         "\"notes\": \"what a parent or a sensitive viewer should know (violence, language, sex, scares, heavy themes), one spoiler-free sentence\", "
         "\"similar\": [\"three well-known titles people who like this also like\"]}";
     d->ask_req = ai_ask(SYS, msg, 420, 1, on_ask, d);
-    if (!d->ask_req) snprintf(d->ask_err, sizeof d->ask_err, "The AI assistant is off. Settings > API keys.");
+    if (!d->ask_req) snprintf(d->ask_err, sizeof d->ask_err, "The AI assistant is off. Settings > Accounts.");
 }
 
 static void draw_ask(Detail *d)

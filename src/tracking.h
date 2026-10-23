@@ -6,7 +6,7 @@
  *     to the history.
  *   - MDBList: an API key; the title page shows Rotten Tomatoes, Metacritic,
  *     Letterboxd and TMDB scores beside IMDb's.
- * The app ids come from the build (CI secrets) or Settings > API keys. Base URLs can be
+ * The app ids come from the build (CI secrets) or Settings > Accounts. Base URLs can be
  * overridden with SNTV_TRAKT_API, SNTV_SIMKL_API and SNTV_MDBLIST_API. */
 #ifndef SNTV_TRACKING_H
 #define SNTV_TRACKING_H
@@ -22,7 +22,7 @@ int  tracking_connect(int svc, char *code, size_t cn, char *url, size_t un);
 void tracking_disconnect(int svc);
 const char *tracking_last_error(void);   /* why the last sign-in did not start */
 int  tracking_pending(int svc);        /* a sign-in is waiting for the code */
-/* Settings > API keys: the app's id (and Trakt's secret), "" keeps the built-in one. */
+/* Settings > Accounts: the app's id (and Trakt's secret), "" keeps the built-in one. */
 void tracking_set_app(int svc, const char *id, const char *secret);
 const char *tracking_app_id(int svc);
 
