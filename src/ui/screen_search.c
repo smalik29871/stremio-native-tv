@@ -46,6 +46,7 @@ struct Search {
     MetaPreview *results; int n;
     int grid_focus;
     int want_results;         /* a search was asked for: focus moves to the results when they arrive */
+    int keep_recent;          /* ...and goes into the recent searches once it finds something */
     float debounce;
     int dirty;
     unsigned generation;      /* a new number per query (g_search_gen); stale replies are dropped */
@@ -315,6 +316,7 @@ static void on_result(HttpResponse *r, void *user)
         free(metas);
         regroup(s);
         if (s->want_results && s->n && !s->typing && s->focus_grid == 0) { focus_results(s); s->want_results = 0; }
+        if (s->keep_recent && s->n) { recent_add(s, s->last_query); s->keep_recent = 0; }   /* found late: remembered all the same */
     }
     app_redraw();
     free(p);
@@ -465,7 +467,7 @@ static int looks_like_a_request(const char *q)
 static void run_query(Search *s)
 {
     const char *q = s->kb.text;
-    s->want_results = 0;   /* the caller asks again when this search should take the focus */
+    s->want_results = 0; s->keep_recent = 0;   /* the caller asks again when this search should take the focus */
     if (strcmp(q, s->last_query) == 0) return;
     snprintf(s->last_query, sizeof s->last_query, "%s", q);
     s->generation = ++g_search_gen;
@@ -903,7 +905,7 @@ static void take_list(Search *s, int i)
     close_keyboard(s);
     s->dirty = 0; s->focus_grid = 0; run_query(s);
     if (s->n) { focus_results(s); recent_add(s, s->kb.text); }
-    else s->want_results = 1;   /* the results take the focus when they come */
+    else s->want_results = s->keep_recent = 1;   /* the results take the focus when they come */
 }
 
 static void searched(Search *s)   /* Done (or the TV keyboard's Enter): search now, the results take the focus */
@@ -911,7 +913,7 @@ static void searched(Search *s)   /* Done (or the TV keyboard's Enter): search n
     close_keyboard(s);
     s->dirty = 0; run_query(s);
     if (s->n) { focus_results(s); recent_add(s, s->kb.text); }
-    else s->want_results = 1;
+    else s->want_results = s->keep_recent = 1;
 }
 
 /* The keyboard is open: type, Done searches, Up reaches the suggestions, Right off the edge

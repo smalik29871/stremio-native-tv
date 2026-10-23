@@ -338,6 +338,11 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest_known.
 run search_tv_keyboard 420 "search,ok,t:breaking,wait,wait,ok,wait,ok,wait,wait" HOME="$(home_with tvkb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')"
 grep -q "search: typing with the TV's keyboard" "$OUT/search_tv_keyboard.log" && grep -q "UI check: screen=detail" "$OUT/search_tv_keyboard.log" \
   || { echo "typing with the TV's keyboard did not search and open the title"; grep -E "search|detail|screen" "$OUT/search_tv_keyboard.log"; exit 1; }
+# a search whose results come late still goes into the recent searches (they arrive after Enter,
+# take the focus themselves, and the search is left without opening anything)
+run search_recent_late 2800 "search,ok,t:shawshank,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,back,back,wait,wait,search,wait,wait,down,wait" HOME="$(home_with recentlate '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/slowsearch/manifest.json
+grep -qE '"recentSearches":[[:space:]]*\["shawshank"\]' "$OUT/home_recentlate/.local/share/stremio/nativetv/settings.json" \
+  || { echo "a search with late results was not kept in the recent searches"; grep -o '"recentSearches":[^]]*]' "$OUT/home_recentlate/.local/share/stremio/nativetv/settings.json"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
 run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
 # Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it

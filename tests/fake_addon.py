@@ -361,6 +361,9 @@ class H(BaseHTTPRequestHandler):
         noisy = p.startswith("/noisy/")
         if noisy:
             p = p[6:]
+        slowsearch = p.startswith("/slowsearch/")   # an addon whose search answers after 2 s
+        if slowsearch:
+            p = p[11:]
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
@@ -618,6 +621,9 @@ class H(BaseHTTPRequestHandler):
             if "search=" in p and noisy:   # an addon whose search answers with its whole catalog
                 return self.send(200, json.dumps(CATALOG).encode())
             if "search=" in p:
+                if slowsearch:
+                    from time import sleep
+                    sleep(2)
                 q = p.split("search=")[1].split("&")[0].split(".json")[0].lower()
                 metas = [m for m in CATALOG["metas"] if q.replace("%20", " ") in m.get("name", "").lower()]
                 return self.send(200, json.dumps({"metas": metas}).encode())

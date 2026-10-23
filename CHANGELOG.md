@@ -6,6 +6,8 @@
   getting updates (GitHub forwards it), and the app's own update check now asks the new one.
 - If the app crashes, its last log line says so: the signal, where in the code, and which
   screens were open. Diagnostics shows it under Problems in the previous session (Blue).
+- Search: a search whose results come in slowly is kept in your recent searches too, not only
+  one you open a result from.
 
 ## 0.10.57
 
