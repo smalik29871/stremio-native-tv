@@ -27,7 +27,7 @@ typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
-enum { PICKS_MAX = 32, AI_TITLES = 12 };
+enum { PICKS_MAX = 32, AI_TITLES = 16 };
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; int year, kind; } Pending;   /* kind: -1 any, 0 movie, 1 series */
 /* Every query of every Search gets its own number, never reused; a reply counts only when
  * its Search is still open and still on that query. A Search under another one (a cast
@@ -57,6 +57,8 @@ struct Search {
     int n_picks;                     /* results at the front that the assistant suggested (and TMDB found for its filters) */
     int pick_rank[PICKS_MAX];        /* the assistant's order for those, so they stay in it */
     char ai_note[160];
+    char pick_why[AI_TITLES][96];    /* the assistant's reason for each pick, by its rank */
+    char refine[4][48]; int n_refine;   /* follow-ups it offers ("Only series", "Newer"), in the left list once it answered */
     char recent[10][96]; int n_recent, recent_focus;   /* shown while the field is empty */
     Cell *cell; int cell_cap;        /* where each result sits, from place() */
     float *row_y; int *row_first, n_rows, rows_cap;
@@ -283,6 +285,7 @@ static void on_result(HttpResponse *r, void *user)
                 int dup = -1;
                 for (int j = 0; j < s->n; j++) if (strcmp(s->results[j].id, metas[i].id) == 0) { dup = j; break; }
                 int fits = same_title(metas[i].name, p->want) && year_fits(&metas[i], p->year) && (p->kind < 0 || kind_of(&metas[i]) == p->kind);
+                if (fits && app_title_watched(metas[i].id) && p->rank < 50) p->rank += 50;   /* seen already: after the ones you have not */
                 int want = dup < 0 && !took && s->n_picks < PICKS_MAX && fits;
                 int promote = dup >= s->n_picks && s->n_picks < PICKS_MAX && fits;
                 if (want || promote) {
@@ -329,8 +332,13 @@ static void search_addons(Search *s, const char *q, int pick, int rank, int year
             const AddonCatalog *cat = &g_app.addons[a].manifest.catalogs[c];
             if (addon_catalog_extra(cat, "search") && cat->type && !strcmp(cat->type, kind ? "series" : "movie")) { typed = 1; break; }
         }
+    int only = -1;   /* the assistant's titles: Cinemeta alone knows them all, one request each instead of one per addon */
+    for (int a = 0; pick && a < g_app.n_addons && only < 0; a++)
+        if (g_app.addons[a].manifest.id && strstr(g_app.addons[a].manifest.id, "cinemeta"))
+            for (int c = 0; c < g_app.addons[a].manifest.n_catalogs; c++) if (addon_catalog_extra(&g_app.addons[a].manifest.catalogs[c], "search")) { only = a; break; }
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];
+        if (only >= 0 && a != only) continue;
         if (g_app.hide_adult && ad->manifest.bh_adult) continue;
         for (int c = 0; c < ad->manifest.n_catalogs; c++) {
             const AddonCatalog *cat = &ad->manifest.catalogs[c];
@@ -412,10 +420,17 @@ static void on_ai_titles(const char *text, const char *error, void *user)
             const cJSON *y = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "year") : NULL;
             const cJSON *t = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "type") : NULL;
             int kind = cJSON_IsString(t) ? (!strcmp(t->valuestring, "movie") ? 0 : !strcmp(t->valuestring, "series") ? 1 : -1) : -1;
+            const cJSON *why = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "why") : NULL;
+            snprintf(s->pick_why[n], sizeof s->pick_why[0], "%s", cJSON_IsString(why) ? why->valuestring : "");
             search_addons(s, name->valuestring, 1, n, cJSON_IsNumber(y) ? y->valueint : 0, kind);
             n++;
         }
     }
+    const cJSON *sum = root ? cJSON_GetObjectItemCaseSensitive(root, "summary") : NULL, *ref = root ? cJSON_GetObjectItemCaseSensitive(root, "refine") : NULL, *r1;
+    if (n && cJSON_IsString(sum) && sum->valuestring[0]) snprintf(s->ai_note, sizeof s->ai_note, "%s", sum->valuestring);   /* what it understood, over the results */
+    s->n_refine = 0;
+    cJSON_ArrayForEach(r1, ref) if (cJSON_IsString(r1) && r1->valuestring[0] && s->n_refine < 4) snprintf(s->refine[s->n_refine++], sizeof s->refine[0], "%s", r1->valuestring);
+    if (n) LOGI("search: the assistant suggests %d title%s%s%s%s, %d way%s to refine", n, n == 1 ? "" : "s", s->ai_note[0] ? " (" : "", s->ai_note, s->ai_note[0] ? ")" : "", s->n_refine, s->n_refine == 1 ? "" : "s");
     discover(s, cJSON_GetObjectItemCaseSensitive(root, "filters"));
     s->ai_state = n ? 2 : 3;
     if (!n) {
@@ -428,11 +443,23 @@ static void on_ai_titles(const char *text, const char *error, void *user)
     free(p);
 }
 
+/* A description rather than a title: three words or more, or two with a word that asks
+ * for a kind of thing ("korean thrillers", "like inception", "90s anime"). */
 static int looks_like_a_request(const char *q)
 {
-    int words = 1, len = 0;
-    for (; *q; q++, len++) if (*q == ' ') words++;
-    return words >= 3 && len >= 12;
+    static const char *ASKS[] = { "like", "about", "similar", "movies", "movie", "films", "film", "shows", "show", "series", "comedies", "comedy",
+        "thriller", "thrillers", "horror", "romance", "romantic", "romcom", "action", "drama", "dramas", "documentary", "documentaries", "anime",
+        "cartoon", "cartoons", "bollywood", "tollywood", "kollywood", "kdrama", "korean", "japanese", "hindi", "spanish", "french", "turkish",
+        "funny", "scary", "sad", "feelgood", "kids", "family", "best", "top", "classic", "classics", "80s", "90s", "2000s", "70s", "eighties",
+        "nineties", "seventies", "starring", "mystery", "crime", "heist", "sci", "fi", "zombie", "space", "war", "western", NULL };
+    char w[256];
+    words_of(q, w, sizeof w);
+    int words = 1, len = (int)strlen(q);
+    for (const char *c = w; *c; c++) if (*c == ' ') words++;
+    if (words >= 3 && len >= 12) return 1;
+    if (words < 2) return 0;
+    for (int i = 0; ASKS[i]; i++) if (has_word(w, ASKS[i], strlen(ASKS[i]), 0)) return 1;
+    return 0;
 }
 
 static void run_query(Search *s)
@@ -444,7 +471,7 @@ static void run_query(Search *s)
     s->generation = ++g_search_gen;
     s->pending = 0;
     if (s->ai_req) ai_cancel(s->ai_req);   /* the last question is no longer wanted */
-    s->ai_state = 0; s->ai_req = 0; s->ai_note[0] = 0;
+    s->ai_state = 0; s->ai_req = 0; s->ai_note[0] = 0; s->n_refine = 0;
     clear_results(s);
     if (strlen(q) < 2) return;
     if (ai_enabled() && looks_like_a_request(q)) {
@@ -453,13 +480,16 @@ static void run_query(Search *s)
         static const char *SYS = "You recommend films and series to a viewer who describes what they feel like watching. "
             "Keep to every constraint in the request exactly: language or film industry (Bollywood means Hindi films from India, Tollywood Telugu, "
             "a K-drama a Korean series, anime Japanese animation), country, era, genre, and film or series. Never suggest a title that breaks one of them. "
-            "Reply with JSON only, no markdown: {\"titles\": [{\"name\": \"title as on IMDb\", \"year\": 2010, \"type\": \"movie\"}], "
-            "\"filters\": {\"type\": \"movie\", \"language\": \"hi\", \"country\": \"IN\", \"genres\": [\"Comedy\"], \"from\": 1990, \"to\": 2009}} "
-            "with up to 12 well-known titles, best match first; type is movie or series. In filters, language is the ISO 639-1 code of the original "
+            "Reply with JSON only, no markdown: {\"summary\": \"Hindi comedies from the 1990s\", "
+            "\"titles\": [{\"name\": \"title as on IMDb\", \"year\": 2010, \"type\": \"movie\", \"why\": \"a reason in under 10 words\"}], "
+            "\"filters\": {\"type\": \"movie\", \"language\": \"hi\", \"country\": \"IN\", \"genres\": [\"Comedy\"], \"from\": 1990, \"to\": 2009}, "
+            "\"refine\": [\"Only series\", \"Newer ones\", \"Funnier\", \"More like Andaz Apna Apna\"]} "
+            "with up to 16 well-known titles, best match first; type is movie or series. summary says in under 8 words what you understood; "
+            "refine gives up to 4 short follow-ups (under 4 words each) the viewer might want next. In filters, language is the ISO 639-1 code of the original "
             "language, country an ISO 3166-1 code, genres only from Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, "
             "History, Horror, Music, Mystery, Romance, Science Fiction, Thriller, War, Western; use null for whatever the request does not say. "
             "If the text is just a title or a person's name, return titles that match it and null filters.";
-        s->ai_req = ai_ask(SYS, q, 700, 1, on_ai_titles, p);
+        s->ai_req = ai_ask(SYS, q, 1300, 1, on_ai_titles, p);
         s->ai_state = s->ai_req ? 1 : 0;
         if (s->ai_req) return;   /* a request: the assistant's titles, not every title with one of its words (they come if it has none) */
         free(p);
@@ -577,8 +607,11 @@ static float right_x(const Search *s) { return THEME_MARGIN + left_w(s) + 64; }
 static float grid_top(void) { return HERO_H + 56; }   /* below the top result, in the right column's scroll */
 
 /* The left list: suggestions for what is typed, else the recent searches (and a row to clear them). */
+static int refining(const Search *s) { return !s->typing && s->ai_state == 2 && s->n_refine; }
+
 static int list_n(Search *s)
 {
+    if (refining(s)) return s->n_refine;
     if (s->kb.text[0]) return s->n_sugg;
     return s->n_recent ? s->n_recent + 1 : 0;
 }
@@ -709,6 +742,9 @@ static void draw_hero(const Search *s, float x, float y, float w, float h)
         if (parts[k] && *parts[k] && n < sizeof meta - 8) n += (size_t)snprintf(meta + n, sizeof meta - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
     if (m->imdb_rating && *m->imdb_rating && n < sizeof meta - 16) snprintf(meta + n, sizeof meta - n, "%sIMDb %s", n ? "  \xC2\xB7  " : "", m->imdb_rating);
     font_draw_fit(meta, tx, ty + 84, FONT_S, THEME_TEXT_DIM, w - 88);
+    int rank = s->n_picks && s->pick_rank[0] < 100 ? s->pick_rank[0] % 50 : -1;   /* the assistant's reason for it (TMDB's own fill-ins have none) */
+    if (rank >= 0 && rank < AI_TITLES && s->pick_why[rank][0]) font_draw_fit(s->pick_why[rank], tx, ty - 40, FONT_S | FONT_B, THEME_ACCENT2, w - 88);
+    if (app_title_watched(m->id)) ui_chip("Watched", x + w - 150, y + 24, COLOR_ALPHA(THEME_PANEL, 0xD0), THEME_OK);
     float bx = tx, by = y + h - 96;
     for (int k = 0; k < hero_buttons(s); k++)
         bx += ui_pill(hero_label(s, k), k == 0, ICON_PLAY, bx, by, 64, k == 0 ? PILL_PRIMARY : PILL_SECONDARY, foc && s->hero_btn == k) + 16;
@@ -717,8 +753,19 @@ static void draw_hero(const Search *s, float x, float y, float w, float h)
 /* Down the left: what is typed suggests, else the recent searches (and a row to clear them). */
 static float draw_list(const Search *s, float x, float y, float w)
 {
-    int n = s->kb.text[0] ? s->n_sugg : s->n_recent ? s->n_recent + 1 : 0;
     int foc = s->typing ? s->sugg_focus : s->focus_grid == 2 ? s->recent_focus : -1;
+    if (refining(s)) {   /* the assistant's follow-ups */
+        font_draw("REFINE", x, y + 4, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        float ry = y + 36;
+        for (int i = 0; i < s->n_refine; i++, ry += LIST_ROW) {
+            int on = foc == i;
+            if (on) gfx_rrect(x, ry, w, LIST_ROW - 6, R_KEY, THEME_FOCUS);
+            ui_icon(ICON_STAR, x + 26, ry + (LIST_ROW - 6) / 2, 20, on ? THEME_ON_FOCUS : THEME_ACCENT2);
+            font_draw_fit(s->refine[i], x + 52, ry + (LIST_ROW - 6 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, on ? THEME_ON_FOCUS : THEME_TEXT, w - 64);
+        }
+        return ry - y;
+    }
+    int n = s->kb.text[0] ? s->n_sugg : s->n_recent ? s->n_recent + 1 : 0;
     if (!n) return 0;
     if (!s->kb.text[0]) font_draw("RECENT", x, y + 4, FONT_XS | FONT_B, THEME_TEXT_MUTED);
     float ry = y + (s->kb.text[0] ? 0 : 36);
@@ -821,6 +868,7 @@ static void draw(Screen *sc)
             ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
                     s->focus_grid == 1 && !foc ? 0.3f : 0, s->results[i].name, 0);
             if (i < s->n_picks) { gfx_circle(px + CELL_W - 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_STAR, px + CELL_W - 22, py + 22, 18, THEME_ACCENT2); }
+            if (app_title_watched(s->results[i].id)) { gfx_circle(px + 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_CHECK, px + 22, py + 22, 18, THEME_OK); }
             if (g_theme.id == THEME_APERTURE) ui_spaced_caps(s->results[i].name, px, py + CELL_H + (foc ? 24 : 14), FONT_S | FONT_ALT, 3, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             else font_draw_fit(s->results[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
@@ -837,6 +885,16 @@ static void draw(Screen *sc)
  * last recent row clears them. */
 static void take_list(Search *s, int i)
 {
+    if (refining(s)) {   /* asked again, the request kept: "bollywood comedies, only series" */
+        char q[256];
+        snprintf(q, sizeof q, "%.180s, %.60s", s->last_query, s->refine[i]);
+        for (char *c = q + strlen(s->last_query) + 2; *c; c++) if (*c >= 'A' && *c <= 'Z') *c = (char)(*c + 32);
+        LOGI("search: refine \"%s\"", s->refine[i]);
+        kb_set(s, q);
+        s->dirty = 0; s->focus_grid = 0; run_query(s);
+        s->want_results = 1;
+        return;
+    }
     if (!s->kb.text[0] && i == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return; }
     char pick[256];
     snprintf(pick, sizeof pick, "%s", s->kb.text[0] ? s->sugg[i] : s->recent[i]);

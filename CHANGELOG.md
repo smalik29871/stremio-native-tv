@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **A new Search page.** The search bar, suggestions and a compact keyboard (the alphabet in
+  order, seven keys wide) sit down the left; the best match is a large card on the right with
+  **Play**, **Details** and **Sources** (a series opens its episodes), and the other results
+  follow below it, films and series under their own headings. Before you type, the left side
+  lists your recent searches.
+- **Suggestions without the wait.** They appear on every letter, from titles this TV already
+  knows (your library, the titles on Home) and your recent searches, then from what the
+  addons find; the search itself starts sooner after you stop typing.
+- **Better AI search.**
+  - Two words are enough when they ask for a kind of thing ("korean thrillers", "90s anime",
+    "like Inception"); a title is still searched as a title.
+  - Up to 16 picks, each looked up once (in Cinemeta when it is installed) rather than in
+    every addon, so they arrive sooner.
+  - It says what it understood ("Hindi comedies from the 1990s") and why the top pick fits.
+  - Follow-ups in the left list ("Only series", "Newer ones", "Lighter in tone"): one press
+    asks again with your request kept, no retyping.
+  - Titles you have watched are marked and come after the ones you have not.
 - **Search types with the TV's own keyboard.** OK on the search bar now brings up LG's keyboard,
   with its own suggestions; what you type fills the bar and the results update above it as you
   go. Its Enter searches, Back puts it away, and the next OK opens the title as before (the

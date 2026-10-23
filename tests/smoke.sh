@@ -727,6 +727,15 @@ run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")
 run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
 grep -q "search: no suggestions from the assistant" "$OUT/search_ai.log" && { echo "the assistant's suggestions were not used"; exit 1; } || true
+grep -q "search: the assistant suggests 3 titles (Stories of hope behind bars), 3 ways to refine" "$OUT/search_ai.log" \
+  || { echo "the assistant's summary or follow-ups were not taken"; grep "search" "$OUT/search_ai.log"; exit 1; }
+# its follow-ups sit in the left list: one press asks again, the request kept
+run search_ai_refine 520 "search,t:something about prison and hope,wait,wait,wait,wait,back,down,ok,wait,wait,wait" HOME="$(home_with ai3 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q 'search: refine "Only series"' "$OUT/search_ai_refine.log" && [ "$(grep -c "search: the assistant suggests" "$OUT/search_ai_refine.log")" -ge 2 ] \
+  || { echo "a follow-up did not ask the assistant again"; grep "search" "$OUT/search_ai_refine.log"; exit 1; }
+# two words that ask for a kind of thing are a request too
+run search_ai_short 300 "search,t:korean thrillers,wait,wait" HOME="$(home_with ai4 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q "search: the assistant suggests" "$OUT/search_ai_short.log" || { echo "\"korean thrillers\" did not go to the assistant"; grep "search" "$OUT/search_ai_short.log"; exit 1; }
 # a request with a film industry: the assistant's filters go to TMDB, whose titles join its picks; no word-by-word search
 run search_ai_filters 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1 SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
 grep -q "search: the assistant's filters: movies, language hi, country IN, 1 genre, 1990-1999" "$OUT/search_ai_filters.log" && grep -q "search: 2 more from TMDB for the assistant's filters" "$OUT/search_ai_filters.log" \

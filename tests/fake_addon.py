@@ -254,8 +254,11 @@ class H(BaseHTTPRequestHandler):
             elif "recommend films" in system:
                 # a request with a film industry in it gets filters too (TMDB lists titles for them)
                 filters = {"type": "movie", "language": "hi", "country": "IN", "genres": ["Comedy"], "from": 1990, "to": 1999} if "bollywood" in user.lower() else None
-                answer = json.dumps({"titles": [{"name": "The Shawshank Redemption", "year": 1994, "type": "movie"}, {"name": "Breaking Bad", "year": 2008, "type": "series"},
-                                                {"name": "No Such Title", "year": 2001, "type": "movie"}], "filters": filters})
+                answer = json.dumps({"summary": "Hindi comedies from the 1990s" if filters else "Stories of hope behind bars",
+                                     "titles": [{"name": "The Shawshank Redemption", "year": 1994, "type": "movie", "why": "Hope and friendship in prison"},
+                                                {"name": "Breaking Bad", "year": 2008, "type": "series", "why": "A slow fall, brilliantly told"},
+                                                {"name": "No Such Title", "year": 2001, "type": "movie"}], "filters": filters,
+                                     "refine": ["Only series", "Newer ones", "Lighter in tone"]})
             else:
                 answer = json.dumps({"nutshell": "A quietly devastating prison drama about hope, patience and friendship that keeps rewarding rewatches.",
                                      "good_for": "A slow evening when you want something moving rather than loud.",
