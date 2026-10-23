@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.52
 
 - **Load ahead: up to 2 minutes of the video kept ready.** The TV's player only holds about
   30 seconds; now the app downloads ahead of it into the TV's memory, so a slow patch or a
