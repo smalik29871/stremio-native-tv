@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Search types with the TV's own keyboard.** OK on the search bar now brings up LG's keyboard,
+  with its own suggestions; what you type fills the bar and the results update above it as you
+  go. Its Enter searches, Back puts it away, and the next OK opens the title as before (the
+  keyboard comes up only while you type, which is what went wrong when it was used in 0.7.1).
+  Settings > Interface > Type with the TV's keyboard switches back to the app's keyboard.
+
 ## 0.10.55
 
 - **Pick another source when resuming.** Resume plays the link you watched last; the title page

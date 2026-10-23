@@ -65,6 +65,7 @@ struct Search {
     char first_logged[64];        /* the leading result last logged */
     char sugg[5][96]; int n_sugg; /* above the keyboard: titles found for what is typed so far */
     int sugg_focus;               /* -1 on the keys, else the suggestion */
+    int tvkb;                     /* typing with the TV's own keyboard, not the app's */
     char sugg_logged[96];
 };
 
@@ -491,10 +492,14 @@ static void suggest(Search *s)
     if (n && strcmp(s->sugg[0], s->sugg_logged)) { snprintf(s->sugg_logged, sizeof s->sugg_logged, "%s", s->sugg[0]); LOGI("search: %d suggestion%s, first \"%s\"", n, n == 1 ? "" : "s", s->sugg[0]); }
 }
 
+static int tv_keyboard(void);
+
 static void open_keyboard(Search *s)
 {
     s->typing = 1; s->focus_grid = 0; s->want_results = 0; s->sugg_focus = -1;
-    input_text(1);
+    s->tvkb = tv_keyboard();
+    if (s->tvkb) { input_text_system(1); LOGI("search: typing with the TV's keyboard"); }
+    else input_text(1);
     phone_prompt("Search", "Type a title, a person, or what you feel like watching", s->kb.text);
     char url[96]; uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
     s->qr_ready = phone_url(url, sizeof url) && qrcodegen_encodeText(url, tmp, s->qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
@@ -505,11 +510,23 @@ static void close_keyboard(Search *s)
 {
     if (!s->typing) return;
     s->typing = 0;
-    input_text(0);
+    if (s->tvkb) { s->tvkb = 0; input_text_system(0); }
+    else input_text(0);
     phone_prompt(NULL, NULL, NULL);
 }
 
-static int cols(const Search *s) { return s->typing ? COLS_TYPING : COLS; }
+/* The TV's own keyboard for Search (Settings; on by default on the TV, tests ask for it). */
+static int tv_keyboard(void)
+{
+#ifdef SNTV_PLATFORM_WEBOS
+    return store_get_int("tvKeyboard", 1);
+#else
+    return store_get_int("tvKeyboard", 0);   /* the desktop has a real keyboard */
+#endif
+}
+
+static int app_keys(const Search *s) { return s->typing && !s->tvkb; }   /* the app's keyboard is on screen */
+static int cols(const Search *s) { return app_keys(s) ? COLS_TYPING : COLS; }
 
 static int headed_row(const Search *s, int row)
 {
@@ -591,10 +608,13 @@ static void draw(Screen *sc)
     else font_draw("Search", THEME_MARGIN, 52, FONT_L | FONT_B, THEME_TEXT);
 
     float x = THEME_MARGIN, y = FIELD_Y; int nc = cols(s);
-    float fw = s->typing ? keyboard_width() : nc * (CELL_W + CELL_GAP) - CELL_GAP;
+    float fw = app_keys(s) ? keyboard_width() : nc * (CELL_W + CELL_GAP) - CELL_GAP;
     draw_field(s, x, y, fw);
     float gx = x, gy = y + FIELD_H + 40;
-    if (s->typing) {
+    if (s->typing && s->tvkb) {   /* the TV's keyboard covers the bottom: the results fill in above it as you type */
+        font_draw("Typing with the TV's keyboard  \xC2\xB7  its Enter searches  \xC2\xB7  Back closes it", x, y + FIELD_H + 14, FONT_XS, THEME_TEXT_MUTED);
+        gy += 30;
+    } else if (s->typing) {
         suggest(s);
         float ky = y + 108 + (s->n_sugg ? SUGG_H : 0);
         if (s->n_sugg) {   /* Up from the top row of keys reaches them */
@@ -688,6 +708,16 @@ static void draw(Screen *sc)
 static int key_typing(Search *s, KeyAction a)
 {
     if (a == KEY_BACK) { close_keyboard(s); return 1; }
+    if (s->tvkb) {   /* the TV's keyboard types (text()); its Enter comes as OK */
+        if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; }
+        else if (a == KEY_OK) {
+            close_keyboard(s);
+            s->dirty = 0; run_query(s);
+            if (s->n) { s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
+            else s->want_results = 1;
+        } else if ((a == KEY_DOWN || a == KEY_RIGHT) && s->n) { close_keyboard(s); s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
+        return 1;
+    }
     if (s->sugg_focus >= 0) {   /* on the suggestions */
         if (a == KEY_LEFT && s->sugg_focus > 0) s->sugg_focus--;
         else if (a == KEY_RIGHT && s->sugg_focus < s->n_sugg - 1) s->sugg_focus++;

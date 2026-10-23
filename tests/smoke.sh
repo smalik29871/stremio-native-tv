@@ -327,6 +327,11 @@ grep -q 'search: "Breaking Bad" first of [0-9]*' "$OUT/search_exact_first.log" \
 run search_suggest 420 "search,t:br,wait,wait,wait,wait,up,up,up,up,up,ok,wait,wait"
 grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest.log" && grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest.log" \
   || { echo "no suggestions above the keyboard, or one could not be taken"; grep "search" "$OUT/search_suggest.log"; exit 1; }
+# the TV's own keyboard (Settings, on by default on the TV): opened while typing only, its Enter
+# searches, and the next OK opens the title (it does not bring the keyboard back)
+run search_tv_keyboard 420 "search,ok,t:breaking,wait,wait,ok,wait,ok,wait,wait" HOME="$(home_with tvkb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')"
+grep -q "search: typing with the TV's keyboard" "$OUT/search_tv_keyboard.log" && grep -q "UI check: screen=detail" "$OUT/search_tv_keyboard.log" \
+  || { echo "typing with the TV's keyboard did not search and open the title"; grep -E "search|detail|screen" "$OUT/search_tv_keyboard.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
 run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
 # Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it

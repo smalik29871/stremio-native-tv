@@ -68,6 +68,12 @@ KeyAction input_map(const SDL_Event *e)
     }
 }
 
+void input_text_system(int on)
+{
+    SDL_StopTextInput();   /* off first: on again brings it back if it was put away */
+    if (on) SDL_StartTextInput();
+}
+
 void input_text(int on)
 {
 #if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN)
