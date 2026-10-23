@@ -786,7 +786,7 @@ grep -q "player: scenes rail (3)" "$OUT/player_scenes.log" && grep -q "player: m
 run player_warm_next 600 "right,ok,down,down,right,play,wait" SNTV_FAKE_DURATION=1200 SNTV_FAKE_START=900 HOME="$(home_with warmnext "$PL")"
 grep -q "streams: next episode's file warmed (206" "$OUT/player_warm_next.log" || { echo "the next episode's file was not warmed"; grep streams "$OUT/player_warm_next.log"; exit 1; }
 # a film with a scene after the credits says so (TMDB's keywords)
-run player_stinger 400 "right,right,ok,wait,ok,ok,wait,wait" SNTV_FAKE_DURATION=3600 SNTV_FAKE_START=3300 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg \
+run player_stinger 500 "right,right,ok,wait,ok,wait,ok,wait,wait" SNTV_FAKE_DURATION=3600 SNTV_FAKE_START=3300 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg \
   HOME="$(home_with stinger '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
 grep -q "player: the film has a scene after the credits" "$OUT/player_stinger.log" || { echo "the after-credits scene was not mentioned"; grep -E "tmdb|player" "$OUT/player_stinger.log"; exit 1; }
 # second subtitles stay on for the show; night mode plays quieter
