@@ -353,6 +353,9 @@ class H(BaseHTTPRequestHandler):
         pot = p.startswith("/pot/")
         if pot:
             p = p[4:]
+        noisy = p.startswith("/noisy/")
+        if noisy:
+            p = p[6:]
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
@@ -601,6 +604,8 @@ class H(BaseHTTPRequestHandler):
         if p == "/manifest.json":
             return self.send(200, json.dumps(MANIFEST).encode())
         if p.startswith("/catalog/"):
+            if "search=" in p and noisy:   # an addon whose search answers with its whole catalog
+                return self.send(200, json.dumps(CATALOG).encode())
             if "search=" in p:
                 q = p.split("search=")[1].split("&")[0].split(".json")[0].lower()
                 metas = [m for m in CATALOG["metas"] if q.replace("%20", " ") in m.get("name", "").lower()]

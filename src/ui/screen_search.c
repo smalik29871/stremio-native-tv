@@ -62,6 +62,7 @@ struct Search {
     float *row_y; int *row_first, n_rows, rows_cap;
     Section sect[SECT_MAX]; int n_sect;
     int groups_logged;
+    char first_logged[64];        /* the leading result last logged */
 };
 
 static Search *g_person_live;   /* the screen a filmography lookup answers to */
@@ -131,24 +132,83 @@ static int kind_of(const MetaPreview *m)
 
 /* Puts the results after the AI picks in groups by type. A group's place is where its best
  * result was, so the closest match still leads; the order inside a group is kept. */
+/* Lower-case words, one space between them: "Undercover Angel (1999)" -> "undercover angel 1999". */
+static void words_of(const char *in, char *out, size_t cap)
+{
+    size_t n = 0;
+    for (; *in && n + 1 < cap; in++) {
+        unsigned char c = (unsigned char)*in;
+        int word = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80;
+        if (word) out[n++] = (char)(c >= 'A' && c <= 'Z' ? c + 32 : c);
+        else if (n && out[n - 1] != ' ') out[n++] = ' ';
+    }
+    while (n && out[n - 1] == ' ') n--;
+    out[n] = 0;
+}
+
+static int has_word(const char *words, const char *w, size_t len, int prefix)   /* w as a whole word (or its start) */
+{
+    for (const char *p = words; *p; ) {
+        size_t k = strcspn(p, " ");
+        if ((k == len || (prefix && k > len)) && !strncmp(p, w, len)) return 1;
+        p += k + (p[k] == ' ');
+    }
+    return 0;
+}
+
+/* How well a title matches what was typed: 0 the title itself, 1 it starts with it, 2
+ * every word in it, 3 some word, 4 none (an addon that answers with its whole catalog). */
+static int match_tier(const char *name, const char *query)
+{
+    char t[256], q[256];
+    words_of(name ? name : "", t, sizeof t);
+    words_of(query, q, sizeof q);
+    if (!q[0]) return 0;
+    size_t ql = strlen(q);
+    if (!strcmp(t, q)) return 0;
+    if (!strncmp(t, q, ql) && t[ql] == ' ') return 1;
+    int all = 1, any = 0;
+    for (const char *w = q; *w; ) {
+        size_t k = strcspn(w, " ");
+        int in = has_word(t, w, k, 0), starts = in || has_word(t, w, k, 1);
+        all &= in; any |= starts;
+        w += k + (w[k] == ' ');
+    }
+    return all ? 2 : any ? 3 : 4;
+}
+
 static void regroup(Search *s)
 {
     if (s->n - s->n_picks < 2) return;
     const char *focused = s->grid_focus < s->n ? s->results[s->grid_focus].id : NULL;
     MetaPreview *tmp = malloc(sizeof *tmp * (size_t)s->n);
-    if (!tmp) return;
-    int order[3], n_order = 0, k = 0, count[3] = {0};
+    unsigned char *tier = malloc((size_t)s->n);
+    if (!tmp || !tier) { free(tmp); free(tier); return; }
+    /* the best matches first, whichever addon answered first; the group (movies, series)
+     * with the best match leads */
+    int order[3], n_order = 0, k = 0, count[3] = {0}, best[3] = {9, 9, 9};
     for (int i = s->n_picks; i < s->n; i++) {
         int g = kind_of(&s->results[i]), seen = 0;
+        tier[i] = (unsigned char)match_tier(s->results[i].name, s->last_query);
+        if (tier[i] < best[g]) best[g] = tier[i];
         for (int j = 0; j < n_order; j++) seen |= order[j] == g;
         if (!seen) order[n_order++] = g;
         count[g]++;
     }
+    for (int j = 1; j < n_order; j++)
+        for (int i = j; i > 0 && best[order[i]] < best[order[i - 1]]; i--) { int t = order[i]; order[i] = order[i - 1]; order[i - 1] = t; }
     for (int j = 0; j < n_order; j++)
-        for (int i = s->n_picks; i < s->n; i++) if (kind_of(&s->results[i]) == order[j]) tmp[k++] = s->results[i];
+        for (int t = 0; t <= 4; t++)
+            for (int i = s->n_picks; i < s->n; i++) if (kind_of(&s->results[i]) == order[j] && tier[i] == t) tmp[k++] = s->results[i];
+    free(tier);
     memcpy(&s->results[s->n_picks], tmp, sizeof *tmp * (size_t)k);
     free(tmp);
     if (focused) for (int i = 0; i < s->n; i++) if (s->results[i].id == focused) { s->grid_focus = i; break; }
+    const char *lead = s->results[s->n_picks].name ? s->results[s->n_picks].name : "";
+    if (strncmp(lead, s->first_logged, sizeof s->first_logged - 1)) {
+        snprintf(s->first_logged, sizeof s->first_logged, "%s", lead);
+        LOGI("search: \"%s\" first of %d", lead, s->n - s->n_picks);
+    }
     int key = count[0] * 10000 + count[1] * 100 + count[2];
     if (n_order > 1 && key != s->groups_logged) {
         s->groups_logged = key;

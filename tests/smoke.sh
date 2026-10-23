@@ -319,6 +319,10 @@ run search_keyboard 200 "search,ok" SNTV_PHONE_HOST=192.168.1.20
 # movies and series come back in their own groups; Down moves into the next group
 run search_groups 320 "search,t:re,right,right,right,right,right,right,right,right,right,right,right,down"
 grep -q "search: grouped 2 movies, 1 series, 0 other" "$OUT/search_groups.log" || { echo "search results were not grouped by type"; grep search "$OUT/search_groups.log"; exit 1; }
+# an addon whose search answers with its whole catalog: the title typed still comes first
+run search_exact_first 260 "search,t:breaking bad" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/noisy/manifest.json
+grep -q 'search: "Breaking Bad" first of [0-9]*' "$OUT/search_exact_first.log" \
+  || { echo "the title typed was not the first result"; grep "search" "$OUT/search_exact_first.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
 run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
 # Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it

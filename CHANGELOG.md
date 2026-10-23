@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The title you typed comes first in Search.** Results used to be shown in the order the
+  addons answered, so an addon that answers every search with its whole catalog (new
+  releases, say) pushed the real match far down. Now the exact title leads, then titles that
+  start with what you typed, then those with all its words, then some; titles that share no
+  word with it go last. Movies or series, whichever group holds the best match, comes first.
+  The result you are on stays focused while later answers arrive.
+
 ## 0.10.53
 
 - **A source that dies mid-film is replaced without a pause.** With Load ahead on, the app
