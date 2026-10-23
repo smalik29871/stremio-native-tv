@@ -753,8 +753,8 @@ NAV="wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,down,down,down,down
 run torbox_get 1200 "$NAV,hold,$HOLD,release,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait" "$TB" SNTV_TORBOX_POLL_S=1 HOME="$(home_with tbget '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbget/manifest.json"
 grep -q "torbox: F00DF00DF00DF00DF00DF00DF00DF00DF00DF00D added to your TorBox (42%)" "$OUT/torbox_get.log" && grep -q "on your TorBox: 87%" "$OUT/torbox_get.log" \
   && grep -q "is ready on your TorBox" "$OUT/torbox_get.log" && grep -q "torbox: f00df00df00df00df00df00df00df00df00df00d plays from TorBox" "$OUT/torbox_get.log" \
-  && ! grep -q "tbkey" "$OUT/torbox_get.log" \
-  || { echo "a torrent was not got onto TorBox and played from there"; grep -E "torbox|candidate|toast" "$OUT/torbox_get.log"; exit 1; }
+  && ! grep -q "tbkey" "$OUT/torbox_get.log" && ! grep -q "streams: #[0-9]* .*Netflix" "$OUT/torbox_get.log" \
+  || { echo "a torrent was not got onto TorBox and played from there (or a link only another app opens was listed)"; grep -E "torbox|candidate|toast" "$OUT/torbox_get.log"; exit 1; }
 # your own TorBox copy of the title heads the sources and plays first, through its direct link (a remake with another year does not match)
 run torbox_library 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,up,ok,wait" "$TB" HOME="$(home_with tblib '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
 grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" && grep -q "streams: #1 score [0-9]*  My TorBox Your copy" "$OUT/torbox_library.log" \

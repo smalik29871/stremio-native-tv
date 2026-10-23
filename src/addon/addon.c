@@ -614,7 +614,7 @@ int addon_parse_streams(const char *json, Stream **out, int *n)
             su += (size_t)snprintf(sb + su, sizeof sb - su, "%.8s\t%s\n", cJSON_IsString(l) ? l->valuestring : "und", u->valuestring);
         }
         if (su) s->subs = strdup(sb);
-        if (s->url || s->yt_id || s->info_hash || s->external_url) (*n)++;
+        if (s->url || s->yt_id || s->info_hash) (*n)++;   /* a link only another app opens (externalUrl) can't play here: not listed */
         else { free(s->url); free(s->yt_id); free(s->info_hash); free(s->external_url); free(s->name); free(s->title); free(s->description); free(s->binge_group); free(s->filename); free(s->trackers);
                free(s->headers); free(s->video_hash); free(s->subs); memset(s, 0, sizeof *s); }
     }

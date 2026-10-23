@@ -127,12 +127,12 @@ static void test_responses(void)
     Stream *streams;
     CHECK(addon_parse_streams(json, &streams, &n) == 0);
     free(json);
-    CHECK(n == 4);  /* "Useless" has no source */
+    CHECK(n == 3);  /* "Useless" has no source; "Netflix" only opens in another app */
     CHECK(STREQ(streams[0].url, "https://cdn.example.com/v/abc.mp4") && streams[0].not_web_ready);
     CHECK(streams[0].video_size == 2254857830ull && STREQ(streams[0].binge_group, "example-1080p"));
     CHECK(streams[1].file_idx == 2 && STREQ(streams[1].info_hash, "0123456789abcdef0123456789abcdef01234567"));
     CHECK(STREQ(streams[2].yt_id, "dQw4w9WgXcQ") && streams[2].file_idx == -1);
-    CHECK(STREQ(streams[3].external_url, "https://www.netflix.com/title/70143836"));
+    for (int i = 0; i < n; i++) CHECK(!streams[i].external_url);
     streams_free(streams, n);
 
     CHECK(addon_parse_streams("{\"nope\":1}", &streams, &n) == -1);

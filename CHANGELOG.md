@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Links that only open in another app are no longer listed.** Some addons list a source that
+  only opens elsewhere (a Netflix page, say); the TV can't play those, so they are left out of
+  the sources and never tried.
 - **Get a torrent onto your TorBox from the sources list.** When a title is only available as a
   torrent nobody has cached, hold OK on it: your TorBox starts downloading it, and the row
   follows along (percent, speed, a bar along its foot; "waiting for seeders" when it has
