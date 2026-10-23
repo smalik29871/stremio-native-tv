@@ -1747,7 +1747,22 @@ void app_details_want(const char *type, const char *id)
 /* ---- tidying the data folder ------------------------------------------------- */
 
 static SDL_atomic_t g_tidying;
-typedef struct { char keep[TIDY_KEEP_MAX][64]; int n, delay_ms; } TidyJob;
+typedef struct { char keep[TIDY_KEEP_MAX][64]; int n, delay_ms, clear; } TidyJob;
+static SDL_SpinLock g_usage_lock;
+static TidyUsage g_usage = { -1, -1 };
+static TidyReport g_cleared;
+static int g_cleared_ready;
+
+void app_storage(long long *total, long long *cache)
+{
+    SDL_AtomicLock(&g_usage_lock);
+    *total = g_usage.total; *cache = g_usage.cache;
+    int told = g_cleared_ready;
+    TidyReport r = g_cleared;
+    g_cleared_ready = 0;
+    SDL_AtomicUnlock(&g_usage_lock);
+    if (told) app_toast("Cache cleared: %lld MB freed", (r.freed + (1 << 19)) >> 20);   /* on the main thread, when Settings asks */
+}
 
 static int tidy_main(void *arg)
 {
@@ -1756,8 +1771,20 @@ static int tidy_main(void *arg)
     const char *keep[TIDY_KEEP_MAX];
     for (int i = 0; i < j->n; i++) keep[i] = j->keep[i];
     TidyReport r;
-    tidy_run(store_dir(), keep, j->n, time(NULL), &r);
-    if (r.removed) LOGI("tidy: removed %d old file%s, %lld KB", r.removed, r.removed == 1 ? "" : "s", r.freed >> 10);
+    if (j->clear) {
+        tidy_clear(store_dir(), &r);
+        LOGI("tidy: cache cleared, %d file%s, %lld KB", r.removed, r.removed == 1 ? "" : "s", r.freed >> 10);
+    } else {
+        tidy_run(store_dir(), keep, j->n, time(NULL), &r);
+        if (r.removed) LOGI("tidy: removed %d old file%s, %lld KB", r.removed, r.removed == 1 ? "" : "s", r.freed >> 10);
+    }
+    TidyUsage u;
+    tidy_usage(store_dir(), &u);
+    LOGI("storage: %lld MB here, %lld MB of it cache", u.total >> 20, u.cache >> 20);
+    SDL_AtomicLock(&g_usage_lock);
+    g_usage = u;
+    if (j->clear) { g_cleared = r; g_cleared_ready = 1; }
+    SDL_AtomicUnlock(&g_usage_lock);
     free(j);
     SDL_AtomicSet(&g_tidying, 0);
     return 0;
@@ -1772,13 +1799,21 @@ static void keep_recording(TidyJob *j, const char *stored)
     else if (youtube_video_id(stored, id)) snprintf(j->keep[j->n++], sizeof j->keep[0], "yt-%s-", id);
 }
 
-void app_tidy(int delay_ms)
+void app_clear_cache(void)
+{
+    if (SDL_AtomicGet(&g_tidying)) { app_toast("Tidying up already: try again in a moment"); return; }
+    app_tidy(-1);
+}
+
+void app_tidy(int delay_ms)   /* -1: clear the cache instead */
 {
     if (!SDL_AtomicCAS(&g_tidying, 0, 1)) return;
     TidyJob *j = calloc(1, sizeof *j);
     j->delay_ms = delay_ms;
     keep_recording(j, g_app.break_audio);
     keep_recording(j, g_app.break_end);
+    j->clear = delay_ms < 0;
+    if (j->delay_ms < 0) j->delay_ms = 0;
     SDL_Thread *t = SDL_CreateThread(tidy_main, "tidy", j);
     if (t) SDL_DetachThread(t);
     else { free(j); SDL_AtomicSet(&g_tidying, 0); }
@@ -1942,7 +1977,7 @@ static void load_prefs(void)
     torrent_engine_set_cache_mb(g_app.low_memory ? 96 : 192);   /* the P2P engine's RAM for pieces */
     if (g_app.home_style < 0 || g_app.home_style >= HOME_STYLE_COUNT) g_app.home_style = HOME_CINEMATIC;
     tv_profile_load();
-    app_tidy(12000);   /* after start-up, off the main thread */
+    app_tidy(getenv("SNTV_TIDY_DELAY") ? atoi(getenv("SNTV_TIDY_DELAY")) : 12000);   /* after start-up, off the main thread */
     snprintf(g_app.pref_audio, sizeof g_app.pref_audio, "%s", store_get_str("prefAudio", ""));
     snprintf(g_app.pref_subs, sizeof g_app.pref_subs, "%s", store_get_str("prefSubs", ""));
 }

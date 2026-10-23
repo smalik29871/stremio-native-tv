@@ -43,7 +43,7 @@ int main(void)
 
     make("cache/fresh.json", 10, 30);                     /* the newest reply */
     make("cache/week_old.json", 10, 8 * DAY);
-    for (int i = 0; i < 20; i++) { char n[64]; snprintf(n, sizeof n, "cache/big%02d.json", i); make(n, 1024, 60 + i); }   /* 20 MB > 16 MB */
+    for (int i = 0; i < 20; i++) { char n[64]; snprintf(n, sizeof n, "cache/big%02d.json", i); make(n, 1024, 60 + i); }   /* 20 MB > 8 MB */
     make("cache/x.json.1234.tmp", 5, 2 * 3600);
     make("fontcache/used.bin", 50, 3 * DAY);
     make("fontcache/old_version.bin", 50, 90 * DAY);
@@ -69,13 +69,26 @@ int main(void)
     CHECK(exists("cache/fresh.json") && !exists("cache/week_old.json") && !exists("cache/x.json.1234.tmp"));
     int big = 0;
     for (int i = 0; i < 20; i++) { char n[64]; snprintf(n, sizeof n, "cache/big%02d.json", i); big += exists(n); }
-    CHECK(big == 15 && exists("cache/big00.json") && !exists("cache/big19.json"));   /* the newest fit in 16 MB */
+    CHECK(big == 7 && exists("cache/big00.json") && !exists("cache/big07.json"));   /* the newest fit in 8 MB */
     CHECK(exists("fontcache/used.bin") && !exists("fontcache/old_version.bin"));
     CHECK(exists("yt/abcd1234-0badf00d.solver.js") && !exists("yt/old0001-0badf00d.solver.js"));
     CHECK(exists("sounds/start.mp3") && exists("sounds/yt-dQw4w9WgXcQ-audio.m4a") && exists("sounds/yt-NEWNEWNEW01-audio.m4a.part"));
     CHECK(!exists("sounds/end.m4a") && !exists("sounds/yt-OLDOLDOLD01-video.mp4") && !exists("sounds/upload.tmp"));
     CHECK(exists("settings.json") && !exists("settings.json.99.tmp") && exists("library.json.98.tmp"));
     CHECK(!exists("img/abc.img.tmp") && exists("img/abc.img"));
+
+    /* Storage: everything, and the part Clear cache frees; settings, the Library and recordings stay */
+    make("img/poster.img", 300, 60);
+    make("app.prev.log", 40, 60);
+    TidyUsage u;
+    tidy_usage(root, &u);
+    CHECK(u.total > u.cache && u.cache >= (7 * 1024 + 300 + 40) * 1024LL);
+    tidy_clear(root, &r);
+    CHECK(!exists("img/poster.img") && !exists("img/abc.img") && !exists("cache/fresh.json") && !exists("yt/abcd1234-0badf00d.solver.js") && !exists("app.prev.log"));
+    CHECK(exists("settings.json") && exists("sounds/start.mp3") && exists("library.json.98.tmp"));
+    TidyUsage after;
+    tidy_usage(root, &after);
+    CHECK(after.cache == 0 && after.total == u.total - r.freed);
 
     char cmd[300];
     snprintf(cmd, sizeof cmd, "rm -rf %s", root);

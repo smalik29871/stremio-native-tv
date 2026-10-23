@@ -7,9 +7,9 @@
 
 #define DAY (24 * 3600)
 enum {
-    REPLY_MAX_AGE = 7 * DAY, REPLY_MAX_BYTES = 16 << 20,   /* cache/: addon replies (catalogs, searches) */
+    REPLY_MAX_AGE = 7 * DAY, REPLY_MAX_BYTES = 8 << 20,    /* cache/: addon replies (catalogs, searches) */
     FONT_MAX_AGE = 60 * DAY,                                 /* fontcache/: touched on every use */
-    YT_MAX_AGE = 30 * DAY,                                   /* yt/: player data, the downloaded solver */
+    YT_MAX_AGE = 30 * DAY, YT_MAX_BYTES = 12 << 20,          /* yt/: player data, the downloaded solver */
     STRAY_AGE = 3600,                                        /* .tmp / .part / unused recordings */
 };
 
@@ -81,7 +81,7 @@ void tidy_run(const char *data_dir, const char *const *keep, int n_keep, time_t 
     snprintf(dir, sizeof dir, "%s/fontcache", data_dir);
     by_age_and_size(dir, NULL, now, FONT_MAX_AGE, 0, out);
     snprintf(dir, sizeof dir, "%s/yt", data_dir);
-    by_age_and_size(dir, NULL, now, YT_MAX_AGE, 0, out);
+    by_age_and_size(dir, NULL, now, YT_MAX_AGE, YT_MAX_BYTES, out);
 
     int n;
     Entry *v;
@@ -101,5 +101,62 @@ void tidy_run(const char *data_dir, const char *const *keep, int n_keep, time_t 
         for (int i = 0; i < n; i++)
             if ((ends_with(v[i].name, ".tmp") || ends_with(v[i].name, ".part")) && now - v[i].mtime >= STRAY_AGE) drop(dir, &v[i], out);
         free(v);
+    }
+}
+
+/* The bytes under a folder, a few levels down. */
+static long long folder_bytes(const char *dir, int depth)
+{
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    long long sum = 0;
+    for (struct dirent *e; (e = readdir(d)); ) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char path[1400];
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
+        if (lstat(path, &st) != 0) continue;
+        if (S_ISREG(st.st_mode)) sum += st.st_size;
+        else if (S_ISDIR(st.st_mode) && depth > 0) sum += folder_bytes(path, depth - 1);
+    }
+    closedir(d);
+    return sum;
+}
+
+static const char *const CACHE_DIRS[] = { "img", "cache", "fontcache", "yt" };
+static const char *const CACHE_FILES[] = { "app.prev.log", "torrentd.log" };
+
+void tidy_usage(const char *data_dir, TidyUsage *out)
+{
+    char path[1100];
+    out->total = folder_bytes(data_dir, 3);
+    out->cache = 0;
+    for (size_t i = 0; i < sizeof CACHE_DIRS / sizeof *CACHE_DIRS; i++) {
+        snprintf(path, sizeof path, "%s/%s", data_dir, CACHE_DIRS[i]);
+        out->cache += folder_bytes(path, 1);
+    }
+    for (size_t i = 0; i < sizeof CACHE_FILES / sizeof *CACHE_FILES; i++) {
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", data_dir, CACHE_FILES[i]);
+        if (stat(path, &st) == 0) out->cache += st.st_size;
+    }
+}
+
+void tidy_clear(const char *data_dir, TidyReport *out)
+{
+    memset(out, 0, sizeof *out);
+    char dir[1100];
+    for (size_t i = 0; i < sizeof CACHE_DIRS / sizeof *CACHE_DIRS; i++) {
+        snprintf(dir, sizeof dir, "%s/%s", data_dir, CACHE_DIRS[i]);
+        int n;
+        Entry *v = list(dir, &n);
+        for (int k = 0; k < n; k++) drop(dir, &v[k], out);
+        free(v);
+    }
+    for (size_t i = 0; i < sizeof CACHE_FILES / sizeof *CACHE_FILES; i++) {
+        char path[1400];
+        struct stat st;
+        snprintf(path, sizeof path, "%s/%s", data_dir, CACHE_FILES[i]);
+        if (stat(path, &st) == 0 && remove(path) == 0) { out->removed++; out->freed += st.st_size; }
     }
 }

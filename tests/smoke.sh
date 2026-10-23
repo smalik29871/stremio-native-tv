@@ -980,6 +980,9 @@ run fs_player_hidden 460 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wai
 run fs_player_subs 620 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait,wait,wait,wait,wait,tap:1488:84,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs3 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 run fs_player_volume 420 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,drag:1500:300:1500:600" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs4 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "player: volume [0-9]*%" "$OUT/fs_player_volume.log" || { echo "sideways, a drag down the right did not change the volume"; exit 1; }
+# Settings > About > Storage: what the app keeps here, and OK clears the cache
+run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:905,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
+grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cache cleared" "$OUT/storage_clear.log" || { echo "Storage did not count or clear the cache"; grep -E "storage|tidy" "$OUT/storage_clear.log"; exit 1; }
 python3 -I - "$OUT" <<'PY'
 import sys, glob, os
 from PIL import Image

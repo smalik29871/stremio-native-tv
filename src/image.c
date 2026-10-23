@@ -47,8 +47,8 @@ typedef struct Img {
     struct Img *qnext;     /* decode/done queues */
 } Img;
 
-enum { BUCKETS = 1024, DISK_CACHE_MAX_BYTES = 96 * 1024 * 1024, DISK_FILE_MAX = 2 * 1024 * 1024 };
-#define DISK_KEEP_FREE (200LL * 1024 * 1024)
+enum { BUCKETS = 1024, DISK_CACHE_MAX_BYTES = 48 * 1024 * 1024, DISK_FILE_MAX = 2 * 1024 * 1024 };
+#define DISK_KEEP_FREE (600LL * 1024 * 1024)   /* room for the TV to install and update apps */
 static Img *g_buckets[BUCKETS];
 static size_t g_total_bytes, g_budget = SNTV_IMAGE_CACHE_BYTES;
 static volatile int g_max_dim = SNTV_IMAGE_MAX_DIM;   /* read by the decoders */

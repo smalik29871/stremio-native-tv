@@ -344,6 +344,10 @@ void player_save_progress(void);
 void player_save_progress_quiet(void);   /* an overlay over the app: saved locally, Trakt not told it stopped */
 /* Clear old caches and unused recordings from the data folder, on a thread (tidy.h). */
 void app_tidy(int delay_ms);   /* now, e.g. as the app goes to the background */
+/* What the app keeps on this device (bytes; -1 until counted) and how much is cache;
+ * app_clear_cache empties the cache on a background thread and counts again. */
+void app_storage(long long *total, long long *cache);
+void app_clear_cache(void);
 double player_resume_point(Screen *s);   /* where it plays from: the position, or (loading, reconnecting) where it is headed */
 void player_reload_at(Screen *s, double position_s, int paused);   /* the same source again from `position_s` (after a break), paused again if it was */
 

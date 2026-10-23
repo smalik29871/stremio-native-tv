@@ -57,7 +57,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_SUBS_COLOUR,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
@@ -161,7 +161,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_ADDONS: ids[n++] = IT_INSTALL; for (int i = 0; i < g_app.n_addons && n < max; i++) ids[n++] = IT_ADDON_BASE + i; break;
     case CAT_ABOUT: SEC(SEC_CUELIGHT); ids[n++] = IT_ABOUT_APP; ids[n++] = IT_WHATSNEW;
-        SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; SEC(SEC_HELP); ids[n++] = IT_DIAG; ids[n++] = IT_SETUP; break;
+        SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; SEC(SEC_HELP); ids[n++] = IT_DIAG; ids[n++] = IT_STORAGE; ids[n++] = IT_SETUP; break;
     }
 #undef SEC
     return n;
@@ -262,6 +262,7 @@ static const char *row_title(int id)
     case IT_FIRE_VIDEO: return "Fireplace video";
     case IT_BLUR: return "Blur unwatched episodes";
     case IT_DIAG: return "Diagnostics";
+    case IT_STORAGE: return "Storage";
     case IT_WHATSNEW: return "What's new";
     case IT_ABOUT_APP: return "About " SNTV_APP_NAME;
     case IT_UPDATE: return "Update";
@@ -275,6 +276,8 @@ static const char *row_title(int id)
 static const char *row_desc(int id)
 {
     switch (id) {
+    case IT_STORAGE: return "Artwork, addon replies and YouTube data kept so screens open faster. Clearing them frees the space for the TV's own apps; "
+                            "they come back as you browse. Your sign-in, settings and Library stay.";
     case IT_ABOUT_APP: return SNTV_APP_NAME " is a fast player made for TVs, written from scratch in C for the TV's own hardware. It plays from addons in the open Stremio addon format, "
                               "has its own catalog of films and series (from TMDB), needs no account, and can sync with Stremio, Trakt and SimKL if you want it to. Not affiliated with Stremio.";
     case IT_WHATSNEW: return "This version's changes, as shown once after it was installed.";
@@ -1059,6 +1062,15 @@ static void draw(Screen *s)
             draw_row(y, ICON_SETTINGS, "Diagnostics", info, foc, KIND_ACTION, 0);
             break;
         }
+        case IT_STORAGE: {   /* what the app keeps here; the cache comes back by itself */
+            long long total, cache;
+            char v[160];
+            app_storage(&total, &cache);
+            if (total < 0) snprintf(v, sizeof v, "Counting\xE2\x80\xA6");
+            else snprintf(v, sizeof v, SNTV_PHONE ? "%lld MB  \xC2\xB7  %lld MB cache" : "%lld MB used here  \xC2\xB7  %lld MB is cache  \xC2\xB7  OK clears it", (total + (1 << 19)) >> 20, (cache + (1 << 19)) >> 20);
+            draw_row(y, ICON_LIBRARY, "Storage", v, foc, KIND_ACTION, 0);
+            break;
+        }
         case IT_ABOUT_APP: draw_row(y, ICON_INFO, "About " SNTV_APP_NAME, "Version " SNTV_APP_VERSION, foc, KIND_ACTION, 0); break;
         case IT_WHATSNEW: draw_row(y, ICON_CHECK, "What's new in " SNTV_APP_VERSION, NULL, foc, KIND_ACTION, 0); break;
         case IT_UPDATE: {
@@ -1730,6 +1742,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));
+        else if (id == IT_STORAGE) app_clear_cache();
         else if (id == IT_WHATSNEW || id == IT_ABOUT_APP) app_push(screen_whatsnew_create(id == IT_ABOUT_APP));
         else if (id == IT_UPDATE) {
             if (g_update_version[0] && g_update_url[0] && g_update_sha256[0]) app_push(screen_update_create(0));
