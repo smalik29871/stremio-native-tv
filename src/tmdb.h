@@ -3,6 +3,7 @@
  * cached on disk; nothing is asked without a key. */
 #ifndef SNTV_TMDB_H
 #define SNTV_TMDB_H
+#include <stddef.h>
 
 typedef struct TmdbCast { char name[64], character[64], photo[320]; int person_id; } TmdbCast;
 typedef struct TmdbInfo {
@@ -23,6 +24,11 @@ typedef struct TmdbCollection { int id, state; char name[96]; TmdbPart parts[16]
 
 int  tmdb_enabled(void);
 int  tmdb_builtin(void);       /* a key was compiled in (CI secret) */
+/* The viewer's key (Settings > API keys), replacing the one in use; NULL or "" removes it. */
+void tmdb_key_set(const char *key);
+/* The key in use copied out, for network threads (0: none). */
+int  tmdb_key_copy(char *buf, size_t n);
+const char *tmdb_api_base(void);
 /* NULL without a key or while nothing is known yet (a lookup starts); the app is
  * redrawn when it arrives. `type` is "movie" or "series". */
 const TmdbInfo *tmdb_get(const char *imdb_id, const char *type);

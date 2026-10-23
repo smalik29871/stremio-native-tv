@@ -334,9 +334,9 @@ static void search_addons(Search *s, const char *q, int pick, int rank, int year
             const AddonCatalog *cat = &g_app.addons[a].manifest.catalogs[c];
             if (addon_catalog_extra(cat, "search") && cat->type && !strcmp(cat->type, kind ? "series" : "movie")) { typed = 1; break; }
         }
-    int only = -1;   /* the assistant's titles: Cinemeta alone knows them all, one request each instead of one per addon */
+    int only = -1;   /* the assistant's titles: the built-in catalog or Cinemeta knows them all, one request each instead of one per addon */
     for (int a = 0; pick && a < g_app.n_addons && only < 0; a++)
-        if (g_app.addons[a].manifest.id && strstr(g_app.addons[a].manifest.id, "cinemeta"))
+        if (addon_is_builtin(g_app.addons[a].transport_url) || (g_app.addons[a].manifest.id && strstr(g_app.addons[a].manifest.id, "cinemeta")))
             for (int c = 0; c < g_app.addons[a].manifest.n_catalogs; c++) if (addon_catalog_extra(&g_app.addons[a].manifest.catalogs[c], "search")) { only = a; break; }
     for (int a = 0; a < g_app.n_addons; a++) {
         const Addon *ad = &g_app.addons[a];

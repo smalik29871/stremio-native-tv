@@ -47,6 +47,12 @@ typedef struct HttpOptions {
 } HttpOptions;
 
 int  http_init(void);          /* 0 on success */
+/* Addresses answered inside the app instead of over the network (cuelight://...): `answer`
+ * runs where the transfer would (a network thread, or the caller's for blocking calls).
+ * Set once at start, before any request. */
+typedef int (*HttpLocalMatch)(const char *url);
+typedef int (*HttpLocalAnswer)(const char *url, HttpResponse *out);
+void http_set_local(HttpLocalMatch handles, HttpLocalAnswer answer);
 void http_shutdown(void);
 
 /* Blocking. Pass post_json == NULL for GET. Caller frees with http_response_free. */

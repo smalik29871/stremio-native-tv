@@ -41,6 +41,7 @@ static Login *g_active;
 
 static void finish_login(Login *l, char *auth_key, const char *email)
 {
+    app_sync_begin();
     free(g_app.auth_key); free(g_app.user_email);
     g_app.auth_key = auth_key;
     g_app.user_email = email ? strdup(email) : NULL;
@@ -340,8 +341,8 @@ static void text(Screen *s, const char *utf8)
 {
     Login *l = s->st;
     if (l->mode != MODE_PASSWORD) return;
+    if (l->focus == F_EMAIL || l->focus == F_PASSWORD) l->editing = l->focus;   /* into the field on focus, not the one edited last */
     keyboard_text_input(&l->kb[l->editing], utf8);
-    if (l->focus == F_EMAIL || l->focus == F_PASSWORD) l->editing = l->focus;
     app_redraw();
 }
 

@@ -33,7 +33,7 @@ void rail_draw(int active, int focus)
     if (!intro_active()) ui_mark(bx, 44, bs);   /* the launch animation is still bringing it here */
     if (open) font_draw(SNTV_APP_NAME, RAIL_W, 44 + (bs - font_height(FONT_M | FONT_ALT)) / 2, FONT_M | FONT_ALT, THEME_TEXT);
 
-    const char *acc = g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Account") : "Sign in";
+    const char *acc = g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Account") : "Stremio sync";
     for (int i = 0; i < RAIL_COUNT; i++) {
         float cy = item_y(i), cx = RAIL_W / 2;
         int foc = focus == i, act = active == i;

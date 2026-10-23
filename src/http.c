@@ -165,9 +165,14 @@ int http_online(void)
     return g_net_fail < 3 || SDL_GetTicks() - g_last_ok < 15000;
 }
 
+static HttpLocalMatch g_local_handles;
+static HttpLocalAnswer g_local_answer;
+void http_set_local(HttpLocalMatch handles, HttpLocalAnswer answer) { g_local_handles = handles; g_local_answer = answer; }
+
 static int request_with(CURL *h, const char *url, const char *post_json, const HttpOptions *opt, HttpResponse *out)
 {
     memset(out, 0, sizeof *out);
+    if (g_local_handles && g_local_handles(url)) return g_local_answer(url, out);   /* answered in the app (the built-in catalog) */
     C.easy_reset(h);
 
     Buf b = {0};

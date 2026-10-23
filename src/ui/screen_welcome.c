@@ -54,8 +54,9 @@ static const char *option_label(int step, int i, const char **hint)
         *hint = "True black for OLED TVs";
         return "Pure black";
     default:
-        if (!i) { *hint = "Scan a code with your phone; syncs your library and addons"; return "Sign in with a QR code"; }
-        return "Not now";
+        if (!i) { *hint = "Your addons, Library and progress stay on this TV"; return "Use Cuelight on its own"; }
+        *hint = "Scan a code with your phone; uses your Stremio account's addons and Library";
+        return "Sync with a Stremio account";
     }
 }
 
@@ -109,7 +110,7 @@ static void choose(Welcome *w)
     case ST_SKIP: g_app.skip_mode = i; break;
     case ST_NEXT: g_app.autoplay_next = i == 0; break;
     case ST_LOOK: g_app.oled = i == 1; break;
-    case ST_ACCOUNT: w->sign_in = i == 0; break;
+    case ST_ACCOUNT: w->sign_in = i == 1; break;
     }
     int next = w->step + 1;
     while (next < ST_COUNT && !step_applies(next)) next++;
@@ -131,7 +132,7 @@ static void draw(Screen *s)
     Welcome *w = s->st;
     static const char *TITLES[ST_COUNT] = {
         "Which audio language do you prefer?", "Subtitles in which language?", "When should subtitles turn on?",
-        "Intros and recaps", "When an episode ends", "Pick a background", "Sign in to Stremio?" };
+        "Intros and recaps", "When an episode ends", "Pick a background", "Your addons and Library" };
     static const char *BODY[ST_COUNT] = {
         "Picked automatically when a stream has several audio tracks. Anything you choose in the player is remembered per series.",
         "From the file itself or from your subtitle addons, whichever has your language.",
@@ -139,7 +140,7 @@ static void draw(Screen *s)
         "Timings come from TheIntroDB and AniSkip, free community databases.",
         "The Up Next card appears when the credits start.",
         "Pure black saves power and looks deeper on OLED panels.",
-        "Optional. Without an account you can still browse and play with the built-in addons." };
+        "Cuelight needs no account. Sync only if you already use Stremio elsewhere and want the same addons and Library here; you can change this in Settings." };
     ui_background(0);
     float x = THEME_MARGIN + 20;
     ui_brand(x, 110, 46);

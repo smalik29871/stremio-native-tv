@@ -276,6 +276,8 @@ void addon_free(Addon *a)
 /* ---- capability checks --------------------------------------------------- */
 
 /* Stremio's first addon protocol: an endpoint ending ".../stremio/v1", no manifest.json */
+int addon_is_builtin(const char *transport_url) { return transport_url && !strncmp(transport_url, "cuelight://", 11); }
+
 int addon_is_legacy(const char *transport_url)
 {
     size_t n = transport_url ? strlen(transport_url) : 0;

@@ -267,6 +267,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": answer}}]}).encode())
         # an account whose addons an old version saved with partial manifests (key "brokenkey"),
         # until a whole collection is saved back
+        if p == "/api/login":   # any e-mail and password: the test account
+            return self.send(200, json.dumps({"result": {"authKey": "testkey", "user": {"email": "sam.rivera@example.com"}}}).encode())
         if p == "/api/addonCollectionSet":
             req = json.loads(body.decode("utf-8") or "{}")
             need = ("id", "name", "version", "description", "resources", "types", "catalogs")
@@ -812,6 +814,38 @@ class H(BaseHTTPRequestHandler):
                      {"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png"},
                      {"id": 2, "title": "Fake Saga: Again", "release_date": "2011-07-01", "poster_path": "/p1.png"}]
             return self.send(200, json.dumps({"id": 10, "name": "Fake Saga Collection", "parts": parts}).encode(), "application/json")
+        # the built-in catalog (cuelight://catalog) asks these: lists, searches, a film's and a series' details
+        TM_MOVIES = [{"id": 1, "title": "Fake Saga", "release_date": "2008-03-01", "poster_path": "/p0.png", "backdrop_path": "/b0.png", "overview": "The first one.", "genre_ids": [28, 12]},
+                     {"id": 2, "title": "Fake Saga: Again", "release_date": "2011-07-01", "poster_path": "/p1.png", "backdrop_path": "/b1.png", "overview": "The second one.", "genre_ids": [28]},
+                     {"id": 3, "title": "Quiet Harbour", "release_date": "2019-09-12", "poster_path": "/p2.png", "backdrop_path": "/b2.png", "overview": "A drama by the sea.", "genre_ids": [18]}]
+        TM_SHOWS = [{"id": 7, "name": "Breaking Bad", "first_air_date": "2008-01-20", "poster_path": "/p3.png", "backdrop_path": "/b3.png", "overview": "A teacher turns.", "genre_ids": [18, 80]}]
+        if (p.startswith("/tmdb/3/discover/") and ("vote_count.gte=200" in p or "vote_count.gte=100" in p)) or p.startswith("/tmdb/3/trending/"):
+            tv = "/tv" in p.split("?")[0]
+            res = TM_SHOWS if tv else TM_MOVIES
+            if "with_genres=18" in p: res = [m for m in res if 18 in m["genre_ids"]]
+            if "page=1" not in p: res = []
+            return self.send(200, json.dumps({"page": 1, "results": res}).encode(), "application/json")
+        if p.startswith("/tmdb/3/search/movie") or p.startswith("/tmdb/3/search/tv"):
+            from urllib.parse import unquote
+            q = unquote(p.split("query=")[1].split("&")[0]).lower()
+            res = [m for m in (TM_SHOWS if "/search/tv" in p else TM_MOVIES) if q in (m.get("title") or m.get("name")).lower()]
+            return self.send(200, json.dumps({"page": 1, "results": res}).encode(), "application/json")
+        if p.startswith("/tmdb/3/tv/1?") and "season/" in p:
+            body = {}
+            for sn in (1, 2):
+                body[f"season/{sn}"] = {"episodes": [{"episode_number": e, "name": f"Episode {e} of season {sn}", "air_date": f"20{8 + sn:02d}-01-{e:02d}", "still_path": f"/s{e}.png", "overview": "Something happens."} for e in (1, 2, 3)]}
+            return self.send(200, json.dumps(body).encode(), "application/json")
+        if p.startswith("/tmdb/3/tv/1?") and "aggregate_credits,videos,images" in p:
+            cast = [{"name": "Bryan Cranston", "roles": [{"character": "Walter White"}], "profile_path": "/p0.png"}, {"name": "Aaron Paul", "roles": [{"character": "Jesse Pinkman"}], "profile_path": "/p1.png"}]
+            return self.send(200, json.dumps(dict(TM_SHOWS[0], id=1, status="Ended", last_air_date="2013-09-29", episode_run_time=[47], genres=[{"name": "Drama"}, {"name": "Crime"}],
+                created_by=[{"name": "Vince Gilligan"}], production_countries=[{"name": "United States of America"}], seasons=[{"season_number": 1}, {"season_number": 2}],
+                aggregate_credits={"cast": cast}, videos={"results": [{"site": "YouTube", "type": "Trailer", "key": "dQw4w9WgXcQ", "official": True}]}, images={"logos": []})).encode(), "application/json")
+        if p.startswith("/tmdb/3/movie/") and "append_to_response=credits,videos,images" in p:
+            n = int(p.split("/movie/")[1].split("?")[0])
+            m = next((x for x in TM_MOVIES if x["id"] == n), TM_MOVIES[0])
+            return self.send(200, json.dumps(dict(m, runtime=101, genres=[{"name": "Action"}], production_countries=[{"name": "United States of America"}],
+                credits={"cast": [{"name": "Tim Robbins", "character": "Andy Dufresne", "profile_path": "/p0.png"}], "crew": [{"job": "Director", "name": "Frank Darabont"}, {"job": "Screenplay", "name": "Frank Darabont"}]},
+                videos={"results": [{"site": "YouTube", "type": "Trailer", "key": "dQw4w9WgXcQ", "official": True}]}, images={"logos": [{"iso_639_1": "en", "file_path": "/logo.png"}]})).encode(), "application/json")
         if p.startswith("/tmdb/3/discover/"):   # titles for filters: only a Hindi comedy of the 90s asked for in full gets any
             ok = all(k in p for k in ("with_original_language=hi", "with_origin_country=IN", "with_genres=35", "primary_release_date.gte=1990-01-01", "primary_release_date.lte=1999-12-31"))
             res = [{"id": 4, "title": "Fake Hindi Comedy", "release_date": "1997-05-01", "poster_path": "/p3.png"},

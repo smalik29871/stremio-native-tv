@@ -188,7 +188,8 @@ int  app_home_rows(HomeRowDef *out, int max);   /* ordered; hidden ones flagged 
 void app_home_row_move(const char *key, int dir);
 void app_home_row_toggle(const char *key);
 void app_login(const char *email, const char *password, void (*done)(int ok, const char *msg));
-void app_logout(void);
+void app_logout(void);      /* stops syncing with Stremio: addons, library and lists stay on this TV */
+void app_sync_begin(void);  /* about to sign in: this TV's own addons join the account once its list arrives */
 void app_load_library(void);
 LibraryItem *app_library_find(const char *id);
 /* Records playback progress locally and (when logged in) pushes it to the account. */

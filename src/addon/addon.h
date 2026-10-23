@@ -55,6 +55,9 @@ typedef struct Addon {
  * (id, name, version, types, resources) */
 int addon_manifest_complete(const struct cJSON *manifest);
 int addon_is_legacy(const char *transport_url);
+/* Cuelight's own catalog (cuelight://...): answered inside the app, never saved to a Stremio account */
+#define ADDON_BUILTIN_CATALOG "cuelight://catalog/manifest.json"
+int addon_is_builtin(const char *transport_url);
 /* Sets `key` on an object, replacing what was there (cJSON_Add* would add a second one) */
 void addon_json_put(struct cJSON *obj, const char *key, struct cJSON *value);
 /* Writes the optional fields older apps expect (description, catalogs) when missing */

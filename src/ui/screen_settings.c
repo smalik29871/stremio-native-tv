@@ -41,7 +41,7 @@
 enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_BREAKS, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_KEYS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
 static const char *const CAT_NAMES[CAT_COUNT] = { "Account", "Playback", "Take breaks", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "API keys", "Parental", "About" };
 static const char *const CAT_DESC[CAT_COUNT] = {
-    "Your Stremio account and the streaming server for torrents.",
+    "Optional sync with a Stremio account, and the streaming server for torrents.",
     "What happens while a video plays.",
     "Pause for what matters: prayer times computed for your place, a stretch, bedtime, or your own times. A banner warns first; playback continues by itself.",
     "Preferred languages and how subtitles look.",
@@ -63,7 +63,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
        SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_COUNT };
-static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio account", "Torrents", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
+static const char *const SEC_NAMES[SEC_COUNT] = { "Stremio sync", "Torrents", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
     "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
@@ -164,7 +164,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
 static const char *row_title(int id)
 {
     switch (id) {
-    case IT_ACCOUNT: return "Stremio account: sign in or out";
+    case IT_ACCOUNT: return "Sync with Stremio";
     case IT_SERVER: return "Streaming server";
     case IT_PREF_AUDIO: return "Preferred audio";
     case IT_PREF_SUBS: return "Preferred subtitles";
@@ -265,6 +265,12 @@ static const char *row_title(int id)
 static const char *row_desc(int id)
 {
     switch (id) {
+    case IT_ACCOUNT: if (g_app.auth_key) {
+            static char d[300];
+            snprintf(d, sizeof d, "Signed in as %s. Your addons, Library and Continue Watching follow that account; turning it off keeps them all on this TV.", g_app.user_email ? g_app.user_email : "your account");
+            return d;
+        }
+        return "Cuelight keeps your addons, Library and progress on this TV. Turn on to use a Stremio account's instead (they join yours).";
     case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
     case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
     case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
@@ -725,7 +731,7 @@ static void draw(Screen *s)
         char mem[160]; mem_describe(mem, sizeof mem);
         snprintf(info, sizeof info, SNTV_APP_NAME " %s  \xC2\xB7  %s  \xC2\xB7  %zu MB artwork in memory  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name(), image_cache_bytes() >> 20, mem);
         font_draw_fit(info, s_x, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
-        font_draw_fit(SNTV_APP_NAME " works with your Stremio account and addons; it is not affiliated with or endorsed by Stremio.", s_x, SNTV_UI_H - 140, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
+        font_draw_fit(SNTV_APP_NAME " works with addons in the open Stremio addon format and can sync with a Stremio account; it is not affiliated with or endorsed by Stremio.", s_x, SNTV_UI_H - 140, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
         char tv[300];
         if (g_update_version[0]) snprintf(tv, sizeof tv, app_update_installs_here() ? "Version %s is available: Update above installs it" : "Version %s is available: Update above shows how", g_update_version);
         else snprintf(tv, sizeof tv, "TV profile: %s", "learned from what played here; Diagnostics shows it");
@@ -753,8 +759,7 @@ static void draw(Screen *s)
         s_chevron = !(id >= IT_ADDON_BASE && id < IT_ACCT_BASE);
         switch (id) {
         case IT_ACCOUNT:
-            draw_row(y, ICON_USER, g_app.auth_key ? "Sign out" : "Sign in to Stremio",
-                     g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Signed in") : "Sync addons, Library and Continue Watching", foc, KIND_ACTION, 0);
+            draw_row(y, ICON_USER, "Sync with Stremio", NULL, foc, KIND_TOGGLE, g_app.auth_key != NULL);
             break;
         case IT_SERVER:
             draw_row(y, ICON_LINK, "Streaming server", g_app.streaming_server && *g_app.streaming_server ? g_app.streaming_server : "Not set  \xC2\xB7  needed for torrents", foc, KIND_ACTION, 0);
@@ -1340,8 +1345,7 @@ static void finish_edit(Settings *st, int save)
             while (*v == ' ') v++;
             size_t n = strlen(v);
             while (n && v[n - 1] == ' ') v[--n] = 0;
-            free(g_app.tmdb_key);
-            g_app.tmdb_key = n >= 20 ? strdup(v) : NULL;
+            tmdb_key_set(n >= 20 ? v : NULL);
             app_save_prefs();
             app_toast(g_app.tmdb_key ? "TMDB key saved: cast photos and age ratings on" : n ? "That does not look like a TMDB key" : "TMDB key removed");
         } else if (st->edit == EDIT_AI_KEY || st->edit == EDIT_AI_BASE || st->edit == EDIT_AI_MODEL) {
@@ -1584,7 +1588,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_RIGHT: adjust(st, id, 1); return 1;
     case KEY_BACK: st->cat_focus[st->cat] = st->focus; st->zone = 0; st->confirm_remove = -1; return 1;
     case KEY_OK:
-        if (id == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Signed out"); } else app_push(screen_login_create()); }
+        if (id == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Stopped syncing. Your addons and Library stay on this TV."); } else app_push(screen_login_create()); }
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));

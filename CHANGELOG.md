@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Cuelight no longer needs Stremio's servers.** A built-in catalog (films and series from
+  TMDB: Popular and Trending rows, genres, search, full title pages with seasons, episodes,
+  cast and trailers) takes Cinemeta's place. It uses IMDb ids, so every stream and subtitle
+  addon finds the same titles. It needs a TMDB key (built into a release when the
+  `TMDB_API_KEY` secret is set, or your own in Settings > API keys); without one, Cinemeta
+  stays.
+- **Stremio sync is optional** (Settings > Account > Sync with Stremio). With it off, your
+  addons, Library and progress live on this TV. Turning it off keeps everything (it used to
+  wipe the Library); turning it on adds this TV's own addons to the account. First-run setup
+  now starts with "Use Cuelight on its own".
+- Sign-in: text typed on a real keyboard goes into the field that has the focus.
+
 ## 0.10.58
 
 - The releases repository is now **cuelight-releases**. TVs that added the old address keep

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <SDL.h>
 
 enum { SLOTS = 24 };
 typedef struct { char imdb[24]; char type[12]; TmdbInfo info; unsigned stamp; int tmdb_id; } Slot;
@@ -15,6 +16,8 @@ static unsigned g_clock;
 
 static const char *api_base(void) { const char *e = getenv("SNTV_TMDB_API"); return e && *e ? e : "https://api.themoviedb.org/3"; }
 static const char *img_base(void) { const char *e = getenv("SNTV_TMDB_IMG"); return e && *e ? e : "https://image.tmdb.org/t/p/w185"; }
+
+static SDL_SpinLock g_key_lock;   /* the catalog reads the key on network threads */
 
 static const char *api_key(void)
 {
@@ -26,6 +29,26 @@ static const char *api_key(void)
 #endif
 }
 int tmdb_enabled(void) { return api_key() != NULL; }
+
+void tmdb_key_set(const char *key)
+{
+    char *k = key && *key ? strdup(key) : NULL, *old;
+    SDL_AtomicLock(&g_key_lock);
+    old = g_app.tmdb_key; g_app.tmdb_key = k;
+    SDL_AtomicUnlock(&g_key_lock);
+    free(old);
+}
+
+int tmdb_key_copy(char *buf, size_t n)
+{
+    SDL_AtomicLock(&g_key_lock);
+    const char *k = api_key();
+    snprintf(buf, n, "%s", k ? k : "");
+    SDL_AtomicUnlock(&g_key_lock);
+    return buf[0] != 0;
+}
+
+const char *tmdb_api_base(void) { return api_base(); }
 int tmdb_builtin(void) {
 #ifdef SNTV_TMDB_BUILTIN_KEY
     return 1;

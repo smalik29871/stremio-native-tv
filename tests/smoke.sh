@@ -343,6 +343,36 @@ grep -q "search: typing with the TV's keyboard" "$OUT/search_tv_keyboard.log" &&
 run search_recent_late 2800 "search,ok,t:shawshank,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,back,back,wait,wait,search,wait,wait,down,wait" HOME="$(home_with recentlate '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/slowsearch/manifest.json
 grep -qE '"recentSearches":[[:space:]]*\["shawshank"\]' "$OUT/home_recentlate/.local/share/stremio/nativetv/settings.json" \
   || { echo "a search with late results was not kept in the recent searches"; grep -o '"recentSearches":[^]]*]' "$OUT/home_recentlate/.local/share/stremio/nativetv/settings.json"; exit 1; }
+# Cuelight's own catalog (TMDB, answered inside the app): Home's rows, a film's and a series' pages, search
+TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
+CAT="SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg SNTV_DEFAULT_ADDONS=cuelight://catalog/manifest.json,http://127.0.0.1:$PORT/manifest.json"
+run catalog_home 260 "wait,wait,wait" HOME="$(home_with cathome "$TK")" $CAT
+grep -q "catalog: movie popular page 1 -> 3 titles" "$OUT/catalog_home.log" && grep -q "catalog: series trending page 1 -> 1 titles" "$OUT/catalog_home.log" \
+  || { echo "the built-in catalog did not fill Home"; grep -E "catalog|addons" "$OUT/catalog_home.log"; exit 1; }
+run catalog_movie 300 "wait,wait,ok,wait,wait,wait" HOME="$(home_with catm "$TK")" $CAT
+grep -q "catalog: movie tt1001 -> Fake Saga, trailer, 1 cast, 0 episodes" "$OUT/catalog_movie.log" \
+  || { echo "the built-in catalog did not give a film's details"; grep -E "catalog|detail" "$OUT/catalog_movie.log"; exit 1; }
+run catalog_series 340 "wait,wait,down,ok,wait,wait,wait,down" HOME="$(home_with cats "$TK")" $CAT
+grep -q "catalog: series tt0903747 -> Breaking Bad, trailer, 2 cast, 6 episodes" "$OUT/catalog_series.log" \
+  || { echo "the built-in catalog did not give a series' seasons"; grep -E "catalog|detail" "$OUT/catalog_series.log"; exit 1; }
+run catalog_search 400 "search,t:saga,wait,wait,wait,wait,wait,wait" HOME="$(home_with catq "$TK")" $CAT
+grep -q 'search: "Fake Saga" first of 2' "$OUT/catalog_search.log" \
+  || { echo "the built-in catalog did not search"; grep -E "catalog|search" "$OUT/catalog_search.log"; exit 1; }
+# Stremio sync is optional. Turning it off keeps the account's addons and library on the TV
+SIGNED='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey","email":"sam.rivera@example.com"}'
+SS="$(home_with p2stop "$SIGNED")"
+run sync_stop 420 "left,down,down,down,down,down,ok,right,ok,wait,wait,wait" HOME="$SS" SNTV_API_URL=http://127.0.0.1:$PORT
+grep -q "account: stopped syncing; 1 addons and 2 library items stay on this TV" "$OUT/sync_stop.log" \
+  && python3 -I -c "import json,sys; s=json.load(open(sys.argv[1])); l=json.load(open(sys.argv[2])); sys.exit(0 if s.get('localAddons')==['http://127.0.0.1:$PORT/manifest.json'] and 'authKey' not in s and len(l['result'])==2 else 1)" \
+     "$SS/.local/share/stremio/nativetv/settings.json" "$SS/.local/share/stremio/nativetv/library.json" \
+  || { echo "turning Stremio sync off lost the addons or the library"; grep -E "account|library|addons" "$OUT/sync_stop.log"; exit 1; }
+# ...the TV keeps its own list (one addon down at this start stays on it), and signing in adds this TV's addons to the account
+LOCAL='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"localAddons":["http://127.0.0.1:'$PORT'/noisy/manifest.json","http://127.0.0.1:'$PORT'/manifest.json","http://127.0.0.1:1/gone/manifest.json"]}'
+run sync_local 240 "wait,wait" HOME="$(home_with p2local "$LOCAL")" SNTV_DEFAULT_ADDONS=
+grep -q "addons: 2 loaded" "$OUT/sync_local.log" || { echo "the addons kept on this TV did not load"; grep addons "$OUT/sync_local.log"; exit 1; }
+run sync_start 700 "left,down,down,down,down,down,down,ok,wait,ok,t:sam@example.com,down,t:secret,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with p2merge "$LOCAL")" SNTV_DEFAULT_ADDONS= SNTV_API_URL=http://127.0.0.1:$PORT
+grep -q "account: 3 addons from this TV will join the account" "$OUT/sync_start.log" && grep -q "toast: Installed Fake Addon" "$OUT/sync_start.log" \
+  || { echo "signing in did not bring this TV's addons into the account"; grep -E "account|addons|toast" "$OUT/sync_start.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
 run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
 # Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it

@@ -419,12 +419,13 @@ static void fetch_meta(Detail *d)
         d->meta_wait = 1; d->addons_seen = g_app.addons_version; d->loading = 1;
         LOGI("detail: no addon for %s yet (%d loaded%s); waiting", d->preview.id, g_app.n_addons, g_app.addons_loading ? ", loading" : "");
     }
-    if (!strncmp(d->preview.id, "tt", 2) && d->preview.type) {   /* Cinemeta knows every IMDb title: details still show */
+    if (!strncmp(d->preview.id, "tt", 2) && d->preview.type) {   /* every IMDb title is known there: details still show */
         char url[512];
-        snprintf(url, sizeof url, "https://v3-cinemeta.strem.io/meta/%s/%s.json", d->preview.type, d->preview.id);
+        int own = tmdb_enabled();   /* the built-in catalog (TMDB), else Cinemeta */
+        snprintf(url, sizeof url, own ? "cuelight://catalog/meta/%s/%s.json" : "https://v3-cinemeta.strem.io/meta/%s/%s.json", d->preview.type, d->preview.id);
         d->loading = 1;
         d->req = http_request_async(url, NULL, on_meta, d);
-        LOGI("detail: no installed addon for %s's details; asking Cinemeta", d->preview.id);
+        LOGI("detail: no installed addon for %s's details; asking %s", d->preview.id, own ? "the built-in catalog" : "Cinemeta");
         return;
     }
     if (!d->meta_wait) snprintf(d->error, sizeof d->error, "No installed addon provides details for this title");

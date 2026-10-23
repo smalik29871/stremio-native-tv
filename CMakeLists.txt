@@ -62,6 +62,7 @@ add_library(sntv_core STATIC
   src/trackmem.c
   src/lists.c
   src/addon/addon.c
+  src/addon/catalog.c
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
 target_link_libraries(sntv_core PUBLIC quickjs)

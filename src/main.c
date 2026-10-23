@@ -7,6 +7,7 @@
 #include "ui/intro.h"
 #include "ui/bgtrailer.h"
 #include "http.h"
+#include "addon/catalog.h"
 #include "tracking.h"
 #include "perfstat.h"
 #include "relay.h"
@@ -435,6 +436,7 @@ int main(int argc, char **argv)
     theme_apply(theme, store_get_int("themeAccent", 0), store_get_int("themeBg", 0));
     /* the network and the artwork loader first: what Home showed last time is read from
      * the disk cache and decoded on its threads while the fonts load */
+    http_set_local(catalog_handles, catalog_answer);   /* the built-in TMDB catalog */
     if (http_init() != 0) LOGE("network unavailable: libcurl missing");
     if (getenv("SNTV_HTTP_PROBE")) {   /* test hook: a 64 KB range request, as the source checks make */
         HttpOptions po = { .range_bytes = 65536, .timeout_s = 20, .no_json_accept = 1 };

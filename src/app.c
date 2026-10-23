@@ -12,6 +12,7 @@
 #include "tracking.h"
 #include "log.h"
 #include "store.h"
+#include "tmdb.h"
 #include "image.h"
 #include "ui/clockface.h"
 #include "ui/font.h"
@@ -475,6 +476,42 @@ static int repair_collection(const char *json)
 static float g_addons_retry_in = -1;
 static int g_addons_tries;
 
+/* Addons that did not answer at this start: still on the list this TV keeps (an addon
+ * down for an hour is not uninstalled by the next change to the list) */
+enum { UNLOADED_MAX = 32 };
+static char *g_unloaded[UNLOADED_MAX]; static int g_n_unloaded;
+static void unloaded_add(const char *url) { if (g_n_unloaded < UNLOADED_MAX) g_unloaded[g_n_unloaded++] = strdup(url); }
+static void unloaded_clear(void) { while (g_n_unloaded) free(g_unloaded[--g_n_unloaded]); }
+
+/* Signing in after using this TV on its own: the addons installed here join the account's
+ * once its list arrives (the built-in catalog stays out: no other app could read it). */
+enum { DEFAULTS_MAX_MERGE = 32 };
+static char *g_merge[DEFAULTS_MAX_MERGE]; static int g_n_merge;
+
+void app_sync_begin(void)
+{
+    while (g_n_merge) free(g_merge[--g_n_merge]);
+    if (g_app.auth_key) return;   /* one account to another: nothing of this TV's own */
+    for (int i = 0; i < g_app.n_addons && g_n_merge < DEFAULTS_MAX_MERGE; i++) {
+        const char *u = g_app.addons[i].transport_url;
+        if (addon_is_builtin(u) || !strcmp(u, STREMIO_CINEMETA_URL) || !strcmp(u, STREMIO_OPENSUBS_URL)) continue;
+        g_merge[g_n_merge++] = strdup(u);
+    }
+    for (int i = 0; i < g_n_unloaded && g_n_merge < DEFAULTS_MAX_MERGE; i++) g_merge[g_n_merge++] = strdup(g_unloaded[i]);   /* down right now, still this TV's */
+    if (g_n_merge) LOGI("account: %d addon%s from this TV will join the account", g_n_merge, g_n_merge == 1 ? "" : "s");
+}
+
+static void merge_into_account(void)
+{
+    for (int m = 0; m < g_n_merge; m++) {
+        int have = 0;
+        for (int i = 0; i < g_app.n_addons; i++) if (!strcmp(g_app.addons[i].transport_url, g_merge[m])) have = 1;
+        if (!have) app_install_addon(g_merge[m]);   /* fetches it and saves the account's list */
+        free(g_merge[m]);
+    }
+    g_n_merge = 0;
+}
+
 static void on_collection(HttpResponse *r, void *user)
 {
     if ((uintptr_t)user != g_account_gen) { LOGI("addons: a reply for the previous account, dropped"); return; }
@@ -490,10 +527,12 @@ static void on_collection(HttpResponse *r, void *user)
     g_addons_tries = 0;
     if (r->body && repair_collection(r->body)) return;   /* applied once every manifest is back */
     apply_collection_json(r->body, 0);
+    merge_into_account();
 }
 
-/* Default (logged-out) addons: fetch each manifest, assemble a collection in the
- * listed order, whichever answers first (Home's rows and the Sources tabs follow it). */
+/* With no Stremio sync, the addons live on this TV (store "localAddons": every address,
+ * in order). Their manifests are fetched at each start and assembled in that order,
+ * whichever answers first (Home's rows and the Sources tabs follow it). */
 enum { DEFAULTS_MAX = 64 };
 typedef struct { int remaining, n; cJSON *slot[DEFAULTS_MAX]; } DefaultsCtx;
 typedef struct { DefaultsCtx *ctx; int i; char *url; } DefaultReq;
@@ -508,11 +547,12 @@ static void on_default_manifest(HttpResponse *r, void *user)
         cJSON_AddStringToObject(d, "transportUrl", q->url);
         cJSON_AddItemToObject(d, "manifest", m);
         cJSON *f = cJSON_AddObjectToObject(d, "flags");
-        cJSON_AddBoolToObject(f, "official", 1);
-        cJSON_AddBoolToObject(f, "protected", 1);
+        cJSON_AddBoolToObject(f, "official", addon_is_builtin(q->url));
+        cJSON_AddBoolToObject(f, "protected", addon_is_builtin(q->url));   /* the built-in catalog stays; any other can go */
         ctx->slot[q->i] = d;
     } else {
         LOGW("addons: default manifest %s failed (%ld %s)", q->url, r->status, r->error);
+        unloaded_add(q->url);
     }
     free(q->url);
     free(q);
@@ -549,14 +589,24 @@ static void load_default_addons(void)
         copy = strdup(override);
         for (char *tok = strtok(copy, ","); tok && n < DEFAULTS_MAX; tok = strtok(NULL, ",")) urls[n++] = tok;
     } else {
-        for (int i = 0; STREMIO_DEFAULT_ADDON_URLS[i] && n < DEFAULTS_MAX; i++) urls[n++] = STREMIO_DEFAULT_ADDON_URLS[i];
-        /* Keep user-installed addons from a previous logged-out session. */
-        cJSON *extra = store_get_json("local_addons");
-        for (int i = 0; cJSON_IsArray(extra) && i < cJSON_GetArraySize(extra) && n < DEFAULTS_MAX; i++) {
-            cJSON *e = cJSON_GetArrayItem(extra, i);
-            if (cJSON_IsString(e)) urls[n++] = e->valuestring;
+        const char *catalog = tmdb_enabled() ? ADDON_BUILTIN_CATALOG : STREMIO_CINEMETA_URL;   /* TMDB needs a key: Cinemeta stands in */
+        cJSON *mine = store_get_json("localAddons"), *e;
+        if (cJSON_IsArray(mine) && cJSON_GetArraySize(mine) > 0) {
+            cJSON_ArrayForEach(e, mine) {
+                if (!cJSON_IsString(e) || n >= DEFAULTS_MAX) continue;
+                const char *u = addon_is_builtin(e->valuestring) ? catalog : e->valuestring;
+                int dup = 0;
+                for (int k = 0; k < n; k++) if (!strcmp(urls[k], u)) dup = 1;
+                if (!dup) urls[n++] = u;
+            }
+        } else {   /* the first start, or one from before this TV kept the whole list */
+            urls[n++] = catalog;
+            urls[n++] = STREMIO_OPENSUBS_URL;
+            cJSON *extra = store_get_json("local_addons");   /* addons installed then: added to the defaults */
+            cJSON_ArrayForEach(e, extra) if (cJSON_IsString(e) && n < DEFAULTS_MAX) urls[n++] = e->valuestring;
         }
     }
+    unloaded_clear();
     if (!n) { free(copy); free(ctx); g_app.addons_loading = 0; return; }
     ctx->remaining = n;   /* all counted before the first answer can land */
     for (int i = 0; i < n; i++) request_default(ctx, urls[i]);
@@ -592,13 +642,14 @@ static void push_collection_to_account(void)
 static void persist_local_addon_urls(void)
 {
     cJSON *arr = cJSON_CreateArray();
-    for (int i = 0; i < g_app.n_addons; i++) {
-        int is_default = 0;
-        for (int d = 0; STREMIO_DEFAULT_ADDON_URLS[d]; d++)
-            if (strcmp(STREMIO_DEFAULT_ADDON_URLS[d], g_app.addons[i].transport_url) == 0) is_default = 1;
-        if (!is_default) cJSON_AddItemToArray(arr, cJSON_CreateString(g_app.addons[i].transport_url));
+    for (int i = 0; i < g_app.n_addons; i++) cJSON_AddItemToArray(arr, cJSON_CreateString(g_app.addons[i].transport_url));
+    for (int i = 0; i < g_n_unloaded; i++) {   /* down at this start, not removed */
+        int have = 0;
+        for (int k = 0; k < g_app.n_addons; k++) if (!strcmp(g_app.addons[k].transport_url, g_unloaded[i])) have = 1;
+        if (!have) cJSON_AddItemToArray(arr, cJSON_CreateString(g_unloaded[i]));
     }
-    store_set_json("local_addons", arr);
+    store_set_json("localAddons", arr);
+    store_set_json("local_addons", NULL);
     store_save();
 }
 
@@ -870,6 +921,7 @@ static void on_login(HttpResponse *r, void *user)
     if (r->status == 0) { if (g_login_done) g_login_done(0, r->error); return; }
     int rc = api_parse_auth(r->body, &key, &email, &err);
     if (rc != 0) { if (g_login_done) g_login_done(0, err.message); return; }
+    app_sync_begin();
     free(g_app.auth_key); free(g_app.user_email);
     g_app.auth_key = key;
     g_app.user_email = email;
@@ -892,12 +944,33 @@ void app_login(const char *email, const char *password, void (*done)(int, const 
     free(body);
 }
 
+static void save_library_cache(void);
+
+/* Stops syncing with Stremio; nothing is lost. The account's addons stay on this TV (its
+ * Cinemeta becomes the built-in catalog when TMDB is on), and so do the library, progress
+ * and lists, kept here from now on. */
 void app_logout(void)
 {
     if (g_app.auth_key) {
         char *body = api_body_logout(g_app.auth_key);
         http_request_async(api_url_logout(), body, NULL, NULL);
         free(body);
+        if (g_app.n_addons) {
+            cJSON *arr = cJSON_CreateArray(), *e;
+            for (int i = 0; i < g_app.n_addons; i++) {
+                const char *u = g_app.addons[i].transport_url;
+                if (!strcmp(u, STREMIO_CINEMETA_URL) && tmdb_enabled()) u = ADDON_BUILTIN_CATALOG;
+                int dup = 0;
+                cJSON_ArrayForEach(e, arr) if (!strcmp(e->valuestring, u)) dup = 1;
+                if (!dup) cJSON_AddItemToArray(arr, cJSON_CreateString(u));
+            }
+            store_set_json("localAddons", arr);
+        }
+        char key[200];
+        snprintf(key, sizeof key, "lists:%s", g_app.user_email ? g_app.user_email : "");
+        cJSON *theirs = store_get_json(key);
+        if (cJSON_IsObject(theirs)) store_set_json("lists", cJSON_Duplicate(theirs, 1));
+        LOGI("account: stopped syncing; %d addons and %d library items stay on this TV", g_app.n_addons, g_app.n_library);
     }
     free(g_app.auth_key); free(g_app.user_email);
     g_app.auth_key = g_app.user_email = NULL;
@@ -906,10 +979,8 @@ void app_logout(void)
     store_set_str("authKey", NULL);
     store_set_str("email", NULL);
     store_save();
-    library_items_free(g_app.library, g_app.n_library);
-    g_app.library = NULL; g_app.n_library = 0;
-    g_app.library_version++;
-    store_write_file("library.json", "{\"result\":[]}", 13);
+    save_library_cache();   /* the library on the TV is the only copy now */
+    app_library_flush(1);
     app_load_addons();
 }
 
@@ -1793,7 +1864,7 @@ static void load_prefs(void)
     g_app.ask_profile = store_get_int("askProfile", 1);
     g_app.hide_adult = store_get_int("hideAdult", 0);
     { const char *t = store_get_str("thumbServer", NULL); free(g_app.thumb_server); g_app.thumb_server = t && *t ? strdup(t) : NULL; }
-    { const char *t = store_get_str("tmdbKey", NULL); free(g_app.tmdb_key); g_app.tmdb_key = t && *t ? strdup(t) : NULL; }
+    tmdb_key_set(store_get_str("tmdbKey", NULL));
     g_app.ai_provider = store_get_int("aiProvider", 0);
     { const char *t = store_get_str("aiKey", NULL); free(g_app.ai_key); g_app.ai_key = t && *t ? strdup(t) : NULL; }
     { const char *t = store_get_str("aiBase", NULL); free(g_app.ai_base); g_app.ai_base = t && *t ? strdup(t) : NULL; }

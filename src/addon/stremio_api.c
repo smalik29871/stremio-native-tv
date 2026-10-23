@@ -98,6 +98,7 @@ char *api_body_addon_collection_set(const char *auth_key, const Addon *addons, i
     cJSON_AddStringToObject(o, "authKey", auth_key);
     cJSON *arr = cJSON_AddArrayToObject(o, "addons");
     for (int i = 0; i < n; i++) {
+        if (addon_is_builtin(addons[i].transport_url)) continue;   /* only this app can read it */
         /* The whole manifest: the server stores it as given, and every Stremio app reads
          * it back. A partial one breaks the account's addons everywhere, so none is sent. */
         cJSON *m = addons[i].manifest_json ? cJSON_Parse(addons[i].manifest_json) : NULL;
