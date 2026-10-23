@@ -677,6 +677,30 @@ static void on_tk_watching(HttpResponse *r, void *user)
     app_redraw();
 }
 
+/* ---- your ratings ---- */
+static void on_rated(HttpResponse *r, void *user)
+{
+    LOGI("%s: rating %s (%ld)", (intptr_t)user == TRACK_TRAKT ? "trakt" : "simkl", r->status / 100 == 2 ? "saved" : "not saved", r->status);
+}
+
+void tracking_rate(const char *imdb_id, const char *type, int season, int episode, int rating)
+{
+    if (!imdb_id || strncmp(imdb_id, "tt", 2)) return;
+    int show = type && !strcmp(type, "series"), ep = show && season >= 0 && episode > 0;
+    char body[600], item[400], rt[24] = "";
+    if (rating > 0) snprintf(rt, sizeof rt, ",\"rating\":%d", rating);
+    for (int svc = 0; svc < TRACK_SERVICES; svc++) {
+        if (!tracking_connected(svc)) continue;
+        if (svc == TRACK_SIMKL && ep) continue;   /* SimKL rates films and shows only */
+        if (ep) snprintf(item, sizeof item, "{\"ids\":{\"imdb\":\"%s\"},\"seasons\":[{\"number\":%d,\"episodes\":[{\"number\":%d%s}]}]}", imdb_id, season, episode, rt);
+        else snprintf(item, sizeof item, "{\"ids\":{\"imdb\":\"%s\"}%s}", imdb_id, rt);
+        snprintf(body, sizeof body, "{\"%s\":[%s]}", show ? "shows" : "movies", item);
+        char url[200];
+        snprintf(url, sizeof url, "%s/sync/ratings%s", svc == TRACK_TRAKT ? trakt_api() : simkl_api(), rating > 0 ? "" : "/remove");
+        request(svc, url, body, on_rated, (void *)(intptr_t)svc);
+    }
+}
+
 /* ---- comments: a few people's words on what is playing ---- */
 typedef struct { char key[48]; int state, n; TraktComment c[8]; } TkComments;
 static TkComments g_tkc[4];

@@ -199,6 +199,12 @@ class H(BaseHTTPRequestHandler):
                 if json.loads(body.decode() or "{}").get("refresh_token") == "refdown":
                     return self.send(503, b"{}")
                 return self.send(200, json.dumps({"access_token": "tok1", "refresh_token": "ref1", "expires_in": 86400}).encode())
+            if q.startswith("/sync/ratings"):   # your stars: logged like scrobbles
+                if self.headers.get("Authorization") != "Bearer tok1":
+                    return self.send(401, b"{}")
+                with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                    f.write(b"trakt " + q.encode() + b" " + body + b"\n")
+                return self.send(201, b"{}")
             if q.startswith("/scrobble/"):
                 if self.headers.get("Authorization") != "Bearer tok1":
                     return self.send(401, b"{}")
@@ -229,6 +235,10 @@ class H(BaseHTTPRequestHandler):
                 if H.simkl_polls < 2:
                     return self.send(400, b'{"error":"authorization_pending"}')
                 return self.send(200, json.dumps({"access_token": "stok2", "refresh_token": "sref", "expires_in": 604800, "token_type": "Bearer"}).encode())
+        if p.startswith("/simkl/sync/ratings"):
+            with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                f.write(b"simkl " + p[6:].encode() + b" " + body + b"\n")
+            return self.send(201, b"{}")
         if p.startswith("/simkl/sync/history"):
             with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
                 f.write(b"simkl history " + body + b"\n")

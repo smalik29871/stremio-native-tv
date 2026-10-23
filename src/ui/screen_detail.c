@@ -6,6 +6,7 @@
  * cast with their photos and more titles of the same genre. */
 #include "../perfstat.h"
 #include "../app.h"
+#include "../ratings.h"
 #include "../tmdb.h"
 #include "../newep.h"
 #include "../tracking.h"
@@ -31,7 +32,7 @@
 #include <string.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
-enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
+enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_RATE, BTN_COUNT };
 #define HIT(area, i) ((area) << 12 | (i))   /* touch: what is where, by area and place in it */
 #define HIT_BACK 0x7FFFFF0
 #define EP_W (g_theme.id == THEME_APERTURE ? 456.0f : 384.0f)
@@ -86,16 +87,39 @@ static int has_trailer(const Detail *d) { return d->meta.trailer_yt || !strncmp(
 /* Resume plays the saved link: "Other sources" picks another, from the same place */
 static int other_sources(const Detail *d) { return d->resume_label[0] && d->resume_url[0]; }
 
-/* the visible buttons in order: Play/Resume, [From the start], [Other sources], [Trailer], Library */
+/* the visible buttons in order: Play/Resume, [From the start], [Other sources], [Trailer], Library, Rate */
 static int btn_at(const Detail *d, int pos)
 {
     if (pos == 0) return BTN_PLAY;
     if (d->resume_label[0]) { if (pos == 1) return BTN_RESTART; pos--; }
     if (other_sources(d)) { if (pos == 1) return BTN_SOURCES; pos--; }
     if (has_trailer(d)) { if (pos == 1) return BTN_TRAILER; pos--; }
-    return BTN_LIBRARY;
+    return pos == 1 ? BTN_LIBRARY : BTN_RATE;
 }
-static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + other_sources(d) + (has_trailer(d) ? 1 : 0); }
+static int n_buttons_d(const Detail *d) { return 3 + (d->resume_label[0] ? 1 : 0) + other_sources(d) + (has_trailer(d) ? 1 : 0); }
+
+/* "Rate", or "Rated 4.5" once you have */
+static const char *rate_label(const Detail *d, char *out, size_t n, int brief)
+{
+    int r = rating_get(d->preview.id);
+    if (!r) return "Rate";
+    char v[16];
+    rating_text(r, v, sizeof v);
+    snprintf(out, n, brief ? "%s" : "Rated %s", v);
+    return out;
+}
+
+static void rate_open(Detail *d, int k)
+{
+    char id[128], sub[200];
+    if (k < 0) { snprintf(id, sizeof id, "%s", d->preview.id); snprintf(sub, sizeof sub, "Your rating, for you and your tracker"); }
+    else {
+        const MetaVideo *v = &d->meta.videos[d->ep_index[k]];
+        snprintf(id, sizeof id, "%s:%d:%d", d->preview.id, v->season, v->episode);
+        snprintf(sub, sizeof sub, "S%d E%d  %s", v->season, v->episode, v->title ? v->title : "");
+    }
+    app_push(screen_rate_create(id, d->preview.type, d->preview.name ? d->preview.name : "Your rating", sub));
+}
 
 /* ---- the trailer: fetched from YouTube once, then played from the TV ---- */
 
@@ -1083,8 +1107,9 @@ static void phone_draw(Detail *d)
         for (int pos = 1; pos <= nb; pos++) {
             int b = btn_at(d, pos), foc = d->area == AREA_ACTIONS && d->btn == pos;
             int getting = b == BTN_TRAILER && g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
-            const char *lab = b == BTN_RESTART ? "From start" : b == BTN_SOURCES ? "Sources" : b == BTN_TRAILER ? (getting ? "Getting\xE2\x80\xA6" : "Trailer") : in_lib ? "In Library" : "Library";
-            Icon ic = b == BTN_RESTART ? ICON_PREV : b == BTN_SOURCES ? ICON_SWAP : b == BTN_TRAILER ? ICON_TV : in_lib ? ICON_CHECK : ICON_PLUS;
+            char rl[24];
+            const char *lab = b == BTN_RESTART ? "From start" : b == BTN_SOURCES ? "Sources" : b == BTN_TRAILER ? (getting ? "Getting\xE2\x80\xA6" : "Trailer") : b == BTN_RATE ? rate_label(d, rl, sizeof rl, 0) : in_lib ? "In Library" : "Library";
+            Icon ic = b == BTN_RESTART ? ICON_PREV : b == BTN_SOURCES ? ICON_SWAP : b == BTN_TRAILER ? ICON_TV : b == BTN_RATE ? ICON_STAR : in_lib ? ICON_CHECK : ICON_PLUS;
             float tx = x + (pos - 1) * (tw + gap);
             ph_tile(lab, ic, tx, y, tw, th, foc);
             ui_hit(tx, y, tw, th, HIT(AREA_ACTIONS, pos));
@@ -1363,6 +1388,9 @@ static void draw(Screen *s)
             ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44;
         }
         bw = ui_aperture_button(in_lib ? "In your library" : "Add to library", in_lib ? ICON_CHECK : ICON_PLUS, bx, by, 0, cur == BTN_LIBRARY);
+        ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44;
+        char rl[24];
+        bw = ui_aperture_button(rate_label(d, rl, sizeof rl, 0), ICON_STAR, bx, by, 0, cur == BTN_RATE);
         ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos));
         if (!series) draw_aperture_cast(d, tm, x, by + 130);
     } else {
@@ -1381,6 +1409,9 @@ static void draw(Screen *s)
         ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18;
     }
     bw = ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
+    ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18;
+    char rl[24];
+    bw = ui_pill(rate_label(d, rl, sizeof rl, 0), 1, ICON_STAR, bx2, by, 72, PILL_SECONDARY, cur == BTN_RATE);
     ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos));
     }
     if (series) draw_series(d, li, x);
@@ -1413,7 +1444,7 @@ static void focus_ep(Detail *d, int k) { if (k != d->ep_focus) { d->ep_focus = k
 
 /* ---- options for one episode (hold OK on it) ---- */
 
-enum { EO_THIS, EO_UPTO, EO_FROM, EO_SEASON, EO_SOURCES, EO_SYNOPSIS };
+enum { EO_THIS, EO_UPTO, EO_FROM, EO_SEASON, EO_SOURCES, EO_SYNOPSIS, EO_RATE };
 typedef struct { Detail *d; int k; int acts[8]; } EpOpt;
 
 static int resume_index(const Detail *d, const LibraryItem *li)
@@ -1459,6 +1490,7 @@ static void ep_choice(int c, void *user)
         break;
     }
     case EO_SOURCES: open_streams_for_video(d, d->ep_index[k]); break;
+    case EO_RATE: rate_open(d, k); break;
     case EO_SYNOPSIS: {
         static const char *const close_item[] = { "Close" };
         static const int close_icon[] = { ICON_CLOSE };
@@ -1494,6 +1526,11 @@ static void episode_options(Detail *d)
     ADD(EO_SEASON, season, ICON_LIST);
     ADD(EO_SOURCES, "Sources for this episode", ICON_SWAP);
     if (v->overview && *v->overview) ADD(EO_SYNOPSIS, "Read synopsis", ICON_INFO);
+    char rate[48], rv[16];
+    { char eid[128]; snprintf(eid, sizeof eid, "%s:%d:%d", d->preview.id, v->season, v->episode);
+      int r = rating_get(eid); rating_text(r, rv, sizeof rv);
+      if (r) snprintf(rate, sizeof rate, "Your rating: %s of 5", rv); else snprintf(rate, sizeof rate, "Rate this episode"); }
+    ADD(EO_RATE, rate, ICON_STAR);
     #undef ADD
     char title[200], sub[200];
     if (v->season >= 0 && v->episode >= 0) snprintf(title, sizeof title, "S%dE%d  %s", v->season, v->episode, v->title ? v->title : "");
@@ -1539,6 +1576,7 @@ static int key(Screen *s, KeyAction a)
             return 0;
         case KEY_OK:
             if (btn_at(d, d->btn) == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
+            if (btn_at(d, d->btn) == BTN_RATE) { rate_open(d, -1); return 1; }
             if (btn_at(d, d->btn) == BTN_TRAILER) { trailer_play(d); return 1; }
             if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
                 const char *vid = d->resume_video[0] ? d->resume_video : d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;

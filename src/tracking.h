@@ -47,6 +47,9 @@ int  trakt_stats(const char *imdb_id, const char *type, long *watching, long *wa
  * unknown (the first call asks). */
 typedef struct TraktComment { char text[300], user[40]; int likes; } TraktComment;
 int  trakt_comments(const char *imdb_id, const char *type, int season, int episode, const TraktComment **out, int *n);
+/* Your rating (1..10, 0 removes it) to Trakt (films, shows, episodes) and SimKL (films and
+ * shows), where they are connected. season, episode -1 for a film or a whole show. */
+void tracking_rate(const char *imdb_id, const char *type, int season, int episode, int rating);
 /* 1,204 / 23K / 1.4M */
 void tracking_count_text(long v, char *out, size_t n);
 int  mdblist_enabled(void);

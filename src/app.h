@@ -324,6 +324,8 @@ void app_whatsnew_check(void);         /* shows them once after an update */
 Screen *screen_pin_create(const char *title, int setting, void (*done)(int ok, void *user), void *user);
 Screen *screen_break_create(const char *name, const char *detail, int kind);
 Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + clock */
+/* Your rating of a title (id "tt...") or an episode ("tt...:2:3"): stars, tags, Save. */
+Screen *screen_rate_create(const char *id, const char *type, const char *title, const char *subtitle);
 Screen *screen_profiles_create(void);  /* Who's watching: the saved accounts as profiles */
 int     profiles_at_start(void);       /* signed in, others saved and the picker wanted */
 

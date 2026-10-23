@@ -13,6 +13,7 @@ if [ -n "${SMOKE_PART:-}" ] && [ -z "${SMOKE_PART_OF:-}" ]; then   # SMOKE_PART=
 fi
 PORT=8765
 export FAKE_PUT_LOG="$OUT/datastore_put.log" FAKE_LIBRARY="$ROOT/tests/fixtures/library.json"   # the fake Stremio account
+export FAKE_TRACK_LOG="$OUT/fake_track.log"   # what the fake Trakt and SimKL were sent
 rm -f "$FAKE_PUT_LOG"
 # P2P: the app's engine (tools/torrentd.sh builds it next to the app) and a local seeder of a test video
 SEEDER=""
@@ -999,6 +1000,23 @@ run home_see_all 300 "wait,down,right,right,right,right,right,right,right,right,
 # a long season: chips of ten beside the season tabs jump the episodes there
 run detail_ep_ranges 300 "right,ok,down,right,right" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/longseason/manifest.json
 grep -q "detail: episodes from 21" "$OUT/detail_ep_ranges.log" || { echo "the episode range chips did not jump"; grep detail "$OUT/detail_ep_ranges.log"; exit 1; }
+# your own rating: Rate on the title page opens the stars at 4; Right adds half a star, a tag, Save
+run rate_sheet 500 "right,right,ok,wait,right,right,right,right,right,right,ok,wait,right,down,right,ok" HOME="$(home_with rate_sheet '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run rate_title 600 "right,right,ok,wait,right,right,right,right,right,right,ok,wait,right,down,right,ok,down,ok,wait" HOME="$(home_with rate_title '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "ratings: tt[0-9]* rated 9/10" "$OUT/rate_title.log" && grep -q "ratings: tt[0-9]* tagged Great ending" "$OUT/rate_title.log" \
+  || { echo "the title's rating or its tag was not saved"; grep ratings "$OUT/rate_title.log"; exit 1; }
+# Back leaves it unrated
+run rate_back 500 "right,right,ok,wait,right,right,right,right,right,right,ok,wait,right,back,wait" HOME="$(home_with rate_back '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+! grep -q "ratings: tt[0-9]* rated" "$OUT/rate_back.log" || { echo "Back saved a rating"; exit 1; }
+# an episode, from the hold-OK sheet: Rate this episode, two half stars fewer
+run rate_episode 800 "right,ok,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,left,left,ok,wait" HOME="$(home_with rate_ep '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "ratings: tt[0-9]*:[0-9]*:[0-9]* rated 6/10" "$OUT/rate_episode.log" || { echo "the episode rating was not saved"; grep ratings "$OUT/rate_episode.log"; exit 1; }
+run rate_phone 300 "right,right,ok,wait" $PH
+# sent to Trakt and SimKL when connected: an episode to Trakt only (SimKL rates films and shows)
+: > "$FAKE_TRACK_LOG"
+run rate_synced 800 "right,ok,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,right,right,ok,wait,wait" HOME="$(home_with rate_sync "$TK2")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
+grep -q 'trakt /sync/ratings {"shows":\[{"ids":{"imdb":"tt[0-9]*"},"seasons":\[{"number":[0-9]*,"episodes":\[{"number":[0-9]*,"rating":10}' "$FAKE_TRACK_LOG" && grep -q "trakt: rating saved" "$OUT/rate_synced.log" && ! grep -q "^simkl /sync/ratings" "$FAKE_TRACK_LOG" \
+  || { echo "the episode rating did not reach Trakt alone"; cat "$FAKE_TRACK_LOG"; grep -E "ratings|trakt|simkl" "$OUT/rate_synced.log"; exit 1; }
 # the loading screen: the backdrop as a wash, the format, the logo, the ring, the episode and what is happening
 run veil_series 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FAKE_STUCK=1
 python3 -I - "$OUT" <<'PY'
