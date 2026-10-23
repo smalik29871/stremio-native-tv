@@ -1157,6 +1157,7 @@ static void find_setting(Settings *st, const char *q)
             int ids[MAX_ROWS + 8], n = rows_for(st, c, ids, MAX_ROWS + 8);
             for (int i = 0; i < n && g_found.n < FOUND_MAX; i++) {
                 const char *t = row_title(ids[i]);
+                if (pass == 1 && ids[i] == IT_ABOUT_APP) continue;   /* prose about the app, not a setting's help */
                 if (!t || !(pass == 0 ? words_in(q, t) : !words_in(q, t) && words_in(q, row_desc(ids[i])))) continue;
                 int k = g_found.n++;
                 g_found.cat[k] = c; g_found.id[k] = ids[i];
