@@ -1291,7 +1291,7 @@ static void on_repo(HttpResponse *r, void *user)
 static const char *repo_url(void)
 {
     const char *url = getenv("SNTV_UPDATE_URL");
-    return url ? url : "https://github.com/smalik29871/stremio-custom-lg-tv-releases/releases/latest/download/repo.json";   /* the public releases repository */
+    return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/repo.json";   /* the public releases repository (renamed; the old address still forwards here) */
 }
 
 void app_update_check_now(void)

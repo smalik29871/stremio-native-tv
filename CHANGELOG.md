@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The releases repository is now **cuelight-releases**. TVs that added the old address keep
+  getting updates (GitHub forwards it), and the app's own update check now asks the new one.
+
 ## 0.10.57
 
 - **The app is now called Cuelight.** A new name, mark and colours of its own: the stage
