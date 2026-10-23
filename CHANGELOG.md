@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.56
 
 - **Every theme can do everything.** Aperture was missing a few things the other themes have;
   it now has them too:
