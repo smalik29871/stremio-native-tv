@@ -220,9 +220,70 @@ static void draw_qr(const Login *l, float x, float y, float size)
     gfx_play_triangle(x + (size - m) / 2 + m * 0.36f, y + (size - m) / 2 + m * 0.28f, m * 0.38f, m * 0.44f, THEME_TEXT);
 }
 
+/* ---- upright on a phone: one column. The code is approved on this same phone, so a
+ * button opens Stremio's page instead of a QR code to scan. ---- */
+enum { HIT_OPEN = 100 };
+
+static float ph_button(const char *label, Icon icon, float x, float y, float w, int primary, int foc, int hit)
+{
+    float h = 100;
+    if (foc) ui_focus_under(x, y, w, h, h / 2, 1);
+    gfx_rrect(x, y, w, h, h / 2, primary ? RGBA(255, 255, 255, 255) : COLOR_ALPHA(THEME_TEXT, 0x1C));
+    if (foc) gfx_rrect_ring(x - 6, y - 6, w + 12, h + 12, h / 2 + 6, 4, THEME_ACCENT);
+    Color fg = primary ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT;
+    float tw = font_measure(label, FONT_M | FONT_B), cx = x + (w - tw - ((int)icon >= 0 ? 46 : 0)) / 2;
+    if ((int)icon >= 0) { ui_icon(icon, cx + 16, y + h / 2, 30, fg); cx += 46; }
+    font_draw(label, cx, y + (h - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, fg);
+    ui_hit(x, y, w, h, hit);
+    return h;
+}
+
+static void phone_draw(Login *l)
+{
+    float x = 40, w = SNTV_UI_W - 80, y = 60;
+    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    ui_brand(x, y, 54);
+    y += 130;
+    if (l->mode == MODE_QR) {
+        font_draw("Sign in with Stremio", x, y, FONT_XL | FONT_B, THEME_TEXT);
+        y += 90;
+        y += font_draw_wrapped("Your Stremio addons, Library and Continue Watching come here. Open Stremio's page, approve this code, and come back: it signs in by itself.",
+                               x, y, FONT_S, THEME_TEXT_DIM, w, 5) * font_height(FONT_S) + 40;
+        if (l->code[0]) {
+            float cw = (w - 5 * 14) / 6, cx = x;
+            for (const char *c = l->code; *c && cx < x + w; c++, cx += cw + 14) {
+                gfx_rrect(cx, y, cw, 130, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x18));
+                char ch[2] = { *c, 0 };
+                font_draw_center(ch, cx + cw / 2, y + (130 - font_height(FONT_XL | FONT_B)) / 2, FONT_XL | FONT_B, THEME_TEXT);
+            }
+            y += 170;
+            ui_spinner(x + 20, y + 16, 14);
+            font_draw("Waiting for approval", x + 52, y, FONT_S, THEME_TEXT_MUTED);
+            y += 80;
+        } else if (l->busy) { ui_spinner(SNTV_UI_W / 2, y + 40, 26); y += 120; }
+        if (l->link[0]) y += ph_button("Open Stremio's page", ICON_LINK, x, y, w, 1, l->focus == F_SUBMIT, HIT_OPEN) + 24;
+        y += ph_button("Use e-mail and password", ICON_USER, x, y, w, 0, l->focus == F_SWITCH, F_SWITCH) + 24;
+        y += ph_button("Not now", (Icon)-1, x, y, w, 0, l->focus == F_SKIP, F_SKIP) + 30;
+        if (l->message[0]) font_draw_wrapped(l->message, x, y, FONT_S, l->ok ? THEME_OK : THEME_TEXT_DIM, w, 3);
+        return;
+    }
+    font_draw("Sign in", x, y, FONT_XL | FONT_B, THEME_TEXT);
+    y += 100;
+    draw_field(l, F_EMAIL, "E-MAIL", x, y, w);
+    y += 140;
+    draw_field(l, F_PASSWORD, "PASSWORD", x, y, w);
+    y += 160;
+    y += ph_button(l->busy ? "Signing in\xE2\x80\xA6" : "Sign in", ICON_CHEVRON_RIGHT, x, y, w, 1, l->focus == F_SUBMIT, F_SUBMIT) + 24;
+    y += ph_button("Sign in with a code instead", ICON_LINK, x, y, w, 0, l->focus == F_SWITCH, F_SWITCH) + 24;
+    y += ph_button("Not now", (Icon)-1, x, y, w, 0, l->focus == F_SKIP, F_SKIP) + 30;
+    if (l->message[0]) y += font_draw_wrapped(l->message, x, y, FONT_S, l->ok ? THEME_OK : THEME_DANGER, w, 3) * font_height(FONT_S) + 20;
+    font_draw_wrapped("Only a session key is kept on this phone. Your password is sent once to Stremio and never stored.", x, y, FONT_XS, THEME_TEXT_MUTED, w, 3);
+}
+
 static void draw(Screen *s)
 {
     Login *l = s->st;
+    if (SNTV_PHONE) { phone_draw(l); return; }
     ui_background(0);
     ui_brand(THEME_MARGIN, 44, 58);
     float x = THEME_MARGIN;
@@ -294,6 +355,25 @@ static int key(Screen *s, KeyAction a)
 {
     Login *l = s->st;
     app_redraw();
+    if (SNTV_PHONE) {   /* the phone's keyboard types into the field tapped; Enter moves on, then signs in */
+        if (a == KEY_BACK) { app_pop(); return 1; }
+        if (l->mode == MODE_PASSWORD && l->focus == F_KEYBOARD) {
+            if (a == KEY_BACKSPACE) { keyboard_key(&l->kb[l->editing], KEY_BACKSPACE); return 1; }
+            if (a == KEY_OK) { if (l->editing == F_EMAIL) l->editing = F_PASSWORD; else submit(l); return 1; }
+            if (a == KEY_DOWN || a == KEY_UP) { l->focus = a == KEY_DOWN ? F_SUBMIT : F_EMAIL; return 1; }
+            return 1;
+        }
+        if (l->mode == MODE_QR && l->focus == F_SUBMIT && a == KEY_OK) { if (l->link[0]) SDL_OpenURL(l->link); return 1; }
+        if (l->mode == MODE_QR && (a == KEY_UP || a == KEY_DOWN)) {
+            static const int ORDER[] = { F_SUBMIT, F_SWITCH, F_SKIP };
+            int at = 0; for (int i = 0; i < 3; i++) if (ORDER[i] == l->focus) at = i;
+            at += a == KEY_DOWN ? 1 : -1;
+            if (at < (l->link[0] ? 0 : 1)) at = l->link[0] ? 0 : 1;
+            if (at > 2) at = 2;
+            l->focus = ORDER[at];
+            return 1;
+        }
+    }
     if (l->mode == MODE_QR) {
         switch (a) {
         case KEY_LEFT: case KEY_UP: l->focus = F_SWITCH; return 1;
@@ -347,6 +427,7 @@ static int key(Screen *s, KeyAction a)
 static int tap(Screen *s, int id)
 {
     Login *l = s->st;
+    if (id == HIT_OPEN) { if (!g_touch_aim) { l->focus = F_SUBMIT; if (l->link[0]) SDL_OpenURL(l->link); } return 1; }
     if (l->mode == MODE_PASSWORD && keyboard_tap(&l->kb[l->editing], id)) { l->focus = F_KEYBOARD; return 0; }
     if (id == F_EMAIL || id == F_PASSWORD) { if (l->mode != MODE_PASSWORD) return 1; l->editing = id; l->focus = F_KEYBOARD; return 1; }
     if (id != F_SUBMIT && id != F_SWITCH && id != F_SKIP) return 1;
@@ -385,7 +466,7 @@ Screen *screen_login_create(void)
     l->gen = 1;
     g_active = l;
     s->name = "login"; s->st = l;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy; s->phone = 1;
     start_link(l);
     return s;
 }

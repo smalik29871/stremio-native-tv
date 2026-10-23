@@ -219,7 +219,7 @@ static void update(Screen *s, float dt)
     for (int i = l->focus - COLS; i < l->focus + COLS * 3 && i < l->n; i++) if (i >= 0) image_prefetch(app_art_poster(&l->items[i], buf, sizeof buf));
 }
 
-enum { HIT_PILL = 0x1000 };   /* touch: the filters, then the sort; a title is its index */
+enum { HIT_PILL = 0x1000, HIT_CALENDAR = 0x2000 };   /* touch: the filters, then the sort; a title is its index */
 
 static void draw(Screen *s)
 {
@@ -246,6 +246,11 @@ static void draw(Screen *s)
         float w = ui_pill_width(sl, 1, 52), sy = SNTV_PHONE ? 50 : y, sx = SNTV_PHONE ? SNTV_UI_W - LX - w : SNTV_UI_W - THEME_MARGIN - w;   /* a phone: beside the heading */
         ui_pill(sl, 1, ICON_SWAP, sx, sy, 52, PILL_SECONDARY, l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == F_COUNT);
         ui_hit(sx, sy, w, 52, HIT_PILL + F_COUNT);
+        if (SNTV_PHONE) {   /* the Calendar has no tab: it opens from here */
+            float cw = ui_pill_width("Calendar", 1, 52);
+            ui_pill("Calendar", 1, ICON_CALENDAR, sx - cw - 16, sy, 52, PILL_SECONDARY, 0);
+            ui_hit(sx - cw - 16, sy, cw, 52, HIT_CALENDAR);
+        }
     }
     float gx = LX, gy = GRID_Y, row_h = CELL_H + 80;
     if (l->filter == F_STATS) { draw_stats(); rail_draw(RAIL_LIBRARY, l->rail_focus); return; }
@@ -354,6 +359,7 @@ static int tap(Screen *s, int id)
 {
     Library *l = s->st;
     l->rail_focus = -1;
+    if (id == HIT_CALENDAR) { if (!g_touch_aim) rail_go(RAIL_LIBRARY, RAIL_CALENDAR); return 1; }
     if (id >= HIT_PILL && id <= HIT_PILL + F_COUNT) { l->zone = Z_FILTERS; l->pill_focus = id - HIT_PILL; return 0; }
     if (id < 0 || id >= l->n) return 1;
     if (l->zone != Z_GRID || l->focus != id) { l->zone = Z_GRID; l->focus = id; l->focus_t = 0; }

@@ -23,8 +23,9 @@ enum { TAB_PLAYBACK, TAB_PROBLEMS, TAB_ALL, TAB_SPEED, TAB_YOUTUBE, TAB_COUNT };
 /* Big Buck Bunny (Blender Foundation), up to 4K: always there, never age- or region-locked */
 #define YT_TEST_ID "aqz-KE-bpKQ"
 #define LIST_Y 300.0f
+enum { HIT_TAB = 0x10000, HIT_SESSION = 0x20000 };   /* touch; a log line is its place in the list */
 #define ROW_H 36.0f
-#define LIST_ROWS 15
+#define LIST_ROWS (SNTV_PHONE ? (int)((SNTV_UI_H - LIST_Y - 330) / ROW_H) : 15)   /* a phone upright: as many as fit */
 #define QR_BUDGET 700    /* bytes of log text in the QR; denser codes are hard to scan off a TV */
 
 typedef struct {
@@ -201,10 +202,10 @@ static void update(Screen *s, float dt)
 static void draw_qr_overlay(Diag *d)
 {
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xE8));
-    float w = 1500, h = 760, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
+    float w = SNTV_PHONE ? SNTV_UI_W - 40 : 1500, h = SNTV_PHONE ? 1400 : 760, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
     ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
-    float qs = 680, qx = x + 40, qy = y + 40;
+    float qs = SNTV_PHONE ? w - 80 : 680, qx = x + 40, qy = y + 40;
     gfx_rrect(qx, qy, qs, qs, R_PANEL, RGBA(255, 255, 255, 255));
     if (d->qr_ok) {
         int n = qrcodegen_getSize(d->qr);
@@ -218,6 +219,7 @@ static void draw_qr_overlay(Diag *d)
                     gfx_rect(qx + off + rx * cell, qy + off + ry * cell, cell, cell, RGBA(0, 0, 0, 255));
     }
     float tx = qx + qs + 60, tw = x + w - tx - 40;
+    if (SNTV_PHONE) { tx = qx; tw = w - 80; y = qy + qs - 20; h = 120 + 700 - 20 + 120; }   /* upright: the words under the code */
     if (d->qr_link) {
         font_draw("Scan to get this log", tx, y + 60, FONT_L | FONT_B, THEME_TEXT);
         char t[200];
@@ -253,13 +255,15 @@ static void draw(Screen *s)
     font_draw_fit(line, x, 136, FONT_S | FONT_B, THEME_TEXT_DIM, w);
     font_draw_fit(d->system, x, 172, FONT_S, THEME_TEXT_MUTED, w);
 
-    /* tabs */
+    /* tabs (upright on a phone, smaller to fit across) */
     static const char *TABS[TAB_COUNT] = { "Playback", "Problems", "Everything", "Speed", "YouTube" };
     float tx = x;
+    if (SNTV_PHONE) gfx_set_scale(0.72f, x, 222);
     for (int i = 0; i < TAB_COUNT; i++) {
         int sel = d->tab == i;
         float tw = font_measure(TABS[i], FONT_S | FONT_B) + 48;
         if (sel) gfx_rrect(tx, 222, tw, 54, theme_pill_r(54), THEME_FOCUS);
+        ui_hit(tx, 222, tw, 54, HIT_TAB + i);
         font_draw(TABS[i], tx + 24, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, sel ? THEME_ON_FOCUS : THEME_TEXT_DIM);
         tx += tw + 8;
     }
@@ -267,9 +271,11 @@ static void draw(Screen *s)
     float sw = font_measure(sess, FONT_S | FONT_B) + 48;
     gfx_rrect(tx + 20, 222, sw, 54, R_PANEL, d->previous ? RGBA(0x3B, 0x82, 0xF6, 0xFF) : THEME_SURFACE);
     font_draw(sess, tx + 44, 222 + (54 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+    ui_hit(tx + 20, 222, sw, 54, HIT_SESSION);
+    if (SNTV_PHONE) gfx_set_scale(1, 0, 0);
     const char *hint = d->tab == TAB_YOUTUBE ? "Left/Right tabs   \xC2\xB7   Up/Down buttons   \xC2\xB7   OK: run or play"
                                              : "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
-    font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
+    if (!SNTV_PHONE) font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
 
     float lh = ROW_H, list_h = LIST_ROWS * lh;
     if (d->tab == TAB_YOUTUBE) {   /* each way to get a YouTube video, tried on this TV and network */
@@ -291,7 +297,8 @@ static void draw(Screen *s)
             else gfx_circle(x + 22, ry + 14, 5, c);
             font_draw(STEP[i], x + 52, ry, FONT_S | FONT_B, THEME_TEXT);
             const char *what = ok == -1 ? (d->yt_state == 1 ? "\xE2\x80\xA6" : "") : t->what[i];
-            font_draw_fit(what, x + 560, ry + 2, FONT_S, ok == 0 ? THEME_DANGER : THEME_TEXT_DIM, w - 580);
+            if (SNTV_PHONE) { font_draw_fit(what, x + 52, ry + 36, FONT_XS, ok == 0 ? THEME_DANGER : THEME_TEXT_DIM, w - 60); ry += 40; }   /* upright: under its step */
+            else font_draw_fit(what, x + 560, ry + 2, FONT_S, ok == 0 ? THEME_DANGER : THEME_TEXT_DIM, w - 580);
         }
         if (d->yt_state == 2) {
             char best[160]; snprintf(best, sizeof best, "Best on this TV now: %s", t->best);
@@ -330,6 +337,7 @@ static void draw(Screen *s)
         const LogLine *l = &d->lines[d->vis[k]];
         int cur = k == d->cursor;
         if (cur) gfx_rrect(x - 8, ry - 2, w + 16, lh, R_KEY, COLOR_ALPHA(THEME_TEXT, 0x26));
+        ui_hit(x - 8, ry - 2, w + 16, lh, k);
         Color dot = l->level == 'E' ? THEME_DANGER : l->level == 'W' ? THEME_GOLD : COLOR_ALPHA(THEME_TEXT, 0x40);
         gfx_circle(x + 8, ry + lh / 2 - 1, 5, dot);
         /* time, then message */
@@ -394,6 +402,19 @@ static void yt_play(Diag *d)
     app_push(screen_player_create(&m, "trailer:yttest", "YouTube test  -  Big Buck Bunny", c, nu, 0, 0, NULL, NULL));
 }
 
+/* A tab, the session switch, or a line (OK then makes its QR code). */
+static int tap(Screen *s, int id)
+{
+    Diag *d = s->st;
+    if (d->show_qr) return 0;
+    if (g_touch_aim && id >= HIT_TAB) return 1;
+    if (id >= HIT_TAB && id < HIT_TAB + TAB_COUNT) { d->tab = id - HIT_TAB; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1; }
+    if (id == HIT_SESSION) { d->previous = !d->previous; d->follow = 1; reload(d); return 1; }
+    if (d->tab == TAB_YOUTUBE || id < 0 || id >= d->n_vis) return d->tab == TAB_YOUTUBE ? 0 : 1;
+    d->cursor = id; d->follow = 0;
+    return 0;
+}
+
 static int key(Screen *s, KeyAction a)
 {
     Diag *d = s->st;
@@ -449,6 +470,6 @@ Screen *screen_diagnostics_create(int playback_only)
     reload(d);
     s->name = "diagnostics"; s->st = d;
     g_diag_live = d;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
     return s;
 }

@@ -38,6 +38,15 @@ static void start(Upd *u)
     } else if (!app_update_installs_here()) { store_set_int("updateNoInstaller", 0); store_save(); }
 }
 
+/* A line centred on the screen; upright on a phone, wrapped to its width (later lines move down by what it took). */
+static float g_extra;
+static void center_line(const char *t, float cx, float y, int size, Color c)
+{
+    if (!SNTV_PHONE) { font_draw_center(t, cx, y, size, c); return; }
+    float h = ui_center_wrapped(t, cx, y + g_extra, size, c, SNTV_UI_W - 80);
+    g_extra += h - font_height(size);
+}
+
 /* Where to go instead: the Homebrew Channel's own Update, a step to a line */
 static void draw_steps(const Upd *u, float cx, float y)
 {
@@ -46,17 +55,17 @@ static void draw_steps(const Upd *u, float cx, float y)
         "Choose Cuelight, then Update",
         "Open Cuelight again: your sign-in, settings and progress stay",
     };
-    float x = cx - 430;
+    float x = SNTV_PHONE ? 40 : cx - 430;
     for (int i = 0; i < 3; i++) {
         char n[4]; snprintf(n, sizeof n, "%d", i + 1);
         gfx_circle(x + 22, y + 22, 22, THEME_ACCENT);
         font_draw_center(n, x + 22, y + 22 - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, THEME_TEXT);
-        font_draw(STEPS[i], x + 66, y + 22 - font_height(FONT_M) / 2, FONT_M, THEME_TEXT);
+        font_draw_fit(STEPS[i], x + 66, y + 22 - font_height(FONT_M) / 2, FONT_M, THEME_TEXT, SNTV_UI_W - x - 106);
         y += 72;
     }
     y += 20;
-    font_draw_center("This TV doesn't let apps install updates themselves", cx, y, FONT_XS, THEME_TEXT_MUTED);
-    font_draw_center(u->started ? "Back: close" : "Back: close   \xC2\xB7   OK: try installing from here anyway", cx, y + 50, FONT_S | FONT_B, THEME_TEXT_MUTED);
+    center_line("This TV doesn't let apps install updates themselves", cx, y, FONT_XS, THEME_TEXT_MUTED);
+    center_line(u->started ? "Back: close" : "Back: close   \xC2\xB7   OK: try installing from here anyway", cx, y + 50, FONT_S | FONT_B, THEME_TEXT_MUTED);
 }
 
 static void update(Screen *s, float dt)
@@ -75,30 +84,31 @@ static void update(Screen *s, float dt)
 static void draw(Screen *s)
 {
     Upd *u = s->st;
+    g_extra = 0;
     ui_background(0);
     float cx = SNTV_UI_W / 2.0f, y = 330;
     char title[96], line[300];
     int steps = u->by_hand && u->state != 1 && u->state != 2;
     snprintf(title, sizeof title, steps ? "Version %s is ready" : u->state == 2 ? "Updated to %s" : u->state == -1 ? "The update to %s did not install" : "Updating to %s", g_update_version);
-    font_draw_center(title, cx, y - (steps ? 60 : 0), FONT_XL | FONT_B, THEME_TEXT);
+    center_line(title, cx, y - (steps ? 60 : 0), FONT_XL | FONT_B, THEME_TEXT);
     y += 110;
     if (steps) draw_steps(u, cx, y - 60);
     else if (!u->started) {
         snprintf(line, sizeof line, "Starting in %d s. The app closes while it installs; open it again from the Home screen in about half a minute.", (int)u->countdown + 1);
-        font_draw_center(line, cx, y, FONT_S, THEME_TEXT_DIM);
-        font_draw_center("OK: update now   \xC2\xB7   Back: not now (it asks again next time)", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        center_line(line, cx, y, FONT_S, THEME_TEXT_DIM);
+        center_line("OK: update now   \xC2\xB7   Back: not now (it asks again next time)", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
     } else if (u->state == 2) {
-        font_draw_center("Installed. If the app is still open, close it and open it again.", cx, y, FONT_S, THEME_TEXT_DIM);
-        font_draw_center("OK: close the app", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        center_line("Installed. If the app is still open, close it and open it again.", cx, y, FONT_S, THEME_TEXT_DIM);
+        center_line("OK: close the app", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
     } else if (u->state == -1) {
         snprintf(line, sizeof line, "%.200s", u->status);
-        font_draw_center(line, cx, y, FONT_S, THEME_DANGER);
-        font_draw_center("The Homebrew Channel can install it: Cuelight > Update.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
-        font_draw_center("Open it from the Home screen   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        center_line(line, cx, y, FONT_S, THEME_DANGER);
+        center_line("The Homebrew Channel can install it: Cuelight > Update.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
+        center_line("Open it from the Home screen   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
     } else {
         ui_spinner(cx, y + 10, 26);
-        font_draw_center(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
-        font_draw_center("The app will close by itself when the new version is in place.", cx, y + 130, FONT_S, THEME_TEXT_DIM);
+        center_line(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
+        center_line("The app will close by itself when the new version is in place.", cx, y + 130, FONT_S, THEME_TEXT_DIM);
     }
 }
 
@@ -133,6 +143,6 @@ Screen *screen_update_create(int countdown_s)
     u->countdown = e ? (float)atof(e) : (float)countdown_s;
     if (!app_update_installs_here()) { u->by_hand = 1; u->countdown = 1e9f; }   /* refused before: the steps, until OK asks */
     s->name = "update"; s->st = u;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;
 }

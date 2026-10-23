@@ -121,6 +121,7 @@ void ui_spinner(float cx, float cy, float radius);
 /* Clockwise arc of `frac` of a circle, starting `from` turns past 12 o'clock (capsule segments). */
 void ui_arc(float cx, float cy, float r, float thickness, float from, float frac, Color c);
 void ui_brand(float x, float y, float size);
+float ui_center_wrapped(const char *text, float cx, float y, int size, Color c, float max_w);
 
 /* Poster / landscape cards. focus 0..1 animates scale, ring and shadow; dim 0..1 darkens. */
 #define CARD_MIP  1   /* use the mipmapped texture variant */

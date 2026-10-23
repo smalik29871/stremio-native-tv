@@ -11,8 +11,10 @@
   Search, Library, Settings), a feature card and rows of cards on Home, title pages as one
   long page (Play, then the actions, the story, seasons and episodes, cast, more like this),
   Search with the phone's own keyboard and filters for films and series, Settings as a list
-  with each category on a page of its own, and first-run setup. The player and the screens
-  without an upright layout yet turn the phone sideways.
+  with each category on a page of its own, first-run setup, sign-in (a button opens
+  Stremio's page on the phone itself instead of a QR code), What's new, Diagnostics, the
+  PIN pad, profiles, Calendar (from Library), breaks and the screensaver. The player turns
+  the phone sideways.
 - **Android: videos play** (Media3 ExoPlayer under the app's own player screen): play, pause,
   seek, speed, volume, the file's audio and subtitle tracks, buffering and errors.
 

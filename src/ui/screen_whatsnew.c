@@ -14,8 +14,8 @@
 #include <string.h>
 
 enum { ITEMS_MAX = 40 };
-#define TEXT_X 160.0f
-#define TEXT_W 1240.0f
+#define TEXT_X (SNTV_PHONE ? 40.0f : 160.0f)   /* a phone upright: the width of the screen */
+#define TEXT_W (SNTV_PHONE ? SNTV_UI_W - 80.0f : 1240.0f)
 #define TOP 300.0f
 
 typedef struct {
@@ -83,10 +83,10 @@ static void draw(Screen *s)
     int i = w->first;
     for (; i < w->n && y < SNTV_UI_H - 170; i++) {
         gfx_circle(TEXT_X + 8, y + lh / 2, 6, THEME_ACCENT);
-        int lines = font_draw_wrapped(w->items[i], TEXT_X + 36, y, FONT_M, THEME_TEXT, TEXT_W, 4);
+        int lines = font_draw_wrapped(w->items[i], TEXT_X + 36, y, FONT_M, THEME_TEXT, TEXT_W - 36, SNTV_PHONE ? 10 : 4);
         y += (lines ? lines : 1) * font_height(FONT_M) + 28;
     }
-    const char *hint = i < w->n ? "Down: more   \xC2\xB7   OK: close" : "OK: close";   /* some still below */
+    const char *hint = SNTV_PHONE ? (i < w->n ? "Swipe up: more   \xC2\xB7   Tap: close" : "Tap: close") : i < w->n ? "Down: more   \xC2\xB7   OK: close" : "OK: close";   /* some still below */
     font_draw(hint, TEXT_X, SNTV_UI_H - 110, FONT_S, THEME_TEXT_MUTED);
 }
 
@@ -117,7 +117,7 @@ Screen *screen_whatsnew_create(int about)
     w->about = about;
     parse(w);
     s->name = "whatsnew"; s->st = w;
-    s->draw = draw; s->key = key; s->destroy = destroy;
+    s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;
 }
 

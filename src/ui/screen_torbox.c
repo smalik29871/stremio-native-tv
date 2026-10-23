@@ -45,11 +45,11 @@ static void draw(Screen *s)
 {
     Pick *p = s->st;
     ui_background(0);
-    float x = THEME_MARGIN, w = SNTV_UI_W - 2 * THEME_MARGIN, y = 150;
+    float x = SNTV_PHONE ? 40 : THEME_MARGIN, w = SNTV_UI_W - 2 * x, y = SNTV_PHONE ? 300 : 150;   /* a phone upright: the words wrap above the list */
     font_draw("Your TorBox videos", x, 60, FONT_XL | FONT_B, THEME_TEXT);
-    font_draw(p->target == TORBOX_FOR_PLAY ? "Everything you keep on TorBox: torrents, usenet and web downloads. OK plays it here at full quality." : p->target == TORBOX_FOR_FIREPLACE ? "Pick one for the fireplace screensaver. It plays from TorBox at full quality, always through a fresh link."
+    font_draw_wrapped(p->target == TORBOX_FOR_PLAY ? "Everything you keep on TorBox: torrents, usenet and web downloads. OK plays it here at full quality." : p->target == TORBOX_FOR_FIREPLACE ? "Pick one for the fireplace screensaver. It plays from TorBox at full quality, always through a fresh link."
                                                 : "Pick one to play at the start of each break. It plays from TorBox at full quality, always through a fresh link.",
-              x, 120, FONT_S, THEME_TEXT_DIM);
+              x, 140, FONT_S, THEME_TEXT_DIM, w, SNTV_PHONE ? 4 : 1);
     if (p->loading) { ui_spinner(SNTV_UI_W / 2, 480, 26); font_draw_center("Asking TorBox\xE2\x80\xA6", SNTV_UI_W / 2, 530, FONT_M | FONT_B, THEME_TEXT_DIM); return; }
     if (!p->n) { font_draw_center(p->error, SNTV_UI_W / 2, 470, FONT_M | FONT_B, THEME_TEXT_DIM); return; }
     gfx_clip_push(x - 20, y + 30, w + 40, ROWS * ROW_H + 10);
@@ -58,6 +58,7 @@ static void draw(Screen *s)
         if (ry + ROW_H < y || ry > y + 40 + ROWS * ROW_H) continue;
         int foc = i == p->focus;
         if (foc) gfx_rrect(x - 12, ry, w + 24, ROW_H - 10, R_KEY, THEME_FOCUS);
+        ui_hit(x - 12, ry, w + 24, ROW_H - 10, i);
         ui_icon(ICON_PLAY, x + 22, ry + (ROW_H - 10) / 2, 26, foc ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
         font_draw_fit(p->files[i].name, x + 60, ry + 12, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : THEME_TEXT, w - 260);
         char sz[32];
@@ -67,6 +68,14 @@ static void draw(Screen *s)
         font_draw(kind, x + 60, ry + 46, FONT_XS, foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED);
     }
     gfx_clip_pop();
+}
+
+static int tap(Screen *s, int id)   /* a video: chosen */
+{
+    Pick *p = s->st;
+    if (id < 0 || id >= p->n) return 1;
+    p->focus = id;
+    return 0;
 }
 
 static int key(Screen *s, KeyAction a)
@@ -120,7 +129,7 @@ Screen *screen_torbox_create(int target)
     p->loading = 1;
     g_live = p;
     s->name = "torbox"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->phone = 1; s->destroy = destroy;
     torbox_list_videos(on_files, NULL);
     return s;
 }

@@ -1637,3 +1637,32 @@ int ui_hit_find(float x, float y, const Screen *top, int *id)
         }
     return 0;
 }
+
+/* Centred lines no wider than max_w (whole words; a word wider than that stands alone);
+ * how far down they reached. */
+float ui_center_wrapped(const char *text, float cx, float y, int size, Color c, float max_w)
+{
+    char line[512];
+    float lh = font_height(size), y0 = y;
+    const char *p = text ? text : "";
+    while (*p) {
+        size_t n = 0, last_fit = 0;
+        const char *q = p;
+        while (*q) {
+            const char *e = q; while (*e && *e != ' ') e++;
+            size_t want = (size_t)(e - p);
+            if (want >= sizeof line) break;
+            memcpy(line, p, want); line[want] = 0;
+            if (font_measure(line, size) > max_w && last_fit) break;
+            last_fit = want; q = *e ? e + 1 : e;
+            if (!*e) break;
+        }
+        n = last_fit ? last_fit : strlen(p) < sizeof line - 1 ? strlen(p) : sizeof line - 1;
+        memcpy(line, p, n); line[n] = 0;
+        font_draw_center(line, cx, y, size, c);
+        y += lh;
+        p += n;
+        while (*p == ' ') p++;
+    }
+    return y - y0;
+}

@@ -13,8 +13,8 @@
 #include <string.h>
 #include <time.h>
 
-#define LX RAIL_LX
-#define LIST_Y 150.0f
+#define LX (SNTV_PHONE ? 40.0f : RAIL_LX)   /* a phone upright: no rail beside it */
+#define LIST_Y (SNTV_PHONE ? 176.0f : 150.0f)
 #define ROW_H 118.0f
 enum { DAYS_BACK = 14, DAYS_AHEAD = 30, MAX_SHOWS = 60 };
 
@@ -177,15 +177,16 @@ static void draw(Screen *s)
     font_draw("Calendar", LX, 52, FONT_L | FONT_B, THEME_TEXT);
     char sub[96];
     snprintf(sub, sizeof sub, "%d episode%s from %d series in your library%s", c->n, c->n == 1 ? "" : "s", c->n_shows, c->pending ? "  \xC2\xB7  updating" : "");
-    font_draw(sub, LX + font_measure("Calendar", FONT_L | FONT_B) + 24, 52 + font_height(FONT_L | FONT_B) - font_height(FONT_S) - 6, FONT_S, THEME_TEXT_MUTED);
+    if (SNTV_PHONE) font_draw_fit(sub, LX, 112, FONT_S, THEME_TEXT_MUTED, SNTV_UI_W - 2 * LX);
+    else font_draw(sub, LX + font_measure("Calendar", FONT_L | FONT_B) + 24, 52 + font_height(FONT_L | FONT_B) - font_height(FONT_S) - 6, FONT_S, THEME_TEXT_MUTED);
     if (c->pending) ui_spinner(SNTV_UI_W - THEME_MARGIN - 30, 76, 14);
     if (!c->n && !c->pending) {
         float cy = SNTV_UI_H / 2;
         ui_icon(ICON_CALENDAR, SNTV_UI_W / 2, cy - 60, 80, THEME_TEXT_MUTED);
-        font_draw_center(c->n_shows ? "Nothing airing in the next weeks" : "No series in your library yet", SNTV_UI_W / 2, cy + 10, FONT_L | FONT_B, THEME_TEXT);
-        font_draw_center(c->n_shows ? "Episodes from the last two weeks and the next month show here." : "Add a series to the library and its new episodes will show here by day.", SNTV_UI_W / 2, cy + 70, FONT_S, THEME_TEXT_DIM);
+        ui_center_wrapped(c->n_shows ? "Nothing airing in the next weeks" : "No series in your library yet", SNTV_UI_W / 2, cy + 10, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 80);
+        ui_center_wrapped(c->n_shows ? "Episodes from the last two weeks and the next month show here." : "Add a series to the library and its new episodes will show here by day.", SNTV_UI_W / 2, cy + 70 + (SNTV_PHONE ? 50 : 0), FONT_S, THEME_TEXT_DIM, SNTV_UI_W - 80);
     }
-    float w = SNTV_UI_W - LX - THEME_MARGIN;
+    float w = SNTV_UI_W - LX - (SNTV_PHONE ? 40 : THEME_MARGIN), tw = SNTV_PHONE ? w - 176 - 170 : w - 420;
     gfx_clip_push(LX - 20, LIST_Y - 10, w + 40, SNTV_UI_H - LIST_Y + 10);
     float y = LIST_Y - c->scroll; long last = -1000000;
     for (int i = 0; i < c->n; i++) {
@@ -205,10 +206,10 @@ static void draw(Screen *s)
             ui_draw_thumb(art, LX, y + 10, 152, 86, 0, COLOR_ALPHA(THEME_TEXT, 0x14));
             char ep[48];
             if (it->season >= 0 && it->episode >= 0) snprintf(ep, sizeof ep, "S%d E%d", it->season, it->episode); else ep[0] = 0;
-            font_draw_fit(it->show_name, LX + 176, y + 18, FONT_S | FONT_B, fg, w - 420);
+            font_draw_fit(it->show_name, LX + 176, y + 18, FONT_S | FONT_B, fg, tw);
             char line[220];
             snprintf(line, sizeof line, "%s%s%s", ep, ep[0] && it->title[0] ? "  \xC2\xB7  " : "", it->title);
-            font_draw_fit(line, LX + 176, y + 56, FONT_S, dim, w - 420);
+            font_draw_fit(line, LX + 176, y + 56, FONT_S, dim, tw);
             if (it->day > c->today) ui_chip("Upcoming", LX + w - 150, y + 34, foc ? COLOR_ALPHA(THEME_BG, 0x18) : COLOR_ALPHA(THEME_TEXT, 0x16), fg);
         }
         y += ROW_H;
@@ -269,6 +270,6 @@ Screen *screen_calendar_create(void)
     Calendar *c = calloc(1, sizeof *c);
     c->rail_focus = -1; c->gen = 1;
     s->name = "calendar"; s->st = c;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
     return s;
 }

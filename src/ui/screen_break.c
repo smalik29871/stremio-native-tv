@@ -145,11 +145,11 @@ static void draw(Screen *s)
     const char *label = b->kind == BRK_KIND_PRAYER ? "TIME FOR PRAYER" : b->kind == BRK_KIND_HEALTH ? "TAKE A BREAK" : b->kind == BRK_KIND_BEDTIME ? "BEDTIME" : "BREAK";
     font_draw_center(label, cx, cy + 170, FONT_XS | FONT_B, THEME_ACCENT2);
     font_draw_center(b->name, cx, cy + 204, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)));
-    if (b->detail[0]) font_draw_center(b->detail, cx, cy + 280, FONT_S, THEME_TEXT_DIM);
+    if (b->detail[0]) ui_center_wrapped(b->detail, cx, cy + 280, FONT_S, THEME_TEXT_DIM, SNTV_UI_W - 80);
     char line[120];
     VideoInfo vi; video_info(&vi);
     float done = status_line(b, &vi, line, sizeof line);
-    font_draw_center(line, cx, cy + 340, FONT_S | FONT_B, THEME_TEXT_DIM);
+    ui_center_wrapped(line, cx, cy + (SNTV_PHONE ? 400 : 340), FONT_S | FONT_B, THEME_TEXT_DIM, SNTV_UI_W - 80);
     if (done >= 0) ui_progress(cx - 200, cy + 384, 400, 5, done, THEME_ACCENT);
     /* buttons */
     float w1 = ui_pill_width("Continue now", 1, 64), w2 = ui_pill_width("Skip breaks today", 0, 64);
@@ -160,7 +160,7 @@ static void draw(Screen *s)
     BreakEvent ev[16]; int n = breaks_today(ev, 16), now_m = breaks_minute_now();
     char next[200] = ""; size_t o = 0; int shown = 0;
     for (int i = 0; i < n && shown < 3; i++) if (ev[i].minute > now_m) { o += (size_t)snprintf(next + o, sizeof next - o, "%s%s %d:%02d", shown ? "  \xC2\xB7  " : "Later today:  ", ev[i].name, ev[i].minute / 60, ev[i].minute % 60); shown++; }
-    if (next[0]) font_draw_center(next, cx, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED);
+    if (next[0]) ui_center_wrapped(next, cx, SNTV_UI_H - (SNTV_PHONE ? 100 : 80), FONT_XS, THEME_TEXT_MUTED, SNTV_UI_W - 80);
 }
 
 static int key(Screen *s, KeyAction a)
@@ -199,6 +199,6 @@ Screen *screen_break_create(const char *name, const char *detail, int kind)
     if (b->until_media && !b->took_media) { b->until_media = 0; b->len_s = 60; }   /* no recording to follow: a minute */
     LOGI("break: %s (%s), %d s", b->name, b->detail, b->len_s);
     s->name = "break"; s->st = b;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;
 }

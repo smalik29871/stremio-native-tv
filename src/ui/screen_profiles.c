@@ -66,14 +66,18 @@ static void draw(Screen *s)
     float k = g_app.fx_light ? 1 : p->intro;
     int a = (int)(255 * k);
     font_draw_center("Who's watching?", SNTV_UI_W / 2, 250 - (1 - k) * 20, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
-    font_draw_center("Each profile is a Stremio account saved on this TV: its own library, addons and progress.", SNTV_UI_W / 2, 336, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
-    float step = (SNTV_UI_W - 2 * THEME_MARGIN) / p->n;   /* many profiles: closer together, all on screen */
+    if (SNTV_PHONE) font_draw_wrapped("Each profile is a Stremio account saved here: its own library, addons and progress.", 40, 336, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), SNTV_UI_W - 80, 3);
+    else font_draw_center("Each profile is a Stremio account saved on this TV: its own library, addons and progress.", SNTV_UI_W / 2, 336, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
+    int per_row = SNTV_PHONE ? 2 : p->n;   /* a phone upright: two to a row */
+    float step = (SNTV_UI_W - 2 * THEME_MARGIN) / (p->n < per_row ? p->n : per_row);   /* many profiles: closer together, all on screen */
+    if (SNTV_PHONE) step = 320;
     if (step > STEP) step = STEP;
-    float total = (p->n - 1) * step, x0 = SNTV_UI_W / 2 - total / 2, cy = 560;
+    int across = p->n < per_row ? p->n : per_row;
+    float total = (across - 1) * step, x0 = SNTV_UI_W / 2 - total / 2, cy0 = SNTV_PHONE ? 600 : 560;
     float tile = step - 40 < TILE ? step - 40 : TILE;
     for (int i = 0; i < p->n; i++) {
         int foc = p->focus == i;
-        float f = foc ? (g_app.fx_light ? 1 : p->focus_t) : 0, sc = 1 + 0.10f * f, r = tile / 2 * sc, cx = x0 + i * step;
+        float f = foc ? (g_app.fx_light ? 1 : p->focus_t) : 0, sc = 1 + 0.10f * f, r = tile / 2 * sc, cx = x0 + (i % per_row) * step, cy = cy0 + (i / per_row) * 400;
         char name[128], ini[3];
         name_of(p->emails[i], name, sizeof name, ini);
         Color c = colour_of(p->emails[i]);
@@ -91,7 +95,7 @@ static void draw(Screen *s)
         if (i == 0) font_draw_center("Signed in", cx, ny + 40, FONT_XS, THEME_TEXT_MUTED);
         gfx_set_alpha(1);
     }
-    font_draw_center("OK  choose   \xC2\xB7   Back  keep the one signed in   \xC2\xB7   Settings > Account adds or forgets profiles", SNTV_UI_W / 2, SNTV_UI_H - 90, FONT_XS, THEME_TEXT_MUTED);
+    font_draw_center(SNTV_PHONE ? "Tap a profile   \xC2\xB7   Back keeps the one signed in" : "OK  choose   \xC2\xB7   Back  keep the one signed in   \xC2\xB7   Settings > Account adds or forgets profiles", SNTV_UI_W / 2, SNTV_UI_H - 90, FONT_XS, THEME_TEXT_MUTED);
 }
 
 static int tap(Screen *s, int id)   /* a profile: chosen */
@@ -129,6 +133,6 @@ Screen *screen_profiles_create(void)
     p->n += app_saved_accounts(p->emails + p->n, MAX_PROFILES - p->n);
     p->focus_t = 1;
     s->name = "profiles"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
     return s;
 }

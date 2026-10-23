@@ -336,6 +336,7 @@ static void draw_marquee(Ambient *a, float sx, float sy)
     unsigned tex = image_get(item_url(cur), &iw, &ih);
     if (tex && in > 0) gfx_rtex_uv(tex, px, py, pw, ph, 6, 0, 0, 1, 1, RGBA(255, 255, 255, (int)(255 * in)), 0);
     float tx = px + pw + 150 + sx, ty = py + 120 + sy, tw = SNTV_UI_W - tx - THEME_MARGIN;
+    if (SNTV_PHONE) { tx = 40 + sx; ty = py + ph + 60 + sy; tw = SNTV_UI_W - 80; }   /* upright: under the poster */
     font_draw("N O W   S H O W I N G", tx, ty, FONT_S | FONT_B, RGBA(0xE8, 0xC2, 0x6A, 0xFF));
     font_draw_fit(cur->name, tx, ty + 50, FONT_XL | FONT_B, RGBA(0xFF, 0xF6, 0xE8, (int)(255 * (0.3f + 0.7f * in))), tw);
     char line[96];
@@ -447,6 +448,6 @@ Screen *screen_ambient_create(void)
     LOGI("ambient: %s screensaver with %d backdrops%s%s", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n,
          g_app.ambient_style == AMBIENT_CLOCK ? ", face " : "", g_app.ambient_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_app.clock_face] : "");
     s->name = "ambient"; s->st = a;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;
 }

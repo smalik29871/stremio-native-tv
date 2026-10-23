@@ -54,7 +54,7 @@ static void draw(Screen *s)
     Pin *p = s->st;
     ui_background(0);
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, COLOR_ALPHA(THEME_BG, 0xB0));
-    float w = 760, h = 720, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
+    float w = SNTV_UI_W - 40 < 760 ? SNTV_UI_W - 40 : 760, h = 720, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, R_PANEL, 50, RGBA(0, 0, 0, 0xA0));
     ui_panel(x, y, w, h, R_PANEL, THEME_PANEL);
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x1C));
@@ -135,6 +135,6 @@ Screen *screen_pin_create(const char *title, int setting, void (*done)(int ok, v
     p->setting = setting; p->done = done; p->user = user;
     p->row = 0; p->col = 1;
     s->name = "pin"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->phone = 1; s->destroy = destroy;
     return s;
 }

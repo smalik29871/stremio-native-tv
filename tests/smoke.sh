@@ -953,6 +953,11 @@ run phone_settings 240 "wait,tap:702:1660,wait,tap:300:300,wait,wait" $PH SNTV_E
 run phone_explore 220 "wait,tap:234:1660,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=explore HOME="$(home_with ph7 '{"setupDone":1}')"
 run phone_library 200 "wait,tap:546:1660,wait,wait" $PH SNTV_EXPECT_SCREEN=library HOME="$(home_with ph8 '{"setupDone":1}')"
 run phone_setup 160 "wait,wait" $PH SNTV_EXPECT_SCREEN=welcome HOME="$(home_with ph9 '{}')"
+run phone_signin 260 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wait,wait" $PH SNTV_EXPECT_SCREEN=login HOME="$(home_with ph10 '{"setupDone":1}')"
+run phone_signin_pw 300 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wait,tap:390:791,wait,t:me@example.com,wait" $PH SNTV_EXPECT_SCREEN=login HOME="$(home_with ph11 '{"setupDone":1}')"
+run phone_about 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:364,wait,wait" $PH SNTV_EXPECT_SCREEN=whatsnew HOME="$(home_with ph12 '{"setupDone":1}')"
+run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:803,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
+run phone_calendar 220 "wait,tap:546:1660,wait,tap:370:76,wait,wait" $PH SNTV_EXPECT_SCREEN=calendar HOME="$(home_with ph14 '{"setupDone":1}')"
 python3 -I - "$OUT" <<'PY'
 import sys, glob, os
 from PIL import Image
