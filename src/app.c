@@ -23,6 +23,7 @@
 #include "breaks.h"
 #include "suntimes.h"
 #include "ui/screen_options.h"
+#include "video/video.h"
 #include "cJSON.h"
 #include <stdarg.h>
 #include <stdint.h>
