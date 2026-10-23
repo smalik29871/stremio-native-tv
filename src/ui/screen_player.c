@@ -3481,10 +3481,24 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     for (int i = 0; i < nv && p->video_id; i++)
         if (!strcmp(vids[i].id, p->video_id) && vids[i].overview && *vids[i].overview) { about = vids[i].overview; break; }   /* this episode, not the show */
     const char *next = p->next_video_id && p->next_title && !p->trailer ? p->next_title : NULL;
+    /* what someone on Trakt said about it, one at a time, most liked first */
+    int cse = -1, cep = -1, ncm = 0;
+    { const char *c = p->video_id ? strchr(p->video_id, ':') : NULL; if (c) sscanf(c + 1, "%d:%d", &cse, &cep); }
+    const TraktComment *cm = NULL;
+    if (!p->trailer) trakt_comments(p->meta.id, p->meta.type, cse, cep, &cm, &ncm);
+    float per = 9, cyc = fmodf(g_app.time, per);
+    const TraktComment *say = ncm ? &cm[(int)(g_app.time / per) % ncm] : NULL;
+    char quote[320] = "";
+    if (say) snprintf(quote, sizeof quote, "\"%.300s\"", say->text);
+    float say_k = cyc < 0.5f ? cyc / 0.5f : cyc > per - 0.5f ? (per - cyc) / 0.5f : 1;
+    int say_lines = 0;   /* room for the longest of them, so the block holds still as they change */
+    for (int i = 0; i < ncm; i++) { char qb[320]; snprintf(qb, sizeof qb, "\"%.300s\"", cm[i].text); int l = font_draw_wrapped(qb, x + 22, 0, FONT_S, 0, maxw - 22, 3); if (l > say_lines) say_lines = l; }
+    if (say) app_redraw();
     /* measured first, so the block ends just above the paused line whatever it holds */
     float need = 44 + (logo_h > 0 ? logo_h + 22 : font_draw_wrapped(p->meta.name, x, 0, title_fs, 0, maxw, 2) * font_height(title_fs) + 14)
                + (ep ? font_height(FONT_M | FONT_B) + 12 : 0) + (has_meta ? 50 : 0)
                + (about ? font_draw_wrapped(about, x, 0, FONT_S, 0, maxw, 4) * font_height(FONT_S) + 26 : 0)
+               + (say ? say_lines * font_height(FONT_S) + 40 + 26 : 0)
                + (n_cast ? 36 + 64 : 0) + (next ? 58 : 0);
     float y = (SNTV_UI_H - need) / 2 - 20;   /* centred, but never down on the paused line */
     if (y > SNTV_UI_H - 230 - need) y = SNTV_UI_H - 230 - need;
@@ -3528,6 +3542,16 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     }
     if (np || mx > x) y += 50;
     if (about) y += font_draw_wrapped(about, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) + 26;
+    if (say) {   /* a line from Trakt, fading between them */
+        int ca = (int)(a * say_k);
+        gfx_rect(x, y + 4, 4, 2 * font_height(FONT_S) - 8, COLOR_ALPHA(THEME_ACCENT, ca));
+        int lines = font_draw_wrapped(quote, x + 22, y, FONT_S, COLOR_ALPHA(THEME_TEXT, ca), maxw - 22, 3);
+        char by[96];
+        snprintf(by, sizeof by, "%s on Trakt%s", say->user[0] ? say->user : "Someone", say->likes > 0 ? "" : "");
+        if (say->likes > 0) snprintf(by + strlen(by), sizeof by - strlen(by), "  \xC2\xB7  %d like%s", say->likes, say->likes == 1 ? "" : "s");
+        font_draw(by, x + 22, y + lines * font_height(FONT_S) + 6, FONT_XS, COLOR_ALPHA(THEME_TEXT_MUTED, ca));
+        y += say_lines * font_height(FONT_S) + 40 + 26;
+    }
     /* the right-hand corner: what critics and audiences make of it, then Trakt's viewers */
     {
         /* critics first, then audiences closing on MDBList's blend of them all */

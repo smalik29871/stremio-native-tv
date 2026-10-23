@@ -42,6 +42,11 @@ int  tracking_version(void);           /* grows when a row changes */
 /* Trakt's numbers for a title (any app id will do, no sign-in): 1 with the people
  * watching it now, all who watched, and the plays; 0 while unknown (the first call asks). */
 int  trakt_stats(const char *imdb_id, const char *type, long *watching, long *watchers, long *plays);
+/* What people on Trakt said about a film or an episode (season, episode -1 for a film or a
+ * whole show), most liked first, spoilers left out: 1 when known (*n may be 0), 0 while
+ * unknown (the first call asks). */
+typedef struct TraktComment { char text[300], user[40]; int likes; } TraktComment;
+int  trakt_comments(const char *imdb_id, const char *type, int season, int episode, const TraktComment **out, int *n);
 /* 1,204 / 23K / 1.4M */
 void tracking_count_text(long v, char *out, size_t n);
 int  mdblist_enabled(void);

@@ -459,6 +459,12 @@ class H(BaseHTTPRequestHandler):
             data = [{"id": "1", "attributes": {"language": "en", "release": "Some.Other.Cut.720p.HDTV-XYZ", "download_count": 900, "moviehash_match": False, "files": [{"file_id": 111}]}},
                     {"id": "2", "attributes": {"language": "en", "release": "Movie.2024.1080p.WEB-DL", "download_count": 12, "moviehash_match": hashed, "files": [{"file_id": 222}]}}]
             return self.send(200, json.dumps({"data": data}).encode())
+        if p.startswith("/trakt/") and "/comments/likes" in p:   # what people said, most liked first: one spoiler, one too short
+            return self.send(200, json.dumps([
+                {"comment": "The tension in the last ten minutes is unbearable, in the best way. Cranston is incredible here.", "spoiler": False, "likes": 412, "user": {"username": "heisenfan"}},
+                {"comment": "He dies at the end!", "spoiler": True, "likes": 90, "user": {"username": "spoiler"}},
+                {"comment": "Wow.", "spoiler": False, "likes": 50, "user": {"username": "short"}},
+                {"comment": "Quiet episode, but every scene pays off later. Worth a rewatch.", "spoiler": False, "likes": 88, "user": {"username": "slowburn"}}]).encode())
         if p.startswith("/trakt/") and p.endswith("/stats"):   # a title's numbers on Trakt
             return self.send(200, json.dumps({"watchers": 23456, "plays": 1400000, "collectors": 900, "comments": 12, "lists": 40, "votes": 800}).encode())
         if p.startswith("/trakt/") and p.endswith("/watching"):   # the people watching it right now

@@ -677,6 +677,61 @@ static void on_tk_watching(HttpResponse *r, void *user)
     app_redraw();
 }
 
+/* ---- comments: a few people's words on what is playing ---- */
+typedef struct { char key[48]; int state, n; TraktComment c[8]; } TkComments;
+static TkComments g_tkc[4];
+static int g_tkc_next;
+
+static void on_tk_comments(HttpResponse *r, void *user)
+{
+    TkComments *t = &g_tkc[(int)(intptr_t)user];
+    cJSON *j = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL, *it;
+    t->n = 0;
+    if (cJSON_IsArray(j)) cJSON_ArrayForEach(it, j) {
+        if (t->n >= 8) break;
+        const cJSON *text = cJSON_GetObjectItemCaseSensitive(it, "comment"), *sp = cJSON_GetObjectItemCaseSensitive(it, "spoiler");
+        const cJSON *likes = cJSON_GetObjectItemCaseSensitive(it, "likes"), *u = cJSON_GetObjectItemCaseSensitive(it, "user");
+        const cJSON *name = u ? cJSON_GetObjectItemCaseSensitive(u, "username") : NULL;
+        if (!cJSON_IsString(text) || cJSON_IsTrue(sp) || strstr(text->valuestring, "[spoiler]")) continue;
+        size_t len = strlen(text->valuestring);
+        if (len < 16 || len > 290) continue;   /* a word, or an essay: neither fits the panel */
+        TraktComment *c = &t->c[t->n++];
+        snprintf(c->text, sizeof c->text, "%s", text->valuestring);
+        for (char *q = c->text; *q; q++) if (*q == '\n' || *q == '\r' || *q == '\t') *q = ' ';
+        snprintf(c->user, sizeof c->user, "%s", cJSON_IsString(name) ? name->valuestring : "");
+        c->likes = cJSON_IsNumber(likes) ? likes->valueint : 0;
+    }
+    t->state = j ? 2 : 3;
+    LOGI("trakt: %d comment%s for %s", t->n, t->n == 1 ? "" : "s", t->key);
+    cJSON_Delete(j);
+    app_redraw();
+}
+
+int trakt_comments(const char *imdb_id, const char *type, int season, int episode, const TraktComment **out, int *n)
+{
+    *n = 0; *out = NULL;
+    if (!tracking_configured(TRACK_TRAKT) || !imdb_id || strncmp(imdb_id, "tt", 2)) return 0;
+    char id[24], key[48];
+    snprintf(id, sizeof id, "%.*s", (int)strcspn(imdb_id, ":"), imdb_id);
+    snprintf(key, sizeof key, "%s:%d:%d", id, season, episode);
+    for (int i = 0; i < 4; i++) {
+        if (strcmp(g_tkc[i].key, key)) continue;
+        if (g_tkc[i].state != 2) return 0;
+        *out = g_tkc[i].c; *n = g_tkc[i].n;
+        return 1;
+    }
+    int slot = g_tkc_next; g_tkc_next = (g_tkc_next + 1) % 4;
+    memset(&g_tkc[slot], 0, sizeof g_tkc[slot]);
+    snprintf(g_tkc[slot].key, sizeof g_tkc[slot].key, "%s", key);
+    g_tkc[slot].state = 1;
+    char url[260];
+    if (type && !strcmp(type, "series") && season >= 0 && episode > 0)
+        snprintf(url, sizeof url, "%s/shows/%s/seasons/%d/episodes/%d/comments/likes?limit=20", trakt_api(), id, season, episode);
+    else snprintf(url, sizeof url, "%s/%s/%s/comments/likes?limit=20", trakt_api(), type && !strcmp(type, "series") ? "shows" : "movies", id);
+    request(TRACK_TRAKT, url, NULL, on_tk_comments, (void *)(intptr_t)slot);
+    return 0;
+}
+
 int trakt_stats(const char *imdb_id, const char *type, long *watching, long *watchers, long *plays)
 {
     if (!tracking_configured(TRACK_TRAKT) || !imdb_id || strncmp(imdb_id, "tt", 2)) return 0;
