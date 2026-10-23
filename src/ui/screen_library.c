@@ -215,6 +215,11 @@ static void update(Screen *s, float dt)
     float target = l->zone == Z_GRID ? (float)(l->focus / COLS) * (CELL_H + 80) : 0;
     float most = (((l->n + COLS - 1) / COLS) * (CELL_H + 80)) - (SNTV_UI_H - l->grid_y - (SNTV_PHONE ? PHONE_TABS_H : 0)) + 40;
     ui_pan(&l->pan, &l->scroll, target, most, dt, 14);
+    {   /* the posters of the rows in view and two below are asked for before they are scrolled to */
+        int r0 = (int)(l->scroll / (CELL_H + 80)), rows = (int)((SNTV_UI_H - l->grid_y) / (CELL_H + 80)) + 3;
+        char pb[512];
+        for (int i = (r0 < 0 ? 0 : r0) * COLS; i < l->n && i < (r0 + rows) * COLS; i++) ui_art_ready(app_art_poster(&l->items[i], pb, sizeof pb));
+    }
     l->focus_t = ui_ease(l->focus_t * 100, 100, NULL, dt, 16) / 100;
     ui_peek_step(&l->peek, l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n ? &l->items[l->focus] : NULL, dt);
     char buf[512];

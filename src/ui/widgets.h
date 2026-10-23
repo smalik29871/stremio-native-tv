@@ -127,6 +127,10 @@ float ui_center_wrapped(const char *text, float cx, float y, int size, Color c, 
 #define CARD_MIP  1   /* use the mipmapped texture variant */
 #define CARD_BLUR 2   /* sample a blurred mip (spoiler protection), implies CARD_MIP */
 #define CARD_TRUE_COLOUR 4   /* never printed in two tones (episode stills, people) */
+/* Lazy rows: whether a card's picture is in (or failed, or there is none); asks for it if
+ * not. A row shows its cards once the ones in view are, all together, not one by one. */
+int  ui_art_ready(const char *url);
+#define UI_ROW_WAIT 2.5f   /* ...or after this long, whatever has come */
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim,
              const char *fallback_title, int card_flags);
 /* Off while drawing cards that are only pictures (Settings previews): screens open out of

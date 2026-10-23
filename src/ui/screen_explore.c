@@ -348,6 +348,11 @@ static void update(Screen *s, float dt)
     float target = row * (CELL_H + 80);
     float most = (((e->n + COLS - 1) / COLS) * (CELL_H + 80)) - (SNTV_UI_H - e->grid_y - (SNTV_PHONE ? PHONE_TABS_H : 0)) + 40;
     ui_pan(&e->pan, &e->scroll, target, most, dt, 14);
+    {   /* the posters of the rows in view and two below are asked for before they are scrolled to */
+        int r0 = (int)(e->scroll / (CELL_H + 80)), rows = (int)((SNTV_UI_H - e->grid_y) / (CELL_H + 80)) + 3;
+        char pb[512];
+        for (int i = (r0 < 0 ? 0 : r0) * COLS; i < e->n && i < (r0 + rows) * COLS; i++) ui_art_ready(app_art_poster(&e->items[i], pb, sizeof pb));
+    }
     if (ui_pan_free(&e->pan) && e->scroll > most - 2 * (CELL_H + 80) && !e->done && !e->loading && e->n && !(g_app.low_memory && e->n >= 140)) fetch(e, 1);   /* dragged near the end */
     e->focus_t = ui_ease(e->focus_t * 100, 100, NULL, dt, 16) / 100;
     if (e->loading) app_redraw();

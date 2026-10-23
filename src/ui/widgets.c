@@ -1567,6 +1567,13 @@ void ui_card_capture(int on) { g_card_capture = on; }
 
 float ui_focus_lift(float focus) { return g_theme.focus_style == FOCUS_LIGHTBAR ? 10 * focus : 0; }
 
+int ui_art_ready(const char *url)
+{
+    if (!url || !*url || image_peek(url, NULL, NULL) || image_failed(url)) return 1;
+    image_prefetch(url);
+    return 0;
+}
+
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim, const char *title, int flags)
 {
     int mip = flags & (CARD_MIP | CARD_BLUR), blur = flags & CARD_BLUR;
@@ -1587,7 +1594,9 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
         if (a < 1) { gfx_rrect(cx, cy, cw, ch, R_CARD, THEME_POSTER_PH); app_redraw(); }
         int shade = (int)(255 - dim * 90);
         gfx_rtex_uv(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, RGBA(shade, shade, shade, (int)(255 * a)), blur ? 4.5f : 0);
-    } else {
+    } else if (url && *url && !image_failed(url)) {
+        gfx_rrect(cx, cy, cw, ch, R_CARD, THEME_POSTER_PH);   /* on its way: a quiet tile, the picture fades in over it */
+    } else {   /* no picture: the name on the card */
         gfx_rrect_grad_v(cx, cy, cw, ch, R_CARD, COLOR_ALPHA(THEME_TEXT, 0x18), COLOR_ALPHA(THEME_TEXT, 0x08));
         if (title) {
             gfx_clip_push(cx + 14, cy, cw - 28, ch);

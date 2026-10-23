@@ -50,7 +50,8 @@ typedef struct Row {
     int focus;
     float scroll_x, scroll_xv;   /* position and spring velocity */
     UiPan pan;                    /* ...a finger dragging it */
-    float arrived_at;             /* when titles first replaced the placeholders (cards rise in) */
+    float arrived_at;             /* when titles first replaced the placeholders */
+    float shown_at;               /* when the pictures in view were in and the cards rose in (0: not yet) */
     char url[1024];
 } Row;
 
@@ -111,6 +112,35 @@ static float card_w(const Row *r) { return landscape(r) ? LAND_W : POSTER_W; }
 static float card_h(const Row *r) { return landscape(r) ? LAND_H : POSTER_H; }
 static float row_h(const Row *r) { return TITLE_H + card_h(r) + (g_theme.id == THEME_APERTURE ? 96 : 64); }
 static int visible_cards(const Row *r) { return (int)((SNTV_UI_W - LX) / (card_w(r) + GAP)); }
+static int ph_land(const Row *r);
+static float ph_cw(const Row *r);
+
+/* The picture a card of this row shows (as its draw picks it). */
+static const char *card_art(const Row *r, const MetaPreview *m, char *buf, size_t n)
+{
+    int wide = SNTV_PHONE ? ph_land(r) : g_theme.id == THEME_APERTURE || r->kind == ROW_CONTINUE;
+    return wide ? app_art_background(m, buf, n) : app_art_poster(m, buf, n);
+}
+
+/* Lazy rows: the pictures of the cards in view (and a few past the edge) are asked for, and
+ * the row shows its cards once those are in, all together; rows near the focus get theirs
+ * before they are scrolled to. Until then the row's placeholders stay. */
+static void row_pictures(Home *h, int ri)
+{
+    Row *r = h->rows[ri];
+    if (!r->n) return;
+    float step = SNTV_PHONE ? ph_cw(r) + 24 : card_w(r) + GAP;
+    int first = (int)(r->scroll_x / step), vis = SNTV_PHONE ? (int)(SNTV_UI_W / step) + 1 : visible_cards(r) + 1;
+    if (first < 0) first = 0;
+    char buf[1024];
+    int ready = 1;
+    for (int j = first; j < r->n && j < first + vis + 6; j++) {
+        int in = ui_art_ready(card_art(r, &r->metas[j], buf, sizeof buf));
+        if (j < first + vis) ready &= in;
+    }
+    if (!r->shown_at && (ready || g_app.time - r->arrived_at > UI_ROW_WAIT || g_app.fx_light)) { r->shown_at = g_app.time; app_redraw(); }
+    if (!r->shown_at) app_redraw();   /* to see them come */
+}
 
 static void row_free(Row *r)
 {
@@ -275,7 +305,7 @@ static void apply_metas(Row *row, MetaPreview *m, int n)
     drop_watched(&m, &n);
     if (g_app.low_memory && n > 40) { for (int i = 40; i < n; i++) meta_preview_free(&m[i]); n = 40; }   /* memory saver: shorter rows */
     char *focused = row->n && row->focus < row->n ? strdup(row->metas[row->focus].id) : NULL;
-    if (!row->n && n) row->arrived_at = g_app.time;
+    if (!row->n && n) { row->arrived_at = g_app.time; row->shown_at = 0; }
     meta_previews_free(row->metas, row->n);
     row->metas = m; row->n = n;
     if (n > 0) { perf_mark("first row"); perf_mark("first catalog"); }
@@ -498,6 +528,12 @@ static void phone_row(Home *h, int ri, float y)
         else if (r->failed) font_draw("Couldn't load this catalog.", PH_X, cy + 20, FONT_S, THEME_TEXT_MUTED);
         return;
     }
+    if (!r->shown_at) {   /* the pictures in view aren't in yet: the placeholders a moment longer */
+        row_pictures(h, ri);
+        if (!r->shown_at) { for (int j = 0; j < 4; j++) ui_skeleton(PH_X + j * (cw + PH_GAP) - r->scroll_x, cy, cw, ch, R_CARD); return; }
+    }
+    float rise = (g_app.time - r->shown_at) / 0.3f;   /* then they come in together */
+    if (rise < 1 && !g_app.fx_light) { gfx_set_alpha(rise); app_redraw(); }
     char buf[512];
     for (int pass = 0; pass < 2; pass++)
         for (int j = 0; j < r->n; j++) {
@@ -520,6 +556,7 @@ static void phone_row(Home *h, int ri, float y)
                 if (m->release_info) font_draw_fit(m->release_info, px, cy + ch + 58, FONT_S, THEME_TEXT_DIM, cw);
             }
         }
+    gfx_set_alpha(1);
 }
 
 static void phone_draw(Home *h)
@@ -685,6 +722,10 @@ static void update(Screen *s, float dt)
             if (r->kind != ROW_CONTINUE && r->focus < r->n) pm = &r->metas[r->focus];
         }
         ui_peek_step(&h->peek, pm, dt);
+    }
+    for (int i = 0; i < h->n_rows; i++) {   /* the rows in sight and a few either side of the focus get their pictures */
+        int near = h->focus_row < 0 ? i < 4 : i >= h->focus_row - 1 && i <= h->focus_row + 3;
+        if (near || (h->rows[i]->n && !h->rows[i]->shown_at && !g_app.low_memory && i < 12)) row_pictures(h, i);
     }
     for (int i = 0; i < h->n_rows; i++) {
         Row *r = h->rows[i];
@@ -865,6 +906,10 @@ static void draw_row(Home *h, int ri, float y, float alpha)
         return;
     }
     ui_pan_area(&r->pan, 0, cy, SNTV_UI_W, ch, 0);
+    if (!r->shown_at) {   /* the pictures in view aren't in yet: the placeholders a moment longer */
+        row_pictures(h, ri);
+        if (!r->shown_at) { for (int j = 0; j < visible_cards(r) + 1; j++) ui_skeleton(LX + j * (cw + GAP) - r->scroll_x, cy, cw, ch, R_CARD); return; }
+    }
     int first = (int)(r->scroll_x / (cw + GAP)) - 1;
     if (first < 0) first = 0;
     char buf[512];
@@ -887,7 +932,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
             int is_prev = h->prev_row == ri && h->prev_col == j && !is_focus;
             if ((pass == 1) != (is_focus || is_prev)) continue;
             /* titles just arrived: each card rises and fades in a beat after the one before */
-            float k = (g_app.time - r->arrived_at - (j - first) * 0.04f) / 0.3f, ce = 1;
+            float k = (g_app.time - r->shown_at - (j - first) * 0.04f) / 0.3f, ce = 1;
             if (k < 1 && !g_app.fx_light) { ce = k < 0 ? 0 : 1 - (1 - k) * (1 - k) * (1 - k); app_redraw(); }
             gfx_set_alpha(alpha * ce);
             float ry = cy + 22 * (1 - ce);
