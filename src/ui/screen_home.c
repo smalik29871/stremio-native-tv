@@ -505,8 +505,8 @@ static void update(Screen *s, float dt)
         h->hero_fade = 0;
         h->hero_text_t = 0;
     }
-    if (g_theme.id != THEME_APERTURE && hero && settled && g_app.home_style != HOME_COMPACT && !strcmp(hero->id, h->hero_id))
-        bgtrailer_want(h->hero_id, SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f), 4.0f);
+    if (hero && settled && g_app.home_style != HOME_COMPACT && !strcmp(hero->id, h->hero_id))
+        bgtrailer_want(h->hero_id, g_theme.id == THEME_APERTURE ? rows_y() + 60 : SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f), 4.0f);
 
     /* prefetch around the focus and the start of the next row */
     if (h->focus_row >= 0) {
@@ -532,9 +532,13 @@ static void draw_hero(Home *h, const MetaPreview *p)
     if (g_theme.id == THEME_APERTURE) {
         float k = g_app.fx_light ? 1 : h->hero_text_t;
         float ax = 700 - 20 * k, ah = rows_y() + 60;
-        ui_aperture_art(h->hero_bg, ax, 0, SNTV_UI_W - ax, ah, g_app.fx_light ? 1 : h->hero_fade);
+        float tv = bgtrailer_shown(h->hero_id);   /* its trailer plays in the artwork window, as behind the other themes' heroes */
+        ui_backdrop_fades(ax + 460, ah - 300, ah);
+        ui_backdrop_video(tv, ah);
+        ui_aperture_art(h->hero_bg, ax, 0, SNTV_UI_W - ax, ah, (g_app.fx_light ? 1 : h->hero_fade) * (1 - tv));
         gfx_gradient_h(ax - 1, 0, 460, ah, THEME_BG, COLOR_ALPHA(THEME_BG, 0));
         gfx_gradient_v(0, ah - 300, SNTV_UI_W, 300, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
+        bgtrailer_draw_badge(h->hero_id, 1);
         int a = (int)(255 * k);
         ui_spaced_caps("Your evening, in frame", LX, 56, FONT_XS, 7, COLOR_ALPHA(THEME_TEXT_DIM, a), 0);
         const Row *fr = h->focus_row >= 0 && h->focus_row < h->n_rows ? h->rows[h->focus_row] : NULL;

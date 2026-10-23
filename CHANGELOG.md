@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Every theme can do everything.** Aperture was missing a few things the other themes have;
+  it now has them too:
+  - details beside a card that stays focused (Settings > Interface turns them off in any theme);
+  - trailers that play on their own on Home and on the title page, inside its artwork window;
+  - on the Sources page, holding OK to get a torrent onto your TorBox (with its progress and
+    "Ready" state), and the Verified, Same release and seeders marks;
+  - "Source 2 of 5" in the player.
 - **A new Search page.** The search bar, suggestions and a compact keyboard (the alphabet in
   order, seven keys wide) sit down the left; the best match is a large card on the right with
   **Play**, **Details** and **Sources** (a series opens its episodes), and the other results

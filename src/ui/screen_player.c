@@ -3638,7 +3638,7 @@ static void draw(Screen *s)
             font_draw(text, tx + 22, 47 + (th2 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
             chip_y = 112;
         }
-        if (p->n_cands > 1 && g_theme.id != THEME_APERTURE) {
+        if (p->n_cands > 1) {   /* every theme: which of the sources this is */
             char c[48]; snprintf(c, sizeof c, "Source %d of %d", p->cur + 1, p->n_cands);
             ui_chip(c, SNTV_UI_W - THEME_MARGIN - font_measure(c, FONT_XS | FONT_B) - 24, chip_y, COLOR_ALPHA(THEME_TEXT, 0x22), THEME_TEXT);
         }

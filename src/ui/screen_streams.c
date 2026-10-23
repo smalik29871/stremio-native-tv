@@ -1097,13 +1097,28 @@ static void draw_aperture(Streams *st)
         const char *note = !ok ? (why[0] ? why : "Cannot play on this TV") : gate && !strcmp(gate, "it is another episode") ? "Another episode" : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
             : sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85 ? "Heavier than this connection"
             : quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 1) ? warn[0] : sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
-        const char *flag = is_mine(sm) ? "In your TorBox" : from_torbox(sm) ? "From your TorBox" : is_p2p(sm) ? "P2P on this TV" : NULL;
-        if (!note && flag) { font_draw_fit(flag, x + 24, y + 62, FONT_XS | FONT_B, THEME_OK, w - 280); }
+        char p2p[48] = "P2P on this TV";
+        if (is_p2p(sm) && sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders);
+        const char *flag = is_mine(sm) ? "In your TorBox" : from_torbox(sm) ? "From your TorBox" : is_p2p(sm) ? p2p : same_release(st, sm) ? "Same release"
+            : sm->probe_state == 2 && ok ? "Verified" : NULL;
+        int tb = fetching(st, sm);   /* on its way to your TorBox: the same as the other themes show */
+        if (tb) { font_draw_fit(st->fetch_note, x + 24, y + 62, FONT_XS | FONT_B, st->fetch_state == 4 ? THEME_DANGER : st->fetch_state == 3 ? THEME_OK : THEME_TEXT, w - 280); note = NULL; }
+        else if (!note && flag) { font_draw_fit(flag, x + 24, y + 62, FONT_XS | FONT_B, THEME_OK, w - 280); }
         else font_draw_fit(note ? note : line, x + 24, y + 62, FONT_XS, note ? THEME_DANGER : THEME_TEXT_DIM, w - 280);
+        if (tb && st->fetch_state <= 2) {
+            float k = st->fetch_progress < 0 ? 0 : st->fetch_progress > 1 ? 1 : st->fetch_progress;
+            gfx_rect(x + 24, y + ROW_H - 22, w - 48, 3, COLOR_ALPHA(THEME_TEXT, 0x22));
+            if (k > 0) gfx_rect(x + 24, y + ROW_H - 22, (w - 48) * k, 3, THEME_OK);
+        }
         if (foc) {
             const char *file = sm->filename ? sm->filename : sm->description ? sm->description : sm->title;
             first_line(file, line, sizeof line);
-            font_draw_fit(line, x + 24, y + 96, FONT_XS, THEME_TEXT_MUTED, w - 48);
+            int offer = fetchable(sm) && !tb;   /* hold OK: onto your TorBox */
+            const char *t = "Hold OK: get it on TorBox";
+            float hw = offer ? font_measure(t, FONT_XS | FONT_B) + 24 : 0;
+            font_draw_fit(line, x + 24, y + 96, FONT_XS, THEME_TEXT_MUTED, w - 48 - hw);
+            if (offer && !ui_hold_hint_ex(x + w - 24 - 320, y + 90, 320, "Hold to get it on TorBox", "Release: TorBox gets it"))
+                font_draw(t, x + w - 24 - font_measure(t, FONT_XS | FONT_B), y + 96, FONT_XS | FONT_B, THEME_TEXT);
         }
     }
     gfx_clip_pop();

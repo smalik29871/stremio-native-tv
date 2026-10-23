@@ -414,6 +414,8 @@ grep -q "home: first view kept ([0-9]* pictures)" "$OUT/home_first_view.log" && 
 run home_peek_marquee 300 "right,right" HOME="$(home_with peek_marquee '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":1}')"
 run explore_peek_edge 800 "left,down,ok,right,down,down,down,right,right,right,right,right,right"
 run home_peek_off 200 "right,right" HOME="$(home_with peek_off '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"cardDetails":0}')"
+# every theme has the same functions: Aperture shows card details and its trailers too
+run home_peek_aperture 900 "right,right,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with peek_ap '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":7}')"
 # a Continue Watching row sliding off the top fades out instead of leaving a sliced strip
 CW_HOME="$(home_with cw_scroll '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":2}')"; cp "$ROOT/tests/fixtures/library.json" "$CW_HOME/.local/share/stremio/nativetv/library.json"
 run home_cw_scroll 90 "right,right,right,down" HOME="$CW_HOME"

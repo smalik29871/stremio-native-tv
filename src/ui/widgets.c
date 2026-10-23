@@ -608,7 +608,7 @@ int ui_hold_hint_ex(float x, float y, float w, const char *hold, const char *rel
 
 void ui_peek_step(Peek *p, const MetaPreview *m, float dt)
 {
-    if (g_theme.id == THEME_APERTURE || !g_app.card_details || !m || !m->id) { p->id[0] = 0; p->t = 0; return; }
+    if (!g_app.card_details || !m || !m->id) { p->id[0] = 0; p->t = 0; return; }   /* every theme, Aperture too */
     if (strcmp(p->id, m->id) != 0) {
         snprintf(p->id, sizeof p->id, "%s", m->id);
         p->since = g_app.time;
@@ -1455,7 +1455,7 @@ void ui_aperture_art(const char *url, float x, float y, float w, float h, float 
 {
     int iw = 0, ih = 0;
     unsigned tex = url && *url ? image_get(url, &iw, &ih) : 0;
-    gfx_rect(x, y, w, h, THEME_BG2);
+    gfx_rect(x, y, w, h, alpha < 1 ? COLOR_ALPHA(THEME_BG2, (int)(255 * alpha)) : THEME_BG2);   /* a trailer under it shows through as it fades */
     if (tex && iw > 0 && ih > 0) {
         float u0, v0, u1, v1;
         cover_uv(iw, ih, w, h, &u0, &v0, &u1, &v1);

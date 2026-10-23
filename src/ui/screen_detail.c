@@ -620,7 +620,7 @@ static void update(Screen *s, float dt)
         if (pre && strcmp(pre, d->pre_id)) { snprintf(d->pre_id, sizeof d->pre_id, "%s", pre); d->pre_since = g_app.time; }
         else if (pre && g_app.time - d->pre_since > 0.8f) streams_prefetch(&d->preview, pre);
     }
-    if (g_theme.id != THEME_APERTURE && d->scroll < 60 && !d->ask_open) bgtrailer_want(d->preview.id, SNTV_UI_H, 2.5f);   /* Aperture uses a quiet artwork window */
+    if (d->scroll < 60 && !d->ask_open) bgtrailer_want(d->preview.id, g_theme.id == THEME_APERTURE && d->meta.n_videos > 0 ? RAIL_Y - 110 : SNTV_UI_H, 2.5f);   /* Aperture: in its artwork window */
     /* prefetch upcoming thumbnails */
     for (int k = d->ep_focus; k < d->n_eps && k < d->ep_focus + 6; k++) {
         const char *t = d->meta.videos[d->ep_index[k]].thumbnail;
@@ -966,7 +966,10 @@ static void draw(Screen *s)
     float tv = bgtrailer_shown(d->preview.id);   /* the trailer playing behind the artwork */
     if (g_theme.id == THEME_APERTURE) {
         float ah = series ? RAIL_Y - 110 : SNTV_UI_H;
-        ui_aperture_art(bg, 700, 0, SNTV_UI_W - 700, ah, k);
+        ui_backdrop_fades(1220, ah - 320, ah);
+        ui_backdrop_video(tv, ah);
+        ui_aperture_art(bg, 700, 0, SNTV_UI_W - 700, ah, k * (1 - tv));
+        if (d->scroll < 60) bgtrailer_draw_badge(d->preview.id, 0);
         gfx_gradient_h(699, 0, 520, ah, THEME_BG, COLOR_ALPHA(THEME_BG, 0));
         gfx_gradient_v(0, ah - 320, SNTV_UI_W, 320, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
     } else if (bgt || tv > 0) {
