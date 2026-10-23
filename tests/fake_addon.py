@@ -4,7 +4,7 @@
     python3 tests/fake_addon.py 8765
 Serves /manifest.json, /catalog/{type}/{id}.json (with optional /{extra}.json),
 /meta/{type}/{id}.json, /stream/{type}/{id}.json and generated poster PNGs."""
-import json, os, re, sys, io, struct, zlib
+import json, os, re, sys, io, struct, zlib, urllib.parse
 from time import sleep
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -383,6 +383,30 @@ class H(BaseHTTPRequestHandler):
         longseason = p.startswith("/longseason/")   # one season of 26 episodes: its range chips
         if longseason:
             p = p[11:]
+        # an iTunes store stand-in: two soundtrack albums of Breaking Bad among names that only look alike
+        if p.startswith("/itunes/search"):
+            term = urllib.parse.parse_qs(urllib.parse.urlparse(p).query).get("term", [""])[0].lower()
+            albums = []
+            if term.startswith("breaking bad"):
+                def alb(cid, name, artist, year, n):
+                    return {"wrapperType": "collection", "collectionId": cid, "collectionName": name, "artistName": artist, "trackCount": n,
+                            "releaseDate": f"{year}-06-01T07:00:00Z", "artworkUrl100": f"{BASE}/poster/{cid % 7}.png?size=100x100bb",
+                            "collectionViewUrl": f"https://music.apple.com/us/album/{cid}?uo=4"}
+                albums = [alb(901, "Breaking Benjamin: Greatest Hits", "Breaking Benjamin", 2011, 14),
+                          alb(902, "Breaking Bad (Original Score from the Television Series)", "Dave Porter", 2012, 18),
+                          alb(903, "Breaking Bad Habits", "The Habits", 2015, 10),
+                          alb(904, "Breaking Bad (Original Motion Picture Soundtrack)", "Various Artists", 1979, 9),
+                          alb(905, "Breaking Bad: Music from the Original TV Series", "Various Artists", 2010, 12)]
+            return self.send(200, json.dumps({"resultCount": len(albums), "results": albums}).encode())
+        if p.startswith("/itunes/lookup"):
+            cid = int(urllib.parse.parse_qs(urllib.parse.urlparse(p).query).get("id", ["0"])[0])
+            songs = ["Breaking Bad Main Title Theme", "Waiting for Walt", "Crawl Space", "Jesse's Song", "Fly", "Rest in Peace",
+                     "The Cousins", "Salud", "Ozymandias", "Felina", "Baby Blue", "Negro y Azul", "Out of Time Man", "DLZ",
+                     "Crystal Blue Persuasion", "Quimica Mayor", "Catch Yer Own Train", "Sunlight's Gone"]
+            n = 18 if cid == 902 else 12
+            res = [{"wrapperType": "collection", "collectionId": cid}] + [
+                {"wrapperType": "track", "trackName": songs[i], "trackNumber": i + 1, "discNumber": 1, "trackTimeMillis": 60000 + i * 7300} for i in range(n)]
+            return self.send(200, json.dumps({"resultCount": len(res), "results": res}).encode())
         # /dropvid/...: one source, a bigger file whose server cuts the first download partway
         # (/stallvid/...: or stops sending there and holds the connection open)
         if p.startswith("/dropvid/") or p.startswith("/stallvid/"):

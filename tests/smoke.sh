@@ -36,6 +36,7 @@ export SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql"   # a fake IMDb with no tr
 export SNTV_YT_BASE="http://127.0.0.1:$PORT/yt"   # a fake YouTube: TV config, player, formats, ranged media
 export SNTV_YT_SOLVER_URL="http://127.0.0.1:$PORT/yt/ejs"   # the "newest solver" download: refused, so the bundled one is all there is
 export SNTV_NO_TRANSITIONS=1   # screenshots land mid-animation otherwise; transition_push turns them back on
+export SNTV_ITUNES_API=http://127.0.0.1:$PORT/noitunes   # no soundtracks, and nothing asked of the real store; the music runs set /itunes
 export SNTV_NO_WHATSNEW=1   # every profile here is "set up", which reads as just updated; the whatsnew run turns it on
 export SNTV_NO_BUFFER=1   # the runs below test what they did before the buffer ahead; the buffer_ runs turn it on
 export HOME="$OUT/home"; mkdir -p "$HOME"
@@ -1012,6 +1013,12 @@ run rate_back 500 "right,right,ok,wait,right,right,right,right,right,right,ok,wa
 run rate_episode 800 "right,ok,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,left,left,ok,wait" HOME="$(home_with rate_ep '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "ratings: tt[0-9]*:[0-9]*:[0-9]* rated 6/10" "$OUT/rate_episode.log" || { echo "the episode rating was not saved"; grep ratings "$OUT/rate_episode.log"; exit 1; }
 run rate_phone 300 "right,right,ok,wait" $PH
+# the soundtrack on the title page: the two albums of it (not a band or a 1979 film's of the same name), all the tracks on OK
+MUS="SNTV_ITUNES_API=http://127.0.0.1:$PORT/itunes"
+run music_row 500 "right,ok,wait,wait,wait,down,down,down,down,down,down" "$MUS"
+grep -q "music: 2 soundtrack albums for tt0903747" "$OUT/music_row.log" || { echo "the soundtrack albums were not found"; grep music "$OUT/music_row.log"; exit 1; }
+run music_album 560 "right,ok,wait,wait,wait,down,down,down,down,down,down,right,ok,wait" "$MUS"
+grep -q "music: album Breaking Bad: Music from the Original TV Series (12 tracks)" "$OUT/music_album.log" || { echo "the album did not open"; grep music "$OUT/music_album.log"; exit 1; }
 # sent to Trakt and SimKL when connected: an episode to Trakt only (SimKL rates films and shows)
 : > "$FAKE_TRACK_LOG"
 run rate_synced 800 "right,ok,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,right,right,ok,wait,wait" HOME="$(home_with rate_sync "$TK2")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl

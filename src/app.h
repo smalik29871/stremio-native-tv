@@ -326,6 +326,8 @@ Screen *screen_break_create(const char *name, const char *detail, int kind);
 Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + clock */
 /* Your rating of a title (id "tt...") or an episode ("tt...:2:3"): stars, tags, Save. */
 Screen *screen_rate_create(const char *id, const char *type, const char *title, const char *subtitle);
+struct MusicAlbum;
+Screen *screen_soundtrack_create(const struct MusicAlbum *album, const char *of);   /* one album, its tracks, a code to scan */
 Screen *screen_profiles_create(void);  /* Who's watching: the saved accounts as profiles */
 int     profiles_at_start(void);       /* signed in, others saved and the picker wanted */
 

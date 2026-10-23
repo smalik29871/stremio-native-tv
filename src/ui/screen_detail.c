@@ -7,6 +7,7 @@
 #include "../perfstat.h"
 #include "../app.h"
 #include "../ratings.h"
+#include "../music.h"
 #include "../tmdb.h"
 #include "../newep.h"
 #include "../tracking.h"
@@ -31,7 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
+enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_MUSIC, AREA_SIMILAR };
 enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_RATE, BTN_COUNT };
 #define HIT(area, i) ((area) << 12 | (i))   /* touch: what is where, by area and place in it */
 #define HIT_BACK 0x7FFFFF0
@@ -46,6 +47,8 @@ enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_RATE, B
 #define SIM_W 200.0f
 #define SIM_H 300.0f
 #define SIM_GAP 26.0f
+#define MUS_W 1080.0f     /* a soundtrack album: its cover and its first tracks */
+#define MUS_H 300.0f
 /* upright on a phone (780 units across) */
 #define PH_X 40.0f
 #define PH_ART_H 600.0f
@@ -74,8 +77,8 @@ typedef struct {
     float scroll, scroll_v, age, facts_h;
     char pre_id[160]; float pre_since;
     int meta_wait, addons_seen;   /* details asked again once the addons have come in */   /* the video whose sources are asked ahead, and since when it has been the one */
-    int cast_focus, sim_focus, fr_focus, fr_opening; unsigned fr_gen;
-    float cast_x, sim_x, fr_x;
+    int cast_focus, sim_focus, fr_focus, fr_opening, mus_focus, mus_asked; unsigned fr_gen;
+    float cast_x, sim_x, fr_x, mus_x;
     UiPan ph_pan, cast_pan, sim_pan;   /* upright on a phone: a finger on the page, the cast, More like this */
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
     float ph_fy, ph_fh, ph_total, ph_sx;   /* upright on a phone: the focus on the page, its length, the seasons' offset */
@@ -520,13 +523,20 @@ static void cast_at(const Detail *d, const TmdbInfo *tm, int i, const char **nam
 }
 
 /* where the About rows sit on the page; -1 for a row with nothing in it */
-typedef struct { float facts, cast, franchise, similar; } AboutLayout;
+typedef struct { float facts, cast, franchise, music, similar; } AboutLayout;
 
 /* The film's franchise in release order, when TMDB knows one. */
 static const TmdbCollection *franchise(const Detail *d)
 {
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
     return tm && tm->collection_id ? tmdb_collection(tm->collection_id) : NULL;
+}
+
+/* its soundtrack albums, looked up once the page has been open a moment */
+static const MusicAlbum *soundtrack(const Detail *d, int *n)
+{
+    *n = 0;
+    return d->mus_asked ? music_albums(d->preview.id, d->preview.name, d->preview.release_info, n) : NULL;
 }
 static AboutLayout about_layout(const Detail *d, int n_cast)
 {
@@ -536,6 +546,8 @@ static AboutLayout about_layout(const Detail *d, int n_cast)
     L.cast = n_cast ? y : -1; if (n_cast) y += 60 + CAST_D + 120;
     const TmdbCollection *fc = franchise(d);
     L.franchise = fc ? y : -1; if (fc) y += 60 + SIM_H + 110;
+    int n_mus; soundtrack(d, &n_mus);
+    L.music = n_mus ? y : -1; if (n_mus) y += 60 + MUS_H + 90;
     L.similar = d->n_similar ? y : -1;
     return L;
 }
@@ -547,6 +559,7 @@ static float scroll_target(const Detail *d, int n_cast)
     float top = ABOUT_Y - 150, bottom = L.facts + d->facts_h;
     if (d->area == AREA_CAST && L.cast >= 0) bottom = L.cast + 60 + CAST_D + 100;
     if (d->area == AREA_FRANCHISE && L.franchise >= 0) bottom = L.franchise + 60 + SIM_H + 80;
+    if (d->area == AREA_MUSIC && L.music >= 0) bottom = L.music + 60 + MUS_H + 60;
     if (d->area == AREA_SIMILAR && L.similar >= 0) bottom = L.similar + 60 + SIM_H + 40;
     float t = bottom + 60 - SNTV_UI_H;
     return t > top ? t : top;
@@ -633,18 +646,27 @@ static void update(Screen *s, float dt)
     if (d->has_meta) d->facts_h = facts_height(d);
     if (g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0) island_progress("Getting the trailer from YouTube", -1);
     if (!d->sim_asked && d->has_meta && (d->age > 1.5f || d->area >= AREA_ABOUT)) fetch_similar(d);
+    if (!d->mus_asked && d->has_meta && (d->age > 2.0f || d->area >= AREA_ABOUT) && d->preview.id && !strncmp(d->preview.id, "tt", 2)) d->mus_asked = 1;
     if (d->area == AREA_CAST && d->cast_focus >= n_cast) d->cast_focus = n_cast ? n_cast - 1 : 0;
     float view = SNTV_UI_W - 2 * THEME_MARGIN;
     const TmdbCollection *fc = franchise(d);
     float st = scroll_target(d, n_cast), ct = row_offset(d->cast_focus, n_cast, CAST_STEP, view), mt = row_offset(d->sim_focus, d->n_similar, SIM_W + SIM_GAP, view);
     float ft = row_offset(d->fr_focus, fc ? fc->n : 0, SIM_W + SIM_GAP, view);
+    int n_mus; soundtrack(d, &n_mus);
+    if (d->mus_focus >= n_mus) d->mus_focus = n_mus ? n_mus - 1 : 0;
+    if (d->area == AREA_MUSIC && !n_mus) d->area = AREA_ABOUT;
+    float ut = d->mus_focus * (MUS_W + SIM_GAP), ut_max = n_mus * (MUS_W + SIM_GAP) - SIM_GAP - view;   /* the focused album at the left edge */
+    if (ut > ut_max) ut = ut_max;
+    if (ut < 0) ut = 0;
     if (SNTV_PHONE) ;
-    else if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; }
+    else if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; d->mus_x = ut; }
     else {
         d->scroll = ui_ease(d->scroll, st, &d->scroll_v, dt, 11);
         d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
         d->sim_x = ui_ease(d->sim_x, mt, NULL, dt, 14);
         d->fr_x = ui_ease(d->fr_x, ft, NULL, dt, 14);
+        d->mus_x = ui_ease(d->mus_x, ut, NULL, dt, 14);
+        if (fabsf(d->mus_x - ut) > 0.5f) app_redraw();
         if (fabsf(d->scroll - st) > 0.5f || fabsf(d->cast_x - ct) > 0.5f || fabsf(d->sim_x - mt) > 0.5f || fabsf(d->fr_x - ft) > 0.5f) app_redraw();
     }
     if (SNTV_PHONE) {   /* one long page: the focus kept between the top and the bottom */
@@ -885,10 +907,45 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
             }
     }
 
+    /* the soundtrack: each album's cover and its first tracks; OK shows them all */
+    int n_mus;
+    const MusicAlbum *mus = soundtrack(d, &n_mus);
+    if (mus && L.music >= 0 && L.music - d->scroll < SNTV_UI_H) {
+        ui_row_header(2 + (L.franchise >= 0), "Soundtrack", mus[d->mus_focus].artist, n_mus, x, L.music, right, d->area == AREA_MUSIC);
+        float rowy = L.music + 60;
+        for (int i = 0; i < n_mus; i++) {
+            float ix = x + i * (MUS_W + SIM_GAP) - d->mus_x;
+            if (ix > SNTV_UI_W || ix + MUS_W < 0) continue;
+            int foc = d->area == AREA_MUSIC && d->mus_focus == i;
+            const MusicAlbum *a = &mus[i];
+            ui_panel(ix, rowy, MUS_W, MUS_H, R_PANEL, COLOR_ALPHA(THEME_PANEL, 0xD0));
+            if (foc) gfx_rrect_ring(ix, rowy, MUS_W, MUS_H, R_PANEL, 3, THEME_FOCUS);
+            ui_hit(ix, rowy, MUS_W, MUS_H, HIT(AREA_MUSIC, i));
+            ui_card(a->art[0] ? a->art : NULL, ix, rowy, MUS_H, MUS_H, 0, 0, a->title, 0);
+            float tx = ix + MUS_H + 36, tw = MUS_W - MUS_H - 72, ty = rowy + 28;
+            font_draw_fit(a->title, tx, ty, FONT_S | FONT_B, THEME_TEXT, tw);
+            char by[160];
+            if (a->year) snprintf(by, sizeof by, "%s  \xC2\xB7  %d  \xC2\xB7  %d tracks", a->artist, a->year, a->n);
+            else snprintf(by, sizeof by, "%s  \xC2\xB7  %d tracks", a->artist, a->n);
+            font_draw_fit(by, tx, ty + 44, FONT_XS, THEME_TEXT_DIM, tw);
+            float colw = (tw - 30) / 2;
+            for (int t = 0; t < a->n && t < 6; t++) {
+                float rx = tx + (t / 3) * (colw + 30), ry = ty + 100 + (t % 3) * 44;
+                char no[8]; snprintf(no, sizeof no, "%d", t + 1);
+                font_draw(no, rx, ry + 2, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+                font_draw_fit(a->tracks[t].name, rx + 40, ry, FONT_S, foc ? THEME_TEXT : THEME_TEXT_DIM, colw - 40);
+            }
+            if (a->n > 6) {
+                char more[40]; snprintf(more, sizeof more, foc ? "OK: all %d tracks" : "+ %d more", foc ? a->n : a->n - 6);
+                font_draw(more, tx, rowy + MUS_H - 46, FONT_XS | FONT_B, foc ? THEME_ACCENT : THEME_TEXT_MUTED);
+            }
+        }
+    }
+
     /* more like this */
     if (L.similar >= 0 && L.similar - d->scroll < SNTV_UI_H) {
         char src[96]; snprintf(src, sizeof src, "%s", d->sim_genre);
-        ui_row_header(L.franchise >= 0 ? 3 : 2, "More like this", src, d->n_similar, x, L.similar, right, d->area == AREA_SIMILAR);
+        ui_row_header(2 + (L.franchise >= 0) + (L.music >= 0), "More like this", src, d->n_similar, x, L.similar, right, d->area == AREA_SIMILAR);
         float rowy = L.similar + 60;
         for (int pass = 0; pass < 2; pass++)
             for (int i = 0; i < d->n_similar; i++) {
@@ -1665,6 +1722,17 @@ static void on_franchise_imdb(const char *imdb, void *user)
     free(o);
 }
 
+/* Down from an About row: the next one below `from` that has something in it */
+static int about_below(Detail *d, int from)
+{
+    int n_mus;
+    soundtrack(d, &n_mus);
+    int next = from < AREA_FRANCHISE && franchise(d) ? AREA_FRANCHISE : from < AREA_MUSIC && n_mus ? AREA_MUSIC : d->n_similar ? AREA_SIMILAR : -1;
+    if (next < 0) return 0;
+    d->area = next; d->focus_t = 0;
+    return 1;
+}
+
 static int about_key(Detail *d, KeyAction a)
 {
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
@@ -1677,9 +1745,7 @@ static int about_key(Detail *d, KeyAction a)
         case KEY_UP: d->area = up; d->focus_t = 0; return 1;
         case KEY_DOWN:
             if (n_cast) { d->area = AREA_CAST; d->focus_t = 0; return 1; }
-            if (franchise(d)) { d->area = AREA_FRANCHISE; d->focus_t = 0; return 1; }
-            if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; }
-            return 0;   /* bottom of the page: main.c may hand focus to the corner player */
+            return about_below(d, AREA_CAST);   /* 0 at the bottom of the page: main.c may hand focus to the corner player */
         case KEY_OK:
             if (d->preview.description && *d->preview.description) {
                 static const char *const close_item[] = { "Close" };
@@ -1694,10 +1760,7 @@ static int about_key(Detail *d, KeyAction a)
         case KEY_LEFT: if (d->cast_focus > 0) { d->cast_focus--; d->focus_t = 0; } return 1;
         case KEY_RIGHT: if (d->cast_focus < n_cast - 1) { d->cast_focus++; d->focus_t = 0; } return 1;
         case KEY_UP: d->area = AREA_ABOUT; return 1;
-        case KEY_DOWN:
-            if (franchise(d)) { d->area = AREA_FRANCHISE; d->focus_t = 0; return 1; }
-            if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; }
-            return 0;
+        case KEY_DOWN: return about_below(d, AREA_CAST);
         case KEY_OK: {   /* their other titles */
             if (d->cast_focus >= n_cast) return 1;
             const char *name, *role, *photo;
@@ -1714,7 +1777,7 @@ static int about_key(Detail *d, KeyAction a)
         case KEY_LEFT: if (d->fr_focus > 0) { d->fr_focus--; d->focus_t = 0; } return 1;
         case KEY_RIGHT: if (d->fr_focus < n - 1) { d->fr_focus++; d->focus_t = 0; } return 1;
         case KEY_UP: d->area = n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
-        case KEY_DOWN: if (d->n_similar) { d->area = AREA_SIMILAR; d->focus_t = 0; return 1; } return 0;
+        case KEY_DOWN: return about_below(d, AREA_FRANCHISE);
         case KEY_OK: {
             if (d->fr_focus >= n || d->fr_opening) return 1;
             const TmdbPart *pt = &fc->parts[d->fr_focus];
@@ -1728,11 +1791,23 @@ static int about_key(Detail *d, KeyAction a)
         default: return 1;
         }
     }
+    case AREA_MUSIC: {
+        int n_mus;
+        const MusicAlbum *mus = soundtrack(d, &n_mus);
+        switch (a) {
+        case KEY_LEFT: if (d->mus_focus > 0) { d->mus_focus--; d->focus_t = 0; } return 1;
+        case KEY_RIGHT: if (d->mus_focus < n_mus - 1) { d->mus_focus++; d->focus_t = 0; } return 1;
+        case KEY_UP: d->area = franchise(d) ? AREA_FRANCHISE : n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
+        case KEY_DOWN: return about_below(d, AREA_MUSIC);
+        case KEY_OK: if (mus && d->mus_focus < n_mus) app_push(screen_soundtrack_create(&mus[d->mus_focus], d->preview.name)); return 1;
+        default: return 1;
+        }
+    }
     default:
         switch (a) {
         case KEY_LEFT: if (d->sim_focus > 0) { d->sim_focus--; d->focus_t = 0; } return 1;
         case KEY_RIGHT: if (d->sim_focus < d->n_similar - 1) { d->sim_focus++; d->focus_t = 0; } return 1;
-        case KEY_UP: d->area = franchise(d) ? AREA_FRANCHISE : n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
+        case KEY_UP: { int n_mus; soundtrack(d, &n_mus); d->area = n_mus ? AREA_MUSIC : franchise(d) ? AREA_FRANCHISE : n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1; }
         case KEY_DOWN: return 0;
         case KEY_OK:
             if (d->sim_focus >= d->n_similar) return 1;
@@ -1763,6 +1838,7 @@ static int tap(Screen *s, int id)
     case AREA_ABOUT: break;
     case AREA_CAST: d->cast_focus = i; break;
     case AREA_FRANCHISE: d->fr_focus = i; break;
+    case AREA_MUSIC: d->mus_focus = i; break;
     case AREA_SIMILAR: if (i >= d->n_similar) return 1; d->sim_focus = i; break;
     default: return 1;
     }
