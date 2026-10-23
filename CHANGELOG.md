@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.59
 
 - **Cuelight no longer needs Stremio's servers.** A built-in catalog (films and series from
   TMDB: Popular and Trending rows, genres, search, full title pages with seasons, episodes,
