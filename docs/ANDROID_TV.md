@@ -53,6 +53,8 @@ listing fragile. Sideloaded instead, like the webOS app:
 
 ## Milestones
 
+Status: **1 built** (the APK builds: `tools/android.sh`; not yet run on a device).
+
 1. **Skeleton.** `SNTV_PLATFORM=android` in CMake, `deploy/android` (Gradle, SDL2's
    `SDLActivity`, manifest with `LEANBACK_LAUNCHER`, `touchscreen required=false`,
    cleartext allowed for addons on the LAN), `video_null.c` for now. Done when the APK opens

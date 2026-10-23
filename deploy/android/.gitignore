@@ -1,0 +1,7 @@
+third_party/
+.gradle/
+build/
+app/build/
+app/.cxx/
+local.properties
+*.jks

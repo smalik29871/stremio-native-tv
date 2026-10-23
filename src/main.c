@@ -366,6 +366,42 @@ static void crash_log_install(void)
 }
 #endif
 
+#ifdef SNTV_PLATFORM_ANDROID
+#include "assets_index.h"
+/* Inside the APK the bundled files (fonts, the YouTube solver, sounds) are not files the C
+ * code can open, so they are copied once per version into internal storage, and the app
+ * runs from there: "assets/..." opens as on every other platform. */
+static void mkdirs_for(const char *path)
+{
+    char d[1200];
+    snprintf(d, sizeof d, "%s", path);
+    for (char *p = d + 1; *p; p++) if (*p == '/') { *p = 0; mkdir(d, 0755); *p = '/'; }
+}
+
+static void android_unpack_assets(void)
+{
+    const char *root = SDL_AndroidGetInternalStoragePath();
+    if (!root || chdir(root) != 0) return;
+    char have[32] = "";
+    FILE *f = fopen("assets/.version", "r");
+    if (f) { if (!fgets(have, sizeof have, f)) have[0] = 0; fclose(f); }
+    if (!strcmp(have, SNTV_APP_VERSION)) return;
+    int n = 0, bad = 0;
+    for (int i = 0; ASSET_FILES[i]; i++) {
+        SDL_RWops *in = SDL_RWFromFile(ASSET_FILES[i] + strlen("assets/"), "rb");   /* the APK's assets folder is assets/ itself */
+        if (!in) { bad++; continue; }
+        mkdirs_for(ASSET_FILES[i]);
+        FILE *out = fopen(ASSET_FILES[i], "wb");
+        char buf[65536]; size_t got;
+        while (out && (got = SDL_RWread(in, buf, 1, sizeof buf)) > 0) fwrite(buf, 1, got, out);
+        if (out) { fclose(out); n++; } else bad++;
+        SDL_RWclose(in);
+    }
+    if (!bad && (f = fopen("assets/.version", "w"))) { fputs(SNTV_APP_VERSION, f); fclose(f); }
+    fprintf(stderr, "assets: %d unpacked to %s, %d failed\n", n, root, bad);
+}
+#endif
+
 int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -380,11 +416,18 @@ int main(int argc, char **argv)
     SDL_SetHint("SDL_WEBOS_CURSOR_SLEEP_TIME", "5000");
 #endif
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+#ifdef SNTV_PLATFORM_ANDROID
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");   /* Back is ours (it closes a screen), not the system's */
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+#ifdef SNTV_PLATFORM_ANDROID
+    android_unpack_assets();
+#endif
     const char *dir = data_dir();
     log_init(dir);
 #ifdef SNTV_CRASH_LOG
@@ -411,7 +454,7 @@ int main(int argc, char **argv)
 
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN;
     int w = 1280, h = 720;
-#if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN)
+#if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN) || defined(SNTV_PLATFORM_ANDROID)
     flags |= SDL_WINDOW_FULLSCREEN;
     SDL_DisplayMode dm;
     if (SDL_GetCurrentDisplayMode(0, &dm) == 0) { w = dm.w; h = dm.h; }

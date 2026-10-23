@@ -3,7 +3,7 @@
 #define SNTV_PLATFORM_H
 
 #if !defined(SNTV_PLATFORM_LINUX) && !defined(SNTV_PLATFORM_WEBOS) && \
-    !defined(SNTV_PLATFORM_TIZEN) && !defined(SNTV_PLATFORM_WASM)
+    !defined(SNTV_PLATFORM_TIZEN) && !defined(SNTV_PLATFORM_WASM) && !defined(SNTV_PLATFORM_ANDROID)
 #define SNTV_PLATFORM_LINUX 1
 #endif
 
@@ -20,7 +20,7 @@
 /* webOS 3 sets have ~300 MB free. Keep decoded artwork well under that. The size cap is
  * for backdrops and logos (posters are mipmapped at 512): a hero is drawn about 1500 px
  * wide, and 512 px stretched that far looks pixelated. */
-#if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN)
+#if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN) || defined(SNTV_PLATFORM_ANDROID)   /* Android TV sticks have 1-2 GB */
 #define SNTV_IMAGE_CACHE_BYTES (48u * 1024u * 1024u)
 #define SNTV_IMAGE_MAX_DIM 1280
 #else

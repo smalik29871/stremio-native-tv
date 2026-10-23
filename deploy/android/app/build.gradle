@@ -1,0 +1,62 @@
+// Cuelight for Android TV / Google TV / Fire TV (docs/ANDROID_TV.md). The C app is built
+// from the repository's CMakeLists.txt with SNTV_PLATFORM=android; SDL2 (fetched by
+// tools/android-deps.sh) supplies the activity. The version is the webOS one, so both
+// platforms always ship the same release.
+plugins { id "com.android.application" }
+
+def repo = file("../../..")
+def version = new groovy.json.JsonSlurper().parse(new File(repo, "deploy/webos/appinfo.json")).version
+def parts = version.tokenize(".").collect { it as int }
+
+android {
+    namespace "app.cuelight.tv"
+    compileSdk 35
+    ndkVersion "27.2.12479018"
+
+    defaultConfig {
+        applicationId "app.cuelight.tv"
+        minSdk 24
+        targetSdk 35
+        versionName version
+        versionCode parts[0] * 1000000 + parts[1] * 1000 + parts[2]
+        ndk { abiFilters "arm64-v8a", "armeabi-v7a" }
+        externalNativeBuild {
+            cmake {
+                arguments "-DSNTV_PLATFORM=android", "-DSNTV_BUILD_TESTS=OFF", "-DANDROID_STL=c++_shared",
+                          "-DSNTV_TMDB_BUILTIN_KEY=" + (System.getenv("TMDB_API_KEY") ?: ""),
+                          "-DSNTV_OPENSUBTITLES_KEY=" + (System.getenv("OPENSUBTITLES_KEY") ?: ""),
+                          "-DSNTV_TRAKT_CLIENT_ID=" + (System.getenv("TRAKT_CLIENT_ID") ?: ""),
+                          "-DSNTV_TRAKT_CLIENT_SECRET=" + (System.getenv("TRAKT_CLIENT_SECRET") ?: ""),
+                          "-DSNTV_SIMKL_CLIENT_ID=" + (System.getenv("SIMKL_CLIENT_ID") ?: ""),
+                          "-DSNTV_MDBLIST_KEY=" + (System.getenv("MDBLIST_KEY") ?: "")
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake { path new File(repo, "CMakeLists.txt") }
+    }
+    sourceSets {
+        main {
+            java.srcDirs += "../third_party/SDL2/android-project/app/src/main/java"
+            assets.srcDirs = [new File(repo, "assets")]
+        }
+    }
+    signingConfigs {
+        release {   // CI: the release key from repository secrets; without them the build is debug-signed
+            def ks = System.getenv("ANDROID_KEYSTORE")
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv("ANDROID_KEY_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "cuelight"
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv("ANDROID_KEYSTORE") ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+    packagingOptions { jniLibs { useLegacyPackaging true } }   // libraries unpacked on install: the P2P engine runs from there
+}

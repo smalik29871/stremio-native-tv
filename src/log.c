@@ -5,6 +5,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <SDL.h>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 static FILE *g_file;
 static long g_written;
@@ -57,6 +60,9 @@ void log_msg(const char *level, const char *fmt, ...)
     strftime(ts, sizeof ts, "%H:%M:%S", &tmv);
 
     if (g_lock) SDL_LockMutex(g_lock);
+#ifdef __ANDROID__
+    __android_log_print(level[0] == 'E' ? ANDROID_LOG_ERROR : level[0] == 'W' ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "Cuelight", "%s", line);   /* adb logcat */
+#endif
     fprintf(stderr, "%s %s %s\n", ts, level, line);
     if (g_file) {
         int n = fprintf(g_file, "%s %s %s\n", ts, level, line);
