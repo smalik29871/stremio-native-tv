@@ -260,6 +260,33 @@ static void dev_hooks(SDL_Window *win, int frame)
 }
 
 static int g_seen_keyup, g_ok_down, g_ok_long;
+
+/* Touch, for phones and tablets (the app is laid out for a remote): a tap is OK on what has
+ * the focus, a swipe moves it (a longer swipe, several steps), a press held half a second is
+ * the hold-OK menu. The system's back gesture already arrives as Back. */
+static struct { int down; float x, y; Uint32 t; SDL_FingerID id; } g_touch;
+static void dispatch_key(KeyAction a);
+
+static void touch_event(const SDL_Event *e)
+{
+    if (e->type == SDL_FINGERDOWN && !g_touch.down) {
+        g_touch.down = 1; g_touch.x = e->tfinger.x; g_touch.y = e->tfinger.y; g_touch.t = SDL_GetTicks(); g_touch.id = e->tfinger.fingerId;
+        return;
+    }
+    if (e->type != SDL_FINGERUP || !g_touch.down || e->tfinger.fingerId != g_touch.id) return;
+    g_touch.down = 0;
+    g_app.last_input = g_app.time;
+    float dx = e->tfinger.x - g_touch.x, dy = (e->tfinger.y - g_touch.y) * 9.0f / 16.0f;   /* in screen widths, both ways */
+    float dist = SDL_sqrtf(dx * dx + dy * dy);
+    Uint32 held = SDL_GetTicks() - g_touch.t;
+    static int told;
+    if (!told) { told = 1; app_toast("Tap: OK  \xC2\xB7  Swipe: move  \xC2\xB7  Hold: options  \xC2\xB7  Back gesture: back"); }
+    if (dist < 0.03f) { dispatch_key(held >= 500 ? KEY_LONG_OK : KEY_OK); return; }
+    KeyAction a = SDL_fabsf(dx) > SDL_fabsf(dy) ? (dx < 0 ? KEY_RIGHT : KEY_LEFT) : (dy < 0 ? KEY_DOWN : KEY_UP);   /* content follows the finger */
+    int steps = (int)(dist / 0.12f) + 1;
+    if (steps > 6) steps = 6;
+    for (int i = 0; i < steps; i++) dispatch_key(a);
+}
 static int g_backgrounded;   /* hidden or sent to the background (not just an overlay over us) */
 static Uint32 g_ok_t0;
 
@@ -533,6 +560,7 @@ int main(int argc, char **argv)
             Screen *top = app_top();
             if (e.type == SDL_QUIT) g_app.quit = 1;
             else if (e.type == SDL_TEXTINPUT && top && top->text) top->text(top, e.text.text);
+            else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP) touch_event(&e);
             else if (e.type == SDL_KEYUP) {
                 g_seen_keyup = 1;
                 SDL_Event d = e; d.type = SDL_KEYDOWN;
