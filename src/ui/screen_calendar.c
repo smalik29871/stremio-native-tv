@@ -33,7 +33,8 @@ struct Calendar {
     CalItem *items; int n, cap;
     int pending, asked;
     unsigned gen;
-    int focus; float scroll;
+    int focus; float scroll, total_h;   /* the list's scroll, and how tall it is */
+    UiPan pan;
     int rail_focus;
     long today;
 };
@@ -165,7 +166,7 @@ static void update(Screen *s, float dt)
     for (int i = 0; i < c->n && i < c->focus; i++) { if (c->items[i].day != last) { y += 56; last = c->items[i].day; } y += ROW_H; }
     if (c->focus < c->n && c->items[c->focus].day != last) y += 56;
     float target = y > 300 ? y - 300 : 0;
-    c->scroll = ui_ease(c->scroll, target, NULL, dt, 14);
+    ui_pan(&c->pan, &c->scroll, target, c->total_h - (SNTV_UI_H - LIST_Y) + 60, dt, 14);
     if (c->pending) app_redraw();
 }
 
@@ -188,6 +189,8 @@ static void draw(Screen *s)
     }
     float w = SNTV_UI_W - LX - (SNTV_PHONE ? 40 : THEME_MARGIN), tw = SNTV_PHONE ? w - 176 - 170 : w - 420;
     gfx_clip_push(LX - 20, LIST_Y - 10, w + 40, SNTV_UI_H - LIST_Y + 10);
+    ui_pan_area(&c->pan, LX - 20, LIST_Y - 10, w + 40, SNTV_UI_H - LIST_Y + 10, 1);
+    { float t = 0; long l2 = -1000000; for (int i = 0; i < c->n; i++) { if (c->items[i].day != l2) { t += 56; l2 = c->items[i].day; } t += ROW_H; } c->total_h = t; }
     float y = LIST_Y - c->scroll; long last = -1000000;
     for (int i = 0; i < c->n; i++) {
         const CalItem *it = &c->items[i];

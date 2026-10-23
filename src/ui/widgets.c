@@ -1701,9 +1701,9 @@ float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed)
     if (x < 0 || x > max) {   /* past an end: back to it */
         if ((x < 0 && p->vel < 0) || (x > max && p->vel > 0)) p->vel *= SDL_expf(-dt * 24);   /* a glide running out there */
         x = ui_ease(x, x < 0 ? 0 : max, &p->vel, dt, 20);
-    } else if (SDL_fabsf(p->vel) > 8) {   /* gliding, slowing down */
+    } else if (SDL_fabsf(p->vel) > 8) {   /* gliding, slowing down: it goes on a little over half its speed a second */
         x += p->vel * dt;
-        p->vel *= SDL_expf(-dt * 2.6f);
+        p->vel *= SDL_expf(-dt * 1.8f);
         app_redraw();
     } else p->vel = 0;
     *pos = x;

@@ -17,6 +17,7 @@ typedef struct {
     TorboxFile *files; int n;
     int loading, focus;
     float scroll;
+    UiPan pan;
     char error[200];
 } Pick;
 
@@ -37,7 +38,7 @@ static void update(Screen *s, float dt)
 {
     Pick *p = s->st;
     float target = p->focus > ROWS - 3 ? (float)(p->focus - (ROWS - 3)) * ROW_H : 0;
-    p->scroll = ui_ease(p->scroll, target, NULL, dt, 16);
+    ui_pan(&p->pan, &p->scroll, target, (p->n - ROWS + 1) * ROW_H, dt, 16);
     if (p->loading) app_redraw();
 }
 
@@ -53,6 +54,7 @@ static void draw(Screen *s)
     if (p->loading) { ui_spinner(SNTV_UI_W / 2, 480, 26); font_draw_center("Asking TorBox\xE2\x80\xA6", SNTV_UI_W / 2, 530, FONT_M | FONT_B, THEME_TEXT_DIM); return; }
     if (!p->n) { font_draw_center(p->error, SNTV_UI_W / 2, 470, FONT_M | FONT_B, THEME_TEXT_DIM); return; }
     gfx_clip_push(x - 20, y + 30, w + 40, ROWS * ROW_H + 10);
+    ui_pan_area(&p->pan, x - 20, y + 30, w + 40, ROWS * ROW_H + 10, 1);
     for (int i = 0; i < p->n; i++) {
         float ry = y + 40 + i * ROW_H - p->scroll;
         if (ry + ROW_H < y || ry > y + 40 + ROWS * ROW_H) continue;

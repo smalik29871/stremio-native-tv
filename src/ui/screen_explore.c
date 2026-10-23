@@ -52,7 +52,7 @@ struct Explore {
     int zone, focus;          /* grid focus index */
     int cat_focus, genre_focus;
     float focus_t, scroll, genre_scroll, cat_scroll;
-    float grid_y; UiPan pan;   /* where the grid starts on screen; a finger on it */
+    float grid_y, type_scroll; UiPan pan, cat_pan, genre_pan, type_pan;   /* where the grid starts on screen; a finger on it */
     Peek peek;                /* details beside the focused poster */
     int rail_focus;           /* -1: content has the focus */
     int addons_seen;
@@ -358,15 +358,16 @@ static void update(Screen *s, float dt)
 /* a horizontal row of pills; returns nothing, scrolls so the focused one shows */
 enum { HIT_TYPE = 0x1000, HIT_CAT = 0x2000, HIT_GENRE = 0x3000 };   /* touch: a pill by its row; a title is its index */
 
-static void draw_pills(float x, float y, float maxw, const char **labels, int n, int sel, int focused, int focus_i, float *scroll, int hit)
+static void draw_pills(float x, float y, float maxw, const char **labels, int n, int sel, int focused, int focus_i, float *scroll, UiPan *pan, int hit)
 {
     float px = 0, fx = 0, fw = 0;
     for (int i = 0; i < n; i++) { float w = ui_pill_width(labels[i], 0, 52); if (i == focus_i) { fx = px; fw = w; } px += w + 12; }
     float want = *scroll;   /* stays put while the focused pill is in view */
     if (focused && fx + fw - *scroll > maxw) want = fx + fw - maxw;
     if (focused && fx - *scroll < 0) want = fx;
-    if (focused) *scroll = want;
+    ui_pan(pan, scroll, want, px - 12 - maxw, 1 / 60.0f, 200);   /* a finger drags them too */
     gfx_clip_push(x - 20, y - 10, maxw + 40, 72);
+    ui_pan_area(pan, x - 20, y - 10, maxw + 40, 72, 0);
     px = x - *scroll;
     for (int i = 0; i < n; i++) {
         int foc = focused && i == focus_i;
@@ -395,8 +396,7 @@ static void draw(Screen *s)
     }
     const char *tl[MAX_TYPES];
     for (int i = 0; i < e->n_types; i++) tl[i] = type_label(e->types[i]);
-    float dummy = 0;
-    draw_pills(LX, 124, maxw, tl, e->n_types, e->type_i, e->zone == Z_TYPES && e->rail_focus < 0, e->type_i, &dummy, HIT_TYPE);
+    draw_pills(LX, 124, maxw, tl, e->n_types, e->type_i, e->zone == Z_TYPES && e->rail_focus < 0, e->type_i, &e->type_scroll, &e->type_pan, HIT_TYPE);
     /* catalogs */
     const char *cl[MAX_CATS]; char cn[MAX_CATS][96];
     for (int i = 0; i < e->n_cats; i++) {
@@ -411,7 +411,7 @@ static void draw(Screen *s)
         snprintf(mix, sizeof mix, "%s, %s and %s from your catalogs, films and series together", MOODS[e->cat_i].genres[0], MOODS[e->cat_i].genres[1], MOODS[e->cat_i].genres[2]);
         font_draw(mix, LX + 86, 280, FONT_S, THEME_TEXT_DIM);
     }
-    draw_pills(LX + 70, 196, maxw - 70, cl, e->n_cats, e->cat_i, e->zone == Z_CATS && e->rail_focus < 0, e->cat_focus, &e->cat_scroll, HIT_CAT);
+    draw_pills(LX + 70, 196, maxw - 70, cl, e->n_cats, e->cat_i, e->zone == Z_CATS && e->rail_focus < 0, e->cat_focus, &e->cat_scroll, &e->cat_pan, HIT_CAT);
     int required;
     const AddonExtra *g = genres(e, &required);
     if (g) {
@@ -420,7 +420,7 @@ static void draw(Screen *s)
         if (!required) gl[k++] = "All";
         for (int i = 0; i < g->options.n; i++) gl[k++] = g->options.v[i];
         font_draw("GENRE", LX, 278, FONT_XS | FONT_B, THEME_TEXT_MUTED);
-        draw_pills(LX + 86, 268, maxw - 86, gl, k, e->genre_i, e->zone == Z_GENRES && e->rail_focus < 0, e->genre_focus, &e->genre_scroll, HIT_GENRE);
+        draw_pills(LX + 86, 268, maxw - 86, gl, k, e->genre_i, e->zone == Z_GENRES && e->rail_focus < 0, e->genre_focus, &e->genre_scroll, &e->genre_pan, HIT_GENRE);
         free(gl);
     }
     /* grid */

@@ -312,8 +312,10 @@ static int g_seen_keyup, g_ok_down, g_ok_long;
  * it moves the focus as it goes, a step each stretch. The system's back gesture arrives as Back. */
 static struct {
     int down, mode, steps, caught;   /* mode: 0 not moved yet, 1 a scroller has it, 2 focus steps, 3 the screen's own */
-    float x, y, along, v;            /* where it went down (0..1 of the screen); the drag's travel, speed (canvas units) */
-    Uint32 t, moved_t;
+    float x, y, along;               /* where it went down (0..1 of the screen); the drag's travel (canvas units) */
+    Uint32 t;
+    struct { Uint32 t; float along; } trail[16];   /* the last moves, by the events' own times: the speed it was let go at */
+    int n_trail;
     SDL_FingerID id;
     KeyAction step;
     int vertical;
@@ -326,6 +328,26 @@ static void touch_to_ui(float fx, float fy, float *ux, float *uy)
     gfx_drawable_size(&pw, &ph);
     gfx_pixels_to_ui(fx * pw, fy * ph, ux, uy);
 }
+
+/* How fast the finger was going as it lifted: across the last 100 ms of its moves (a finger
+ * that stopped before lifting gives about 0). Canvas units a second. */
+static float touch_speed(Uint32 now)
+{
+    int n = g_touch.n_trail < 16 ? g_touch.n_trail : 16;
+    if (n < 2) return 0;
+    int last = (g_touch.n_trail - 1) % 16, first = last;
+    for (int k = 1; k < n; k++) {
+        int i = (last - k + 16) % 16;
+        if (now - g_touch.trail[i].t > 100) break;
+        first = i;
+    }
+    if (first == last) return 0;
+    Uint32 dt = g_touch.trail[last].t - g_touch.trail[first].t;
+    if (dt < 8) dt = 8;
+    return (g_touch.trail[last].along - g_touch.trail[first].along) * 1000.0f / (float)dt;
+}
+
+static Uint32 g_touch_now;   /* the event being handled: its time */
 
 static void touch_motion(float fx, float fy)
 {
@@ -359,26 +381,24 @@ static void touch_motion(float fx, float fy)
     touch_to_ui(g_touch.x, g_touch.y, &x0, &y0);
     touch_to_ui(fx, fy, &x1, &y1);
     float along = g_touch.vertical ? y1 - y0 : x1 - x0;
-    Uint32 now = SDL_GetTicks();
-    if (now > g_touch.moved_t) {   /* the speed, smoothed over the last few moves */
-        float inst = (along - g_touch.along) * 1000.0f / (float)(now - g_touch.moved_t);
-        g_touch.v = now - g_touch.moved_t > 80 ? inst : g_touch.v * 0.5f + inst * 0.5f;
-        g_touch.moved_t = now;
-    }
+    int i = g_touch.n_trail++ % 16;
+    g_touch.trail[i].t = g_touch_now; g_touch.trail[i].along = along;
     g_touch.along = along;
     if (g_touch.mode == 1) { ui_pan_drag(along); return; }
     float travel = g_touch.vertical ? SDL_fabsf(dy) : SDL_fabsf(dx);
-    int want = (int)(travel / 0.12f) + 1;
-    if (want > 6) want = 6;
+    int want = (int)(travel / 0.06f) + 1;   /* a step every 6% of the screen's width */
+    if (want > 12) want = 12;
     while (g_touch.steps < want) { g_touch.steps++; dispatch_key(g_touch.step); }
     app_redraw();
 }
 
 static void touch_event(const SDL_Event *e)
 {
+    g_touch_now = e->tfinger.timestamp ? e->tfinger.timestamp : SDL_GetTicks();
     if (e->type == SDL_FINGERDOWN && !g_touch.down) {
         memset(&g_touch, 0, sizeof g_touch);
-        g_touch.down = 1; g_touch.x = e->tfinger.x; g_touch.y = e->tfinger.y; g_touch.t = g_touch.moved_t = SDL_GetTicks(); g_touch.id = e->tfinger.fingerId;
+        g_touch.down = 1; g_touch.x = e->tfinger.x; g_touch.y = e->tfinger.y; g_touch.t = g_touch_now;
+        g_touch.trail[0].t = g_touch_now; g_touch.trail[0].along = 0; g_touch.n_trail = 1; g_touch.id = e->tfinger.fingerId;
         float ux, uy;
         touch_to_ui(g_touch.x, g_touch.y, &ux, &uy);
         g_touch.caught = ui_pan_catch(ux, uy);   /* a finger on a gliding list stops it, and is not a tap */
@@ -400,17 +420,17 @@ static void touch_event(const SDL_Event *e)
         app_redraw();
         return;
     }
-    Uint32 now = SDL_GetTicks(), held = now - g_touch.t;
-    float v = now - g_touch.moved_t > 60 ? 0 : g_touch.v;   /* stopped before letting go: no glide */
-    if (v > 9000) v = 9000;
-    if (v < -9000) v = -9000;
+    Uint32 held = g_touch_now - g_touch.t;
+    float v = touch_speed(g_touch_now);
+    if (v > 14000) v = 14000;
+    if (v < -14000) v = -14000;
     static int told;
     if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
     if (g_touch.mode == 1) { ui_pan_release(v); return; }
     if (g_touch.mode == 2) {   /* a quick flick goes a few steps further */
         float fast = SDL_fabsf(v) / SNTV_UI_W;   /* screen widths a second */
-        int more = fast > 1.2f ? (int)(fast * 1.5f) : 0;
-        if (more > 4) more = 4;
+        int more = fast > 0.8f ? (int)(fast * 3) : 0;
+        if (more > 10) more = 10;
         while (more-- > 0) dispatch_key(g_touch.step);
         return;
     }

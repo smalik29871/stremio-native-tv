@@ -22,6 +22,7 @@ enum { ST_AUDIO, ST_SUBS, ST_SUBS_WHEN, ST_SKIP, ST_NEXT, ST_LOOK, ST_ACCOUNT, S
 typedef struct {
     int step, focus;
     float scroll;
+    UiPan pan;
     int sign_in;
 } Welcome;
 
@@ -125,7 +126,7 @@ static void update(Screen *s, float dt)
     int first = w->focus - VISIBLE / 2, n = option_count(w->step);
     if (first > n - VISIBLE) first = n - VISIBLE;
     if (first < 0) first = 0;
-    w->scroll = ui_ease(w->scroll, first * ROW, NULL, dt, 14);
+    ui_pan(&w->pan, &w->scroll, first * ROW, (n - VISIBLE) * ROW, dt, 14);
 }
 
 static void draw(Screen *s)
@@ -167,6 +168,7 @@ static void draw(Screen *s)
     int n = option_count(w->step), cur = current_choice(w->step);
     float lw = SNTV_PHONE ? SNTV_UI_W - 80 : SNTV_UI_W - THEME_MARGIN - LIST_X;
     gfx_clip_push(LIST_X - 30, LIST_Y - 20, lw + 60, VISIBLE * ROW + 30);
+    ui_pan_area(&w->pan, LIST_X - 30, LIST_Y - 20, lw + 60, VISIBLE * ROW + 30, 1);
     for (int i = 0; i < n; i++) {
         float y = LIST_Y + i * ROW - w->scroll;
         if (y + ROW < LIST_Y - 20 || y > LIST_Y + VISIBLE * ROW) continue;

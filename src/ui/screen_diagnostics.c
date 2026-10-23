@@ -35,6 +35,7 @@ typedef struct {
     int cursor;                     /* index into vis */
     int follow;                     /* cursor sticks to the newest line */
     float scroll;
+    UiPan pan;
     unsigned seen_version;
     int show_qr;
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
@@ -196,7 +197,7 @@ static void update(Screen *s, float dt)
     }
     int first = d->cursor - (LIST_ROWS - 3);
     if (first < 0) first = 0;
-    d->scroll = ui_ease(d->scroll, first * ROW_H, NULL, dt, 16);
+    ui_pan(&d->pan, &d->scroll, first * ROW_H, (d->n_vis - LIST_ROWS + 1) * ROW_H, dt, 16);
 }
 
 static void draw_qr_overlay(Diag *d)
@@ -331,6 +332,7 @@ static void draw(Screen *s)
         font_draw_center(msg, SNTV_UI_W / 2, LIST_Y + list_h / 2 - 20, FONT_M | FONT_B, THEME_TEXT_DIM);
     }
     gfx_clip_push(x - 16, LIST_Y - 6, w + 32, list_h + 12);
+    ui_pan_area(&d->pan, x - 16, LIST_Y - 6, w + 32, list_h + 12, 1);
     for (int k = 0; k < d->n_vis; k++) {
         float ry = LIST_Y + k * lh - d->scroll;
         if (ry + lh < LIST_Y - 6 || ry > LIST_Y + list_h) continue;
