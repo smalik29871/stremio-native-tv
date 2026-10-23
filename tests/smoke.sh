@@ -791,6 +791,12 @@ grep -q "player: previously card for tt0903747:1:1" "$OUT/player_previously.log"
 AW_HOME="$(home_with away "$PL")"; cp "$ROOT/tests/fixtures/library.json" "$AW_HOME/.local/share/stremio/nativetv/library.json"
 run player_away 700 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" HOME="$AW_HOME"
 grep -q "player: away [0-9]* days, resuming 30 s earlier" "$OUT/player_away.log" && grep -q "player: candidate 1/[0-9]* .* @1470s" "$OUT/player_away.log" || { echo "a week away did not resume earlier"; grep player "$OUT/player_away.log"; exit 1; }
+# resuming from the link it played last, another source can be chosen: Other sources on the
+# title page lists them all, and the one chosen starts where it stopped
+OS_HOME="$(home_with othersrc "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"resume:tt0903747\":{\"url\":\"http://127.0.0.1:$PORT/video/sample_h264_aac.mkv\",\"video_id\":\"tt0903747:2:3\"}}")"; cp "$ROOT/tests/fixtures/library.json" "$OS_HOME/.local/share/stremio/nativetv/library.json"
+run other_sources 800 "wait,wait,ok,wait,wait,right,right,ok,wait,wait,wait,wait,ok,wait,wait,wait" HOME="$OS_HOME"
+grep -q "detail: other sources for tt0903747:2:3" "$OUT/other_sources.log" && grep -q "player: candidate [0-9]*/[0-9]* .* @1[45][0-9][0-9]s" "$OUT/other_sources.log" \
+  || { echo "Other sources did not list the sources, or the one chosen did not resume"; grep -E "detail|player: candidate|streams:" "$OUT/other_sources.log"; exit 1; }
 # resuming, the first source fails before it loads (it reports 0:00): the next one starts at the resume point, not the beginning
 RF_HOME="$(home_with resumefail "$NO_PREFLIGHT")"; cp "$ROOT/tests/fixtures/library.json" "$RF_HOME/.local/share/stremio/nativetv/library.json"
 run resume_failover 900 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" "$LIGHTER" HOME="$RF_HOME" SNTV_FAKE_FAIL_LOADS=1 SNTV_NO_RACE=1

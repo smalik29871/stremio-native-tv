@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Pick another source when resuming.** Resume plays the link you watched last; the title page
+  now has **Other sources** beside it (films and episodes alike), listing every source, and the
+  one you choose starts where you stopped. In the player, a video resumed from its saved link
+  had only that one under Sources; opening Sources now asks every addon for the rest straight
+  away, while it plays on.
+
 ## 0.10.54
 
 - **Links that only open in another app are no longer listed.** Some addons list a source that

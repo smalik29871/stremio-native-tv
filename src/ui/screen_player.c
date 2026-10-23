@@ -2970,6 +2970,7 @@ static void bar_activate(Player *p, const VideoInfo *vi)
         p->menu = MENU_SOURCES; p->menu_focus = 0; p->src_filter = 0; p->src_chip = 0; p->src_on_chips = 0;
         int rows[64], n = source_rows(p, rows);
         for (int k = 0; k < n; k++) if (rows[k] == p->cur) p->menu_focus = k;
+        if (p->n_cands <= 1 && p->more_state == 0) find_more_sources(p);   /* resumed from its saved link alone: the others, while it plays */
         break;
     }
     case BTN_EPISODES: p->menu = MENU_EPISODES; p->menu_focus = episodes_focus(p); break;

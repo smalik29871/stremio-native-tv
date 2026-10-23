@@ -31,7 +31,7 @@
 #include <string.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_SIMILAR };
-enum { BTN_PLAY, BTN_RESTART, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
+enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_COUNT };
 #define EP_W (g_theme.id == THEME_APERTURE ? 456.0f : 384.0f)
 #define EP_H (g_theme.id == THEME_APERTURE ? 256.0f : 216.0f)
 #define EP_GAP 28.0f
@@ -72,15 +72,19 @@ typedef struct {
 /* A trailer from YouTube, or from IMDb for any title it knows (its id starts "tt") */
 static int has_trailer(const Detail *d) { return d->meta.trailer_yt || !strncmp(d->preview.id, "tt", 2); }
 
-/* the visible buttons in order: Play/Resume, [From the start], [Trailer], Library */
+/* Resume plays the saved link: "Other sources" picks another, from the same place */
+static int other_sources(const Detail *d) { return d->resume_label[0] && d->resume_url[0]; }
+
+/* the visible buttons in order: Play/Resume, [From the start], [Other sources], [Trailer], Library */
 static int btn_at(const Detail *d, int pos)
 {
     if (pos == 0) return BTN_PLAY;
     if (d->resume_label[0]) { if (pos == 1) return BTN_RESTART; pos--; }
+    if (other_sources(d)) { if (pos == 1) return BTN_SOURCES; pos--; }
     if (has_trailer(d)) { if (pos == 1) return BTN_TRAILER; pos--; }
     return BTN_LIBRARY;
 }
-static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + (has_trailer(d) ? 1 : 0); }
+static int n_buttons_d(const Detail *d) { return 2 + (d->resume_label[0] ? 1 : 0) + other_sources(d) + (has_trailer(d) ? 1 : 0); }
 
 /* ---- the trailer: fetched from YouTube once, then played from the TV ---- */
 
@@ -1064,6 +1068,7 @@ static void draw(Screen *s)
         float bx = x + ui_aperture_button(!series && !strcmp(play_label, "Play") ? "Watch film" : play_label, plays ? ICON_PLAY : ICON_CHEVRON_RIGHT, x, by, 1, cur == BTN_PLAY) + 48;
         if (d->resume_label[0] && d->resume_frac > 0) ui_progress(x, by + 76, 200, 3, (float)d->resume_frac, THEME_ACCENT);
         if (d->resume_label[0]) bx += ui_aperture_button("From the start", ICON_PREV, bx, by, 0, cur == BTN_RESTART) + 44;
+        if (other_sources(d)) bx += ui_aperture_button("Other sources", ICON_SWAP, bx, by, 0, cur == BTN_SOURCES) + 44;
         if (has_trailer(d)) {
             int getting = g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
             bx += ui_aperture_button(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", ICON_TV, bx, by, 0, cur == BTN_TRAILER) + 44;
@@ -1077,6 +1082,7 @@ static void draw(Screen *s)
     float bx2 = x + bw + 18;
     int cur = d->area == AREA_ACTIONS ? btn_at(d, d->btn) : -1;
     if (d->resume_label[0]) bx2 += ui_pill("From the start", 1, ICON_PREV, bx2, by, 72, PILL_SECONDARY, cur == BTN_RESTART) + 18;
+    if (other_sources(d)) bx2 += ui_pill("Other sources", 1, ICON_SWAP, bx2, by, 72, PILL_SECONDARY, cur == BTN_SOURCES) + 18;
     if (has_trailer(d)) {
         int getting = g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
         bx2 += ui_pill(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", 1, ICON_TV, bx2, by, 72, PILL_SECONDARY, cur == BTN_TRAILER) + 18;
@@ -1242,6 +1248,11 @@ static int key(Screen *s, KeyAction a)
             if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
                 const char *vid = d->resume_video[0] ? d->resume_video : d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
                 app_push(screen_streams_create_from_start(&d->preview, vid, NULL));   /* replaces a corner video of it too */
+                return 1;
+            }
+            if (btn_at(d, d->btn) == BTN_SOURCES) {   /* every source for the resumed video; the one chosen starts at the saved position */
+                LOGI("detail: other sources for %s", d->resume_video);
+                app_push(screen_streams_create(&d->preview, d->resume_video, NULL));
                 return 1;
             }
             if (d->resume_label[0]) {
