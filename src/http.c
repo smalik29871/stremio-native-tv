@@ -22,6 +22,7 @@ enum {
     OPT_NOSIGNAL = 99, OPT_ACCEPT_ENCODING = 10102, OPT_MAXREDIRS = 68,
     OPT_RANGE = 10007, OPT_HEADERFUNCTION = 20079, OPT_HEADERDATA = 10029,
     OPT_SHARE = 10100, OPT_DNS_CACHE_TIMEOUT = 92, OPT_TCP_KEEPALIVE = 213,
+    OPT_NOPROGRESS = 43, OPT_XFERINFOFUNCTION = 20219,
     SHOPT_SHARE = 1, SHOPT_LOCKFUNC = 3, SHOPT_UNLOCKFUNC = 4, LOCK_DNS = 3, LOCK_SSL_SESSION = 4,
     INFO_RESPONSE_CODE = 0x200002,
     INFO_EFFECTIVE_URL = 0x100001,   /* where the redirects ended */
@@ -153,6 +154,9 @@ static size_t on_header(char *ptr, size_t size, size_t nmemb, void *user)
 
 /* Offline only when requests keep failing at the transport level AND nothing at all got
  * through for 15 s: one dead addon host while others answer is not "no internet". */
+static volatile int g_quit;   /* the app is closing: every transfer lets go within a second */
+static int on_progress(void *u, int64_t dt, int64_t dn, int64_t ut, int64_t un) { (void)u; (void)dt; (void)dn; (void)ut; (void)un; return g_quit; }
+
 static volatile int g_net_fail;            /* transport failures since the last success */
 static volatile Uint32 g_last_ok;          /* ticks of the last request that got any answer */
 int http_online(void)
@@ -196,6 +200,8 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     C.easy_setopt(h, OPT_MAXREDIRS, 5L);
     C.easy_setopt(h, OPT_NOSIGNAL, 1L);
     C.easy_setopt(h, OPT_CONNECTTIMEOUT, 10L);
+    C.easy_setopt(h, OPT_XFERINFOFUNCTION, on_progress);
+    C.easy_setopt(h, OPT_NOPROGRESS, 0L);
     C.easy_setopt(h, OPT_TIMEOUT, opt && opt->timeout_s ? opt->timeout_s : 30L);
     C.easy_setopt(h, OPT_LOW_SPEED_LIMIT, 1L);
     C.easy_setopt(h, OPT_LOW_SPEED_TIME, 15L);
@@ -314,12 +320,14 @@ static void stream_head(StreamRun *r)
     if (!r->cb->on_head(r->cb->user, r->status, r->type, r->has_length ? r->length : (uint64_t)-1, r->range)) r->stop = 1;
 }
 
+static SDL_atomic_t g_streams;   /* http_stream calls under way (the relay's): the library stays loaded while any is */
+
 static size_t on_stream_data(char *ptr, size_t size, size_t nmemb, void *user)
 {
     StreamRun *r = user;
     size_t n = size * nmemb;
     stream_head(r);
-    if (r->stop) return 0;
+    if (r->stop || g_quit) return 0;   /* the app is closing: let go of the source at once */
     if (!r->cb->on_data(r->cb->user, ptr, n)) { r->stop = 1; return 0; }   /* the player went away (or seeks elsewhere): stop fetching */
     return n;
 }
@@ -350,14 +358,18 @@ int http_stream(const char *url, const char *headers, const char *range, const H
     C.easy_setopt(h, OPT_MAXREDIRS, 5L);
     C.easy_setopt(h, OPT_NOSIGNAL, 1L);
     C.easy_setopt(h, OPT_CONNECTTIMEOUT, 10L);
+    C.easy_setopt(h, OPT_XFERINFOFUNCTION, on_progress);
+    C.easy_setopt(h, OPT_NOPROGRESS, 0L);
     C.easy_setopt(h, OPT_LOW_SPEED_LIMIT, 1L);    /* no whole-transfer limit: a film takes hours; */
     C.easy_setopt(h, OPT_LOW_SPEED_TIME, 30L);    /* nothing for 30 s is a dead link */
     if (C.share) C.easy_setopt(h, OPT_SHARE, C.share);
     C.easy_setopt(h, OPT_TCP_KEEPALIVE, 1L);
+    SDL_AtomicAdd(&g_streams, 1);
     CURLcode rc = C.easy_perform(h);   /* no Accept-Encoding: video bytes as they are, ranges intact */
     if (rc == 0) stream_head(&r);      /* an empty answer still has its status */
     C.slist_free_all(hdrs);
     C.easy_cleanup(h);
+    SDL_AtomicAdd(&g_streams, -1);
     if (rc != 0 && !r.stop && !r.headed) return -1;   /* nothing came: the caller answers for it */
     return 0;
 }
@@ -398,7 +410,6 @@ static SDL_cond *g_qcond;
  * now beats what scrolled past). Workers always drain the first lane before the second,
  * so pressing OK on a title isn't queued behind fifty posters. */
 static Job *g_pending, *g_pending_tail, *g_artwork, *g_done, *g_inflight;
-static int g_quit;
 static unsigned g_next_id = 1;
 
 static int worker_main(void *arg)
@@ -604,6 +615,12 @@ void http_shutdown(void)
     SDL_DestroyCond(g_qcond);
     SDL_DestroyMutex(g_qlock);
     g_qlock = NULL;
+    Uint32 t1 = SDL_GetTicks();
+    while (SDL_AtomicGet(&g_streams) > 0 && SDL_GetTicks() - t1 < 1500) SDL_Delay(10);   /* the relay's transfers see g_quit at their next bytes */
+    if (SDL_AtomicGet(&g_streams) > 0) {   /* one still stuck connecting: the library stays for it; the process ends anyway */
+        LOGW("http: %d transfer(s) still closing; leaving the library loaded", SDL_AtomicGet(&g_streams));
+        return;
+    }
     if (C.global_cleanup) C.global_cleanup();
     if (C.lib) dlclose(C.lib);
     memset(&C, 0, sizeof C);

@@ -5,6 +5,7 @@
 Serves /manifest.json, /catalog/{type}/{id}.json (with optional /{extra}.json),
 /meta/{type}/{id}.json, /stream/{type}/{id}.json and generated poster PNGs."""
 import json, os, re, sys, io, struct, zlib
+from time import sleep
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -356,13 +357,15 @@ class H(BaseHTTPRequestHandler):
         if notrailer:
             p = p[10:]
         # /dropvid/...: one source, a bigger file whose server cuts the first download partway
-        if p.startswith("/dropvid/"):
-            p = p[8:]
+        # (/stallvid/...: or stops sending there and holds the connection open)
+        if p.startswith("/dropvid/") or p.startswith("/stallvid/"):
+            how = "stall" if p.startswith("/stallvid/") else "drop"
+            p = p[len(how) + 4:]
             if p == "/manifest.json":
-                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.dropvid", name="Drop Video")).encode())
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv." + how + "vid", name=how.title() + " Video")).encode())
             if p.startswith("/stream/"):
                 return self.send(200, json.dumps({"streams": [{"name": "Drop\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 2.0 GB",
-                                                               "url": STREAMS["streams"][0]["url"] + "?drop=100000"}]}).encode())
+                                                               "url": STREAMS["streams"][0]["url"] + "?" + how + "=100000"}]}).encode())
             # its catalogs and metas are the plain addon's
         # /rich/...: a stream that needs a Referer, knows its file's hash and brings its own subtitles
         if p.startswith("/rich/"):
@@ -723,7 +726,9 @@ class H(BaseHTTPRequestHandler):
             return
         if p.startswith("/video/"):
             drop = int(p.split("?drop=")[1]) if "?drop=" in p else 0   # the server cuts a download from 0 after this many bytes
-            name = os.path.basename(p.split("?torbox=")[0].split("?drop=")[0])   # TorBox links carry their id
+            stall = int(p.split("?stall=")[1]) if "?stall=" in p else 0   # or goes quiet there, the connection left open
+            drop = drop or stall
+            name = os.path.basename(p.split("?torbox=")[0].split("?drop=")[0].split("?stall=")[0])   # TorBox links carry their id
             path = os.path.join(MEDIA_DIR, name)
             if not os.path.isfile(path):
                 return self.send(404, b"")
@@ -745,6 +750,8 @@ class H(BaseHTTPRequestHandler):
                 self.end_headers()
                 if drop and a == 0 and b + 1 > drop:   # the connection goes partway through
                     self.wfile.write(data[a:drop]); self.wfile.flush()
+                    if stall:
+                        sleep(60)
                     self.close_connection = True
                     return
                 self.wfile.write(data[a:b + 1])

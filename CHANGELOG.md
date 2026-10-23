@@ -6,13 +6,22 @@
   30 seconds; now the app downloads ahead of it into the TV's memory, so a slow patch or a
   dropped connection doesn't stop the picture. If the source drops, the download picks up
   from the byte it stopped at. The "ahead" pill shows minutes.
-  - It takes only what the TV can spare: at most 192 MB (64 MB on a 1 GB TV) and a fifth of
-    the memory free when the video starts; with less there is no buffer and playback works
-    as before. It never grows, and it is freed when you stop. Nothing goes to the TV's
-    storage (some have under 1 GB in all).
-  - If the TV runs short of memory while playing, or the source keeps failing, the buffer
-    lets go and the video carries on straight from the source; if the buffer can't start,
-    the app opens the link directly as before.
+  - Its size follows the TV's memory as it plays. Memory is taken in 4 MB pieces as the
+    download fills them and given back as soon as they have been watched, and every few
+    seconds it checks how much the TV has free: a fifth of that, at most 192 MB (64 MB on a
+    1 GB TV). With more free it reaches further ahead, with less it holds less, and with too
+    little (or a low-memory warning from the TV) it lets go entirely and the video carries
+    on straight from the source. Nothing goes to the TV's storage (some have under 1 GB in
+    all).
+  - It gives its memory back when the app goes to the background, when you stop, and when
+    the app closes. Closing never waits on a slow or stuck server: every download stops
+    within a second (a stuck source used to hold closing up for 7 seconds).
+  - If the source keeps failing, the buffer lets go and the video carries on from the
+    source; if the source itself refused the file, the next source is tried at once instead
+    of the same dead link a second time.
+  - Seeks to the very end of a file, a quick check by the TV's player while another read is
+    under way, and odd byte requests are all answered correctly, from the buffer or the
+    source.
   - Settings > Playback > Load ahead turns it off.
 
 ## 0.10.51

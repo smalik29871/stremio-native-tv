@@ -225,7 +225,7 @@ grep -q "player: source 1 did not start through the relay; opening its link dire
 # first bytes and a seek's come out of it; with too little memory free there is no buffer
 # and it still plays.
 run buffer_plays 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 HOME="$(home_with bufplay "$HDRP")"
-grep -q "relay: a buffer of [0-9]* MB in memory" "$OUT/buffer_plays.log" \
+grep -q "relay: a buffer in memory, up to [0-9]* MB for now" "$OUT/buffer_plays.log" \
   && grep -q "player: source 1 plays through the local relay, loaded ahead" "$OUT/buffer_plays.log" && grep -q "relay: 127.0.0.1 from 0-65535, 206 (from the buffer)" "$OUT/buffer_plays.log" \
   && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_plays.log" && grep -q "relay: buffering 127.0.0.1 ahead" "$OUT/buffer_plays.log" \
   || { echo "a source did not play out of the buffer ahead"; grep -E "relay|player: (candidate|source)|video\(null\)" "$OUT/buffer_plays.log"; exit 1; }
@@ -236,13 +236,23 @@ grep -q "relay: 127.0.0.1 from 131072-196607, 206 (from the buffer)" "$OUT/buffe
 run buffer_drop 700 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=262144 SNTV_FAKE_FETCH_PATTERN=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dropvid/manifest.json HOME="$(home_with bufdrop "$HDRP")"
 grep -q "relay: 127.0.0.1 dropped at 0.1 MB; going on from there" "$OUT/buffer_drop.log" && grep -q "video(null): the bytes are the file's" "$OUT/buffer_drop.log" && grep -q "relay: 127.0.0.1 from 262144-327679, 206 (from the buffer)" "$OUT/buffer_drop.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_drop.log" && ! grep -q "did not start through the relay" "$OUT/buffer_drop.log" \
   || { echo "a dropped download was not picked up again"; grep -E "relay|video\(null\)" "$OUT/buffer_drop.log"; exit 1; }
-# the bytes out of the buffer are the file's, also once its ring has gone round (a 300 KB ring, read at 700 KB)
-run buffer_ring 700 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=700000 SNTV_FAKE_FETCH_PATTERN=1 SNTV_FAKE_BUFFER_KB=300 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dropvid/manifest.json HOME="$(home_with bufring "$HDRP")"
+# the bytes out of the buffer are the file's, also once its blocks have gone round (300 KB in 64 KB blocks, read at 700 KB)
+run buffer_ring 700 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=700000 SNTV_FAKE_FETCH_PATTERN=1 SNTV_FAKE_BUFFER_KB=300 SNTV_FAKE_BLOCK_KB=64 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dropvid/manifest.json HOME="$(home_with bufring "$HDRP")"
 grep -q "relay: 127.0.0.1 from 700000-765535, 206 (from the buffer)" "$OUT/buffer_ring.log" && grep -q "video(null): the bytes are the file's" "$OUT/buffer_ring.log" && ! grep -q "did not start through the relay" "$OUT/buffer_ring.log" \
   || { echo "the bytes out of a ring that went round were not the file's"; grep -E "relay|video\(null\)" "$OUT/buffer_ring.log"; exit 1; }
 run buffer_no_room 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FREE_MB=200 HOME="$(home_with bufroom "$HDRP")"
 grep -q "relay: 200 MB of memory free on the TV: no buffer ahead" "$OUT/buffer_no_room.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_no_room.log" && ! grep -q "from the buffer" "$OUT/buffer_no_room.log" \
   || { echo "with too little memory free, the buffer was made or the source did not play"; grep -E "relay|video\(null\)" "$OUT/buffer_no_room.log"; exit 1; }
+# the TV runs short of memory while it plays: the buffer gives its memory back and the source plays on
+run buffer_shrinks 1400 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FREE_MB_LATER=100 HOME="$(home_with bufshrink "$HDRP")"
+grep -q "relay: the TV is short of memory; the buffer lets go and the source plays on directly" "$OUT/buffer_shrinks.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_shrinks.log" \
+  && ! grep -q "did not start through the relay\|player: candidate 2/" "$OUT/buffer_shrinks.log" \
+  || { echo "the buffer did not let go when memory ran short, or playback suffered"; grep -E "relay|player: (candidate|source)|video\(null\)" "$OUT/buffer_shrinks.log"; exit 1; }
+# closing the app while the source has gone quiet mid-download: it still closes at once
+run buffer_quit 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/stallvid/manifest.json HOME="$(home_with bufquit "$HDRP")"
+ms=$(sed -n 's/.*main: closed in \([0-9]*\) ms.*/\1/p' "$OUT/buffer_quit.log")
+grep -q "relay: buffering 127.0.0.1 ahead\|from the buffer" "$OUT/buffer_quit.log" && [ -n "$ms" ] && [ "$ms" -lt 4000 ] \
+  || { echo "the app did not close promptly with a download stuck (${ms:-no} ms)"; grep -E "relay|http:|main: closed" "$OUT/buffer_quit.log"; exit 1; }
 # Faster starts. Resting on an episode checks the source Play would start (the /fast addon's
 # cached copy, behind a redirect): Play reuses that check, runs no race, opens where the
 # link led, and the start is timed

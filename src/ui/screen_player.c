@@ -174,7 +174,8 @@ struct Player {
     int start_timed;          /* its first frame closed the start timing (perfstat) */
     int final_used;           /* this load opened where the link's redirects led (found moments ago) */
     unsigned char final_off[16];   /* that address failed for this source: its link from now on */
-    int relay_used;           /* this load went through the local relay (its addon asked for headers) */
+    int relay_used;           /* this load went through the local relay (headers, or the buffer ahead) */
+    double relay_dur;         /* the length last given to the relay's buffer */
     int tb_pending;           /* TorBox is preparing the current source: no re-ask, no error card meanwhile */
     int tb_held; double tb_held_start;   /* TorBox answered while a break or dialog covered the player: it starts once back on top */
     unsigned char relay_off[16];   /* the relay did not get it playing: the direct link from now on */
@@ -1438,6 +1439,7 @@ static void start_candidate(Player *p, int idx, double start)
             relayed = relay_url_buffered(streams_final_url(u) ? streams_final_url(u) : u, p->cands[idx].headers, rate);
         } else if (p->cands[idx].headers) relayed = relay_url(u, p->cands[idx].headers);
     }
+    if (!(bufferable && relayed)) relay_buffer_close();   /* this one isn't buffered: the last one's memory goes */
     if (relayed && p->cands[idx].headers) LOGI("player: source %d asks for request headers; it plays through the local relay, which sends them", idx + 1);
     else if (relayed) LOGI("player: source %d plays through the local relay, loaded ahead", idx + 1);
     else if (p->cands[idx].headers) LOGI("player: source %d asks for request headers; the TV's player can't send them (its checks did), so it may not play", idx + 1);
@@ -1466,6 +1468,7 @@ static void start_candidate(Player *p, int idx, double start)
     const char *load = p->cands[idx].url, *final = !relayed && idx < 16 && !p->final_off[idx] ? streams_final_url(load) : NULL;
     p->final_used = final != NULL;
     p->relay_used = relayed != NULL;
+    p->relay_dur = 0;
     if (relayed) load = relayed;
     if (final) {   /* checked moments ago: straight to the file, without the redirects */
         const char *hs = strstr(final, "://"); hs = hs ? hs + 3 : final;
@@ -2116,10 +2119,10 @@ static void update(Screen *s, float dt)
         if (audio) audio_repair(p, &vi);
     }
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
-    if (p->relay_used && vi.duration > 0) relay_set_duration(vi.duration);   /* the buffer's two minutes, from the file's size over its length */
+    if (p->relay_used && vi.duration > 0 && vi.duration != p->relay_dur) { p->relay_dur = vi.duration; relay_set_duration(vi.duration); }   /* the buffer's two minutes, from the file's size over its length */
     night_tick(p, &vi);
 
-    if (vi.state == VIDEO_ERROR && !p->error_handled && p->relay_used && !p->net_played && p->cur < 16) {   /* the relay did not get it going: the link directly, as before it existed */
+    if (vi.state == VIDEO_ERROR && !p->error_handled && p->relay_used && !p->net_played && p->cur < 16 && !relay_buffer_source_failed()) {   /* the relay did not get it going: the link directly, as before it existed (not when the source itself refused it) */
         p->relay_off[p->cur] = 1;
         LOGI("player: source %d did not start through the relay; opening its link directly", p->cur + 1);
         start_candidate(p, p->cur, p->start_at);
@@ -2951,13 +2954,15 @@ static void draw_health(const Player *p, const VideoInfo *vi, float x)
     const PlayCandidate *c = &p->cands[p->cur];
     const char *from = p->p2p_status[0] ? NULL : strstr(c->badges, "CACHED") ? "Cached" : !strncmp(c->url, "http", 4) ? "Direct" : NULL;
     char text[48];
+    double more = p->relay_used ? relay_buffer_ahead() : -1, ahead;   /* the TV's own plus the relay's (asked once a frame) */
+    if (more < 0) more = 0;
     if (vi->buffering) snprintf(text, sizeof text, "%s%sLoading", from ? from : "", from ? "  \xC2\xB7  " : "");
     else {
-        double more = p->relay_used ? relay_buffer_ahead() : -1, ahead = vi->buffer_ahead + (more > 0 ? more : 0);   /* the TV's own plus the relay's */
+        ahead = vi->buffer_ahead + more;
         if (ahead >= 90) snprintf(text, sizeof text, "%s%s%d:%02d ahead", from ? from : "", from ? "  \xC2\xB7  " : "", (int)ahead / 60, (int)ahead % 60);
         else snprintf(text, sizeof text, "%s%s%.0f s ahead", from ? from : "", from ? "  \xC2\xB7  " : "", ahead);
     }
-    int low = vi->buffering || vi->buffer_ahead + (p->relay_used && relay_buffer_ahead() > 0 ? relay_buffer_ahead() : 0) < 10;
+    int low = vi->buffering || vi->buffer_ahead + more < 10;
     Color amber = RGBA(0xF5, 0xA6, 0x23, 0xFF);
     ui_chip(text, x, 110, low ? COLOR_ALPHA(amber, 0x40) : COLOR_ALPHA(THEME_TEXT, 0x22), low ? amber : THEME_TEXT);
 }

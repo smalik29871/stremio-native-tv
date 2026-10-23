@@ -9,6 +9,7 @@
 #include "http.h"
 #include "tracking.h"
 #include "perfstat.h"
+#include "relay.h"
 #include "image.h"
 #include "memwatch.h"
 #include "log.h"
@@ -459,6 +460,7 @@ int main(int argc, char **argv)
                 LOGI("window: %s, pausing", e.window.event == SDL_WINDOWEVENT_HIDDEN ? "hidden" : "minimized");
                 player_save_progress();   /* Home or another app: webOS may end us without notice later */
                 video_app_background();
+                relay_buffer_close();   /* the buffer's memory back to the TV while we are away */
                 g_backgrounded = 1;
                 app_library_flush(1);
                 store_save();
@@ -467,10 +469,12 @@ int main(int argc, char **argv)
                 if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; app_library_foreground(); app_update_foreground(); }
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
+                relay_buffer_close();   /* the first thing to give back: the source plays on directly */
                 mem_emergency();
             } else if (e.type == SDL_APP_WILLENTERBACKGROUND) {
                 player_save_progress();
                 video_app_background();
+                relay_buffer_close();
                 g_backgrounded = 1;
                 app_library_flush(1);
                 store_save();
@@ -557,6 +561,8 @@ int main(int argc, char **argv)
         }
     }
 
+    Uint32 closing = SDL_GetTicks();
+    relay_buffer_close();   /* its download stops at its next bytes; its memory goes now */
     app_shutdown();
     video_shutdown();
     audio_shutdown();
@@ -570,6 +576,7 @@ int main(int argc, char **argv)
     remove(alive);
     SDL_GL_DeleteContext(ctx);
     SDL_DestroyWindow(win);
+    LOGI("main: closed in %u ms", SDL_GetTicks() - closing);
     SDL_Quit();
     log_shutdown();
     return 0;
