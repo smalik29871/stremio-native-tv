@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.55
 
 - **Pick another source when resuming.** Resume plays the link you watched last; the title page
   now has **Other sources** beside it (films and episodes alike), listing every source, and the
