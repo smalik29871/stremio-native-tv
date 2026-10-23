@@ -51,6 +51,12 @@ int video_load(const char *url, const char *title, double start)
         http_request_ex(url, &o, &r);
         int ok = from ? (r.status == 206 && r.has_range && r.range_from == o.range_start && r.len == 65536) : http_looks_like_media(&r);   /* mid-file bytes are no header */
         LOGI("video(null): fetched %zu bytes, status %ld%s", r.len, r.status, ok ? "" : ": not a video");
+        if (ok && from && getenv("SNTV_FAKE_FETCH_PATTERN")) {   /* the test file's bytes past its header: byte i is (i * 7 + 3) % 251 */
+            size_t bad = r.len;
+            for (size_t i = 0; i < r.len && bad == r.len; i++) if ((unsigned char)r.body[i] != (unsigned char)(((o.range_start + i) * 7 + 3) % 251)) bad = i;
+            if (bad == r.len) LOGI("video(null): the bytes are the file's");
+            else LOGW("video(null): byte %zu differs from the file's", (size_t)o.range_start + bad);
+        }
         if (!ok) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The source refused the request (HTTP %ld)", r.status); }
         http_response_free(&r);
     }

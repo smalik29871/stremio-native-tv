@@ -10,4 +10,14 @@
  * NULL when the relay is off or could not start (open url directly then). */
 char *relay_url(const char *url, const char *headers);
 int  relay_enabled(void);   /* on unless "relay" is 0 in the store (or SNTV_NO_RELAY is set) */
+/* The same for the source that plays, plus a buffer ahead of the TV's player: up to three
+ * minutes of the file (est_rate bytes a second, 0 unknown) in a ring file on the TV's
+ * storage, within its free space; none when there is too little. One at a time: a new one
+ * replaces it. */
+char *relay_url_buffered(const char *url, const char *headers, double est_rate);
+int  relay_buffer_enabled(void);   /* relay on, and "bufferAhead" not 0 (nor SNTV_NO_BUFFER set) */
+void relay_set_duration(double seconds);   /* the video's length: the buffer's minutes from its size */
+double relay_buffer_ahead(void);   /* seconds of video loaded past what the player read, -1 none */
+void relay_buffer_close(void);     /* playback over: the buffer and its file go */
+void relay_buffer_cleanup(void);   /* at start: a file left from before goes */
 #endif

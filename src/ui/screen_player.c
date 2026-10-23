@@ -3,6 +3,7 @@
  * candidates, intro/recap skipping, Up Next at the credits, and progress sync to
  * the Stremio library. */
 #include "../relay.h"
+#include "../quality.h"
 #include "../perfstat.h"
 #include "../app.h"
 #include "../http.h"
@@ -1424,8 +1425,21 @@ static void start_candidate(Player *p, int idx, double start)
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
     LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
     add_stream_subs(p, &p->cands[idx]);
-    char *relayed = p->cands[idx].headers && idx < 16 && !p->relay_off[idx] ? relay_url(p->cands[idx].url, p->cands[idx].headers) : NULL;
-    if (relayed) LOGI("player: source %d asks for request headers; it plays through the local relay, which sends them", idx + 1);
+    /* a file over HTTP plays through the local relay, with a few minutes loaded ahead (its
+     * addon's headers too, when it asks for them); not P2P, a playlist or a trailer */
+    const char *u = p->cands[idx].url;
+    int bufferable = !p->trailer && !strncmp(u, "http", 4) && !torrent_engine_url_is(u) && !torbox_is_hash_link(u) && !strstr(u, ".m3u8") && !strstr(u, ".mpd")
+                     && relay_buffer_enabled();
+    char *relayed = NULL;
+    if (idx < 16 && !p->relay_off[idx]) {
+        if (bufferable) {
+            double mins = quality_runtime_minutes(p->meta.runtime);
+            double rate = p->cands[idx].video_size && mins > 0 ? p->cands[idx].video_size / (mins * 60) : 0;   /* until the file's own length is known */
+            relayed = relay_url_buffered(streams_final_url(u) ? streams_final_url(u) : u, p->cands[idx].headers, rate);
+        } else if (p->cands[idx].headers) relayed = relay_url(u, p->cands[idx].headers);
+    }
+    if (relayed && p->cands[idx].headers) LOGI("player: source %d asks for request headers; it plays through the local relay, which sends them", idx + 1);
+    else if (relayed) LOGI("player: source %d plays through the local relay, loaded ahead", idx + 1);
     else if (p->cands[idx].headers) LOGI("player: source %d asks for request headers; the TV's player can't send them (its checks did), so it may not play", idx + 1);
     p->p2p_status[0] = 0;
     p->tb_error[0] = 0;
@@ -2102,6 +2116,7 @@ static void update(Screen *s, float dt)
         if (audio) audio_repair(p, &vi);
     }
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
+    if (p->relay_used && vi.duration > 0) relay_set_duration(vi.duration);   /* the buffer's three minutes, from the file's size over its length */
     night_tick(p, &vi);
 
     if (vi.state == VIDEO_ERROR && !p->error_handled && p->relay_used && !p->net_played && p->cur < 16) {   /* the relay did not get it going: the link directly, as before it existed */
@@ -2937,8 +2952,12 @@ static void draw_health(const Player *p, const VideoInfo *vi, float x)
     const char *from = p->p2p_status[0] ? NULL : strstr(c->badges, "CACHED") ? "Cached" : !strncmp(c->url, "http", 4) ? "Direct" : NULL;
     char text[48];
     if (vi->buffering) snprintf(text, sizeof text, "%s%sLoading", from ? from : "", from ? "  \xC2\xB7  " : "");
-    else snprintf(text, sizeof text, "%s%s%.0f s ahead", from ? from : "", from ? "  \xC2\xB7  " : "", vi->buffer_ahead);
-    int low = vi->buffering || vi->buffer_ahead < 10;
+    else {
+        double more = p->relay_used ? relay_buffer_ahead() : -1, ahead = vi->buffer_ahead + (more > 0 ? more : 0);   /* the TV's own plus the relay's */
+        if (ahead >= 90) snprintf(text, sizeof text, "%s%s%d:%02d ahead", from ? from : "", from ? "  \xC2\xB7  " : "", (int)ahead / 60, (int)ahead % 60);
+        else snprintf(text, sizeof text, "%s%s%.0f s ahead", from ? from : "", from ? "  \xC2\xB7  " : "", ahead);
+    }
+    int low = vi->buffering || vi->buffer_ahead + (p->relay_used && relay_buffer_ahead() > 0 ? relay_buffer_ahead() : 0) < 10;
     Color amber = RGBA(0xF5, 0xA6, 0x23, 0xFF);
     ui_chip(text, x, 110, low ? COLOR_ALPHA(amber, 0x40) : COLOR_ALPHA(THEME_TEXT, 0x22), low ? amber : THEME_TEXT);
 }
@@ -4655,6 +4674,7 @@ static void destroy(Screen *s)
 {
     Player *p = s->st;
     if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */
+    relay_buffer_close();   /* its file goes with it */
     report(p, 1);   /* the app closing with the film on: the last position still counts */
     streams_lookup_cancel();
     if (p->cur < p->n_cands) torrent_engine_drop(p->cands[p->cur].url);

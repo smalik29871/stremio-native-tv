@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **Load ahead: up to 3 minutes of the video kept ready on the TV.** The TV's player only
+  holds about 30 seconds; now the app downloads ahead of it into a buffer on the TV's own
+  storage, so a slow patch or a dropped connection doesn't stop the picture. If the source
+  drops, the download picks up from the byte it stopped at. The "ahead" pill shows minutes.
+  - The buffer stays small and safe: at most 1 GB, at most a tenth of the free space, and
+    always 2 GB left free (with less room there is no buffer and playback works as before).
+    Its room is set aside at the start, it never grows, and it is deleted when you stop
+    (a leftover from a power cut is deleted at the next start).
+  - If storage runs low while playing, or the source keeps failing, the buffer steps aside
+    and the video carries on straight from the source; if the buffer can't start, the app
+    opens the link directly as before.
+  - Settings > Playback > Load ahead turns it off.
+
 ## 0.10.51
 
 - **Subtitle files really as big as the video's own.** Measured on the TV, its Medium is about
