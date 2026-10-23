@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.10.61
 
+- **On LG TVs nothing changes in this version**: it is the groundwork for Cuelight on Android
+  phones and TVs (below), tested on the same code.
 - **Touch screens** (Android phones and tablets): tap anything to open it (a card, a button,
   a setting, a source, a key of the on-screen keyboard), tap beside a pop-up to close it,
   swipe to move, hold for options. Choice settings step back from their left arrow.
