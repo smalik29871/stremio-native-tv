@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.60
 
 - **Settings > Accounts**: every account and key in one place, grouped by what it does
   (Sync: Stremio, Trakt, SimKL; Streaming: TorBox, the streaming server; Subtitles:
