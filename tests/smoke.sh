@@ -386,20 +386,20 @@ run sync_start 700 "left,down,down,down,down,down,down,ok,wait,ok,t:sam@example.
 grep -q "account: 3 addons from this TV will join the account" "$OUT/sync_start.log" && grep -q "toast: Installed Fake Addon" "$OUT/sync_start.log" \
   || { echo "signing in did not bring this TV's addons into the account"; grep -E "account|addons|toast" "$OUT/sync_start.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
-run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
+run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,ok"
 # Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it
-run diagnostics_youtube 1000 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,right,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,ok,wait,wait"
+run diagnostics_youtube 1000 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,ok,right,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,ok,wait,wait"
 grep -q "youtube test: visionOS answered | its files 1080p video and audio open | TV not needed | its files not needed | playlist up to 1080p, plays | file available (360p at most) => 1080p, from the visionOS client" "$OUT/diagnostics_youtube.log" \
   && grep -q "player: candidate 1/4 YouTube test - best" "$OUT/diagnostics_youtube.log" \
   || { echo "the YouTube test did not report or play"; grep -E "youtube|player: candidate" "$OUT/diagnostics_youtube.log"; exit 1; }
 # Diagnostics > Speed: startup milestones, key-to-screen time and frame cost per screen
-run diagnostics_speed 700 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,wait,right,wait"
+run diagnostics_speed 700 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,ok,wait,right,wait"
 grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -q "speed:   home " "$OUT/diagnostics_speed.log" \
   || { echo "the Speed tab did not measure"; grep speed: "$OUT/diagnostics_speed.log"; exit 1; }
-run diagnostics_filter 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,left,left"
-run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,ok"
+run diagnostics_filter 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,ok,left,left"
+run diagnostics_qr 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,ok,ok"
 grep -q "diagnostics: the log ([0-9]* lines) is at a link while the code shows" "$OUT/diagnostics_qr.log" || { echo "the log QR is not a link to the whole log"; grep diagnostics "$OUT/diagnostics_qr.log"; exit 1; }
-run diagnostics_prev_qr 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok,blue,ok"
+run diagnostics_prev_qr 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,ok,blue,ok"
 run settings_more 340 "left,down,down,down,down,down,ok,down,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
 run welcome 90 "" HOME="$(home_with fresh '{}')"
