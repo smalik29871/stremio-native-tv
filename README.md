@@ -1,6 +1,7 @@
-# Stremio Native TV (unofficial)
+# Cuelight
 
-A native Stremio client for LG webOS TVs (3.0 and newer), installed from the
+*Your cue to press play.* Cuelight is a fast native player for LG webOS TVs (3.0 and newer)
+that works with your **Stremio account and addons**, installed from the
 [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) without root.
 Samsung Tizen builds (native `.tpk`, WebAssembly `.wgt`) are in the tree but have not been
 run on a Samsung set yet.
@@ -9,6 +10,9 @@ It is written in C99 on SDL2 + OpenGL ES 2 and hands playback to the TV's own vi
 pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware and plays
 whatever the TV can decode. It speaks the **Stremio addon protocol** and the **Stremio
 account API**: the same account, addons, Library and Continue Watching as the official apps.
+
+> Cuelight is an independent project. It is **not affiliated with, endorsed by or made by
+> Stremio**; "Stremio" is used only to say which accounts and addons it works with.
 
 > **v0.10.56.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
@@ -24,7 +28,7 @@ account API**: the same account, addons, Library and Continue Watching as the of
    ```
    https://github.com/smalik29871/stremio-custom-lg-tv-releases/releases/latest/download/repo.json
    ```
-3. Back in the app list, install **Stremio (native)**.
+3. Back in the app list, install **Cuelight** (listed as "Stremio (native)" before 0.10.57).
 
 **Updates, when you say so.** The app checks this repository at start and every six
 hours. When a new release is out it waits until nothing is playing and asks: *Update now*

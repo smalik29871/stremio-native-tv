@@ -1284,7 +1284,7 @@ static void on_repo(HttpResponse *r, void *user)
             app_toast("Version %s is ready: Settings > About > Update", v->valuestring);
             store_set_str("updateToldFor", v->valuestring); store_save();
         }
-    } else if (manual) app_toast("Stremio (native) %s is the newest version", SNTV_APP_VERSION);
+    } else if (manual) app_toast(SNTV_APP_NAME " %s is the newest version", SNTV_APP_VERSION);
     if (root) cJSON_Delete(root);
 }
 

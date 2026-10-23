@@ -77,7 +77,7 @@ static void respond(int fd, const char *status, const char *body)
 
 static const char *PAGE_HEAD =
     "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>Stremio TV</title><style>body{font:17px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;background:#0b0a16;color:#eee;margin:0;padding:28px 20px}"
+    "<title>Cuelight</title><style>body{font:17px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;background:#0b0a16;color:#eee;margin:0;padding:28px 20px}"
     "h1{font-size:22px;margin:0 0 6px}p{color:#aaa;margin:0 0 18px}textarea,input{width:100%;box-sizing:border-box;font:17px monospace;padding:14px;border-radius:14px;border:1px solid #444;background:#17142c;color:#fff}"
     "button{margin-top:16px;width:100%;padding:16px;border:0;border-radius:999px;background:#a855f7;color:#fff;font-size:18px;font-weight:600}small{color:#777}.ok{color:#4ade80;font-weight:600}</style>";
 
@@ -585,7 +585,7 @@ static int handle(int fd, const struct sockaddr_in *peer)
         return 0;
     }
     if (!title[0]) {
-        snprintf(page, sizeof page, "%s<h1>Stremio TV</h1><p>Nothing to fill in right now. Open a text field on the TV (Settings, a key or a URL) and reload this page.</p>", PAGE_HEAD);
+        snprintf(page, sizeof page, "%s<h1>Cuelight</h1><p>Nothing to fill in right now. Open a text field on the TV (Settings, a key or a URL) and reload this page.</p>", PAGE_HEAD);
         respond(fd, "200 OK", page);
         return 0;
     }

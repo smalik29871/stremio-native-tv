@@ -31,7 +31,7 @@ void rail_draw(int active, int focus)
     /* brand */
     float bs = 48, bx = (RAIL_W - bs) / 2;
     if (!intro_active()) ui_mark(bx, 44, bs);   /* the launch animation is still bringing it here */
-    if (open) font_draw("Stremio", RAIL_W, 44 + (bs - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT);
+    if (open) font_draw(SNTV_APP_NAME, RAIL_W, 44 + (bs - font_height(FONT_M | FONT_ALT)) / 2, FONT_M | FONT_ALT, THEME_TEXT);
 
     const char *acc = g_app.auth_key ? (g_app.user_email ? g_app.user_email : "Account") : "Sign in";
     for (int i = 0; i < RAIL_COUNT; i++) {

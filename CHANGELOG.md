@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The app is now called Cuelight.** A new name, mark and colours of its own: the stage
+  manager's green "go" lamp with play inside it, mint on deep teal. The TV's app list, the
+  Homebrew Channel, the start-up animation, the side rail, About and Diagnostics all say
+  Cuelight. Nothing else changes: it updates in place as before, and your sign-in, settings,
+  profiles and library stay. Cuelight works with your Stremio account and addons and is not
+  affiliated with or endorsed by Stremio (About says so too).
+
 ## 0.10.56
 
 - **Every theme can do everything.** Aperture was missing a few things the other themes have;

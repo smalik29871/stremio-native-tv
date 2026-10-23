@@ -2,7 +2,7 @@
 <manifest xmlns="http://tizen.org/ns/packages" api-version="4.0" package="org.stremio.nativetv" version="0.10.56">
   <profile name="tv"/>
   <ui-application appid="org.stremio.nativetv" exec="stremio-tv" launch_mode="single" multiple="false" nodisplay="false" taskmanage="true" type="capp">
-    <label>Stremio</label>
+    <label>Cuelight</label>
     <icon>icon.png</icon>
     <!-- SDL on Tizen needs an explicit landscape orientation and a GL surface. -->
     <splash-screens/>

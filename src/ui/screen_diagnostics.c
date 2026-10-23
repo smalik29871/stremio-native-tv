@@ -138,7 +138,7 @@ static void build_qr(Diag *d)
     for (int k = 0; k < d->n_vis; k++) cap += strlen(d->lines[d->vis[k]].text) + 4;
     char *all = malloc(cap), url[160];
     if (all) {
-        len = (size_t)snprintf(all, cap, "Stremio Native TV %s\n%s\n%s\n%s log, %s session\n---\n", SNTV_APP_VERSION, video_backend_name(), d->system,
+        len = (size_t)snprintf(all, cap, "Cuelight %s\n%s\n%s\n%s log, %s session\n---\n", SNTV_APP_VERSION, video_backend_name(), d->system,
                                TAB_NAMES[d->tab < 3 ? d->tab : 2], d->previous ? "previous" : "this");
         for (int k = 0; k < d->n_vis && len < cap; k++) len += (size_t)snprintf(all + len, cap - len, "%c %s\n", d->lines[d->vis[k]].level, d->lines[d->vis[k]].text);
         d->qr_link = phone_offer_log(all, url, sizeof url);
@@ -156,7 +156,7 @@ static void build_qr(Diag *d)
     char *text = malloc(QR_BUDGET + 600);
     int budget = QR_BUDGET;
     for (int attempt = 0; attempt < 6; attempt++, budget = budget * 3 / 4) {
-        int o = snprintf(text, 600, "Stremio Native TV %s\n%s\n%s\n%s log, %s session\n---\n",
+        int o = snprintf(text, 600, "Cuelight %s\n%s\n%s\n%s log, %s session\n---\n",
                          SNTV_APP_VERSION, video_backend_name(), d->system, TAB_NAMES[d->tab],
                          d->previous ? "previous" : "this");
         /* walk backwards from the cursor to find how many lines fit */

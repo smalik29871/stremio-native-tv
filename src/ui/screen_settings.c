@@ -723,8 +723,9 @@ static void draw(Screen *s)
     if (st->cat == CAT_ABOUT) {
         char info[300];
         char mem[160]; mem_describe(mem, sizeof mem);
-        snprintf(info, sizeof info, "Version %s  \xC2\xB7  %s  \xC2\xB7  %zu MB artwork in memory  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name(), image_cache_bytes() >> 20, mem);
+        snprintf(info, sizeof info, SNTV_APP_NAME " %s  \xC2\xB7  %s  \xC2\xB7  %zu MB artwork in memory  \xC2\xB7  %s", SNTV_APP_VERSION, video_backend_name(), image_cache_bytes() >> 20, mem);
         font_draw_fit(info, s_x, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
+        font_draw_fit(SNTV_APP_NAME " works with your Stremio account and addons; it is not affiliated with or endorsed by Stremio.", s_x, SNTV_UI_H - 140, FONT_XS, THEME_TEXT_MUTED, s_r - s_x);
         char tv[300];
         if (g_update_version[0]) snprintf(tv, sizeof tv, app_update_installs_here() ? "Version %s is available: Update above installs it" : "Version %s is available: Update above shows how", g_update_version);
         else snprintf(tv, sizeof tv, "TV profile: %s", "learned from what played here; Diagnostics shows it");

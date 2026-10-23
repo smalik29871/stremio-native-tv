@@ -8,7 +8,7 @@
 #endif
 
 #define SNTV_APP_ID      "org.stremio.nativetv"
-#define SNTV_APP_NAME    "Stremio"
+#define SNTV_APP_NAME    "Cuelight"
 #define SNTV_APP_VERSION "0.10.56"
 #define SNTV_USER_AGENT  "StremioNativeTV/" SNTV_APP_VERSION
 

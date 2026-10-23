@@ -43,8 +43,8 @@ static void draw_steps(const Upd *u, float cx, float y)
 {
     static const char *const STEPS[] = {
         "Press Home on the remote and open the Homebrew Channel",
-        "Choose Stremio (native), then Update",
-        "Open Stremio again: your sign-in, settings and progress stay",
+        "Choose Cuelight, then Update",
+        "Open Cuelight again: your sign-in, settings and progress stay",
     };
     float x = cx - 430;
     for (int i = 0; i < 3; i++) {
@@ -93,7 +93,7 @@ static void draw(Screen *s)
     } else if (u->state == -1) {
         snprintf(line, sizeof line, "%.200s", u->status);
         font_draw_center(line, cx, y, FONT_S, THEME_DANGER);
-        font_draw_center("The Homebrew Channel can install it: Stremio (native) > Update.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
+        font_draw_center("The Homebrew Channel can install it: Cuelight > Update.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
         font_draw_center("Open it from the Home screen   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
     } else {
         ui_spinner(cx, y + 10, 26);

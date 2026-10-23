@@ -63,5 +63,5 @@ void intro_draw(void)
     ui_mark(x, y, s);
     gfx_set_alpha(1);
     float wa = smooth((t - GROW * 0.5f) / GROW) * (1 - smooth(fly * 3));   /* the name, under the mark, gone as it flies */
-    if (wa > 0.01f) font_draw_center("Stremio", cx, cy + MARK / 2 + 34, FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * wa)));
+    if (wa > 0.01f) font_draw_center(SNTV_APP_NAME, cx, cy + MARK / 2 + 34, FONT_XL | FONT_ALT, COLOR_ALPHA(THEME_TEXT, (int)(255 * wa)));
 }

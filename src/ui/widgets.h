@@ -167,7 +167,7 @@ float ui_title_width(const char *text, int size);
 int   ui_hero_title(const char *text, float x, float bottom, float maxw, Color c);
 float ui_meta_line(const char *const *parts, int n, float x, float y, Color c);
 void  ui_row_header(int index, const char *title, const char *source, int count, float x, float y, float right, float k);
-void  ui_mark(float x, float y, float size);   /* the Stremio logo tile, unchanged by themes */
+void  ui_mark(float x, float y, float size);   /* Cuelight's mark on its tile, unchanged by themes */
 
 /* A QR code made by qrcodegen, dark modules on a white rounded square. */
 void ui_qr(const uint8_t *qr, float x, float y, float size);

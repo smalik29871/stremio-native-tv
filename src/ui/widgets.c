@@ -1409,22 +1409,26 @@ void ui_spinner(float cx, float cy, float r)
     app_redraw();
 }
 
-/* The Stremio logo stays exactly as it was in every theme: its own purple gradient
- * tile and play triangle, never recoloured by the accent. */
-#define LOGO_TOP    RGBA(0xD9, 0x46, 0xEF, 0xFF)
-#define LOGO_BOTTOM RGBA(0x8B, 0x5C, 0xF6, 0xFF)
-#define LOGO_GLYPH  RGBA(0xF7, 0xF7, 0xFB, 0xFF)
+/* Cuelight's mark looks the same in every theme, never recoloured by the accent: the
+ * stage manager's green "go" lamp, glowing on its deep teal tile, with play inside it. */
+#define MARK_TILE_TOP    RGBA(0x11, 0x24, 0x2B, 0xFF)
+#define MARK_TILE_BOTTOM RGBA(0x0B, 0x14, 0x18, 0xFF)
+#define MARK_LAMP        RGBA(0x2F, 0xD3, 0xA1, 0xFF)
+#define MARK_GLYPH       RGBA(0x0B, 0x14, 0x18, 0xFF)
 
 void ui_mark(float x, float y, float s)
 {
-    gfx_rrect_grad_v(x, y, s, s, s * 0.28f, LOGO_TOP, LOGO_BOTTOM);
-    gfx_play_triangle(x + s * 0.36f, y + s * 0.28f, s * 0.38f, s * 0.44f, LOGO_GLYPH);
+    float cx = x + s / 2, cy = y + s / 2, r = s * 0.27f;
+    gfx_rrect_grad_v(x, y, s, s, s * 0.24f, MARK_TILE_TOP, MARK_TILE_BOTTOM);
+    for (int i = 12; i >= 1; i--) gfx_circle(cx, cy, r * (1 + 0.055f * i), COLOR_ALPHA(MARK_LAMP, 0x08));   /* its glow, soft to the edge */
+    gfx_circle(cx, cy, r, MARK_LAMP);
+    gfx_play_triangle(cx - r * 0.30f, cy - r * 0.48f, r * 0.82f, r * 0.96f, MARK_GLYPH);
 }
 
 void ui_brand(float x, float y, float s)
 {
     ui_mark(x, y, s);
-    font_draw("Stremio", x + s + 16, y + (s - font_height(FONT_L | FONT_B)) / 2, FONT_L | FONT_B, THEME_TEXT);
+    font_draw(SNTV_APP_NAME, x + s + 16, y + (s - font_height(FONT_L | FONT_ALT)) / 2, FONT_L | FONT_ALT, THEME_TEXT);
 }
 
 /* ---- cards ---- */

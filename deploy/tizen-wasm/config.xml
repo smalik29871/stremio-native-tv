@@ -4,7 +4,7 @@
   <content src="index.html"/>
   <feature name="http://tizen.org/feature/screen.size.all"/>
   <icon src="icon.png"/>
-  <name>Stremio</name>
+  <name>Cuelight</name>
   <tizen:privilege name="http://tizen.org/privilege/internet"/>
   <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
   <tizen:profile name="tv"/>

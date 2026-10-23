@@ -38,8 +38,8 @@ manifest = {
     "id": app["id"],
     "version": version,
     "type": "native",
-    "title": "Stremio (native)",
-    "appDescription": "Unofficial native Stremio client for LG webOS",
+    "title": "Cuelight",
+    "appDescription": "A fast native player for your Stremio account and addons on LG webOS. Not affiliated with Stremio.",
     "iconUri": icon,
     "sourceUrl": f"https://github.com/{repo}",
     # Installs and runs without root. Whether the media bus grants video to a
