@@ -45,4 +45,10 @@ int  torbox_library_streams(const char *type, const char *video_id, const char *
                             const char *own, const char *const *others, int n_others, struct Stream **out);
 /* Starts TorBox downloading a torrent this TV is playing over P2P, so it can switch back. */
 void torbox_queue_hash(const char *info_hash);
+/* Gets a torrent onto your TorBox for later (added the first time, tid < 0; then only asked
+ * how far it is, by the tid it gave): progress 0..1, ready once TorBox has all of it (and
+ * from then on torbox_hash_cached says so). */
+typedef struct { long tid; double progress, speed; int ready, seeds; char state[48]; } TorboxFetch;
+typedef void (*TorboxFetchCb)(const TorboxFetch *f, const char *error, void *user);
+void torbox_fetch(const char *info_hash, long tid, TorboxFetchCb cb, void *user);
 #endif

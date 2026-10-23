@@ -164,6 +164,8 @@ class H(BaseHTTPRequestHandler):
             pack = m.group(1).lower().startswith(b"cafe5eed")   # a season pack (id 79)
             disc = m.group(1).lower().startswith(b"cafe0d15")   # a disc rip, files named title_t00... (id 80)
             miss = m.group(1).lower().startswith(b"cafebad0")   # a pack without episode 1 (id 81)
+            if m.group(1).lower().startswith(b"f00d"):   # not cached: TorBox downloads it (id 82), done on the third look
+                return self.send(200, json.dumps({"success": True, "data": {"torrent_id": 82, "hash": m.group(1).decode().lower()}}).encode())
             return self.send(200, json.dumps({"success": True, "data": {"torrent_id": 81 if miss else 80 if disc else 79 if pack else 77 if cached else 78, "hash": m.group(1).decode().lower()}}).encode())
         # IMDb's GraphQL stand-in: /imdbgql has no trailer for anything, /imdbgql/with has one in three qualities
         if p.startswith("/imdbgql"):
@@ -503,6 +505,12 @@ class H(BaseHTTPRequestHandler):
             p = "/tbsrc/" + p[8:]
         if miss:
             p = "/tbsrc/" + p[8:]
+        if p.startswith("/tbget/"):   # one torrent, cached nowhere: TorBox can get it
+            p = p[6:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.tbget", name="Torrents", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                return self.send(200, json.dumps({"streams": [{"name": "Torrents\n1080p", "title": "Movie.2024.1080p.WEB.x264.mkv\n\U0001F464 1", "infoHash": "F00D" * 10, "fileIdx": 1}]}).encode())
         if p.startswith("/tbsrc/"):   # torrents only, no links: one TorBox has cached, one it does not
             p = p[6:]
             if p == "/manifest.json":
@@ -851,6 +859,13 @@ class H(BaseHTTPRequestHandler):
                     {"id": 20, "name": "BREAKING_BAD_D1/title_t00.mkv", "short_name": "title_t00.mkv", "mimetype": "video/x-matroska", "size": 2600000000},
                     {"id": 21, "name": "BREAKING_BAD_D1/title_t01.mkv", "short_name": "title_t01.mkv", "mimetype": "video/x-matroska", "size": 2400000000},
                     {"id": 22, "name": "BREAKING_BAD_D1/title_t02.mkv", "short_name": "title_t02.mkv", "mimetype": "video/x-matroska", "size": 2500000000}]}}).encode())
+            if "/mylist" in q and "id=82" in q:   # downloading: 42%, then 87%, then done
+                H.f00d_looks = getattr(H, "f00d_looks", 0) + 1
+                done = H.f00d_looks >= 3
+                return self.send(200, json.dumps({"success": True, "data": {"id": 82, "download_present": done, "download_finished": done,
+                    "progress": 1 if done else 0.42 if H.f00d_looks == 1 else 0.87, "download_speed": 3145728, "seeds": 1,
+                    "download_state": "completed" if done else "downloading", "files": [
+                    {"id": 1, "short_name": "Movie.2024.1080p.mkv", "mimetype": "video/x-matroska", "size": 2147483648}] if done else []}}).encode())
             if "/mylist" in q and "id=7" in q:   # the torrents added above
                 ready = "id=77" in q
                 return self.send(200, json.dumps({"success": True, "data": {"id": 77 if ready else 78, "download_present": ready, "download_finished": ready, "files": [

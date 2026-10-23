@@ -148,6 +148,7 @@ float ui_peek_room(const Peek *p, const struct MetaPreview *m, float cx, float c
  * then "Release for options". Drawn in place of the line under the focused card;
  * returns 1 when it drew (the caller skips that line). */
 int   ui_hold_hint(float x, float y, float w);
+int   ui_hold_hint_ex(float x, float y, float w, const char *hold, const char *release);   /* the same, its own words */
 float ui_focus_scale(float focus);
 float ui_focus_lift(float focus);   /* upward shift of a focused card, canvas units */
 

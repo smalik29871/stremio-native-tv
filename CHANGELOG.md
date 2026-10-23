@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Get a torrent onto your TorBox from the sources list.** When a title is only available as a
+  torrent nobody has cached, hold OK on it: your TorBox starts downloading it, and the row
+  follows along (percent, speed, a bar along its foot; "waiting for seeders" when it has
+  none). Once TorBox has it, the row says "Ready on your TorBox" and OK plays it from there,
+  at TorBox's speed instead of the few peers'. Leave and come back later: it carries on and
+  shows as cached. Needs a TorBox key (Settings).
+- **Suggestions while you type in Search.** Like the TV's own keyboard: a row above the keys
+  offers your matching recent searches and the titles found for what you have typed so far.
+  Up from the top row of keys reaches them, OK searches that title.
 - **The title you typed comes first in Search.** Results used to be shown in the order the
   addons answered, so an addon that answers every search with its whole catalog (new
   releases, say) pushed the real match far down. Now the exact title leads, then titles that

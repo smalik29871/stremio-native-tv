@@ -30,6 +30,10 @@ static unsigned g_generation;
 static Streams *g_live;
 
 struct Streams {
+    char fetch_hash[41];      /* the torrent being got onto your TorBox from this list ("" none) */
+    int fetch_state;          /* 1 asking, 2 TorBox is getting it, 3 ready, 4 TorBox said no */
+    long fetch_tid; float fetch_next, fetch_progress; unsigned fetch_id; int fetch_inflight;
+    char fetch_note[96];      /* what its row says about it */
     MetaPreview meta;
     char *video_id, *video_title;
     EpisodeHint ep; int ep_known;   /* what video_id is, for the episode check (worked out once) */
@@ -218,6 +222,67 @@ static int same_release(const Streams *st, const Stream *s)
 static int is_mine(const Stream *s) { return s->addon_order == -1 && s->addon_name && !strcmp(s->addon_name, "My TorBox"); }
 /* a torrent TorBox has cached (it plays from there, right after your own) */
 static int from_torbox(const Stream *s) { return !s->url && s->info_hash && torbox_hash_cached(s->info_hash); }
+
+/* ---- getting a torrent onto your TorBox (hold OK on it) ----
+ * A torrent nobody has cached plays only from peers, on this TV, as slowly as they send.
+ * Held OK hands it to your TorBox instead: its row follows TorBox's download, and once
+ * TorBox has it, OK plays it from there like any cached copy. */
+typedef struct { Streams *st; unsigned id; } FetchReq;
+
+static int fetchable(const Stream *s) { return torbox_enabled() && s->info_hash && !s->url && !is_mine(s) && !torbox_hash_cached(s->info_hash); }
+static int fetching(const Streams *st, const Stream *s) { return st->fetch_hash[0] && s->info_hash && !strncasecmp(s->info_hash, st->fetch_hash, 40); }
+
+static void on_fetch(const TorboxFetch *f, const char *error, void *user)
+{
+    FetchReq *q = user;
+    Streams *st = q->st;
+    int mine = st == g_live && q->id == st->fetch_id;
+    free(q);
+    if (!mine) return;
+    st->fetch_inflight = 0;
+    if (!f) {
+        st->fetch_state = 4;
+        snprintf(st->fetch_note, sizeof st->fetch_note, "TorBox: %s", error ? error : "no answer");
+        LOGW("torbox: %s not taken: %s", st->fetch_hash, error ? error : "no answer");
+        app_toast("TorBox couldn't take it");
+    } else if (f->ready) {
+        st->fetch_state = 3;
+        snprintf(st->fetch_note, sizeof st->fetch_note, "Ready on your TorBox");
+        LOGI("torbox: %s is ready on your TorBox", st->fetch_hash);
+        app_toast("Ready on your TorBox: OK plays it from there");
+    } else {
+        int first = st->fetch_tid < 0;
+        st->fetch_tid = f->tid;
+        st->fetch_state = 2;
+        const char *every = getenv("SNTV_TORBOX_POLL_S");   /* tests: sooner */
+        st->fetch_next = g_app.time + (every && *every ? (float)atof(every) : 10);
+        st->fetch_progress = (float)f->progress;
+        int pct = (int)(f->progress * 100 + 0.5);
+        if (f->speed >= 1e5) snprintf(st->fetch_note, sizeof st->fetch_note, "TorBox %d%%  \xC2\xB7  %.1f MB/s", pct, f->speed / 1048576.0);
+        else if (strstr(f->state, "stalled") || (f->state[0] && !f->seeds && pct == 0)) snprintf(st->fetch_note, sizeof st->fetch_note, "TorBox %d%%  \xC2\xB7  waiting for seeders", pct);
+        else snprintf(st->fetch_note, sizeof st->fetch_note, "TorBox %d%%", pct);
+        if (first) { LOGI("torbox: %s added to your TorBox (%d%%)", st->fetch_hash, pct); app_toast("Getting it on your TorBox. Stay here to follow it, or come back later"); }
+        else LOGI("torbox: %s on your TorBox: %d%%", st->fetch_hash, pct);
+    }
+    app_redraw();
+}
+
+static void fetch_ask(Streams *st)
+{
+    FetchReq *q = malloc(sizeof *q);
+    q->st = st; q->id = st->fetch_id;
+    st->fetch_inflight = 1;
+    torbox_fetch(st->fetch_hash, st->fetch_tid, on_fetch, q);
+}
+
+static void fetch_start(Streams *st, const Stream *s)
+{
+    snprintf(st->fetch_hash, sizeof st->fetch_hash, "%.40s", s->info_hash);
+    st->fetch_state = 1; st->fetch_tid = -1; st->fetch_id++; st->fetch_progress = 0;
+    snprintf(st->fetch_note, sizeof st->fetch_note, "Asking TorBox\xE2\x80\xA6");
+    fetch_ask(st);
+    app_redraw();
+}
 
 static long rank(const Streams *st, const Stream *s)
 {
@@ -818,6 +883,7 @@ static void update(Screen *s, float dt)
 {
     Streams *st = s->st;
     video_keep_awake(starting(st) || race_runs_for(st));   /* the TV's screensaver must not take the handoff */
+    if (st->fetch_state == 2 && !st->fetch_inflight && g_app.time >= st->fetch_next) fetch_ask(st);   /* how far TorBox is */
     if (race_resume(st) && app_top() != s) return;   /* back on top: the source its race found starts */
     if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
     if (st->check_autoplay || (st->chaining && !st->autoplayed)) {   /* every frame too: the wait can run out with no answer arriving */
@@ -1148,19 +1214,37 @@ static void draw(Screen *s)
         if (sub[0]) font_draw_fit(sub, ax + aw + 12, ay + 4, FONT_XS | FONT_B, THEME_TEXT_DIM, 160);
         float bx = draw_badges(sm, x + w - 24, ry + 18, foc);
         font_draw_fit(line1[0] ? line1 : "Stream", ax, ry + 60, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 48);
-        font_draw_fit(line2, ax, ry + 98, FONT_XS, ok ? THEME_TEXT_DIM : THEME_TEXT_MUTED, w - 48);
+        int offer = foc && fetchable(sm) && !fetching(st, sm);   /* hold OK: onto your TorBox */
+        float hw = offer ? 340 : 0;
+        font_draw_fit(line2, ax, ry + 98, FONT_XS, ok ? THEME_TEXT_DIM : THEME_TEXT_MUTED, w - 48 - hw);
+        if (offer && !ui_hold_hint_ex(x + w - 24 - hw + 20, ry + 92, hw - 20, "Hold to get it on TorBox", "Release: TorBox gets it")) {
+            const char *t = "Hold OK: get it on TorBox";
+            font_draw(t, x + w - 24 - font_measure(t, FONT_XS | FONT_B), ry + 98, FONT_XS | FONT_B, THEME_TEXT);
+        }
+        if (fetching(st, sm) && st->fetch_state <= 2) {   /* TorBox's download, along the row's foot */
+            float bw = w - 48, k = st->fetch_progress < 0 ? 0 : st->fetch_progress > 1 ? 1 : st->fetch_progress;
+            gfx_rrect(x + 24, ry + h - 5, bw, 3, theme_pill_r(4), COLOR_ALPHA(THEME_TEXT, 0x22));
+            if (k > 0) gfx_rrect(x + 24, ry + h - 5, bw * k, 3, theme_pill_r(4), THEME_OK);
+        }
         char p2p[48];
         if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this TV"); }
         const char *flag = is_mine(sm) ? "In your TorBox" : sm->info_hash ? (from_torbox(sm) ? "From your TorBox" : g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
         if (same_release(st, sm)) flag = "Same release";
+        int tb = fetching(st, sm);
+        if (tb) flag = st->fetch_note;
         if (flag) {
-            Color fc = !ok ? THEME_DANGER : THEME_OK;
+            Color fc = tb ? (st->fetch_state == 4 ? THEME_DANGER : st->fetch_state == 3 ? THEME_OK : THEME_TEXT) : !ok ? THEME_DANGER : THEME_OK;
             float fw = font_measure(flag, FONT_XS | FONT_B) + 24;
             bx -= fw + 8;
             ui_chip(flag, bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(fc, 0x30), fc);
         }
         const char *warn[3];
         int nw = ok ? quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 3) : 0;
+        if (from_torbox(sm)) {   /* TorBox has all of it: how many peers there are no longer matters */
+            int k = 0;
+            for (int j = 0; j < nw; j++) if (!strstr(warn[j], "seeder")) warn[k++] = warn[j];
+            nw = k;
+        }
         const char *sick = sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
         if (sick && !rule_broken(sm)) {
             float fw = font_measure(sick, FONT_XS | FONT_B) + 24;
@@ -1528,9 +1612,16 @@ static int key(Screen *s, KeyAction a)
         app_redraw();
         return 1;
     case KEY_DOWN: st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; if (st->focus < st->n - 1) { st->focus++; app_redraw(); return 1; } return 0;
+    case KEY_LONG_OK:   /* held on a torrent no one has cached: onto your TorBox */
+        if (st->focus >= 0 && st->focus < st->n && fetchable(&st->items[st->focus]) && !fetching(st, &st->items[st->focus])) { fetch_start(st, &st->items[st->focus]); return 1; }
+        return 0;   /* anything else: as OK */
     case KEY_OK:   /* a choice: timed from here, the sources are in */
         perf_start_begin("chosen"); st->sources_timed = 1;
         if (st->focus == -1) { int r = recommended(st); if (r >= 0) play_from(st, r); return 1; }
+        if (st->focus < st->n && fetching(st, &st->items[st->focus]) && st->fetch_state < 3 && !from_torbox(&st->items[st->focus])) {   /* not there yet */
+            app_toast("TorBox is still getting it (%d%%). It plays from there once it has it", (int)(st->fetch_progress * 100 + 0.5f));
+            return 1;
+        }
         if (st->focus < st->n) play_from(st, st->focus);
         return 1;
     default: return 0;
@@ -1579,7 +1670,7 @@ Screen *screen_streams_create_chain(const MetaPreview *meta, const char *video_i
              hint->binge_group[0] ? " binge " : "", hint->binge_group, hint->addon_order, hint->res);
     } else st->autoplayed = 1;
     st->started = g_app.time;
-    s->name = "streams"; s->st = st;
+    s->name = "streams"; s->st = st; s->long_ok = 1;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->resume = resume;
     g_live = st;
     g_generation++;

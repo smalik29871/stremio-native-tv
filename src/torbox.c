@@ -388,6 +388,54 @@ void torbox_queue_hash(const char *info_hash)
     http_task_async("torbox add", queue_task, h, on_queued, h);
 }
 
+typedef struct { char hash[41]; TorboxFetch f; char err[200]; TorboxFetchCb cb; void *user; } Fetch;
+
+static void fetch_task(HttpResponse *out, void *arg)
+{
+    Fetch *x = arg;
+    if (x->f.tid < 0 && (x->f.tid = add_torrent(x->hash, x->err, sizeof x->err)) < 0) return;
+    char url[300], hdr[220];
+    snprintf(url, sizeof url, "%s/torrents/mylist?id=%ld&bypass_cache=true", base(), x->f.tid);
+    auth_header(hdr, sizeof hdr);
+    HttpOptions ho = { .timeout_s = 12, .headers = hdr };
+    HttpResponse r;
+    http_request_ex(url, &ho, &r);
+    cJSON *root = r.body ? cJSON_Parse(r.body) : NULL;
+    const cJSON *t = cJSON_GetObjectItemCaseSensitive(root, "data");
+    if (cJSON_IsArray(t)) t = cJSON_GetArrayItem(t, 0);
+    if (!cJSON_IsObject(t)) snprintf(x->err, sizeof x->err, "TorBox did not say how far it is (%ld)", r.status);
+    else {
+        const cJSON *v;
+        x->f.ready = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "download_finished")) || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "download_present"));
+        if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(t, "progress")) || cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(t, "download_progress")))
+            x->f.progress = v->valuedouble > 1 ? v->valuedouble / 100 : v->valuedouble;
+        if (x->f.ready) x->f.progress = 1;
+        if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(t, "download_speed"))) x->f.speed = v->valuedouble;
+        if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(t, "seeds"))) x->f.seeds = v->valueint;
+        if (cJSON_IsString(v = cJSON_GetObjectItemCaseSensitive(t, "download_state"))) snprintf(x->f.state, sizeof x->f.state, "%s", v->valuestring);
+        out->status = 200;
+    }
+    cJSON_Delete(root);
+    http_response_free(&r);
+}
+
+static void on_fetch(HttpResponse *r, void *user)
+{
+    Fetch *x = user;
+    if (r->status == 200 && x->f.ready) remember(x->hash, 1);   /* plays from TorBox from now on */
+    x->cb(r->status == 200 ? &x->f : NULL, r->status == 200 ? NULL : x->err[0] ? x->err : "TorBox did not answer", x->user);
+    free(x);
+}
+
+void torbox_fetch(const char *info_hash, long tid, TorboxFetchCb cb, void *user)
+{
+    if (!info_hash || !torbox_enabled()) { cb(NULL, "No TorBox key", user); return; }
+    Fetch *x = calloc(1, sizeof *x);
+    norm_hash(info_hash, x->hash);
+    x->f.tid = tid; x->cb = cb; x->user = user;
+    http_task_async("torbox fetch", fetch_task, x, on_fetch, x);
+}
+
 /* ---- your TorBox as a source ----------------------------------------------------------- */
 
 static struct { TorboxFile *files; int n; time_t at; char key[160]; } g_lib;   /* under g_lock */

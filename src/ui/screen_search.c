@@ -19,7 +19,7 @@
 #include <math.h>
 
 /* Results sit beside the keyboard while typing and use the full width once it closes. */
-enum { COLS_TYPING = 3, COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, FIELD_Y = 140, FIELD_H = 76 };
+enum { SUGG_H = 70, COLS_TYPING = 3, COLS = 7, CELL_W = 196, CELL_H = 294, CELL_GAP = 28, FIELD_Y = 140, FIELD_H = 76 };
 
 /* Results are grouped by type, each group under its own heading and starting a new row. */
 enum { SECT_MAX = 4, SECT_H = 56 };
@@ -63,6 +63,9 @@ struct Search {
     Section sect[SECT_MAX]; int n_sect;
     int groups_logged;
     char first_logged[64];        /* the leading result last logged */
+    char sugg[5][96]; int n_sugg; /* above the keyboard: titles found for what is typed so far */
+    int sugg_focus;               /* -1 on the keys, else the suggestion */
+    char sugg_logged[96];
 };
 
 static Search *g_person_live;   /* the screen a filmography lookup answers to */
@@ -460,9 +463,37 @@ static void run_query(Search *s)
     search_addons(s, q, 0, 0, 0, -1);
 }
 
+/* Suggestions while typing, as a TV's own keyboard gives: your recent searches that start
+ * with what is typed, then the titles the addons found for it (best match first), each
+ * once; never just what is already typed. */
+static void suggest(Search *s)
+{
+    const char *t = s->kb.text;
+    char tw[256], w[256];
+    words_of(t, tw, sizeof tw);
+    int n = 0;
+    if (strlen(tw) >= 2) {
+        for (int i = 0; i < s->n_recent && n < 2; i++) {
+            words_of(s->recent[i], w, sizeof w);
+            if (!strncmp(w, tw, strlen(tw)) && strcmp(w, tw)) snprintf(s->sugg[n++], sizeof s->sugg[0], "%s", s->recent[i]);
+        }
+        for (int i = 0; i < s->n && n < 5; i++) {
+            const char *name = s->results[i].name;
+            if (!name || !*name || match_tier(name, t) > 3) continue;
+            words_of(name, w, sizeof w);
+            int dup = !strcmp(w, tw);
+            for (int j = 0; j < n && !dup; j++) { char o[256]; words_of(s->sugg[j], o, sizeof o); dup = !strcmp(o, w); }
+            if (!dup) snprintf(s->sugg[n++], sizeof s->sugg[0], "%s", name);
+        }
+    }
+    s->n_sugg = n;
+    if (s->sugg_focus >= n) s->sugg_focus = n - 1;
+    if (n && strcmp(s->sugg[0], s->sugg_logged)) { snprintf(s->sugg_logged, sizeof s->sugg_logged, "%s", s->sugg[0]); LOGI("search: %d suggestion%s, first \"%s\"", n, n == 1 ? "" : "s", s->sugg[0]); }
+}
+
 static void open_keyboard(Search *s)
 {
-    s->typing = 1; s->focus_grid = 0; s->want_results = 0;
+    s->typing = 1; s->focus_grid = 0; s->want_results = 0; s->sugg_focus = -1;
     input_text(1);
     phone_prompt("Search", "Type a title, a person, or what you feel like watching", s->kb.text);
     char url[96]; uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
@@ -564,9 +595,23 @@ static void draw(Screen *sc)
     draw_field(s, x, y, fw);
     float gx = x, gy = y + FIELD_H + 40;
     if (s->typing) {
-        keyboard_draw(&s->kb, x, y + 108, 1);
-        font_draw("Done searches  \xC2\xB7  Back closes the keyboard", x, y + 108 + keyboard_height() + 20, FONT_XS, THEME_TEXT_MUTED);
-        draw_phone(s, x, y + 108 + keyboard_height() + 70);
+        suggest(s);
+        float ky = y + 108 + (s->n_sugg ? SUGG_H : 0);
+        if (s->n_sugg) {   /* Up from the top row of keys reaches them */
+            float px = x;
+            for (int i = 0; i < s->n_sugg; i++) {
+                char lab[64];
+                snprintf(lab, sizeof lab, "%.40s%s", s->sugg[i], strlen(s->sugg[i]) > 40 ? "\xE2\x80\xA6" : "");
+                float pw = ui_pill_width(lab, 0, 48);
+                if (px + pw > x + fw) break;
+                ui_pill(lab, 0, 0, px, y + 100, 48, PILL_SECONDARY, s->sugg_focus == i);
+                px += pw + 12;
+            }
+        }
+        keyboard_draw(&s->kb, x, ky, s->sugg_focus < 0);
+        font_draw(s->n_sugg ? "Done searches  \xC2\xB7  Up for suggestions  \xC2\xB7  Back closes the keyboard" : "Done searches  \xC2\xB7  Back closes the keyboard",
+                  x, ky + keyboard_height() + 20, FONT_XS, THEME_TEXT_MUTED);
+        draw_phone(s, x, ky + keyboard_height() + 70);
         gx = x + fw + 80; gy = y;
     }
     float grid_w = SNTV_UI_W - THEME_MARGIN - gx;
@@ -643,10 +688,27 @@ static void draw(Screen *sc)
 static int key_typing(Search *s, KeyAction a)
 {
     if (a == KEY_BACK) { close_keyboard(s); return 1; }
+    if (s->sugg_focus >= 0) {   /* on the suggestions */
+        if (a == KEY_LEFT && s->sugg_focus > 0) s->sugg_focus--;
+        else if (a == KEY_RIGHT && s->sugg_focus < s->n_sugg - 1) s->sugg_focus++;
+        else if (a == KEY_DOWN) s->sugg_focus = -1;
+        else if (a == KEY_OK && s->sugg_focus < s->n_sugg) {   /* that one: typed in and searched */
+            char pick[96];
+            snprintf(pick, sizeof pick, "%s", s->sugg[s->sugg_focus]);
+            LOGI("search: suggestion \"%s\" taken", pick);
+            keyboard_init(&s->kb, 0, pick);
+            close_keyboard(s);
+            s->dirty = 0; run_query(s);
+            if (s->n) { s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); }
+            else s->want_results = 1;
+        }
+        return 1;
+    }
     if (a == KEY_RIGHT && s->kb.col == 10 && s->n) { close_keyboard(s); s->focus_grid = 1; s->grid_focus = 0; recent_add(s, s->kb.text); return 1; }
     if (a == KEY_RIGHT && s->kb.col == 10 && !s->kb.text[0] && s->n_recent) { close_keyboard(s); s->focus_grid = 2; s->recent_focus = 0; return 1; }
     if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; return 1; }
     KeyboardResult r = keyboard_key(&s->kb, a);
+    if (r == KB_LEAVE_UP && s->n_sugg) { s->sugg_focus = 0; return 1; }
     if (r == KB_CHANGED) { s->dirty = 1; s->debounce = 0.6f; }
     else if (r == KB_DONE) {
         close_keyboard(s);
@@ -736,6 +798,7 @@ Screen *screen_search_create(void)
     Screen *sc = calloc(1, sizeof *sc);
     Search *s = calloc(1, sizeof *s);
     keyboard_init(&s->kb, 0, NULL);
+    s->sugg_focus = -1;
     recent_load(s);
     for (int i = 0; i < OPEN_MAX; i++) if (!g_open[i]) { g_open[i] = s; break; }   /* (past eight deep, its replies are just dropped) */
     sc->name = "search"; sc->st = s; sc->long_ok = 1;

@@ -323,6 +323,10 @@ grep -q "search: grouped 2 movies, 1 series, 0 other" "$OUT/search_groups.log" |
 run search_exact_first 260 "search,t:breaking bad" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/noisy/manifest.json
 grep -q 'search: "Breaking Bad" first of [0-9]*' "$OUT/search_exact_first.log" \
   || { echo "the title typed was not the first result"; grep "search" "$OUT/search_exact_first.log"; exit 1; }
+# suggestions above the keyboard as you type: Up reaches them, OK searches that title
+run search_suggest 420 "search,t:br,wait,wait,wait,wait,up,up,up,up,up,ok,wait,wait"
+grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest.log" && grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest.log" \
+  || { echo "no suggestions above the keyboard, or one could not be taken"; grep "search" "$OUT/search_suggest.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
 run diagnostics 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,ok"
 # Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it
@@ -743,6 +747,14 @@ grep -q "torbox: 1 of 2 torrents cached" "$OUT/torbox_torrent.log" && grep -q "t
   && grep -q "video(null): load http://127.0.0.1:[0-9]*/video/sample_h264_aac.mkv?torbox=77" "$OUT/torbox_torrent.log" \
   && ! grep -q "tbkey" "$OUT/torbox_torrent.log" \
   || { echo "a TorBox-cached torrent did not play from TorBox"; grep -E "torbox|candidate|video" "$OUT/torbox_torrent.log"; exit 1; }
+# hold OK on a torrent nobody has cached: your TorBox gets it, its row follows the download,
+# and once TorBox has it, OK plays it from there
+NAV="wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,down,down,down,down,down,down,down"
+run torbox_get 1200 "$NAV,hold,$HOLD,release,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait" "$TB" SNTV_TORBOX_POLL_S=1 HOME="$(home_with tbget '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbget/manifest.json"
+grep -q "torbox: F00DF00DF00DF00DF00DF00DF00DF00DF00DF00D added to your TorBox (42%)" "$OUT/torbox_get.log" && grep -q "on your TorBox: 87%" "$OUT/torbox_get.log" \
+  && grep -q "is ready on your TorBox" "$OUT/torbox_get.log" && grep -q "torbox: f00df00df00df00df00df00df00df00df00df00d plays from TorBox" "$OUT/torbox_get.log" \
+  && ! grep -q "tbkey" "$OUT/torbox_get.log" \
+  || { echo "a torrent was not got onto TorBox and played from there"; grep -E "torbox|candidate|toast" "$OUT/torbox_get.log"; exit 1; }
 # your own TorBox copy of the title heads the sources and plays first, through its direct link (a remake with another year does not match)
 run torbox_library 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,up,ok,wait" "$TB" HOME="$(home_with tblib '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
 grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" && grep -q "streams: #1 score [0-9]*  My TorBox Your copy" "$OUT/torbox_library.log" \

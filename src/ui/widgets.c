@@ -580,10 +580,15 @@ void ui_row_header(int index, const char *title, const char *source, int count, 
 
 int ui_hold_hint(float x, float y, float w)
 {
+    return ui_hold_hint_ex(x, y, w, "Hold for options", "Release for options");
+}
+
+int ui_hold_hint_ex(float x, float y, float w, const char *hold, const char *release)
+{
     float k = g_app.ok_hold;
     if (k <= 0) return 0;
     int armed = k >= 1;
-    const char *label = armed ? "Release for options" : "Hold for options";
+    const char *label = armed ? release : hold;
     char up[64];
     if (g_theme.upper_titles) { ui_upper(label, up, sizeof up); label = up; }
     /* the label slides up a touch and brightens as the hold fills */
