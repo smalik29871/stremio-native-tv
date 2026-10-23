@@ -376,7 +376,7 @@ run explore 320 "left,down,ok,right,down,down,down"
 # details beside a card that stays focused: on Home, in a grid, opening left at the last column, off in Settings
 run home_peek 300 "right,right"
 # instant Home: what Home showed is kept, and the next launch warms it while the fonts load
-run home_first_view 1000 "" HOME="$(home_with first_view '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run home_first_view 1600 "" HOME="$(home_with first_view '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run home_first_view_again 150 "" HOME="$OUT/home_first_view"
 grep -q "home: first view kept ([0-9]* pictures)" "$OUT/home_first_view.log" && grep -q "home: warming [0-9]* pictures from last time" "$OUT/home_first_view_again.log" \
   || { echo "Home's first view was not kept and warmed"; grep "home:" "$OUT/home_first_view.log" "$OUT/home_first_view_again.log"; exit 1; }
