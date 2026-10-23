@@ -266,7 +266,7 @@ jobs:
           {
             echo
             echo "### Install on LG webOS"
-            echo "In the Homebrew Channel, open Settings, add this repository, and install **Stremio (native)**:"
+            echo "In the Homebrew Channel, open Settings, add this repository, and install **Cuelight**:"
             echo
             echo '```'
             echo "https://github.com/${RELEASES_REPO}/releases/latest/download/repo.json"
@@ -282,15 +282,15 @@ jobs:
           # a release needs a commit to tag: an empty repository gets a README first
           if [ -z "$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" 2>/dev/null)" ]; then
             mkdir seed && cd seed && git init -q -b main
-            printf '# Stremio (native) for LG webOS: releases\n\nBuilds of the native Stremio TV client. In the Homebrew Channel, add\n\n    https://github.com/%s/releases/latest/download/repo.json\n' "$RELEASES_REPO" > README.md
+            printf '# Cuelight for LG webOS: releases\n\nBuilds of Cuelight, a native player for your Stremio account and addons (not affiliated with Stremio). In the Homebrew Channel, add\n\n    https://github.com/%s/releases/latest/download/repo.json\n' "$RELEASES_REPO" > README.md
             git add README.md
-            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Releases of the native Stremio TV client"
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "Releases of Cuelight"
             git push -q "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" main
             cd ..
           fi
           gh release create "$TAG" dist/* \
             --repo "$RELEASES_REPO" \
-            --title "Stremio Native TV $TAG" \
+            --title "Cuelight $TAG" \
             --notes-file notes.md
       - name: Create the release here too
         if: steps.ver.outputs.here == 'true'
@@ -300,5 +300,5 @@ jobs:
         run: |
           gh release create "$TAG" dist/* \
             --target "$GITHUB_SHA" \
-            --title "Stremio Native TV $TAG" \
+            --title "Cuelight $TAG" \
             --notes-file notes.md
