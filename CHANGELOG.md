@@ -7,6 +7,8 @@
   swipe to move, hold for options. Choice settings step back from their left arrow.
 - **Phone screens draw larger**: the layout fills the screen's width, so text and cards are
   about a quarter bigger on a 20:9 phone; Home, Settings, sign-in and setup fit its height.
+- **Android: videos play** (Media3 ExoPlayer under the app's own player screen): play, pause,
+  seek, speed, volume, the file's audio and subtitle tracks, buffering and errors.
 
 ## 0.10.60
 

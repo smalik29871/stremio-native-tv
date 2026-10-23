@@ -532,7 +532,8 @@ int main(int argc, char **argv)
         float ddpi = 0;
         if (SDL_GetDisplayDPI(0, &ddpi, NULL, NULL) == 0 && ddpi > 0 && SDL_sqrtf((float)w * w + (float)h * h) / ddpi < 9.0f) handheld = 1;
 #endif
-        if (handheld) { LOGI("screen: handheld, drawn larger"); gfx_set_handheld(1); }
+        LOGI("screen: %dx%d%s", w, h, handheld ? ", handheld: drawn larger" : "");
+        if (handheld) gfx_set_handheld(1);
     }
     perf_mark("window");
     /* the saved theme picks the typefaces; app_init applies its colours */
