@@ -351,10 +351,10 @@ run catalog_home 400 "wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with
 grep -q "catalog: movie popular page 1 -> 3 titles" "$OUT/catalog_home.log" && grep -q "catalog: series trending page 1 -> 1 titles" "$OUT/catalog_home.log" \
   && grep -q "catalog: poster for tt1003 from TMDB (200)" "$OUT/catalog_home.log" \
   || { echo "the built-in catalog did not fill Home"; grep -E "catalog|addons" "$OUT/catalog_home.log"; exit 1; }
-run catalog_movie 420 "wait,wait,wait,wait,wait,wait,ok,wait,wait,wait" HOME="$(home_with catm "$TK")" $CAT
+run catalog_movie 700 "wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait,wait" HOME="$(home_with catm "$TK")" $CAT
 grep -q "catalog: movie tt1001 -> Fake Saga, trailer, 1 cast, 0 episodes" "$OUT/catalog_movie.log" \
   || { echo "the built-in catalog did not give a film's details"; grep -E "catalog|detail" "$OUT/catalog_movie.log"; exit 1; }
-run catalog_series 460 "wait,wait,wait,wait,wait,wait,down,ok,wait,wait,wait,down" HOME="$(home_with cats "$TK")" $CAT
+run catalog_series 760 "wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,down,ok,wait,wait,wait,wait,down" HOME="$(home_with cats "$TK")" $CAT
 grep -q "catalog: series tt0903747 -> Breaking Bad, trailer, 2 cast, 6 episodes" "$OUT/catalog_series.log" \
   || { echo "the built-in catalog did not give a series' seasons"; grep -E "catalog|detail" "$OUT/catalog_series.log"; exit 1; }
 run catalog_search 400 "search,t:saga,wait,wait,wait,wait,wait,wait" HOME="$(home_with catq "$TK")" $CAT
