@@ -59,6 +59,7 @@ typedef struct {
     int loading; unsigned req; char error[400];
     int *seasons; int n_seasons; int season_idx;
     int *ep_index; int n_eps; int ep_focus;
+    int range_focus;          /* on the season strip: -1 the season tabs, else a "1-10" chip of a long season */
     int area, btn;
     float rail_x, focus_t;
     float intro;                 /* page entrance animation */
@@ -312,7 +313,13 @@ static void select_season(Detail *d, int idx)
         if (d->n_seasons == 0 || d->meta.videos[i].season == season) d->ep_index[d->n_eps++] = i;
     d->ep_focus = 0;
     d->focus_t = 0;
+    d->range_focus = -1;
 }
+
+/* A long season gets chips of ten episodes ("11-20") beside the season tabs: a jump to them. */
+#define EP_RANGE 10
+static int n_ranges(const Detail *d) { return d->n_eps > 12 ? (d->n_eps + EP_RANGE - 1) / EP_RANGE : 0; }
+static int strip_shown(const Detail *d) { return d->n_seasons > 1 || n_ranges(d); }
 
 static void compute_seasons(Detail *d)
 {
@@ -911,7 +918,7 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
     for (int i = start; i < d->n_seasons; i++) {
         char lbl[32];
         if (d->seasons[i] == 0) snprintf(lbl, sizeof lbl, "Specials"); else snprintf(lbl, sizeof lbl, "Season %d", d->seasons[i]);
-        int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel;
+        int sel = d->season_idx == i, foc = d->area == AREA_SEASONS && sel && d->range_focus < 0;
         float w = font_measure(lbl, FONT_S | FONT_B) + 44;
         if (sx + w > SNTV_UI_W - THEME_MARGIN) { ui_icon(ICON_CHEVRON_RIGHT, SNTV_UI_W - THEME_MARGIN - 10, sy + 26, 22, THEME_TEXT_MUTED); break; }
         ui_hit(sx, sy, g_theme.id == THEME_APERTURE ? font_measure(lbl, FONT_M) : w, 52, HIT(AREA_SEASONS, i));
@@ -927,6 +934,30 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
         else if (sel) gfx_rrect(sx, sy, w, 52, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x2C));
         font_draw(lbl, sx + 22, sy + (52 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : sel ? THEME_TEXT : THEME_TEXT_MUTED);
         sx += w + 8;
+    }
+    int nr = n_ranges(d);
+    if (nr) {   /* the range chips: a window of them around the one in use */
+        sx += d->n_seasons > 1 ? 28 : 0;
+        if (d->n_seasons > 1) gfx_rect(sx - 18, sy + 12, 2, 28, COLOR_ALPHA(THEME_TEXT, 0x30));
+        int cur = d->range_focus >= 0 ? d->range_focus : d->ep_focus / EP_RANGE;
+        float cw = font_measure("000-000", FONT_S | FONT_B) + 30;
+        int fit = (int)((SNTV_UI_W - THEME_MARGIN - sx) / (cw + 8));
+        if (fit < 1) fit = 1;
+        int r0 = cur - fit / 2;
+        if (r0 > nr - fit) r0 = nr - fit;
+        if (r0 < 0) r0 = 0;
+        for (int i = r0; i < nr && i < r0 + fit; i++) {
+            char lbl[24];
+            int a = i * EP_RANGE + 1, b = (i + 1) * EP_RANGE < d->n_eps ? (i + 1) * EP_RANGE : d->n_eps;
+            snprintf(lbl, sizeof lbl, "%d-%d", a, b);
+            int foc = d->area == AREA_SEASONS && d->range_focus == i, here = i == d->ep_focus / EP_RANGE;
+            float w = font_measure(lbl, FONT_S | FONT_B) + 30;
+            if (foc) gfx_rrect(sx, sy, w, 52, theme_pill_r(52), THEME_FOCUS);
+            else if (here) gfx_rrect_ring(sx, sy, w, 52, theme_pill_r(52), 2, COLOR_ALPHA(THEME_TEXT, 0x50));
+            font_draw(lbl, sx + 15, sy + (52 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? THEME_ON_FOCUS : here ? THEME_TEXT : THEME_TEXT_MUTED);
+            ui_hit(sx, sy, w, 52, HIT(AREA_SEASONS, 1000 + i));
+            sx += w + 8;
+        }
     }
 
     /* episode rail */
@@ -1503,7 +1534,7 @@ static int key(Screen *s, KeyAction a)
         case KEY_LEFT: if (d->btn > 0) d->btn--; return 1;
         case KEY_RIGHT: if (d->btn < n_buttons_d(d) - 1) d->btn++; return 1;
         case KEY_DOWN:
-            if (series) { d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; return 1; }
+            if (series) { d->area = strip_shown(d) ? AREA_SEASONS : AREA_EPISODES; d->focus_t = 0; if (d->n_seasons <= 1 && n_ranges(d)) d->range_focus = d->ep_focus / EP_RANGE; return 1; }
             if (d->has_meta) { d->area = AREA_ABOUT; return 1; }
             return 0;
         case KEY_OK:
@@ -1543,8 +1574,16 @@ static int key(Screen *s, KeyAction a)
         }
     case AREA_SEASONS:
         switch (a) {
-        case KEY_LEFT: if (d->season_idx > 0) select_season(d, d->season_idx - 1); return 1;
-        case KEY_RIGHT: if (d->season_idx < d->n_seasons - 1) select_season(d, d->season_idx + 1); return 1;
+        case KEY_LEFT:
+            if (d->range_focus > 0) { d->range_focus--; focus_ep(d, d->range_focus * EP_RANGE); }
+            else if (d->range_focus == 0) { if (d->n_seasons > 1) d->range_focus = -1; }
+            else if (d->season_idx > 0) select_season(d, d->season_idx - 1);
+            return 1;
+        case KEY_RIGHT:
+            if (d->range_focus >= 0) { if (d->range_focus < n_ranges(d) - 1) { d->range_focus++; focus_ep(d, d->range_focus * EP_RANGE); LOGI("detail: episodes from %d", d->ep_focus + 1); } }
+            else if (d->season_idx < d->n_seasons - 1) select_season(d, d->season_idx + 1);
+            else if (n_ranges(d)) { d->range_focus = d->ep_focus / EP_RANGE; focus_ep(d, d->range_focus * EP_RANGE); }   /* on to the chips */
+            return 1;
         case KEY_UP: d->area = AREA_ACTIONS; return 1;
         case KEY_DOWN: case KEY_OK: if (d->n_eps) { d->area = AREA_EPISODES; d->focus_t = 0; return 1; } return a == KEY_OK;
         case KEY_BACK: d->area = AREA_ACTIONS; return 1;
@@ -1554,7 +1593,10 @@ static int key(Screen *s, KeyAction a)
         switch (a) {
         case KEY_LEFT: if (d->ep_focus > 0) focus_ep(d, d->ep_focus - 1); return 1;
         case KEY_RIGHT: if (d->ep_focus < d->n_eps - 1) focus_ep(d, d->ep_focus + 1); return 1;
-        case KEY_UP: d->area = d->n_seasons > 1 ? AREA_SEASONS : AREA_ACTIONS; return 1;
+        case KEY_UP:
+            d->area = strip_shown(d) ? AREA_SEASONS : AREA_ACTIONS;
+            if (d->area == AREA_SEASONS && (d->range_focus >= 0 || d->n_seasons <= 1) && n_ranges(d)) d->range_focus = d->ep_focus / EP_RANGE;   /* back to the chip it came from */
+            return 1;
         case KEY_DOWN: d->area = AREA_ABOUT; return 1;
         case KEY_OK: if (d->n_eps) open_streams_for_video(d, d->ep_index[d->ep_focus]); return 1;   /* its sources, nothing starts until one is chosen (Play starts it) */
         case KEY_BACK: d->area = AREA_ACTIONS; return 1;
@@ -1673,7 +1715,12 @@ static int tap(Screen *s, int id)
     int area = id >> 12, i = id & 0xFFF;
     switch (area) {
     case AREA_ACTIONS: if (i >= n_buttons_d(d)) return 1; d->btn = i; break;
-    case AREA_SEASONS: d->area = AREA_SEASONS; if (!g_touch_aim && i < d->n_seasons && i != d->season_idx) select_season(d, i); return 1;
+    case AREA_SEASONS:
+        d->area = AREA_SEASONS;
+        if (i >= 1000) { d->range_focus = i - 1000; if (!g_touch_aim) focus_ep(d, d->range_focus * EP_RANGE); return 1; }
+        d->range_focus = -1;
+        if (!g_touch_aim && i < d->n_seasons && i != d->season_idx) select_season(d, i);
+        return 1;
     case AREA_EPISODES: if (i >= d->n_eps) return 1; if (d->area != AREA_EPISODES || d->ep_focus != i) focus_ep(d, i); break;
     case AREA_ABOUT: break;
     case AREA_CAST: d->cast_focus = i; break;
@@ -1726,6 +1773,7 @@ Screen *screen_detail_create(const MetaPreview *p)
 {
     Screen *s = calloc(1, sizeof *s);
     Detail *d = calloc(1, sizeof *d);
+    d->range_focus = -1;
     for (int i = 0; i < 8; i++) if (!g_detail_live[i]) { g_detail_live[i] = d; break; }
     meta_preview_copy(&d->preview, p);
     d->focus_t = 1;

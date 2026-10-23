@@ -370,6 +370,9 @@ class H(BaseHTTPRequestHandler):
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
+        longseason = p.startswith("/longseason/")   # one season of 26 episodes: its range chips
+        if longseason:
+            p = p[11:]
         # /dropvid/...: one source, a bigger file whose server cuts the first download partway
         # (/stallvid/...: or stops sending there and holds the connection open)
         if p.startswith("/dropvid/") or p.startswith("/stallvid/"):
@@ -638,6 +641,10 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps(CATALOG).encode())
         if p.startswith("/meta/"):
             mid = p.rsplit("/", 1)[1][:-5]
+            if p.startswith("/meta/series/") and longseason:
+                v0 = META["meta"]["videos"][0]
+                vids = [dict(v0, id=f"{mid}:1:{e}", season=1, episode=e, title=f"Chapter {e}", thumbnail=f"{BASE}/thumb/{e % 8}.png") for e in range(1, 27)]
+                return self.send(200, json.dumps({"meta": dict(META["meta"], videos=vids)}).encode())
             if p.startswith("/meta/series/"):
                 return self.send(200, json.dumps(META).encode())
             m = next((x for x in CATALOG["metas"] if x["id"] == mid), None)

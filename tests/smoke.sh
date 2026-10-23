@@ -996,6 +996,9 @@ grep -q "tmdb: S[0-9]*E[0-9]* of [0-9]* has 2 guest stars" "$OUT/player_guests.l
 # Home's Library row ends in a See all card
 SEEALL="$(home_with seeall '{"prefSubs":"eng","setupDone":1}')"; cp "$ROOT/tests/fixtures/library_six.json" "$SEEALL/.local/share/stremio/nativetv/library.json"
 run home_see_all 300 "wait,down,right,right,right,right,right,right,right,right,right,right,ok,wait" HOME="$SEEALL" SNTV_EXPECT_SCREEN=library
+# a long season: chips of ten beside the season tabs jump the episodes there
+run detail_ep_ranges 300 "right,ok,down,right,right" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/longseason/manifest.json
+grep -q "detail: episodes from 21" "$OUT/detail_ep_ranges.log" || { echo "the episode range chips did not jump"; grep detail "$OUT/detail_ep_ranges.log"; exit 1; }
 # the loading screen: the backdrop as a wash, the format, the logo, the ring, the episode and what is happening
 run veil_series 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FAKE_STUCK=1
 python3 -I - "$OUT" <<'PY'
