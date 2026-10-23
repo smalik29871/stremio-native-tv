@@ -4,7 +4,8 @@
 
 The runs are cut into N stretches of about the same length (a run's frame count stands in
 for its time), each kept in order. A cut goes only before a run whose previous line closes a
-check, never inside an if/for block or a heredoc, so a run keeps its setup and its checks.
+check, never inside an if/for block or a heredoc, so a run keeps its setup and its checks,
+and never before a run that picks up an earlier run's profile (HOME="$OUT/home_...").
 Each part has the script's header and closing screenshot step, and the variables set in the
 stretches before it (the lines that only assign one)."""
 import os
@@ -12,6 +13,7 @@ import re
 import sys
 
 ASSIGN = re.compile(r"^[A-Z][A-Z0-9_]*=")
+REUSE = re.compile(r'HOME="\$OUT/home_')   # continues the run before it: same part
 SETUP = re.compile(r"^(mkdir|echo|cp|sed|rm|for |touch|cat|printf|[A-Z][A-Z0-9_]*=)")
 
 
@@ -41,7 +43,7 @@ def main():
             if l.lstrip().startswith("run "):
                 f = l.split()[2] if len(l.split()) > 2 else "120"
                 w = 60 + (int(f) if f.isdigit() else 120)   # start-up plus its frames
-                if l.startswith("run ") and depth == 0 and i and not SETUP.match(prev):
+                if l.startswith("run ") and depth == 0 and i and not SETUP.match(prev) and not REUSE.search(l):
                     cuts.append(i)
         weight.append(w)
         if l.strip() and not l.lstrip().startswith("#"):
