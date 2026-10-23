@@ -324,6 +324,23 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: The Android app's update notice
+        if: steps.ver.outputs.publish == 'true' || steps.ver.outputs.here == 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          # what the app on Android reads to update itself: .../releases/latest/download/android.json
+          APK=$(ls dist/*.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then echo "No APK in this release: no android.json"; exit 0; fi
+          python3 - "$APK" > dist/android.json <<'PY'
+          import hashlib, json, os, sys
+          apk = sys.argv[1]
+          print(json.dumps({"version": os.environ["VERSION"],
+                            "apkUrl": "https://github.com/%s/releases/download/%s/%s" % (os.environ["RELEASES_REPO"], os.environ["TAG"], os.path.basename(apk)),
+                            "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest()}))
+          PY
+          cat dist/android.json
       - name: Release notes from CHANGELOG
         if: steps.ver.outputs.publish == 'true' || steps.ver.outputs.here == 'true'
         env:
@@ -341,7 +358,7 @@ jobs:
             if ls dist/*.apk >/dev/null 2>&1; then
               echo
               echo "### Install on Android (phones, tablets, Android TV, Fire TV)"
-              echo "Download **$(basename dist/*.apk)** below on the device and open it (allow installs from your browser or file app when asked). Later versions install over it."
+              echo "Download **$(basename dist/*.apk)** below on the device and open it (allow installs from your browser or file app when asked). From 0.10.62 it updates itself: Settings > About > Update, Android asks you to confirm."
             fi
           } >> notes.md
           cat notes.md
