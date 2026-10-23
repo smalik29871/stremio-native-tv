@@ -26,7 +26,7 @@ account API**: the same account, addons, Library and Continue Watching as the of
 2. Add this repository URL:
 
    ```
-   https://github.com/smalik29871/stremio-custom-lg-tv-releases/releases/latest/download/repo.json
+   https://github.com/smalik29871/cuelight-releases/releases/latest/download/repo.json
    ```
 3. Back in the app list, install **Cuelight** (listed as "Stremio (native)" before 0.10.57).
 
@@ -39,7 +39,7 @@ Settings > About has *Update* (check or install now) and *Ask me when an update 
 The release files must stay publicly downloadable for this, as for the Homebrew Channel:
 a private repository's release files need a GitHub login that a TV does not have.
 
-Or download the `.ipk` from the [latest release](https://github.com/smalik29871/stremio-custom-lg-tv-releases/releases/latest)
+Or download the `.ipk` from the [latest release](https://github.com/smalik29871/cuelight-releases/releases/latest)
 and install it with Developer Mode (`ares-install`) or Dev Manager.
 
 First start asks six questions (languages, when subtitles turn on, intro skipping,

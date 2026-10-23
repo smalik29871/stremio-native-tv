@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 IPK="${1:?usage: hb-repo.sh <package.ipk> <out-dir>}"
 OUT="${2:?usage: hb-repo.sh <package.ipk> <out-dir>}"
 # The public repository that carries the releases (the source repository can be private).
-REPO="${RELEASES_REPO:-smalik29871/stremio-custom-lg-tv-releases}"
+REPO="${RELEASES_REPO:-smalik29871/cuelight-releases}"
 mkdir -p "$OUT"
 
 python3 - "$IPK" "$OUT" "$REPO" <<'PY'
