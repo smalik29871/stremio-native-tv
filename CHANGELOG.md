@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.54
 
 - **Links that only open in another app are no longer listed.** Some addons list a source that
   only opens elsewhere (a Netflix page, say); the TV can't play those, so they are left out of
