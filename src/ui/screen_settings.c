@@ -277,7 +277,7 @@ static const char *row_desc(int id)
     case IT_SUBS_COLOUR: return "The letters in a caption colour, over any style; easier to tell apart for some eyes.";
     case IT_SUBS_SYNC: return "Lines addon subtitles up with the video's own timing.";
     case IT_SUBS_FILES: return "Off: a video's own subtitles first; always in sync, drawn by the TV. On: a file matched to the video first; your style, though it can be a little off.";
-    case IT_BUFFER: return "Up to 3 minutes loaded ahead onto the TV, so a slow or dropped connection doesn't stop the picture. At most 1 GB; removed when you stop.";
+    case IT_BUFFER: return "Up to 2 minutes kept ready in the TV's memory, so a slow or dropped connection doesn't stop the picture. Only what the TV can spare.";
     case IT_QUALITY: return "Which source comes first in the list.";
     case IT_RES_CAP: return "Recommended sources stay at or below this.";
     case IT_SRC_SIZE: return "Bigger files stay in the list but are never picked for you.";

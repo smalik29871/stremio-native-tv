@@ -4,15 +4,16 @@
  * here touches the screen or the player: when a request can't be served it answers
  * 502, and the player's usual fallbacks take it from there.
  *
- * The buffer ahead (relay_url_buffered): for the source that is playing, a download a
- * few minutes ahead of the TV's player, in a ring file in the app's folder sized from the
- * free space. The player's reads come out of it; a download that drops picks up again
- * from the byte it stopped at. When the buffer can't go on (storage, a source that keeps
- * failing), the connection carries on straight from the source: the picture never
- * depends on it. */
+ * The buffer ahead (relay_url_buffered): for the source that is playing, a download up to
+ * two minutes ahead of the TV's player, in a ring in memory sized from the RAM free (a TV
+ * may have under 1 GB of storage in all, so none of it is used). The player's reads come
+ * out of it; a download that drops picks up again from the byte it stopped at. When the
+ * buffer can't go on (memory, a source that keeps failing), the connection carries on
+ * straight from the source: the picture never depends on it. */
 #include "relay.h"
 #include "http.h"
 #include "log.h"
+#include "memwatch.h"
 #include "store.h"
 #include <SDL.h>
 #include <arpa/inet.h>
@@ -24,9 +25,7 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
-#include <fcntl.h>
 #include <sys/socket.h>
-#include <sys/statvfs.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -44,16 +43,15 @@ static int g_sock = -1, g_port, g_failed;
 static SDL_atomic_t g_conns;
 
 /* ---- the buffer ahead ---- */
-enum { AHEAD_S = 180, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10 };   /* JUMP: further past what is in, it starts again there */
-#define CAP_MAX ((uint64_t)1 << 30)        /* never more than 1 GB */
-#define CAP_MIN ((uint64_t)100 << 20)      /* less than this: no buffer */
-#define FREE_KEEP ((uint64_t)2 << 30)      /* always this much left free */
-#define FREE_STOP ((uint64_t)1 << 30)      /* free space fell under this while playing: stop */
+enum { AHEAD_S = 120, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10 };   /* JUMP: further past what is in, it starts again there */
+#define CAP_MAX ((uint64_t)192 << 20)      /* never more than this much memory */
+#define CAP_SMALL ((uint64_t)64 << 20)     /* on a 1 GB TV */
+#define CAP_MIN ((uint64_t)48 << 20)       /* less than this: no buffer */
+#define MEM_STOP ((uint64_t)120 << 20)     /* the TV's free memory fell under this while playing: the buffer goes */
 typedef struct {
     char token[33];          /* "" none */
     char *url, *headers;
-    char path[600];
-    int fd;
+    char *ring;              /* in memory; copies in and out under g_lock */
     uint64_t cap;            /* the ring's size */
     uint64_t size;           /* the file's, 0 until the source said */
     char type[96];
@@ -64,14 +62,14 @@ typedef struct {
     int stopped, fails, running, idle;
     SDL_cond *cond;
 } Buf;
-static Buf g_buf = { .fd = -1 };
+static Buf g_buf;
 
-static uint64_t free_bytes(const char *dir)
+static uint64_t free_memory(void)
 {
-    const char *fake = getenv("SNTV_FAKE_FREE_MB");   /* tests: a TV with this little room */
+    const char *fake = getenv("SNTV_FAKE_FREE_MB");   /* tests: a TV with this little memory free */
     if (fake && *fake) return (uint64_t)strtoull(fake, NULL, 10) << 20;
-    struct statvfs v;
-    return statvfs(dir, &v) == 0 ? (uint64_t)v.f_bavail * v.f_frsize : 0;
+    MemSample m;
+    return mem_sample(&m) && m.avail_kb > 0 ? (uint64_t)m.avail_kb << 10 : 0;
 }
 
 static uint64_t ahead_now(void)   /* bytes in past the reader (none while it waits beyond them) */
@@ -180,24 +178,19 @@ static int dl_data(void *user, const char *data, size_t n)
     uint64_t used = at > floor ? at - floor : 0;   /* what nobody needs any more (below the reader's backlog) is free */
     uint64_t free_in_ring = used < cap ? cap - used : 0;
     size_t take = !ours || ahead_now() >= ahead_limit() ? 0 : free_in_ring < n ? (size_t)free_in_ring : n;   /* as much as fits */
-    SDL_UnlockMutex(g_lock);
-    if (!take) { d->held = 1; return 0; }   /* a jump, a stop, or far enough ahead: picked up again from here later */
+    if (!take || !g_buf.ring) { SDL_UnlockMutex(g_lock); d->held = 1; return 0; }   /* a jump, a stop, or far enough ahead: picked up again from here later */
     size_t whole = n;
     n = take;
-    for (size_t done = 0; done < n; ) {   /* bytes past the readers: nobody reads where this writes */
+    for (size_t done = 0; done < n; ) {   /* into the ring, wrapping round */
         uint64_t off = (at + done) % cap;
         size_t k = n - done;
         if (off + k > cap) k = (size_t)(cap - off);
-        ssize_t w = pwrite(g_buf.fd, data + done, k, (off_t)off);
-        if (w <= 0) { SDL_LockMutex(g_lock); g_buf.stopped = 1; SDL_CondBroadcast(g_buf.cond); SDL_UnlockMutex(g_lock); LOGW("relay: the buffer could not be written; the source plays on directly"); return 0; }
-        done += (size_t)w;
+        memcpy(g_buf.ring + off, data + done, k);
+        done += k;
     }
-    SDL_LockMutex(g_lock);
-    if (d->route == g_buf.route && d->gen == g_buf.gen) {
-        g_buf.hi = at + n;
-        if (g_buf.hi - g_buf.lo > cap) g_buf.lo = g_buf.hi - cap;
-        SDL_CondBroadcast(g_buf.cond);
-    }
+    g_buf.hi = at + n;
+    if (g_buf.hi - g_buf.lo > cap) g_buf.lo = g_buf.hi - cap;
+    SDL_CondBroadcast(g_buf.cond);
     SDL_UnlockMutex(g_lock);
     d->got += n;
     if (n < whole) { d->held = 1; return 0; }   /* the ring is full: the rest later */
@@ -219,15 +212,14 @@ static int dl_thread(void *arg)
         }
         if (route != g_buf.route || g_buf.stopped) { if (route == g_buf.route) g_buf.running = 0; SDL_UnlockMutex(g_lock); break; }
         Dl d = { route, g_buf.gen, g_buf.hi, 0, 0, 0 };
-        char *url = strdup(g_buf.url), *headers = g_buf.headers ? strdup(g_buf.headers) : NULL, dir[600];
-        snprintf(dir, sizeof dir, "%s", g_buf.path);
+        char *url = strdup(g_buf.url), *headers = g_buf.headers ? strdup(g_buf.headers) : NULL;
         SDL_UnlockMutex(g_lock);
-        char *slash = strrchr(dir, '/');
-        if (slash) *slash = 0;
         if (!host[0]) host_of(url, host, sizeof host);
-        if (free_bytes(dir) < FREE_STOP) {   /* something else filled the TV's storage meanwhile */
-            SDL_LockMutex(g_lock); if (route == g_buf.route) { g_buf.stopped = 1; SDL_CondBroadcast(g_buf.cond); } SDL_UnlockMutex(g_lock);
-            LOGW("relay: storage is running low; the buffer stops and the source plays on directly");
+        if (free_memory() < MEM_STOP) {   /* the TV needs its memory back: the buffer gives it */
+            SDL_LockMutex(g_lock);
+            if (route == g_buf.route) { g_buf.stopped = 1; free(g_buf.ring); g_buf.ring = NULL; SDL_CondBroadcast(g_buf.cond); }
+            SDL_UnlockMutex(g_lock);
+            LOGW("relay: the TV is short of memory; the buffer lets it go and the source plays on directly");
             free(url); free(headers);
             continue;
         }
@@ -324,7 +316,7 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
     int waited = 0;
     while (chunk && at <= to) {
         SDL_LockMutex(g_lock);
-        int gone = route != g_buf.route || g_buf.stopped;
+        int gone = route != g_buf.route || g_buf.stopped || !g_buf.ring;
         if (!gone && (at < g_buf.lo || at >= g_buf.hi)) {   /* not in yet: the download is on its way */
             if (at < g_buf.lo || at > g_buf.hi + JUMP) gone = 1;   /* someone jumped elsewhere meanwhile */
             else { dl_start_locked(); SDL_CondWaitTimeout(g_buf.cond, g_lock, 1000); SDL_UnlockMutex(g_lock); if (++waited > 60) break; continue; }
@@ -334,9 +326,10 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
         uint64_t k = g_buf.hi - at, cap = g_buf.cap;
         if (k > CHUNK) k = CHUNK;
         if (k > to - at + 1) k = to - at + 1;
-        SDL_UnlockMutex(g_lock);
         uint64_t off = at % cap, k1 = off + k > cap ? cap - off : k;
-        if (pread(g_buf.fd, chunk, (size_t)k1, (off_t)off) != (ssize_t)k1 || (k1 < k && pread(g_buf.fd, chunk + k1, (size_t)(k - k1), 0) != (ssize_t)(k - k1))) break;
+        memcpy(chunk, g_buf.ring + off, (size_t)k1);
+        if (k1 < k) memcpy(chunk + k1, g_buf.ring, (size_t)(k - k1));
+        SDL_UnlockMutex(g_lock);
         if (!send_all(fd, chunk, (size_t)k)) break;   /* the player closed it (a seek, a stop) */
         at += k;
         SDL_LockMutex(g_lock);
@@ -490,8 +483,7 @@ static void buf_drop_locked(void)
     g_buf.route++; g_buf.gen++;
     g_buf.token[0] = 0;
     free(g_buf.url); free(g_buf.headers); g_buf.url = g_buf.headers = NULL;
-    if (g_buf.fd >= 0) { close(g_buf.fd); g_buf.fd = -1; }
-    if (g_buf.path[0]) unlink(g_buf.path);
+    free(g_buf.ring); g_buf.ring = NULL;
     g_buf.size = g_buf.lo = g_buf.hi = g_buf.pos = 0; g_buf.cap = 0; g_buf.rate = 0;
     g_buf.stopped = g_buf.fails = g_buf.running = 0;
     if (g_buf.cond) SDL_CondBroadcast(g_buf.cond);
@@ -501,13 +493,10 @@ char *relay_url_buffered(const char *url, const char *headers, double est_rate)
 {
     char *out = relay_url(url, headers);
     if (!out || !relay_buffer_enabled()) return out;
-    char dir[512];
-    snprintf(dir, sizeof dir, "%s", store_dir());
-    uint64_t free_b = free_bytes(dir), cap = CAP_MAX;
-    if (cap > free_b / 10) cap = free_b / 10;
-    if (free_b < FREE_KEEP + cap) cap = free_b > FREE_KEEP ? free_b - FREE_KEEP : 0;
+    uint64_t free_b = free_memory(), cap = mem_small_tv() ? CAP_SMALL : CAP_MAX;
+    if (cap > free_b / 5) cap = free_b / 5;   /* a fifth of what the TV has free at most */
     double rate = est_rate > 0 ? est_rate : 3.0e6;   /* about 25 Mbit/s when nothing tells */
-    uint64_t want = (uint64_t)(rate * 1.5 * AHEAD_S) + BACKLOG + (32 << 20);   /* three minutes at half as much again, and the backlog */
+    uint64_t want = (uint64_t)(rate * 1.25 * AHEAD_S) + BACKLOG + (8 << 20);   /* two minutes and a quarter again, and the backlog */
     if (cap > want) cap = want;
     const char *tiny = getenv("SNTV_FAKE_BUFFER_KB");   /* tests: a ring small enough to go round */
     if (tiny && *tiny) cap = (uint64_t)strtoull(tiny, NULL, 10) << 10;
@@ -516,20 +505,18 @@ char *relay_url_buffered(const char *url, const char *headers, double est_rate)
     if (!g_buf.cond) g_buf.cond = SDL_CreateCond();
     if (cap < CAP_MIN && !(tiny && *tiny)) {
         SDL_UnlockMutex(g_lock);
-        LOGI("relay: %.1f GB free on the TV: no buffer ahead (it keeps %.0f GB free)", free_b / 1073741824.0, FREE_KEEP / 1073741824.0);
+        LOGI("relay: %.0f MB of memory free on the TV: no buffer ahead", free_b / 1048576.0);
         return out;
     }
-    snprintf(g_buf.path, sizeof g_buf.path, "%s/relay-buffer.bin", dir);
-    g_buf.fd = open(g_buf.path, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    if (g_buf.fd >= 0 && posix_fallocate(g_buf.fd, 0, (off_t)cap) != 0) { close(g_buf.fd); g_buf.fd = -1; unlink(g_buf.path); }   /* its room taken up front: it never grows */
-    if (g_buf.fd < 0) { SDL_UnlockMutex(g_lock); LOGW("relay: no room for the buffer ahead; the source plays directly through the relay"); return out; }
+    g_buf.ring = malloc((size_t)cap);   /* its memory taken up front: it never grows */
+    if (!g_buf.ring) { SDL_UnlockMutex(g_lock); LOGW("relay: no memory for the buffer ahead; the source plays directly through the relay"); return out; }
     const char *t = strstr(out, "/r/") + 3;
     snprintf(g_buf.token, sizeof g_buf.token, "%.*s", (int)strcspn(t, "/"), t);
     g_buf.url = strdup(url);
     g_buf.headers = headers ? strdup(headers) : NULL;
     g_buf.cap = cap; g_buf.rate = est_rate > 0 ? est_rate : 0;
     SDL_UnlockMutex(g_lock);
-    LOGI("relay: a buffer of %.0f MB on the TV's storage (%.1f GB free), for up to %d minutes ahead", cap / 1048576.0, free_b / 1073741824.0, AHEAD_S / 60);
+    LOGI("relay: a buffer of %.0f MB in memory (%.0f MB free on the TV), for up to %d minutes ahead", cap / 1048576.0, free_b / 1048576.0, AHEAD_S / 60);
     return out;
 }
 
@@ -556,11 +543,4 @@ void relay_buffer_close(void)
     SDL_LockMutex(g_lock);
     buf_drop_locked();
     SDL_UnlockMutex(g_lock);
-}
-
-void relay_buffer_cleanup(void)   /* a buffer left by a crash or a power cut */
-{
-    char path[600];
-    snprintf(path, sizeof path, "%s/relay-buffer.bin", store_dir());
-    if (unlink(path) == 0) LOGI("relay: a buffer file left from before was removed");
 }

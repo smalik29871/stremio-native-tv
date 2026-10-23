@@ -19,7 +19,6 @@
 #include "ui/theme.h"
 #include "video/video.h"
 #include "newep.h"
-#include "relay.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -391,7 +390,6 @@ int main(int argc, char **argv)
         if (n) LOGI("home: warming %d pictures from last time", n);
     }
     font_set_cache_dir(dir);
-    relay_buffer_cleanup();
     if (theme_load_fonts(theme) != 0) {
         LOGE("no usable font found");
         return 1;

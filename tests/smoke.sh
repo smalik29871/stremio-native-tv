@@ -221,12 +221,11 @@ grep -q "relay: 127.0.0.1 from 131072-196607, 206" "$OUT/relay_seek.log" && grep
 run relay_fallback 900 "right,ok,down,down,play,wait,wait" "$HDR" SNTV_FAKE_FETCH=1 SNTV_FAKE_FAIL_LOADS=1 HOME="$(home_with relay4 "$HDRP")"
 grep -q "player: source 1 did not start through the relay; opening its link directly" "$OUT/relay_fallback.log" && grep -q "player: candidate 2/" "$OUT/relay_fallback.log" \
   || { echo "a source the relay did not get playing was not opened directly, then the next"; grep -E "relay|player: (candidate|source)" "$OUT/relay_fallback.log"; exit 1; }
-# The buffer ahead: a source plays through the relay with a ring file on the TV's storage;
-# the player's first bytes and a seek's come out of it; with too little free space there is
-# no buffer and it still plays; a buffer file left from before is removed at start.
-BUF_HOME="$(home_with bufplay "$HDRP")"; echo stale > "$BUF_HOME/.local/share/stremio/nativetv/relay-buffer.bin"
-run buffer_plays 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 HOME="$BUF_HOME"
-grep -q "relay: a buffer file left from before was removed" "$OUT/buffer_plays.log" && grep -q "relay: a buffer of [0-9]* MB on the TV's storage" "$OUT/buffer_plays.log" \
+# The buffer ahead: a source plays through the relay with a ring in memory; the player's
+# first bytes and a seek's come out of it; with too little memory free there is no buffer
+# and it still plays.
+run buffer_plays 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 HOME="$(home_with bufplay "$HDRP")"
+grep -q "relay: a buffer of [0-9]* MB in memory" "$OUT/buffer_plays.log" \
   && grep -q "player: source 1 plays through the local relay, loaded ahead" "$OUT/buffer_plays.log" && grep -q "relay: 127.0.0.1 from 0-65535, 206 (from the buffer)" "$OUT/buffer_plays.log" \
   && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_plays.log" && grep -q "relay: buffering 127.0.0.1 ahead" "$OUT/buffer_plays.log" \
   || { echo "a source did not play out of the buffer ahead"; grep -E "relay|player: (candidate|source)|video\(null\)" "$OUT/buffer_plays.log"; exit 1; }
@@ -241,9 +240,9 @@ grep -q "relay: 127.0.0.1 dropped at 0.1 MB; going on from there" "$OUT/buffer_d
 run buffer_ring 700 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=700000 SNTV_FAKE_FETCH_PATTERN=1 SNTV_FAKE_BUFFER_KB=300 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dropvid/manifest.json HOME="$(home_with bufring "$HDRP")"
 grep -q "relay: 127.0.0.1 from 700000-765535, 206 (from the buffer)" "$OUT/buffer_ring.log" && grep -q "video(null): the bytes are the file's" "$OUT/buffer_ring.log" && ! grep -q "did not start through the relay" "$OUT/buffer_ring.log" \
   || { echo "the bytes out of a ring that went round were not the file's"; grep -E "relay|video\(null\)" "$OUT/buffer_ring.log"; exit 1; }
-run buffer_no_room 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FREE_MB=2100 HOME="$(home_with bufroom "$HDRP")"
-grep -q "relay: 2.1 GB free on the TV: no buffer ahead" "$OUT/buffer_no_room.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_no_room.log" && ! grep -q "from the buffer" "$OUT/buffer_no_room.log" \
-  || { echo "with too little free space, the buffer was made or the source did not play"; grep -E "relay|video\(null\)" "$OUT/buffer_no_room.log"; exit 1; }
+run buffer_no_room 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FREE_MB=200 HOME="$(home_with bufroom "$HDRP")"
+grep -q "relay: 200 MB of memory free on the TV: no buffer ahead" "$OUT/buffer_no_room.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_no_room.log" && ! grep -q "from the buffer" "$OUT/buffer_no_room.log" \
+  || { echo "with too little memory free, the buffer was made or the source did not play"; grep -E "relay|video\(null\)" "$OUT/buffer_no_room.log"; exit 1; }
 # Faster starts. Resting on an episode checks the source Play would start (the /fast addon's
 # cached copy, behind a redirect): Play reuses that check, runs no race, opens where the
 # link led, and the start is timed

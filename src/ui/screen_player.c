@@ -2116,7 +2116,7 @@ static void update(Screen *s, float dt)
         if (audio) audio_repair(p, &vi);
     }
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) { auto_select_tracks(p); second_auto(p); }
-    if (p->relay_used && vi.duration > 0) relay_set_duration(vi.duration);   /* the buffer's three minutes, from the file's size over its length */
+    if (p->relay_used && vi.duration > 0) relay_set_duration(vi.duration);   /* the buffer's two minutes, from the file's size over its length */
     night_tick(p, &vi);
 
     if (vi.state == VIDEO_ERROR && !p->error_handled && p->relay_used && !p->net_played && p->cur < 16) {   /* the relay did not get it going: the link directly, as before it existed */
@@ -4674,7 +4674,7 @@ static void destroy(Screen *s)
 {
     Player *p = s->st;
     if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */
-    relay_buffer_close();   /* its file goes with it */
+    relay_buffer_close();   /* its memory goes with it */
     report(p, 1);   /* the app closing with the film on: the last position still counts */
     streams_lookup_cancel();
     if (p->cur < p->n_cands) torrent_engine_drop(p->cands[p->cur].url);
