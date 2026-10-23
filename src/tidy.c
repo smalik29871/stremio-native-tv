@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 
 #define DAY (24 * 3600)
 enum {
@@ -131,6 +132,11 @@ void tidy_usage(const char *data_dir, TidyUsage *out)
     char path[1100];
     out->total = folder_bytes(data_dir, 3);
     out->cache = 0;
+    struct statvfs vs;
+    if (statvfs(data_dir, &vs) == 0) {
+        out->disk_free = (long long)vs.f_bavail * (long long)vs.f_frsize;
+        out->disk_size = (long long)vs.f_blocks * (long long)vs.f_frsize;
+    } else out->disk_free = out->disk_size = -1;
     for (size_t i = 0; i < sizeof CACHE_DIRS / sizeof *CACHE_DIRS; i++) {
         snprintf(path, sizeof path, "%s/%s", data_dir, CACHE_DIRS[i]);
         out->cache += folder_bytes(path, 1);

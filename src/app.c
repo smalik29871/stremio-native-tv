@@ -1451,8 +1451,10 @@ void app_update_foreground(void)
     LOGI("update: back on screen, checking soon");
 }
 
+static void storage_watch(float dt);
 void app_update_check(float dt)
 {
+    storage_watch(dt);
     if (g_addons_retry_in > 0 && (g_addons_retry_in -= dt) <= 0) {
         g_addons_retry_in = -1;
         if (g_app.auth_key) {
@@ -1749,19 +1751,31 @@ void app_details_want(const char *type, const char *id)
 static SDL_atomic_t g_tidying;
 typedef struct { char keep[TIDY_KEEP_MAX][64]; int n, delay_ms, clear; } TidyJob;
 static SDL_SpinLock g_usage_lock;
-static TidyUsage g_usage = { -1, -1 };
+static TidyUsage g_usage = { -1, -1, -1, -1 };
 static TidyReport g_cleared;
-static int g_cleared_ready;
+static int g_cleared_ready;   /* 1 asked for, 2 done by itself: the TV was low on storage */
+#define LOW_DISK (600LL << 20)   /* less free than this on the TV's drive: the cache goes by itself */
 
-void app_storage(long long *total, long long *cache)
+void app_storage(long long *total, long long *cache, long long *disk_free)
 {
     SDL_AtomicLock(&g_usage_lock);
-    *total = g_usage.total; *cache = g_usage.cache;
+    *total = g_usage.total; *cache = g_usage.cache; *disk_free = g_usage.disk_free;
+    SDL_AtomicUnlock(&g_usage_lock);
+}
+
+/* Each frame: the word from a clearing, and every half hour a look at the storage. */
+static void storage_watch(float dt)
+{
+    static float since = 0;
+    SDL_AtomicLock(&g_usage_lock);
     int told = g_cleared_ready;
     TidyReport r = g_cleared;
     g_cleared_ready = 0;
     SDL_AtomicUnlock(&g_usage_lock);
-    if (told) app_toast("Cache cleared: %lld MB freed", (r.freed + (1 << 19)) >> 20);   /* on the main thread, when Settings asks */
+    long long mb = (r.freed + (1 << 19)) >> 20;
+    if (told == 1) app_toast("Cache cleared: %lld MB freed", mb);
+    if (told == 2) app_toast("The TV was low on storage: " SNTV_APP_NAME " cleared its cache (%lld MB) to make room", mb);
+    if ((since += dt) > 1800) { since = 0; app_tidy(0); }
 }
 
 static int tidy_main(void *arg)
@@ -1780,10 +1794,16 @@ static int tidy_main(void *arg)
     }
     TidyUsage u;
     tidy_usage(store_dir(), &u);
-    LOGI("storage: %lld MB here, %lld MB of it cache", u.total >> 20, u.cache >> 20);
+    int low = !j->clear && u.disk_free >= 0 && (u.disk_free < LOW_DISK || getenv("SNTV_FAKE_LOW_DISK")) && u.cache > (1 << 20);
+    if (low) {   /* the TV needs the room (an app to install or update): the cache goes */
+        LOGW("storage: only %lld MB free on the TV; clearing the cache (%lld MB)", u.disk_free >> 20, u.cache >> 20);
+        tidy_clear(store_dir(), &r);
+        tidy_usage(store_dir(), &u);
+    }
+    LOGI("storage: %lld MB here, %lld MB of it cache, %lld MB free on the drive", u.total >> 20, u.cache >> 20, u.disk_free >> 20);
     SDL_AtomicLock(&g_usage_lock);
     g_usage = u;
-    if (j->clear) { g_cleared = r; g_cleared_ready = 1; }
+    if (j->clear || low) { g_cleared = r; g_cleared_ready = low ? 2 : 1; }
     SDL_AtomicUnlock(&g_usage_lock);
     free(j);
     SDL_AtomicSet(&g_tidying, 0);

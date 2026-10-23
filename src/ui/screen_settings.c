@@ -277,7 +277,7 @@ static const char *row_desc(int id)
 {
     switch (id) {
     case IT_STORAGE: return "Artwork, addon replies and YouTube data kept so screens open faster. Clearing them frees the space for the TV's own apps; "
-                            "they come back as you browse. Your sign-in, settings and Library stay.";
+                            "they come back as you browse. Your sign-in, settings and Library stay. When the TV runs low on storage the cache clears by itself. OK clears it now.";
     case IT_ABOUT_APP: return SNTV_APP_NAME " is a fast player made for TVs, written from scratch in C for the TV's own hardware. It plays from addons in the open Stremio addon format, "
                               "has its own catalog of films and series (from TMDB), needs no account, and can sync with Stremio, Trakt and SimKL if you want it to. Not affiliated with Stremio.";
     case IT_WHATSNEW: return "This version's changes, as shown once after it was installed.";
@@ -1063,11 +1063,13 @@ static void draw(Screen *s)
             break;
         }
         case IT_STORAGE: {   /* what the app keeps here; the cache comes back by itself */
-            long long total, cache;
-            char v[160];
-            app_storage(&total, &cache);
+            long long total, cache, disk_free;
+            char v[200], fr[48] = "";
+            app_storage(&total, &cache, &disk_free);
+            if (disk_free >= 0) snprintf(fr, sizeof fr, disk_free >= (1LL << 30) ? "%.1f GB free" : "%.0f MB free", disk_free >= (1LL << 30) ? disk_free / 1073741824.0 : disk_free / 1048576.0);
             if (total < 0) snprintf(v, sizeof v, "Counting\xE2\x80\xA6");
-            else snprintf(v, sizeof v, SNTV_PHONE ? "%lld MB  \xC2\xB7  %lld MB cache" : "%lld MB used here  \xC2\xB7  %lld MB is cache  \xC2\xB7  OK clears it", (total + (1 << 19)) >> 20, (cache + (1 << 19)) >> 20);
+            else if (SNTV_PHONE) snprintf(v, sizeof v, "%lld MB  \xC2\xB7  %lld MB cache", (total + (1 << 19)) >> 20, (cache + (1 << 19)) >> 20);
+            else snprintf(v, sizeof v, "%lld MB  \xC2\xB7  %lld MB cache%s%s", (total + (1 << 19)) >> 20, (cache + (1 << 19)) >> 20, fr[0] ? "  \xC2\xB7  TV: " : "", fr);
             draw_row(y, ICON_LIBRARY, "Storage", v, foc, KIND_ACTION, 0);
             break;
         }

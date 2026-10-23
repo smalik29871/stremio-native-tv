@@ -18,7 +18,7 @@ typedef struct {
 void tidy_run(const char *data_dir, const char *const *keep, int n_keep, time_t now, TidyReport *out);
 
 /* What the data folder holds in all, and how much of it is cache (comes back by itself). */
-typedef struct { long long total, cache; } TidyUsage;
+typedef struct { long long total, cache, disk_free, disk_size; } TidyUsage;   /* disk_*: the drive it is on, -1 unknown */
 void tidy_usage(const char *data_dir, TidyUsage *out);
 /* Clear cache: artwork, addon replies, font atlases, YouTube player data and old logs go;
  * settings, sign-in, the Library and the recordings stay. */
