@@ -4,6 +4,8 @@
 
 - The releases repository is now **cuelight-releases**. TVs that added the old address keep
   getting updates (GitHub forwards it), and the app's own update check now asks the new one.
+- If the app crashes, its last log line says so: the signal, where in the code, and which
+  screens were open. Diagnostics shows it under Problems in the previous session (Blue).
 
 ## 0.10.57
 

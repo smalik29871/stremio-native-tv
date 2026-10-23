@@ -29,6 +29,13 @@
 #include <unistd.h>
 #include <sys/vfs.h>
 #include <signal.h>
+#if defined(__linux__) && !defined(__EMSCRIPTEN__) && !defined(__SANITIZE_ADDRESS__)
+#define SNTV_CRASH_LOG 1
+#include <ucontext.h>
+#ifdef __GLIBC__
+#include <execinfo.h>
+#endif
+#endif
 #include <SDL.h>
 #include <GLES2/gl2.h>
 
@@ -293,6 +300,71 @@ static void dispatch_key(KeyAction a)
     if (a == KEY_BACK) app_pop();
 }
 
+#ifdef SNTV_CRASH_LOG
+/* A crash writes one last line to the log: the signal, where in the code, and which screens
+ * were open, so the previous run's log in Diagnostics says what happened. Only calls that are
+ * safe inside a signal handler (write, no locks, no allocation); then the default ends the app. */
+static void crash_put(int fd, const char *s) { if (write(fd, s, strlen(s)) < 0) {} }
+static void crash_hex(int fd, unsigned long v)
+{
+    char b[2 + 2 * sizeof v + 1], *p = b + sizeof b - 1;
+    *p = 0;
+    do { *--p = "0123456789abcdef"[v & 15]; v >>= 4; } while (v);
+    *--p = 'x'; *--p = '0';
+    crash_put(fd, p);
+}
+
+static void on_crash(int sig, siginfo_t *si, void *ctx)
+{
+    int fd = log_fd();
+    if (fd >= 0) {
+        const char *name = sig == SIGSEGV ? "SIGSEGV" : sig == SIGBUS ? "SIGBUS" : sig == SIGFPE ? "SIGFPE" : sig == SIGILL ? "SIGILL" : "SIGABRT";
+        crash_put(fd, "--:--:-- E crash: "); crash_put(fd, name);
+        crash_put(fd, " at "); crash_hex(fd, (unsigned long)si->si_addr);
+        const ucontext_t *uc = ctx;
+#if defined(__arm__)
+        crash_put(fd, ", pc "); crash_hex(fd, uc->uc_mcontext.arm_pc);
+        crash_put(fd, " lr "); crash_hex(fd, uc->uc_mcontext.arm_lr);
+#elif defined(__aarch64__)
+        crash_put(fd, ", pc "); crash_hex(fd, uc->uc_mcontext.pc);
+#elif defined(__x86_64__)
+        crash_put(fd, ", pc "); crash_hex(fd, (unsigned long)uc->uc_mcontext.gregs[16]   /* REG_RIP */);
+#else
+        (void)uc;
+#endif
+        crash_put(fd, ", screens");
+        for (int i = 0; i < g_app.depth && i < 12; i++) { crash_put(fd, i ? " > " : " "); crash_put(fd, g_app.stack[i] && g_app.stack[i]->name ? g_app.stack[i]->name : "?"); }
+#ifdef __GLIBC__
+        void *at[24];
+        int n = backtrace(at, 24);
+        crash_put(fd, ", stack");
+        for (int i = 0; i < n; i++) { crash_put(fd, " "); crash_hex(fd, (unsigned long)at[i]); }
+#endif
+        crash_put(fd, "\n");
+        fsync(fd);
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void crash_log_install(void)
+{
+    static char alt[64 * 1024];   /* a stack of its own, so a stack overflow is logged too */
+    stack_t ss = { .ss_sp = alt, .ss_size = sizeof alt };
+    sigaltstack(&ss, NULL);
+#ifdef __GLIBC__
+    void *warm[1]; backtrace(warm, 1);   /* loads the unwinder now, not inside the handler */
+#endif
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_sigaction = on_crash;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+    sigemptyset(&sa.sa_mask);
+    int sigs[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
+    for (size_t i = 0; i < sizeof sigs / sizeof *sigs; i++) sigaction(sigs[i], &sa, NULL);
+}
+#endif
+
 int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -314,6 +386,9 @@ int main(int argc, char **argv)
     }
     const char *dir = data_dir();
     log_init(dir);
+#ifdef SNTV_CRASH_LOG
+    crash_log_install();
+#endif
     LOGI("%s %s starting, data dir %s", SNTV_APP_NAME, SNTV_APP_VERSION, dir);
     if (g_moved[0]) LOGI("store: %s", g_moved);
     if (in_ram(dir)) LOGW("store: %s is in RAM: sign-in and settings will not survive the TV powering off", dir);

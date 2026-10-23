@@ -28,6 +28,8 @@ int  log_snapshot(LogLine *out, int max);
 unsigned log_version(void);
 /* Path of the log file of the previous run ("" if none). */
 const char *log_previous_path(void);
+/* The log file's descriptor (-1 if none): lets a crash handler write its last line. */
+int log_fd(void);
 
 /* One-line description of the device: webOS release (or uname), user id. */
 void log_system_info(char *out, size_t n);

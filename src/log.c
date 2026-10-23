@@ -97,6 +97,9 @@ unsigned log_version(void)
 
 const char *log_previous_path(void) { return g_prev_path; }
 
+/* The open log file, for a crash handler that must not lock or allocate */
+int log_fd(void) { return g_file ? fileno(g_file) : -1; }
+
 void log_system_info(char *out, size_t n)
 {
     char rel[200]; const char *src;
