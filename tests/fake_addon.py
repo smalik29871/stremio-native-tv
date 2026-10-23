@@ -622,7 +622,6 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps(CATALOG).encode())
             if "search=" in p:
                 if slowsearch:
-                    from time import sleep
                     sleep(2)
                 q = p.split("search=")[1].split("&")[0].split(".json")[0].lower()
                 metas = [m for m in CATALOG["metas"] if q.replace("%20", " ") in m.get("name", "").lower()]
