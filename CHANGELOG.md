@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.57
 
 - **The app is now called Cuelight.** A new name, mark and colours of its own: the stage
   manager's green "go" lamp with play inside it, mint on deep teal. The TV's app list, the
