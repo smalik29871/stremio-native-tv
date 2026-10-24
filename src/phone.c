@@ -640,6 +640,7 @@ void phone_stop(void)
     if (g_sock >= 0) { shutdown(g_sock, SHUT_RDWR); close(g_sock); g_sock = -1; }
     if (g_thread) SDL_WaitThread(g_thread, NULL);
     if (g_frames_lock) {
+        frames_stop();   /* a source gone quiet must not hold the close */
         SDL_LockMutex(g_frames_lock);
         SDL_CondSignal(g_frames_cond);
         SDL_UnlockMutex(g_frames_lock);

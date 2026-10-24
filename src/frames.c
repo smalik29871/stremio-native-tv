@@ -605,10 +605,13 @@ uint8_t *frames_picture(FramesRead rd, void *ctx, const char *key, double t, int
 
 /* ---- over HTTP ---------------------------------------------------------------- */
 
+static volatile int g_stop;
+void frames_stop(void) { g_stop = 1; }
+
 static int http_read(void *ctx, uint64_t off, uint64_t len, uint8_t **buf, size_t *got, uint64_t *total)
 {
     HttpResponse r;
-    HttpOptions o = { .range_start = off, .range_bytes = len, .timeout_s = 20, .no_json_accept = 1 };
+    HttpOptions o = { .range_start = off, .range_bytes = len, .timeout_s = 20, .no_json_accept = 1, .stop = &g_stop };
     http_request_ex((const char *)ctx, &o, &r);
     *buf = NULL; *got = 0; *total = r.total_size;
     if (r.status != 206 && !(r.status == 200 && off == 0)) { http_response_free(&r); return 0; }

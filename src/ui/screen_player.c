@@ -93,7 +93,7 @@ struct Player {
     float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
     float fs_until;           /* sideways on a phone: the controls show until */
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
-    float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
+    float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
     char lb_last[2048];       /* the last frame it had, shown while the next one comes */
     float ov_k, ov_kt;        /* the TV overlay the same way: it fades in, the bar rising into place */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
@@ -1178,7 +1178,9 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     double pos = p->seek_commit > 0 ? p->seek_target : vi->position;
     long s0 = (long)(pos / 10) * 10;
     char u0[2048], u1[2048];
-    int have_url = lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s0 + 10, u1, sizeof u1);
+    /* no frames while the film starts, nor for a source already seen to fill the screen */
+    int have_url = p->lb_none != p->cur + 1 && g_app.time - p->load_started > 3 &&
+                   lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s0 + 10, u1, sizeof u1);
     int w0 = 0, h0 = 0, w1 = 0, h1 = 0, light = g_app.fx_light;
     unsigned t0 = 0, t1 = 0;
     if (have_url && !light) {
@@ -1200,7 +1202,7 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     int side;
     if (ar > A * 1.04f) { side = 1; bar = (H - W / ar) / 2; }
     else if (ar > 0 && ar < A / 1.04f) { side = 2; bar = (W - H * ar) / 2; }
-    else return;
+    else { if (t0) p->lb_none = p->cur + 1; return; }
     if (bar < 36) return;
     p->lb_bar = bar; p->lb_side = side;
     if (!p->lb_logged) { p->lb_logged = 1; LOGI("player: living letterbox, bars of %.0f %s (picture %.2f:1)", bar, side == 1 ? "above and below" : "at the sides", ar); }

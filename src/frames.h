@@ -21,5 +21,6 @@ uint8_t *frames_picture(FramesRead rd, void *ctx, const char *key, double t, int
 
 /* The same over HTTP(S) range requests. */
 uint8_t *frames_picture_url(const char *url, double t, int max_w, size_t *len, char *err, size_t en);
+void frames_stop(void);   /* reads under way give up: the app is closing */
 
 #endif

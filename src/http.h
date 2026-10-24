@@ -44,6 +44,7 @@ typedef struct HttpOptions {
                                a User-Agent line replaces the app's */
     HttpWorkFn work;        /* off the main thread: see above */
     HttpFreeFn free_parsed; /* frees r->parsed when the callback left it (or was cancelled) */
+    const volatile int *stop; /* blocking calls: give up once this is set */
 } HttpOptions;
 
 int  http_init(void);          /* 0 on success */

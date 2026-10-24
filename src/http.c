@@ -22,7 +22,7 @@ enum {
     OPT_NOSIGNAL = 99, OPT_ACCEPT_ENCODING = 10102, OPT_MAXREDIRS = 68,
     OPT_RANGE = 10007, OPT_HEADERFUNCTION = 20079, OPT_HEADERDATA = 10029,
     OPT_SHARE = 10100, OPT_DNS_CACHE_TIMEOUT = 92, OPT_TCP_KEEPALIVE = 213,
-    OPT_NOPROGRESS = 43, OPT_XFERINFOFUNCTION = 20219, OPT_CAINFO = 10065,
+    OPT_NOPROGRESS = 43, OPT_XFERINFOFUNCTION = 20219, OPT_XFERINFODATA = 10057, OPT_CAINFO = 10065,
     SHOPT_SHARE = 1, SHOPT_LOCKFUNC = 3, SHOPT_UNLOCKFUNC = 4, LOCK_DNS = 3, LOCK_SSL_SESSION = 4,
     INFO_RESPONSE_CODE = 0x200002,
     INFO_EFFECTIVE_URL = 0x100001,   /* where the redirects ended */
@@ -155,7 +155,7 @@ static size_t on_header(char *ptr, size_t size, size_t nmemb, void *user)
 /* Offline only when requests keep failing at the transport level AND nothing at all got
  * through for 15 s: one dead addon host while others answer is not "no internet". */
 static volatile int g_quit;   /* the app is closing: every transfer lets go within a second */
-static int on_progress(void *u, int64_t dt, int64_t dn, int64_t ut, int64_t un) { (void)u; (void)dt; (void)dn; (void)ut; (void)un; return g_quit; }
+static int on_progress(void *u, int64_t dt, int64_t dn, int64_t ut, int64_t un) { (void)dt; (void)dn; (void)ut; (void)un; return g_quit || (u && *(const volatile int *)u); }
 
 static volatile int g_net_fail;            /* transport failures since the last success */
 static volatile Uint32 g_last_ok;          /* ticks of the last request that got any answer */
@@ -250,6 +250,7 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     C.easy_setopt(h, OPT_NOSIGNAL, 1L);
     C.easy_setopt(h, OPT_CONNECTTIMEOUT, 10L);
     C.easy_setopt(h, OPT_XFERINFOFUNCTION, on_progress);
+    C.easy_setopt(h, OPT_XFERINFODATA, opt ? (void *)opt->stop : NULL);
     C.easy_setopt(h, OPT_NOPROGRESS, 0L);
     C.easy_setopt(h, OPT_TIMEOUT, opt && opt->timeout_s ? opt->timeout_s : 30L);
     C.easy_setopt(h, OPT_LOW_SPEED_LIMIT, 1L);
