@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.66
+
+- **Android phones look and feel like the TV app**: the app stays between the status bar and
+  the navigation bar (Android 15 draws apps edge to edge, which hid the top bar and the
+  tabs), text is sized from the phone's real width, and Continue Watching uses the TV's
+  wide cards with the title, episode and progress inside the picture. Hints about remote
+  keys no longer show on phones, upright or sideways.
+- **Continue Watching says how long is left** ("25 min left", "1h 12m left") in the corner
+  of each card, on the TV too.
+- **Phone player**: hold a finger on the picture to play at double speed until you let go;
+  a drag across the picture seeks a minute (more for long films), finer than before; a
+  swipe from the top or bottom edge is left to Android instead of changing the brightness.
+  Swipes read as they are meant (a sideways drag no longer scrolls the page).
+- Android keeps its status and navigation bars out of the player, and stremio:// addon
+  links open in the app and install.
+- **Sources list**: the highlight glides to the next source instead of stepping.
+- **Living letterbox**: the bars grow out of the picture's own edges with a soft seam, and
+  change with the film's cuts instead of drifting towards a frame ten seconds ahead.
+- **Depth** only steps aside when the TV's drive is really full (under 150 MB free), not
+  on TVs that simply have a small drive.
+
 ## 0.10.65
 
 - **Seamless binge**: the next episode no longer opens on the loading card. Its still grows

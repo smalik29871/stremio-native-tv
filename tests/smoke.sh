@@ -1044,6 +1044,12 @@ run fs_player_seek 420 "$FSP,drag:600:540:1200:540" $LS SNTV_EXPECT_SCREEN=playe
 grep -q "player: dragged to [0-9]* s" "$OUT/fs_player_seek.log" || { echo "a drag across the picture did not seek"; exit 1; }
 run fs_player_bright 420 "$FSP,drag:400:300:400:700" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs7 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "player: brightness [0-9]*%" "$OUT/fs_player_bright.log" || { echo "a drag down the left of the picture did not change the brightness"; exit 1; }
+# a finger held still on the picture plays at double speed until it lifts (and is not a tap)
+run fs_player_hold 440 "$FSP,press:1300:420,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs8 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+grep -q "player: held: double speed" "$OUT/fs_player_hold.log" && grep -q "player: let go: back to 1x" "$OUT/fs_player_hold.log" || { echo "holding the picture did not play at double speed and back"; grep "player:" "$OUT/fs_player_hold.log" | tail -5; exit 1; }
+# a swipe up from the bottom edge is the system's, not the brightness
+run fs_player_edge 420 "$FSP,drag:400:1060:400:600" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs9 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+! grep -q "player: brightness [0-9]*%" "$OUT/fs_player_edge.log" || { echo "a swipe from the bottom edge changed the brightness"; exit 1; }
 # a phone's sources, scrolled: no row under the recommendation, every chip right of the addon's name
 run phone_streams_scrolled 360 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,drag:390:1500:390:1000,wait" $PH SNTV_EXPECT_SCREEN=streams HOME="$(home_with ph22 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 # Settings > About > Storage: what the app keeps here, and OK clears the cache

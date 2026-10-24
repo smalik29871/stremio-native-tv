@@ -496,6 +496,13 @@ static void cw_label(const MetaPreview *m, float x2, float y2, float w2, float h
         if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(sub, sizeof sub, "S%d  E%d", se, ep);
     }
     if (ne) ui_new_episodes_badge(ne->count, x2 + w2 - 16, y2 + 16);
+    else if (li && li->duration > li->time_offset && li->time_offset > 0) {   /* how long is left, at the top right */
+        int min = (int)((li->duration - li->time_offset) / 60000) + 1;
+        char left[32];
+        if (min >= 60) snprintf(left, sizeof left, "%dh %dm left", min / 60, min % 60);
+        else snprintf(left, sizeof left, "%d min left", min);
+        ui_chip(left, x2 + w2 - 16 - font_measure(left, FONT_XS | FONT_B) - 24, y2 + 16, RGBA(0, 0, 0, 0xA0), THEME_TEXT);
+    }
     font_draw_fit(m->name, x2 + 20, y2 + h2 - 76, FONT_S | FONT_B, THEME_TEXT, w2 - 40);
     if (sub[0]) font_draw(sub, x2 + 20, y2 + h2 - 48, FONT_XS, THEME_TEXT_DIM);
     if (li && li->duration && !ne) ui_progress(x2 + 20, y2 + h2 - 18, w2 - 40, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);

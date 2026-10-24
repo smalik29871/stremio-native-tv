@@ -219,10 +219,10 @@ static void dev_hooks(SDL_Window *win, int frame)
         { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "left", SDLK_LEFT }, { "right", SDLK_RIGHT },
         { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 }, { "yellow", SDLK_F5 },
         { "play", SDLK_p }, { "stop", SDLK_AUDIOSTOP }, { "info", SDLK_HELP }, { "rewind", SDLK_AUDIOREWIND }, { NULL, 0 } };
-    static struct { int left; float x, y, dx, dy; } drag;   /* a scripted drag, one move a frame */
+    static struct { int left; float x, y, dx, dy; Uint32 until; } drag;   /* a scripted drag, one move a frame (a press: until then) */
     if (drag.left > 0) {
         SDL_Event e; memset(&e, 0, sizeof e);
-        drag.left--;
+        if (!drag.until || SDL_GetTicks() >= drag.until) drag.left--;
         e.type = drag.left ? SDL_FINGERMOTION : SDL_FINGERUP; e.tfinger.fingerId = 1;
         e.tfinger.x = drag.x + drag.dx * (8 - drag.left) / 8; e.tfinger.y = drag.y + drag.dy * (8 - drag.left) / 8;
         if (!drag.left) { e.tfinger.x = drag.x + drag.dx; e.tfinger.y = drag.y + drag.dy; }
@@ -259,7 +259,9 @@ static void dev_hooks(SDL_Window *win, int frame)
                 continue;
             }
             float tx2, ty2;
-            if (sscanf(tok, "drag:%f:%f:%f:%f", &tx, &ty, &tx2, &ty2) == 4) {   /* a finger dragged from x:y to x2:y2 (canvas units) */
+            int press = sscanf(tok, "press:%f:%f", &tx, &ty) == 2;   /* a finger held still at x:y for a second */
+            if (press) { tx2 = tx; ty2 = ty; }
+            if (press || sscanf(tok, "drag:%f:%f:%f:%f", &tx, &ty, &tx2, &ty2) == 4) {   /* a finger dragged from x:y to x2:y2 (canvas units) */
                 int px, py, pw, ph, qx, qy, dw, dh;
                 gfx_ui_to_pixels(tx, ty, 0, 0, &px, &py, &pw, &ph);
                 gfx_ui_to_pixels(tx2, ty2, 0, 0, &qx, &qy, &pw, &ph);
@@ -267,7 +269,7 @@ static void dev_hooks(SDL_Window *win, int frame)
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_FINGERDOWN; e.tfinger.fingerId = 1; e.tfinger.x = (float)px / dw; e.tfinger.y = (float)py / dh;
                 SDL_PushEvent(&e);
-                drag.x = e.tfinger.x; drag.y = e.tfinger.y; drag.dx = (float)(qx - px) / dw; drag.dy = (float)(qy - py) / dh; drag.left = 8;
+                drag.x = e.tfinger.x; drag.y = e.tfinger.y; drag.dx = (float)(qx - px) / dw; drag.dy = (float)(qy - py) / dh; drag.left = 8; drag.until = press ? SDL_GetTicks() + 1000 : 0;
                 continue;
             }
             if (strncmp(tok, "t:", 2) == 0) {   /* typed text */

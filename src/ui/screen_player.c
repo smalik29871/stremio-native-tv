@@ -105,6 +105,7 @@ struct Player {
     int lb_cuts_logged;
     float ov_k, ov_kt;        /* the TV overlay the same way: it fades in, the bar rising into place */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
+    int tch_fast; float tch_at;        /* held still on the picture: playing at double speed until it lifts; when it went down */
     float tch_x0, tch_y0; double tch_pos0;
     int tap_pending, tap_side; float tap_at;            /* a tap on the picture waiting to see if a second comes */
     int ripple_side, ripple_secs; float ripple_at;      /* double taps: which side, how far so far */
@@ -294,6 +295,7 @@ static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n)
 static int subs_key(Player *p, KeyAction a);
 static void full_draw(Player *p, const VideoInfo *vi);
 static void picture_tap_settle(Player *p);
+static void ph_hold_fast(Player *p, const VideoInfo *vi);
 static void subs_open(Player *p);
 static void xl_start(Player *p);
 static int error_final(const Player *p, const VideoInfo *vi);
@@ -2372,7 +2374,8 @@ static void update(Screen *s, float dt)
     if (p->lb_side && p->lb_k > 0.01f && vi.state == VIDEO_PLAYING && g_app.time - p->lb_drawn > 0.25f) app_redraw();   /* the letterbox follows the picture, four times a second */
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
-    if (p->tap_pending) app_redraw();
+    ph_hold_fast(p, &vi);
+    if (p->tap_pending || (p->tch == 2 && !p->tch_moved)) app_redraw();
     if (vi.state == VIDEO_PLAYING) {   /* progress bar / subtitles move */
         if (!bare_playback(p, &vi)) app_redraw();
         else if (sub_signature(p, vi.position) != p->sub_sig || g_app.time - p->drawn_at >= 0.25f) app_redraw();   /* a new line now; anything else four times a second */
@@ -5040,7 +5043,6 @@ enum { PHH_BACK = 0x7FFF0000, PHH_PLAY, PHH_BACK10, PHH_FWD10, PHH_SKIP, PHH_NEX
        PHH_PREV_EP, PHH_NEXT_EP, PHH_ASPECT, PHH_PANEL, PHH_SHEET = 0x7FFE0000, PHH_ROW = 0x7FFD0000 };
 enum { PHB_SUBS, PHB_AUDIO, PHB_SPEED, PHB_SOURCES, PHB_EPISODES, PHB_PIP, PHB_COUNT };
 #define PH_ROWS 72
-#define PH_SWIPE_SECS 200.0   /* a drag across the whole picture seeks this far */
 
 typedef struct { char label[120], sub[120]; int on, act; } PhRow;
 
@@ -5257,6 +5259,12 @@ static void ph_feedback(Player *p, const VideoInfo *vi, float x, float y, float 
         ui_icon(p->ripple_side < 0 ? ICON_PREV : ICON_NEXT, cx, cy - 30, 40 + ui_spring(p->ripple_at, 8), COLOR_ALPHA(THEME_TEXT, (int)(255 * (k < 0.5f ? k * 2 : 1))));
         font_draw_center(t, cx, cy + 10, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * (k < 0.5f ? k * 2 : 1))));
         app_redraw();
+    }
+    if (p->tch_fast) {   /* held: double speed, at the top */
+        const char *t = "2x  \xE2\x96\xB8\xE2\x96\xB8";
+        float tw = font_measure(t, FONT_S | FONT_B) + 48;
+        gfx_rrect(x + (w - tw) / 2, y + 40, tw, 60, 30, RGBA(0, 0, 0, 0xA0));
+        font_draw_center(t, x + w / 2, y + 40 + (60 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
     }
     if (p->tch_seeking) {
         double d = p->seek_target - p->tch_pos0;
@@ -5519,6 +5527,21 @@ static void ph_adjust(Player *p, int what, float v)
     app_redraw();
 }
 
+/* How far a drag across the whole picture seeks: a minute, more for longer videos. */
+static double ph_swipe_secs(double dur) { return dur >= 3600 ? 120 : dur >= 1800 ? 90 : 60; }
+
+/* A finger held still on a playing picture plays it at double speed until it lifts. */
+static void ph_hold_fast(Player *p, const VideoInfo *vi)
+{
+    if (p->tch != 2 || p->tch_fast || p->tch_moved || p->tch_seeking || p->tch_adjust || g_app.time - p->tch_at < 0.5f) return;
+    if (vi->state != VIDEO_PLAYING || p->ph_sheet) return;
+    p->tch_fast = 1;
+    p->tap_pending = 0;
+    video_set_rate(2.0);
+    LOGI("player: held: double speed while the finger stays");
+    app_redraw();
+}
+
 static int in_rect(const float *r, float x, float y) { return r[2] > 0 && x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]; }
 
 /* A finger on the player (a phone): along the bar it scrubs, across the picture it seeks,
@@ -5539,7 +5562,7 @@ static int drag(Screen *s, int phase, float x, float y)
         else if (ui_hit_find(x, y, s, &id)) return 0;   /* a button or the open list */
         else if (in_rect(p->ph_pic, x, y)) p->tch = 2;
         else return 0;
-        p->tch_x0 = x; p->tch_y0 = y;
+        p->tch_x0 = x; p->tch_y0 = y; p->tch_at = g_app.time; p->tch_fast = 0;
         p->tch_pos0 = p->seek_commit > 0 ? p->seek_target : vi.position;
         if (p->tch == 1) { float bl = bar[0] + 30, bw = bar[2] - 60; touch_seek(p, dur * (x - bl) / bw, 60); }
         return 1;
@@ -5554,14 +5577,24 @@ static int drag(Screen *s, int phase, float x, float y)
         else { touch_seek(p, t, 0.01f); LOGI("player: scrubbed to %.0f s", p->seek_target); p->tch = 0; }
         return 1;
     }
+    if (p->tch_fast) {   /* playing fast: only lifting the finger counts */
+        if (phase == 2) {
+            video_set_rate(RATES[p->rate_idx]);
+            LOGI("player: let go: back to %gx", RATES[p->rate_idx]);
+            p->tch = 0; p->tch_fast = 0;
+            app_redraw();
+        }
+        return 1;
+    }
     if (phase == 1) {
         if (!p->tch_seeking && !p->tch_adjust && dur > 0 && fabsf(dx) > 40 && fabsf(dx) > fabsf(dy) * 1.2f) { p->tch_seeking = 1; p->tch_x0 = x; }
-        if (!p->tch_seeking && !p->tch_adjust && fabsf(dy) > 40 && fabsf(dy) > fabsf(dx) * 1.2f) {   /* up or down: the left half's brightness, the right half's volume */
+        float edge = SNTV_UI_H * 0.08f;   /* not from the top or bottom edge: the system's own swipes start there */
+        if (!p->tch_seeking && !p->tch_adjust && fabsf(dy) > 40 && fabsf(dy) > fabsf(dx) * 1.2f && p->tch_y0 > edge && p->tch_y0 < SNTV_UI_H - edge) {   /* up or down: the left half's brightness, the right half's volume */
             p->tch_adjust = p->tch_x0 < p->ph_pic[0] + p->ph_pic[2] / 2 ? 1 : 2;
             p->tch_level0 = p->tch_adjust == 1 ? ph_bright(p) : ph_vol(p);
             p->tch_y0 = y;
         }
-        if (p->tch_seeking) touch_seek(p, p->tch_pos0 + (x - p->tch_x0) / p->ph_pic[2] * PH_SWIPE_SECS, 60);
+        if (p->tch_seeking) touch_seek(p, p->tch_pos0 + (x - p->tch_x0) / p->ph_pic[2] * ph_swipe_secs(dur), 60);
         if (p->tch_adjust) ph_adjust(p, p->tch_adjust, p->tch_level0 - (y - p->tch_y0) / (p->ph_pic[3] * 0.8f));
         return 1;
     }
@@ -5742,6 +5775,7 @@ static void destroy(Screen *s)
     Player *p = s->st;
     if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */
     if (p->bright >= 0) video_set_brightness(-1);   /* the screen's brightness is the system's again */
+    if (p->tch_fast) video_set_rate(1.0);   /* closed with a finger still holding it fast */
     video_pip_allow(0);
     relay_buffer_close();   /* its memory goes with it */
     report(p, 1);   /* the app closing with the film on: the last position still counts */
