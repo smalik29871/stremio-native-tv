@@ -1006,9 +1006,11 @@ static void save_library_cache(void);
 void app_logout(void)
 {
     if (g_app.auth_key) {
-        char *body = api_body_logout(g_app.auth_key);
-        http_request_async(api_url_logout(), body, NULL, NULL);
-        free(body);
+        if (!store_get_int("signinsShared", 0)) {   /* a session synced to another device stays open for it */
+            char *body = api_body_logout(g_app.auth_key);
+            http_request_async(api_url_logout(), body, NULL, NULL);
+            free(body);
+        }
         if (g_app.n_addons) {
             cJSON *arr = cJSON_CreateArray(), *e;
             for (int i = 0; i < g_app.n_addons; i++) {
@@ -2497,9 +2499,13 @@ int app_restore_settings(const char *json)
 
 static const char *const SYNC_DEVICE[] = { "tvCaps", "setupDone", "seenVersion", "updateHowToldFor", "updateNoInstaller", "updateToldFor",
     "memoryMode", "fx", "fxAutoLight", "resCap", "ytPlays", "srcHealth", "deadLinks", "newEpSeen", "trackMemory", "homeFirstView",
-    "localAddons", "local_addons", "user", NULL };   /* this device's own: what it learned about itself */
-static const char *const SYNC_SIGNIN[] = { "authKey", "email", "accounts", "traktToken", "traktRefresh", "traktExpires", "traktLife",
-    "traktClientSecret", "simklToken", "simklRefresh", "simklExpires", "simklLife", "mdblistKey", "tmdbKey", "osApiKey", "osToken",
+    "localAddons", "local_addons", "user", "signinsShared",
+    "streamingServer",   /* often 127.0.0.1: this device itself */
+    /* Trakt and SimKL: each renewal replaces the refresh token, so two devices sharing one
+     * would lock each other out. Each device connects on its own. */
+    "traktToken", "traktRefresh", "traktExpires", "traktLife", "simklToken", "simklRefresh", "simklExpires", "simklLife",
+    NULL };   /* this device's own */
+static const char *const SYNC_SIGNIN[] = { "authKey", "email", "accounts", "traktClientSecret", "mdblistKey", "tmdbKey", "osApiKey", "osToken",
     "osUser", "torboxKey", "aiProvider", "aiKey", "aiBase", "aiModel", NULL };
 static const char *const SYNC_DATA[] = { "lists", "ratings", "marks", "episodeMarks", NULL };
 
@@ -2519,6 +2525,10 @@ const char *app_device_name(void)
 #endif
 }
 
+/* this device's sign-ins went to another: ending the Stremio session here (app_logout)
+ * would end it there too */
+void app_sync_shared(void) { store_set_int("signinsShared", 1); store_save(); }
+
 char *app_sync_bundle(void)
 {
     app_save_prefs();
@@ -2528,6 +2538,8 @@ char *app_sync_bundle(void)
     cJSON_AddStringToObject(out, "_sync", "cuelight");
     cJSON_AddStringToObject(out, "_version", SNTV_APP_VERSION);
     cJSON_AddStringToObject(out, "device", app_device_name());
+    cJSON_AddBoolToObject(out, "trakt", store_get_str("traktToken", NULL) != NULL);   /* to say: connect it there too */
+    cJSON_AddBoolToObject(out, "simkl", store_get_str("simklToken", NULL) != NULL);
     cJSON *prefs = cJSON_AddObjectToObject(out, "prefs"), *signin = cJSON_AddObjectToObject(out, "signin"), *data = cJSON_AddObjectToObject(out, "data");
     cJSON_ArrayForEach(it, root) {
         if (!it->string || in_list(SYNC_DEVICE, it->string)) continue;
@@ -2548,8 +2560,6 @@ char *app_sync_bundle(void)
 static const char *signin_lead(const char *k)
 {
     if (!strcmp(k, "email")) return "authKey";
-    if (!strncmp(k, "trakt", 5)) return "traktToken";
-    if (!strncmp(k, "simkl", 5)) return "simklToken";
     if (!strncmp(k, "os", 2)) return "osApiKey";
     if (!strncmp(k, "ai", 2)) return "aiProvider";
     return k;
@@ -2558,6 +2568,17 @@ static const char *signin_lead(const char *k)
 static int has_value(const cJSON *v)
 {
     return (cJSON_IsString(v) && v->valuestring[0]) || (cJSON_IsNumber(v) && v->valuedouble != 0) || cJSON_IsTrue(v) || ((cJSON_IsObject(v) || cJSON_IsArray(v)) && v->child);
+}
+
+/* a record's identity in a list: a title's id, a saved account's email */
+static const cJSON *record_id(const cJSON *o)
+{
+    static const char *const K[] = { "id", "_id", "email", NULL };
+    for (int i = 0; cJSON_IsObject(o) && K[i]; i++) {
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, K[i]);
+        if (cJSON_IsString(v)) return v;
+    }
+    return NULL;
 }
 
 /* theirs joined into mine: an object's keys I lack, an array's items I lack */
@@ -2573,8 +2594,11 @@ static int join_json(cJSON *mine, const cJSON *theirs)
         }
     } else if (cJSON_IsArray(mine) && cJSON_IsArray(theirs)) {
         cJSON_ArrayForEach(t, theirs) {
-            const cJSON *m; int have = 0;
-            cJSON_ArrayForEach(m, mine) if (cJSON_Compare(m, t, 1)) { have = 1; break; }
+            const cJSON *m, *tid = record_id(t); int have = 0;
+            cJSON_ArrayForEach(m, mine) {
+                const cJSON *mid = record_id(m);
+                if (tid && mid ? !strcmp(tid->valuestring, mid->valuestring) : cJSON_Compare(m, t, 1)) { have = 1; break; }
+            }
             if (!have) { cJSON_AddItemToArray(mine, cJSON_Duplicate(t, 1)); added++; }
         }
     }
@@ -2626,7 +2650,13 @@ int app_sync_apply(const char *json, int with_look, char *summary, size_t n)
     const char *key = store_get_str("authKey", NULL), *email = store_get_str("email", NULL);
     int switched = key && (!old_key || strcmp(old_key, key) != 0);
     if (switched) {
-        app_sync_begin();   /* this device's own addons join the account's */
+        app_sync_begin();   /* signed out before: this device's own addons join the account's */
+        if (old_key) {   /* another account: its library, not the last one's (as switching profiles does) */
+            library_items_free(g_app.library, g_app.n_library);
+            g_app.library = NULL; g_app.n_library = 0;
+            g_app.library_version++;
+            store_write_file("library.json", "{\"result\":[]}", 13);
+        }
         free(g_app.auth_key); free(g_app.user_email);
         g_app.auth_key = strdup(key);
         g_app.user_email = email ? strdup(email) : NULL;
@@ -2635,6 +2665,7 @@ int app_sync_apply(const char *json, int with_look, char *summary, size_t n)
         if (email) accounts_remember(email, key);
     } else lists_set_owner(g_app.user_email);
     free(old_key);
+    if (key) store_set_int("signinsShared", 1);
 
     /* addons: theirs I lack join mine, after mine */
     char *add[DEFAULTS_MAX]; int n_add = 0;

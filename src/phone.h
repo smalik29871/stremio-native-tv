@@ -31,4 +31,5 @@ int phone_offer_log(const char *text, char *url, size_t n);
  * one back (phone_take_sync, malloc'd). NULL closes it and forgets the key. */
 int phone_offer_sync(const char *bundle, const char *device, char *url, size_t n);
 char *phone_take_sync(void);
+int phone_sync_sent(void);   /* 1 once after the bundle was fetched */
 #endif

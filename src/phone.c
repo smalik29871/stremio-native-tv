@@ -33,6 +33,7 @@ static char *g_log; static char g_log_key[20];   /* the log offered while Diagno
 static char *g_backup;            /* settings offered for download while the backup page is open */
 static char *g_restore; static int g_restore_open;   /* settings sent back from the phone */
 static char *g_sync_bundle, *g_sync_in; static char g_sync_key[40], g_sync_device[40];   /* Sync with another device */
+static int g_sync_sent;   /* the bundle was fetched */
 
 static void html_escape(const char *s, char *out, size_t n)
 {
@@ -554,6 +555,7 @@ static int handle_sync(int fd, char *req, ssize_t n, const struct sockaddr_in *p
         send_all(fd, head, strlen(head));
         send_all(fd, bundle, strlen(bundle));
         free(bundle);
+        SDL_LockMutex(g_lock); g_sync_sent = 1; SDL_UnlockMutex(g_lock);
         LOGI("sync: sent this device's bundle to %s", ip);
         return 1;
     }
@@ -881,6 +883,15 @@ int phone_offer_sync(const char *bundle, const char *device, char *url, size_t n
     if (!bundle || !phone_url(base, sizeof base)) return 0;
     snprintf(url, n, "%ssync/%s", base, key);
     return 1;
+}
+
+int phone_sync_sent(void)
+{
+    if (!g_lock) return 0;
+    SDL_LockMutex(g_lock);
+    int r = g_sync_sent; g_sync_sent = 0;
+    SDL_UnlockMutex(g_lock);
+    return r;
 }
 
 char *phone_take_sync(void)

@@ -567,7 +567,7 @@ static float page_bottom(const Detail *d, int n_cast)
 /* a short screen (a phone on its side): the page sits this far up so the whole episode row shows */
 static float short_lift(const Detail *d)
 {
-    float t = d->meta.n_videos > 0 ? RAIL_Y + EP_H + 70 - SNTV_UI_H : 0;
+    float t = d->meta.n_videos > 0 ? RAIL_Y + EP_H + (g_theme.id == THEME_APERTURE ? 110 : 70) - SNTV_UI_H : 0;   /* Aperture's labels run longer */
     return t > 0 ? t : 0;
 }
 
@@ -1417,8 +1417,9 @@ static void draw(Screen *s)
     const char *logo = app_art_logo(&d->preview, lbuf, sizeof lbuf);
     unsigned ltex = logo && g_theme.id != THEME_APERTURE ? image_get(logo, &iw, &ih) : 0;
     if (g_theme.id == THEME_APERTURE) {
-        ui_serif_title(d->preview.name, x, series ? 270 : 360, col_w, series ? FONT_HUGE : FONT_HERO, 2, COLOR_ALPHA(THEME_TEXT, a));
-        y = series ? 296 : 386;
+        float sh = series && short_lift(d) > 0 ? 120 : 0;   /* the page sits up: the title smaller and lower, in the room above the buttons */
+        ui_serif_title(d->preview.name, x, (series ? 270 : 360) + sh, col_w, series ? (sh ? FONT_XL : FONT_HUGE) : FONT_HERO, 2, COLOR_ALPHA(THEME_TEXT, a));
+        y = (series ? 296 : 386) + sh;
     } else if (ltex && ih > 0) {
         float w = 640, h = w * ih / iw, most = 180 - (short_lift(d) > 50 ? short_lift(d) - 50 : 0);   /* smaller where the page sits up */
         if (most < 72) most = 72;
@@ -1445,7 +1446,7 @@ static void draw(Screen *s)
         if (d->preview.imdb_rating && *d->preview.imdb_rating) { snprintf(imdb, sizeof imdb, "IMDb %s", d->preview.imdb_rating); parts[4] = imdb; }
         ui_slash_line(parts, 5, x, y, FONT_S, THEME_TEXT);
         y += 52;
-        if (tm && tm->tagline[0]) y += font_draw_wrapped(tm->tagline, x, y, FONT_M, THEME_TEXT, 680, 2) * font_height(FONT_M) + 14;
+        if (tm && tm->tagline[0] && !short_lift(d)) y += font_draw_wrapped(tm->tagline, x, y, FONT_M, THEME_TEXT, 680, 2) * font_height(FONT_M) + 14;
         if (d->preview.description && !series)
             y += font_draw_wrapped(d->preview.description, x, y, FONT_S, THEME_TEXT_DIM, 680, 3) * font_height(FONT_S) + 30;
     } else {

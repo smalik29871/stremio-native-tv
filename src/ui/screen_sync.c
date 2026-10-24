@@ -68,8 +68,15 @@ static void link_param(const char *link, const char *name, char *out, size_t n)
 /* Only a device on the home network: a link from a web page must not send sign-ins elsewhere. */
 static int lan_address(const char *base)
 {
-    unsigned a, b, c, d;
-    if (strncmp(base, "http://", 7) || sscanf(base + 7, "%u.%u.%u.%u", &a, &b, &c, &d) != 4 || a > 255 || b > 255 || c > 255 || d > 255) return 0;
+    unsigned a, b, c, d, port = 0;
+    int end = 0;
+    if (strncmp(base, "http://", 7)) return 0;
+    const char *h = base + 7;
+    for (const char *p = h; *p; p++) if (!(isdigit((unsigned char)*p) || *p == '.' || *p == ':' || *p == '/')) return 0;   /* an IP, a port: no names, no user@ */
+    if (sscanf(h, "%3u.%3u.%3u.%3u%n", &a, &b, &c, &d, &end) != 4 || a > 255 || b > 255 || c > 255 || d > 255) return 0;
+    h += end;
+    if (*h == ':') { int e2 = 0; if (sscanf(h + 1, "%5u%n", &port, &e2) != 1 || port == 0 || port > 65535) return 0; h += 1 + e2; }
+    if (*h && strcmp(h, "/")) return 0;   /* nothing after the address */
     return a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31);
 }
 
@@ -111,8 +118,11 @@ static void on_bundle(HttpResponse *r, void *user)
     char who[160] = "";
     if (cJSON_IsString(cJSON_GetObjectItemCaseSensitive(sign, "authKey")) && cJSON_IsString(email)) snprintf(who, sizeof who, ", synced with Stremio as %s", email->valuestring);
     else if (cJSON_IsString(cJSON_GetObjectItemCaseSensitive(sign, "authKey"))) snprintf(who, sizeof who, ", synced with Stremio");
-    snprintf(s->facts, sizeof s->facts, "It has %d addon%s and %d title%s in its library%s%s.", na, na == 1 ? "" : "s", nl, nl == 1 ? "" : "s", who,
-             cJSON_IsString(cJSON_GetObjectItemCaseSensitive(sign, "traktToken")) ? ", and Trakt" : "");
+    int trk = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(b, "trakt")), smk = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(b, "simkl"));
+    char trackers[160] = "";
+    if (trk || smk) snprintf(trackers, sizeof trackers, " %s stay%s there: connect %s here too, in Settings > Accounts.", trk && smk ? "Trakt and SimKL" : trk ? "Trakt" : "SimKL",
+                             trk && smk ? "" : "s", trk && smk ? "them" : "it");
+    snprintf(s->facts, sizeof s->facts, "It has %d addon%s and %d title%s in its library%s.%s", na, na == 1 ? "" : "s", nl, nl == 1 ? "" : "s", who, trackers);
     cJSON_Delete(b);
     free(s->theirs);
     s->theirs = r->body; r->body = NULL;
@@ -148,6 +158,7 @@ static void send_mine(Sync *s, const char *mode)
     char *body = malloc(L);
     snprintf(body, L, "{\"mode\":\"%s\",\"from\":\"%s\",\"bundle\":%s}", mode, app_device_name(), mine);
     free(mine);
+    app_sync_shared();
     char url[300];
     snprintf(url, sizeof url, "%ssync/%s/apply", s->base, s->key);
     HttpOptions o = { .post_json = body, .timeout_s = 90 };
@@ -198,7 +209,7 @@ static void update(Screen *sc, float dt)
     Sync *s = sc->st;
     s->intro = ui_ease(s->intro * 100, 100, NULL, dt, 9) / 100;
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
-    if (s->host) take_in(s);
+    if (s->host) { if (phone_sync_sent()) app_sync_shared(); take_in(s); }
 }
 
 static void wrap_center(const char *t, float cx, float y, int size, Color c, float w) { ui_center_wrapped(t, cx, y, size, c, w); }

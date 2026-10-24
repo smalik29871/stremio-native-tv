@@ -286,6 +286,7 @@ char *app_backup_settings(void);
  * summary says what, for people. */
 const char *app_device_name(void);   /* "LG TV", "Phone"... */
 char *app_sync_bundle(void);
+void app_sync_shared(void);   /* the bundle went to another device */
 int  app_sync_apply(const char *json, int with_look, char *summary, size_t n);
 int  app_restore_settings(const char *json);
 /* Plays a direct video link (sent from a phone); nothing is saved against a title. */
