@@ -14,6 +14,21 @@ mkdir "$W/data" && tar xzf "$W/data.tar.gz" -C "$W/data"
 APPDIR=$(ls -d "$W"/data/usr/palm/applications/*/)
 BIN="$APPDIR/stremio-tv"
 fail() { echo "check-ipk: $*" >&2; exit 1; }
+# the layout LG's packager writes, which a TV in Developer Mode verifies ("-5: ipk verified failed")
+python3 - "$IPK" <<'PY' || fail "ar members must be debian-binary, control.tar.gz, data.tar.gz, named without a trailing /"
+import sys
+b = open(sys.argv[1], "rb").read()
+assert b[:8] == b"!<arch>\n"
+names, at = [], 8
+while at < len(b):
+    h = b[at:at + 60]
+    names.append(h[:16].decode().rstrip(" "))
+    size = int(h[48:58])
+    at += 60 + size + (size % 2)
+assert names == ["debian-binary", "control.tar.gz", "data.tar.gz"], names
+PY
+if tar tzf "$W/data.tar.gz" | grep -q '^\./'; then fail "data.tar.gz paths must start usr/, not ./"; fi
+tar xzOf "$W/control.tar.gz" control 2>/dev/null | grep -q '^Installed-Size: [0-9]\{6,\}$' || fail "control's Installed-Size must be in bytes"
 [ -x "$BIN" ] || fail "binary missing or not executable"
 "$TC/bin/arm-webos-linux-gnueabi-readelf" -h "$BIN" | grep -q "Machine:.*ARM" || fail "binary is not ARM"
 NEEDED=$("$TC/bin/arm-webos-linux-gnueabi-readelf" -d "$BIN" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort)
