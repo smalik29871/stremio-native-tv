@@ -14,7 +14,7 @@ account API**: the same account, addons, Library and Continue Watching as the of
 > Cuelight is an independent project. It is **not affiliated with, endorsed by or made by
 > Stremio**; "Stremio" is used only to say which accounts and addons it works with.
 
-> **v0.10.66.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.10.67.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through

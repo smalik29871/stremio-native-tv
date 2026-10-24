@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.67
+
+- **Phones, new look**: Home's hero runs edge to edge from the top and fades into the page,
+  its title (or logo), Play and + centred; swipe it across for the next title, or tap the
+  picture to open it. It moves on by itself while no finger is down, and while it loads its
+  room is kept, shimmering, so nothing jumps.
+- **A floating tab bar**: the tabs sit in a rounded bar over the page, the highlight gliding
+  to the tab you open. Tapping Home again goes back to the top.
+- **Title pages on phones**: the artwork scrolls at half speed, and once it has gone a bar
+  with the title slides in at the top.
+- **Search, with nothing typed**: Discover. Genres that open Explore on them, and the titles
+  Home has brought as posters (the Films and Series chips filter them).
+- Tiles still loading shimmer on phones.
+
 ## 0.10.66
 
 - **Android phones look and feel like the TV app**: the app stays between the status bar and
