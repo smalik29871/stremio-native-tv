@@ -17,7 +17,7 @@ static int g_state;          /* 0 not asked, 1 asking, 2 have the list, 3 failed
 static double g_failed_at;
 static int g_off;            /* 0 on, 1 off for memory, 2 off for storage */
 static double g_room_since;  /* room again since then (it waits a minute before coming back) */
-#define ROOM_S 60
+#define ROOM_S 120   /* as the memory saver waits before letting go */
 
 static unsigned long long fnv64(const char *s)
 {
@@ -74,21 +74,28 @@ static const DepthInfo *find(const char *key)
     return NULL;
 }
 
-/* Depth wants room: memory short (the saver is on, or the TV is getting low) or the TV's
- * drive nearly full turns it off at once, the list and maps let go; it comes back by
- * itself after a minute with room again. Backdrops just stay still meanwhile. */
+/* Depth wants room: the memory saver on (or memory tight, unless the saver was turned off
+ * in Settings) or the TV's drive nearly full turns it off at once, its list and maps let
+ * go; it comes back by itself after two minutes with room again. Backdrops stay still
+ * meanwhile. Looked at once a second: memory is sampled every 5 s, storage every minute. */
 static void watch_room(void)
 {
-    int why = g_app.low_memory || mem_level_now() >= 1 ? 1 : app_storage_low() ? 2 : 0;
+    static double looked = -1;
+    if (looked >= 0 && g_app.time >= looked && g_app.time - looked < 1) return;
+    looked = g_app.time;
+    int mem_short = g_app.low_memory || (g_app.memory_mode != 2 && mem_level_now() >= 2);
+    int why = mem_short ? 1 : app_storage_low() ? 2 : 0;
     if (why) {
         g_room_since = 0;
-        if (g_off == why) return;
-        if (!g_off) {
-            free(g_map); g_map = NULL; g_cap = g_n = 0;
-            if (g_state == 2 || g_state == 3) g_state = 0;   /* asked again when it is back */
+        if (g_off) {   /* maps that were still on their way when it went off: let go as they land */
             image_forget_prefix(base());
-            app_redraw();
+            if (g_off != why) { LOGI("depth: off while %s is low", why == 1 ? "memory" : "storage"); g_off = why; }
+            return;
         }
+        free(g_map); g_map = NULL; g_cap = g_n = 0;
+        if (g_state == 2) g_state = 0;   /* asked again when it is back; a failed list keeps its wait */
+        image_forget_prefix(base());
+        app_redraw();
         LOGI("depth: off while %s is low; its list and maps let go", why == 1 ? "memory" : "storage");
         g_off = why;
         return;
@@ -105,7 +112,7 @@ int depth_off(void) { watch_room(); return g_off; }
 static void on_index(HttpResponse *r, void *user)
 {
     (void)user;
-    if (g_off) { g_state = 0; return; }   /* turned off while it came */
+    if (g_off) { g_state = 0; return; }   /* turned off while it came: asked again when back */
     if (r->status != 200 || !r->body || strncmp(r->body, "# cuelight depth maps", 21) != 0) {
         g_state = 3; g_failed_at = g_app.time;
         LOGI("depth: no list of depth maps (%ld%s%s)", r->status, r->error[0] ? ", " : "", r->error);   /* backdrops just stay still: not a problem to show */

@@ -10,6 +10,7 @@ int    mem_small_tv(void);                               /* a 1 GB set: saver on
 size_t mem_normal_budget(void);                          /* artwork budget for this TV's RAM */
 void   mem_apply_mode(void);                             /* after g_app.memory_mode changes (or at start) */
 int    mem_level_now(void);                              /* mem_level of the last sample (every 5 s) */
+int    mem_saver_lasting(void);                          /* the saver is on for good: a 1 GB set, or chosen in Settings */
 void   mem_tick(float dt);                               /* every frame; samples every 5 s */
 void   mem_emergency(void);                              /* SDL_APP_LOWMEMORY */
 void   mem_playback(int playing);                        /* every frame: a video fills the screen (not in a corner) */

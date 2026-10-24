@@ -119,6 +119,7 @@ void mem_tick(float dt)
 }
 
 int mem_level_now(void) { return mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb); }
+int mem_saver_lasting(void) { return g_app.low_memory && (g_reason == WHY_SMALL_TV || g_reason == WHY_CHOSEN); }
 
 void mem_playback(int playing)
 {

@@ -346,7 +346,8 @@ static const char *row_desc(int id)
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
     case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
     case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
-    case IT_DEPTH: return depth_off() == 1 ? "Off for now: the TV is short of memory. It comes back by itself when there is room again."
+    case IT_DEPTH: return depth_off() == 1 && mem_saver_lasting() ? "Off while the memory saver is on (Memory use, further down): Depth needs room for its maps."
+                        : depth_off() == 1 ? "Off for now: the TV is short of memory. It comes back by itself when there is room again."
                         : depth_off() == 2 ? "Off for now: the TV's storage is nearly full. It comes back by itself when there is room again."
                         : "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
     case IT_AMBIENT: return "When the remote has been quiet this long.";

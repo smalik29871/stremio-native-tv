@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/statvfs.h>
 #include <time.h>
 #include <sys/stat.h>
 
@@ -1774,12 +1775,19 @@ void app_storage(long long *total, long long *cache, long long *disk_free)
     SDL_AtomicUnlock(&g_usage_lock);
 }
 
+/* Measured on its own once a minute (the tidy's look comes every half hour): room made
+ * on the TV counts soon. */
 int app_storage_low(void)
 {
     if (getenv("SNTV_FAKE_LOW_DISK")) return 1;
-    long long total, cache, free_b;
-    app_storage(&total, &cache, &free_b);
-    return free_b >= 0 && free_b < LOW_DISK;
+    static float looked = -100; static int low;
+    if (g_app.time - looked < 60 && g_app.time >= looked) return low;
+    looked = g_app.time;
+    const char *fake = getenv("SNTV_FAKE_DISK_FREE_MB");   /* tests: the runner's own drive must not decide */
+    struct statvfs vs;
+    long long free_b = fake ? atoll(fake) << 20 : statvfs(store_dir(), &vs) == 0 ? (long long)vs.f_bavail * (long long)vs.f_frsize : -1;
+    low = free_b >= 0 && free_b < LOW_DISK;
+    return low;
 }
 
 /* Each frame: the word from a clearing, and every half hour a look at the storage. */

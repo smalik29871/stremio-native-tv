@@ -2010,6 +2010,8 @@ static int bare_playback(Player *p, const VideoInfo *vi)
  * Up Next card where it was, instead of the loading card; the picture dissolves in under it. */
 static struct { char video_id[160]; float at; int from; float rect[4]; } g_bridge;
 
+void player_bridge_cancel(void) { g_bridge.video_id[0] = 0; }
+
 static void bridge_hand(const char *video_id, const float *card)
 {
     snprintf(g_bridge.video_id, sizeof g_bridge.video_id, "%s", video_id);
@@ -2037,7 +2039,8 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
     quality_release_group(c->filename, hint.group, sizeof hint.group);
     if (!hint.group[0]) quality_release_group(c->release, hint.group, sizeof hint.group);
     p->finished = 1;
-    bridge_hand(video_id, g_app.time - p->card_at < 0.5f ? p->card_thumb : NULL);
+    if (p->next_video_id && !strcmp(video_id, p->next_video_id))   /* on to the next one (not Previous or one picked from the list) */
+        bridge_hand(video_id, g_app.time - p->card_at < 0.5f ? p->card_thumb : NULL);
     app_pop();   /* destroys this screen */
     const Screen *under = app_top();
     Screen *next = screen_streams_create_chain(&meta, vid, title, &hint);

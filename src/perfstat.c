@@ -12,7 +12,7 @@ typedef struct { unsigned n, bins[BINS]; } Hist;
 
 static struct { char name[24]; Uint32 at; } g_marks[MAX_MARKS];
 static int g_n_marks;
-static struct { char name[16]; Hist h, total; float fill_sum, fill_max; } g_screens[MAX_SCREENS];
+static struct { char name[16]; Hist h, total; double fill_sum; float fill_max; } g_screens[MAX_SCREENS];
 static int g_n_screens;
 static Hist g_keys;
 static Uint32 g_key_at;   /* 0: no key waiting to be shown */

@@ -1684,6 +1684,7 @@ static void destroy(Screen *s)
     /* this screen's own start only: the next episode's screen is made before the one it
      * replaces is gone (that goes at the end of the transition) */
     race_cancel(st);
+    if (st->chaining && !st->launched) player_bridge_cancel();   /* left before the next episode started */
     if (g_live == st) { g_live = NULL; g_generation++; video_keep_awake(0); perf_start_cancel(); }
     st->probe_gen++;
     if (st->from_prefetch && st->pending) prefetch_clear();   /* nobody left to receive the rest */

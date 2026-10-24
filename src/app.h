@@ -310,6 +310,7 @@ Screen *screen_streams_create_from_start(const MetaPreview *meta, const char *vi
  * sources; 0 with no video, or paused by the viewer */
 int player_holds_screen(void);
 int streams_starting(void);   /* a Sources screen is starting a video by itself (the next episode, Play) */
+void player_bridge_cancel(void);   /* the next episode's sources were left before it started: no still to open on */
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,
                              PlayCandidate *cands, int n_cands, int start_index, double start_s,
                              const char *next_video_id, const char *next_title);
