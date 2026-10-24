@@ -404,9 +404,11 @@ void image_prefetch(const char *url)
     if (i->last_used + 30 < g_clock) i->last_used = g_clock - 30;   /* keep alive briefly, but evictable */
 }
 
-unsigned image_peek(const char *url, int *w, int *h)
+unsigned image_peek(const char *url, int *w, int *h) { return image_peek_ex(url, (ImageFlags)-1, w, h); }
+
+unsigned image_peek_ex(const char *url, ImageFlags flags, int *w, int *h)
 {
-    Img *i = url && *url ? find(url) : NULL;
+    Img *i = !url || !*url ? NULL : (int)flags < 0 ? find(url) : find_flags(url, flags);
     if (!i || i->state != IMG_READY) return 0;
     i->last_used = g_clock;
     if (w) *w = i->w;

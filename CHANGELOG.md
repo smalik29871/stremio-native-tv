@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.63
+
+- **Living letterbox**: when a film's black bars are part of the picture (scope films on a
+  16:9 screen, 4:3 shows at the sides), the bars glow with a soft blur of the scene beside
+  them, like YouTube's ambient mode but in full screen, changing gently every ten seconds.
+  Subtitles move down into the bar when there is room. Settings > Playback > Living
+  letterbox; light effects turn it off, and if a frame cannot be read the bars just stay
+  black.
+
 ## 0.10.62
 
 - **Motion**: opening a title grows its poster out of the card into the page (Back shrinks

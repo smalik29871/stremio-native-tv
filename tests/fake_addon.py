@@ -1018,7 +1018,8 @@ class H(BaseHTTPRequestHandler):
             t = int(float(p.split("t=")[1].split("&")[0])) if "t=" in p else 0
             if "scope%3D1" in p and HAVE_PIL:   # a 2.39:1 picture with the bars baked into a 16:9 frame
                 from PIL import Image as _I
-                pic = _I.open(io.BytesIO(art("bg", (t // 10) % 6))).resize((1280, 536))
+                own = os.environ.get("FAKE_SCOPE_PIC")   # a real still, for screenshots
+                pic = (_I.open(own).convert("RGB") if own else _I.open(io.BytesIO(art("bg", (t // 10) % 6)))).resize((1280, 536))
                 frame = _I.new("RGB", (1280, 720)); frame.paste(pic, (0, 92))
                 b = io.BytesIO(); frame.save(b, "JPEG", quality=85)
                 return self.send(200, b.getvalue(), "image/jpeg")

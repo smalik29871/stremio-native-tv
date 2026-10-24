@@ -1183,16 +1183,17 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     unsigned t0 = 0, t1 = 0;
     if (have_url && !light) {
         int seeking = p->seek_commit > 0;   /* the seek previews have the TV's decoder then */
-        t0 = seeking ? image_peek(u0, &w0, &h0) : image_get(u0, &w0, &h0);
-        t1 = seeking ? image_peek(u1, &w1, &h1) : image_get(u1, &w1, &h1);   /* the next one, asked ahead */
+        /* mipmapped, so the GPU blurs them for free */
+        t0 = seeking ? image_peek_ex(u0, IMAGE_MIPMAP, &w0, &h0) : image_get_ex(u0, IMAGE_MIPMAP, &w0, &h0, NULL);
+        t1 = seeking ? image_peek_ex(u1, IMAGE_MIPMAP, &w1, &h1) : image_get_ex(u1, IMAGE_MIPMAP, &w1, &h1, NULL);   /* the next one, asked ahead */
         if (t0) snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
-        else if (p->lb_last[0]) { t0 = image_peek(p->lb_last, &w0, &h0); snprintf(u0, sizeof u0, "%s", p->lb_last); t1 = 0; }
+        else if (p->lb_last[0]) { t0 = image_peek_ex(p->lb_last, IMAGE_MIPMAP, &w0, &h0); snprintf(u0, sizeof u0, "%s", p->lb_last); t1 = 0; }
     }
     /* the picture's shape: the file's, narrowed by any black bars baked into it */
     float box[4] = { 0, 0, 1, 1 }, ar = 0;
     if (vi->width > 0 && vi->height > 0) ar = (float)vi->width / vi->height;
     else if (p->probe && p->probe->width > 0 && p->probe->height > 0) ar = (float)p->probe->width / p->probe->height;
-    else if (t0 && h0 > 0) ar = (float)w0 / h0;
+    else if (t0 && image_peek_ex(u0, IMAGE_PLAIN, &w0, &h0) && h0 > 0) ar = (float)w0 / h0;   /* the mipmapped copy is padded square-ish */
     if (t0) image_content_box(u0, box);
     if (ar > 0 && box[3] - box[1] > 0.2f && box[2] - box[0] > 0.2f) ar *= (box[2] - box[0]) / (box[3] - box[1]);
     float W = SNTV_UI_W, H = SNTV_UI_H, A = W / H, bar;
@@ -1211,7 +1212,9 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     p->lb_k += ((t0 ? 1.0f : 0.0f) - p->lb_k) * (step * 2.5f > 1 ? 1 : step * 2.5f);
     if (p->lb_k < 0.01f) return;
     float f = (float)((pos - s0) / 10.0); f = f < 0 ? 0 : f > 1 ? 1 : f * f * (3 - 2 * f);
-    const float depth = 0.24f;   /* how far into the picture the colours are taken from */
+    /* As if the picture filled the whole screen behind the video, heavily blurred:
+     * each bar shows the blurred edge of the picture beside it. */
+    const float soft = 6.5f;   /* mip bias: a 256px frame sampled from its 16px level */
     for (int pass = 0; pass < 2; pass++) {
         unsigned tex = pass ? t1 : t0;
         float a = p->lb_k * (pass ? f : 1);
@@ -1220,15 +1223,17 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
         float cw = box[2] - box[0], ch = box[3] - box[1];
         Color c = RGBA(255, 255, 255, (int)(255 * a));
         if (side == 1) {
-            gfx_tex_uv(tex, 0, 0, W, bar, box[0], box[1] + depth * ch, box[2], box[1], c);
-            gfx_tex_uv(tex, 0, H - bar, W, bar, box[0], box[3], box[2], box[3] - depth * ch, c);
+            float dv = ch * bar / H;
+            gfx_tex_blur(tex, 0, 0, W, bar, box[0], box[1], box[2], box[1] + dv, c, soft);
+            gfx_tex_blur(tex, 0, H - bar, W, bar, box[0], box[3] - dv, box[2], box[3], c, soft);
         } else {
-            gfx_tex_uv(tex, 0, 0, bar, H, box[0] + depth * cw, box[1], box[0], box[3], c);
-            gfx_tex_uv(tex, W - bar, 0, bar, H, box[2], box[1], box[2] - depth * cw, box[3], c);
+            float du = cw * bar / W;
+            gfx_tex_blur(tex, 0, 0, bar, H, box[0], box[1], box[0] + du, box[3], c, soft);
+            gfx_tex_blur(tex, W - bar, 0, bar, H, box[2] - du, box[1], box[2], box[3], c, soft);
         }
     }
     /* darker toward the screen's edge, a glow beside the picture */
-    int out = 0xD4, in = 0x18;   /* barely dimmed beside the picture: no seam where the bar meets it */
+    int out = 0x9C, in = 0x10;   /* barely dimmed beside the picture: no seam where the bar meets it */
     if (side == 1) {
         gfx_gradient_v(0, 0, W, bar, RGBA(0, 0, 0, out), RGBA(0, 0, 0, in));
         gfx_gradient_v(0, H - bar, W, bar, RGBA(0, 0, 0, in), RGBA(0, 0, 0, out));

@@ -291,7 +291,7 @@ static const char *row_desc(int id)
     case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
     case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
     case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
-    case IT_LETTERBOX: return "A film wider or narrower than the screen leaves black bars: its own colours glow softly in them instead, following the picture, and subtitles move into the bar below it.";
+    case IT_LETTERBOX: return "A film wider or narrower than the screen leaves black bars: a soft blur of the picture glows in them instead, following the scene, and subtitles move into the bar below it.";
     case IT_ADVISORY: return "When a video starts, its age rating and what it contains (violence, language, nudity...) show for a few seconds, from IMDb's parents guide.";
     case IT_NIGHT: return "Videos play quieter and subtitles one size larger, so late viewing stays easy to follow without waking anyone.";
     case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
