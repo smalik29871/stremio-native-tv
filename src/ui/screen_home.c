@@ -80,6 +80,8 @@ typedef struct {
     float phone_y, phone_yv;  /* upright on a phone: the page's scroll */
     UiPan phone_pan;
     UiPan hero_pan; float hero_x;   /* upright on a phone: the hero's pages, swiped across */
+    int hero_logged;
+    int ph_keyed;                     /* ...and arrow keys used (a keyboard, a remote): only then a focus shows and the page follows it */
     int phone_btn;            /* ...and on its feature card, Play (0) or Library (1) */
 } Home;
 
@@ -550,6 +552,7 @@ static void phone_scroll_page(Home *h, float dt)
             if (i == h->focus_row) { want = y + rh > room + h->phone_y ? y + rh - room + 20 : y - 40 < h->phone_y ? y - 40 : h->phone_y; break; }
             y += rh;
         }
+    if (!h->ph_keyed) want = h->phone_y;   /* by touch alone the page stays where the finger left it */
     if (want < 0 || h->focus_row == FOCUS_SHOWCASE) want = 0;
     float end = ph_rows_top(h);   /* the whole page, to the last row above the tab bar */
     for (int i = 0; i < h->n_rows; i++) if (row_visible(h->rows[i])) end += ph_row_h(h->rows[i]);
@@ -612,7 +615,7 @@ static void phone_row(Home *h, int ri, float y)
         for (int j = 0; j < r->n; j++) {
             float px = PH_X + j * (cw + PH_GAP) - r->scroll_x;
             if (px > SNTV_UI_W || px + cw < 0) continue;
-            int foc = focused_row && r->focus == j;
+            int foc = h->ph_keyed && focused_row && r->focus == j;
             if ((pass == 1) != foc) continue;
             const MetaPreview *m = &r->metas[j];
             const char *art = ph_land(r) ? app_art_background(m, buf, sizeof buf) : app_art_poster(m, buf, sizeof buf);
@@ -624,7 +627,7 @@ static void phone_row(Home *h, int ri, float y)
                 cw_label(m, px - (w2 - cw) / 2, cy - (h2 - ch) / 2 - ui_focus_lift(f), w2, h2);
             }
         }
-    if (see_all(r)) see_all_card(PH_X + r->n * (cw + PH_GAP) - r->scroll_x, cy, cw, ch, focused_row && r->focus == r->n ? 1 : 0, r->n, HIT_CARD(ri, r->n));
+    if (see_all(r)) see_all_card(PH_X + r->n * (cw + PH_GAP) - r->scroll_x, cy, cw, ch, h->ph_keyed && focused_row && r->focus == r->n ? 1 : 0, r->n, HIT_CARD(ri, r->n));
     gfx_set_alpha(1);
 }
 
@@ -685,6 +688,7 @@ static void ph_hero_draw(Home *h)
     const Row *r = featured_row(h);
     int n = featured_count(h);
     float W = SNTV_UI_W, H = PH_HERO_Y + PH_HERO_H;
+    if (!h->hero_logged) { h->hero_logged = 1; LOGI("home: the hero shows %d titles", n); }
     float drift = h->phone_y > 0 ? h->phone_y * 0.3f : 0;
     ui_pan_area(&h->hero_pan, 0, 0, W, PH_HERO_Y + PH_HERO_H - 170, 0);
     gfx_clip_push(0, 0, W, H);
@@ -698,7 +702,7 @@ static void ph_hero_draw(Home *h)
     gfx_gradient_v(0, 0, W, 240, RGBA(0, 0, 0, 0x99), RGBA(0, 0, 0, 0));   /* the header reads over any picture */
     gfx_gradient_v(0, H - 150, W, 152, COLOR_ALPHA(THEME_BG, 0), THEME_BG);   /* into the page, no edge */
     const MetaPreview *p = ph_hero(h);
-    int foc = h->focus_row == FOCUS_SHOWCASE;
+    int foc = h->ph_keyed && h->focus_row == FOCUS_SHOWCASE;
     float bh = 92, pw = W - 2 * PH_X - 80 - bh - 20;
     if (pw > 420) pw = 420;
     float bx = (W - pw - 20 - bh) / 2, by = H - 196;
@@ -766,6 +770,7 @@ static void phone_draw(Home *h)
 
 static int phone_key(Home *h, KeyAction a)
 {
+    if (a == KEY_UP || a == KEY_DOWN || a == KEY_LEFT || a == KEY_RIGHT) h->ph_keyed = 1;   /* touch never sends these on a phone */
     if (h->focus_row == FOCUS_SHOWCASE || h->focus_row < 0) {
         const MetaPreview *p = ph_hero(h);
         switch (a) {
@@ -822,12 +827,18 @@ static void update(Screen *s, float dt)
         h->lists_seen = lists_version();
     }
     int fetched = 0, nth_catalog = 0;
+    float ph_at = SNTV_PHONE ? ph_rows_top(h) : 0;   /* a phone: where each row sits on the page */
     for (int i = 0; i < h->n_rows && fetched < 4; i++) {
         int reach = g_app.low_memory ? 1 : 3, first = g_app.low_memory ? 3 : 5;
         int cat = h->rows[i]->kind == ROW_CATALOG;
         /* nothing focused yet: the first catalogs, counted past empty library and list rows
          * (Showcase waits for them to place its focus) */
         int near = h->focus_row < 0 ? cat && nth_catalog < first : (i >= h->focus_row - 1 && i <= h->focus_row + reach);
+        if (SNTV_PHONE) {   /* a finger scrolls without moving the focus: the rows in view and a screen below, and the hero's */
+            float room = SNTV_UI_H - PHONE_TABS_H;
+            near |= (cat && nth_catalog == 0) || (ph_at < h->phone_y + 2 * room && ph_at + 400 > h->phone_y);
+            if (row_visible(h->rows[i])) ph_at += ph_row_h(h->rows[i]);
+        }
         nth_catalog += cat;
         if (near && !h->rows[i]->requested && cat) { fetch_row(h->rows[i]); fetched++; }
     }
@@ -1254,7 +1265,7 @@ static int tap(Screen *s, int id)
 {
     Home *h = s->st;
     if (id == HIT_TOP) {
-        h->focus_row = ph_hero(h) ? FOCUS_SHOWCASE : next_visible(h, -1, 1);
+        h->focus_row = FOCUS_SHOWCASE;   /* the top of the page (Down from there goes to the first row) */
         h->phone_btn = 0;
         ui_pan_keys();   /* the page follows the focus up again */
         LOGI("home: back to the top");

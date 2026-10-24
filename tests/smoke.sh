@@ -1039,6 +1039,11 @@ run phone_discover_genre 300 "wait,wait,wait,tap:390:1660,wait,tap:100:464,wait,
 grep -q "explore: opened on Action" "$OUT/phone_discover_genre.log" || { echo "Discover's genre did not open Explore on it"; grep -E "search|explore" "$OUT/phone_discover_genre.log"; exit 1; }
 run phone_discover_title 300 "wait,wait,wait,tap:390:1660,wait,tap:390:940,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=detail HOME="$(home_with phdt '{"setupDone":1}')"
 grep -q "search: discover opens " "$OUT/phone_discover_title.log" || { echo "Discover's poster did not open its title"; exit 1; }
+# a phone with Continue Watching and a library: it opens at the top, the hero's catalog comes
+# (rows below the first screen once came only as the focus reached them, which a finger never moves)
+PHL="$(home_with phlib '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"; cp "$ROOT/tests/fixtures/library.json" "$PHL/.local/share/stremio/nativetv/library.json"
+run phone_home_library 300 "wait,wait,wait,wait,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$PHL"
+grep -q "home: the hero shows [1-9][0-9]* titles" "$OUT/phone_home_library.log" || { echo "with a library the phone's hero never came"; exit 1; }
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
 LS="SNTV_WINDOW=1000x450 SNTV_HANDHELD=1"
