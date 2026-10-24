@@ -143,6 +143,7 @@ struct Player {
     int seek_flash_step;                    /* seconds the last press moved (double on a double press) */
     float rest_t;                           /* paused and left alone: the controls fade, the title stays */
     int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
+    int zap; float zap_frac; int zap_placed; /* Zap's channel: quiet, its own banner; where in the film it lands */
     int tracked;                            /* Trakt was told this one started */
     /* fallback: what the viewer had on, carried to the next source */
     char keep_audio[16]; int keep_sub_kind, keep_sub_idx; char keep_sub_lang[16];   /* kind: 0 none, 1 addon file, 2 file track, 3 off */
@@ -238,7 +239,7 @@ static void go_up_next(Player *p);
  * may have lost the race or died since). */
 static void remember_playing(const Player *p)
 {
-    if (p->trailer || !p->meta.id || p->cur < 0 || !p->cands[p->cur].url) return;
+    if (p->trailer || p->zap || !p->meta.id || p->cur < 0 || !p->cands[p->cur].url) return;
     char key[160];
     snprintf(key, sizeof key, "resume:%s", p->meta.id);
     cJSON *o = cJSON_CreateObject();
@@ -300,7 +301,7 @@ static void report_ex(Player *p, int force, int scrobble)
 {
     VideoInfo vi;
     video_info(&vi);
-    if (p->trailer) return;
+    if (p->trailer || p->zap) return;   /* flicking past a title on Zap is not watching it */
     if (vi.duration > 0) p->known_dur = vi.duration;
     if (vi.state == VIDEO_IDLE || vi.state == VIDEO_LOADING || vi.state == VIDEO_ERROR) {   /* between sources: where it was headed */
         double at = resume_spot(p, &vi);
@@ -2227,6 +2228,16 @@ static void update(Screen *s, float dt)
     if (p->tb_held) { p->tb_held = 0; start_candidate(p, p->cur, p->tb_held_start); }   /* back on top: TorBox's answer starts now */
     VideoInfo vi;
     video_info(&vi);
+    if (p->zap) {
+        if (vi.state == VIDEO_ENDED || error_final(p, &vi)) { zap_channel_over(); return; }   /* over, or nothing of it plays */
+        /* the length is known now: land on the channel's moment if the guess missed the film */
+        if (!p->zap_placed && vi.state == VIDEO_PLAYING && vi.duration > 0) {
+            p->zap_placed = 1;
+            double want = vi.duration * p->zap_frac;
+            if (vi.position < 5 || vi.position > vi.duration * 0.6) { LOGI("player: zap lands at %.0f s of %.0f", want, vi.duration); video_seek(want); }
+            else LOGI("player: zap lands at %.0f s of %.0f (as asked)", vi.position, vi.duration);
+        }
+    }
     if (p->lb_side && p->lb_k > 0.01f && vi.state == VIDEO_PLAYING && g_app.time - p->lb_drawn > 0.25f) app_redraw();   /* the letterbox follows the picture, four times a second */
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
@@ -2252,7 +2263,7 @@ static void update(Screen *s, float dt)
     p->since_report += dt;
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
     if (vi.state == VIDEO_PLAYING && vi.position > 2 && !p->yt_noted) { p->yt_noted = 1; youtube_note_result(p->cands[p->cur].url, 1); }
-    if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0, 0); }
+    if (!p->tracked && !p->trailer && !p->zap && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0, 0); }
     if (p->seek_commit > 0) { p->seek_commit -= dt; if (p->seek_commit <= 0) video_seek(p->seek_target); }
 
     if (vi.tracks_version != p->last_tracks_version) { p->last_tracks_version = vi.tracks_version; app_redraw(); }
@@ -2307,7 +2318,7 @@ static void update(Screen *s, float dt)
     /* the first seek would wait seconds for the keyframe index: read it now, once playback
      * has settled, with one preview a minute ahead (not for P2P: the index sits at the end
      * of the file, which a torrent would then fetch first) */
-    if (!p->thumbs_warm && p->started && vi.state == VIDEO_PLAYING && !vi.buffering && !p->trailer && vi.duration > 120
+    if (!p->thumbs_warm && p->started && vi.state == VIDEO_PLAYING && !vi.buffering && !p->trailer && !p->zap && vi.duration > 120
         && g_app.time - p->load_started > env_s("SNTV_THUMBS_WARM_AFTER", 15) && p->cur < p->n_cands && !torrent_engine_url_is(p->cands[p->cur].url)) {
         p->thumbs_warm = 1;
         int tw, th;
@@ -2359,7 +2370,7 @@ static void update(Screen *s, float dt)
     /* the rating and what it contains, once the starting controls step aside, if IMDb
      * answered within the first twenty seconds */
     if (vi.state == VIDEO_PLAYING && !p->played_at) p->played_at = g_app.time;
-    if (p->played_at && !p->adv_at && !p->trailer && g_app.advisory && g_app.time - p->played_at > 1.5f && g_app.time - p->played_at < 20
+    if (p->played_at && !p->adv_at && !p->trailer && !p->zap && g_app.advisory && g_app.time - p->played_at > 1.5f && g_app.time - p->played_at < 20
         && g_app.time >= p->overlay_until && !p->menu) {
         const Advisory *adv = advisory_get(p->meta.id);
         char d[160] = "";
@@ -2410,7 +2421,7 @@ static void update(Screen *s, float dt)
     int settled = g_app.time - p->jumped_at > 8 && vi.state == VIDEO_PLAYING;
     if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; if (settled) p->stalls_here++; p->stall_since = g_app.time; }
     /* it keeps stopping to buffer: offer the best source below this one's resolution, once */
-    if (!p->lighter_offered && !p->trailer && p->n_cands > 1 && vi.state != VIDEO_LOADING
+    if (!p->lighter_offered && !p->trailer && !p->zap && p->n_cands > 1 && vi.state != VIDEO_LOADING
         && (p->stalls_here >= 3 || (settled && vi.buffering && p->stall_since > 0 && g_app.time - p->stall_since > 10))) {
         int cur = p->cands[p->cur].res ? p->cands[p->cur].res : 1081, best = -1;
         for (int i = 0; i < p->n_cands; i++)
@@ -3764,6 +3775,12 @@ static void draw(Screen *s)
     ui_hit(0, 0, SNTV_UI_W, SNTV_UI_H, 0x7FFFFF00);   /* a tap anywhere is OK, as before */
     draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
     if (!p->pip) draw_letterbox(p, &vi);
+    if (p->zap && !p->pip) {   /* a Zap channel: the picture, its subtitles and the channel's banner */
+        if (p->veil > 0) draw_veil(p, &vi);
+        if (p->veil < 0.5f) draw_subtitle(p, &vi);
+        zap_draw(vi.state == VIDEO_PLAYING && p->veil < 0.5f, vi.position);
+        return;
+    }
     if (p->veil > 0 && !p->pip) { draw_veil(p, &vi); if (p->veil > 0.5f && !p->menu) return; }
     draw_subtitle(p, &vi);
 
@@ -4798,7 +4815,7 @@ static void seek_by(Player *p, double base)
 /* Left mid-way: the island offers the title back for a while. */
 static void offer_resume(Player *p, const VideoInfo *vi)
 {
-    if (p->trailer) return;
+    if (p->trailer || p->zap) return;
     if (vi->duration < 120 || vi->position < 60 || vi->position > vi->duration * 0.92) return;
     char line[200];
     if (p->title && p->meta.name && strncmp(p->title, p->meta.name, strlen(p->meta.name)) != 0)
@@ -5357,6 +5374,7 @@ static int key(Screen *s, KeyAction a)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
+    if (p->zap && zap_key(a, vi.position)) return 1;   /* Zap has the remote but for play and pause */
     if (gfx_handheld() && !p->pip && p->ph_sheet) {   /* the open list takes Up, Down, OK and Back */
         PhRow r[PH_ROWS];
         int n = ph_rows(p, r);
@@ -5621,6 +5639,10 @@ static double welcome_back(Player *p, double start)
     return start;
 }
 
+static int g_zap_next; static float g_zap_frac;
+void player_zap_next(float frac) { g_zap_next = 1; g_zap_frac = frac; }
+void player_zap_end(Screen *s) { Player *p = s->st; p->zap = 0; p->tracked = 0; LOGI("player: off Zap, watching %s properly", p->meta.name ? p->meta.name : "it"); app_redraw(); }
+
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,
                              PlayCandidate *cands, int n_cands, int start_index, double start_s,
                              const char *next_video_id, const char *next_title)
@@ -5633,7 +5655,8 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->lighter_to = -1;
     p->jumped_at = -100;
     p->trailer = strncmp(video_id, "trailer:", 8) == 0;
-    if (!p->trailer) island_resume(NULL, NULL, 0);   /* watching again: nothing to offer back */
+    p->zap = g_zap_next; p->zap_frac = g_zap_frac; g_zap_next = 0;
+    if (!p->trailer && !p->zap) island_resume(NULL, NULL, 0);   /* watching again: nothing to offer back */
     meta_preview_copy(&p->meta, meta);
     p->video_id = strdup(video_id);
     p->title = strdup(title ? title : meta->name);
@@ -5653,8 +5676,8 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     g_live = p;
     s->name = "player"; s->st = p;
     s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 0;   /* a phone turns sideways to play */
-    if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
-    if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);
+    if (!p->trailer && !p->zap) { start_s = welcome_back(p, start_s); marks_load(p); }
+    if (!p->trailer && !p->zap && g_app.advisory) advisory_fetch(meta->id);
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);
     query_addon_subs(p);
     return s;

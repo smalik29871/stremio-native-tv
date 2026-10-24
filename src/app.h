@@ -344,6 +344,15 @@ void app_pip_close(void);
 /* About to play `video_id`: restores the corner player if it is that video (1),
  * otherwise closes it so the new video can have the plane (0). */
 int  app_pip_claim(const char *video_id);
+/* Zap: the watchlist as TV channels. The player plays a channel quietly (nothing saved or
+ * sent to Trakt), lands `frac` of the way in once it knows the length (unless the start
+ * given was right), draws Zap's banner and hands it the remote but for play and pause. */
+Screen *screen_zap_create(void);
+void player_zap_next(float frac);    /* the next player made is a Zap channel */
+void player_zap_end(Screen *s);      /* the viewer chose to watch on: a normal player from here */
+int  zap_key(KeyAction a, double position);   /* 1 when Zap used the key */
+void zap_draw(int playing, double position);  /* the banner and the OK card, over the picture */
+void zap_channel_over(void);         /* it ended, or nothing of it plays: on to the next channel */
 void player_set_pip(Screen *s, int on);
 void player_pip_update(Screen *s, float dt);
 void player_pip_draw(Screen *s, int focused);

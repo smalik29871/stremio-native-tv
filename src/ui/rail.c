@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *const LABELS[RAIL_COUNT] = { "Home", "Explore", "Search", "Library", "Calendar", "Settings", "Account" };
-static const Icon ICONS[RAIL_COUNT] = { ICON_HOME, ICON_COMPASS, ICON_SEARCH, ICON_LIBRARY, ICON_CALENDAR, ICON_SETTINGS, ICON_USER };
+static const char *const LABELS[RAIL_COUNT] = { "Home", "Explore", "Search", "Library", "Calendar", "Zap", "Settings", "Account" };
+static const Icon ICONS[RAIL_COUNT] = { ICON_HOME, ICON_COMPASS, ICON_SEARCH, ICON_LIBRARY, ICON_CALENDAR, ICON_TV, ICON_SETTINGS, ICON_USER };
 
 #define RAIL_STEP 88.0f
 
@@ -95,6 +95,7 @@ void rail_go(int active, int target)
     case RAIL_LIBRARY: if (active == RAIL_LIBRARY) return; s = screen_library_create(); break;
     case RAIL_CALENDAR: if (active == RAIL_CALENDAR) return; s = screen_calendar_create(); break;
     case RAIL_SEARCH: app_push(screen_search_create()); return;
+    case RAIL_ZAP: app_push(screen_zap_create()); return;
     case RAIL_SETTINGS: app_open_settings(); return;
     case RAIL_ACCOUNT: if (g_app.auth_key) app_open_settings(); else app_push(screen_login_create()); return;
     default: return;
