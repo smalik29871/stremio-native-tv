@@ -620,6 +620,7 @@ static void load_default_addons(void)
             }
         } else {   /* the first start, or one from before this TV kept the whole list */
             urls[n++] = catalog;
+            urls[n++] = STREAMING_CATALOGS_URL;   /* what each streaming service has, as rows */
             if (!opensubs_enabled()) urls[n++] = STREMIO_OPENSUBS_URL;   /* with a key the player asks OpenSubtitles itself */
             cJSON *extra = store_get_json("local_addons");   /* addons installed then: added to the defaults */
             cJSON_ArrayForEach(e, extra) if (cJSON_IsString(e) && n < DEFAULTS_MAX) urls[n++] = e->valuestring;

@@ -11,6 +11,9 @@ struct cJSON;
 #define STREMIO_API_URL      "https://api.strem.io"
 #define STREMIO_CINEMETA_URL "https://v3-cinemeta.strem.io/manifest.json"
 #define STREMIO_OPENSUBS_URL "https://opensubtitles-v3.strem.io/manifest.json"
+/* Streaming Catalogs (what is on Netflix, Disney+, Prime Video, Max, Apple TV+ and the rest, for Canada):
+ * installed with Cinemeta on a first start. Its address is its configuration, no account or key. */
+#define STREAMING_CATALOGS_URL "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/bmZ4LGRucCxhbXAsYXRwLGhibSxwbXAscGNwLGhsdSxzdHosdmlsLG5seix6ZWUsaGF5LGNsdixuZmssY3RzLG1nbCxjcnUsZ29wLGpocyxzc3QsY3BkLHZpayxzZ28sc29ueWxpdixkcGUsbWJpLGl0dixhY3QsYmJvLHNoZCxhbDQsbXA5LGNyYyxpcWksYmJjLHNoYTo6OjE3ODY4MjMwMjI4OTA6MDowOkNB/manifest.json"
 #define STREMIO_LIBRARY_COLLECTION "libraryItem"
 #define STREMIO_LINK_API_URL "https://link.stremio.com/api/v2"
 
