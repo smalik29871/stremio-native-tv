@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.69
+
+- **Sync with another device** (Settings > Accounts): the TV shows a code; scan it with your
+  phone's camera and tap Open in Cuelight. Then sync both ways, or make one like the other:
+  sign-ins, addons, library and progress, lists and ratings, with no account needed. Nothing
+  is removed on either side, and each title keeps the newer progress. It works on your home
+  network only, while the code is open. Trakt and SimKL connect on each device on its own.
+- **Search from your phone**: with nothing found yet, Search shows a code; scan it, type on
+  the phone, and the TV searches at once.
+- **Phones on their side**: a series' title page shows its whole episode row, and the page
+  and the episodes follow your finger.
+- **Living letterbox, softer**: the glow in the bars is dimmer than the picture and fades
+  toward the screen's edge, with a soft shadow where it meets the picture.
+- **LG TVs in Developer Mode**: the install package passes the TV's own check (it said
+  "ipk verified failed" on some models), and Update now installs through the TV's own
+  installer when there is no Homebrew Channel.
+
 ## 0.10.68
 
 - **Phones open Home at the top**: it opened scrolled down a little, the header cut off and
