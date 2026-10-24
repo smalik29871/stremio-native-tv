@@ -32,6 +32,7 @@ static volatile int g_quit;
 static char *g_log; static char g_log_key[20];   /* the log offered while Diagnostics shows its QR */
 static char *g_backup;            /* settings offered for download while the backup page is open */
 static char *g_restore; static int g_restore_open;   /* settings sent back from the phone */
+static char *g_sync_bundle, *g_sync_in; static char g_sync_key[40], g_sync_device[40];   /* Sync with another device */
 
 static void html_escape(const char *s, char *out, size_t n)
 {
@@ -513,6 +514,84 @@ static int handle_backup(int fd, char *req, ssize_t n)
     return 1;
 }
 
+static void url_encode(const char *s, char *out, size_t n)
+{
+    size_t o = 0;
+    for (; *s && o + 4 < n; s++) {
+        unsigned char c = (unsigned char)*s;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') out[o++] = (char)c;
+        else o += (size_t)snprintf(out + o, n - o, "%%%02X", c);
+    }
+    out[o] = 0;
+}
+
+/* Sync with another device: while its code shows, GET /sync/<key> is the page a phone's
+ * camera opens (it hands over to the Cuelight app), /sync/<key>/bundle this device's
+ * bundle and POST /sync/<key>/apply one to take in. Another key, or none open: nothing. */
+static int handle_sync(int fd, char *req, ssize_t n, const struct sockaddr_in *peer)
+{
+    int post = strncmp(req, "POST /sync/", 11) == 0;
+    if (!post && strncmp(req, "GET /sync/", 10) != 0) return 0;
+    const char *k = req + (post ? 11 : 10);
+    size_t kl = strcspn(k, "/ ?\r\n");
+    const char *rest = k + kl;
+    SDL_LockMutex(g_lock);
+    int ok = g_sync_key[0] && kl == strlen(g_sync_key) && strncmp(k, g_sync_key, kl) == 0;
+    char device[40]; snprintf(device, sizeof device, "%s", g_sync_device);
+    char *bundle = ok && !post && !strncmp(rest, "/bundle", 7) && g_sync_bundle ? strdup(g_sync_bundle) : NULL;
+    char key[40]; snprintf(key, sizeof key, "%s", g_sync_key);
+    SDL_UnlockMutex(g_lock);
+    char page[3000];
+    if (!ok) {
+        snprintf(page, sizeof page, "%s<h1>This code has expired</h1><p>Open Settings &gt; Sync with another device on the TV again and scan the new code.</p>", PAGE_HEAD);
+        respond(fd, "404 Not Found", page);
+        return 1;
+    }
+    char ip[64]; inet_ntop(AF_INET, &peer->sin_addr, ip, sizeof ip);
+    if (bundle) {
+        char head[300];
+        snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", strlen(bundle));
+        send_all(fd, head, strlen(head));
+        send_all(fd, bundle, strlen(bundle));
+        free(bundle);
+        LOGI("sync: sent this device's bundle to %s", ip);
+        return 1;
+    }
+    if (post && !strncmp(rest, "/apply", 6)) {
+        char *body = strstr(req, "\r\n\r\n");
+        const char *cl = ci_find(req, "Content-Length:");
+        long clen = cl ? atol(cl + 15) : 0;
+        if (!body || clen <= 0 || clen > 48L * 1024 * 1024) { respond_text(fd, "400 Bad Request", "no bundle"); return 1; }
+        body += 4;
+        long have = n - (body - req);
+        char *buf = malloc((size_t)clen + 1);
+        if (!buf) { respond_text(fd, "500 Internal Server Error", "no memory"); return 1; }
+        memcpy(buf, body, (size_t)(have < clen ? have : clen));
+        struct timeval tv = { 20, 0 };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        while (have < clen) { ssize_t m = recv(fd, buf + have, (size_t)(clen - have), 0); if (m <= 0) break; have += m; }
+        if (have < clen) { free(buf); respond_text(fd, "400 Bad Request", "the bundle was cut off"); return 1; }
+        buf[clen] = 0;
+        SDL_LockMutex(g_lock); free(g_sync_in); g_sync_in = buf; SDL_UnlockMutex(g_lock);
+        respond_text(fd, "200 OK", "{\"ok\":true}");
+        LOGI("sync: a bundle came from %s (%ld KB)", ip, clen / 1024);
+        return 1;
+    }
+    if (post || (*rest != ' ' && *rest != '?')) { respond_text(fd, "404 Not Found", "nothing here"); return 1; }
+    char base[96] = "", ub[300], fb[200], ed[120];
+    phone_url(base, sizeof base);
+    url_encode(base, ub, sizeof ub);
+    url_encode("https://github.com/smalik29871/cuelight-releases/releases/latest", fb, sizeof fb);
+    html_escape(device, ed, sizeof ed);
+    snprintf(page, sizeof page, "%s<h1>Sync with the %s</h1><p>Your sign-ins, addons, library, progress, lists and ratings, between this phone's Cuelight and the %s. Nothing is removed on either.</p>"
+             "<a href='intent://sync?u=%s&k=%s#Intent;scheme=cuelight;package=app.cuelight.tv;S.browser_fallback_url=%s;end'><button type=button>Open in Cuelight</button></a>"
+             "<p style='margin-top:22px'><small>No Cuelight on this phone? The button above gets it (Android). On an iPhone or a computer, use Settings &gt; Back up or restore settings on the TV instead.</small></p>",
+             PAGE_HEAD, ed, ed, ub, key, fb);
+    respond(fd, "200 OK", page);
+    LOGI("sync: the page opened on %s", ip);
+    return 1;
+}
+
 static int handle(int fd, const struct sockaddr_in *peer)
 {
     char req[8192];
@@ -520,6 +599,7 @@ static int handle(int fd, const struct sockaddr_in *peer)
     if (n <= 0) return 0;
     req[n] = 0;
     if (handle_backup(fd, req, n)) return 0;
+    if (handle_sync(fd, req, n, peer)) return 0;
     if (handle_log(fd, req)) return 0;
     if (strncmp(req, "GET /yt?", 8) == 0) {
         if (peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK) && queue_yt(fd, req)) return 1;
@@ -771,6 +851,43 @@ char *phone_take_restore(void)
     if (!g_lock) return NULL;
     SDL_LockMutex(g_lock);
     char *r = g_restore; g_restore = NULL;
+    SDL_UnlockMutex(g_lock);
+    return r;
+}
+
+int phone_offer_sync(const char *bundle, const char *device, char *url, size_t n)
+{
+    if (!g_lock) return 0;
+    SDL_LockMutex(g_lock);
+    free(g_sync_bundle); g_sync_bundle = bundle ? strdup(bundle) : NULL;
+    snprintf(g_sync_device, sizeof g_sync_device, "%s", device ? device : "");
+    if (!bundle) { g_sync_key[0] = 0; free(g_sync_in); g_sync_in = NULL; }
+    else if (!g_sync_key[0]) {   /* a new key each time the code opens: sign-ins go with the bundle */
+        unsigned char b[16];
+        FILE *f = fopen("/dev/urandom", "rb");
+        size_t got = f ? fread(b, 1, sizeof b, f) : 0;
+        if (f) fclose(f);
+        if (got != sizeof b) {
+            Uint64 x = SDL_GetPerformanceCounter() ^ ((Uint64)time(NULL) << 32);
+            for (size_t i = 0; i < sizeof b; i++) { x = x * 6364136223846793005ULL + 1442695040888963407ULL; b[i] = (unsigned char)(x >> 56); }
+        }
+        for (size_t i = 0; i < sizeof b; i++) snprintf(g_sync_key + i * 2, 3, "%02x", b[i]);
+        const char *fixed = getenv("SNTV_SYNC_KEY");   /* tests */
+        if (fixed && *fixed) snprintf(g_sync_key, sizeof g_sync_key, "%s", fixed);
+    }
+    char key[40]; snprintf(key, sizeof key, "%s", g_sync_key);
+    SDL_UnlockMutex(g_lock);
+    char base[96];
+    if (!bundle || !phone_url(base, sizeof base)) return 0;
+    snprintf(url, n, "%ssync/%s", base, key);
+    return 1;
+}
+
+char *phone_take_sync(void)
+{
+    if (!g_lock) return NULL;
+    SDL_LockMutex(g_lock);
+    char *r = g_sync_in; g_sync_in = NULL;
     SDL_UnlockMutex(g_lock);
     return r;
 }

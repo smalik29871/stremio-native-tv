@@ -60,7 +60,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -117,6 +117,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         st->n_accounts = app_saved_accounts(st->accounts, 8);
         for (int i = 0; i < st->n_accounts && n < max - 3; i++) ids[n++] = IT_ACCT_BASE + i;
         if (st->n_accounts && g_app.auth_key) ids[n++] = IT_ASK_PROFILE;
+        ids[n++] = IT_SYNC_DEVICES;
         ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
         SEC(SEC_SERVER); ids[n++] = IT_TORBOX; if (torbox_enabled()) ids[n++] = IT_TORBOX_FILES; ids[n++] = IT_SERVER;
         SEC(SEC_SUBS_ACCT); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN;
@@ -174,6 +175,7 @@ static const char *row_title(int id)
 {
     switch (id) {
     case IT_ACCOUNT: return "Sync with Stremio";
+    case IT_SYNC_DEVICES: return "Sync with another device";
     case IT_SERVER: return "Streaming server";
     case IT_PREF_AUDIO: return "Preferred audio";
     case IT_PREF_SUBS: return "Preferred subtitles";
@@ -284,6 +286,7 @@ static const char *row_desc(int id)
     case IT_ABOUT_APP: return SNTV_APP_NAME " is a fast player made for TVs, written from scratch in C for the TV's own hardware. It plays from addons in the open Stremio addon format, "
                               "has its own catalog of films and series (from TMDB), needs no account, and can sync with Stremio, Trakt and SimKL if you want it to. Not affiliated with Stremio.";
     case IT_WHATSNEW: return "This version's changes, as shown once after it was installed.";
+    case IT_SYNC_DEVICES: return "Scan a code with your phone: sign-ins, addons, library, progress, lists and ratings, between this " SNTV_APP_NAME " and another. No account needed.";
     case IT_ACCOUNT: if (g_app.auth_key) {
             static char d[300];
             snprintf(d, sizeof d, "Signed in as %s. Your addons, Library and Continue Watching follow that account; turning it off keeps them all on this TV.", g_app.user_email ? g_app.user_email : "your account");
@@ -868,6 +871,7 @@ static void draw(Screen *s)
         s_steps = scale_of(id, &s_step);
         s_chevron = !(id >= IT_ADDON_BASE && id < IT_ACCT_BASE);
         switch (id) {
+        case IT_SYNC_DEVICES: draw_row(y, ICON_SWAP, "Sync with another device", NULL, foc, KIND_ACTION, 0); break;
         case IT_ACCOUNT:
             draw_row(y, ICON_USER, "Sync with Stremio", NULL, foc, KIND_TOGGLE, g_app.auth_key != NULL);
             break;
@@ -1754,7 +1758,8 @@ static int key(Screen *s, KeyAction a)
     case KEY_RIGHT: adjust(st, id, 1); return 1;
     case KEY_BACK: st->cat_focus[st->cat] = st->focus; st->zone = 0; st->confirm_remove = -1; return 1;
     case KEY_OK:
-        if (id == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Stopped syncing. Your addons and Library stay on this TV."); } else app_push(screen_login_create()); }
+        if (id == IT_SYNC_DEVICES) app_push(screen_sync_create(NULL));
+        else if (id == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Stopped syncing. Your addons and Library stay on this TV."); } else app_push(screen_login_create()); }
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);
         else if (id == IT_DIAG) app_push(screen_diagnostics_create(0));

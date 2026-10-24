@@ -506,6 +506,7 @@ static void unloaded_clear(void) { while (g_n_unloaded) free(g_unloaded[--g_n_un
  * once its list arrives (the built-in catalog stays out: no other app could read it). */
 enum { DEFAULTS_MAX_MERGE = 32 };
 static char *g_merge[DEFAULTS_MAX_MERGE]; static int g_n_merge;
+static int g_quiet_installs;   /* addons a sync adds: no toast for each */
 
 void app_sync_begin(void)
 {
@@ -676,15 +677,17 @@ static void persist_local_addon_urls(void)
 static void on_install_manifest(HttpResponse *r, void *user)
 {
     char *url = user;
-    if (r->status != 200) { app_toast("Could not fetch addon: %s", r->error[0] ? r->error : "HTTP error"); free(url); return; }
+    int quiet = g_quiet_installs > 0;
+    if (quiet) g_quiet_installs--;
+    if (r->status != 200) { if (!quiet) app_toast("Could not fetch addon: %s", r->error[0] ? r->error : "HTTP error"); free(url); return; }
     Addon a;
-    if (addon_new(url, r->body, &a) != 0) { app_toast("Invalid addon manifest"); free(url); return; }
+    if (addon_new(url, r->body, &a) != 0) { if (!quiet) app_toast("Invalid addon manifest"); free(url); return; }
     for (int i = 0; i < g_app.n_addons; i++)
-        if (strcmp(g_app.addons[i].transport_url, url) == 0) { app_toast("Addon already installed"); addon_free(&a); free(url); return; }
+        if (strcmp(g_app.addons[i].transport_url, url) == 0) { if (!quiet) app_toast("Addon already installed"); addon_free(&a); free(url); return; }
     g_app.addons = realloc(g_app.addons, sizeof(Addon) * (size_t)(g_app.n_addons + 1));
     g_app.addons[g_app.n_addons++] = a;
     g_app.addons_version++;
-    app_toast("Installed %s", a.manifest.name);
+    if (!quiet) app_toast("Installed %s", a.manifest.name);
     free(url);
     if (g_app.auth_key) push_collection_to_account(); else persist_local_addon_urls();
 }
@@ -705,7 +708,16 @@ void app_open_links(void)
     if (g_app.time - looked < 0.5f) return;
     looked = g_app.time;
     char link[2048];
-    if (!video_take_open_url(link, sizeof link)) return;
+    static int env_done;
+    const char *env = env_done ? NULL : getenv("SNTV_OPEN_LINK");   /* tests: as if opened with this link */
+    env_done = 1;
+    if (env && *env) snprintf(link, sizeof link, "%s", env);
+    else if (!video_take_open_url(link, sizeof link)) return;
+    if (!strncmp(link, "cuelight://sync", 15)) {   /* a device's sync code, scanned on this phone */
+        LOGI("app: opened with a sync code");
+        app_push(screen_sync_create(strstr(link, "u=") ? link : NULL));   /* no device in it: this one's code */
+        return;
+    }
     char url[2100];
     if (!strncmp(link, "stremio://", 10)) snprintf(url, sizeof url, "https://%s", link + 10);
     else snprintf(url, sizeof url, "%s", link);
@@ -2475,6 +2487,231 @@ int app_restore_settings(const char *json)
     load_prefs();
     LOGI("settings: restored %d from a backup", n);
     return n;
+}
+
+/* ---- syncing with another device (Settings > Accounts > Sync with another device) ----
+ * A device's bundle: its sign-ins, addons, library and personal data (lists, ratings,
+ * marks), and apart from those its look and choices. Taking one in loses nothing here:
+ * addons and data are joined, and each title keeps the newer of the two progresses.
+ * With `with_look` its look and choices come too, and its sign-ins win where both have one. */
+
+static const char *const SYNC_DEVICE[] = { "tvCaps", "setupDone", "seenVersion", "updateHowToldFor", "updateNoInstaller", "updateToldFor",
+    "memoryMode", "fx", "fxAutoLight", "resCap", "ytPlays", "srcHealth", "deadLinks", "newEpSeen", "trackMemory", "homeFirstView",
+    "localAddons", "local_addons", "user", NULL };   /* this device's own: what it learned about itself */
+static const char *const SYNC_SIGNIN[] = { "authKey", "email", "accounts", "traktToken", "traktRefresh", "traktExpires", "traktLife",
+    "traktClientSecret", "simklToken", "simklRefresh", "simklExpires", "simklLife", "mdblistKey", "tmdbKey", "osApiKey", "osToken",
+    "osUser", "torboxKey", "aiProvider", "aiKey", "aiBase", "aiModel", NULL };
+static const char *const SYNC_DATA[] = { "lists", "ratings", "marks", "episodeMarks", NULL };
+
+static int in_list(const char *const *l, const char *k) { for (int i = 0; l[i]; i++) if (!strcmp(l[i], k)) return 1; return 0; }
+static int sync_is_data(const char *k) { return in_list(SYNC_DATA, k) || !strncmp(k, "lists:", 6); }
+
+const char *app_device_name(void)
+{
+#if defined(SNTV_PLATFORM_WEBOS)
+    return "LG TV";
+#elif defined(SNTV_PLATFORM_TIZEN)
+    return "Samsung TV";
+#elif defined(SNTV_PLATFORM_ANDROID)
+    return gfx_handheld() ? "Phone" : "Android TV";
+#else
+    return gfx_handheld() ? "Phone" : "Computer";
+#endif
+}
+
+char *app_sync_bundle(void)
+{
+    app_save_prefs();
+    app_library_flush(1);
+    cJSON *root = store_root(), *out = cJSON_CreateObject(), *it;
+    if (!out) return NULL;
+    cJSON_AddStringToObject(out, "_sync", "cuelight");
+    cJSON_AddStringToObject(out, "_version", SNTV_APP_VERSION);
+    cJSON_AddStringToObject(out, "device", app_device_name());
+    cJSON *prefs = cJSON_AddObjectToObject(out, "prefs"), *signin = cJSON_AddObjectToObject(out, "signin"), *data = cJSON_AddObjectToObject(out, "data");
+    cJSON_ArrayForEach(it, root) {
+        if (!it->string || in_list(SYNC_DEVICE, it->string)) continue;
+        cJSON *to = in_list(SYNC_SIGNIN, it->string) ? signin : sync_is_data(it->string) ? data : prefs;
+        cJSON_AddItemToObject(to, it->string, cJSON_Duplicate(it, 1));
+    }
+    cJSON *addons = cJSON_AddArrayToObject(out, "addons");
+    for (int i = 0; i < g_app.n_addons; i++) cJSON_AddItemToArray(addons, cJSON_CreateString(g_app.addons[i].transport_url));
+    for (int i = 0; i < g_n_unloaded; i++) cJSON_AddItemToArray(addons, cJSON_CreateString(g_unloaded[i]));
+    cJSON *lib = cJSON_AddArrayToObject(out, "library");
+    for (int i = 0; i < g_app.n_library; i++) cJSON_AddItemToArray(lib, library_item_to_json(&g_app.library[i]));
+    char *j = cJSON_PrintUnformatted(out);
+    cJSON_Delete(out);
+    return j;
+}
+
+/* the key that says a sign-in is there: a service's token, not its expiry */
+static const char *signin_lead(const char *k)
+{
+    if (!strcmp(k, "email")) return "authKey";
+    if (!strncmp(k, "trakt", 5)) return "traktToken";
+    if (!strncmp(k, "simkl", 5)) return "simklToken";
+    if (!strncmp(k, "os", 2)) return "osApiKey";
+    if (!strncmp(k, "ai", 2)) return "aiProvider";
+    return k;
+}
+
+static int has_value(const cJSON *v)
+{
+    return (cJSON_IsString(v) && v->valuestring[0]) || (cJSON_IsNumber(v) && v->valuedouble != 0) || cJSON_IsTrue(v) || ((cJSON_IsObject(v) || cJSON_IsArray(v)) && v->child);
+}
+
+/* theirs joined into mine: an object's keys I lack, an array's items I lack */
+static int join_json(cJSON *mine, const cJSON *theirs)
+{
+    int added = 0;
+    const cJSON *t;
+    if (cJSON_IsObject(mine) && cJSON_IsObject(theirs)) {
+        cJSON_ArrayForEach(t, theirs) {
+            cJSON *m = cJSON_GetObjectItemCaseSensitive(mine, t->string);
+            if (!m) { cJSON_AddItemToObject(mine, t->string, cJSON_Duplicate(t, 1)); added++; }
+            else if ((cJSON_IsObject(m) && cJSON_IsObject(t)) || (cJSON_IsArray(m) && cJSON_IsArray(t))) added += join_json(m, t);
+        }
+    } else if (cJSON_IsArray(mine) && cJSON_IsArray(theirs)) {
+        cJSON_ArrayForEach(t, theirs) {
+            const cJSON *m; int have = 0;
+            cJSON_ArrayForEach(m, mine) if (cJSON_Compare(m, t, 1)) { have = 1; break; }
+            if (!have) { cJSON_AddItemToArray(mine, cJSON_Duplicate(t, 1)); added++; }
+        }
+    }
+    return added;
+}
+
+int app_sync_apply(const char *json, int with_look, char *summary, size_t n)
+{
+    cJSON *in = cJSON_Parse(json), *it;
+    const cJSON *tag = in ? cJSON_GetObjectItemCaseSensitive(in, "_sync") : NULL;
+    if (!cJSON_IsString(tag) || strcmp(tag->valuestring, "cuelight") != 0) { cJSON_Delete(in); return -1; }
+    const cJSON *signin = cJSON_GetObjectItemCaseSensitive(in, "signin"), *prefs = cJSON_GetObjectItemCaseSensitive(in, "prefs");
+    const cJSON *data = cJSON_GetObjectItemCaseSensitive(in, "data"), *addons = cJSON_GetObjectItemCaseSensitive(in, "addons");
+    const cJSON *lib = cJSON_GetObjectItemCaseSensitive(in, "library");
+    int n_signins = 0, n_prefs = 0, n_data = 0, n_addons = 0, n_titles = 0;
+    char *old_key = g_app.auth_key ? strdup(g_app.auth_key) : NULL;
+
+    /* sign-ins: one I lack comes over; with their look, theirs wins */
+    cJSON_ArrayForEach(it, signin) {
+        if (!it->string || !in_list(SYNC_SIGNIN, it->string)) continue;
+        if (!strcmp(it->string, "accounts")) {
+            cJSON *mine = store_get_json("accounts");
+            if (!cJSON_IsArray(mine)) store_set_json("accounts", cJSON_Duplicate(it, 1));
+            else join_json(mine, it);
+            continue;
+        }
+        const char *lead = signin_lead(it->string);
+        if (!has_value(cJSON_GetObjectItemCaseSensitive(signin, lead))) continue;
+        int mine = has_value(cJSON_GetObjectItemCaseSensitive(store_root(), lead));
+        if (mine && !with_look) continue;
+        if (!strcmp(it->string, lead) && !cJSON_Compare(cJSON_GetObjectItemCaseSensitive(store_root(), lead), it, 1)) n_signins++;
+        store_set_json(it->string, cJSON_Duplicate(it, 1));
+    }
+    if (with_look) cJSON_ArrayForEach(it, prefs) {
+        if (!it->string || in_list(SYNC_DEVICE, it->string) || in_list(SYNC_SIGNIN, it->string) || sync_is_data(it->string)) continue;
+        store_set_json(it->string, cJSON_Duplicate(it, 1));
+        n_prefs++;
+    }
+    cJSON_ArrayForEach(it, data) {
+        if (!it->string || !sync_is_data(it->string)) continue;
+        cJSON *mine = store_get_json(it->string);
+        if (!mine) { store_set_json(it->string, cJSON_Duplicate(it, 1)); n_data += cJSON_GetArraySize(it); }
+        else n_data += join_json(mine, it);
+    }
+    store_save();
+    load_prefs();
+
+    /* a Stremio sign-in that came over: this device follows it, as signing in here would */
+    const char *key = store_get_str("authKey", NULL), *email = store_get_str("email", NULL);
+    int switched = key && (!old_key || strcmp(old_key, key) != 0);
+    if (switched) {
+        app_sync_begin();   /* this device's own addons join the account's */
+        free(g_app.auth_key); free(g_app.user_email);
+        g_app.auth_key = strdup(key);
+        g_app.user_email = email ? strdup(email) : NULL;
+        lists_set_owner(g_app.user_email);
+        g_account_gen++;
+        if (email) accounts_remember(email, key);
+    } else lists_set_owner(g_app.user_email);
+    free(old_key);
+
+    /* addons: theirs I lack join mine, after mine */
+    char *add[DEFAULTS_MAX]; int n_add = 0;
+    cJSON_ArrayForEach(it, addons) {
+        if (!cJSON_IsString(it) || n_add >= DEFAULTS_MAX) continue;
+        const char *u = it->valuestring;
+        int have = 0, catalog = addon_is_builtin(u) || !strcmp(u, STREMIO_CINEMETA_URL);
+        for (int i = 0; i < g_app.n_addons && !have; i++) {
+            const char *m = g_app.addons[i].transport_url;
+            have = !strcmp(m, u) || (catalog && (addon_is_builtin(m) || !strcmp(m, STREMIO_CINEMETA_URL)));   /* one catalog of titles is enough */
+        }
+        for (int i = 0; i < g_n_unloaded && !have; i++) have = !strcmp(g_unloaded[i], u);
+        if (!have) add[n_add++] = strdup(u);
+    }
+    n_addons = n_add;
+    if (g_app.auth_key) {
+        for (int i = 0; i < n_add; i++) {
+            if (switched && g_n_merge < DEFAULTS_MAX_MERGE) { g_merge[g_n_merge++] = add[i]; continue; }   /* once the account's list is in */
+            g_quiet_installs++;
+            app_install_addon(add[i]);
+            free(add[i]);
+        }
+    } else if (n_add) {
+        cJSON *arr = cJSON_CreateArray();
+        for (int i = 0; i < g_app.n_addons; i++) cJSON_AddItemToArray(arr, cJSON_CreateString(g_app.addons[i].transport_url));
+        for (int i = 0; i < g_n_unloaded; i++) cJSON_AddItemToArray(arr, cJSON_CreateString(g_unloaded[i]));
+        for (int i = 0; i < n_add; i++) { cJSON_AddItemToArray(arr, cJSON_CreateString(add[i])); free(add[i]); }
+        store_set_json("localAddons", arr);
+        store_set_json("local_addons", NULL);
+        store_save();
+    }
+
+    /* the library: a title I lack comes over; one we both have keeps the newer progress */
+    if (cJSON_IsArray(lib) && cJSON_GetArraySize(lib) > 0) {
+        cJSON *wrap = cJSON_CreateObject();
+        cJSON_AddItemReferenceToObject(wrap, "result", (cJSON *)lib);
+        char *txt = cJSON_PrintUnformatted(wrap);
+        cJSON_Delete(wrap);
+        LibraryItem *items = NULL; int ni = 0; ApiError err;
+        if (txt && api_parse_library(txt, &items, &ni, &err) == 0) {
+            for (int k = 0; k < ni; k++) {
+                LibraryItem *t = &items[k];
+                if (!t->id) continue;
+                LibraryItem *m = app_library_find(t->id);
+                if (m && m->mtime_ms >= t->mtime_ms) continue;
+                if (m) { LibraryItem x = *m; *m = *t; *t = x; push_library_item(m); }
+                else {
+                    g_app.library = realloc(g_app.library, sizeof(LibraryItem) * (size_t)(g_app.n_library + 1));
+                    g_app.library[g_app.n_library] = *t;
+                    memset(t, 0, sizeof *t);
+                    push_library_item(&g_app.library[g_app.n_library++]);
+                }
+                n_titles++;
+            }
+            library_items_free(items, ni);
+            if (n_titles) { save_library_cache(); app_library_flush(1); app_redraw(); }
+        } else LOGW("sync: their library could not be read");
+        free(txt);
+    }
+    if (switched) { app_load_addons(); app_load_library(); }   /* the account's, with what came over joined in */
+    else if (!g_app.auth_key && n_add) app_load_addons();
+    cJSON_Delete(in);
+
+    char parts[5][48]; int np = 0;
+    if (n_signins) snprintf(parts[np++], 48, "%d sign-in%s", n_signins, n_signins == 1 ? "" : "s");
+    if (n_addons) snprintf(parts[np++], 48, "%d addon%s", n_addons, n_addons == 1 ? "" : "s");
+    if (n_titles) snprintf(parts[np++], 48, "%d title%s", n_titles, n_titles == 1 ? "" : "s");
+    if (n_data) snprintf(parts[np++], 48, "%d list or rating entr%s", n_data, n_data == 1 ? "y" : "ies");
+    if (n_prefs) snprintf(parts[np++], 48, "the look and choices");
+    summary[0] = 0;
+    for (int i = 0; i < np; i++) {
+        size_t L = strlen(summary);
+        snprintf(summary + L, n - L, "%s%s", i == 0 ? "" : i == np - 1 ? " and " : ", ", parts[i]);
+    }
+    if (!np) snprintf(summary, n, "already the same");
+    LOGI("sync: took in %d sign-ins, %d addons, %d titles, %d entries%s", n_signins, n_addons, n_titles, n_data, with_look ? ", the look" : "");
+    return np;
 }
 
 void app_play_link(const char *url)

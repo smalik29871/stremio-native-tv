@@ -46,6 +46,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="stremio" />
             </intent-filter>
+            <!-- another device's sync code (Settings > Sync with another device), via the page it opens -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cuelight" android:host="sync" />
+            </intent-filter>
         </activity>
         <provider
             android:name="androidx.core.content.FileProvider"

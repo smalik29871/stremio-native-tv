@@ -280,6 +280,13 @@ void app_tv_learn(unsigned needs, int worked);
 /* Settings backup without the sign-in or what this TV learned (malloc'd JSON), and back:
  * returns how many settings were restored, -1 when the text is not a backup. */
 char *app_backup_settings(void);
+/* Sync with another device: this device's bundle (sign-ins, addons, library, lists and
+ * ratings, look) and taking one in (nothing here is removed; with_look its look and choices
+ * come too and its sign-ins win). Returns how many kinds of things came, -1 not a bundle;
+ * summary says what, for people. */
+const char *app_device_name(void);   /* "LG TV", "Phone"... */
+char *app_sync_bundle(void);
+int  app_sync_apply(const char *json, int with_look, char *summary, size_t n);
 int  app_restore_settings(const char *json);
 /* Plays a direct video link (sent from a phone); nothing is saved against a title. */
 void app_play_link(const char *url);
@@ -299,6 +306,7 @@ const MetaPreview *app_details_cached(const char *type, const char *id);      /*
 Screen *screen_home_create(void);
 Screen *screen_explore_create(void);   /* catalogs by type, catalog and genre */
 Screen *screen_explore_create_genre(const char *genre);   /* ...open on the first list that has this genre */
+Screen *screen_sync_create(const char *link);   /* NULL: show this device's code; a cuelight://sync link: sync with that device */
 Screen *screen_library_create(void);   /* the account's library as a grid */
 Screen *screen_calendar_create(void);  /* upcoming and recent episodes of library series */
 Screen *screen_detail_create(const MetaPreview *preview);

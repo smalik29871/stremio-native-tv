@@ -358,10 +358,24 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest_known.
 # the TV's own keyboard (Settings, on by default on the TV): opened while typing only, its Enter
 # searches, and the next OK opens the title (it does not bring the keyboard back)
 # Search keeps the phone page open (not only while typing): text sent from a phone searches at once
-( for i in $(seq 1 20); do sleep 0.5; curl -s -m 2 -d 'text=breaking%20bad' http://127.0.0.1:11471/ 2>/dev/null | grep -q "Sent to the TV" && break; done ) &
+( for i in $(seq 1 20); do sleep 0.5; curl -s -m 2 -d 'text=breaking%20bad' http://127.0.0.1:11471/ 2>/dev/null | grep -q "Sent to the TV" && break; done ) & PHONE_POST=$!
 run search_from_phone 360 "search,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_PHONE_HOST=192.168.1.20 HOME="$(home_with sfp '{"setupDone":1}')"
-wait
+wait $PHONE_POST   # only it: a bare wait waits for the fake addon too
 grep -q 'search: "breaking bad" from a phone' "$OUT/search_from_phone.log" || { echo "text sent from the phone did not search"; grep -E "search|phone" "$OUT/search_from_phone.log"; exit 1; }
+# Sync with another device: one shows its code; the other, opened with the code's link, syncs both ways.
+# The one showing the code has a title with progress and a rating; the other an MDBList key and one more addon.
+SYH="$(home_with synch '{"setupDone":1,"ratings":{"":{"tt0111161":{"r":9,"t":1729700000}}}}')"
+printf '%s' '{"result":[{"_id":"tt0111161","name":"The Shawshank Redemption","type":"movie","removed":false,"temp":false,"_ctime":"2026-10-01T00:00:00.000Z","_mtime":"2026-10-20T00:00:00.000Z","state":{"lastWatched":"2026-10-20T00:00:00.000Z","timeOffset":600000,"duration":8520000,"timeWatched":600000,"timesWatched":0,"flaggedWatched":0,"video_id":"tt0111161"}}]}' > "$SYH/.local/share/stremio/nativetv/library.json"
+SYC="$(home_with syncc '{"setupDone":1,"mdblistKey":"md123"}')"
+( run sync_host 1800 "left,down,down,down,down,down,ok,up,ok,t:sync with another,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_PHONE_HOST=127.0.0.1 SNTV_SYNC_KEY=synctest HOME="$SYH" ) & SYNC_HOST=$!
+for i in $(seq 1 150); do grep -q "sync: showing" "$OUT/sync_host.log" 2>/dev/null && break; sleep 0.2; done
+run sync_client 500 "wait,wait,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_NO_PHONE=1 SNTV_EXPECT_SCREEN=sync SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/scope/manifest.json" SNTV_OPEN_LINK="cuelight://sync?u=http%3A%2F%2F127.0.0.1%3A$(grep -o 'page at http://[0-9.]*:[0-9]*' "$OUT/sync_host.log" | grep -o '[0-9]*$')%2F&k=synctest" HOME="$SYC"
+wait $SYNC_HOST
+grep -q "sync: took in 0 sign-ins, 0 addons, 1 titles, 1 entries" "$OUT/sync_client.log" && grep -q "sync: sent this device's bundle to" "$OUT/sync_client.log" \
+  || { echo "the phone did not take in the TV's title and rating"; grep -E "sync|app:" "$OUT/sync_client.log"; exit 1; }
+grep -q "sync: took in 1 sign-ins, 1 addons, 0 titles, 0 entries" "$OUT/sync_host.log" || { echo "the TV did not take in the phone's sign-in and addon"; grep sync "$OUT/sync_host.log"; exit 1; }
+grep -qE '"mdblistKey":[[:space:]]*"md123"' "$SYH/.local/share/stremio/nativetv/settings.json" && grep -q 'scope/manifest.json' "$SYH/.local/share/stremio/nativetv/settings.json" \
+  && grep -q 'tt0111161' "$SYC/.local/share/stremio/nativetv/library.json" || { echo "the synced setup was not saved"; exit 1; }
 run search_tv_keyboard 420 "search,ok,t:breaking,wait,wait,ok,wait,ok,wait,wait" HOME="$(home_with tvkb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')"
 grep -q "search: typing with the TV's keyboard" "$OUT/search_tv_keyboard.log" && grep -q "UI check: screen=detail" "$OUT/search_tv_keyboard.log" \
   || { echo "typing with the TV's keyboard did not search and open the title"; grep -E "search|detail|screen" "$OUT/search_tv_keyboard.log"; exit 1; }
