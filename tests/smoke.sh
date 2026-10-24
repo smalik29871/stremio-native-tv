@@ -1010,8 +1010,8 @@ grep -q "ratings: tt[0-9]* rated 9/10" "$OUT/rate_title.log" && grep -q "ratings
 # Back leaves it unrated
 run rate_back 500 "right,right,ok,wait,right,right,right,right,right,right,ok,wait,right,back,wait" HOME="$(home_with rate_back '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 ! grep -q "ratings: tt[0-9]* rated" "$OUT/rate_back.log" || { echo "Back saved a rating"; exit 1; }
-# an episode, from the hold-OK sheet: Rate this episode, two half stars fewer
-run rate_episode 800 "right,ok,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,left,left,ok,wait" HOME="$(home_with rate_ep '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+# an episode, from the hold-OK sheet: Rate this episode, two half stars fewer (the waits: its episodes in first, on a busy machine)
+run rate_episode 860 "right,ok,wait,wait,wait,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,left,left,ok,wait" HOME="$(home_with rate_ep '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "ratings: tt[0-9]*:[0-9]*:[0-9]* rated 6/10" "$OUT/rate_episode.log" || { echo "the episode rating was not saved"; grep ratings "$OUT/rate_episode.log"; exit 1; }
 run rate_phone 300 "right,right,ok,wait" $PH
 # the soundtrack on the title page: the two albums of it (not a band or a 1979 film's of the same name), all the tracks on OK
@@ -1022,7 +1022,7 @@ run music_album 560 "right,ok,wait,wait,wait,down,down,down,down,down,down,right
 grep -q "music: album Breaking Bad: Music from the Original TV Series (12 tracks)" "$OUT/music_album.log" || { echo "the album did not open"; grep music "$OUT/music_album.log"; exit 1; }
 # sent to Trakt and SimKL when connected: an episode to Trakt only (SimKL rates films and shows)
 : > "$FAKE_TRACK_LOG"
-run rate_synced 800 "right,ok,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,right,right,ok,wait,wait" HOME="$(home_with rate_sync "$TK2")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
+run rate_synced 860 "right,ok,wait,wait,wait,down,down,right,hold,$HOLD,release,down,down,down,down,down,down,down,down,ok,wait,right,right,ok,wait,wait" HOME="$(home_with rate_sync "$TK2")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
 grep -q 'trakt /sync/ratings {"shows":\[{"ids":{"imdb":"tt[0-9]*"},"seasons":\[{"number":[0-9]*,"episodes":\[{"number":[0-9]*,"rating":10}' "$FAKE_TRACK_LOG" && grep -q "trakt: rating saved" "$OUT/rate_synced.log" && ! grep -q "^simkl /sync/ratings" "$FAKE_TRACK_LOG" \
   || { echo "the episode rating did not reach Trakt alone"; cat "$FAKE_TRACK_LOG"; grep -E "ratings|trakt|simkl" "$OUT/rate_synced.log"; exit 1; }
 # the loading screen: the backdrop as a wash, the format, the logo, the ring, the episode and what is happening
