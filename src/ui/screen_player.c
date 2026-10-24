@@ -1243,39 +1243,31 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
 }
 
 #define LB_FADE_S 0.8f   /* a new one fades in over the last */
-#define LB_SEAM 12.0f    /* the join with the picture: feathered this far either side */
+#define LB_GROW 1.18f    /* the frame behind the screen, this much larger than it */
+#define LB_BLUR 5.6f     /* mip levels of blur: its colours, none of its shapes */
 
-/* One frame into the bars, as if the picture went on past its edge: each bar is the
- * picture's own edge mirrored outwards (the row beside the picture is the picture's last
- * row) and blurred, and the join is feathered a little way into the picture, so the glow
- * grows out of the image with no line between them. */
+/* One frame into the bars. */
 static void lb_paint(unsigned tex, const char *url, int side, float bar, float a)
 {
+    /* as a lamp behind the screen (YouTube's ambient mode): the whole frame, a little larger
+     * than the screen and blurred to its colours alone, shows past the picture's edges. No
+     * shapes of it, mirrored or not: those read as a reflection beside the picture. */
     float box[4] = { 0, 0, 1, 1 };
     image_content_box(url, box);
-    /* the rows where a frame's own black bars meet the picture are part black (a small
-     * frame, scaled): start a little inside, or each join shows a dark line */
-    if (side == 1) { float in = (box[3] - box[1]) * 0.02f; box[1] += in; box[3] -= in; }
-    else { float in = (box[2] - box[0]) * 0.02f; box[0] += in; box[2] -= in; }
     float W = SNTV_UI_W, H = SNTV_UI_H, cw = box[2] - box[0], ch = box[3] - box[1];
-    Color c = RGBA(255, 255, 255, (int)(255 * a)), seam = RGBA(255, 255, 255, (int)(150 * a)), none = RGBA(255, 255, 255, 0);
+    float rw = W * LB_GROW, rh = H * LB_GROW, rx = (W - rw) / 2, ry = (H - rh) / 2;   /* where the whole frame lies, enlarged */
+    Color c = RGBA(215, 215, 215, (int)(255 * a));
+#define LB_U(x) (box[0] + ((x) - rx) / rw * cw)
+#define LB_V(y) (box[1] + ((y) - ry) / rh * ch)
     if (side == 1) {
-        float pic = H - 2 * bar, d = ch * (bar / pic < 0.12f ? bar / pic : 0.12f), e = ch * LB_SEAM / pic;
-        gfx_tex_blur(tex, 0, 0, W, bar, box[0], box[1] + d, box[2], box[1], c, 4.5f);                   /* above: the top rows, upwards */
-        gfx_tex_blur(tex, 0, H - bar, W, bar, box[0], box[3], box[2], box[3] - d, c, 4.5f);             /* below: the bottom rows, downwards */
-        gfx_tex_blur4(tex, 0, bar - LB_SEAM, W, LB_SEAM, box[0], box[1] + e, box[2], box[1], none, none, seam, seam, 2.0f);
-        gfx_tex_blur4(tex, 0, bar, W, LB_SEAM, box[0], box[1], box[2], box[1] + e, seam, seam, none, none, 2.0f);
-        gfx_tex_blur4(tex, 0, H - bar - LB_SEAM, W, LB_SEAM, box[0], box[3] - e, box[2], box[3], none, none, seam, seam, 2.0f);
-        gfx_tex_blur4(tex, 0, H - bar, W, LB_SEAM, box[0], box[3], box[2], box[3] - e, seam, seam, none, none, 2.0f);
+        gfx_tex_blur(tex, 0, 0, W, bar, LB_U(0), LB_V(0), LB_U(W), LB_V(bar), c, LB_BLUR);
+        gfx_tex_blur(tex, 0, H - bar, W, bar, LB_U(0), LB_V(H - bar), LB_U(W), LB_V(H), c, LB_BLUR);
     } else {
-        float pic = W - 2 * bar, d = cw * (bar / pic < 0.12f ? bar / pic : 0.12f), e = cw * LB_SEAM / pic;
-        gfx_tex_blur(tex, 0, 0, bar, H, box[0] + d, box[1], box[0], box[3], c, 4.5f);
-        gfx_tex_blur(tex, W - bar, 0, bar, H, box[2], box[1], box[2] - d, box[3], c, 4.5f);
-        gfx_tex_blur4(tex, bar - LB_SEAM, 0, LB_SEAM, H, box[0] + e, box[1], box[0], box[3], none, seam, none, seam, 2.0f);
-        gfx_tex_blur4(tex, bar, 0, LB_SEAM, H, box[0], box[1], box[0] + e, box[3], seam, none, seam, none, 2.0f);
-        gfx_tex_blur4(tex, W - bar - LB_SEAM, 0, LB_SEAM, H, box[2] - e, box[1], box[2], box[3], none, seam, none, seam, 2.0f);
-        gfx_tex_blur4(tex, W - bar, 0, LB_SEAM, H, box[2], box[1], box[2] - e, box[3], seam, none, seam, none, 2.0f);
+        gfx_tex_blur(tex, 0, 0, bar, H, LB_U(0), LB_V(0), LB_U(bar), LB_V(H), c, LB_BLUR);
+        gfx_tex_blur(tex, W - bar, 0, bar, H, LB_U(W - bar), LB_V(0), LB_U(W), LB_V(H), c, LB_BLUR);
     }
+#undef LB_U
+#undef LB_V
 }
 
 static void draw_letterbox(Player *p, const VideoInfo *vi)
