@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.68
+
+- **Phones open Home at the top**: it opened scrolled down a little, the header cut off and
+  the first card framed, as the page followed a focus a phone has no use for. The focus now
+  shows (and the page follows it) only once arrow keys are used; by touch the page stays
+  where your finger leaves it.
+- **Rows further down Home load as you scroll** on phones: they came only as the focus got
+  near them, which a finger never moves, so with Continue Watching and a library above them
+  they could stay grey (and the hero with them).
+- **New users start with Streaming Catalogs** beside Cinemeta: rows of what is on Netflix,
+  Disney+, Prime Video, Max, Apple TV+ and the other services. Settings > Home rows hides
+  or reorders them; people already using the app keep their own addons.
+
 ## 0.10.67
 
 - **Phones, new look**: Home's hero runs edge to edge from the top and fades into the page,
