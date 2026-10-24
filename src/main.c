@@ -229,6 +229,11 @@ static void dev_hooks(SDL_Window *win, int frame)
         SDL_PushEvent(&e);
     }
     const char *script = getenv("SNTV_KEYS");
+    if (script) {   /* keys still to come: keep drawing, so they come every 20 frames of a steady rate (a bare playing picture draws only a few a second) */
+        int n = 1;
+        for (const char *c = script; *c; c++) n += *c == ',';
+        if (frame / 20 < n || drag.left > 0) app_redraw();
+    }
     if (script && frame % 20 == 10) {
         int idx = frame / 20;
         char *copy = strdup(script);
