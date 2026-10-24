@@ -10,9 +10,10 @@
   when a subtitle line changes (and four times a second for the small things), not every
   frame, leaving the TV free for the remote and the network. The screensaver draws at most
   thirty frames a second. Diagnostics > Speed also shows how much each screen paints.
-- **Depth makes way**: when the TV is short of memory or its storage is nearly full, Depth
-  turns itself off and lets its maps go; it comes back by itself once there is room again
-  (Settings says when it is off and why).
+- **Depth makes way**: with the memory saver on, memory tight, or the TV's storage nearly
+  full, Depth turns itself off and lets its maps go; it comes back by itself a couple of
+  minutes after there is room again (with the saver on for good, it stays off). Settings
+  says when it is off and why.
 - The loading card reads episode titles like "S1 E2 - Title" correctly.
 
 ## 0.10.64
