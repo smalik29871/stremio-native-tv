@@ -178,6 +178,7 @@ int  app_transition_active(void);
 /* --- data --- */
 void app_load_addons(void);                    /* from account or defaults; caches to disk */
 void app_install_addon(const char *transport_url); /* fetches manifest, adds, pushes to account */
+void app_open_links(void);   /* every frame: an addon link the app was opened with (Android) installs */
 void app_remove_addon(int index);
 int  app_move_addon(int index, int dir);
 /* Saved accounts (every successful sign-in is kept, so switching needs no password). */

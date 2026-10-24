@@ -672,6 +672,10 @@ int main(int argc, char **argv)
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN;
     int w = 1280, h = 720;
 #if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN) || defined(SNTV_PLATFORM_ANDROID)
+#ifdef SNTV_PLATFORM_ANDROID
+    if (getenv("SNTV_HANDHELD")) flags |= SDL_WINDOW_RESIZABLE;   /* a phone: between its status and navigation bars (the player hides them) */
+    else
+#endif
     flags |= SDL_WINDOW_FULLSCREEN;
     SDL_DisplayMode dm;
     if (SDL_GetCurrentDisplayMode(0, &dm) == 0) { w = dm.w; h = dm.h; }
@@ -876,6 +880,7 @@ int main(int argc, char **argv)
         app_library_flush(0);
         mem_tick(dt);
         app_update_check(dt);
+        app_open_links();
         { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */

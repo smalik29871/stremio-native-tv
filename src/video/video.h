@@ -63,6 +63,8 @@ void video_subtitle_style(int size, int style, const char *colour, int position,
 
 /* A phone: only sideways (1) while the screen on top has no upright layout, else either way. */
 void video_landscape_only(int on);
+/* A link the app was opened with since the last call (a stremio:// addon), copied to out: 1, else 0. */
+int  video_take_open_url(char *out, size_t n);
 /* A phone: picture in picture, the video in a small window over other apps. allow: a video
  * is playing, so leaving the app (Home) takes it along; enter: now (1 if it went); in: it is
  * in that small window now (the app then draws no controls). 0 where there is none. */

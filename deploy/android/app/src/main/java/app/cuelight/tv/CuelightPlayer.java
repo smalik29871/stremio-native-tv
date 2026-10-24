@@ -250,11 +250,35 @@ public final class CuelightPlayer {
     static void onUserLeaving() { if (sPipAllowed && Build.VERSION.SDK_INT < 31) pipEnter(); }
     static void onPipChanged(boolean in) { sInPip = in; Log.i(TAG, in ? "picture in picture" : "picture in picture: full screen again"); }
 
-    /* a phone: sideways only, or as it is held */
+    /* a phone: sideways only, or as it is held. Sideways is the player: the status and
+     * navigation bars go (a swipe from the edge shows them a moment); upright they stay, the
+     * app drawn between them, so the system's gestures never land on the app's own buttons. */
     public static void landscapeOnly(final boolean on) {
-        run(() -> sActivity.setRequestedOrientation(on ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                                       : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER));
+        run(() -> {
+            sActivity.setRequestedOrientation(on ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                                 : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER);
+            systemBars(!on);
+        });
     }
+
+    @SuppressWarnings("deprecation")
+    static void systemBars(boolean shown) {
+        if (sActivity.getResources().getConfiguration().smallestScreenWidthDp >= 600) return;   /* TVs and tablets: full screen throughout, as before */
+        View decor = sActivity.getWindow().getDecorView();
+        if (shown) {
+            decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_VISIBLE);
+            sActivity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        } else {
+            decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+            sActivity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        }
+    }
+
+    /* A link the app was opened with (a stremio:// addon, a manifest address), once. */
+    private static volatile String sOpenUrl;
+    static void offerUrl(String url) { if (url != null && !url.isEmpty()) { sOpenUrl = url; Log.i(TAG, "opened with a link"); } }
+    public static String takeOpenUrl() { String u = sOpenUrl; sOpenUrl = null; return u; }
 
     /* the phone's media volume, 0..1 (the player's controls; no system slider pops up) */
     public static float deviceVolume() {

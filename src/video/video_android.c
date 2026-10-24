@@ -12,7 +12,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -21,7 +21,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "tracks", "(I)[Ljava/lang/String;" }, { "landscapeOnly", "(Z)V" },
     { "deviceVolume", "()F" }, { "setDeviceVolume", "(F)V" }, { "brightness", "()F" }, { "setBrightness", "(F)V" },
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
-    { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" },
+    { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -90,6 +90,21 @@ void video_set_display_rect(int x, int y, int w, int h) { CALL(M_RECT, (jint)x, 
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 void video_landscape_only(int on) { CALL(M_LANDSCAPE, (jboolean)(on != 0)); }
+
+int video_take_open_url(char *out, size_t n)
+{
+    JNIEnv *e = env();
+    if (!e || !n) return 0;
+    jstring s = (jstring)(*e)->CallStaticObjectMethod(e, g_cls, g_m[M_TAKE_URL]);
+    clear(e);
+    if (!s) return 0;
+    const char *c = (*e)->GetStringUTFChars(e, s, NULL);
+    int ok = c && *c;
+    if (ok) snprintf(out, n, "%s", c);
+    if (c) (*e)->ReleaseStringUTFChars(e, s, c);
+    (*e)->DeleteLocalRef(e, s);
+    return ok;
+}
 void video_pip_allow(int on) { static int was = -1; if (on != was) { was = on; CALL(M_PIP_ALLOW, (jboolean)(on != 0)); } }
 static int get_bool(int m)
 {

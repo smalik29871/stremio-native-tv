@@ -149,7 +149,8 @@ void video_select_track(TrackKind kind, int index)
     g_info.tracks_version++;
 }
 
-void video_landscape_only(int on) { (void)on; }   /* TVs and the desktop do not turn */
+void video_landscape_only(int on) { (void)on; }
+int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }   /* only Android is opened with links */   /* TVs and the desktop do not turn */
 void video_pip_allow(int on) { (void)on; }   /* no picture in picture on a TV or the desktop */
 int  video_pip_enter(void) { return 0; }
 int  video_in_pip(void) { return 0; }

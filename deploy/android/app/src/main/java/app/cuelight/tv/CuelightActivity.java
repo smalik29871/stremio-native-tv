@@ -1,6 +1,9 @@
 package app.cuelight.tv;
 
+import android.content.Intent;
 import android.content.res.Configuration;
+import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -24,6 +27,17 @@ public class CuelightActivity extends SDLActivity {
         } catch (ErrnoException ignored) { }
         super.onCreate(savedInstanceState);
         if (mLayout != null && mSurface != null) CuelightPlayer.attach(this, mLayout, mSurface);
+        if (getResources().getConfiguration().smallestScreenWidthDp < 600 && Build.VERSION.SDK_INT >= 21) {   // a phone keeps its bars: dark, like the app
+            getWindow().setStatusBarColor(Color.BLACK);
+            getWindow().setNavigationBarColor(Color.BLACK);
+        }
+        CuelightPlayer.offerUrl(getIntent() != null ? getIntent().getDataString() : null);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        CuelightPlayer.offerUrl(intent != null ? intent.getDataString() : null);
     }
 
     @Override

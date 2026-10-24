@@ -695,6 +695,28 @@ void app_install_addon(const char *transport_url)
     http_request_async(url, NULL, on_install_manifest, strdup(url));
 }
 
+/* Opened with an addon's install link (stremio://host/.../manifest.json, as addon pages offer):
+ * it installs, as Settings > Addons would. Only the host goes in the log: an addon's address
+ * often carries its configuration, a debrid key among it. */
+void app_open_links(void)
+{
+    static float looked;
+    if (g_app.time - looked < 0.5f) return;
+    looked = g_app.time;
+    char link[2048];
+    if (!video_take_open_url(link, sizeof link)) return;
+    char url[2100];
+    if (!strncmp(link, "stremio://", 10)) snprintf(url, sizeof url, "https://%s", link + 10);
+    else snprintf(url, sizeof url, "%s", link);
+    const char *h = strstr(url, "://");
+    h = h ? h + 3 : url;
+    int hl = (int)strcspn(h, "/?#");
+    if (strncmp(url, "http", 4) != 0 || !strstr(url, "manifest.json")) { LOGI("app: opened with a link that is no addon (%.*s)", hl, h); return; }
+    LOGI("app: opened with an addon's install link (%.*s)", hl, h);
+    app_toast("Installing the addon from the link");
+    app_install_addon(url);
+}
+
 void app_remove_addon(int i)
 {
     if (i < 0 || i >= g_app.n_addons) return;
