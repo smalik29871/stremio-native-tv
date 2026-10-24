@@ -430,6 +430,7 @@ static void destroy(Screen *s)
     font_digits_free();
     if (g_amb_live == a) g_amb_live = NULL;
     if (a->fv_state == 2) video_stop();
+    video_hold_screensaver(0);
     free(a->heat); free(a->px);
     free(a);
     free(s);
@@ -443,6 +444,7 @@ Screen *screen_ambient_create(void)
     a->shown_at = g_app.time;
     a->lx = SNTV_UI_W * 0.3f; a->ly = SNTV_UI_H * 0.35f; a->lvx = 90; a->lvy = 64;
     g_amb_live = a;
+    video_hold_screensaver(1);   /* this is the screensaver now: the TV's would cover it after its own wait */
     if (g_app.ambient_style == AMBIENT_FIRE) fv_start(a);
     if (g_app.ambient_style == AMBIENT_CLOCK) font_digits_load();
     LOGI("ambient: %s screensaver with %d backdrops%s%s", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n,

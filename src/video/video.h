@@ -85,6 +85,9 @@ void video_app_foreground(void);
 /* A start under way with no video loaded yet (the next episode's sources being found):
  * the TV's own screensaver waits, as it does for a playing video. */
 void video_keep_awake(int on);
+/* The app's own screensaver is up (the fireplace, a clock): the TV's must not take over
+ * from it. Kept apart from video_keep_awake, which the sources list sets and clears. */
+void video_hold_screensaver(int on);
 /* Paused by a video_pause() call (the viewer, the app going to the background, a break),
  * not a stall that the TV reports as a pause (LG does). */
 int video_paused_on_purpose(void);

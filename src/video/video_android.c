@@ -114,7 +114,9 @@ float video_device_volume(void) { return get_float(M_DEV_VOL); }
 int   video_set_device_volume(float v) { if (!env()) return 0; CALL(M_SET_DEV_VOL, (jfloat)v); return 1; }
 float video_brightness(void) { return get_float(M_BRIGHT); }
 int   video_set_brightness(float v) { if (!env()) return 0; CALL(M_SET_BRIGHT, (jfloat)v); return 1; }
-void video_keep_awake(int on) { CALL(M_AWAKE, (jboolean)(on != 0)); }
+static int g_awake, g_saver_held;
+void video_keep_awake(int on) { g_awake = on; CALL(M_AWAKE, (jboolean)(g_awake || g_saver_held)); }
+void video_hold_screensaver(int on) { g_saver_held = on; CALL(M_AWAKE, (jboolean)(g_awake || g_saver_held)); }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 
 /* Updating itself comes in a later milestone (PackageInstaller); until then the release page. */

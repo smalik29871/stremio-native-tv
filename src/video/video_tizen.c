@@ -94,6 +94,7 @@ void video_set_display_rect(int x, int y, int w, int h) { if (g_player) player_s
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 void video_keep_awake(int on) { (void)on; }
+void video_hold_screensaver(int on) { (void)on; }
 int video_paused_on_purpose(void) { return 1; }   /* a pause here is always asked for */
 
 /* No installer on this platform: updates come from its store. */

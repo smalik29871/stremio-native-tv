@@ -78,6 +78,7 @@ void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (voi
 void video_app_background(void) { js_video_pause(); }
 void video_app_foreground(void) {}
 void video_keep_awake(int on) { (void)on; }
+void video_hold_screensaver(int on) { (void)on; }
 int video_paused_on_purpose(void) { return 1; }   /* a pause here is always asked for */
 
 /* No installer on this platform: updates come from its store. */
