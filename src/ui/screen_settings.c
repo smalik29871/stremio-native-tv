@@ -59,7 +59,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY, IT_LETTERBOX,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -125,7 +125,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_PLAYBACK:
         SEC(SEC_EPISODES); ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP;
-        SEC(SEC_PLAYER); ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; if (g_app.clock_mode != 2) ids[n++] = IT_ISLAND_STYLE; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; ids[n++] = IT_NIGHT; ids[n++] = IT_ADVISORY; ids[n++] = IT_PLAY_LINK; ids[n++] = IT_BUFFER;
+        SEC(SEC_PLAYER); ids[n++] = IT_PIP; ids[n++] = IT_CLOCK; if (g_app.clock_mode != 2) ids[n++] = IT_ISLAND_STYLE; ids[n++] = IT_SCRUB; ids[n++] = IT_THUMBS; ids[n++] = IT_LETTERBOX; ids[n++] = IT_NIGHT; ids[n++] = IT_ADVISORY; ids[n++] = IT_PLAY_LINK; ids[n++] = IT_BUFFER;
         break;
     case CAT_PARENTAL: ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; } break;
     case CAT_LANG:
@@ -192,6 +192,7 @@ static const char *row_title(int id)
     case IT_SKIP: return "Skip intros and recaps";
     case IT_NIGHT: return "Night mode";
     case IT_ADVISORY: return "Content advisory";
+    case IT_LETTERBOX: return "Living letterbox";
     case IT_SUBS_WHEN: return "Turn subtitles on";
     case IT_CLOCK: return "Clock";
     case IT_ISLAND_STYLE: return "Clock style";
@@ -290,6 +291,7 @@ static const char *row_desc(int id)
     case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
     case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
     case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
+    case IT_LETTERBOX: return "A film wider or narrower than the screen leaves black bars: its own colours glow softly in them instead, following the picture, and subtitles move into the bar below it.";
     case IT_ADVISORY: return "When a video starts, its age rating and what it contains (violence, language, nudity...) show for a few seconds, from IMDb's parents guide.";
     case IT_NIGHT: return "Videos play quieter and subtitles one size larger, so late viewing stays easy to follow without waking anyone.";
     case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
@@ -628,6 +630,7 @@ static PreviewKind preview_for(int id)
     case IT_HIDE_WATCHED: return PV_HIDE_WATCHED;
     case IT_BLUR: return PV_BLUR;
     case IT_ADVISORY: return PV_ADVISORY;
+    case IT_LETTERBOX: return PV_LETTERBOX;
     case IT_FX: return PV_FX;
     case IT_OLED: return PV_OLED;
     case IT_RES_CAP: return PV_RES_CAP;
@@ -881,6 +884,7 @@ static void draw(Screen *s)
         case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
         case IT_SKIP: draw_row(y, ICON_NEXT, "Skip intros and recaps", SKIP_NAMES[g_app.skip_mode], foc, KIND_CHOICE, 0); break;
         case IT_ADVISORY: draw_row(y, ICON_INFO, "Content advisory", NULL, foc, KIND_TOGGLE, g_app.advisory); break;
+        case IT_LETTERBOX: draw_row(y, ICON_ASPECT, "Living letterbox", NULL, foc, KIND_TOGGLE, g_app.living_letterbox); break;
         case IT_NIGHT: draw_row(y, ICON_MOON, "Night mode", g_app.night_mode == 2 ? "Always" : g_app.night_mode ? "11 pm to 6 am" : "Off", foc, KIND_CHOICE, 0); break;
         case IT_SUBS_WHEN: draw_row(y, ICON_GLOBE, "Turn subtitles on", g_app.subs_always ? "Always" : "Only for other languages", foc, KIND_CHOICE, 0); break;
         case IT_CLOCK: draw_row(y, ICON_CLOCK, "Clock", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0); break;
@@ -1629,6 +1633,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_AMBIENT: g_app.ambient_minutes = step_move(AMBIENT_STEPS, N_OF(AMBIENT_STEPS), g_app.ambient_minutes, 0, dir); break;
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     case IT_ADVISORY: g_app.advisory = !g_app.advisory; break;
+    case IT_LETTERBOX: g_app.living_letterbox = !g_app.living_letterbox; break;
     case IT_AMBIENT_STYLE: g_app.ambient_style = (g_app.ambient_style + dir + AMBIENT_STYLE_COUNT) % AMBIENT_STYLE_COUNT; break;
     default:
         if (id >= IT_ACCT_BASE) return 0;   /* switching and forgetting are behind OK */

@@ -36,6 +36,7 @@ typedef struct Img {
     size_t bytes;
     unsigned last_used, ready_at;
     unsigned tint;
+    float box[4];          /* the picture inside black bars baked into it (x0, y0, x1, y1, 0..1) */
     unsigned req;
     int from_disk;
     int need_net;          /* the decoder found no disk copy: fetch it */
@@ -101,6 +102,25 @@ static unsigned average_tint(const unsigned char *px, int w, int h)
         if (c[k] > 255) c[k] = 255;
     }
     return ((unsigned)c[0] << 24) | ((unsigned)c[1] << 16) | ((unsigned)c[2] << 8) | 0xFFu;
+}
+
+/* Where the picture is inside black bars baked into the image (a scope film framed in
+ * 16:9): rows and columns from each edge whose brightest pixel stays near black. A dark
+ * scene is not bars: they must be even on both sides and leave most of the picture. */
+static void content_box(const unsigned char *px, int w, int h, float box[4])
+{
+    box[0] = box[1] = 0; box[2] = box[3] = 1;
+    if (w < 16 || h < 16) return;
+    #define LUMA(x, y) ((px[((size_t)(y) * w + (x)) * 4] * 3 + px[((size_t)(y) * w + (x)) * 4 + 1] * 6 + px[((size_t)(y) * w + (x)) * 4 + 2]) / 10)
+    int sx = w / 48 + 1, sy = h / 48 + 1, top = 0, bot = 0, left = 0, right = 0;
+    for (; top < h / 3; top++) { int mx = 0; for (int x = 0; x < w; x += sx) { int l = LUMA(x, top); if (l > mx) mx = l; } if (mx > 26) break; }
+    for (; bot < h / 3; bot++) { int mx = 0; for (int x = 0; x < w; x += sx) { int l = LUMA(x, h - 1 - bot); if (l > mx) mx = l; } if (mx > 26) break; }
+    for (; left < w / 3; left++) { int mx = 0; for (int y = 0; y < h; y += sy) { int l = LUMA(left, y); if (l > mx) mx = l; } if (mx > 26) break; }
+    for (; right < w / 3; right++) { int mx = 0; for (int y = 0; y < h; y += sy) { int l = LUMA(w - 1 - right, y); if (l > mx) mx = l; } if (mx > 26) break; }
+    #undef LUMA
+    int even_v = top > h / 25 && bot > h / 25 && abs(top - bot) <= h / 30 + 1, even_h = left > w / 25 && right > w / 25 && abs(left - right) <= w / 30 + 1;
+    if (even_v) { box[1] = (float)(top + 1) / h; box[3] = 1 - (float)(bot + 1) / h; }   /* a row in: the edge is smeared toward black */
+    if (even_h) { box[0] = (float)(left + 1) / w; box[2] = 1 - (float)(right + 1) / w; }
 }
 
 static void disk_path(const Img *i, char *out, size_t n)
@@ -230,6 +250,7 @@ static int decoder_main(void *arg)
             }
             px = shrink(px, &w, &h, i->flags & IMAGE_MIPMAP ? 512 : g_max_dim);
             i->tint = average_tint(px, w, h);
+            content_box(px, w, h, i->box);
             if (i->flags & IMAGE_MIPMAP) px = to_pot(px, &w, &h);
             i->pixels = px; i->w = w; i->h = h;
         } else {
@@ -352,6 +373,14 @@ unsigned image_tint(const char *url)
     if (!url || !*url) return 0;
     Img *i = find(url);
     return i && i->state == IMG_READY ? i->tint : 0;
+}
+
+int image_content_box(const char *url, float box[4])
+{
+    Img *i = url && *url ? find(url) : NULL;
+    if (!i || i->state != IMG_READY) return 0;
+    memcpy(box, i->box, sizeof i->box);
+    return 1;
 }
 
 unsigned image_get_ex(const char *url, ImageFlags flags, int *w, int *h, unsigned *age)

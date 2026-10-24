@@ -24,6 +24,9 @@ int  image_pending(const char *url);   /* being fetched or decoded now */
 /* Average colour of a loaded image (saturated a little), 0 if not loaded yet.
  * Used to tint the ambient glow behind the hero, like Apple TV does. */
 unsigned image_tint(const char *url);
+/* Where the picture sits inside black bars baked into a loaded image (x0, y0, x1, y1 as
+ * fractions; 0 0 1 1 when it has none). 0 while it is not loaded. */
+int image_content_box(const char *url, float box[4]);
 void image_pump(void);          /* call once per frame on the main thread */
 void image_frame_tick(void);    /* advances the LRU clock */
 int  image_busy(void);          /* decodes or uploads pending (keeps the loop awake) */

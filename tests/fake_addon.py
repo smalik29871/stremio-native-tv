@@ -383,6 +383,9 @@ class H(BaseHTTPRequestHandler):
         longseason = p.startswith("/longseason/")   # one season of 26 episodes: its range chips
         if longseason:
             p = p[11:]
+        scope = p.startswith("/scope/")   # its sources are scope films framed in 16:9 (black bars in the picture): the living letterbox
+        if scope:
+            p = p[6:]
         # an iTunes store stand-in: two soundtrack albums of Breaking Bad among names that only look alike
         if p.startswith("/itunes/search"):
             term = urllib.parse.parse_qs(urllib.parse.urlparse(p).query).get("term", [""])[0].lower()
@@ -691,6 +694,8 @@ class H(BaseHTTPRequestHandler):
                 app_extras={"cast": [{"name": n, "character": c, "photo": f"{BASE}/tmdbimg/p{i}.png"} for i, (n, c) in enumerate(
                     [("Tim Robbins", "Andy Dufresne"), ("Morgan Freeman", "Ellis Boyd 'Red' Redding"), ("Bob Gunton", "Warden Norton"), ("William Sadler", "Heywood")])]})}).encode())
         if p.startswith("/stream/"):
+            if scope:
+                return self.send(200, json.dumps({"streams": [dict(st, url=st["url"] + ("&" if "?" in st["url"] else "?") + "scope=1") if st.get("url") else st for st in STREAMS["streams"]]}).encode())
             return self.send(200, json.dumps(STREAMS).encode())
         if p.startswith("/introdb/media"):
             # TheIntroDB v4 shape: intro from the start to 60 s, credits at 50 min
@@ -1011,6 +1016,12 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
         if p.startswith("/thumbs/frame"):   # the seek preview server (tools/thumbs) stands in
             t = int(float(p.split("t=")[1].split("&")[0])) if "t=" in p else 0
+            if "scope%3D1" in p and HAVE_PIL:   # a 2.39:1 picture with the bars baked into a 16:9 frame
+                from PIL import Image as _I
+                pic = _I.open(io.BytesIO(art("bg", (t // 10) % 6))).resize((1280, 536))
+                frame = _I.new("RGB", (1280, 720)); frame.paste(pic, (0, 92))
+                b = io.BytesIO(); frame.save(b, "JPEG", quality=85)
+                return self.send(200, b.getvalue(), "image/jpeg")
             return self.send(200, art("bg", (t // 10) % 6, f"{t // 60}:{t % 60:02d}"), "image/png")
         if p.startswith("/poster/") or p.startswith("/bg/"):
             i = int(p.rsplit("/", 1)[1].split(".")[0])

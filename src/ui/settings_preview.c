@@ -248,6 +248,25 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         caption(g_app.advisory ? "For a few seconds as a video starts, from IMDb's parents guide" : "Videos start without it", x, base + 6, w);
         return;
     }
+    case PV_LETTERBOX: {   /* a scope film on a 16:9 screen: the bars black, or glowing with its colours */
+        float bh = sh * 0.17f;
+        gfx_rrect(sx, sy, sw, sh, R_KEY, RGBA(0, 0, 0, 0xFF));
+        if (g_app.living_letterbox) {
+            gfx_clip_push(sx, sy, sw, sh);
+            art(sx, sy - bh * 0.6f, sw, sh + bh * 1.2f, R_KEY, 4, 1);   /* the picture's edges, softened into the bars */
+            gfx_gradient_v(sx, sy, sw, bh, RGBA(0, 0, 0, 0xD8), RGBA(0, 0, 0, 0x50));
+            gfx_gradient_v(sx, sy + sh - bh, sw, bh, RGBA(0, 0, 0, 0x50), RGBA(0, 0, 0, 0xD8));
+            gfx_clip_pop();
+        }
+        art(sx, sy + bh, sw, sh - 2 * bh, 0, 4, 0);
+        const char *line = "I'll be right here.";
+        int fs = FONT_XS | FONT_B;
+        float ty = g_app.living_letterbox ? sy + sh - bh / 2 - font_height(fs) / 2 : sy + sh - bh - font_height(fs) - 14;
+        font_draw_center(line, sx + sw / 2 + 1, ty + 1, fs, RGBA(0, 0, 0, 0xC0));
+        font_draw_center(line, sx + sw / 2, ty, fs, RGBA(0xFF, 0xFF, 0xFF, 0xF0));
+        caption(g_app.living_letterbox ? "The bars glow with the film's colours; subtitles sit in them" : "Black bars, subtitles over the picture", x, base + 6, w);
+        return;
+    }
     case PV_BLUR: {
         float gap = 16, cw = (sw - 2 * gap) / 3, ch = cw * 0.5625f, cy = sy + (sh - ch) / 2 - 10;
         for (int i = 0; i < 3; i++) {

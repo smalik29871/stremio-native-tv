@@ -93,6 +93,8 @@ struct Player {
     float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
     float fs_until;           /* sideways on a phone: the controls show until */
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
+    float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
+    char lb_last[2048];       /* the last frame it had, shown while the next one comes */
     float ov_k, ov_kt;        /* the TV overlay the same way: it fades in, the bar rising into place */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
     float tch_x0, tch_y0; double tch_pos0;
@@ -1154,6 +1156,90 @@ static unsigned seek_thumb(const Player *p, double t, int *w, int *h, int prefet
     return image_get(url, w, h);
 }
 
+/* ---- living letterbox: a film wider or narrower than the screen leaves black bars; the
+ * picture's own edges, from a small frame decoded every ten seconds (as the seek
+ * previews are), are stretched softly into them and dimmed toward the screen's edge,
+ * fading from one frame to the next. A few redraws a second, never every frame. ---- */
+static int lb_frame_url(const Player *p, long sec, char *url, size_t n)
+{
+    if (p->cur >= p->n_cands || !p->cands[p->cur].url || strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
+    char enc[1600], rel[1800];
+    http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
+    if (g_app.thumb_server && *g_app.thumb_server) { snprintf(url, n, "%s/frame?url=%s&t=%ld", g_app.thumb_server, enc, sec); return 1; }
+    if (!frames_supported()) return 0;
+    snprintf(rel, sizeof rel, "frame?t=%ld&w=160&u=%s", sec, enc);
+    return phone_local_url(rel, url, n);
+}
+
+static void draw_letterbox(Player *p, const VideoInfo *vi)
+{
+    p->lb_bar = 0; p->lb_side = 0;
+    if (!g_app.living_letterbox || p->pip || p->aspect != ASPECT_FIT || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return;
+    double pos = p->seek_commit > 0 ? p->seek_target : vi->position;
+    long s0 = (long)(pos / 10) * 10;
+    char u0[2048], u1[2048];
+    int have_url = lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s0 + 10, u1, sizeof u1);
+    int w0 = 0, h0 = 0, w1 = 0, h1 = 0, light = g_app.fx_light;
+    unsigned t0 = 0, t1 = 0;
+    if (have_url && !light) {
+        int seeking = p->seek_commit > 0;   /* the seek previews have the TV's decoder then */
+        t0 = seeking ? image_peek(u0, &w0, &h0) : image_get(u0, &w0, &h0);
+        t1 = seeking ? image_peek(u1, &w1, &h1) : image_get(u1, &w1, &h1);   /* the next one, asked ahead */
+        if (t0) snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
+        else if (p->lb_last[0]) { t0 = image_peek(p->lb_last, &w0, &h0); snprintf(u0, sizeof u0, "%s", p->lb_last); t1 = 0; }
+    }
+    /* the picture's shape: the file's, narrowed by any black bars baked into it */
+    float box[4] = { 0, 0, 1, 1 }, ar = 0;
+    if (vi->width > 0 && vi->height > 0) ar = (float)vi->width / vi->height;
+    else if (p->probe && p->probe->width > 0 && p->probe->height > 0) ar = (float)p->probe->width / p->probe->height;
+    else if (t0 && h0 > 0) ar = (float)w0 / h0;
+    if (t0) image_content_box(u0, box);
+    if (ar > 0 && box[3] - box[1] > 0.2f && box[2] - box[0] > 0.2f) ar *= (box[2] - box[0]) / (box[3] - box[1]);
+    float W = SNTV_UI_W, H = SNTV_UI_H, A = W / H, bar;
+    int side;
+    if (ar > A * 1.04f) { side = 1; bar = (H - W / ar) / 2; }
+    else if (ar > 0 && ar < A / 1.04f) { side = 2; bar = (W - H * ar) / 2; }
+    else return;
+    if (bar < 36) return;
+    p->lb_bar = bar; p->lb_side = side;
+    if (!p->lb_logged) { p->lb_logged = 1; LOGI("player: living letterbox, bars of %.0f %s (picture %.2f:1)", bar, side == 1 ? "above and below" : "at the sides", ar); }
+    if (light || !have_url) return;   /* the bars stay black; subtitles still move into them */
+    /* fade in once a frame is here, out when there is none */
+    float step = g_app.time - p->lb_kt;
+    p->lb_kt = g_app.time;
+    if (step > 0.5f) step = 0.5f;
+    p->lb_k += ((t0 ? 1.0f : 0.0f) - p->lb_k) * (step * 2.5f > 1 ? 1 : step * 2.5f);
+    if (p->lb_k < 0.01f) return;
+    float f = (float)((pos - s0) / 10.0); f = f < 0 ? 0 : f > 1 ? 1 : f * f * (3 - 2 * f);
+    const float depth = 0.24f;   /* how far into the picture the colours are taken from */
+    for (int pass = 0; pass < 2; pass++) {
+        unsigned tex = pass ? t1 : t0;
+        float a = p->lb_k * (pass ? f : 1);
+        if (!tex || a < 0.01f) continue;
+        if (pass) image_content_box(u1, box);
+        float cw = box[2] - box[0], ch = box[3] - box[1];
+        Color c = RGBA(255, 255, 255, (int)(255 * a));
+        if (side == 1) {
+            gfx_tex_uv(tex, 0, 0, W, bar, box[0], box[1] + depth * ch, box[2], box[1], c);
+            gfx_tex_uv(tex, 0, H - bar, W, bar, box[0], box[3], box[2], box[3] - depth * ch, c);
+        } else {
+            gfx_tex_uv(tex, 0, 0, bar, H, box[0] + depth * cw, box[1], box[0], box[3], c);
+            gfx_tex_uv(tex, W - bar, 0, bar, H, box[2], box[1], box[2] - depth * cw, box[3], c);
+        }
+    }
+    /* darker toward the screen's edge, a glow beside the picture */
+    int out = 0xD4, in = 0x18;   /* barely dimmed beside the picture: no seam where the bar meets it */
+    if (side == 1) {
+        gfx_gradient_v(0, 0, W, bar, RGBA(0, 0, 0, out), RGBA(0, 0, 0, in));
+        gfx_gradient_v(0, H - bar, W, bar, RGBA(0, 0, 0, in), RGBA(0, 0, 0, out));
+    } else {
+        gfx_gradient_h(0, 0, bar, H, RGBA(0, 0, 0, out), RGBA(0, 0, 0, in));
+        gfx_gradient_h(W - bar, 0, bar, H, RGBA(0, 0, 0, in), RGBA(0, 0, 0, out));
+    }
+    p->lb_drawn = g_app.time;
+    if (fabsf(p->lb_k - (t0 ? 1.0f : 0.0f)) > 0.01f) app_redraw();
+}
+
 /* Chapter containing `pos` (-1 none) */
 static int chapter_at(const Player *p, double pos)
 {
@@ -2134,6 +2220,7 @@ static void update(Screen *s, float dt)
     if (p->tb_held) { p->tb_held = 0; start_candidate(p, p->cur, p->tb_held_start); }   /* back on top: TorBox's answer starts now */
     VideoInfo vi;
     video_info(&vi);
+    if (p->lb_side && p->lb_k > 0.01f && vi.state == VIDEO_PLAYING && g_app.time - p->lb_drawn > 0.25f) app_redraw();   /* the letterbox follows the picture, four times a second */
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
     if (p->tap_pending) app_redraw();
@@ -2367,6 +2454,7 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
         if (g_app.subs_pos == 2 && bottom < tb + 24 + lh) bottom = tb + 24 + lh * 2;   /* yours at the top too: under it */
         ui_subtitle(top, tb, sub_size(p), g_app.subs_style);
     }
+    if (g_app.subs_pos == 0 && p->lb_side == 1 && p->lb_bar >= 90) bottom = SNTV_UI_H - p->lb_bar * 0.2f;   /* in the bar under a scope picture */
     if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && !subs_tuning(p) && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
     int r = subs_tuning(p) ? p->subs_row : -1;
     if (!text && !text2 && p->embedded_text_sel < 0 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS))
@@ -3060,6 +3148,14 @@ static void draw_video_area(Player *p, float x, float y, float w, float h)
         if (z > 1) { float cu = (u0 + u1) / 2, cv = (v0 + v1) / 2; u0 = cu - (cu - u0) / z; u1 = cu + (u1 - cu) / z; v0 = cv - (cv - v0) / z; v1 = cv + (v1 - cv) / z; }
         gfx_tex_uv(bgt, x, y, w, h, u0, v0, u1, v1, RGBA(255, 255, 255, 255));
     }
+    int fw, fh;
+    unsigned ft = p->lb_side == 1 && p->lb_last[0] ? image_peek(p->lb_last, &fw, &fh) : 0;
+    if (ft) {   /* a scope film: its own frame between black bars, as the TV shows it */
+        float box[4] = { 0, 0, 1, 1 };
+        image_content_box(p->lb_last, box);
+        gfx_rect(x, y, w, h, RGBA(0, 0, 0, 0xFF));
+        gfx_tex_uv(ft, x, y + p->lb_bar, w, h - 2 * p->lb_bar, box[0], box[1], box[2], box[3], RGBA(255, 255, 255, 255));
+    }
 #else
     (void)p;
     gfx_video_hole(x, y, w, h);
@@ -3653,12 +3749,14 @@ static void draw(Screen *s)
     if (SNTV_PHONE && !p->pip) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 255)); app_redraw(); return; }   /* a phone still turning sideways */
     if (gfx_handheld() && !p->pip) {   /* a phone sideways: its own touch controls over the picture */
         draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
+        if (!video_in_pip()) draw_letterbox(p, &vi);
         draw_subtitle(p, &vi);
         if (!video_in_pip()) full_draw(p, &vi);   /* in picture in picture: the picture alone */
         return;
     }
     ui_hit(0, 0, SNTV_UI_W, SNTV_UI_H, 0x7FFFFF00);   /* a tap anywhere is OK, as before */
     draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
+    if (!p->pip) draw_letterbox(p, &vi);
     if (p->veil > 0 && !p->pip) { draw_veil(p, &vi); if (p->veil > 0.5f && !p->menu) return; }
     draw_subtitle(p, &vi);
 
