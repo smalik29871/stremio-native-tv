@@ -96,8 +96,6 @@ static void move_focus(Home *h, int row, int col);
 #define PH_HERO_H 640.0f
 #define PH_POSTER_W 224.0f
 #define PH_POSTER_H 336.0f
-#define PH_LAND_W 440.0f
-#define PH_LAND_H 248.0f
 #define PH_GAP 24.0f
 #define PH_TITLE_H 64.0f
 /* A screen shorter than 1080 units (a phone, drawn larger): the hero gives up most of the
@@ -481,10 +479,32 @@ static void note_first_view(Home *h)
 
 /* ---- upright on a phone ---- */
 
+/* A Continue Watching card's label, inside it at the foot: the name, the episode, how far
+ * (or how many new episodes); x2..h2 the card as drawn (focus scale included). The TV's and
+ * the phone's are the same card. */
+static void cw_label(const MetaPreview *m, float x2, float y2, float w2, float h2)
+{
+    /* the shade takes the card's own corners (a clipped square one showed past them) */
+    gfx_rrect_grad_v(x2, y2 + h2 * 0.45f, w2, h2 * 0.55f, R_CARD, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
+    LibraryItem *li = app_library_find(m->id);
+    const NewEp *ne = newep_get(m->id);
+    const char *vid = ne ? ne->video_id : li ? li->video_id : NULL;
+    char sub[64] = "";
+    if (vid) {
+        int se = 0, ep = 0;
+        const char *c1 = strchr(vid, ':');
+        if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(sub, sizeof sub, "S%d  E%d", se, ep);
+    }
+    if (ne) ui_new_episodes_badge(ne->count, x2 + w2 - 16, y2 + 16);
+    font_draw_fit(m->name, x2 + 20, y2 + h2 - 76, FONT_S | FONT_B, THEME_TEXT, w2 - 40);
+    if (sub[0]) font_draw(sub, x2 + 20, y2 + h2 - 48, FONT_XS, THEME_TEXT_DIM);
+    if (li && li->duration && !ne) ui_progress(x2 + 20, y2 + h2 - 18, w2 - 40, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
+}
+
 static int ph_land(const Row *r) { return r->kind == ROW_CONTINUE; }
-static float ph_cw(const Row *r) { return ph_land(r) ? PH_LAND_W : PH_POSTER_W; }
-static float ph_ch(const Row *r) { return ph_land(r) ? PH_LAND_H : PH_POSTER_H; }
-static float ph_row_h(const Row *r) { return PH_TITLE_H + ph_ch(r) + (ph_land(r) ? 120 : 56); }
+static float ph_cw(const Row *r) { return ph_land(r) ? (SNTV_UI_W - PH_X) * 0.62f : PH_POSTER_W; }   /* a card and a half across, as the TV's row shows more to come */
+static float ph_ch(const Row *r) { return ph_land(r) ? ph_cw(r) * 9 / 16 : PH_POSTER_H; }
+static float ph_row_h(const Row *r) { return PH_TITLE_H + ph_ch(r) + 56; }
 static const MetaPreview *ph_hero(const Home *h)
 {
     const Row *r = featured_row(h);
@@ -540,7 +560,7 @@ static void phone_row(Home *h, int ri, float y)
     int focused_row = h->focus_row == ri;
     font_draw_fit(r->title, PH_X, y, FONT_L | FONT_B, THEME_TEXT, SNTV_UI_W - 2 * PH_X);
     float cy = y + PH_TITLE_H, cw = ph_cw(r), ch = ph_ch(r);
-    if (r->n) ui_pan_area(&r->pan, 0, cy, SNTV_UI_W, ch + (ph_land(r) ? 100 : 0), 0);
+    if (r->n) ui_pan_area(&r->pan, 0, cy, SNTV_UI_W, ch, 0);
     if (!r->n) {
         if (r->loading || !r->requested) for (int j = 0; j < 4; j++) ui_skeleton(PH_X + j * (cw + PH_GAP), cy, cw, ch, R_CARD);
         else if (r->failed) font_draw("Couldn't load this catalog.", PH_X, cy + 20, FONT_S, THEME_TEXT_MUTED);
@@ -563,15 +583,10 @@ static void phone_row(Home *h, int ri, float y)
             const char *art = ph_land(r) ? app_art_background(m, buf, sizeof buf) : app_art_poster(m, buf, sizeof buf);
             ui_card(art, px, cy, cw, ch, foc ? (g_app.fx_light ? 1 : h->focus_t) : 0, 0, m->name, ph_land(r) ? CARD_TRUE_COLOUR : 0);
             ui_hit(px, cy, cw, ch, HIT_CARD(ri, j));
-            if (ph_land(r)) {
-                const LibraryItem *li = app_library_find(m->id);
-                if (li && li->duration > 0) {
-                    float frac = (float)li->time_offset / (float)li->duration;
-                    gfx_rect(px + 12, cy + ch - 14, cw - 24, 6, COLOR_ALPHA(THEME_TEXT, 0x40));
-                    gfx_rect(px + 12, cy + ch - 14, (cw - 24) * (frac > 1 ? 1 : frac), 6, THEME_ACCENT);
-                }
-                font_draw_fit(m->name ? m->name : "", px, cy + ch + 16, FONT_M | FONT_B, THEME_TEXT, cw);
-                if (m->release_info) font_draw_fit(m->release_info, px, cy + ch + 58, FONT_S, THEME_TEXT_DIM, cw);
+            if (ph_land(r)) {   /* as on the TV: the label inside the card */
+                float f = foc ? (g_app.fx_light ? 1 : h->focus_t) : 0, sc = ui_focus_scale(f);
+                float w2 = cw * sc, h2 = ch * sc;
+                cw_label(m, px - (w2 - cw) / 2, cy - (h2 - ch) / 2 - ui_focus_lift(f), w2, h2);
             }
         }
     if (see_all(r)) see_all_card(PH_X + r->n * (cw + PH_GAP) - r->scroll_x, cy, cw, ch, focused_row && r->focus == r->n ? 1 : 0, r->n, HIT_CARD(ri, r->n));
@@ -913,7 +928,7 @@ static void draw_showcase_controls(const Home *h)
         x += w + gap;
     }
     ui_icon(ICON_CHEVRON_RIGHT, x + 14, cy, 16, foc ? THEME_TEXT : THEME_TEXT_MUTED);
-    if (foc) font_draw("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", SNTV_UI_W - THEME_MARGIN - font_measure("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", FONT_XS), cy + 22, FONT_XS, THEME_TEXT_MUTED);
+    if (foc && !gfx_handheld()) font_draw("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", SNTV_UI_W - THEME_MARGIN - font_measure("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", FONT_XS), cy + 22, FONT_XS, THEME_TEXT_MUTED);
 }
 
 /* Pressed past the end: things spring toward the press and settle. axis 1 rows, 2 the list. */
@@ -990,22 +1005,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
                 const char *bg = app_art_background(m, buf, sizeof buf);
                 ui_card(bg, px, ry, cw, ch, f, dim, m->name, 0);
                 float sc = ui_focus_scale(f), w2 = cw * sc, h2 = ch * sc, x2 = px - (w2 - cw) / 2, y2 = ry - (h2 - ch) / 2 - ui_focus_lift(f);
-                /* label + progress inside the card; the shade takes the card's own corners
-                 * (a clipped square one showed past them) */
-                gfx_rrect_grad_v(x2, y2 + h2 * 0.45f, w2, h2 * 0.55f, R_CARD, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
-                LibraryItem *li = app_library_find(m->id);
-                const NewEp *ne = newep_get(m->id);
-                const char *vid = ne ? ne->video_id : li ? li->video_id : NULL;
-                char sub[64] = "";
-                if (vid) {
-                    int se = 0, ep = 0;
-                    const char *c1 = strchr(vid, ':');
-                    if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) snprintf(sub, sizeof sub, "S%d  E%d", se, ep);
-                }
-                if (ne) ui_new_episodes_badge(ne->count, x2 + w2 - 16, y2 + 16);
-                font_draw_fit(m->name, x2 + 20, y2 + h2 - 76, FONT_S | FONT_B, THEME_TEXT, w2 - 40);
-                if (sub[0]) font_draw(sub, x2 + 20, y2 + h2 - 48, FONT_XS, THEME_TEXT_DIM);
-                if (li && li->duration && !ne) ui_progress(x2 + 20, y2 + h2 - 18, w2 - 40, 6, (float)li->time_offset / (float)li->duration, THEME_ACCENT);
+                cw_label(m, x2, y2, w2, h2);   /* label + progress inside the card */
             } else {
                 ui_card(app_art_poster(m, buf, sizeof buf), px, ry, cw, ch, f, dim, m->name, 0);
                 const NewEp *ne = r->kind == ROW_LIBRARY ? newep_get(m->id) : NULL;

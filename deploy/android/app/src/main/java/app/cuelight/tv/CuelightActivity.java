@@ -5,6 +5,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowInsets;
 import android.system.ErrnoException;
 import android.system.Os;
 
@@ -30,8 +31,30 @@ public class CuelightActivity extends SDLActivity {
         if (getResources().getConfiguration().smallestScreenWidthDp < 600 && Build.VERSION.SDK_INT >= 21) {   // a phone keeps its bars: dark, like the app
             getWindow().setStatusBarColor(Color.BLACK);
             getWindow().setNavigationBarColor(Color.BLACK);
+            keepBetweenBars();
         }
         CuelightPlayer.offerUrl(getIntent() != null ? getIntent().getDataString() : null);
+    }
+
+    /* Android 15 draws an app under its status and navigation bars (edge to edge): the app's
+     * view keeps clear of them by their size, so nothing of it hides behind them. The player
+     * hides the bars, and the view then has the whole screen again. */
+    @SuppressWarnings("deprecation")
+    private void keepBetweenBars() {
+        if (mLayout == null || Build.VERSION.SDK_INT < 20) return;
+        mLayout.setOnApplyWindowInsetsListener((v, insets) -> {
+            int l, t, r, b;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets i = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                l = i.left; t = i.top; r = i.right; b = i.bottom;
+            } else {
+                l = insets.getSystemWindowInsetLeft(); t = insets.getSystemWindowInsetTop();
+                r = insets.getSystemWindowInsetRight(); b = insets.getSystemWindowInsetBottom();
+            }
+            if (v.getPaddingLeft() != l || v.getPaddingTop() != t || v.getPaddingRight() != r || v.getPaddingBottom() != b) v.setPadding(l, t, r, b);
+            return insets;
+        });
+        mLayout.requestApplyInsets();
     }
 
     @Override
