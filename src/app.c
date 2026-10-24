@@ -1798,7 +1798,10 @@ void app_storage(long long *total, long long *cache, long long *disk_free)
 }
 
 /* Measured on its own once a minute (the tidy's look comes every half hour): room made
- * on the TV counts soon. */
+ * on the TV counts soon. Low here is the app's drive nearly out of room (150 MB): a TV
+ * gives its apps a small drive that often sits under the cache's own limit (600 MB), and
+ * what holds back on it (Depth's maps, a few MB) must not hold back for good. */
+#define VERY_LOW_DISK (150LL << 20)
 int app_storage_low(void)
 {
     if (getenv("SNTV_FAKE_LOW_DISK")) return 1;
@@ -1808,7 +1811,8 @@ int app_storage_low(void)
     const char *fake = getenv("SNTV_FAKE_DISK_FREE_MB");   /* tests: the runner's own drive must not decide */
     struct statvfs vs;
     long long free_b = fake ? atoll(fake) << 20 : statvfs(store_dir(), &vs) == 0 ? (long long)vs.f_bavail * (long long)vs.f_frsize : -1;
-    low = free_b >= 0 && free_b < LOW_DISK;
+    low = free_b >= 0 && free_b < VERY_LOW_DISK;
+    if (low) LOGI("storage: %lld MB free on the app's drive", free_b >> 20);
     return low;
 }
 

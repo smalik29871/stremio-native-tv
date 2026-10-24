@@ -848,6 +848,10 @@ run home_depth_off 260 "right,right,wait,wait,wait" $DEP HOME="$(home_with depth
 run home_depth_lowmem 260 "right,right,wait,wait,wait" $DEP SNTV_FAKE_MEM=3000000,90000 HOME="$(home_with depthmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "depth: off while memory is low" "$OUT/home_depth_lowmem.log" && ! grep -q "home: the backdrop moves in depth\|backdrops have depth maps" "$OUT/home_depth_lowmem.log" \
   || { echo "Depth stayed on with the TV short of memory"; grep -E "depth|memory" "$OUT/home_depth_lowmem.log"; exit 1; }
+# a TV's app drive often has a few hundred MB free: Depth (a few MB of maps) stays on
+run home_depth_tv_drive 260 "right,right,wait,wait,wait" $DEP SNTV_FAKE_DISK_FREE_MB=400 HOME="$(home_with depthtvd '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "home: the backdrop moves in depth" "$OUT/home_depth_tv_drive.log" && ! grep -q "depth: off" "$OUT/home_depth_tv_drive.log" \
+  || { echo "Depth went off with 400 MB free on the app's drive"; grep -E "depth|storage" "$OUT/home_depth_tv_drive.log"; exit 1; }
 run home_depth_lowdisk 260 "right,right,wait,wait,wait" $DEP SNTV_FAKE_LOW_DISK=1 HOME="$(home_with depthdisk '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "depth: off while storage is low" "$OUT/home_depth_lowdisk.log" && ! grep -q "home: the backdrop moves in depth" "$OUT/home_depth_lowdisk.log" \
   || { echo "Depth stayed on with the TV's storage nearly full"; grep -E "depth|storage" "$OUT/home_depth_lowdisk.log"; exit 1; }

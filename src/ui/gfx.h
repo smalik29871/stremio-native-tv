@@ -66,6 +66,7 @@ void gfx_rtex_uv(unsigned tex, float x, float y, float w, float h, float r,
 void gfx_rtex_duo(unsigned tex, float x, float y, float w, float h, float r,
                   float u0, float v0, float u1, float v1, Color ink, float colour);
 void gfx_tex_blur(unsigned tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color tint, float blur);
+void gfx_tex_blur4(unsigned tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color tl, Color tr, Color bl, Color br, float blur);   /* the same, its tint per corner (a fade) */
 /* Textured quads drawn after this push into the picture by `depth_tex`, a depth map of the
  * same image (white is near): the point (cx, cy) in the image's UVs stays put, what lies at
  * depth `focus` keeps its size and nearer things grow by up to k. fg > 0 keeps only what is

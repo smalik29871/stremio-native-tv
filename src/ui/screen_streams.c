@@ -44,6 +44,7 @@ struct Streams {
     int focus;
     int moved;                /* the viewer has moved the focus: from then on it follows its source */
     float scroll, scroll_target;
+    float ring, ring_vel; int ring_on;   /* the focus highlight, from the list's top: it glides to where its row is going */
     float list_h; UiPan pan;   /* how tall the list's window is; a finger on it */
     int autoplayed;
     float started;
@@ -914,6 +915,15 @@ static void update(Screen *s, float dt)
     int first = st->focus - (VISIBLE - 3);
     st->scroll_target = (first < 0 ? 0 : first) * ROW_H;
     ui_pan(&st->pan, &st->scroll, st->scroll_target, st->n * ROW_H - st->list_h + ROW_H / 2, dt, 14);
+    /* the highlight goes where its row will be once the list has scrolled: the rows slide
+     * under it, rather than it stepping down a row and riding back up with them (which a
+     * TV's uneven frames showed as a jitter). Under a finger it stays with its row. */
+    {
+        int free_ = ui_pan_free(&st->pan);
+        float want = st->focus * ROW_H - (free_ ? st->scroll : st->scroll_target);
+        if (st->focus < 0 || !st->ring_on || free_) { st->ring = want; st->ring_vel = 0; st->ring_on = st->focus >= 0; }
+        else st->ring = ui_ease(st->ring, want, &st->ring_vel, dt, 14);
+    }
     if (st->pending) app_redraw();
 }
 
@@ -1079,6 +1089,10 @@ static void draw_aperture(Streams *st)
     st->list_h = SNTV_UI_H - list_y - 44;
     ui_pan_area(&st->pan, x - 8, list_y - 8, w + 16, st->list_h, 1);
     QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
+    if (st->focus >= 0 && st->focus < st->n) {   /* the highlight, gliding (update) */
+        float fy = list_y + st->ring;
+        gfx_rect(x, fy, w, ROW_H - 18, THEME_SURFACE); gfx_rect(x - 7, fy + 20, 3, 40, THEME_ACCENT);
+    }
     for (int i = 0; i < st->n; i++) {
         float y = list_y + i * ROW_H - st->scroll;
         if (y + ROW_H < list_y || y > SNTV_UI_H) continue;
@@ -1086,7 +1100,6 @@ static void draw_aperture(Streams *st)
         int foc = st->focus == i, ok = playable(sm);
         ui_hit(x, y, w, ROW_H - 18, i);
         gfx_rect(x, y + ROW_H - 10, w, 1, THEME_LINE);
-        if (foc) { gfx_rect(x, y, w, ROW_H - 18, THEME_SURFACE); gfx_rect(x - 7, y + 20, 3, 40, THEME_ACCENT); }
         first_line(sm->name, line, sizeof line);
         font_draw_fit(line[0] ? line : "Stream", x + 24, y + 16, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 270);
         font_draw_fit(sm->addon_name, x + w - 230, y + 22, FONT_XS, THEME_TEXT_DIM, 210);
@@ -1225,6 +1238,11 @@ static void draw(Screen *s)
     st->list_h = SNTV_UI_H - list_y;
     ui_pan_area(&st->pan, 0, list_y - 20, SNTV_UI_W, st->list_h + 20, 1);
     float ry = list_y - st->scroll;
+    float fy = list_y + st->ring;   /* the highlight, gliding (update) */
+    if (st->focus >= 0 && st->focus < st->n) {
+        ui_focus_under(x, fy, w, ROW_H - 14, R_PANEL, 1);
+        gfx_rrect(x, fy, w, ROW_H - 14, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x2A));
+    }
     for (int i = 0; i < st->n; i++, ry += ROW_H) {
         if (ry + ROW_H < LIST_Y - 20 || ry > SNTV_UI_H) continue;
         const Stream *sm = &st->items[i];
@@ -1232,9 +1250,7 @@ static void draw(Screen *s)
         int ok = playable(sm);
         float h = ROW_H - 14;
         ui_hit(x, ry, w, h, i);
-        if (foc) ui_focus_under(x, ry, w, h, R_PANEL, 1);
-        gfx_rrect(x, ry, w, h, R_PANEL, foc ? COLOR_ALPHA(THEME_TEXT, 0x2A) : COLOR_ALPHA(THEME_TEXT, 0x0E));
-        if (foc) gfx_rrect_ring(x, ry, w, h, R_PANEL, 3, g_theme.focus_style == FOCUS_FRAME ? THEME_ACCENT : THEME_TEXT);
+        if (!foc) gfx_rrect(x, ry, w, h, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0E));
         char line1[200], line2[600], sub[300], rest[300];
         first_line(sm->name, line1, sizeof line1);
         rest_lines(sm->name, sub, sizeof sub);
@@ -1308,6 +1324,8 @@ static void draw(Screen *s)
         float room = bx - 8 - chips_min;   /* the addon's second line ("1080p") in what the chips leave */
         if (sub[0] && room > 40) font_draw_fit(sub, chips_min, ay + 4, FONT_XS | FONT_B, THEME_TEXT_DIM, room < 160 ? room : 160);
     }
+    if (st->focus >= 0 && st->focus < st->n)   /* its ring over the rows, where the highlight is */
+        gfx_rrect_ring(x, fy, w, ROW_H - 14, R_PANEL, 3, g_theme.focus_style == FOCUS_FRAME ? THEME_ACCENT : THEME_TEXT);
     gfx_clip_pop();
     if (st->n > VISIBLE) {
         char pos[48];

@@ -99,6 +99,7 @@ struct Player {
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
     float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
     char lb_last[2048];       /* the last frame it had, shown while the next one comes */
+    char lb_prev[2048]; float lb_swap_at;   /* the one before, fading out as the last fades in (since then) */
     float ov_k, ov_kt;        /* the TV overlay the same way: it fades in, the bar rising into place */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
     float tch_x0, tch_y0; double tch_pos0;
@@ -1175,32 +1176,74 @@ static int lb_frame_url(const Player *p, long sec, char *url, size_t n)
     return phone_local_url(rel, url, n);
 }
 
+#define LB_STEP 5        /* a frame of the film every 5 s */
+#define LB_FADE_S 0.8f   /* a new one fades in over the last */
+#define LB_SEAM 12.0f    /* the join with the picture: feathered this far either side */
+
+/* One frame into the bars, as if the picture went on past its edge: each bar is the
+ * picture's own edge mirrored outwards (the row beside the picture is the picture's last
+ * row) and blurred, and the join is feathered a little way into the picture, so the glow
+ * grows out of the image with no line between them. */
+static void lb_paint(unsigned tex, const char *url, int side, float bar, float a)
+{
+    float box[4] = { 0, 0, 1, 1 };
+    image_content_box(url, box);
+    /* the rows where a frame's own black bars meet the picture are part black (a small
+     * frame, scaled): start a little inside, or each join shows a dark line */
+    if (side == 1) { float in = (box[3] - box[1]) * 0.02f; box[1] += in; box[3] -= in; }
+    else { float in = (box[2] - box[0]) * 0.02f; box[0] += in; box[2] -= in; }
+    float W = SNTV_UI_W, H = SNTV_UI_H, cw = box[2] - box[0], ch = box[3] - box[1];
+    Color c = RGBA(255, 255, 255, (int)(255 * a)), seam = RGBA(255, 255, 255, (int)(150 * a)), none = RGBA(255, 255, 255, 0);
+    if (side == 1) {
+        float pic = H - 2 * bar, d = ch * (bar / pic < 0.12f ? bar / pic : 0.12f), e = ch * LB_SEAM / pic;
+        gfx_tex_blur(tex, 0, 0, W, bar, box[0], box[1] + d, box[2], box[1], c, 4.5f);                   /* above: the top rows, upwards */
+        gfx_tex_blur(tex, 0, H - bar, W, bar, box[0], box[3], box[2], box[3] - d, c, 4.5f);             /* below: the bottom rows, downwards */
+        gfx_tex_blur4(tex, 0, bar - LB_SEAM, W, LB_SEAM, box[0], box[1] + e, box[2], box[1], none, none, seam, seam, 2.0f);
+        gfx_tex_blur4(tex, 0, bar, W, LB_SEAM, box[0], box[1], box[2], box[1] + e, seam, seam, none, none, 2.0f);
+        gfx_tex_blur4(tex, 0, H - bar - LB_SEAM, W, LB_SEAM, box[0], box[3] - e, box[2], box[3], none, none, seam, seam, 2.0f);
+        gfx_tex_blur4(tex, 0, H - bar, W, LB_SEAM, box[0], box[3], box[2], box[3] - e, seam, seam, none, none, 2.0f);
+    } else {
+        float pic = W - 2 * bar, d = cw * (bar / pic < 0.12f ? bar / pic : 0.12f), e = cw * LB_SEAM / pic;
+        gfx_tex_blur(tex, 0, 0, bar, H, box[0] + d, box[1], box[0], box[3], c, 4.5f);
+        gfx_tex_blur(tex, W - bar, 0, bar, H, box[2], box[1], box[2] - d, box[3], c, 4.5f);
+        gfx_tex_blur4(tex, bar - LB_SEAM, 0, LB_SEAM, H, box[0] + e, box[1], box[0], box[3], none, seam, none, seam, 2.0f);
+        gfx_tex_blur4(tex, bar, 0, LB_SEAM, H, box[0], box[1], box[0] + e, box[3], seam, none, seam, none, 2.0f);
+        gfx_tex_blur4(tex, W - bar - LB_SEAM, 0, LB_SEAM, H, box[2] - e, box[1], box[2], box[3], none, seam, none, seam, 2.0f);
+        gfx_tex_blur4(tex, W - bar, 0, LB_SEAM, H, box[2], box[1], box[2] - e, box[3], seam, none, seam, none, 2.0f);
+    }
+}
+
 static void draw_letterbox(Player *p, const VideoInfo *vi)
 {
     p->lb_bar = 0; p->lb_side = 0;
     if (!g_app.living_letterbox || p->pip || p->aspect != ASPECT_FIT || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return;
     double pos = p->seek_commit > 0 ? p->seek_target : vi->position;
-    long s0 = (long)(pos / 10) * 10;
+    long s0 = (long)(pos / LB_STEP) * LB_STEP;
     char u0[2048], u1[2048];
     /* no frames while the film starts, nor for a source already seen to fill the screen */
     int have_url = p->lb_none != p->cur + 1 && g_app.time - p->load_started > 3 &&
-                   lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s0 + 10, u1, sizeof u1);
-    int w0 = 0, h0 = 0, w1 = 0, h1 = 0, light = g_app.fx_light;
-    unsigned t0 = 0, t1 = 0;
+                   lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s0 + LB_STEP, u1, sizeof u1);
+    int w0 = 0, h0 = 0, light = g_app.fx_light;
+    unsigned t0 = 0;
     if (have_url && !light) {
         int seeking = p->seek_commit > 0;   /* the seek previews have the TV's decoder then */
-        /* mipmapped, so the GPU blurs them for free */
-        t0 = seeking ? image_peek_ex(u0, IMAGE_MIPMAP, &w0, &h0) : image_get_ex(u0, IMAGE_MIPMAP, &w0, &h0, NULL);
-        t1 = seeking ? image_peek_ex(u1, IMAGE_MIPMAP, &w1, &h1) : image_get_ex(u1, IMAGE_MIPMAP, &w1, &h1, NULL);   /* the next one, asked ahead */
-        if (t0) snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
-        else if (p->lb_last[0]) { t0 = image_peek_ex(p->lb_last, IMAGE_MIPMAP, &w0, &h0); snprintf(u0, sizeof u0, "%s", p->lb_last); t1 = 0; }
+        /* mipmapped, so the GPU blurs them for free; only the frame of now is shown (the next
+         * is asked ahead), so the bars never show what has not happened yet */
+        unsigned now_t = seeking ? image_peek_ex(u0, IMAGE_MIPMAP, &w0, &h0) : image_get_ex(u0, IMAGE_MIPMAP, &w0, &h0, NULL);
+        if (!seeking) { int a, b; image_get_ex(u1, IMAGE_MIPMAP, &a, &b, NULL); }
+        if (now_t && strcmp(u0, p->lb_last) != 0) {   /* a new frame: it fades in over the last */
+            snprintf(p->lb_prev, sizeof p->lb_prev, "%s", p->lb_last);
+            snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
+            p->lb_swap_at = g_app.time;
+        }
+        if (p->lb_last[0]) t0 = image_peek_ex(p->lb_last, IMAGE_MIPMAP, &w0, &h0);
     }
     /* the picture's shape: the file's, narrowed by any black bars baked into it */
     float box[4] = { 0, 0, 1, 1 }, ar = 0;
     if (vi->width > 0 && vi->height > 0) ar = (float)vi->width / vi->height;
     else if (p->probe && p->probe->width > 0 && p->probe->height > 0) ar = (float)p->probe->width / p->probe->height;
-    else if (t0 && image_peek_ex(u0, IMAGE_PLAIN, &w0, &h0) && h0 > 0) ar = (float)w0 / h0;   /* the mipmapped copy is padded square-ish */
-    if (t0) image_content_box(u0, box);
+    else if (t0 && image_peek_ex(p->lb_last, IMAGE_PLAIN, &w0, &h0) && h0 > 0) ar = (float)w0 / h0;   /* the mipmapped copy is padded square-ish */
+    if (t0) image_content_box(p->lb_last, box);
     if (ar > 0 && box[3] - box[1] > 0.2f && box[2] - box[0] > 0.2f) ar *= (box[2] - box[0]) / (box[3] - box[1]);
     float W = SNTV_UI_W, H = SNTV_UI_H, A = W / H, bar;
     int side;
@@ -1217,38 +1260,23 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     if (step > 0.5f) step = 0.5f;
     p->lb_k += ((t0 ? 1.0f : 0.0f) - p->lb_k) * (step * 2.5f > 1 ? 1 : step * 2.5f);
     if (p->lb_k < 0.01f) return;
-    float f = (float)((pos - s0) / 10.0); f = f < 0 ? 0 : f > 1 ? 1 : f * f * (3 - 2 * f);
-    /* As if the picture filled the whole screen behind the video, heavily blurred:
-     * each bar shows the blurred edge of the picture beside it. */
-    const float soft = 6.5f;   /* mip bias: a 256px frame sampled from its 16px level */
-    for (int pass = 0; pass < 2; pass++) {
-        unsigned tex = pass ? t1 : t0;
-        float a = p->lb_k * (pass ? f : 1);
-        if (!tex || a < 0.01f) continue;
-        if (pass) image_content_box(u1, box);
-        float cw = box[2] - box[0], ch = box[3] - box[1];
-        Color c = RGBA(255, 255, 255, (int)(255 * a));
-        if (side == 1) {
-            float dv = ch * bar / H;
-            gfx_tex_blur(tex, 0, 0, W, bar, box[0], box[1], box[2], box[1] + dv, c, soft);
-            gfx_tex_blur(tex, 0, H - bar, W, bar, box[0], box[3] - dv, box[2], box[3], c, soft);
-        } else {
-            float du = cw * bar / W;
-            gfx_tex_blur(tex, 0, 0, bar, H, box[0], box[1], box[0] + du, box[3], c, soft);
-            gfx_tex_blur(tex, W - bar, 0, bar, H, box[2] - du, box[1], box[2], box[3], c, soft);
-        }
-    }
-    /* darker toward the screen's edge, a glow beside the picture */
-    int out = 0x9C, in = 0x10;   /* barely dimmed beside the picture: no seam where the bar meets it */
+    float x = (g_app.time - p->lb_swap_at) / LB_FADE_S;   /* the new frame over the last one */
+    x = x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
+    int pw0, ph0;
+    unsigned tp = x < 1 && p->lb_prev[0] ? image_peek_ex(p->lb_prev, IMAGE_MIPMAP, &pw0, &ph0) : 0;
+    if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k);
+    if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1));
+    /* darker toward the screen's edge; nothing at all where the bar meets the picture */
+    int out = 0x90;
     if (side == 1) {
-        gfx_gradient_v(0, 0, W, bar, RGBA(0, 0, 0, out), RGBA(0, 0, 0, in));
-        gfx_gradient_v(0, H - bar, W, bar, RGBA(0, 0, 0, in), RGBA(0, 0, 0, out));
+        gfx_gradient_v(0, 0, W, bar, RGBA(0, 0, 0, out), RGBA(0, 0, 0, 0));
+        gfx_gradient_v(0, H - bar, W, bar, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, out));
     } else {
-        gfx_gradient_h(0, 0, bar, H, RGBA(0, 0, 0, out), RGBA(0, 0, 0, in));
-        gfx_gradient_h(W - bar, 0, bar, H, RGBA(0, 0, 0, in), RGBA(0, 0, 0, out));
+        gfx_gradient_h(0, 0, bar, H, RGBA(0, 0, 0, out), RGBA(0, 0, 0, 0));
+        gfx_gradient_h(W - bar, 0, bar, H, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, out));
     }
     p->lb_drawn = g_app.time;
-    if (fabsf(p->lb_k - (t0 ? 1.0f : 0.0f)) > 0.01f) app_redraw();
+    if (fabsf(p->lb_k - (t0 ? 1.0f : 0.0f)) > 0.01f || x < 1) app_redraw();
 }
 
 /* Chapter containing `pos` (-1 none) */

@@ -394,6 +394,8 @@ void gfx_glyph(unsigned tex, float x, float y, float w, float h, float u0, float
 
 void gfx_tex_blur(unsigned tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color tint, float blur)
 { aquad(x, y, w, h, u0, v0, u1, v1, tint, tint, tint, tint, 0, 0, MODE_TEX_BIAS, blur, tex); }
+void gfx_tex_blur4(unsigned tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color tl, Color tr, Color bl, Color br, float blur)
+{ aquad(x, y, w, h, u0, v0, u1, v1, tl, tr, bl, br, 0, 0, MODE_TEX_BIAS, blur, tex); }
 
 void gfx_rrect(float x, float y, float w, float h, float r, Color c)
 { aquad(x, y, w, h, 0, 0, 1, 1, c, c, c, c, clamp_r(r, w, h), g_aa, MODE_RRECT, 0, 0); }
