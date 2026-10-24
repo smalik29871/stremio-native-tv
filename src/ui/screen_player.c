@@ -2918,7 +2918,9 @@ static void draw_menu(Player *p)
     }
     if (p->menu == MENU_AUDIO) {
         char sp[80];
-        snprintf(sp, sizeof sp, p->rate_idx == RATE_NORMAL ? "Normal  \xC2\xB7  Left/Right to change" : "%gx  \xC2\xB7  Left/Right to change", RATES[p->rate_idx]);
+        const char *how = gfx_handheld() ? "" : "  \xC2\xB7  Left/Right to change";
+        if (p->rate_idx == RATE_NORMAL) snprintf(sp, sizeof sp, "Normal%s", how);
+        else snprintf(sp, sizeof sp, "%gx%s", RATES[p->rate_idx], how);
         SECTION("PLAYBACK");
         ROW("Speed", sp, 0);
     }
@@ -3169,7 +3171,7 @@ static void draw_bar(Player *p, float x, float y)
         }
     }
     const char *hint = p->bar_focus ? "OK: open  \xC2\xB7  Up: back to the timeline" : "Down: options";
-    font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (d - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
+    if (!gfx_handheld()) font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (d - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
 }
 
 /* The row of what is playing, so a menu opens on it (Off when no subtitles show). */
@@ -4774,7 +4776,7 @@ static void draw_subs_tuner(Player *p, float e)
         font_draw(v, vr - vw, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, vc);
         if (foc && adj) { ui_icon(ICON_CHEVRON_LEFT, vr - vw - 18, cy, 18, vc); ui_icon(ICON_CHEVRON_RIGHT, vr + 14, cy, 18, vc); }
     }
-    font_draw_fit("Up/Down  setting   \xC2\xB7   Left/Right  change   \xC2\xB7   Back", X + PAD, Y + H - 44, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
+    if (!gfx_handheld()) font_draw_fit("Up/Down  setting   \xC2\xB7   Left/Right  change   \xC2\xB7   Back", X + PAD, Y + H - 44, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
     gfx_set_alpha(1);
     gfx_set_translate(0, 0);
 }
@@ -4909,7 +4911,7 @@ static void draw_subs_panel(Player *p)
     const char *hint = p->subs_col == 0 ? "Up/Down  language   \xC2\xB7   OK  its first choice   \xC2\xB7   Right  all its choices   \xC2\xB7   Back  close"
                                         : p->subs_group == SG_LOOK ? "Left/Right  change   \xC2\xB7   OK  reset or switch   \xC2\xB7   Back  languages"
                                         : "OK  choose   \xC2\xB7   Left  languages   \xC2\xB7   Back  languages";
-    font_draw_fit(hint, cx, SY + SH - 44, FONT_XS, THEME_TEXT_MUTED, SW - 2 * PAD);
+    if (!gfx_handheld()) font_draw_fit(hint, cx, SY + SH - 44, FONT_XS, THEME_TEXT_MUTED, SW - 2 * PAD);
     gfx_set_alpha(1);
     gfx_set_translate(0, 0);
 }
@@ -5957,7 +5959,7 @@ void player_pip_draw(Screen *s, int focused)
     if (focused) { /* the buttons take the middle */ }
     else if (vi.state == VIDEO_PAUSED) { gfx_circle(cx, cy, 34, RGBA(0, 0, 0, 0x90)); ui_icon(ICON_PLAY, cx + 3, cy, 30, THEME_TEXT); }
     else if (vi.state == VIDEO_LOADING || vi.buffering) ui_spinner(cx, cy, 20);
-    ui_chip(focused ? "Left/Right: choose  \xC2\xB7  OK: select  \xC2\xB7  Up: back" : "Down: select  \xC2\xB7  Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), focused ? THEME_TEXT : THEME_TEXT_DIM);
+    if (!gfx_handheld()) ui_chip(focused ? "Left/Right: choose  \xC2\xB7  OK: select  \xC2\xB7  Up: back" : "Down: select  \xC2\xB7  Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), focused ? THEME_TEXT : THEME_TEXT_DIM);
     if (vi.state == VIDEO_PLAYING) app_redraw();
 }
 

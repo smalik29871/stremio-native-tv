@@ -326,7 +326,7 @@ static void draw_ask(Detail *d)
         ty += font_draw_wrapped(S[i].t, x + pad, ty, FONT_S, THEME_TEXT, cw, 6) * font_height(FONT_S) + 30;
     }
     if (d->ask_nutshell) font_draw("Written by an AI model from the synopsis: a guide, not gospel.", x + pad, SNTV_UI_H - 96, FONT_XS, THEME_TEXT_MUTED);
-    font_draw("Back: close", x + pad, SNTV_UI_H - 60, FONT_XS, THEME_TEXT_MUTED);
+    if (!gfx_handheld()) font_draw("Back: close", x + pad, SNTV_UI_H - 60, FONT_XS, THEME_TEXT_MUTED);
 }
 
 static void select_season(Detail *d, int idx)

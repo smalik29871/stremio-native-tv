@@ -70,7 +70,7 @@ static void draw(Screen *s)
         font_draw_fit(o->items[i], tx, ry + (item_h - 10 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg, ix + iw - tx - 20);
     }
     gfx_set_alpha(k);
-    font_draw("Back: close", x + pad, y + h - 40, FONT_XS, THEME_TEXT_MUTED);
+    if (!gfx_handheld()) font_draw("Back: close", x + pad, y + h - 40, FONT_XS, THEME_TEXT_MUTED);
     gfx_set_alpha(1);
 }
 
