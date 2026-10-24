@@ -155,6 +155,13 @@ float ui_peek_room(const Peek *p, const struct MetaPreview *m, float cx, float c
 int   ui_hold_hint(float x, float y, float w);
 int   ui_hold_hint_ex(float x, float y, float w, const char *hold, const char *release);   /* the same, its own words */
 float ui_focus_scale(float focus);
+/* motion: a damped spring kicked at t0 (an offset, amp toward the press), and item i of a
+ * group that appeared at t0 easing in (0..1, each a beat after the one before) */
+float ui_spring(float t0, float amp);
+float ui_enter(float t0, int i);
+void  ui_list_enter(int n, int *seen_n, float *at);
+void  ui_bump(int dx, int dy);   /* pressed past the end of a list: the focused card springs that way */   /* when a list of n arrived (for ui_enter) */
+void  ui_cover_uv(int iw, int ih, float w, float h, float *u0, float *v0, float *u1, float *v1);
 float ui_focus_lift(float focus);   /* upward shift of a focused card, canvas units */
 
 /* The theme's language for focus, titles, metadata and row headings. */

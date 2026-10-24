@@ -998,7 +998,7 @@ grep -q "tmdb: S[0-9]*E[0-9]* of [0-9]* has 2 guest stars" "$OUT/player_guests.l
 SEEALL="$(home_with seeall '{"prefSubs":"eng","setupDone":1}')"; cp "$ROOT/tests/fixtures/library_six.json" "$SEEALL/.local/share/stremio/nativetv/library.json"
 run home_see_all 300 "wait,down,right,right,right,right,right,right,right,right,right,right,ok,wait" HOME="$SEEALL" SNTV_EXPECT_SCREEN=library
 # a long season: chips of ten beside the season tabs jump the episodes there
-run detail_ep_ranges 300 "right,ok,down,right,right" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/longseason/manifest.json
+run detail_ep_ranges 300 "right,ok,down,right,right" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/longseason/manifest.json HOME="$(home_with eprange '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "detail: episodes from 21" "$OUT/detail_ep_ranges.log" || { echo "the episode range chips did not jump"; grep detail "$OUT/detail_ep_ranges.log"; exit 1; }
 # your own rating: Rate on the title page opens the stars at 4; Right adds half a star, a tag, Save
 run rate_sheet 500 "right,right,ok,wait,right,right,right,right,right,right,ok,wait,right,down,right,ok" HOME="$(home_with rate_sheet '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"

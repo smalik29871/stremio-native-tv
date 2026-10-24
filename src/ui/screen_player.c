@@ -92,6 +92,8 @@ struct Player {
     UiPan ph_pan;
     float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
     float fs_until;           /* sideways on a phone: the controls show until */
+    float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
+    float ov_k, ov_kt;        /* the TV overlay the same way: it fades in, the bar rising into place */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
     float tch_x0, tch_y0; double tch_pos0;
     int tap_pending, tap_side; float tap_at;            /* a tap on the picture waiting to see if a second comes */
@@ -3719,8 +3721,10 @@ static void draw(Screen *s)
 
     if (p->seek_flash > g_app.time && !p->menu) {   /* -10 s / +10 s feedback on the side that seeks */
         float k = (p->seek_flash - g_app.time) / 0.35f, cx = SNTV_UI_W / 2 + p->seek_flash_dir * 260, cy = SNTV_UI_H / 2;
+        float t0 = p->seek_flash - 0.35f;   /* each press bounces it the way it seeks */
+        cx += ui_spring(t0, 18 * p->seek_flash_dir);
         int a8 = (int)(255 * (k > 1 ? 1 : k));
-        gfx_circle(cx, cy, 56, RGBA(0, 0, 0, (int)(0x80 * k)));
+        gfx_circle(cx, cy, 56 + ui_spring(t0, 7), RGBA(0, 0, 0, (int)(0x80 * k)));
         Color fg = COLOR_ALPHA(THEME_TEXT, a8);
         gfx_rrect_ring(cx - 26, cy - 26, 52, 52, R_PANEL, 3, fg);
         float ax = cx + p->seek_flash_dir * 9, ay = cy - 28;
@@ -3737,7 +3741,16 @@ static void draw(Screen *s)
     float bx = THEME_MARGIN, by = SNTV_UI_H - 150, bw = SNTV_UI_W - 2 * THEME_MARGIN;
     int ap = g_theme.id == THEME_APERTURE;
     if (ap) { bx = THEME_MARGIN + 130; bw = SNTV_UI_W - 2 * THEME_MARGIN - 130 - 230; by = SNTV_UI_H - 170; }   /* "32:18 ──●──── 1:15:42 left" on one line */
+    float oe = 1;
+    if (!overlay || g_app.fx_light) p->ov_k = overlay;
+    else {
+        float step = g_app.time - p->ov_kt;
+        if (p->ov_k < 1) { p->ov_k += step / 0.22f; if (p->ov_k > 1) p->ov_k = 1; app_redraw(); }
+        oe = 1 - (1 - p->ov_k) * (1 - p->ov_k) * (1 - p->ov_k);
+    }
+    p->ov_kt = g_app.time;
     if (overlay) {
+        gfx_set_alpha(oe);
         gfx_gradient_v(0, SNTV_UI_H - 420, SNTV_UI_W, 420, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xE0));
         gfx_gradient_v(0, 0, SNTV_UI_W, 220, RGBA(0, 0, 0, 0xB0), RGBA(0, 0, 0, 0));
         int info = vi.state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time - p->paused_since > 0.4f && !p->menu;
@@ -3799,7 +3812,8 @@ static void draw(Screen *s)
         const char *hint = "OK  play";
         font_draw(hint, bx + bw - font_measure(hint, FONT_S | FONT_B), iy + (font_height(FONT_M | FONT_B) - font_height(FONT_S | FONT_B)) / 2 - 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_MUTED, ra));
     }
-    if (p->rest_t > 0.001f) gfx_set_alpha(1 - p->rest_t);   /* the controls step aside */
+    gfx_set_alpha(oe * (1 - p->rest_t));   /* the controls step aside */
+    if (overlay) gfx_set_translate(0, 22 * (1 - oe));
     if (overlay || bar_only) {
         float th = ap ? 4 : p->seek_commit > 0 ? 12 : 8, ty = by - th / 2;
         gfx_rrect(bx, ty, bw, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
@@ -3880,6 +3894,7 @@ static void draw(Screen *s)
     if (overlay && !(ap && vi.state == VIDEO_PAUSED && !p->bar_focus && p->paused_since > 0 && g_app.time - p->paused_since > 0.4f)) {   /* Aperture's pause card has the bottom alone */
         draw_bar(p, bx, by + (ap ? 46 : 66));
     }
+    gfx_set_translate(0, 0);
     gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);
     float card_top = 0;
@@ -4912,7 +4927,8 @@ static void ph_feedback(Player *p, const VideoInfo *vi, float x, float y, float 
         float cx = p->ripple_side < 0 ? x + w * 0.18f : x + w * 0.82f, cy = y + h / 2, r = h * 0.38f;
         gfx_circle(cx, cy, r * (1.1f - 0.1f * k), RGBA(255, 255, 255, (int)(0x30 * k)));
         char t[24]; snprintf(t, sizeof t, "%s%d s", p->ripple_side < 0 ? "-" : "+", p->ripple_secs);
-        ui_icon(p->ripple_side < 0 ? ICON_PREV : ICON_NEXT, cx, cy - 30, 40, COLOR_ALPHA(THEME_TEXT, (int)(255 * (k < 0.5f ? k * 2 : 1))));
+        cx += ui_spring(p->ripple_at, 20 * p->ripple_side);   /* the arrow and the seconds bounce the way it went */
+        ui_icon(p->ripple_side < 0 ? ICON_PREV : ICON_NEXT, cx, cy - 30, 40 + ui_spring(p->ripple_at, 8), COLOR_ALPHA(THEME_TEXT, (int)(255 * (k < 0.5f ? k * 2 : 1))));
         font_draw_center(t, cx, cy + 10, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * (k < 0.5f ? k * 2 : 1))));
         app_redraw();
     }
@@ -5001,10 +5017,19 @@ static void full_draw(Player *p, const VideoInfo *vi)
     ph_feedback(p, vi, 0, 0, W, H);
     p->fs_barr[2] = 0;
     float sheet_x = p->ph_sheet ? W - 820 : W;
-    if (!shown) {   /* only the skip button stays, at the bottom right */
+    {   /* the controls fade in from the edges, and out again */
+        float want = shown ? 1 : 0, step = g_app.time - p->fs_kt;
+        p->fs_kt = g_app.time;
+        if (g_app.fx_light) p->fs_k = want;
+        else { p->fs_k += (want - p->fs_k) * (step * 16 > 1 ? 1 : step * 16); if (fabsf(want - p->fs_k) < 0.01f) p->fs_k = want; else app_redraw(); }
+    }
+    if (!shown && p->fs_k <= 0) {   /* only the skip button stays, at the bottom right */
         ph_offer(p, vi, W - 80 - 520, H - 150, 520, 96);
         return;
     }
+    float fk = p->fs_k, fe = 1 - (1 - fk) * (1 - fk);
+    gfx_set_alpha(fe);
+    gfx_set_translate(0, -26 * (1 - fe));
     if (g_app.time < p->fs_until) app_redraw();   /* to hide them on time */
     if (!failed) {
         gfx_gradient_v(0, 0, W, 240, RGBA(0, 0, 0, 0xB8), RGBA(0, 0, 0, 0));
@@ -5030,9 +5055,11 @@ static void full_draw(Player *p, const VideoInfo *vi)
         ui_hit(bx - 54, 30, 108, 108, i < 0 ? PHH_ASPECT : PHH_SHEET + i);
         bx -= 112;
     }
+    gfx_set_translate(0, 0);
     if (!failed) {
         float cx = sheet_x / 2, cy = H / 2;
         ph_transport(p, vi, cx, cy, 84, 60, sheet_x < W ? 190 : 240);
+        gfx_set_translate(0, 26 * (1 - fe));
         /* the bar and the times along the bottom */
         double pos = p->seek_commit > 0 ? p->seek_target : vi->position, dur = ph_dur(p, vi);
         char a[24], b[24];
@@ -5045,6 +5072,8 @@ static void full_draw(Player *p, const VideoInfo *vi)
         ph_bar(p, vi, bl, by, br - bl, p->fs_barr);
         ph_offer(p, vi, rx - 520, by - 160, 520, 92);
     }
+    gfx_set_translate(0, 0);
+    gfx_set_alpha(1);
     if (p->ph_sheet) ph_sheet_draw(p, W - 800, 20, 760, H - 20, 1);
 }
 

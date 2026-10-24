@@ -62,9 +62,9 @@ float ui_ease(float from, float to, float *vel, float dt, float speed)
 
 /* ---- screen transitions ----------------------------------------------------- */
 
-static struct { Screen *from; int owned, dir; float t; int active; int zoom; float rect[4]; } g_trans;
+static struct { Screen *from; int owned, dir; float t; int active; int zoom; float rect[4]; char url[512]; } g_trans;
 /* The card each pushed screen opened out of (so Back can shrink it back into it). */
-static struct { int has; float r[4]; } g_origin[sizeof g_app.stack / sizeof g_app.stack[0]];
+static struct { int has; float r[4]; char url[512]; } g_origin[sizeof g_app.stack / sizeof g_app.stack[0]];
 
 static int transitional(const Screen *s)
 {
@@ -80,7 +80,7 @@ static void trans_finish(void)
 
 /* `from` leaves (owned: destroyed when the animation ends), the new top arrives. With a
  * rect, the page grows out of it (push) or shrinks back into it (pop). */
-static void trans_begin(Screen *from, int owned, int dir, const float *rect)
+static void trans_begin(Screen *from, int owned, int dir, const float *rect, const char *url)
 {
     trans_finish();
     Screen *top = app_top();
@@ -91,6 +91,7 @@ static void trans_begin(Screen *from, int owned, int dir, const float *rect)
     g_trans.from = from; g_trans.owned = owned; g_trans.dir = dir; g_trans.t = 0; g_trans.active = 1;
     g_trans.zoom = rect != NULL;
     if (rect) memcpy(g_trans.rect, rect, sizeof g_trans.rect);
+    snprintf(g_trans.url, sizeof g_trans.url, "%s", rect && url ? url : "");
     app_redraw();
 }
 
@@ -104,7 +105,7 @@ static void draw_one(Screen *s) { ui_hits_begin(s); s->draw(s); }   /* what it d
 static void draw_zoom(Screen *under, Screen *page, float k)
 {
     float W = SNTV_UI_W, H = SNTV_UI_H, *r = g_trans.rect;
-    float o = k / 0.75f > 1 ? 1 : k / 0.75f, oe = 1 - (1 - o) * (1 - o) * (1 - o);
+    float o = k / 0.8f > 1 ? 1 : k / 0.8f, oe = o * o * (3 - 2 * o);   /* k is eased already: an S here, not a second rush */
     float x = r[0] * (1 - oe), y = r[1] * (1 - oe), w = r[2] + (W - r[2]) * oe, h = r[3] + (H - r[3]) * oe;
     float cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
     if (o < 1 && under && under->draw) {
@@ -118,6 +119,15 @@ static void draw_zoom(Screen *under, Screen *page, float k)
     gfx_set_layer(0, 0, 0.92f + 0.08f * k, cx, cy, k * 1.6f);
     draw_one(page);
     gfx_set_layer(0, 0, 1, 0, 0, 1);
+    /* the card's own picture grows with it and fades as the page shows through */
+    float pa = o < 0.4f ? 1 : o > 0.9f ? 0 : 1 - (o - 0.4f) / 0.5f;
+    int iw, ih;
+    unsigned tex = pa > 0 && g_trans.url[0] ? image_peek(g_trans.url, &iw, &ih) : 0;
+    if (tex) {
+        float u0, v0, u1, v1;
+        ui_cover_uv(iw, ih, w, h, &u0, &v0, &u1, &v1);
+        gfx_rtex_uv(tex, x, y, w, h, R_CARD * (1 - oe), u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * pa)), 0);
+    }
     gfx_clip_pop();
 }
 
@@ -127,7 +137,8 @@ void app_draw_screen(Screen *top, float dt)
     int want = gfx_handheld() && top && !top->phone;
     if (want != sideways) { sideways = want; video_landscape_only(want); }
     if (!g_trans.active) { if (top && top->draw) draw_one(top); return; }
-    g_trans.t += dt / (g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.34f : 0.26f);
+    /* a slow frame (a page building, a picture going up) slows the move instead of jumping it */
+    g_trans.t += (dt > 1 / 30.0f ? 1 / 30.0f : dt) / (g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.36f : 0.26f);
     if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) draw_one(top); return; }
     float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
     float W = SNTV_UI_W;
@@ -173,9 +184,9 @@ void app_push(Screen *s)
     island_drop_focus();   /* a dialog or break over the resume card: OK is for it */
     /* opened with OK on a card drawn this moment: grow out of that card */
     g_origin[d].has = g_app.time - g_app.card_at < 0.12f && g_app.time - g_app.press_at < 0.12f && g_app.card_rect[2] > 0 && g_app.card_rect[3] > 0;
-    if (g_origin[d].has) memcpy(g_origin[d].r, g_app.card_rect, sizeof g_origin[d].r);
+    if (g_origin[d].has) { memcpy(g_origin[d].r, g_app.card_rect, sizeof g_origin[d].r); snprintf(g_origin[d].url, sizeof g_origin[d].url, "%s", g_app.card_url); }
     g_app.stack[g_app.depth++] = s;
-    trans_begin(old, 0, 1, g_origin[d].has ? g_origin[d].r : NULL);
+    trans_begin(old, 0, 1, g_origin[d].has ? g_origin[d].r : NULL, g_origin[d].url);
 }
 
 void app_pop(void)
@@ -185,7 +196,7 @@ void app_pop(void)
     int d = g_app.depth;
     Screen *top = app_top();
     if (top && top->resume) top->resume(top);
-    trans_begin(s, 1, -1, g_origin[d].has ? g_origin[d].r : NULL);
+    trans_begin(s, 1, -1, g_origin[d].has ? g_origin[d].r : NULL, g_origin[d].url);
     g_origin[d].has = 0;
 }
 
@@ -195,7 +206,7 @@ void app_replace(Screen *s)
     if (!s || g_app.depth >= (int)(sizeof g_app.stack / sizeof g_app.stack[0])) { if (s && s->destroy) s->destroy(s); if (old && old->destroy) old->destroy(old); return; }
     g_origin[g_app.depth].has = 0;
     g_app.stack[g_app.depth++] = s;
-    trans_begin(old, 1, 1, NULL);
+    trans_begin(old, 1, 1, NULL, NULL);
 }
 
 Screen *app_top(void) { return g_app.depth ? g_app.stack[g_app.depth - 1] : NULL; }

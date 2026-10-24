@@ -1315,6 +1315,20 @@ static int phone_key(Screen *s, KeyAction a)
     return 1;
 }
 
+/* The page arriving: block i of it eases in a beat after the one before (0..1). */
+static float stage(const Detail *d, int i)
+{
+    if (g_app.fx_light) return 1;
+    float k = (d->age - 0.05f - i * 0.07f) / 0.42f;
+    if (k >= 1) return 1;
+    app_redraw();
+    if (k <= 0) return 0;
+    return 1 - (1 - k) * (1 - k) * (1 - k);
+}
+
+/* the rest of the page from here: faded in and risen into place by stage `e` */
+static void stage_begin(const Detail *d, float e) { gfx_set_alpha(e); gfx_set_translate(0, -d->scroll + 30 * (1 - e)); }
+
 static void draw(Screen *s)
 {
     Detail *d = s->st;
@@ -1339,7 +1353,12 @@ static void draw(Screen *s)
     } else if (bgt || tv > 0) {
         ui_backdrop_fades(1250, series ? 420 : 560, SNTV_UI_H);
         ui_backdrop_video(tv, SNTV_UI_H);
-        ui_backdrop_image(bgt, iw, ih, k * (1 - tv), SNTV_UI_H);
+        {   /* the backdrop settles from a little nearer as the page arrives */
+            float t = g_app.fx_light ? 1 : d->age / 1.1f, e = t >= 1 ? 1 : 1 - (1 - t) * (1 - t) * (1 - t);
+            if (e < 1) { gfx_set_scale(1.06f - 0.06f * e, SNTV_UI_W * 0.7f, SNTV_UI_H * 0.4f); app_redraw(); }
+            ui_backdrop_image(bgt, iw, ih, k * (1 - tv), SNTV_UI_H);
+            if (e < 1) gfx_set_scale(1, 0, 0);
+        }
         ui_text_scrim(1300, SNTV_UI_H);
         if (d->scroll < 60) bgtrailer_draw_badge(d->preview.id, 0);
     }
@@ -1370,6 +1389,7 @@ static void draw(Screen *s)
 
     const TmdbInfo *tm = tmdb_get(d->preview.id, d->preview.type);
     LibraryItem *li = app_library_find(d->preview.id);
+    stage_begin(d, stage(d, 1));   /* the facts, then the actions, then the episodes */
     if (series && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) {
         draw_episode_info(d, li, x, y, col_w);
         y += 236;
@@ -1428,6 +1448,7 @@ static void draw(Screen *s)
     }
     const char *play_label = d->resume_label[0] ? d->resume_label : ep_label[0] ? ep_label : series ? "Episodes" : "Play";
     int plays = d->resume_label[0] || !series || ep_label[0];
+    stage_begin(d, stage(d, 2));
     float by = y > 500 ? y : 500;
     if (series && by > 520) by = 520;
     if (g_theme.id == THEME_APERTURE) {
@@ -1471,7 +1492,9 @@ static void draw(Screen *s)
     bw = ui_pill(rate_label(d, rl, sizeof rl, 0), 1, ICON_STAR, bx2, by, 72, PILL_SECONDARY, cur == BTN_RATE);
     ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos));
     }
+    stage_begin(d, stage(d, 3));
     if (series) draw_series(d, li, x);
+    gfx_set_alpha(1); gfx_set_translate(0, -d->scroll);
     if (d->has_meta && d->scroll < 160 && !(series && g_theme.id == THEME_APERTURE)) {   /* the way down to About; gone once the page moves (Aperture's episodes reach the bottom) */
         Color c = COLOR_ALPHA(THEME_TEXT_MUTED, (int)(((THEME_TEXT_MUTED) & 0xFF) * (1 - d->scroll / 160)));
         float cw = font_measure("About, cast and more", FONT_XS | FONT_B) + 36, cx = (SNTV_UI_W - cw) / 2, cy = SNTV_UI_H - 44;
@@ -1687,7 +1710,7 @@ static int key(Screen *s, KeyAction a)
     default:
         switch (a) {
         case KEY_LEFT: if (d->ep_focus > 0) focus_ep(d, d->ep_focus - 1); return 1;
-        case KEY_RIGHT: if (d->ep_focus < d->n_eps - 1) focus_ep(d, d->ep_focus + 1); return 1;
+        case KEY_RIGHT: if (d->ep_focus < d->n_eps - 1) focus_ep(d, d->ep_focus + 1); else ui_bump(1, 0); return 1;
         case KEY_UP:
             d->area = strip_shown(d) ? AREA_SEASONS : AREA_ACTIONS;
             if (d->area == AREA_SEASONS && (d->range_focus >= 0 || d->n_seasons <= 1) && n_ranges(d)) d->range_focus = d->ep_focus / EP_RANGE;   /* back to the chip it came from */
@@ -1758,7 +1781,7 @@ static int about_key(Detail *d, KeyAction a)
     case AREA_CAST:
         switch (a) {
         case KEY_LEFT: if (d->cast_focus > 0) { d->cast_focus--; d->focus_t = 0; } return 1;
-        case KEY_RIGHT: if (d->cast_focus < n_cast - 1) { d->cast_focus++; d->focus_t = 0; } return 1;
+        case KEY_RIGHT: if (d->cast_focus < n_cast - 1) { d->cast_focus++; d->focus_t = 0; } else ui_bump(1, 0); return 1;
         case KEY_UP: d->area = AREA_ABOUT; return 1;
         case KEY_DOWN: return about_below(d, AREA_CAST);
         case KEY_OK: {   /* their other titles */
@@ -1775,7 +1798,7 @@ static int about_key(Detail *d, KeyAction a)
         int n = fc ? fc->n : 0;
         switch (a) {
         case KEY_LEFT: if (d->fr_focus > 0) { d->fr_focus--; d->focus_t = 0; } return 1;
-        case KEY_RIGHT: if (d->fr_focus < n - 1) { d->fr_focus++; d->focus_t = 0; } return 1;
+        case KEY_RIGHT: if (d->fr_focus < n - 1) { d->fr_focus++; d->focus_t = 0; } else ui_bump(1, 0); return 1;
         case KEY_UP: d->area = n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1;
         case KEY_DOWN: return about_below(d, AREA_FRANCHISE);
         case KEY_OK: {
@@ -1806,7 +1829,7 @@ static int about_key(Detail *d, KeyAction a)
     default:
         switch (a) {
         case KEY_LEFT: if (d->sim_focus > 0) { d->sim_focus--; d->focus_t = 0; } return 1;
-        case KEY_RIGHT: if (d->sim_focus < d->n_similar - 1) { d->sim_focus++; d->focus_t = 0; } return 1;
+        case KEY_RIGHT: if (d->sim_focus < d->n_similar - 1) { d->sim_focus++; d->focus_t = 0; } else ui_bump(1, 0); return 1;
         case KEY_UP: { int n_mus; soundtrack(d, &n_mus); d->area = n_mus ? AREA_MUSIC : franchise(d) ? AREA_FRANCHISE : n_cast ? AREA_CAST : AREA_ABOUT; d->focus_t = 0; return 1; }
         case KEY_DOWN: return 0;
         case KEY_OK:

@@ -32,6 +32,7 @@ static const char *const SORTS[S_COUNT] = { "Recent", "A to Z" };
 typedef struct {
     int filter, sort;
     MetaPreview *items; int n;
+    int enter_n; float enter_at;   /* when the grid filled: its posters ease in */
     const LibraryItem **src;      /* parallel to items */
     int zone, focus, pill_focus;  /* pill_focus: 0..F_COUNT-1 filters, F_COUNT = sort */
     float focus_t, scroll;
@@ -281,14 +282,18 @@ static void draw(Screen *s)
         room = ui_peek_room(&l->peek, &l->items[l->focus], fx, w2, CELL_H * sc, gx, SNTV_UI_W - 40, &room_right);
         room_row = l->focus / COLS;
     }
+    ui_list_enter(l->n, &l->enter_n, &l->enter_at);
+    int first_i = (int)(l->scroll / row_h) * COLS;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < l->n; i++) {
             int r = i / COLS, c = i % COLS;
-            float px = gx + c * (CELL_W + CELL_GAP), py = gy + r * row_h - l->scroll;
+            float ce = ui_enter(l->enter_at, i - first_i);
+            float px = gx + c * (CELL_W + CELL_GAP), py = gy + r * row_h - l->scroll + 26 * (1 - ce);
             if (room > 0 && r == room_row && (room_right ? i > l->focus : i < l->focus)) px += room_right ? room : -room;
             if (py > SNTV_UI_H || py + row_h < gy - 20) continue;
             int foc = l->zone == Z_GRID && l->rail_focus < 0 && l->focus == i;
             if ((pass == 1) != foc) continue;
+            gfx_set_alpha(ce);
             char pb[512];
             float f = foc ? (g_app.fx_light ? 1 : l->focus_t) : 0;
             if (foc) { peek_x = px; peek_y = py; }
@@ -311,6 +316,7 @@ static void draw(Screen *s)
                 if (c1 && sscanf(c1, ":%d:%d", &se, &ep) == 2) { snprintf(sub, sizeof sub, "S%d E%d", se, ep); font_draw(sub, px, py + CELL_H + 50, FONT_XS, THEME_TEXT_MUTED); }
             }
         }
+    gfx_set_alpha(1);
     if (!SNTV_PHONE && l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
         float f = g_app.fx_light ? 1 : l->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
         ui_peek_draw(&l->peek, &l->items[l->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
@@ -340,7 +346,7 @@ static int key(Screen *s, KeyAction a)
         if (l->zone == Z_FILTERS) { if (l->n) l->zone = Z_GRID; }
         else if (l->focus + COLS < l->n) { l->focus += COLS; l->focus_t = 0; }
         else if (l->focus / COLS < (l->n - 1) / COLS) { l->focus = l->n - 1; l->focus_t = 0; }   /* a short last row */
-        else return 0;
+        else { ui_bump(0, 1); return 0; }
         return 1;
     case KEY_LEFT:
         if (l->zone == Z_FILTERS) { if (l->pill_focus > 0) l->pill_focus--; else l->rail_focus = RAIL_LIBRARY; }
@@ -349,6 +355,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_RIGHT:
         if (l->zone == Z_FILTERS) { if (l->pill_focus < F_COUNT) l->pill_focus++; }
         else if (l->focus % COLS < COLS - 1 && l->focus + 1 < l->n) { l->focus++; l->focus_t = 0; }
+        else ui_bump(1, 0);
         return 1;
     case KEY_OK:
         if (l->zone == Z_FILTERS) { if (l->pill_focus == F_COUNT) l->sort = (l->sort + 1) % S_COUNT; else { l->filter = l->pill_focus; l->focus = 0; } }

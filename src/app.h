@@ -82,6 +82,9 @@ typedef struct App {
     float time;
     float press_at;            /* when OK was last pressed: the focused card dips */
     float card_rect[4]; float card_at;   /* the focused card as last drawn, and when: screens open out of it */
+    char card_url[512];        /* its picture, which flies into the page */
+    float bump_at; int bump_x, bump_y;   /* pressed past the end of a list: the focused card springs that way */
+    float finger[2]; int finger_on;   /* a finger on the screen, where (canvas units): a tap opens the card under it */
     char toast[160]; float toast_until;
 
     /* preferences */

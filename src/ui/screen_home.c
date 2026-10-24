@@ -891,14 +891,11 @@ static void draw_showcase_controls(const Home *h)
     if (foc) font_draw("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", SNTV_UI_W - THEME_MARGIN - font_measure("Left/Right: browse  \xC2\xB7  OK: open  \xC2\xB7  Down: rows", FONT_XS), cy + 22, FONT_XS, THEME_TEXT_MUTED);
 }
 
-/* How far the nudge has things now: 18 units toward the press, back by 0.28 s. axis 1 rows, 2 the list. */
+/* Pressed past the end: things spring toward the press and settle. axis 1 rows, 2 the list. */
 static float nudge(const Home *h, int axis)
 {
-    float t = g_app.time - h->nudge_at;
-    if (h->nudge_dir == 0 || abs(h->nudge_dir) != axis || t < 0 || t > 0.28f || g_app.fx_light) return 0;
-    app_redraw();
-    float k = t < 0.07f ? t / 0.07f : 1 - (t - 0.07f) / 0.21f;
-    return -18 * (h->nudge_dir > 0 ? 1 : -1) * k * k * (3 - 2 * k);
+    if (h->nudge_dir == 0 || abs(h->nudge_dir) != axis) return 0;
+    return ui_spring(h->nudge_at, -16 * (h->nudge_dir > 0 ? 1 : -1));
 }
 
 static void draw_row(Home *h, int ri, float y, float alpha)

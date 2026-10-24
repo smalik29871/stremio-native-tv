@@ -47,6 +47,7 @@ struct Explore {
     CatRef cats[MAX_CATS]; int n_cats, cat_i;
     int genre_i;              /* 0 = all (or the first option when the catalog requires one) */
     MetaPreview *items; int n;
+    int enter_n; float enter_at;   /* when the grid filled: its posters ease in */
     int loading, done, failed, requested;
     unsigned gen;
     int zone, focus;          /* grid focus index */
@@ -447,14 +448,18 @@ static void draw(Screen *s)
         room = ui_peek_room(&e->peek, &e->items[e->focus], fx, w2, CELL_H * sc, gx, SNTV_UI_W - 40, &room_right);
         room_row = e->focus / COLS;
     }
+    ui_list_enter(e->n, &e->enter_n, &e->enter_at);
+    int first_i = (int)(e->scroll / row_h) * COLS;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < e->n; i++) {
             int r = i / COLS, c = i % COLS;
-            float px = gx + c * (CELL_W + CELL_GAP), py = gy + r * row_h - e->scroll;
+            float ce = ui_enter(e->enter_at, i - first_i);
+            float px = gx + c * (CELL_W + CELL_GAP), py = gy + r * row_h - e->scroll + 26 * (1 - ce);
             if (room > 0 && r == room_row && (room_right ? i > e->focus : i < e->focus)) px += room_right ? room : -room;
             if (py > SNTV_UI_H || py + row_h < gy - 20) continue;
             int foc = e->zone == Z_GRID && e->rail_focus < 0 && e->focus == i;
             if ((pass == 1) != foc) continue;
+            gfx_set_alpha(ce);
             char pb[512];
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&e->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : e->focus_t) : 0, e->zone == Z_GRID && !foc ? 0.25f : 0, e->items[i].name, 0);
@@ -463,6 +468,7 @@ static void draw(Screen *s)
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
             else if (e->items[i].release_info) font_draw(e->items[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
+    gfx_set_alpha(1);
     if (!SNTV_PHONE && e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
         float f = g_app.fx_light ? 1 : e->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
         ui_peek_draw(&e->peek, &e->items[e->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
@@ -506,6 +512,7 @@ static int key(Screen *s, KeyAction a)
         else if (e->zone == Z_GENRES) { if (e->n) e->zone = Z_GRID; }
         else if (e->focus + COLS < e->n) { e->focus += COLS; e->focus_t = 0; }
         else if (e->n && e->focus / COLS < (e->n - 1) / COLS) { e->focus = e->n - 1; e->focus_t = 0; }   /* a short last row */
+        else if (e->zone == Z_GRID) ui_bump(0, 1);
         if (e->zone == Z_CATS) e->cat_focus = e->cat_i;
         if (e->zone == Z_GENRES) e->genre_focus = e->genre_i;
         return 1;
@@ -520,6 +527,7 @@ static int key(Screen *s, KeyAction a)
         else if (e->zone == Z_CATS) { if (e->cat_focus + 1 < e->n_cats) e->cat_focus++; }
         else if (e->zone == Z_GENRES) { if (e->genre_focus + 1 < ng) e->genre_focus++; }
         else if (e->focus % COLS < COLS - 1 && e->focus + 1 < e->n) { e->focus++; e->focus_t = 0; }
+        else ui_bump(1, 0);
         return 1;
     case KEY_OK:
         if (e->zone == Z_CATS) { if (e->cat_focus != e->cat_i) { e->cat_i = e->cat_focus; e->genre_i = 0; e->genre_focus = 0; reset_items(e); } }

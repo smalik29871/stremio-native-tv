@@ -401,6 +401,7 @@ static void touch_event(const SDL_Event *e)
         g_touch.trail[0].t = g_touch_now; g_touch.trail[0].along = 0; g_touch.n_trail = 1; g_touch.id = e->tfinger.fingerId;
         float ux, uy;
         touch_to_ui(g_touch.x, g_touch.y, &ux, &uy);
+        g_app.finger[0] = ux; g_app.finger[1] = uy; g_app.finger_on = 1;   /* the card under it is the one a tap opens */
         g_touch.caught = ui_pan_catch(ux, uy);   /* a finger on a gliding list stops it, and is not a tap */
         Screen *top = app_top();
         if (!g_touch.caught && top && top->drag && top->drag(top, 0, ux, uy)) { g_touch.mode = 3; app_redraw(); }
@@ -410,6 +411,7 @@ static void touch_event(const SDL_Event *e)
     if (e->type == SDL_FINGERMOTION) { touch_motion(e->tfinger.x, e->tfinger.y); return; }
     if (e->type != SDL_FINGERUP) return;
     touch_motion(e->tfinger.x, e->tfinger.y);
+    g_app.finger_on = 0;
     g_touch.down = 0;
     g_app.last_input = g_app.time;
     if (g_touch.mode == 3) {

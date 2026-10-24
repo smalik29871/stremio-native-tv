@@ -46,6 +46,7 @@ struct Search {
     int focus_grid;           /* 0 the search bar (or the keyboard), 1 results, 2 recent searches */
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char phone_url[96];   /* or type on the phone */
     MetaPreview *results; int n;
+    int enter_n; float enter_at;   /* when results came: they ease in */
     int grid_focus;
     int want_results;         /* a search was asked for: focus moves to the results when they arrive */
     int keep_recent;          /* ...and goes into the recent searches once it finds something */
@@ -882,14 +883,17 @@ static void draw(Screen *sc)
         room = ui_peek_room(&s->peek, &s->results[s->grid_focus], fx, w2, CELL_H * sc2, gx - 30, gx + grid_w + 30, &room_right);
         room_row = s->cell[s->grid_focus].row;
     }
+    ui_list_enter(s->n, &s->enter_n, &s->enter_at);
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < s->n; i++) {
             int r = s->cell[i].row, c = s->cell[i].col;
-            float px = gx + c * (CELL_W + CELL_GAP), py = gy + s->row_y[r];
+            float ce = ui_enter(s->enter_at, i);
+            float px = gx + c * (CELL_W + CELL_GAP), py = gy + s->row_y[r] + 26 * (1 - ce);
             if (room > 0 && r == room_row && (room_right ? i > s->grid_focus : i < s->grid_focus)) px += room_right ? room : -room;
             if (py > SNTV_UI_H || py + row_h < top - 50) continue;
             int foc = s->focus_grid == 1 && s->grid_focus == i;
             if ((pass == 1) != foc) continue;
+            gfx_set_alpha(ce);
             char pb[512];
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
@@ -902,6 +906,7 @@ static void draw(Screen *sc)
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
             else if (s->results[i].release_info) font_draw(s->results[i].release_info, px, py + CELL_H + (foc ? 50 : 38), FONT_XS, THEME_TEXT_MUTED);
         }
+    gfx_set_alpha(1);
     if (s->focus_grid == 1 && s->grid_focus < s->n) {
         float f = g_app.fx_light ? 1 : s->focus_t, sc2 = ui_focus_scale(f), w2 = CELL_W * sc2, h2 = CELL_H * sc2;
         ui_peek_draw(&s->peek, &s->results[s->grid_focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx - 30, gx + grid_w + 30);

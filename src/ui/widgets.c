@@ -265,6 +265,39 @@ static void cover_uv(int iw, int ih, float w, float h, float *u0, float *v0, flo
     else { float k = ia / pa; *v0 = (1 - k) / 2; *v1 = 1 - *v0; }
 }
 
+void ui_cover_uv(int iw, int ih, float w, float h, float *u0, float *v0, float *u1, float *v1) { cover_uv(iw, ih, w, h, u0, v0, u1, v1); }
+
+/* ---- motion ---- */
+
+/* A damped spring kicked at t0: amp toward the press, past it and back, still by 0.5 s. */
+float ui_spring(float t0, float amp)
+{
+    float t = g_app.time - t0;
+    if (t < 0 || t > 0.5f || g_app.fx_light || amp == 0) return 0;
+    app_redraw();
+    return amp * sinf(t * 19.0f) * expf(-t * 8.0f) * 1.6f;
+}
+
+/* Item i of a group that appeared at t0: 0..1 as it eases in, each a beat after the one before. */
+float ui_enter(float t0, int i)
+{
+    if (g_app.fx_light || t0 <= 0) return 1;
+    float k = (g_app.time - t0 - i * 0.035f) / 0.32f;
+    if (k >= 1) return 1;
+    app_redraw();
+    if (k <= 0) return 0;
+    return 1 - (1 - k) * (1 - k) * (1 - k);
+}
+
+void ui_bump(int dx, int dy) { g_app.bump_at = g_app.time; g_app.bump_x = dx; g_app.bump_y = dy; app_redraw(); }
+
+void ui_list_enter(int n, int *seen_n, float *at)
+{
+    if (n == *seen_n) return;
+    if (*seen_n == 0 || n < *seen_n) *at = g_app.time;   /* a new list; more of the same one comes in quietly */
+    *seen_n = n;
+}
+
 #define BD_W (SNTV_UI_W * 0.80f)
 
 static float g_fade_left = 1150, g_fade_bottom = 330;
@@ -1583,9 +1616,17 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
     int mip = flags & (CARD_MIP | CARD_BLUR), blur = flags & CARD_BLUR;
     float sc = ui_focus_scale(focus);
     float cw = w * sc, ch = h * sc, cx = x - (cw - w) / 2, cy = y - (ch - h) / 2 - ui_focus_lift(focus);
-    if (focus > 0.95f && g_card_capture && !app_transition_active()) {
+    if (focus > 0.5f) { cx += ui_spring(g_app.bump_at, 14 * g_app.bump_x); cy += ui_spring(g_app.bump_at, 14 * g_app.bump_y); }
+    float tx_, ty_; gfx_get_translate(&tx_, &ty_);
+    int under_finger = g_app.finger_on && g_app.finger[0] >= cx + tx_ && g_app.finger[0] < cx + tx_ + cw && g_app.finger[1] >= cy + ty_ && g_app.finger[1] < cy + ty_ + ch;
+    if ((g_app.finger_on ? under_finger : focus > 0.95f) && g_card_capture && !app_transition_active()) {
         float tx, ty; gfx_get_translate(&tx, &ty);   /* where it is on screen (a scrolled page) */
         g_app.card_rect[0] = cx + tx; g_app.card_rect[1] = cy + ty; g_app.card_rect[2] = cw; g_app.card_rect[3] = ch; g_app.card_at = g_app.time;
+        snprintf(g_app.card_url, sizeof g_app.card_url, "%s", url ? url : "");   /* its poster flies into the page */
+    }
+    if (focus > 0.02f && url && !g_app.fx_light && g_theme.focus_style != FOCUS_APERTURE && g_theme.focus_style != FOCUS_FRAME) {
+        unsigned tint = image_tint(url);   /* a glow in the poster's own colours under it */
+        if (tint) gfx_shadow(cx, cy + 14 * focus, cw, ch, R_CARD, 44, COLOR_ALPHA(tint, (int)(0x9C * focus)));
     }
     ui_focus_under(cx, cy, cw, ch, R_CARD, focus);
     int iw = 0, ih = 0;
