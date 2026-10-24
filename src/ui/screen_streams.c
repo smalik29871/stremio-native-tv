@@ -1614,15 +1614,6 @@ static void lookup_start(const MetaPreview *meta, const char *video_id, StreamsL
     g_look.cb = cb; g_look.user = user;
     g_look.started = g_app.time;
     g_look.generation += 1000;
-    if (video_id && g_pre.video_id && !strcmp(g_pre.video_id, video_id) && !g_pre.pending && g_pre.n
-        && g_app.time - g_pre.started < PREFETCH_FRESH_S && g_pre.addons_version == g_app.addons_version) {   /* asked ahead (Zap's next channel): those answers */
-        g_look.items = g_pre.items; g_look.n = g_pre.n;
-        g_pre.items = NULL; g_pre.n = 0;
-        prefetch_clear();
-        LOGI("streams: %s was asked ahead, %d sources", video_id, g_look.n);
-        lookup_finish();
-        return;
-    }
     query_addons(meta, video_id, NULL, g_look.generation, on_lookup, &g_look.pending, NULL);
     if (!g_look.pending) lookup_finish();
 }

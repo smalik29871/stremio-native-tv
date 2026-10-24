@@ -5,7 +5,7 @@
 #define SNTV_RAIL_H
 #include "input.h"
 
-enum { RAIL_HOME, RAIL_EXPLORE, RAIL_SEARCH, RAIL_LIBRARY, RAIL_CALENDAR, RAIL_ZAP, RAIL_SETTINGS, RAIL_ACCOUNT, RAIL_COUNT };
+enum { RAIL_HOME, RAIL_EXPLORE, RAIL_SEARCH, RAIL_LIBRARY, RAIL_CALENDAR, RAIL_SETTINGS, RAIL_ACCOUNT, RAIL_COUNT };
 #define RAIL_W   104.0f   /* the strip */
 #define RAIL_LX  176.0f   /* where content starts on screens that show the rail */
 #define PHONE_TABS_H 144.0f   /* upright on a phone the rail is a tab bar this tall along the bottom */
