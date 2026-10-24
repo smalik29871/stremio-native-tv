@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.65
+
+- **Seamless binge**: the next episode no longer opens on the loading card. Its still grows
+  out of the Up Next card to the whole screen, with the episode's name low at the left,
+  and the picture fades in under it, its sources already found during the credits. If a
+  source is slow, the loading card comes back after a few seconds to say what is happening.
+- **Faster on slower TVs**: while a video plays with nothing over it, the app redraws only
+  when a subtitle line changes (and four times a second for the small things), not every
+  frame, leaving the TV free for the remote and the network. The screensaver draws at most
+  thirty frames a second. Diagnostics > Speed also shows how much each screen paints.
+- **Depth makes way**: when the TV is short of memory or its storage is nearly full, Depth
+  turns itself off and lets its maps go; it comes back by itself once there is room again
+  (Settings says when it is off and why).
+- The loading card reads episode titles like "S1 E2 - Title" correctly.
+
 ## 0.10.64
 
 - **Depth**: Home's backdrop moves slowly into the picture, the people coming towards you
