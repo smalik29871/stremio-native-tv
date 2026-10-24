@@ -298,6 +298,7 @@ const MetaPreview *app_details_cached(const char *type, const char *id);      /*
 /* --- screens --- */
 Screen *screen_home_create(void);
 Screen *screen_explore_create(void);   /* catalogs by type, catalog and genre */
+Screen *screen_explore_create_genre(const char *genre);   /* ...open on the first list that has this genre */
 Screen *screen_library_create(void);   /* the account's library as a grid */
 Screen *screen_calendar_create(void);  /* upcoming and recent episodes of library series */
 Screen *screen_detail_create(const MetaPreview *preview);
@@ -394,7 +395,7 @@ int  streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *
 float streams_draw_badges(const char *list, float x, float y, float max_w, int foc);
 
 /* Titles with artwork worth showing in the screensaver (library + catalog rows). */
-typedef struct AmbientItem { char id[64], name[128], background[512], poster[512]; } AmbientItem;
+typedef struct AmbientItem { char id[64], type[16], name[128], background[512], poster[512]; } AmbientItem;
 void app_ambient_offer(const MetaPreview *m);
 int  app_ambient_pool(const AmbientItem **out);
 

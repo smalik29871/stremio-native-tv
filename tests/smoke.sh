@@ -1034,6 +1034,11 @@ run phone_hero_swipe 240 "wait,wait,wait,drag:600:400:100:400,wait" $PH SNTV_EXP
 grep -q "home: hero swiped to [0-9]* of [0-9]*" "$OUT/phone_hero_swipe.log" || { echo "a swipe across the hero did not turn its page"; exit 1; }
 run phone_home_retap 280 "wait,wait,wait,drag:390:1400:390:400,wait,tap:90:1640,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with phrt '{"setupDone":1}')"
 grep -q "home: back to the top" "$OUT/phone_home_retap.log" || { echo "Home tapped again did not go back to the top"; exit 1; }
+# an empty Search on a phone: Discover; a genre opens Explore on it, a poster its title page
+run phone_discover_genre 300 "wait,wait,wait,tap:390:1660,wait,tap:100:464,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=explore HOME="$(home_with phdg '{"setupDone":1}')"
+grep -q "explore: opened on Action" "$OUT/phone_discover_genre.log" || { echo "Discover's genre did not open Explore on it"; grep -E "search|explore" "$OUT/phone_discover_genre.log"; exit 1; }
+run phone_discover_title 300 "wait,wait,wait,tap:390:1660,wait,tap:390:940,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=detail HOME="$(home_with phdt '{"setupDone":1}')"
+grep -q "search: discover opens " "$OUT/phone_discover_title.log" || { echo "Discover's poster did not open its title"; exit 1; }
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
 LS="SNTV_WINDOW=1000x450 SNTV_HANDHELD=1"

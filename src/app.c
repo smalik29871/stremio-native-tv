@@ -2284,6 +2284,7 @@ void app_ambient_offer(const MetaPreview *m)
     else { a = &g_ambient[g_ambient_next]; g_ambient_next = (g_ambient_next + 1) % AMBIENT_MAX; }   /* rotate the pool */
     snprintf(a->id, sizeof a->id, "%s", m->id);
     snprintf(a->name, sizeof a->name, "%s", m->name);
+    snprintf(a->type, sizeof a->type, "%s", m->type ? m->type : "");
     snprintf(a->background, sizeof a->background, "%s", bg);
     snprintf(a->poster, sizeof a->poster, "%s", m->poster ? m->poster : "");
 }

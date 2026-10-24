@@ -24,7 +24,7 @@ enum { LIST_ROW = 58, LIST_MAX = 5, HERO_H = 400, COLS_TYPING = 5, COLS = 7, CEL
 
 /* Results are grouped by type, each group under its own heading and starting a new row. */
 enum { SECT_MAX = 4, SECT_H = 56 };
-enum { HIT_FIELD = 0x1000, HIT_LIST = 0x2000, HIT_HERO = 0x3000, HIT_HERO_CARD = 0x3100, HIT_CHIP = 0x4000 };   /* touch targets; a result is its index */
+enum { HIT_FIELD = 0x1000, HIT_LIST = 0x2000, HIT_HERO = 0x3000, HIT_HERO_CARD = 0x3100, HIT_CHIP = 0x4000, HIT_GENRE = 0x5000, HIT_DISC = 0x6000 };   /* touch targets; a result is its index */
 typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
@@ -1066,6 +1066,60 @@ static void ph_line(const char *text, const char *sub, Icon icon, float x, float
     ui_hit(x - 12, y, w + 24, h, hit);
 }
 
+/* Upright on a phone with nothing typed: Discover, as phone apps have it: genres that open
+ * Explore on them, and the titles Home's rows already brought, as posters (the kind chips apply). */
+static const char *const DISC_GENRES[] = { "Action", "Comedy", "Drama", "Thriller", "Sci-Fi", "Horror",
+                                           "Romance", "Animation", "Crime", "Documentary", "Family", "Fantasy" };
+#define N_DISC_GENRES ((int)(sizeof DISC_GENRES / sizeof DISC_GENRES[0]))
+#define DISC_MAX 18
+
+static int disc_titles(const Search *s, const AmbientItem **out, int *idx)
+{
+    const AmbientItem *pool;
+    int np = app_ambient_pool(&pool), n = 0;
+    *out = pool;
+    for (int i = 0; i < np && n < DISC_MAX; i++) {
+        const AmbientItem *a = &pool[i];
+        if (!a->poster[0] || !a->type[0]) continue;
+        if (s->ph_filter == 1 && strcmp(a->type, "movie")) continue;
+        if (s->ph_filter == 2 && strcmp(a->type, "series")) continue;
+        idx[n++] = i;
+    }
+    return n;
+}
+
+static float disc_draw(const Search *s, float x, float y, float w)
+{
+    font_draw("BROWSE BY GENRE", x, y, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    y += 48;
+    float cx = x, ch = 72;
+    for (int k = 0; k < N_DISC_GENRES; k++) {   /* the chips wrap onto as many lines as they need */
+        float cw = font_measure(DISC_GENRES[k], FONT_S | FONT_B) + 56;
+        if (cx > x && cx + cw > x + w) { cx = x; y += ch + 16; }
+        gfx_rrect(cx, y, cw, ch, ch / 2, COLOR_ALPHA(THEME_TEXT, 0x14));
+        gfx_rrect_ring(cx, y, cw, ch, ch / 2, 2, COLOR_ALPHA(THEME_TEXT, 0x1C));
+        font_draw(DISC_GENRES[k], cx + 28, y + (ch - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT);
+        ui_hit(cx, y, cw, ch, HIT_GENRE + k);
+        cx += cw + 16;
+    }
+    y += ch + 56;
+    const AmbientItem *pool;
+    int idx[DISC_MAX], n = disc_titles(s, &pool, idx);
+    if (!n) return y;
+    font_draw("POPULAR NOW", x, y, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    y += 48;
+    float gap = 20, cw = (w - 2 * gap) / 3, chh = cw * 1.5f;
+    for (int i = 0; i < n; i++) {
+        float px = x + (i % 3) * (cw + gap), py = y + (i / 3) * (chh + 76);
+        if (py - s->ph_y > SNTV_UI_H || py + chh + 76 - s->ph_y < 0) continue;
+        const AmbientItem *a = &pool[idx[i]];
+        ui_card(a->poster, px, py, cw, chh, 0, 0, a->name, 0);
+        font_draw_fit(a->name, px + 4, py + chh + 12, FONT_XS | FONT_B, THEME_TEXT_DIM, cw - 8);
+        ui_hit(px, py, cw, chh + 50, HIT_DISC + idx[i]);
+    }
+    return y + ((n + 2) / 3) * (chh + 76) + 20;
+}
+
 static void phone_draw(Search *s)
 {
     float W = SNTV_UI_W, x = 40, w = W - 80;
@@ -1110,6 +1164,7 @@ static void phone_draw(Search *s)
         }
         y += 20;
     }
+    if (!s->typing && !s->kb.text[0] && !s->n && !s->pending && s->ai_state != 1) y = disc_draw(s, x, y + 10, w);
     if ((s->pending || s->ai_state == 1) && !s->n) { ui_spinner(W / 2, y + 60, 26); y += 140; }
     else if (!s->n && strlen(s->last_query) >= 2 && !s->typing) { font_draw_center("Nothing found", W / 2, y + 40, FONT_L | FONT_B, THEME_TEXT); y += 120; }
     if (s->n && !(s->typing && nl)) {
@@ -1186,6 +1241,20 @@ static int tap(Screen *sc, int id)
 {
     Search *s = sc->st;
     if (id >= HIT_CHIP && id < HIT_CHIP + 3) { if (!g_touch_aim) s->ph_filter = id - HIT_CHIP; return 1; }
+    if (id >= HIT_GENRE && id < HIT_GENRE + N_DISC_GENRES) {   /* Discover: Explore on that genre */
+        if (!g_touch_aim) { LOGI("search: discover %s", DISC_GENRES[id - HIT_GENRE]); app_push(screen_explore_create_genre(DISC_GENRES[id - HIT_GENRE])); }
+        return 1;
+    }
+    if (id >= HIT_DISC && id < HIT_DISC + 0x1000) {   /* Discover: a title Home's rows brought */
+        const AmbientItem *pool;
+        int np = app_ambient_pool(&pool), i = id - HIT_DISC;
+        if (g_touch_aim || i >= np) return 1;
+        AmbientItem a = pool[i];   /* the pool may rotate while the page opens */
+        MetaPreview m = { .id = a.id, .type = a.type, .name = a.name, .poster = a.poster, .background = a.background };
+        LOGI("search: discover opens %s", a.name);
+        app_push(screen_detail_create(&m));
+        return 1;
+    }
     if (keyboard_tap(&s->kb, id)) { if (!s->typing) return 1; s->sugg_focus = -1; return 0; }
     if (id == HIT_FIELD) { if (s->typing) return 1; s->focus_grid = 0; return 0; }
     if (id >= HIT_LIST && id < HIT_LIST + 32) {

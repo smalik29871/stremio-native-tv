@@ -59,6 +59,7 @@ struct Explore {
     int addons_seen;
     char url[1024];
     int mood_pending;         /* Moods: catalog requests still out */
+    char want_genre[32];      /* opened for a genre (Search's Discover): the first list of it, once the lists are known */
 };
 
 /* Explore screens alive now: a reply checks its owner is still here before touching it
@@ -341,6 +342,22 @@ static void update(Screen *s, float dt)
 {
     Explore *e = s->st;
     if (e->addons_seen != g_app.addons_version) { build_types(e); build_cats(e); reset_items(e); }
+    if (e->want_genre[0] && e->n_cats) {   /* the first list, of this type, that offers the genre */
+        for (int c = 0; c < e->n_cats && e->want_genre[0]; c++) {
+            e->cat_i = c;
+            int req;
+            const AddonExtra *g = genres(e, &req);
+            for (int o = 0; g && o < g->options.n; o++)
+                if (genre_is(g->options.v[o], e->want_genre)) {
+                    e->genre_i = o + !req; e->genre_focus = e->genre_i; e->cat_focus = c; e->zone = Z_GRID;
+                    LOGI("explore: opened on %s in %s", g->options.v[o], cur_cat(e, NULL)->name ? cur_cat(e, NULL)->name : cur_cat(e, NULL)->id);
+                    e->want_genre[0] = 0;
+                    break;
+                }
+        }
+        if (e->want_genre[0]) { LOGI("explore: no list offers %s", e->want_genre); e->cat_i = 0; e->want_genre[0] = 0; }
+        reset_items(e);
+    }
     if (!e->requested && e->n_cats) fetch(e, 0);
     ui_peek_step(&e->peek, e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n ? &e->items[e->focus] : NULL, dt);
     /* more when the focus nears the end */
@@ -583,5 +600,13 @@ Screen *screen_explore_create(void)
     for (int i = 0; i < MAX_LIVE; i++) if (!g_live[i]) { g_live[i] = e; break; }
     s->name = "explore"; s->st = e; s->long_ok = 1;
     s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
+    return s;
+}
+
+Screen *screen_explore_create_genre(const char *genre)
+{
+    Screen *s = screen_explore_create();
+    Explore *e = s->st;
+    snprintf(e->want_genre, sizeof e->want_genre, "%s", genre ? genre : "");
     return s;
 }
