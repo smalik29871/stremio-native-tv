@@ -16,8 +16,8 @@
 
 /* upright on a phone: three across, under the filters, above the tab bar */
 #define COLS (SNTV_PHONE ? 3 : 7)
-#define CELL_W (SNTV_PHONE ? 220 : 196)
-#define CELL_H (SNTV_PHONE ? 330 : 294)
+#define CELL_W (SNTV_PHONE ? (SNTV_UI_W - 2 * LX - (COLS - 1) * CELL_GAP) / COLS : 196)   /* a phone: three across, whatever its width */
+#define CELL_H (SNTV_PHONE ? CELL_W * 1.5f : 294)
 #define CELL_GAP (SNTV_PHONE ? 20 : 28)
 enum { F_ALL, F_MOVIES, F_SERIES, F_CONTINUE, F_STATS, F_COUNT };
 enum { S_RECENT, S_NAME, S_COUNT };
@@ -240,7 +240,13 @@ static void draw(Screen *s)
     char cnt[48];
     if (l->filter == F_STATS) cnt[0] = 0;
     else snprintf(cnt, sizeof cnt, "%d title%s", l->n, l->n == 1 ? "" : "s");
-    font_draw(cnt, LX + font_measure("Library", FONT_L | FONT_B) + 24, 52 + font_height(FONT_L | FONT_B) - font_height(FONT_S) - 6, FONT_S, THEME_TEXT_MUTED);
+    float cnt_x = LX + font_measure("Library", FONT_L | FONT_B) + 24;
+    if (SNTV_PHONE) {   /* beside the Calendar and Sort buttons: only where it fits */
+        char sl[32]; snprintf(sl, sizeof sl, "Sort: %s", SORTS[l->sort]);
+        float room = SNTV_UI_W - LX - ui_pill_width(sl, 1, 52) - 16 - ui_pill_width("Calendar", 1, 52) - 16 - cnt_x;
+        if (font_measure(cnt, FONT_S) > room) cnt[0] = 0;
+    }
+    font_draw(cnt, cnt_x, 52 + font_height(FONT_L | FONT_B) - font_height(FONT_S) - 6, FONT_S, THEME_TEXT_MUTED);
     float x = LX, y = 134;
     for (int i = 0; i < F_COUNT; i++) {
         int foc = l->zone == Z_FILTERS && l->rail_focus < 0 && l->pill_focus == i;

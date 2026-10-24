@@ -18,8 +18,8 @@
 enum { MAX_TYPES = 8, MAX_CATS = 64, PAGE = 100 };
 /* upright on a phone: three across, above the tab bar */
 #define COLS (SNTV_PHONE ? 3 : 7)
-#define CELL_W (SNTV_PHONE ? 220 : 196)
-#define CELL_H (SNTV_PHONE ? 330 : 294)
+#define CELL_W (SNTV_PHONE ? (SNTV_UI_W - 2 * LX - (COLS - 1) * CELL_GAP) / COLS : 196)   /* a phone: three across, whatever its width */
+#define CELL_H (SNTV_PHONE ? CELL_W * 1.5f : 294)
 #define CELL_GAP (SNTV_PHONE ? 20 : 28)
 enum { Z_TYPES, Z_CATS, Z_GENRES, Z_GRID };
 #define LX (SNTV_PHONE ? 40.0f : RAIL_LX)

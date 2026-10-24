@@ -20,6 +20,7 @@ public class CuelightActivity extends SDLActivity {
         // a phone (its short side under 600 dp): the app draws larger (src/ui/gfx.c)
         try {
             if (getResources().getConfiguration().smallestScreenWidthDp < 600) Os.setenv("SNTV_HANDHELD", "1", true);
+            Os.setenv("SNTV_DENSITY", Float.toString(getResources().getDisplayMetrics().density), true);   // how big a dp is: the upright layouts size their text by it
         } catch (ErrnoException ignored) { }
         super.onCreate(savedInstanceState);
         if (mLayout != null && mSurface != null) CuelightPlayer.attach(this, mLayout, mSurface);

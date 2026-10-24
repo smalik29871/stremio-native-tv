@@ -1728,9 +1728,20 @@ int ui_pan_catch(float x, float y)
     return caught;
 }
 
+/* No scroller under the finger: the screen's biggest one that way (a page's own, held upright). */
+static int pan_biggest(int vertical)
+{
+    int best = -1;
+    for (int i = 0; i < g_n_pans; i++)
+        if (g_pans[i].owner == app_top() && g_pans[i].pan->at && g_pans[i].vertical == vertical &&
+            (best < 0 || g_pans[i].w * g_pans[i].h > g_pans[best].w * g_pans[best].h)) best = i;
+    return best;
+}
+
 int ui_pan_grab(float x, float y, int vertical)
 {
     int i = pan_at(x, y, vertical);
+    if (i < 0 && SNTV_PHONE && vertical) i = pan_biggest(1);   /* up or down on a heading or a chip row: the page moves */
     g_drag.pan = NULL;
     if (i < 0) return 0;
     g_drag.pan = g_pans[i].pan; g_drag.owner = g_pans[i].owner;

@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -202,6 +203,26 @@ int g_ui_portrait;
 int gfx_handheld(void) { return g_handheld; }
 void gfx_set_handheld(int on) { g_handheld = on; }
 
+/* Upright on a phone, units across: as many as make the text a comfortable size there (a
+ * unit about 0.62 dp: body text near 15 dp), 600 to 780. The phone's density comes from the
+ * app (SNTV_DENSITY, Android's dp scale); without it, 780. SNTV_PHONE_UNITS sets it outright. */
+static int phone_units(void)
+{
+    static int units;
+    if (units) return units;
+    const char *u = getenv("SNTV_PHONE_UNITS"), *d = getenv("SNTV_DENSITY");
+    units = 780;
+    if (u && atoi(u) > 0) units = atoi(u);
+    else if (d && atof(d) > 0.5) {
+        int w = g_draw_w < g_draw_h ? g_draw_w : g_draw_h;   /* the short side: upright, its width */
+        units = (int)(w / atof(d) / 0.62f + 0.5f);
+        if (units < 600) units = 600;
+        if (units > 780) units = 780;
+    }
+    LOGI("gfx: upright on a phone, %d units across", units);
+    return units;
+}
+
 void gfx_begin_frame(Color clear)
 {
     SDL_GL_GetDrawableSize(g_win, &g_draw_w, &g_draw_h);
@@ -210,7 +231,7 @@ void gfx_begin_frame(Color clear)
         g_ui_w = aspect > 16.0 / 9.0 + 0.01 ? (int)(SNTV_UI_BASE_H * aspect + 0.5) : SNTV_UI_BASE_W;
         g_ui_h = aspect < 16.0 / 9.0 - 0.01 ? (int)(SNTV_UI_BASE_W / aspect + 0.5) : SNTV_UI_BASE_H;
         g_ui_portrait = g_handheld && aspect < 1;
-        if (g_ui_portrait) { g_ui_w = 780; g_ui_h = (int)(780 / aspect + 0.5); }   /* upright: its own layouts */
+        if (g_ui_portrait) { int pw = phone_units(); g_ui_w = pw; g_ui_h = (int)(pw / aspect + 0.5); }   /* upright: its own layouts */
         else if (g_handheld && g_ui_w > SNTV_UI_BASE_W) {   /* 20:9 is 1920 x 864: no shorter than 820, the layouts' floor */
             g_ui_h = (int)(SNTV_UI_BASE_W / aspect + 0.5);
             if (g_ui_h < 820) g_ui_h = 820;

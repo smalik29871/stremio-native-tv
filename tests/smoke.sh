@@ -1014,6 +1014,15 @@ run phone_about 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:364,wait,w
 run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:803,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
 run phone_calendar 220 "wait,tap:546:1660,wait,tap:370:76,wait,wait" $PH SNTV_EXPECT_SCREEN=calendar HOME="$(home_with ph14 '{"setupDone":1}')"
 # touch that follows the finger: a dragged page and row, the player's gestures (a phone plays sideways)
+# a phone's size: its canvas from its width in dp (here 450 px at 1.1 px a dp: 409 dp, 660 units across)
+run phone_size_dp 160 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 SNTV_DENSITY=1.1 SNTV_EXPECT_SCREEN=home HOME="$(home_with psz '{"setupDone":1}')"
+grep -q "gfx: upright on a phone, 660 units across" "$OUT/phone_size_dp.log" || { echo "the phone's canvas did not follow its size in dp"; grep "gfx:" "$OUT/phone_size_dp.log"; exit 1; }
+# a thumb's swipe leans sideways: still the page up and down; across chips that do not scroll, nothing
+run phone_drag_lean 220 "wait,wait,wait,drag:390:1400:190:700,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with plean '{"setupDone":1}')"
+grep -q "touch: drag on home follows the finger up and down" "$OUT/phone_drag_lean.log" || { echo "a leaning swipe did not scroll the page"; grep "touch:" "$OUT/phone_drag_lean.log"; exit 1; }
+run phone_drag_chips 220 "wait,tap:546:1660,wait,drag:500:160:100:160,wait" $PH SNTV_EXPECT_SCREEN=library HOME="$(home_with pchips '{"setupDone":1}')"
+grep -q "touch: drag on library at .*: nothing scrolls across there" "$OUT/phone_drag_chips.log" \
+  || { echo "a swipe across the Library's filters did something"; grep -E "touch:" "$OUT/phone_drag_chips.log"; exit 1; }
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
 LS="SNTV_WINDOW=1000x450 SNTV_HANDHELD=1"

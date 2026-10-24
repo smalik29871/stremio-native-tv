@@ -323,7 +323,7 @@ static int g_seen_keyup, g_ok_down, g_ok_long;
  * row under it with the finger and lets it glide on (ui_pan); where nothing scrolls that way,
  * it moves the focus as it goes, a step each stretch. The system's back gesture arrives as Back. */
 static struct {
-    int down, mode, steps, caught;   /* mode: 0 not moved yet, 1 a scroller has it, 2 focus steps, 3 the screen's own */
+    int down, mode, steps, caught;   /* mode: 0 not moved yet, 1 a scroller has it, 2 focus steps, 3 the screen's own, 4 nothing (a phone) */
     float x, y, along;               /* where it went down (0..1 of the screen); the drag's travel (canvas units) */
     Uint32 t;
     struct { Uint32 t; float along; } trail[16];   /* the last moves, by the events' own times: the speed it was let go at */
@@ -371,15 +371,20 @@ static void touch_motion(float fx, float fy)
         app_redraw();
         return;
     }
-    float dx = fx - g_touch.x, dy = (fy - g_touch.y) * 9.0f / 16.0f;   /* in screen widths, both ways */
+    int pw, ph;
+    gfx_drawable_size(&pw, &ph);
+    float dx = fx - g_touch.x, dy = (fy - g_touch.y) * (pw > 0 ? (float)ph / pw : 9.0f / 16.0f);   /* in screen widths, both ways (held upright too) */
     float dist = SDL_sqrtf(dx * dx + dy * dy);
     if (!g_touch.mode) {
         if (dist < 0.02f) return;   /* still a tap */
         g_touch.vertical = SDL_fabsf(dy) > SDL_fabsf(dx);
         float ux, uy;
         touch_to_ui(g_touch.x, g_touch.y, &ux, &uy);
-        if (ui_pan_grab(ux, uy, g_touch.vertical)) g_touch.mode = 1;
+        Screen *on = app_top();
+        if (ui_pan_grab(ux, uy, g_touch.vertical)) { g_touch.mode = 1; LOGI("touch: drag on %s follows the finger %s", on ? on->name : "?", g_touch.vertical ? "up and down" : "across"); }
+        else if (SNTV_PHONE) { g_touch.mode = 4; LOGI("touch: drag on %s at %.0f,%.0f: nothing scrolls %s there", on ? on->name : "?", ux, uy, g_touch.vertical ? "up and down" : "across"); }   /* a phone: a drag is never a remote's steps */
         else {
+            LOGI("touch: drag on %s at %.0f,%.0f steps the focus (nothing scrolls %s there)", on ? on->name : "?", ux, uy, g_touch.vertical ? "up and down" : "across");
             g_touch.mode = 2;
             g_touch.step = g_touch.vertical ? (dy < 0 ? KEY_DOWN : KEY_UP) : (dx < 0 ? KEY_RIGHT : KEY_LEFT);   /* content follows the finger */
             Screen *top = app_top();
@@ -397,6 +402,7 @@ static void touch_motion(float fx, float fy)
     g_touch.trail[i].t = g_touch_now; g_touch.trail[i].along = along;
     g_touch.along = along;
     if (g_touch.mode == 1) { ui_pan_drag(along); return; }
+    if (g_touch.mode == 4) return;
     float travel = g_touch.vertical ? SDL_fabsf(dy) : SDL_fabsf(dx);
     int want = (int)(travel / 0.06f) + 1;   /* a step every 6% of the screen's width */
     if (want > 12) want = 12;
@@ -441,6 +447,7 @@ static void touch_event(const SDL_Event *e)
     static int told;
     if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
     if (g_touch.mode == 1) { ui_pan_release(v); return; }
+    if (g_touch.mode == 4) return;   /* a drag over nothing: not a tap either */
     if (g_touch.mode == 2) {   /* a quick flick goes a few steps further */
         float fast = SDL_fabsf(v) / SNTV_UI_W;   /* screen widths a second */
         int more = fast > 0.8f ? (int)(fast * 3) : 0;
