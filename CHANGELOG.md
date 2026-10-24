@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.64
+
+- **Depth**: Home's backdrop moves slowly into the picture, the people coming towards you
+  while the background slides behind them, for the most popular films and series (their
+  depth maps are made ahead of time and kept up to date; the TV's graphics chip does the
+  rest). Settings > Interface > Depth on backdrops; light effects keep backdrops still.
+- **A Depth screensaver** (Settings > Interface > Screensaver style): film backdrops pushed
+  into slowly, with a big clock standing in the picture behind the people.
+
 ## 0.10.63
 
 - **Living letterbox**: when a film's black bars are part of the picture (scope films on a

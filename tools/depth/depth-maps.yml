@@ -1,0 +1,43 @@
+# Depth maps for the week's popular backdrops, onto the depth-maps branch (the app reads
+# them from there). Copy into .github/workflows/ to turn it on; Actions > Depth maps > Run
+# workflow makes them at once. Maps already made are kept.
+name: Depth maps
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"   # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  maps:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - uses: actions/checkout@v4
+        with:
+          ref: depth-maps
+          path: maps
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tools
+        run: pip install onnxruntime numpy pillow scipy
+      - name: Depth Anything V2 Small
+        run: curl -sSfL -o depth.onnx https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/model.onnx
+      - name: Maps for this week's backdrops
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}   # optional: TMDB's trending and popular too
+        run: python3 src/tools/depth/make_depth.py --model depth.onnx --out maps --cinemeta 150 --tmdb 100
+      - name: Publish
+        run: |
+          cd maps
+          git add -A
+          if git diff --cached --quiet; then echo "Nothing new"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Depth maps for this week's backdrops"
+          git push -q

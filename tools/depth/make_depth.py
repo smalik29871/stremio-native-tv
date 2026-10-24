@@ -10,7 +10,9 @@ Keys follow the image, not its size: TMDB backdrops are t<file name>, metahub's 
 anything else h<FNV-1a 64 of the URL, hex>, the hash the app computes (src/depth.c).
 
     pip install onnxruntime numpy pillow scipy
-    python3 make_depth.py --model depth.onnx --out ../../depth --cinemeta 150 [--tmdb 100] [--url URL ...]
+    python3 make_depth.py --model depth.onnx --out <a checkout of the depth-maps branch> --cinemeta 150 [--tmdb 100] [--url URL ...]
+
+Refreshed weekly by tools/depth/depth-maps.yml (copy it into .github/workflows).
 
 The model: https://huggingface.co/onnx-community/depth-anything-v2-small (onnx/model.onnx).
 --tmdb reads TMDB_API_KEY from the environment (never printed). Maps already made are kept.

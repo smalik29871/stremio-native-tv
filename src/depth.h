@@ -1,5 +1,5 @@
-/* Depth maps of backdrops, made ahead of time (tools/depth) and served beside the app's
- * source: the GPU reads them to push slowly into a still (Home, the Depth screensaver). */
+/* Depth maps of backdrops, made ahead of time (tools/depth) and served from this repository's
+ * depth-maps branch: the GPU reads them to push slowly into a still (Home, the Depth screensaver). */
 #ifndef SNTV_DEPTH_H
 #define SNTV_DEPTH_H
 #include <stddef.h>
