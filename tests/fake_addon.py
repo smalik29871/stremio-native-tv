@@ -359,7 +359,7 @@ class H(BaseHTTPRequestHandler):
         bestfit = p.startswith("/bestfit/")
         if bestfit:
             p = p[8:]
-        # /latesubs/...: the same addon, its first English file 4 s late (a choice made meanwhile wins)
+        # /latesubs/...: the same addon, its first English file 12 s late (a choice made meanwhile wins; a slow test machine needs the time to make it)
         latesubs = p.startswith("/latesubs/")
         if latesubs:
             p = p[9:]
@@ -775,7 +775,7 @@ class H(BaseHTTPRequestHandler):
                                    "2\n00:00:00,300 --> 00:00:30,000\n<font color=\"#00ff00\">Co-Executive Producer</font>\n\n"
                                    "3\n00:00:00,300 --> 00:00:30,000\nSeth MacFarlane\n").encode(), "text/plain")
         if latesubs and p.startswith("/subtitles/"):
-            return self.send(200, json.dumps({"subtitles": [{"id": "late", "url": f"{BASE}/gen.srt?n=7&delay=4", "lang": "eng"},
+            return self.send(200, json.dumps({"subtitles": [{"id": "late", "url": f"{BASE}/gen.srt?n=7&delay=12", "lang": "eng"},
                                                             {"id": "quick", "url": f"{BASE}/gen.srt?n=5", "lang": "eng"}]}).encode())
         if bestfit:   # the same addon, with two English files: one stops an hour early
             if p.startswith("/subtitles/"):

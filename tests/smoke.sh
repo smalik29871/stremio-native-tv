@@ -755,21 +755,21 @@ run player_subs_opensubs 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,d
 grep -q "subs: 2 from OpenSubtitles.com, one made for this file" "$OUT/player_subs_opensubs.log" && grep -q "opensubs: file 222, 4 downloads left today" "$OUT/player_subs_opensubs.log" \
   && ! grep -q "opensubs: file 111" "$OUT/player_subs_opensubs.log" || { echo "OpenSubtitles.com did not pick the file made for this video"; grep -E "subs|opensubs" "$OUT/player_subs_opensubs.log"; exit 1; }
 AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}'
-# subtitle downloads that come late (the /latesubs addon's first English file takes 4 s): a
+# subtitle downloads that come late (the /latesubs addon's first English file takes 12 s): a
 # file chosen meanwhile, or Off, is not replaced by it; a choice made in the sheet stays across
 # a source switch; best-fit files fetched for a source that failed are not scored for the next
 LATE="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/latesubs/manifest.json"
 LATE2="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/latesubs/manifest.json"
-run subs_late_pick 1000 "right,ok,down,down,play,wait,down,right,right,right,ok,right,down,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with latepick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run subs_late_pick 2000 "right,ok,down,down,play,wait,down,right,right,right,ok,right,down,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with latepick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "subs: loaded 5 cues" "$OUT/subs_late_pick.log" && grep -q "subs: a subtitle download that was replaced is dropped" "$OUT/subs_late_pick.log" && ! grep -q "subs: loaded 7 cues" "$OUT/subs_late_pick.log" \
   || { echo "a late subtitle file replaced the one chosen meanwhile"; grep "subs" "$OUT/subs_late_pick.log"; exit 1; }
-run subs_late_off 1000 "right,ok,down,down,play,wait,down,right,right,right,ok,up,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with lateoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run subs_late_off 2000 "right,ok,down,down,play,wait,down,right,right,right,ok,up,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with lateoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: off" "$OUT/subs_late_off.log" && grep -q "subs: a subtitle download that was replaced is dropped" "$OUT/subs_late_off.log" && ! grep -q "subs: loaded" "$OUT/subs_late_off.log" \
   || { echo "a late subtitle file turned subtitles back on"; grep "subs" "$OUT/subs_late_off.log"; exit 1; }
 run subs_late_switch 2500 "right,ok,down,down,play,wait,down,right,right,right,ok,right,down,ok,back" "$LATE2" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=6 SNTV_RESCUE_AFTER=2 SNTV_NO_RACE=1 HOME="$(home_with lateswitch "$NO_PREFLIGHT")"
 grep -q "player: subtitles kept across the switch" "$OUT/subs_late_switch.log" && sed -n '/player: candidate 2\//,$p' "$OUT/subs_late_switch.log" | grep -q "subs: loaded 5 cues" && ! grep -q "subs: loaded 7 cues" "$OUT/subs_late_switch.log" \
   || { echo "the subtitles chosen did not stay across a source switch"; grep -E "subs|player: (candidate|rescue|subtitles)" "$OUT/subs_late_switch.log"; exit 1; }
-run subs_late_bestfit_switch 1200 "right,ok,down,down,play" "$LATE2" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=1 SNTV_RESCUE_AFTER=1 SNTV_NO_RACE=1 HOME="$(home_with latebf "$NO_PREFLIGHT")"
+run subs_late_bestfit_switch 2400 "right,ok,down,down,play" "$LATE2" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=1 SNTV_RESCUE_AFTER=1 SNTV_NO_RACE=1 HOME="$(home_with latebf "$NO_PREFLIGHT")"
 grep -q "player: candidate 2/" "$OUT/subs_late_bestfit_switch.log" && grep -q "subs: a best-fit file for an earlier source is dropped" "$OUT/subs_late_bestfit_switch.log" \
   || { echo "best-fit files for a failed source were scored for the next"; grep -E "subs|player: (candidate|rescue)" "$OUT/subs_late_bestfit_switch.log"; exit 1; }
 # a decoder failure teaches the TV profile only when one feature explains it (DTS alone);
