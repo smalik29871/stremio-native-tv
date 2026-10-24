@@ -1134,6 +1134,11 @@ static void draw_aperture(Streams *st)
 static void draw(Screen *s)
 {
     Streams *st = s->st;
+    if (st->chaining && !st->autoplayed && !st->launched && g_app.time - st->started < 1) {   /* on to the next episode: dark until it starts (a frame, mostly), the list only if it takes a while */
+        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF));
+        app_redraw();
+        return;
+    }
     if (g_theme.id == THEME_APERTURE && !SNTV_PHONE) { draw_aperture(st); return; }
     char buf[512];
     const char *bg = app_art_background(&st->meta, buf, sizeof buf);

@@ -49,6 +49,7 @@ typedef struct {
     char fv_urls[YT_PLAY_URLS][4608]; int fv_n, fv_i;
     int depth_logged;     /* Depth: the item last logged (+1) */
     int depth_chosen;     /* Depth: the first backdrop was weighed against the list of maps */
+    float drawn_at;       /* the last frame: it moves slowly, thirty a second is plenty (a TV left on for hours) */
 } Ambient;
 
 static Ambient *g_amb_live;   /* the screensaver a YouTube answer is for */
@@ -217,7 +218,7 @@ static void advance(Ambient *a)
 static void update(Screen *s, float dt)
 {
     Ambient *a = s->st;
-    app_redraw();
+    if (g_app.time - a->drawn_at >= 1.0f / 30) app_redraw();
     if (g_app.ambient_style == AMBIENT_LOGO) {   /* drifts and bounces off the edges */
         a->lx += a->lvx * dt; a->ly += a->lvy * dt;
         if (a->lx < 40) { a->lx = 40; a->lvx = -a->lvx; }
@@ -421,6 +422,7 @@ static void draw_marquee(Ambient *a, float sx, float sy)
 static void draw(Screen *s)
 {
     Ambient *a = s->st;
+    a->drawn_at = g_app.time;
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF));
     time_t now = time(NULL);
     struct tm tmv;

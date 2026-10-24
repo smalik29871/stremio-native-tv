@@ -134,6 +134,21 @@ grep -q '"video_id":"tt0903747:1:2"' "$CWH/.local/share/stremio/nativetv/library
   || { echo "a finished episode dropped the series from Continue Watching"; grep -o '"video_id":[^,]*\|"timeOffset":[^,]*' "$CWH/.local/share/stremio/nativetv/library.json"; exit 1; }
 run upnext_card 300 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_card '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run upnext_auto 380 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with fresh_upnext_auto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+# Seamless binge: the next episode opens on its still grown out of the Up Next card (no loading card), the picture under it
+run upnext_bridge 560 "right,ok,down,down,play,wait" SNTV_FAKE_OPEN_S=1.5 SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 HOME="$(home_with upbridge '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "player: tt0903747:1:2 opens on its still, out of the Up Next card" "$OUT/upnext_bridge.log" && grep -qE "player: the picture came 1\.[0-9] s after the still" "$OUT/upnext_bridge.log" \
+  && ! grep -q "player: tt0903747:1:1 opens on its still" "$OUT/upnext_bridge.log" \
+  || { echo "the next episode did not open on its still"; grep -E "player: (on to|tt0903747|the picture)" "$OUT/upnext_bridge.log"; exit 1; }
+# Speed: a playing picture with nothing over it, and the screensaver, are not drawn every frame
+# (no screenshots here: they draw every frame). Frames per 2 s, the last count of each run.
+idle_rate() { # name keys [env...]: the app left alone for 18 s
+  local name="$1" keys="$2"; shift 2
+  env "$@" SNTV_PERF_FILL=1 SNTV_KEYS="$keys" timeout 18 xvfb-run -a -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" >"$OUT/$name.log" 2>&1 || true
+  grep -o "perf: [0-9]* frames in" "$OUT/$name.log" | tail -1 | grep -o "[0-9]*" | head -1
+}
+r="$(idle_rate idle_playing "right,ok,down,down,play")"; [ -n "$r" ] && [ "$r" -lt 40 ] || { echo "a bare playing picture still draws $r frames in 2 s"; grep "perf: .* frames in" "$OUT/idle_playing.log"; exit 1; }
+r="$(idle_rate idle_ambient "wait" SNTV_AMBIENT_SECONDS=1)"; [ -n "$r" ] && [ "$r" -lt 80 ] && grep -q "perf: .* on ambient" "$OUT/idle_ambient.log" || { echo "the screensaver draws $r frames in 2 s"; grep "perf: .* frames in" "$OUT/idle_ambient.log"; exit 1; }
+echo "ok: idle rates"
 # OK on the card is its Play now (autoplay off, so only the key can start the next episode)
 # Up Next with no bingeGroup: the next episode plays from the same release group (NTb) by itself
 run upnext_chain 520 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/chain/manifest.json HOME="$(home_with upnext_chain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"

@@ -12,7 +12,7 @@ typedef struct { unsigned n, bins[BINS]; } Hist;
 
 static struct { char name[24]; Uint32 at; } g_marks[MAX_MARKS];
 static int g_n_marks;
-static struct { char name[16]; Hist h, total; } g_screens[MAX_SCREENS];
+static struct { char name[16]; Hist h, total; float fill_sum, fill_max; } g_screens[MAX_SCREENS];
 static int g_n_screens;
 static Hist g_keys;
 static Uint32 g_key_at;   /* 0: no key waiting to be shown */
@@ -40,7 +40,7 @@ void perf_mark(const char *name)
     g_marks[g_n_marks++].at = SDL_GetTicks();
 }
 
-void perf_frame(const char *screen, float work_ms, float total_ms)
+void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
 {
     if (!screen) screen = "?";
     int i = 0;
@@ -52,6 +52,8 @@ void perf_frame(const char *screen, float work_ms, float total_ms)
     }
     hist_add(&g_screens[i].h, work_ms);
     hist_add(&g_screens[i].total, total_ms);
+    g_screens[i].fill_sum += fill;
+    if (fill > g_screens[i].fill_max) g_screens[i].fill_max = fill;
 }
 
 void perf_key(void) { if (!g_key_at) g_key_at = SDL_GetTicks(); }
@@ -127,10 +129,11 @@ void perf_report(char *out, size_t n)
         ADD("Stream starts, newest first (press to first frame):\n");
         for (int i = 0; i < g_n_starts; i++) { char line[200]; start_line(&g_starts[i], line, sizeof line); ADD("  %s\n", line); }
     } else ADD("Stream starts: none yet\n");
-    ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20, frames:\n");
+    ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20, frames, screens of pixels painted (average / most):\n");
     for (int i = 0; i < g_n_screens; i++) {
         const Hist *h = &g_screens[i].h, *t = &g_screens[i].total;
-        ADD("  %-12s %3d / %3d ms   %3d / %3d ms   %u\n", g_screens[i].name, hist_pct(h, 0.5f), hist_pct(h, 0.95f), hist_pct(t, 0.5f), hist_pct(t, 0.95f), h->n);
+        ADD("  %-12s %3d / %3d ms   %3d / %3d ms   %u   %.1f / %.1f\n", g_screens[i].name, hist_pct(h, 0.5f), hist_pct(h, 0.95f), hist_pct(t, 0.5f), hist_pct(t, 0.95f), h->n,
+            h->n ? g_screens[i].fill_sum / h->n : 0, g_screens[i].fill_max);
     }
 #undef ADD
 }

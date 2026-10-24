@@ -34,6 +34,7 @@ void  gfx_drawable_size(int *w, int *h);
 /* UI-canvas rectangle -> window pixels (for the video plane) */
 void  gfx_ui_to_pixels(float x, float y, float w, float h, int *px, int *py, int *pw, int *ph);
 int  gfx_draw_calls(void);   /* last frame, for the perf overlay */
+void gfx_frame_fill(float *screens, float *heavy);   /* last frame: screens of pixels shaded, and of them by blurs, depth and wide shadows */
 
 /* plain */
 void gfx_rect(float x, float y, float w, float h, Color c);

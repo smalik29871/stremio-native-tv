@@ -7,8 +7,9 @@
 
 void perf_mark(const char *name);                   /* a startup milestone; only the first of each name counts */
 /* One drawn frame: work_ms is update + draw before the swap (CPU), total_ms adds the
- * swap, where the GPU work and the wait for the display land. */
-void perf_frame(const char *screen, float work_ms, float total_ms);
+ * swap, where the GPU work and the wait for the display land; fill, the screens of
+ * pixels it painted (the GPU's work: 1 is every pixel once). */
+void perf_frame(const char *screen, float work_ms, float total_ms, float fill);
 void perf_key(void);                                /* a key arrived */
 void perf_shown(void);                              /* a frame reached the display */
 /* A stream start, from the press to the first frame: begin names how it was asked for

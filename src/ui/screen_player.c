@@ -64,6 +64,10 @@ struct Player {
     uint64_t tried;                         /* sources already started here (bit per index, first 64) */
     int started;                            /* this source has shown a picture (the clock moved) */
     float veil;                             /* the title's artwork over the screen until the first picture, then fading */
+    unsigned sub_sig; float drawn_at;       /* the subtitle lines last drawn, and when: a bare picture draws only when they change */
+    int bridge; float bridge_t0;            /* on from the last episode: its still stands in for the loading card */
+    int bridge_from; float bridge_rect[4];  /* ... grown out of the Up Next card's picture, where it was */
+    float card_thumb[4], card_at;           /* where this player's Up Next card drew the next one's picture, and when */
     double away_s;                          /* how long since this title was last watched (0 unknown) */
     float catchup_until;                    /* the "previously" card shows until then (g_app.time); -1 waits for the picture */
     char catchup_head[200], catchup_text[600];
@@ -1976,6 +1980,44 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     if (p->reask_at < 0 || p->more_state == 1) streams_lookup_tick();
 }
 
+/* The subtitle lines on screen at pos, as one number: drawing again is needed when it changes. */
+static unsigned sub_signature(Player *p, double pos)
+{
+    static char b[2048];
+    unsigned h = 2166136261u;
+    for (int k = 0; k < 3; k++) {
+        const SubTrack *t = k == 1 ? &p->track2 : &p->track;
+        int loaded = k == 1 ? p->track2_loaded : p->track_loaded;
+        if (!loaded || !subs_text_at(t, pos, k == 2, b, sizeof b)) { h = (h ^ (unsigned)(k + 1)) * 16777619u; continue; }
+        for (const unsigned char *c = (const unsigned char *)b; *c; c++) h = (h ^ *c) * 16777619u;
+    }
+    return h;
+}
+
+/* Playing with nothing over the picture but its subtitles: drawing it sixty times a second
+ * only takes the TV's time from the keys and the network. */
+static int bare_playback(Player *p, const VideoInfo *vi)
+{
+    return vi->state == VIDEO_PLAYING && !vi->buffering && p->started && p->veil <= 0 && !p->pip && !gfx_handheld()
+        && g_app.time > p->overlay_until + 1 && !p->menu && !p->stats && !p->scenes_open && !p->cast_open && !p->still_asking
+        && !p->up_next_shown && p->lighter_to < 0 && p->seek_commit <= 0 && p->seek_flash < g_app.time && p->play_flash < g_app.time
+        && p->rest_t <= 0.001f && p->catchup_until <= g_app.time && !subs_tuning(p)
+        && !(p->adv_at && g_app.time - p->adv_at < ADVISORY_S + 0.1f)
+        && !(g_app.skip_mode == 0 && skippable(p, vi));
+}
+
+/* On to the next episode: the next player opens on that episode's still, grown out of the
+ * Up Next card where it was, instead of the loading card; the picture dissolves in under it. */
+static struct { char video_id[160]; float at; int from; float rect[4]; } g_bridge;
+
+static void bridge_hand(const char *video_id, const float *card)
+{
+    snprintf(g_bridge.video_id, sizeof g_bridge.video_id, "%s", video_id);
+    g_bridge.at = g_app.time;
+    g_bridge.from = card != NULL;
+    if (card) memcpy(g_bridge.rect, card, sizeof g_bridge.rect);
+}
+
 static void go_to_video(Player *p, const char *video_id, const char *video_title)
 {
     float ready = streams_prefetch_progress(video_id);   /* for Diagnostics: was it fetched ahead? */
@@ -1995,6 +2037,7 @@ static void go_to_video(Player *p, const char *video_id, const char *video_title
     quality_release_group(c->filename, hint.group, sizeof hint.group);
     if (!hint.group[0]) quality_release_group(c->release, hint.group, sizeof hint.group);
     p->finished = 1;
+    bridge_hand(video_id, g_app.time - p->card_at < 0.5f ? p->card_thumb : NULL);
     app_pop();   /* destroys this screen */
     const Screen *under = app_top();
     Screen *next = screen_streams_create_chain(&meta, vid, title, &hint);
@@ -2231,7 +2274,10 @@ static void update(Screen *s, float dt)
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
     if (p->tap_pending) app_redraw();
-    if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
+    if (vi.state == VIDEO_PLAYING) {   /* progress bar / subtitles move */
+        if (!bare_playback(p, &vi)) app_redraw();
+        else if (sub_signature(p, vi.position) != p->sub_sig || g_app.time - p->drawn_at >= 0.25f) app_redraw();   /* a new line now; anything else four times a second */
+    }
     if (vi.state == VIDEO_PLAYING && !p->start_timed) { p->start_timed = 1; perf_start_done(1); }   /* the first frame: the start is over */
     if (vi.state == VIDEO_PAUSED && p->paused_since == 0) { p->paused_since = g_app.time; app_redraw(); }
     if (vi.state != VIDEO_PAUSED && p->paused_since != 0) p->paused_since = 0;
@@ -2296,6 +2342,7 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    if (p->bridge == 1 && p->started) { p->bridge = 2; LOGI("player: the picture came %.1f s after the still", g_app.time - p->bridge_t0); }
     if (p->started && p->pause_when_started) { p->pause_when_started = 0; video_pause(); p->viewer_paused = 1; LOGI("player: paused again at %.0fs, as before the break", vi.position); }
     if (p->catchup_until < 0 && p->started) p->catchup_until = g_app.time + 12;
     if (p->replay_until > 0 && vi.state == VIDEO_PLAYING && vi.position >= p->replay_until + 1) {
@@ -2815,6 +2862,7 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
         ui_panel(x, y, w, h, 2, COLOR_ALPHA(THEME_PANEL, 0xF4));
         const char *thumb = app_video_thumbnail(p->meta.id, p->next_video_id);
         ui_card(thumb, x + 20, y + 20, 256, 144, 0, 0, NULL, CARD_MIP);
+        p->card_thumb[0] = x + 20; p->card_thumb[1] = y + 20; p->card_thumb[2] = 256; p->card_thumb[3] = 144; p->card_at = g_app.time;
         float tx = x + 300, tw = w - 324;
         ui_spaced_caps("Up next", tx, y + 22, FONT_XS | FONT_B, 4, THEME_ACCENT, tw);
         font_draw_wrapped(p->next_title ? p->next_title : "Next episode", tx, y + 50, FONT_M | FONT_ALT, THEME_TEXT, tw, 2);
@@ -2837,6 +2885,7 @@ static void draw_up_next(Player *p, const VideoInfo *vi, int overlay)
     gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
     const char *thumb = app_video_thumbnail(p->meta.id, p->next_video_id);
     ui_card(thumb, x + 16, y + 16, 256, 144, 0, 0, NULL, CARD_MIP);
+    p->card_thumb[0] = x + 16; p->card_thumb[1] = y + 16; p->card_thumb[2] = 256; p->card_thumb[3] = 144; p->card_at = g_app.time;
     if (!thumb) ui_icon(ICON_NEXT, x + 16 + 128, y + 16 + 72, 50, THEME_TEXT_MUTED);
     float tx = x + 296;
     font_draw("UP NEXT", tx, y + 24, FONT_XS | FONT_B, THEME_ACCENT2);
@@ -3460,9 +3509,29 @@ static void veil_ring(float cx, float cy, float r, float k)
     app_redraw();
 }
 
-static void draw_veil(Player *p, const VideoInfo *vi)
+/* "Show  -  S2 E3 - Title" (or "S2E3  Title") -> "S2E3" and "Title"; 0 when it is no episode */
+static int episode_parts(const Player *p, char *code, size_t cn, const char **name)
 {
-    float k = p->veil, W = SNTV_UI_W, H = SNTV_UI_H, cx = W / 2;
+    const char *et = p->title ? strstr(p->title, "  -  ") : NULL;
+    et = et ? et + 5 : p->title;
+    if (!et || et[0] != 'S' || et[1] < '0' || et[1] > '9') return 0;
+    const char *q = et + 1;
+    while (*q >= '0' && *q <= '9') q++;
+    size_t sn = (size_t)(q - et);
+    while (*q == ' ') q++;
+    if (*q != 'E' || q[1] < '0' || q[1] > '9') return 0;
+    const char *e = q++;
+    while (*q >= '0' && *q <= '9') q++;
+    snprintf(code, cn, "%.*s%.*s", (int)sn, et, (int)(q - e), e);
+    while (*q == ' ' || *q == '-' || *q == ':') q++;
+    if (!strncmp(q, "\xC2\xB7", 2)) { q += 2; while (*q == ' ') q++; }
+    *name = q;
+    return 1;
+}
+
+static void draw_veil(Player *p, const VideoInfo *vi, float k)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H, cx = W / 2;
     char buf[512], lbuf[512];
     const char *bg = app_art_background(&p->meta, buf, sizeof buf);
     int iw, ih;
@@ -3513,17 +3582,9 @@ static void draw_veil(Player *p, const VideoInfo *vi)
 
     /* the episode; after a while a word that it is coming; what is happening now */
     float ty = ry + 62;
-    char ep[200] = "";   /* "Show  -  S2 E3  Title" (or "S2E3  Title") -> "S2E3  ·  Title" */
-    const char *et = p->title ? strstr(p->title, "  -  ") : NULL;
-    et = et ? et + 5 : p->title;
-    if (et && et[0] == 'S' && et[1] >= '0' && et[1] <= '9') {
-        char code[24]; size_t n = 0;
-        const char *q = et;
-        for (; *q && n < sizeof code - 1 && !(q[0] == ' ' && q[1] == ' '); q++) if (*q != ' ') code[n++] = *q;
-        code[n] = 0;
-        while (*q == ' ') q++;
-        snprintf(ep, sizeof ep, *q ? "%s  \xC2\xB7  %s" : "%s", code, q);
-    }
+    char ep[200] = "", code[24];   /* "S2E3  ·  Title" */
+    const char *q;
+    if (episode_parts(p, code, sizeof code, &q)) snprintf(ep, sizeof ep, *q ? "%s  \xC2\xB7  %s" : "%s", code, q);
     if (ep[0]) { font_draw_center(ep, cx, ty, FONT_S | FONT_B, fg); ty += 46; }
     float t = g_app.time - p->load_started;
     const char *wait = t > 20 ? "Still working on it\xE2\x80\xA6" : t > 8 ? "Almost there\xE2\x80\xA6" : t > 4 ? "Just a moment more\xE2\x80\xA6" : NULL;
@@ -3537,6 +3598,60 @@ static void draw_veil(Player *p, const VideoInfo *vi)
     if ((vi->buffering || vi->state == VIDEO_PLAYING) && vi->buffer_percent > 0 && vi->buffer_percent < 100) snprintf(line, sizeof line, "%s  %d%%", what, vi->buffer_percent);
     else snprintf(line, sizeof line, "%s", what);
     font_draw_center(line, cx, ty, FONT_S, dim);
+}
+
+#define BRIDGE_GROW_S 0.45f   /* the card's picture opening to the screen */
+#define BRIDGE_WAIT_S 6.0f    /* longer than this: the loading card's words, what is being done */
+
+/* On from the last episode: this one's still, out of the Up Next card to the whole screen,
+ * its name low at the left and a thin line moving under it. No spinner, no loading card:
+ * the picture dissolves in under it (the veil fading). A long wait brings the card back. */
+static void draw_bridge(Player *p, const VideoInfo *vi, float k)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H, t = g_app.time - p->bridge_t0;
+    char buf[512];
+    const char *still = app_video_thumbnail(p->meta.id, p->video_id);
+    if (!still || image_failed(still)) still = app_art_background(&p->meta, buf, sizeof buf);
+    int iw = 0, ih = 0;
+    unsigned tex = still ? image_get_ex(still, IMAGE_MIPMAP, &iw, &ih, NULL) : 0;
+    float g = p->bridge_from ? t / BRIDGE_GROW_S : 1;
+    if (g > 1) g = 1;
+    g = 1 - (1 - g) * (1 - g) * (1 - g);
+    gfx_rect(0, 0, W, H, RGBA(0, 0, 0, (int)(255 * k)));
+    if (tex && ih > 0) {
+        float u0, v0, u1, v1;
+        ui_cover_uv(iw, ih, W, H, &u0, &v0, &u1, &v1);
+        if (g < 1) gfx_tex_blur(tex, 0, 0, W, H, u0, v0, u1, v1, RGBA(120, 120, 120, (int)(255 * k * g)), 5.0f);   /* its own colours fill in behind */
+        float z = 1.0f + 0.035f * (t > BRIDGE_GROW_S ? (t - BRIDGE_GROW_S < 10 ? (t - BRIDGE_GROW_S) / 10 : 1) : 0);   /* then a slow push in */
+        float cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+        u0 = cu - (cu - u0) / z; u1 = cu + (u1 - cu) / z; v0 = cv - (cv - v0) / z; v1 = cv + (v1 - cv) / z;
+        const float *r = p->bridge_rect;
+        float x = r[0] * (1 - g), y = r[1] * (1 - g), w = r[2] + (W - r[2]) * g, h = r[3] + (H - r[3]) * g;
+        if (!p->bridge_from) { x = 0; y = 0; w = W; h = H; }
+        gfx_rtex_uv(tex, x, y, w, h, R_CARD * (1 - g), u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * k)), 0);
+    }
+    float c = (t - BRIDGE_GROW_S * (p->bridge_from ? 0.6f : 0)) / 0.4f;
+    c = (c < 0 ? 0 : c > 1 ? 1 : c) * k;
+    if (c > 0) {   /* which episode this is, low at the left */
+        gfx_gradient_v(0, H * 0.5f, W, H * 0.5f + 1, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0xC0 * c)));
+        float x = THEME_MARGIN, y = H - 250;
+        char code[24];
+        const char *name = NULL;
+        if (episode_parts(p, code, sizeof code, &name)) {
+            ui_spaced_caps(code, x, y, FONT_XS | FONT_B, 4, COLOR_ALPHA(THEME_ACCENT, (int)(255 * c)), 600);
+            y += 40;
+            if (*name) { font_draw_shadow(name, x, y, FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * c)), RGBA(0, 0, 0, (int)(0x90 * c))); y += 62; }
+        }
+        if (p->meta.name) { font_draw(p->meta.name, x, y, FONT_S, COLOR_ALPHA(RGBA(0xE6, 0xE6, 0xE6, 0xFF), (int)(220 * c))); y += 48; }
+        float lw = 360, seg = 96, ph = fmodf(t * 0.7f, 1.0f);   /* coming: a short line running along a faint one */
+        gfx_rect(x, y + 6, lw, 3, RGBA(255, 255, 255, (int)(0x26 * c)));
+        float sx = x - seg + (lw + seg) * ph, s0 = sx < x ? x : sx, s1 = sx + seg > x + lw ? x + lw : sx + seg;
+        if (s1 > s0) gfx_rect(s0, y + 6, s1 - s0, 3, COLOR_ALPHA(THEME_ACCENT, (int)(255 * c)));
+    }
+    if (t > BRIDGE_WAIT_S) {   /* it is taking a while: the card, with what is being done about it */
+        float w = (t - BRIDGE_WAIT_S) / 0.6f;
+        draw_veil(p, vi, k * (w > 1 ? 1 : w));
+    }
 }
 
 /* What is on: title, episode, year and runtime, synopsis, cast. Shown once playback has
@@ -3761,10 +3876,15 @@ static void draw(Screen *s)
         if (!video_in_pip()) full_draw(p, &vi);   /* in picture in picture: the picture alone */
         return;
     }
+    p->drawn_at = g_app.time;
+    p->sub_sig = sub_signature(p, vi.position);
     ui_hit(0, 0, SNTV_UI_W, SNTV_UI_H, 0x7FFFFF00);   /* a tap anywhere is OK, as before */
     draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
     if (!p->pip) draw_letterbox(p, &vi);
-    if (p->veil > 0 && !p->pip) { draw_veil(p, &vi); if (p->veil > 0.5f && !p->menu) return; }
+    if (p->veil > 0 && !p->pip) {
+        if (p->bridge) draw_bridge(p, &vi, p->veil); else draw_veil(p, &vi, p->veil);
+        if (p->veil > 0.5f && !p->menu) return;
+    }
     draw_subtitle(p, &vi);
 
     int overlay = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED || vi.state == VIDEO_LOADING;
@@ -5640,6 +5760,12 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->cands = cands; p->n_cands = n_cands;
     p->next_video_id = next_video_id ? strdup(next_video_id) : NULL;
     p->next_title = next_title ? strdup(next_title) : NULL;
+    if (!p->trailer && g_bridge.video_id[0] && !strcmp(g_bridge.video_id, video_id) && g_app.time - g_bridge.at < 30) {   /* the sources took their time: 30 s at most */
+        p->bridge = 1; p->bridge_t0 = g_app.time; p->bridge_from = g_bridge.from;
+        memcpy(p->bridge_rect, g_bridge.rect, sizeof p->bridge_rect);
+        LOGI("player: %s opens on its still%s", video_id, g_bridge.from ? ", out of the Up Next card" : "");
+    }
+    g_bridge.video_id[0] = 0;
     {
         char pid[128], pt[200];
         if (app_adjacent_video(meta->id, video_id, -1, pid, sizeof pid, pt, sizeof pt)) { p->prev_video_id = strdup(pid); p->prev_title = strdup(pt); }

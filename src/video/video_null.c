@@ -20,13 +20,14 @@ void video_shutdown(void) {}
 const char *video_backend_name(void) { return "null (desktop preview)"; }
 
 static int g_loads;          /* the test hooks below act on the first source only */
+static Uint32 g_loaded_at;   /* when the source was asked for */
 static double g_played_here;
 
 static int g_muted;
 
 int video_load(const char *url, const char *title, double start)
 {
-    g_loads++; g_played_here = 0; g_muted = 0; g_bad_warned = -1;
+    g_loads++; g_loaded_at = SDL_GetTicks(); g_played_here = 0; g_muted = 0; g_bad_warned = -1;
     LOGI("video(null): load %s (%s) from %.0fs", url, title ? title : "", start);
     memset(&g, 0, sizeof g);
     g.state = VIDEO_LOADING;
@@ -111,6 +112,9 @@ void video_update(void)
         if (!g.buffering) { LOGI("video(null): waiting for data (SNTV_FAKE_STUCK)"); g.buffering = 1; return; }   /* still loading */
         g.state = VIDEO_PLAYING; return;
     }
+    /* test hook: SNTV_FAKE_OPEN_S=n: every source takes n seconds to open, as a TV's does */
+    const char *open_s = getenv("SNTV_FAKE_OPEN_S");
+    if (g.state == VIDEO_LOADING && open_s && now - g_loaded_at < atof(open_s) * 1000) return;
     if (g.state == VIDEO_LOADING) g.state = VIDEO_PLAYING;
     /* test hook: SNTV_FAKE_STALLS=1 buffers for 0.2 s after every 0.4 s played */
     static double played;

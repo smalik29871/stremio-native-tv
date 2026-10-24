@@ -30,6 +30,9 @@ static float g_zs = 1, g_zx, g_zy;   /* scale about (g_zx, g_zy), applied before
 static float g_ls = 1, g_lx, g_ly, g_ltx, g_lty, g_la = 1;
 static Vtx g_v[MAXQ * 4];
 static int g_nq, g_calls, g_last_calls;
+static struct { int x, y, w, h; } g_clip[8];
+static int g_nclip, g_clip_over;   /* pushes past the stack's depth, so pops stay balanced */
+static float g_shade, g_heavy, g_last_shade, g_last_heavy;   /* pixels shaded this frame: all, and by blurs, depth and wide shadows */
 static GLuint g_cur_tex;
 static GLuint g_depth_tex;   /* gfx_depth: textured quads push into the picture by this map */
 static float g_depth[5];
@@ -178,6 +181,11 @@ void gfx_ui_to_pixels(float x, float y, float w, float h, int *px, int *py, int 
     *ph = (int)(h * g_scale + 0.5f);
 }
 int gfx_draw_calls(void) { return g_last_calls; }
+void gfx_frame_fill(float *screens, float *heavy)
+{
+    float px = g_draw_w > 0 && g_draw_h > 0 ? (float)g_draw_w * g_draw_h : 1;
+    *screens = g_last_shade / px; *heavy = g_last_heavy / px;
+}
 
 static void flush(void)
 {
@@ -248,6 +256,7 @@ void gfx_begin_frame(Color clear)
     glVertexAttribPointer((GLuint)g_a_misc, 2, GL_FLOAT, GL_FALSE, sizeof(Vtx), (void *)offsetof(Vtx, mode));
     g_nq = 0;
     g_calls = 0;
+    g_shade = g_heavy = 0;
     g_cur_tex = 0;
     g_depth_tex = 0;
 }
@@ -272,6 +281,7 @@ void gfx_end_frame(void)
 {
     flush();
     g_last_calls = g_calls;
+    g_last_shade = g_shade; g_last_heavy = g_heavy;
     SDL_GL_SwapWindow(g_win);
 }
 
@@ -300,6 +310,18 @@ static void push(const float px[4], const float py[4], const float uv[8], const 
         v[i].sx = sx * zs; v[i].sy = sy * zs; v[i].rad = rad * zs; v[i].soft = soft * zs;
         v[i].mode = (float)mode; v[i].extra = mode == 4 || mode == 6 ? extra * zs : extra;   /* inset and ring width are lengths */
         if (depth) { v[i].sx = g_depth[0]; v[i].sy = g_depth[1]; v[i].rad = g_depth[2]; v[i].soft = g_depth[3]; v[i].extra = g_depth[4]; }
+    }
+    {   /* the pixels it covers, inside the clip: the GPU's share of the frame */
+        float x0 = v[0].x, x1 = x0, y0 = v[0].y, y1 = y0;
+        for (int i = 1; i < 4; i++) { x0 = fminf(x0, v[i].x); x1 = fmaxf(x1, v[i].x); y0 = fminf(y0, v[i].y); y1 = fmaxf(y1, v[i].y); }
+        float l = g_off_x + x0 * g_scale, r = g_off_x + x1 * g_scale, t = g_draw_h - (g_off_y + y1 * g_scale), b = g_draw_h - (g_off_y + y0 * g_scale);
+        float cl = 0, cb = 0, cr = (float)g_draw_w, ct = (float)g_draw_h;
+        if (g_nclip) { cl = (float)g_clip[g_nclip - 1].x; cb = (float)g_clip[g_nclip - 1].y; cr = cl + g_clip[g_nclip - 1].w; ct = cb + g_clip[g_nclip - 1].h; }
+        float w = fminf(r, cr) - fmaxf(l, cl), h = fminf(b, ct) - fmaxf(t, cb);
+        if (w > 0 && h > 0) {
+            g_shade += w * h;
+            if (mode == MODE_DEPTH || ((mode == MODE_TEX_BIAS || mode == MODE_RRECT_TEX_BIAS) && extra > 0) || (mode == MODE_RRECT && soft > 8)) g_heavy += w * h;
+        }
     }
     g_nq++;
 }
@@ -428,8 +450,6 @@ void gfx_video_fade(float x, float y, float w, float h, float tl, float tr, floa
 }
 
 /* ---- clipping (stack of 8) ---- */
-static struct { int x, y, w, h; } g_clip[8];
-static int g_nclip, g_clip_over;   /* pushes past the stack's depth, so pops stay balanced */
 
 static void apply_clip(void)
 {

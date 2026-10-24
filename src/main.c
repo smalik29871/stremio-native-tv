@@ -606,8 +606,11 @@ static void android_unpack_assets(void)
 }
 #endif
 
+static int g_perf_fill;   /* SNTV_PERF_FILL: every 30th frame's paint in the log (finding what a TV's GPU finds slow) */
+
 int main(int argc, char **argv)
 {
+    g_perf_fill = getenv("SNTV_PERF_FILL") != NULL;
     (void)argc; (void)argv;
     int frame = 0;
 #ifdef SIGPIPE
@@ -889,7 +892,10 @@ int main(int argc, char **argv)
             Uint32 swap_at = SDL_GetTicks();
             gfx_end_frame();
             Uint32 end = SDL_GetTicks(), spent = end - now;
-            perf_frame(top ? top->name : "none", (float)(swap_at - now), (float)spent);
+            float fill, heavy;
+            gfx_frame_fill(&fill, &heavy);
+            perf_frame(top ? top->name : "none", (float)(swap_at - now), (float)spent, fill);
+            if (g_perf_fill && frame % 30 == 0) LOGI("perf: %s fills %.2f screens (%.2f blurs, depth, shadows), %d calls, %u ms", top ? top->name : "none", fill, heavy, gfx_draw_calls(), swap_at - now);
             perf_mark("first frame");
             perf_shown();
             app_note_frame((float)spent);
@@ -899,6 +905,12 @@ int main(int argc, char **argv)
             if (end - swap_at < 2 && spent < 16) SDL_Delay(16 - spent);
         } else {
             SDL_WaitEventTimeout(NULL, 25);   /* idle: wake the moment a key arrives, else poll the network at 40 Hz */
+        }
+        if (g_perf_fill) {   /* how often each screen draws when left alone: idle redraws cost a TV its keys' speed */
+            static Uint32 t0; static int n0, f0;
+            Uint32 t = SDL_GetTicks();
+            if (!t0) { t0 = t; f0 = frame; }
+            if (t - t0 >= 2000) { n0 = frame - f0; LOGI("perf: %d frames in %.1f s on %s", n0, (t - t0) / 1000.0, top ? top->name : "none"); t0 = t; f0 = frame; }
         }
     }
 
