@@ -1005,6 +1005,8 @@ class H(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             return self.send(404, b"{}")
+        if p.startswith("/weather/v1/forecast"):   # Open-Meteo stand-in: a mild, partly cloudy day
+            return self.send(200, json.dumps({"current": {"temperature_2m": 18.4, "weather_code": 2, "is_day": 1}}).encode())
         if p.startswith("/ipapi"):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
         if p.startswith("/thumbs/frame"):   # the seek preview server (tools/thumbs) stands in

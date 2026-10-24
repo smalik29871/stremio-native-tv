@@ -36,6 +36,7 @@ export SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql"   # a fake IMDb with no tr
 export SNTV_YT_BASE="http://127.0.0.1:$PORT/yt"   # a fake YouTube: TV config, player, formats, ranged media
 export SNTV_YT_SOLVER_URL="http://127.0.0.1:$PORT/yt/ejs"   # the "newest solver" download: refused, so the bundled one is all there is
 export SNTV_NO_TRANSITIONS=1   # screenshots land mid-animation otherwise; transition_push turns them back on
+export SNTV_WEATHER_API=http://127.0.0.1:$PORT/weather SNTV_IPAPI=http://127.0.0.1:$PORT/ipapi   # the weather clock asks these, never the real ones
 export SNTV_ITUNES_API=http://127.0.0.1:$PORT/noitunes   # no soundtracks, and nothing asked of the real store; the music runs set /itunes
 export SNTV_NO_WHATSNEW=1   # every profile here is "set up", which reads as just updated; the whatsnew run turns it on
 export SNTV_NO_BUFFER=1   # the runs below test what they did before the buffer ahead; the buffer_ runs turn it on
@@ -929,11 +930,12 @@ grep -q "memory saver on (small TV)" "$OUT/memory_playback.log" && grep -q "memo
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }
-# Clock faces: every one draws (flip, analog, words, rings, nixie, stacked), and the island's styles
-for f in 1 2 3 4 5 6 7 8 9 10 11 12; do
+# Clock faces: every one draws (flip, analog, words ... station, liquid, weather, aurora), and the island's styles
+for f in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
   run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f}")"
   grep -q "ambient: Clock screensaver with [0-9]* backdrops, face " "$OUT/ambient_face$f.log" && ! grep -q "no big clock digits" "$OUT/ambient_face$f.log" || { echo "clock face $f did not draw"; grep -E "ambient|font" "$OUT/ambient_face$f.log"; exit 1; }
 done
+grep -q "weather: 18C, Partly cloudy" "$OUT/ambient_face15.log" || { echo "the weather clock did not get the weather"; grep -E "weather" "$OUT/ambient_face15.log"; exit 1; }
 run island_dial 150 "" HOME="$(home_with isl_dial '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":3}')"
 run island_seconds 150 "" HOME="$(home_with isl_sec '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":2}')"
 run ambient_paused 300 "right,ok,down,down,play,wait,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"

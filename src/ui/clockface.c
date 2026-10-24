@@ -1,19 +1,23 @@
 /* Clock faces: digital, flip cards, a Braun-style dial, a word clock (QLOCKTWO's
  * English grid), polar rings, nixie tubes, StandBy-style stacked digits, a red LED
  * alarm clock, an amber dot-matrix board, a neon sign, odometer drums, planets in
- * orbit, and a sky that follows the day. Plain shapes and the big digit atlas only,
+ * orbit, a sky that follows the day, a Swiss station clock, liquid digits that flow
+ * into the next, the weather outside, and an aurora. Plain shapes and the big digit atlas only,
  * so every face is sharp at any size. */
 #include "clockface.h"
 #include "font.h"
 #include "gfx.h"
 #include "theme.h"
 #include "../app.h"
+#include "../weather.h"
+#include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 const char *const CLOCKFACE_NAMES[CLOCKFACE_COUNT] = { "Digital", "Flip", "Analog", "Words", "Rings", "Nixie", "Stacked",
-                                                           "Segment", "Dot matrix", "Neon", "Rolling", "Orbit", "Daylight" };
+                                                           "Segment", "Dot matrix", "Neon", "Rolling", "Orbit", "Daylight",
+                                                           "Station", "Liquid", "Weather", "Aurora" };
 
 #define WHITE RGBA(0xEC, 0xEC, 0xF0, 0xFF)
 #define DIM   RGBA(0x8C, 0x8C, 0x96, 0xFF)
@@ -520,6 +524,232 @@ static void day_sky(float cx, float cy, float k, const struct tm *t, double sec)
     date_line(t, cx, y + dh + 40 * k, k, RGBA(0xFF, 0xFF, 0xFF, 0xD0));
 }
 
+/* ---- station: the Swiss railway clock. The red second hand goes round in 58.5 s and
+ * waits at twelve; then the minute hand jumps, with a little kick. ---- */
+
+static void station(float cx, float cy, float k, const struct tm *t, double sec)
+{
+    float R = 380 * k;
+    Color ink = RGBA(0x16, 0x16, 0x18, 0xFF), red = RGBA(0xE2, 0x1E, 0x26, 0xFF);
+    gfx_shadow(cx - R, cy - R + 18 * k, 2 * R, 2 * R, R, 60 * k, RGBA(0, 0, 0, 0xA0));
+    gfx_circle(cx, cy, R + 16 * k, RGBA(0x2C, 0x2C, 0x32, 0xFF));
+    gfx_circle(cx, cy, R, RGBA(0xF5, 0xF5, 0xF1, 0xFF));
+    for (int i = 0; i < 60; i++) {
+        float a = i * PI_F / 30, sn = sinf(a), c = -cosf(a);
+        int big = i % 5 == 0;
+        float r0 = R * (big ? 0.70f : 0.87f), r1 = R * 0.95f;
+        gfx_line(cx + sn * r0, cy + c * r0, cx + sn * r1, cy + c * r1, (big ? 26 : 8) * k, ink);
+    }
+    float since = (float)sec;   /* into the minute */
+    float kick = since < 0.6f ? 0.03f * sinf(since * 26) * expf(-since * 9) : 0;
+    float ma = (t->tm_min / 60.0f) * 2 * PI_F + kick;
+    float ha = ((t->tm_hour % 12) + t->tm_min / 60.0f) / 12 * 2 * PI_F;
+    float sa = since < 58.5f ? since / 58.5f * 2 * PI_F : 0;
+    hand(cx, cy, ha, R * 0.14f, R * 0.62f, R * 0.085f, ink);
+    hand(cx, cy, ma, R * 0.14f, R * 0.92f, R * 0.062f, ink);
+    hand(cx, cy, sa, R * 0.30f, R * 0.60f, R * 0.02f, red);
+    gfx_circle(cx + sinf(sa) * R * 0.60f, cy - cosf(sa) * R * 0.60f, R * 0.085f, red);
+    gfx_circle(cx, cy, R * 0.03f, red);
+    date_line(t, cx, cy + R + 60 * k, k, DIM);
+    app_redraw();   /* the second hand sweeps */
+}
+
+/* ---- liquid: each digit a string of beads that flows into the next number ---- */
+
+typedef struct { int n; float p[18][2]; } LqPath;   /* in a 0.6 x 1 box */
+static const LqPath LQ_PATH[10] = {
+    { 17, { {.30f,0}, {.45f,.04f}, {.55f,.16f}, {.58f,.33f}, {.58f,.5f}, {.58f,.67f}, {.55f,.84f}, {.45f,.96f}, {.30f,1}, {.15f,.96f}, {.05f,.84f}, {.02f,.67f}, {.02f,.5f}, {.02f,.33f}, {.05f,.16f}, {.15f,.04f}, {.30f,0} } },
+    { 3, { {.12f,.2f}, {.36f,0}, {.36f,1} } },
+    { 8, { {.04f,.22f}, {.14f,.06f}, {.30f,0}, {.46f,.06f}, {.55f,.22f}, {.50f,.42f}, {.04f,1}, {.58f,1} } },
+    { 11, { {.04f,.08f}, {.28f,0}, {.50f,.08f}, {.55f,.24f}, {.45f,.41f}, {.24f,.47f}, {.46f,.53f}, {.58f,.71f}, {.52f,.9f}, {.30f,1}, {.04f,.92f} } },
+    { 4, { {.46f,1}, {.46f,0}, {.02f,.68f}, {.60f,.68f} } },
+    { 9, { {.55f,0}, {.10f,0}, {.06f,.42f}, {.30f,.37f}, {.50f,.45f}, {.58f,.66f}, {.52f,.88f}, {.30f,1}, {.04f,.92f} } },
+    { 12, { {.50f,.04f}, {.30f,0}, {.12f,.12f}, {.04f,.45f}, {.06f,.80f}, {.20f,.97f}, {.40f,.98f}, {.56f,.82f}, {.56f,.62f}, {.40f,.50f}, {.20f,.50f}, {.05f,.62f} } },
+    { 3, { {.02f,0}, {.60f,0}, {.24f,1} } },
+    { 17, { {.30f,.47f}, {.10f,.38f}, {.08f,.20f}, {.18f,.04f}, {.30f,0}, {.42f,.04f}, {.52f,.20f}, {.50f,.38f}, {.30f,.47f}, {.10f,.58f}, {.04f,.78f}, {.14f,.95f}, {.30f,1}, {.46f,.95f}, {.56f,.78f}, {.50f,.58f}, {.30f,.47f} } },
+    { 12, { {.55f,.38f}, {.40f,.50f}, {.20f,.50f}, {.05f,.38f}, {.05f,.18f}, {.20f,.02f}, {.40f,.02f}, {.55f,.18f}, {.56f,.50f}, {.46f,.85f}, {.26f,1}, {.08f,.95f} } },
+};
+enum { LQ_N = 40 };
+
+/* n beads spread evenly along a digit's path */
+static void lq_beads(int d, float out[LQ_N][2])
+{
+    const LqPath *pa = &LQ_PATH[d];
+    float len[18], total = 0;
+    for (int i = 1; i < pa->n; i++) { float dx = pa->p[i][0] - pa->p[i - 1][0], dy = pa->p[i][1] - pa->p[i - 1][1]; len[i] = sqrtf(dx * dx + dy * dy); total += len[i]; }
+    int seg = 1; float acc = 0;
+    for (int j = 0; j < LQ_N; j++) {
+        float want = total * j / (LQ_N - 1);
+        while (seg < pa->n - 1 && acc + len[seg] < want) { acc += len[seg]; seg++; }
+        float u = len[seg] > 0 ? (want - acc) / len[seg] : 0;
+        if (u > 1) u = 1;
+        out[j][0] = pa->p[seg - 1][0] + (pa->p[seg][0] - pa->p[seg - 1][0]) * u;
+        out[j][1] = pa->p[seg - 1][1] + (pa->p[seg][1] - pa->p[seg - 1][1]) * u;
+    }
+}
+
+static struct { int cur[4], old[4]; float at[4]; int init; } LQ;
+
+static void liquid(float cx, float cy, float k, const struct tm *t)
+{
+    int h = hour_shown(t), want[4] = { h >= 10 || g_app.clock_mode == 1 ? h / 10 : -1, h % 10, t->tm_min / 10, t->tm_min % 10 };
+    if (!LQ.init) { for (int i = 0; i < 4; i++) { LQ.cur[i] = want[i]; LQ.old[i] = -1; LQ.at[i] = -100; } LQ.init = 1; }
+    float H = 360 * k, dw = H * 0.6f, gap = H * 0.16f, colon = H * 0.3f;
+    float total = 4 * dw + 3 * gap + colon, x0 = cx - total / 2, y0 = cy - H / 2 - 40 * k, T = g_app.time;
+    Color body = RGBA(0x86, 0xDC, 0xFF, 0xFF), deep = RGBA(0x2E, 0x7C, 0xC8, 0xFF);
+    for (int i = 0; i < 4; i++) {
+        if (want[i] != LQ.cur[i]) { LQ.old[i] = LQ.cur[i]; LQ.cur[i] = want[i]; LQ.at[i] = T; }
+        float p = (T - LQ.at[i]) / 1.1f; if (p > 1) p = 1; if (p < 0) p = 0;
+        float bx = x0 + i * (dw + gap) + (i >= 2 ? colon : 0);
+        float a[LQ_N][2], b[LQ_N][2];
+        int from = p < 1 ? LQ.old[i] : LQ.cur[i], to = LQ.cur[i];
+        if (to >= 0) lq_beads(to, b);
+        if (from >= 0) lq_beads(from, a);
+        if (from < 0 && to < 0) continue;
+        float P[LQ_N][3];   /* where each bead is now, and its size */
+        for (int j = 0; j < LQ_N; j++) {
+            float q = (p - (float)j / LQ_N * 0.35f) / 0.65f; q = q < 0 ? 0 : q > 1 ? 1 : q * q * (3 - 2 * q);
+            float ux, uy, r = H * 0.07f;
+            if (from < 0) { ux = b[j][0]; uy = b[j][1]; r *= q; }
+            else if (to < 0) { ux = a[j][0]; uy = a[j][1]; r *= 1 - q; }
+            else { ux = a[j][0] + (b[j][0] - a[j][0]) * q; uy = a[j][1] + (b[j][1] - a[j][1]) * q; r *= 1 + 0.35f * sinf(PI_F * q); }
+            float wob = 0.005f * sinf(T * 1.6f + j * 0.5f + i * 1.3f);
+            P[j][0] = bx + (ux + wob) * dw / 0.6f; P[j][1] = y0 + (uy + wob * 0.6f) * H; P[j][2] = r;
+        }
+        /* one tube through the beads: its shade, its body, a streak of shine along the top */
+        for (int pass = 0; pass < 3; pass++)
+            for (int j = 0; j + 1 < LQ_N; j++) {
+                float r = (P[j][2] + P[j + 1][2]) / 2;
+                if (r < 0.5f) continue;
+                float dx = pass == 0 ? r * 0.12f : pass == 2 ? -r * 0.28f : 0, dy = pass == 0 ? r * 0.2f : pass == 2 ? -r * 0.32f : 0;
+                float th = pass == 0 ? r * 2.16f : pass == 1 ? r * 2 : r * 0.5f;
+                Color c = pass == 0 ? deep : pass == 1 ? body : RGBA(0xD4, 0xF2, 0xFF, 0xFF);   /* opaque: overlapping caps would bead */
+                gfx_line(P[j][0] + dx, P[j][1] + dy, P[j + 1][0] + dx, P[j + 1][1] + dy, th, c);
+            }
+    }
+    float ccx = x0 + 2 * dw + gap + colon / 2 + gap / 2, pulse = 1 + 0.08f * sinf(T * 3.1f);
+    for (int d = -1; d <= 1; d += 2) {
+        float py = y0 + H * (0.5f + d * 0.18f);
+        gfx_circle(ccx, py, H * 0.05f * pulse, body);
+        gfx_circle(ccx - H * 0.016f, py - H * 0.018f, H * 0.017f, RGBA(0xFF, 0xFF, 0xFF, 0x70));
+    }
+    date_line(t, cx, y0 + H + 70 * k, k, DIM);
+    app_redraw();   /* it never quite stops moving */
+}
+
+/* ---- weather: the time over the sky outside, as it is now ---- */
+
+static void cloud(float x, float y, float s, Color c)
+{
+    gfx_circle(x, y, 60 * s, c); gfx_circle(x + 70 * s, y - 30 * s, 80 * s, c); gfx_circle(x + 160 * s, y - 10 * s, 70 * s, c);
+    gfx_circle(x + 230 * s, y + 10 * s, 50 * s, c); gfx_rrect(x - 40 * s, y, 320 * s, 60 * s, 30 * s, c);
+}
+
+static void weather_face(float cx, float cy, float k, const struct tm *t)
+{
+    const Weather *w = weather_now();
+    int day = w->known ? w->is_day : t->tm_hour >= 6 && t->tm_hour < 19, kind = w->known ? w->kind : WX_CLEAR;
+    static const unsigned SKY[8][4] = {   /* day top, day bottom, night top, night bottom */
+        { 0x2F7FD8FF, 0x9FD2F4FF, 0x050A1EFF, 0x16224AFF }, { 0x4A86C8FF, 0xB8D4EAFF, 0x0A1026FF, 0x222C4EFF },
+        { 0x6E7C8CFF, 0xB4BCC4FF, 0x14181EFF, 0x2A3038FF }, { 0x9AA4ACFF, 0xC8CCCEFF, 0x22262AFF, 0x3A3E42FF },
+        { 0x56636FFF, 0x939DA8FF, 0x0E1218FF, 0x232A34FF }, { 0x4E5C6CFF, 0x8A96A2FF, 0x0C1016FF, 0x202630FF },
+        { 0x8E9EB0FF, 0xDCE4ECFF, 0x1A2030FF, 0x3A4458FF }, { 0x2E3440FF, 0x5A6270FF, 0x07090EFF, 0x1A1E28FF } };
+    float W = 960 * k, Hh = 540 * k, x0 = cx - W, y0 = cy - Hh, T = g_app.time, bleed = 60 * k;   /* past the edges: the face drifts against burn-in */
+    gfx_gradient_v(x0 - bleed, y0 - bleed, 2 * (W + bleed), 2 * (Hh + bleed), SKY[kind][day ? 0 : 2], SKY[kind][day ? 1 : 3]);
+    if (kind <= WX_PARTLY) {
+        if (day) {   /* the sun, its rays turning slowly */
+            float sx = cx + 560 * k, sy = cy - 300 * k;
+            gfx_shadow(sx - 90 * k, sy - 90 * k, 180 * k, 180 * k, 90 * k, 160 * k, RGBA(0xFF, 0xE6, 0x9A, 0x80));
+            for (int i = 0; i < 12; i++) { float a = i * PI_F / 6 + T * 0.05f; gfx_line(sx + cosf(a) * 120 * k, sy + sinf(a) * 120 * k, sx + cosf(a) * 165 * k, sy + sinf(a) * 165 * k, 8 * k, RGBA(0xFF, 0xEE, 0xB0, 0xB0)); }
+            gfx_circle(sx, sy, 90 * k, RGBA(0xFF, 0xF2, 0xC4, 0xFF));
+        } else {
+            for (int s = 0; s < 90; s++)
+                gfx_circle(x0 + (s * 233 % 1920) * k, y0 + (s * 137 % 700) * k, (1 + s % 3 * 0.5f) * k, RGBA(0xFF, 0xFF, 0xFF, 0x40 + (int)(0x60 * (0.5f + 0.5f * sinf(T * 1.3f + s)))));
+            float mx = cx + 560 * k, my = cy - 300 * k;
+            gfx_shadow(mx - 60 * k, my - 60 * k, 120 * k, 120 * k, 60 * k, 90 * k, RGBA(0xD8, 0xE4, 0xFF, 0x40));
+            gfx_circle(mx, my, 60 * k, RGBA(0xEE, 0xF0, 0xF6, 0xFF));
+            gfx_circle(mx + 24 * k, my - 14 * k, 54 * k, SKY[kind][2]);
+        }
+    }
+    int nc = kind == WX_CLEAR ? 0 : kind == WX_PARTLY ? 3 : kind == WX_FOG ? 0 : 6;
+    Color cc = kind >= WX_DRIZZLE && kind != WX_SNOW ? RGBA(0x9A, 0xA2, 0xAC, day ? 0xE8 : 0x60) : RGBA(0xFF, 0xFF, 0xFF, day ? 0xD8 : 0x48);
+    for (int i = 0; i < nc; i++) {   /* clouds drifting across, the far ones slower */
+        float sp = 14 + i * 5, span = 2 * W + 700 * k;
+        float x = fmodf(i * 431 * k + T * sp * k, span) + x0 - 400 * k, y = y0 + (90 + (i * 97) % 300) * k;
+        cloud(x, y, (0.8f + (i % 3) * 0.25f) * k, cc);
+    }
+    if (kind == WX_FOG)
+        for (int i = 0; i < 6; i++) {
+            float y = y0 + (260 + i * 120) * k, x = fmodf(T * (20 + i * 6) * k, 400 * k);
+            gfx_rrect(x0 - 400 * k + x, y, 2 * W + 400 * k, 90 * k, 45 * k, RGBA(0xFF, 0xFF, 0xFF, day ? 0x30 : 0x18));
+        }
+    if (kind == WX_RAIN || kind == WX_DRIZZLE || kind == WX_STORM) {
+        int n = kind == WX_DRIZZLE ? 70 : 150;
+        float spd = kind == WX_DRIZZLE ? 520 : 980, len = kind == WX_DRIZZLE ? 16 : 34;
+        for (int i = 0; i < n; i++) {
+            float x = x0 + ((i * 97) % 1920) * k, y = y0 + fmodf(i * 53.0f + T * spd, 1080) * k;
+            gfx_line(x, y, x - 8 * k, y + len * k, 2.5f * k, RGBA(0xD8, 0xE4, 0xF0, 0x70));
+        }
+    }
+    if (kind == WX_SNOW)
+        for (int i = 0; i < 120; i++) {
+            float x = x0 + (((i * 97) % 1920) + 30 * sinf(T * 0.8f + i)) * k, y = y0 + fmodf(i * 61.0f + T * (60 + i % 5 * 18), 1080) * k;
+            gfx_circle(x, y, (3 + i % 3) * k, RGBA(0xFF, 0xFF, 0xFF, 0xD0));
+        }
+    if (kind == WX_STORM && fmodf(T, 7.3f) < 0.14f) gfx_rect(x0, y0, 2 * W, 2 * Hh, RGBA(0xFF, 0xFF, 0xFF, 0x50));   /* lightning */
+    char s[8]; snprintf(s, sizeof s, g_app.clock_mode == 1 ? "%02d:%02d" : "%d:%02d", hour_shown(t), t->tm_min);
+    float px = 320 * k, dh = font_digits_height(px), y = cy - dh / 2 - 80 * k, wdt = font_digits_measure(s, px);
+    font_digits_draw(s, cx - wdt / 2 + 5 * k, y + 7 * k, px, RGBA(0, 0, 0, 0x48));
+    font_digits_draw(s, cx - wdt / 2, y, px, RGBA(0xFF, 0xFF, 0xFF, 0xF6));
+    ampm(t, cx + wdt / 2 + 18 * k, y + 6 * k, k, RGBA(0xFF, 0xFF, 0xFF, 0xC0));
+    char line[160];
+    if (w->known) snprintf(line, sizeof line, "%.0f\xC2\xB0  %s%s%s", w->temp, weather_kind_name(kind), w->place[0] ? "   \xC2\xB7   " : "", w->place);
+    else snprintf(line, sizeof line, "Finding the weather\xE2\x80\xA6");
+    int fs = (int)(44 * k + 0.5f) | FONT_B;
+    font_draw_center(line, cx + 2 * k, y + dh + 42 * k, fs, RGBA(0, 0, 0, 0x50));
+    font_draw_center(line, cx, y + dh + 40 * k, fs, RGBA(0xFF, 0xFF, 0xFF, 0xF0));
+    date_line(t, cx, y + dh + 110 * k, k, RGBA(0xFF, 0xFF, 0xFF, 0xC8));
+    app_redraw();   /* the sky moves */
+}
+
+/* ---- aurora: curtains of light drifting over a dark sky ---- */
+
+static void aurora(float cx, float cy, float k, const struct tm *t)
+{
+    float W = 960 * k, Hh = 540 * k, x0 = cx - W, y0 = cy - Hh, T = g_app.time, bleed = 60 * k;   /* past the edges: the face drifts against burn-in */
+    gfx_gradient_v(x0 - bleed, y0 - bleed, 2 * (W + bleed), 2 * (Hh + bleed), RGBA(0x02, 0x04, 0x0E, 0xFF), RGBA(0x06, 0x12, 0x24, 0xFF));
+    for (int s = 0; s < 80; s++)
+        gfx_circle(x0 + (s * 233 % 1920) * k, y0 + (s * 137 % 800) * k, (1 + s % 3 * 0.5f) * k, RGBA(0xFF, 0xFF, 0xFF, 0x30 + (int)(0x50 * (0.5f + 0.5f * sinf(T * 1.1f + s)))));
+    static const unsigned COL[3] = { 0x3CFFA0u, 0x3CD8FFu, 0xA070FFu };
+    enum { STRIPS = 160 };
+    float sw = 2 * (W + bleed) / STRIPS;
+    x0 -= bleed;
+    for (int l = 0; l < 3; l++) {
+        Color c = (Color)(COL[l] << 8);
+        for (int i = 0; i < STRIPS; i++) {
+            float fi = (float)i;
+            float base = y0 + Hh * (0.62f + 0.10f * l) + Hh * 0.16f * sinf(fi * 0.05f + T * 0.21f + l * 1.7f) + Hh * 0.06f * sinf(fi * 0.13f - T * 0.33f + l);
+            float hgt = Hh * (0.55f + 0.2f * sinf(fi * 0.03f + T * 0.27f + l * 2.1f));
+            float a = 0.25f + 0.45f * sinf(fi * 0.04f + T * 0.31f + l * 1.3f) + 0.12f * sinf(fi * 0.17f - T * 0.5f);   /* rays, gently */
+            if (a <= 0.02f) continue;
+            if (a > 1) a = 1;
+            int al = (int)(a * (l == 2 ? 0x46 : 0x60));
+            gfx_gradient_v(x0 + i * sw, base - hgt, sw + 1, hgt, COLOR_ALPHA(c, 0), COLOR_ALPHA(c, al));
+            gfx_gradient_v(x0 + i * sw, base, sw + 1, hgt * 0.12f, COLOR_ALPHA(c, al), COLOR_ALPHA(c, 0));
+        }
+    }
+    for (int x = 0; x < 240; x++) {   /* the hills, black against it */
+        float u = x / 240.0f, hh = Hh * (0.16f + 0.05f * sinf(u * 7 + 1) + 0.03f * sinf(u * 19));
+        gfx_rect(x0 + u * 2 * (W + bleed), y0 + 2 * Hh - hh, 2 * (W + bleed) / 240 + 1, hh + bleed, RGBA(0x01, 0x02, 0x05, 0xFF));
+    }
+    char s[8]; snprintf(s, sizeof s, g_app.clock_mode == 1 ? "%02d:%02d" : "%d:%02d", hour_shown(t), t->tm_min);
+    float px = 280 * k, dh = font_digits_height(px), y = cy - dh / 2 - 140 * k, wdt = font_digits_measure(s, px);
+    font_digits_draw(s, cx - wdt / 2, y, px, RGBA(0xF0, 0xFF, 0xF8, 0xE8));
+    ampm(t, cx + wdt / 2 + 18 * k, y + 6 * k, k, RGBA(0xE0, 0xFF, 0xF0, 0xA0));
+    date_line(t, cx, y + dh + 40 * k, k, RGBA(0xE0, 0xFF, 0xF0, 0xB0));
+    app_redraw();   /* the lights drift */
+}
+
 void clockface_draw(int face, float cx, float cy, float k, const struct tm *t, double sec)
 {
     switch (face) {
@@ -535,6 +765,10 @@ void clockface_draw(int face, float cx, float cy, float k, const struct tm *t, d
     case CLOCKFACE_ROLL: roll(cx, cy, k, t, sec); break;
     case CLOCKFACE_ORBIT: orbit(cx, cy, k, t, sec); break;
     case CLOCKFACE_DAYLIGHT: day_sky(cx, cy, k, t, sec); break;
+    case CLOCKFACE_STATION: station(cx, cy, k, t, sec); break;
+    case CLOCKFACE_LIQUID: liquid(cx, cy, k, t); break;
+    case CLOCKFACE_WEATHER: weather_face(cx, cy, k, t); break;
+    case CLOCKFACE_AURORA: aurora(cx, cy, k, t); break;
     default: digital(cx, cy, k, t); break;
     }
 }
