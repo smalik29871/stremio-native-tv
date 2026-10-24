@@ -107,6 +107,9 @@ void video_subtitle_style(int size, int style, const char *colour, int position,
 void video_select_track(TrackKind kind, int index) { js_track_select((int)kind, index); g_info.tracks_version++; }
 
 void video_landscape_only(int on) { (void)on; }   /* TVs and the desktop do not turn */
+void video_pip_allow(int on) { (void)on; }   /* no picture in picture on a TV or the desktop */
+int  video_pip_enter(void) { return 0; }
+int  video_in_pip(void) { return 0; }
 float video_device_volume(void) { return -1; }   /* a TV's own remote has those */
 int   video_set_device_volume(float v) { (void)v; return 0; }
 float video_brightness(void) { return -1; }

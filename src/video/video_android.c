@@ -12,7 +12,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -21,6 +21,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "tracks", "(I)[Ljava/lang/String;" }, { "landscapeOnly", "(Z)V" },
     { "deviceVolume", "()F" }, { "setDeviceVolume", "(F)V" }, { "brightness", "()F" }, { "setBrightness", "(F)V" },
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
+    { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -89,6 +90,17 @@ void video_set_display_rect(int x, int y, int w, int h) { CALL(M_RECT, (jint)x, 
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 void video_landscape_only(int on) { CALL(M_LANDSCAPE, (jboolean)(on != 0)); }
+void video_pip_allow(int on) { static int was = -1; if (on != was) { was = on; CALL(M_PIP_ALLOW, (jboolean)(on != 0)); } }
+static int get_bool(int m)
+{
+    JNIEnv *e = env();
+    if (!e) return 0;
+    jboolean v = (*e)->CallStaticBooleanMethod(e, g_cls, g_m[m]);
+    if ((*e)->ExceptionCheck(e)) { clear(e); return 0; }
+    return v != 0;
+}
+int video_pip_enter(void) { return get_bool(M_PIP_ENTER); }
+int video_in_pip(void) { return get_bool(M_IN_PIP); }
 
 static float get_float(int m)
 {

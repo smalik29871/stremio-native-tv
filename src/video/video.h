@@ -63,6 +63,12 @@ void video_subtitle_style(int size, int style, const char *colour, int position,
 
 /* A phone: only sideways (1) while the screen on top has no upright layout, else either way. */
 void video_landscape_only(int on);
+/* A phone: picture in picture, the video in a small window over other apps. allow: a video
+ * is playing, so leaving the app (Home) takes it along; enter: now (1 if it went); in: it is
+ * in that small window now (the app then draws no controls). 0 where there is none. */
+void video_pip_allow(int on);
+int  video_pip_enter(void);
+int  video_in_pip(void);
 /* A phone's own controls, 0..1: its media volume and the screen's brightness (-1 for the
  * brightness: the system's own again). The getters give -1 where the device has no such
  * control and the setters 0 (the player then uses its own loudness, or dims the picture). */

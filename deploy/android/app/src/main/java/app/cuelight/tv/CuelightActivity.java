@@ -1,5 +1,6 @@
 package app.cuelight.tv;
 
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -22,5 +23,17 @@ public class CuelightActivity extends SDLActivity {
         } catch (ErrnoException ignored) { }
         super.onCreate(savedInstanceState);
         if (mLayout != null && mSurface != null) CuelightPlayer.attach(this, mLayout, mSurface);
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        CuelightPlayer.onUserLeaving();   /* Home while a video plays: it goes along in a small window */
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean in, Configuration c) {
+        super.onPictureInPictureModeChanged(in, c);
+        CuelightPlayer.onPipChanged(in);
     }
 }

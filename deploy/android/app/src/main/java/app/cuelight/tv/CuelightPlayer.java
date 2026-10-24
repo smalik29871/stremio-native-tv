@@ -213,6 +213,43 @@ public final class CuelightPlayer {
         });
     }
 
+    /* Picture in picture (Android 8+): a playing video goes along into a small window when
+     * the viewer leaves (Home), or now when asked (its button). The app draws no controls
+     * while it is in there. */
+    private static volatile boolean sPipAllowed, sInPip;
+    public static void pipAllow(final boolean on) { sPipAllowed = on; run(CuelightPlayer::pipParams); }
+    public static boolean inPip() { return sInPip; }
+    private static boolean pipSupported() {
+        return Build.VERSION.SDK_INT >= 26 && sActivity != null
+            && sActivity.getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE);
+    }
+    public static boolean pipEnter() {
+        if (!pipSupported()) return false;
+        run(() -> {
+            try { sActivity.enterPictureInPictureMode(pipBuild()); }
+            catch (IllegalStateException | IllegalArgumentException e) { Log.w(TAG, "picture in picture: " + e.getMessage()); }
+        });
+        return true;
+    }
+    private static void pipParams() {
+        if (!pipSupported()) return;
+        try { sActivity.setPictureInPictureParams(pipBuild()); }
+        catch (IllegalStateException | IllegalArgumentException e) { Log.w(TAG, "picture in picture: " + e.getMessage()); }
+    }
+    @android.annotation.TargetApi(26)
+    private static android.app.PictureInPictureParams pipBuild() {
+        android.app.PictureInPictureParams.Builder b = new android.app.PictureInPictureParams.Builder();
+        VideoSize v = sPlayer != null ? sPlayer.getVideoSize() : VideoSize.UNKNOWN;
+        int w = v.width > 0 ? v.width : 16, h = v.height > 0 ? v.height : 9;
+        if (w * 100 > h * 239) { w = 239; h = 100; } else if (h * 100 > w * 239) { w = 100; h = 239; }   /* Android allows 2.39:1 at most */
+        b.setAspectRatio(new android.util.Rational(w, h));
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(sPipAllowed);
+        return b.build();
+    }
+    /* the activity: the viewer is leaving (Android 8 to 11; 12 on enters by itself) */
+    static void onUserLeaving() { if (sPipAllowed && Build.VERSION.SDK_INT < 31) pipEnter(); }
+    static void onPipChanged(boolean in) { sInPip = in; Log.i(TAG, in ? "picture in picture" : "picture in picture: full screen again"); }
+
     /* a phone: sideways only, or as it is held */
     public static void landscapeOnly(final boolean on) {
         run(() -> sActivity.setRequestedOrientation(on ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE

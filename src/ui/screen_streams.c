@@ -991,13 +991,15 @@ static void badge_colors(const char *t, int foc, Color *bg, Color *fg)
     if (foc && (*bg & 0xFF) < 0x80) { *bg = COLOR_ALPHA(THEME_PANEL, 0xF0); if (*fg == THEME_TEXT_DIM) *fg = THEME_TEXT; }
 }
 
-static float draw_badges(const Stream *sm, float right_x, float y, int foc)
+/* right to left from right_x; a badge that would reach past min_x is left out (a phone's narrow row) */
+static float draw_badges(const Stream *sm, float right_x, float min_x, float y, int foc)
 {
     char b[8][24];
     int n = badge_list(sm, b, 8);
     float x = right_x;
     for (int i = n - 1; i >= 0; i--) {
         float w = font_measure(b[i], FONT_XS | FONT_B) + 24;
+        if (x - w < min_x) continue;
         x -= w;
         Color bg, fg;
         badge_colors(b[i], foc, &bg, &fg);
@@ -1211,7 +1213,10 @@ static void draw(Screen *s)
         list_y += REC_H;
     }
 
-    gfx_clip_push(0, list_y - 20, SNTV_UI_W, SNTV_UI_H - list_y + 20);
+    /* room above the first row for its focus ring; once the list moves, rows go no higher
+     * than its top, so none shows under the recommendation */
+    float slop = 20 - (st->scroll < 0 ? 0 : st->scroll > 20 ? 20 : st->scroll);
+    gfx_clip_push(0, list_y - slop, SNTV_UI_W, SNTV_UI_H - list_y + slop);
     st->list_h = SNTV_UI_H - list_y;
     ui_pan_area(&st->pan, 0, list_y - 20, SNTV_UI_W, st->list_h + 20, 1);
     float ry = list_y - st->scroll;
@@ -1238,8 +1243,8 @@ static void draw(Screen *s)
         if (aw > 220) aw = 220;
         gfx_rrect_grad_h(ax, ay, aw, 32, theme_pill_r(32), COLOR_ALPHA(THEME_ACCENT, 0x60), COLOR_ALPHA(THEME_ACCENT2, 0x60));
         font_draw_fit(sm->addon_name, ax + 12, ay + (32 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT, aw - 24);
-        if (sub[0]) font_draw_fit(sub, ax + aw + 12, ay + 4, FONT_XS | FONT_B, THEME_TEXT_DIM, 160);
-        float bx = draw_badges(sm, x + w - 24, ry + 18, foc);
+        float chips_min = ax + aw + 12;   /* the chips stop short of the addon's badge */
+        float bx = draw_badges(sm, x + w - 24, chips_min, ry + 18, foc);
         font_draw_fit(line1[0] ? line1 : "Stream", ax, ry + 60, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 48);
         int offer = foc && fetchable(sm) && !fetching(st, sm);   /* hold OK: onto your TorBox */
         float hw = offer ? 340 : 0;
@@ -1262,8 +1267,7 @@ static void draw(Screen *s)
         if (flag) {
             Color fc = tb ? (st->fetch_state == 4 ? THEME_DANGER : st->fetch_state == 3 ? THEME_OK : THEME_TEXT) : !ok ? THEME_DANGER : THEME_OK;
             float fw = font_measure(flag, FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip(flag, bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(fc, 0x30), fc);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip(flag, bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(fc, 0x30), fc); }
         }
         const char *warn[3];
         int nw = ok ? quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 3) : 0;
@@ -1275,34 +1279,29 @@ static void draw(Screen *s)
         const char *sick = sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
         if (sick && !rule_broken(sm)) {
             float fw = font_measure(sick, FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip(sick, bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip(sick, bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD); }
         } else if (rule_broken(sm)) {
             float fw = font_measure("Against your rules", FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip("Against your rules", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_TEXT_MUTED, 0x30), THEME_TEXT_MUTED);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip("Against your rules", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_TEXT_MUTED, 0x30), THEME_TEXT_MUTED); }
         } else if (sm->probe_state == 4) {
             float fw = font_measure("Link not responding", FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip("Link not responding", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_DANGER, 0x30), THEME_DANGER);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip("Link not responding", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_DANGER, 0x30), THEME_DANGER); }
         } else if (sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85) {
             float fw = font_measure("Heavier than this connection", FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip("Heavier than this connection", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip("Heavier than this connection", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD); }
         } else if (sm->probe_state == 2 && !nw) {
             float fw = font_measure("Verified", FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip("Verified", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_OK, 0x30), THEME_OK);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip("Verified", bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_OK, 0x30), THEME_OK); }
         }
         if (nw) {
             float fw = font_measure(warn[0], FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip(warn[0], bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip(warn[0], bx, ry + 18, foc ? COLOR_ALPHA(THEME_PANEL, 0xF0) : COLOR_ALPHA(THEME_GOLD, 0x30), THEME_GOLD); }
         } else if (i == rec) {
             float fw = font_measure("Recommended", FONT_XS | FONT_B) + 24;
-            bx -= fw + 8;
-            ui_chip("Recommended", bx, ry + 18, COLOR_ALPHA(THEME_ACCENT2, 0x40), THEME_TEXT);
+            if (bx - fw - 8 >= chips_min) { bx -= fw + 8; ui_chip("Recommended", bx, ry + 18, COLOR_ALPHA(THEME_ACCENT2, 0x40), THEME_TEXT); }
         }
+        float room = bx - 8 - chips_min;   /* the addon's second line ("1080p") in what the chips leave */
+        if (sub[0] && room > 40) font_draw_fit(sub, chips_min, ay + 4, FONT_XS | FONT_B, THEME_TEXT_DIM, room < 160 ? room : 160);
     }
     gfx_clip_pop();
     if (st->n > VISIBLE) {

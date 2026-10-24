@@ -86,12 +86,11 @@ struct Player {
     int rate_idx;             /* index into RATES */
     int rate_applied;         /* the pipeline got the rate for this load */
     int aspect;               /* ASPECT_* */
-    /* upright on a phone: the picture at the top, the controls and a list under it */
-    int ph_sheet, ph_focus, ph_full;   /* the list open (PH_*), its focused row, turned sideways by Full screen */
+    /* a phone (always sideways): the controls over the picture, a list at the right */
+    int ph_sheet, ph_focus;   /* the list open (PH_*), its focused row */
     float ph_scroll, ph_t;    /* the list's scroll, and when it last drew */
     UiPan ph_pan;
-    int ph_rect[4];           /* the picture's place last given to the video, in pixels */
-    float ph_pic[4], ph_barr[4], fs_barr[4];   /* where the picture and the bar (upright, sideways) are, in canvas units */
+    float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
     float fs_until;           /* sideways on a phone: the controls show until */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
     float tch_x0, tch_y0; double tch_pos0;
@@ -281,7 +280,6 @@ static int open_cast(Player *p);
 static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n);
 
 static int subs_key(Player *p, KeyAction a);
-static void phone_draw(Player *p);
 static void full_draw(Player *p, const VideoInfo *vi);
 static void picture_tap_settle(Player *p);
 static void subs_open(Player *p);
@@ -2134,6 +2132,7 @@ static void update(Screen *s, float dt)
     if (p->tb_held) { p->tb_held = 0; start_candidate(p, p->cur, p->tb_held_start); }   /* back on top: TorBox's answer starts now */
     VideoInfo vi;
     video_info(&vi);
+    if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
     if (p->tap_pending) app_redraw();
     if (vi.state == VIDEO_PLAYING) app_redraw();   /* progress bar / subtitles move */
@@ -3649,12 +3648,11 @@ static void draw(Screen *s)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
-    if (SNTV_PHONE && !p->pip) { phone_draw(p); return; }
-    if (p->ph_rect[2]) { p->ph_rect[2] = 0; apply_aspect(p); }   /* back from upright: the whole screen again */
+    if (SNTV_PHONE && !p->pip) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 255)); app_redraw(); return; }   /* a phone still turning sideways */
     if (gfx_handheld() && !p->pip) {   /* a phone sideways: its own touch controls over the picture */
         draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
         draw_subtitle(p, &vi);
-        full_draw(p, &vi);
+        if (!video_in_pip()) full_draw(p, &vi);   /* in picture in picture: the picture alone */
         return;
     }
     ui_hit(0, 0, SNTV_UI_W, SNTV_UI_H, 0x7FFFFF00);   /* a tap anywhere is OK, as before */
@@ -4690,18 +4688,16 @@ static void offer_resume(Player *p, const VideoInfo *vi)
 }
 
 
-/* ---- touch, on a phone. Upright: the picture across the top, under it the title, the time
- * and scrub bar, play/pause, 10 s each way and the episodes either side, then Subtitles,
- * Audio, Speed, Sources, Episodes and Full screen; each of those opens a list in the lower
- * half. Sideways (turned, or Full screen): the picture fills the screen and a tap brings the
- * same controls over it for a few seconds, the lists at the right. Both ways a double tap on
- * a side of the picture skips 10 s (again: further), a drag across it or along the bar seeks
- * (the time and a preview follow the finger), a swipe up on the upright picture fills the
- * screen and a swipe down comes back. ---- */
+/* ---- touch, on a phone, which turns sideways to play: the picture fills the screen and a
+ * tap brings the controls over it for a few seconds (Subtitles, Audio, Speed, Sources and
+ * Episodes open a list at the right; on Android, picture in picture). A double tap on a
+ * side of the picture skips 10 s (again: further), a drag across it or along the bar seeks
+ * (the time and a preview follow the finger), and up or down a side sets the brightness
+ * (left) or the volume (right). ---- */
 enum { PH_NONE, PH_AUDIO, PH_SUBS, PH_SOURCES, PH_EPISODES, PH_SPEED };
 enum { PHH_BACK = 0x7FFF0000, PHH_PLAY, PHH_BACK10, PHH_FWD10, PHH_SKIP, PHH_NEXT, PHH_STILL_ON, PHH_STILL_STOP, PHH_CLOSE,
        PHH_PREV_EP, PHH_NEXT_EP, PHH_ASPECT, PHH_PANEL, PHH_SHEET = 0x7FFE0000, PHH_ROW = 0x7FFD0000 };
-enum { PHB_SUBS, PHB_AUDIO, PHB_SPEED, PHB_SOURCES, PHB_EPISODES, PHB_FULL, PHB_COUNT };
+enum { PHB_SUBS, PHB_AUDIO, PHB_SPEED, PHB_SOURCES, PHB_EPISODES, PHB_PIP, PHB_COUNT };
 #define PH_ROWS 72
 #define PH_SWIPE_SECS 200.0   /* a drag across the whole picture seeks this far */
 
@@ -4780,13 +4776,6 @@ static void ph_open(Player *p, int sheet)
     PhRow r[PH_ROWS];
     int n = ph_rows(p, r);
     for (int i = 0; i < n; i++) if (r[i].on) { p->ph_focus = i; break; }
-}
-
-static void ph_center_fit(const char *t, float cx, float y, int fs, Color c, float max_w)
-{
-    float w = font_measure(t, fs);
-    if (w <= max_w) font_draw(t, cx - w / 2, y, fs, c);
-    else font_draw_fit(t, cx - max_w / 2, y, fs, c, max_w);
 }
 
 static int ph_has_eps(const Player *p) { int n = 0; app_videos(p->meta.id, &n); return n > 1; }
@@ -4993,88 +4982,6 @@ static void ph_transport(Player *p, const VideoInfo *vi, float cx, float cy, flo
     if (p->next_video_id) ph_round(ICON_NEXT, NULL, cx + 2 * gap - mid * 0.3f, cy, mid * 0.8f, 0, PHH_NEXT_EP);
 }
 
-static void phone_draw(Player *p)
-{
-    VideoInfo vi;
-    video_info(&vi);
-    float W = SNTV_UI_W, x = 40, w = W - 80;
-    gfx_rect(0, 0, W, SNTV_UI_H, RGBA(0, 0, 0, 255));
-    /* the title bar */
-    gfx_circle(80, 76, 40, COLOR_ALPHA(THEME_TEXT, 0x16));
-    ui_icon(ICON_CHEVRON_LEFT, 78, 76, 32, THEME_TEXT);
-    ui_hit(30, 26, 100, 100, PHH_BACK);
-    font_draw_fit(p->meta.name ? p->meta.name : "", 144, 40, FONT_M | FONT_B, THEME_TEXT, W - 184);
-    if (p->title && *p->title && (!p->meta.name || strcmp(p->title, p->meta.name))) font_draw_fit(p->title, 144, 84, FONT_XS, THEME_TEXT_DIM, W - 184);
-    /* the picture */
-    float vy = 150, vh = W * 9 / 16;
-    p->ph_pic[0] = 0; p->ph_pic[1] = vy; p->ph_pic[2] = W; p->ph_pic[3] = vh;
-    gfx_video_hole(0, vy, W, vh);
-    {
-        int px, py, pw, ph;
-        gfx_ui_to_pixels(0, vy, W, vh, &px, &py, &pw, &ph);
-        if (px != p->ph_rect[0] || py != p->ph_rect[1] || pw != p->ph_rect[2] || ph != p->ph_rect[3]) {
-            p->ph_rect[0] = px; p->ph_rect[1] = py; p->ph_rect[2] = pw; p->ph_rect[3] = ph;
-            video_set_display_rect(px, py, pw, ph);
-        }
-    }
-    {   /* the subtitles, as the TV draws them, in the picture's band */
-        int sw = g_ui_w, sh = g_ui_h;
-        float k = W / SNTV_UI_BASE_W;
-        g_ui_w = SNTV_UI_BASE_W; g_ui_h = SNTV_UI_BASE_H;
-        gfx_set_scale(k, 0, 0);
-        gfx_set_translate(0, vy);
-        draw_subtitle(p, &vi);
-        gfx_set_translate(0, 0);
-        gfx_set_scale(1, 0, 0);
-        g_ui_w = sw; g_ui_h = sh;
-    }
-    int rec = recovering(p, &vi);
-    if (error_final(p, &vi)) {
-        gfx_rect(0, vy, W, vh, RGBA(0, 0, 0, 0xD0));
-        font_draw_center("This source can't be played", W / 2, vy + vh / 2 - 60, FONT_M | FONT_B, THEME_TEXT);
-        font_draw_wrapped(p->tb_error[0] ? p->tb_error : vi.error, x, vy + vh / 2, FONT_XS, THEME_TEXT_DIM, w, 3);
-    } else if (rec || vi.state == VIDEO_LOADING || vi.buffering) {
-        ui_spinner(W / 2, vy + vh / 2, 30);
-        app_redraw();
-    }
-    ph_feedback(p, &vi, 0, vy, W, vh);
-    float y = vy + vh + 44;
-    /* time and scrub bar */
-    ph_bar(p, &vi, x, y + 20, w, p->ph_barr);
-    double pos = p->seek_commit > 0 ? p->seek_target : vi.position, dur = ph_dur(p, &vi);
-    char a[24], b[24];
-    ph_time(pos, a, sizeof a);
-    if (dur > 0) { char t[24]; ph_time(dur - pos, t, sizeof t); snprintf(b, sizeof b, "-%.20s", t); } else b[0] = 0;
-    font_draw(a, x, y + 52, FONT_S, THEME_TEXT_DIM);
-    font_draw(b, x + w - font_measure(b, FONT_S), y + 52, FONT_S, THEME_TEXT_DIM);
-    y += 150;
-    ph_transport(p, &vi, W / 2, y + 56, 70, 50, 170);
-    y += 170;
-    if (ph_offer(p, &vi, x, y, w, 96)) y += 124;
-    /* the lists, and Full screen */
-    static const char *const BL[PHB_COUNT] = { "Subtitles", "Audio", "Speed", "Sources", "Episodes", "Full screen" };
-    static const Icon BI[PHB_COUNT] = { ICON_SUBS, ICON_AUDIO, ICON_SPEED, ICON_SWAP, ICON_LIST, ICON_TV };
-    static const int BS[PHB_COUNT] = { PH_SUBS, PH_AUDIO, PH_SPEED, PH_SOURCES, PH_EPISODES, 0 };
-    int nb = 0, ids[PHB_COUNT];
-    for (int i = 0; i < PHB_COUNT; i++) if (i != PHB_EPISODES || ph_has_eps(p)) ids[nb++] = i;
-    float bw = w / nb;
-    for (int k = 0; k < nb; k++) {
-        int i = ids[k], on = BS[i] && p->ph_sheet == BS[i];
-        float bx = x + k * bw;
-        if (on) gfx_rrect(bx + 4, y, bw - 8, 120, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x1C));
-        ui_icon(BI[i], bx + bw / 2, y + 42, 34, on ? THEME_ACCENT : THEME_TEXT);
-        if (i == PHB_SPEED && p->rate_idx != RATE_NORMAL) { char sp[16]; snprintf(sp, sizeof sp, "%gx", RATES[p->rate_idx]); ph_center_fit(sp, bx + bw / 2, y + 78, FONT_XS | FONT_B, THEME_ACCENT, bw - 6); }
-        else ph_center_fit(BL[i], bx + bw / 2, y + 78, FONT_XS | FONT_B, on ? THEME_TEXT : THEME_TEXT_DIM, bw - 6);
-        ui_hit(bx, y, bw, 120, PHH_SHEET + i);
-    }
-    y += 150;
-    if (p->ph_sheet) ph_sheet_draw(p, x, y, w, SNTV_UI_H - 20, 0);
-    else {
-        if (p->meta.description && *p->meta.description) y += 40 * font_draw_wrapped(p->meta.description, x, y, FONT_S, THEME_TEXT_DIM, w, 6) + 30;
-        if (y < SNTV_UI_H - 60) font_draw_center("Double-tap a side to skip  \xC2\xB7  Drag to seek  \xC2\xB7  Up or down: light, sound", W / 2, SNTV_UI_H - 60, FONT_XS, THEME_TEXT_MUTED);
-    }
-}
-
 /* Sideways on a phone: the picture is the whole screen; the controls over it. */
 static void full_draw(Player *p, const VideoInfo *vi)
 {
@@ -5108,12 +5015,14 @@ static void full_draw(Player *p, const VideoInfo *vi)
     float tw = sheet_x - 180 - 7 * 112;
     font_draw_fit(p->meta.name ? p->meta.name : "", 170, 48, FONT_M | FONT_B, THEME_TEXT, tw);
     if (p->title && *p->title && (!p->meta.name || strcmp(p->title, p->meta.name))) font_draw_fit(p->title, 170, 94, FONT_XS, THEME_TEXT_DIM, tw);
-    static const Icon BI[PHB_COUNT] = { ICON_SUBS, ICON_AUDIO, ICON_SPEED, ICON_SWAP, ICON_LIST, ICON_TV };
+    static const Icon BI[PHB_COUNT] = { ICON_SUBS, ICON_AUDIO, ICON_SPEED, ICON_SWAP, ICON_LIST, ICON_PIP };
     static const int BS[PHB_COUNT] = { PH_SUBS, PH_AUDIO, PH_SPEED, PH_SOURCES, PH_EPISODES, 0 };
     float bx = sheet_x - 96;
-    for (int i = PHB_COUNT - 1; i >= -1; i--) {   /* right to left: upright, episodes, sources, speed, audio, subtitles, aspect */
+    for (int i = PHB_COUNT - 1; i >= -1; i--) {   /* right to left: picture in picture, episodes, sources, speed, audio, subtitles, aspect */
         if (i == PHB_EPISODES && !ph_has_eps(p)) continue;
-        if (i == PHB_FULL && !p->ph_full) continue;   /* only when Full screen turned it sideways */
+#ifndef __ANDROID__
+        if (i == PHB_PIP) continue;   /* Android's alone */
+#endif
         int on = i >= 0 && BS[i] && p->ph_sheet == BS[i];
         gfx_circle(bx, 84, 44, on ? COLOR_ALPHA(THEME_TEXT, 0x40) : RGBA(0, 0, 0, 0x60));
         ui_icon(i < 0 ? ICON_ASPECT : BI[i], bx, 84, 38, on ? THEME_ACCENT : THEME_TEXT);
@@ -5143,7 +5052,7 @@ static int phone_tap(Player *p, int id)
 {
     VideoInfo vi;
     video_info(&vi);
-    if (!SNTV_PHONE) p->fs_until = g_app.time + 4.5f;   /* the controls stay while they're used */
+    p->fs_until = g_app.time + 4.5f;   /* the controls stay while they're used */
     if (id >= PHH_ROW && id < PHH_ROW + PH_ROWS) {
         p->ph_focus = id - PHH_ROW;
         if (g_touch_aim) return 1;
@@ -5156,9 +5065,10 @@ static int phone_tap(Player *p, int id)
     if (g_touch_aim) return 1;
     if (id >= PHH_SHEET && id < PHH_SHEET + PHB_COUNT) {
         int i = id - PHH_SHEET;
-        if (i == PHB_FULL) {
-            if (SNTV_PHONE) { p->ph_full = 1; p->ph_sheet = PH_NONE; app_top()->phone = 0; p->fs_until = g_app.time + 3; LOGI("player: full screen"); }
-            else { p->ph_full = 0; p->ph_sheet = PH_NONE; app_top()->phone = 1; LOGI("player: upright again"); }
+        if (i == PHB_PIP) {   /* the controls go first, so the small window shows the picture alone */
+            p->ph_sheet = PH_NONE; p->fs_until = 0;
+            if (video_pip_enter()) LOGI("player: picture in picture");
+            else app_toast("This phone can't show picture in picture");
             return 1;
         }
         static const int BS[PHB_COUNT] = { PH_SUBS, PH_AUDIO, PH_SPEED, PH_SOURCES, PH_EPISODES, 0 };
@@ -5222,8 +5132,7 @@ static void picture_tap_settle(Player *p)   /* update(): a single tap that staye
     p->tap_pending = 0;
     VideoInfo vi;
     video_info(&vi);
-    if (SNTV_PHONE) toggle_play(p, &vi);
-    else if (fs_shown(p, &vi) && vi.state == VIDEO_PLAYING && !p->ph_sheet) p->fs_until = 0;
+    if (fs_shown(p, &vi) && vi.state == VIDEO_PLAYING && !p->ph_sheet) p->fs_until = 0;
     else { p->fs_until = g_app.time + 4.5f; if (p->ph_sheet && vi.state == VIDEO_PLAYING) p->ph_sheet = PH_NONE; }
     app_redraw();
 }
@@ -5266,7 +5175,7 @@ static int drag(Screen *s, int phase, float x, float y)
     VideoInfo vi;
     video_info(&vi);
     double dur = ph_dur(p, &vi);
-    float *bar = SNTV_PHONE ? p->ph_barr : p->fs_barr;
+    float *bar = p->fs_barr;
     if (phase == 0) {
         p->tch = 0; p->tch_seeking = 0; p->tch_moved = 0;
         if (error_final(p, &vi)) return 0;
@@ -5314,7 +5223,6 @@ static int key(Screen *s, KeyAction a)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
-    if (p->ph_full && a == KEY_BACK && gfx_handheld()) { p->ph_full = 0; s->phone = 1; return 1; }   /* Full screen: Back is upright again */
     if (gfx_handheld() && !p->pip && p->ph_sheet) {   /* the open list takes Up, Down, OK and Back */
         PhRow r[PH_ROWS];
         int n = ph_rows(p, r);
@@ -5479,6 +5387,7 @@ static void destroy(Screen *s)
     Player *p = s->st;
     if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */
     if (p->bright >= 0) video_set_brightness(-1);   /* the screen's brightness is the system's again */
+    video_pip_allow(0);
     relay_buffer_close();   /* its memory goes with it */
     report(p, 1);   /* the app closing with the film on: the last position still counts */
     streams_lookup_cancel();
@@ -5609,7 +5518,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->gen = 1;
     g_live = p;
     s->name = "player"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 0;   /* a phone turns sideways to play */
     if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
     if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);

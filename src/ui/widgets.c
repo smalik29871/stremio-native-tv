@@ -194,6 +194,10 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         gfx_rrect_ring(cx - s * 0.42f, cy - s * 0.32f, s * 0.84f, s * 0.54f, s * 0.06f, t, c);
         gfx_line(cx - s * 0.18f, cy + s * 0.36f, cx + s * 0.18f, cy + s * 0.36f, t, c);
         break;
+    case ICON_PIP:   /* a screen with a small picture in its corner */
+        gfx_rrect_ring(cx - s * 0.42f, cy - s * 0.32f, s * 0.84f, s * 0.64f, s * 0.06f, t, c);
+        gfx_rrect(cx + s * 0.02f, cy + s * 0.02f, s * 0.30f, s * 0.20f, s * 0.04f, c);
+        break;
     case ICON_KEY:
         gfx_rrect_ring(cx - s * 0.42f, cy - s * 0.18f, s * 0.36f, s * 0.36f, s * 0.18f, t, c);
         gfx_line(cx - s * 0.06f, cy, cx + s * 0.40f, cy, t, c);

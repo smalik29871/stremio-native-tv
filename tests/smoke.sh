@@ -966,25 +966,24 @@ run phone_signin_pw 300 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wai
 run phone_about 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:364,wait,wait" $PH SNTV_EXPECT_SCREEN=whatsnew HOME="$(home_with ph12 '{"setupDone":1}')"
 run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:803,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
 run phone_calendar 220 "wait,tap:546:1660,wait,tap:370:76,wait,wait" $PH SNTV_EXPECT_SCREEN=calendar HOME="$(home_with ph14 '{"setupDone":1}')"
-run phone_player 420 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph15 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
-run phone_player_subs 480 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,tap:120:1080,wait,tap:390:1310,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph16 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
-# touch that follows the finger: a dragged page and row, the player's gestures upright and sideways
+# touch that follows the finger: a dragged page and row, the player's gestures (a phone plays sideways)
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
-run phone_player_dtap 400 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,dtap:650:350,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph17 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
-grep -q "player: double tap: +10 s" "$OUT/phone_player_dtap.log" || { echo "a double tap on the picture did not skip"; grep "player:" "$OUT/phone_player_dtap.log" | tail -5; exit 1; }
-run phone_player_scrub 400 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,drag:200:647:500:647" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph18 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
-grep -q "player: scrubbed to [0-9]* s" "$OUT/phone_player_scrub.log" || { echo "dragging the bar did not seek"; exit 1; }
-run phone_player_bright 400 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,drag:150:250:150:450" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph20 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
-grep -q "player: brightness [0-9]*%" "$OUT/phone_player_bright.log" || { echo "a drag down the left of the picture did not change the brightness"; exit 1; }
-run phone_player_volume 400 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,wait,drag:650:250:650:420" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with ph21 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
-grep -q "player: volume [0-9]*%" "$OUT/phone_player_volume.log" || { echo "a drag down the right of the picture did not change the volume"; exit 1; }
 LS="SNTV_WINDOW=1000x450 SNTV_HANDHELD=1"
 run fs_player 460 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs1 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 run fs_player_hidden 460 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs2 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 run fs_player_subs 620 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait,wait,wait,wait,wait,tap:1488:84,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs3 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 run fs_player_volume 420 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,drag:1500:300:1500:600" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs4 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "player: volume [0-9]*%" "$OUT/fs_player_volume.log" || { echo "sideways, a drag down the right did not change the volume"; exit 1; }
+FSP="right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait"
+run fs_player_dtap 420 "$FSP,dtap:1500:540,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs5 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+grep -q "player: double tap: +10 s" "$OUT/fs_player_dtap.log" || { echo "a double tap on the picture did not skip"; grep "player:" "$OUT/fs_player_dtap.log" | tail -5; exit 1; }
+run fs_player_seek 420 "$FSP,drag:600:540:1200:540" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs6 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+grep -q "player: dragged to [0-9]* s" "$OUT/fs_player_seek.log" || { echo "a drag across the picture did not seek"; exit 1; }
+run fs_player_bright 420 "$FSP,drag:400:300:400:700" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs7 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+grep -q "player: brightness [0-9]*%" "$OUT/fs_player_bright.log" || { echo "a drag down the left of the picture did not change the brightness"; exit 1; }
+# a phone's sources, scrolled: no row under the recommendation, every chip right of the addon's name
+run phone_streams_scrolled 360 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,drag:390:1500:390:1000,wait" $PH SNTV_EXPECT_SCREEN=streams HOME="$(home_with ph22 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 # Settings > About > Storage: what the app keeps here, and OK clears the cache
 run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:905,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
 grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cache cleared" "$OUT/storage_clear.log" || { echo "Storage did not count or clear the cache"; grep -E "storage|tidy" "$OUT/storage_clear.log"; exit 1; }
