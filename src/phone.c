@@ -185,7 +185,7 @@ static int receive_upload(int fd, const char *req, const char *body0, long have,
 /* ---- seek previews: GET /frame?t=<s>&w=<px>&u=<video url>, from this TV only ------------
  * Decoding takes a few hundred ms, so the requests wait on their own thread, newest
  * first; when the viewer keeps seeking, the oldest waiting ones are turned away. */
-typedef struct FrameJob { int fd; double t; int w; char url[2048]; struct FrameJob *next; } FrameJob;
+typedef struct FrameJob { int fd; double t; int w, keys; char url[2048]; struct FrameJob *next; } FrameJob;   /* keys: the keyframe times after t, not a picture */
 static FrameJob *g_frames;   /* newest first */
 static SDL_mutex *g_frames_lock;
 static SDL_cond *g_frames_cond;
@@ -216,6 +216,19 @@ static int frames_main(void *arg)
         SDL_UnlockMutex(g_frames_lock);
         char err[200] = "";
         size_t len = 0;
+        if (j->keys) {   /* GET /keyframes: the times, one a line (the living letterbox changes with the cuts) */
+            double ks[64];
+            int n = frames_keyframes_url(j->url, j->t, ks, 64);
+            if (n < 0) respond_text(j->fd, "404 Not Found", "no keyframe index");
+            else {
+                char text[64 * 16] = "";
+                for (int i = 0; i < n; i++) { size_t u = strlen(text); snprintf(text + u, sizeof text - u, "%.3f\n", ks[i]); }
+                respond_text(j->fd, "200 OK", text);
+            }
+            close(j->fd);
+            free(j);
+            continue;
+        }
         uint8_t *bmp = frames_picture_url(j->url, j->t, j->w, &len, err, sizeof err);
         if (bmp) {
             char head[200];
@@ -235,7 +248,7 @@ static int queue_frame(int fd, const char *req)
     const char *q = strchr(req, '?'), *end = q ? q + strcspn(q, " \r\n") : NULL;
     if (!q || !frames_supported()) return 0;
     FrameJob *j = calloc(1, sizeof *j);
-    j->fd = fd; j->w = 384;
+    j->fd = fd; j->w = 384; j->keys = strncmp(req, "GET /keyframes?", 15) == 0;
     for (const char *p = q + 1; p < end; ) {
         size_t len = strcspn(p, "& \r\n");
         char val[2048];
@@ -513,7 +526,7 @@ static int handle(int fd, const struct sockaddr_in *peer)
         respond_text(fd, "404 Not Found", "no YouTube files here");
         return 0;
     }
-    if (strncmp(req, "GET /frame?", 11) == 0) {
+    if (strncmp(req, "GET /frame?", 11) == 0 || strncmp(req, "GET /keyframes?", 15) == 0) {
         if (peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK) && queue_frame(fd, req)) return 1;
         respond_text(fd, "404 Not Found", "no previews here");
         return 0;

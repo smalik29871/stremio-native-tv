@@ -1014,6 +1014,13 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"current": {"temperature_2m": 18.4, "weather_code": 2, "is_day": 1}}).encode())
         if p.startswith("/ipapi"):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
+        if p.startswith("/thumbs/keyframes"):   # the scope film's cuts, irregular as a film's are; others list none
+            if "scope%3D1" not in p:
+                return self.send(404, b"no keyframe index", "text/plain")
+            frm = float(p.split("t=")[1].split("&")[0]) if "t=" in p else 0.0
+            cuts = [0.0, 2.5, 6.25, 6.75, 11.0, 17.5, 24.0, 33.0, 41.5, 47.0, 58.0, 64.5]
+            cuts += [70.0 + 6.5 * i for i in range(400)]
+            return self.send(200, "".join(f"{c:.3f}\n" for c in cuts if c > frm)[:2000].encode(), "text/plain")
         if p.startswith("/thumbs/frame"):   # the seek preview server (tools/thumbs) stands in
             t = int(float(p.split("t=")[1].split("&")[0])) if "t=" in p else 0
             if "scope%3D1" in p and HAVE_PIL:   # a 2.39:1 picture with the bars baked into a 16:9 frame

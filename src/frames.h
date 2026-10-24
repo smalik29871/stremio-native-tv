@@ -21,6 +21,9 @@ uint8_t *frames_picture(FramesRead rd, void *ctx, const char *key, double t, int
 
 /* The same over HTTP(S) range requests. */
 uint8_t *frames_picture_url(const char *url, double t, int max_w, size_t *len, char *err, size_t en);
+/* The keyframes after `from` seconds (at most max, a half second apart at least): where
+ * an encoder starts a new picture, at every cut among them. -1 when the file has none. */
+int frames_keyframes_url(const char *url, double from, double *out, int max);
 void frames_stop(void);   /* reads under way give up: the app is closing */
 
 #endif

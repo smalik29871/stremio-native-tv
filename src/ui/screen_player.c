@@ -100,6 +100,9 @@ struct Player {
     float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
     char lb_last[2048];       /* the last frame it had, shown while the next one comes */
     char lb_prev[2048]; float lb_swap_at;   /* the one before, fading out as the last fades in (since then) */
+    double lb_keys[64]; int lb_nkeys, lb_keys_state; double lb_keys_from;   /* the film's cuts ahead (keyframes): 0 not asked, 1 asking, 2 known, 3 none */
+    double lb_shown;                       /* the time of the frame in the bars (-1 none) */
+    int lb_cuts_logged;
     float ov_k, ov_kt;        /* the TV overlay the same way: it fades in, the bar rising into place */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
     float tch_x0, tch_y0; double tch_pos0;
@@ -1165,18 +1168,78 @@ static unsigned seek_thumb(const Player *p, double t, int *w, int *h, int prefet
  * picture's own edges, from a small frame decoded every ten seconds (as the seek
  * previews are), are stretched softly into them and dimmed toward the screen's edge,
  * fading from one frame to the next. A few redraws a second, never every frame. ---- */
-static int lb_frame_url(const Player *p, long sec, char *url, size_t n)
+#define LB_STEP 5        /* a frame of the film every 5 s, where the file lists no keyframes */
+
+static int lb_frame_url(const Player *p, double sec, char *url, size_t n)
 {
     if (p->cur >= p->n_cands || !p->cands[p->cur].url || strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
     char enc[1600], rel[1800];
     http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
-    if (g_app.thumb_server && *g_app.thumb_server) { snprintf(url, n, "%s/frame?url=%s&t=%ld", g_app.thumb_server, enc, sec); return 1; }
+    if (g_app.thumb_server && *g_app.thumb_server) { snprintf(url, n, "%s/frame?url=%s&t=%.2f", g_app.thumb_server, enc, sec); return 1; }
     if (!frames_supported()) return 0;
-    snprintf(rel, sizeof rel, "frame?t=%ld&w=160&u=%s", sec, enc);
+    snprintf(rel, sizeof rel, "frame?t=%.2f&w=160&u=%s", sec, enc);
     return phone_local_url(rel, url, n);
 }
 
-#define LB_STEP 5        /* a frame of the film every 5 s */
+/* The film's keyframes after `from`: where its pictures start anew, at every cut among them. */
+typedef struct { Player *owner; unsigned gen; int cur; } LbKeysReq;
+static void on_lb_keys(HttpResponse *r, void *user)
+{
+    LbKeysReq *q = user;
+    Player *p = q->owner;
+    if (p != g_live || q->gen != p->gen || q->cur != p->cur) { free(q); return; }
+    free(q);
+    if (r->status != 200 || !r->body) { p->lb_keys_state = 3; LOGI("player: living letterbox every %d s (no keyframe list)", LB_STEP); return; }
+    p->lb_nkeys = 0;
+    for (char *s = r->body; *s && p->lb_nkeys < 64; ) {
+        char *e; double t = strtod(s, &e);
+        if (e == s) break;
+        p->lb_keys[p->lb_nkeys++] = t;
+        s = e; while (*s == '\n' || *s == '\r' || *s == ' ') s++;
+    }
+    if (p->lb_keys_state != 2) LOGI("player: living letterbox changes with the film's cuts (%d keyframes ahead)", p->lb_nkeys);
+    p->lb_keys_state = 2;
+}
+
+static void lb_ask_keys(Player *p, double from)
+{
+    if (p->cur >= p->n_cands || !p->cands[p->cur].url || strncmp(p->cands[p->cur].url, "http", 4) != 0) { p->lb_keys_state = 3; return; }
+    char enc[1600], rel[1800], url[2048];
+    http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
+    int ok;
+    if (g_app.thumb_server && *g_app.thumb_server) { snprintf(url, sizeof url, "%s/keyframes?url=%s&t=%.2f", g_app.thumb_server, enc, from); ok = 1; }
+    else { snprintf(rel, sizeof rel, "keyframes?t=%.2f&u=%s", from, enc); ok = frames_supported() && phone_local_url(rel, url, sizeof url); }
+    if (!ok) { p->lb_keys_state = 3; return; }
+    LbKeysReq *q = calloc(1, sizeof *q);
+    q->owner = p; q->gen = p->gen; q->cur = p->cur;
+    p->lb_keys_state = 1; p->lb_keys_from = from;
+    http_request_async(url, NULL, on_lb_keys, q);
+}
+
+/* The time of the frame the bars want now, and the one to fetch ahead: the last cut
+ * reached (no sooner than `gap` after the frame they show) and the next one; on a 5 s
+ * grid when the file has no keyframe list. */
+static double lb_pick(Player *p, double pos, double gap, double *next)
+{
+    if (p->lb_keys_state == 2 && p->lb_nkeys && pos > p->lb_keys[p->lb_nkeys - 1] - 2 * gap && p->lb_nkeys == 64)
+        lb_ask_keys(p, pos);   /* nearly through the list: the next stretch */
+    if (p->lb_keys_state == 2 && p->lb_nkeys && pos >= p->lb_keys_from) {
+        double at = -1, ahead = -1;
+        for (int i = 0; i < p->lb_nkeys; i++) {
+            double k = p->lb_keys[i];
+            if (k <= pos + 0.05) { if (p->lb_shown < 0 || k < p->lb_shown || k - p->lb_shown >= gap || k == p->lb_shown) at = k; }
+            else { if (at < 0 ? 1 : k - at >= gap) { ahead = k; break; } }
+        }
+        if (at < 0) at = p->lb_shown >= 0 && p->lb_shown <= pos + 0.05 ? p->lb_shown : pos;   /* before the first cut listed */
+        *next = ahead >= 0 ? ahead : at + LB_STEP;
+        return at;
+    }
+    if (p->lb_keys_state == 2 && pos < p->lb_keys_from) lb_ask_keys(p, pos > 1 ? pos - 1 : 0);   /* went back past the list */
+    double s0 = (long)(pos / LB_STEP) * LB_STEP;
+    *next = s0 + LB_STEP;
+    return s0;
+}
+
 #define LB_FADE_S 0.8f   /* a new one fades in over the last */
 #define LB_SEAM 12.0f    /* the join with the picture: feathered this far either side */
 
@@ -1218,11 +1281,13 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     p->lb_bar = 0; p->lb_side = 0;
     if (!g_app.living_letterbox || p->pip || p->aspect != ASPECT_FIT || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return;
     double pos = p->seek_commit > 0 ? p->seek_target : vi->position;
-    long s0 = (long)(pos / LB_STEP) * LB_STEP;
     char u0[2048], u1[2048];
     /* no frames while the film starts, nor for a source already seen to fill the screen */
-    int have_url = p->lb_none != p->cur + 1 && g_app.time - p->load_started > 3 &&
-                   lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s0 + LB_STEP, u1, sizeof u1);
+    int starting = p->lb_none == p->cur + 1 || g_app.time - p->load_started <= 3;
+    if (!starting && !p->lb_keys_state && !g_app.fx_light) lb_ask_keys(p, pos > 1 ? pos - 1 : 0);
+    double gap = vi->width >= 3000 ? 4.0 : 2.0;   /* a 4K film's keyframes are big: not so often */
+    double s1, s0 = lb_pick(p, pos, gap, &s1);
+    int have_url = !starting && lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s1, u1, sizeof u1);
     int w0 = 0, h0 = 0, light = g_app.fx_light;
     unsigned t0 = 0;
     if (have_url && !light) {
@@ -1235,6 +1300,8 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
             snprintf(p->lb_prev, sizeof p->lb_prev, "%s", p->lb_last);
             snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
             p->lb_swap_at = g_app.time;
+            p->lb_shown = s0;
+            if (p->lb_keys_state == 2 && p->lb_cuts_logged < 3) { p->lb_cuts_logged++; LOGI("player: the bars follow the cut at %.2f s", s0); }
         }
         if (p->lb_last[0]) t0 = image_peek_ex(p->lb_last, IMAGE_MIPMAP, &w0, &h0);
     }
@@ -1533,6 +1600,7 @@ static void start_candidate(Player *p, int idx, double start)
         p->net_retries = 0; p->net_played = 0;
         p->os_asked = 0;
         for (int k = 0; k < p->n_addon_subs; k++) p->addon_subs[k].matched = 0;   /* matched to the old file; this one's hash re-marks them */
+        p->lb_keys_state = 0; p->lb_nkeys = 0; p->lb_shown = -1;   /* its own keyframes */
     }
     p->attempt++;
     p->tb_pending = 0; p->tb_held = 0;   /* an earlier TorBox open is not this start's */
@@ -5780,6 +5848,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     Player *p = calloc(1, sizeof *p);
     p->bright = p->vol = -1;
     p->veil = 1;
+    p->lb_shown = -1;
     p->bar_id = BTN_PLAY;
     p->lighter_to = -1;
     p->jumped_at = -100;

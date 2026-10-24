@@ -593,6 +593,8 @@ run player_seek_thumb 238 "right,ok,down,down,play,wait,right,right,right,right,
 # a scope film framed in 16:9 (bars baked into the picture): its colours glow in the bars, the subtitles sit in the one below
 run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1)" "$OUT/player_letterbox.log" || { echo "a scope film's bars did not take its colours"; grep -E "letterbox|player: (aspect|candidate)" "$OUT/player_letterbox.log"; exit 1; }
+grep -q "player: living letterbox changes with the film's cuts" "$OUT/player_letterbox.log" && grep -qE "player: the bars follow the cut at (2\.50|6\.25|11\.00|17\.50|24\.00) s" "$OUT/player_letterbox.log" \
+  || { echo "the bars did not follow the film's cuts"; grep -E "letterbox|thumbs" "$OUT/player_letterbox.log"; exit 1; }
 run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":0,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
 ! grep -q "player: living letterbox" "$OUT/player_letterbox_off.log" || { echo "the living letterbox drew while turned off"; exit 1; }
 run settings_letterbox 420 "left,down,down,down,down,down,ok,up,ok,t:living letterbox,down,down,down,down,left,ok"

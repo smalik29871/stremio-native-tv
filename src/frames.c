@@ -621,6 +621,14 @@ static int http_read(void *ctx, uint64_t off, uint64_t len, uint8_t **buf, size_
     return 1;
 }
 
+int frames_keyframes_url(const char *url, double from, double *out, int max)
+{
+    Index *ix = index_for(http_read, (void *)url, url);
+    int n = 0;
+    for (int i = 0; i < ix->n_keys && n < max; i++) if (ix->keys[i].t > from) out[n++] = ix->keys[i].t;
+    return ix->n_keys ? n : -1;
+}
+
 uint8_t *frames_picture_url(const char *url, double t, int max_w, size_t *len, char *err, size_t en)
 {
     Uint32 t0 = SDL_GetTicks();
