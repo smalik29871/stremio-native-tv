@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.10.62
+
+- **Motion**: opening a title grows its poster out of the card into the page (Back shrinks
+  it back); the focused card glows in its poster's colours; pressed past the end of a row
+  or grid, the card springs that way and settles; Library, Explore and Search posters ease
+  in one after another; the title page's backdrop settles while its facts, buttons and
+  episodes rise in; the player's controls fade in from the edges and the 10-second skip
+  bounces the way it seeks. A slow frame slows a move down instead of jumping it, and
+  light effects still turn all of this off.
+- **Your own ratings**: Rate on the title page, and Rate this episode in the episode
+  options (hold OK). Half stars and quick tags ("Loved it", "Great ending"), kept for each
+  profile and sent to Trakt and SimKL when they are connected.
+- **Soundtrack** on title pages: the albums of a film's or show's music with their covers
+  and tracks; OK shows every track with a code to scan to listen on your phone.
+- **Guest stars** lead the cast drawer for the episode playing; **paused**, a line from
+  Trakt's comments on it; **long seasons** get chips of ten episodes beside the season
+  tabs; **See all** closes the Library row on Home.
+- **Four new clock faces** for the screensaver: Station (the Swiss railway clock),
+  Liquid (digits that flow into the next), Weather (the sky outside now, with the
+  temperature; from Open-Meteo, no key) and Aurora.
+- **The TV's own screensaver no longer covers the app's** fireplace or clock.
+- **A new loading screen**: the backdrop as a wash of colour, the title's logo centred,
+  what is being opened and how it is going.
+- **Storage**: smaller caches, room always kept for the TV's own apps, the cache clears
+  itself when the TV runs low, and Settings > About > Storage shows what the app keeps and
+  clears it.
+- **Rows show their posters together** once they are in, instead of one by one.
+- **Phones (Android)**: lists follow the finger and flicks glide; videos always play
+  sideways, with picture in picture (its button, or Home while a video plays); brightness
+  and volume by sliding up or down either side of the picture, double tap a side to skip;
+  the app updates itself; on the sources list the tags no longer run over the addon's name
+  and no row shows under the recommendation.
+
 ## 0.10.61
 
 - **On LG TVs nothing changes in this version**: it is the groundwork for Cuelight on Android
