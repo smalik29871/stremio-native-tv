@@ -1245,6 +1245,10 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
 #define LB_FADE_S 0.8f   /* a new one fades in over the last */
 #define LB_GROW 1.18f    /* the frame behind the screen, this much larger than it */
 #define LB_BLUR 5.6f     /* mip levels of blur: its colours, none of its shapes */
+#define LB_LIGHT 165     /* the glow's brightness (of 255): below the picture's, so the picture leads */
+#define LB_FALLOFF 0.7f  /* how dark it gets at the screen's edge */
+#define LB_SHADE 0.45f   /* the shadow along the picture's edge */
+#define LB_EDGE 18.0f    /* and how wide it is */
 
 /* One frame into the bars. */
 static void lb_paint(unsigned tex, const char *url, int side, float bar, float a)
@@ -1256,15 +1260,25 @@ static void lb_paint(unsigned tex, const char *url, int side, float bar, float a
     image_content_box(url, box);
     float W = SNTV_UI_W, H = SNTV_UI_H, cw = box[2] - box[0], ch = box[3] - box[1];
     float rw = W * LB_GROW, rh = H * LB_GROW, rx = (W - rw) / 2, ry = (H - rh) / 2;   /* where the whole frame lies, enlarged */
-    Color c = RGBA(215, 215, 215, (int)(255 * a));
+    Color c = RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
+    Color dark = RGBA(0, 0, 0, (int)(255 * a * LB_FALLOFF)), shade = RGBA(0, 0, 0, (int)(255 * a * LB_SHADE)), clear = RGBA(0, 0, 0, 0);
 #define LB_U(x) (box[0] + ((x) - rx) / rw * cw)
 #define LB_V(y) (box[1] + ((y) - ry) / rh * ch)
     if (side == 1) {
         gfx_tex_blur(tex, 0, 0, W, bar, LB_U(0), LB_V(0), LB_U(W), LB_V(bar), c, LB_BLUR);
         gfx_tex_blur(tex, 0, H - bar, W, bar, LB_U(0), LB_V(H - bar), LB_U(W), LB_V(H), c, LB_BLUR);
+        /* dimmer away from the picture, as light thrown on a wall; a soft shadow where it meets it */
+        gfx_gradient_v(0, 0, W, bar, dark, clear);
+        gfx_gradient_v(0, H - bar, W, bar, clear, dark);
+        gfx_gradient_v(0, bar - LB_EDGE, W, LB_EDGE, clear, shade);
+        gfx_gradient_v(0, H - bar, W, LB_EDGE, shade, clear);
     } else {
         gfx_tex_blur(tex, 0, 0, bar, H, LB_U(0), LB_V(0), LB_U(bar), LB_V(H), c, LB_BLUR);
         gfx_tex_blur(tex, W - bar, 0, bar, H, LB_U(W - bar), LB_V(0), LB_U(W), LB_V(H), c, LB_BLUR);
+        gfx_gradient_h(0, 0, bar, H, dark, clear);
+        gfx_gradient_h(W - bar, 0, bar, H, clear, dark);
+        gfx_gradient_h(bar - LB_EDGE, 0, LB_EDGE, H, clear, shade);
+        gfx_gradient_h(W - bar, 0, LB_EDGE, H, shade, clear);
     }
 #undef LB_U
 #undef LB_V
