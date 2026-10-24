@@ -35,6 +35,7 @@ export SNTV_INTRODB_API="http://127.0.0.1:$PORT/introdb"
 export SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql"   # a fake IMDb with no trailers: YouTube's are used
 export SNTV_YT_BASE="http://127.0.0.1:$PORT/yt"   # a fake YouTube: TV config, player, formats, ranged media
 export SNTV_YT_SOLVER_URL="http://127.0.0.1:$PORT/yt/ejs"   # the "newest solver" download: refused, so the bundled one is all there is
+export SNTV_DEPTH_URL="http://127.0.0.1:$PORT/nodepth"   # no depth maps but in the runs about them: the real list (on GitHub) would move Home in every run
 export SNTV_NO_TRANSITIONS=1   # screenshots land mid-animation otherwise; transition_push turns them back on
 export SNTV_WEATHER_API=http://127.0.0.1:$PORT/weather SNTV_IPAPI=http://127.0.0.1:$PORT/ipapi   # the weather clock asks these, never the real ones
 export SNTV_ITUNES_API=http://127.0.0.1:$PORT/noitunes   # no soundtracks, and nothing asked of the real store; the music runs set /itunes
