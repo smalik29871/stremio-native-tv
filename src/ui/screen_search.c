@@ -577,16 +577,24 @@ static void kb_set(Search *s, const char *text)   /* the compact keyboard, with 
     s->kb.compact = 1;
 }
 
+/* The phone page offers the search box while this screen is up (not only while typing), and
+ * its QR code shows where there are no results yet. */
+static void phone_search_open(Search *s)
+{
+    phone_prompt("Search", "Type a title, a person, or what you feel like watching", s->kb.text);
+    if (s->qr_ready) return;
+    char url[96]; uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
+    s->qr_ready = phone_url(url, sizeof url) && qrcodegen_encodeText(url, tmp, s->qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
+    snprintf(s->phone_url, sizeof s->phone_url, "%s", s->qr_ready ? url : "");
+}
+
 static void open_keyboard(Search *s)
 {
     s->typing = 1; s->focus_grid = 0; s->want_results = 0; s->sugg_focus = -1;
     s->tvkb = tv_keyboard();
     if (s->tvkb) { input_text_system(1); LOGI("search: typing with the TV's keyboard"); }
     else input_text(1);
-    phone_prompt("Search", "Type a title, a person, or what you feel like watching", s->kb.text);
-    char url[96]; uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
-    s->qr_ready = phone_url(url, sizeof url) && qrcodegen_encodeText(url, tmp, s->qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
-    snprintf(s->phone_url, sizeof s->phone_url, "%s", s->qr_ready ? url : "");
+    phone_search_open(s);
 }
 
 static void close_keyboard(Search *s)
@@ -595,7 +603,8 @@ static void close_keyboard(Search *s)
     s->typing = 0;
     if (s->tvkb) { s->tvkb = 0; input_text_system(0); }
     else input_text(0);
-    phone_prompt(NULL, NULL, NULL);
+    if (SNTV_PHONE) phone_prompt(NULL, NULL, NULL);
+    else phone_search_open(s);   /* the phone can still search from here */
 }
 
 /* The TV's own keyboard for Search (Settings; on by default on the TV, tests ask for it). */
@@ -658,9 +667,10 @@ static void update(Screen *sc, float dt)
         ui_pan(&s->ph_pan, &s->ph_y, want, s->ph_total - view + 30, dt, 14);
     }
     char got[256];
-    if (s->typing && phone_take(got, sizeof got)) {   /* sent from the phone: search it right away */
+    if ((s->typing || !SNTV_PHONE) && phone_take(got, sizeof got)) {   /* sent from the phone: search it right away */
         kb_set(s, got);
         close_keyboard(s);
+        LOGI("search: \"%s\" from a phone", got);
         s->dirty = 0; run_query(s);
         app_toast("Received from your phone");
         app_redraw();
@@ -848,6 +858,19 @@ static void draw(Screen *sc)
         ui_skeleton(gx, top + 40, grid_w, HERO_H, R_PANEL);
         for (int i = 0; i < nc; i++) ui_skeleton(gx + i * (CELL_W + CELL_GAP), top + grid_top(), CELL_W, CELL_H, R_CARD);
         if (s->ai_state == 1) font_draw("Asking the assistant\xE2\x80\xA6", gx, top, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        return;
+    }
+    if (!s->n && s->qr_ready) {   /* nothing yet: search from a phone instead */
+        float cx = gx + grid_w / 2, y = top + 40, qs = 260;
+        font_draw_center(strlen(s->last_query) >= 2 ? "Nothing found" : "Find something to watch", cx, y, g_theme.id == THEME_APERTURE ? FONT_XL | FONT_ALT : FONT_L | FONT_B, THEME_TEXT);
+        font_draw_center(s->ai_note[0] ? s->ai_note : strlen(s->last_query) >= 2 ? "Try another title, or check your catalog addons." : ai_enabled() ? "Type a title, or describe it: \"something funny with robots\"." : "Results come from every catalog addon that supports search.",
+                         cx, y + 58, FONT_S, THEME_TEXT_DIM);
+        float py = y + 150;
+        ui_panel(cx - qs / 2 - 40, py - 30, qs + 80, qs + 190, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0C));
+        ui_qr(s->qr, cx - qs / 2, py, qs);
+        font_draw_center("Search from your phone", cx, py + qs + 28, FONT_M | FONT_B, THEME_TEXT);
+        font_draw_center("Scan, type, Send: it searches here", cx, py + qs + 80, FONT_S, THEME_TEXT_DIM);
+        font_draw_center(s->phone_url, cx, py + qs + 120, FONT_XS, THEME_TEXT_MUTED);
         return;
     }
     if (!s->n) {
@@ -1286,6 +1309,12 @@ static void text(Screen *sc, const char *utf8)
     app_redraw();
 }
 
+static void resume(Screen *sc)   /* back from a title page or Settings: the phone page is Search's again */
+{
+    Search *s = sc->st;
+    if (!SNTV_PHONE) phone_search_open(s);
+}
+
 static void destroy(Screen *sc)
 {
     Search *s = sc->st;
@@ -1294,6 +1323,7 @@ static void destroy(Screen *sc)
     if (s->ai_req) ai_cancel(s->ai_req);
     clear_results(s);
     close_keyboard(s);
+    phone_prompt(NULL, NULL, NULL);
     free(s->cell); free(s->row_y); free(s->row_first);
     free(s);
     free(sc);
@@ -1308,7 +1338,8 @@ Screen *screen_search_create(void)
     recent_load(s);
     for (int i = 0; i < OPEN_MAX; i++) if (!g_open[i]) { g_open[i] = s; break; }   /* (past eight deep, its replies are just dropped) */
     sc->name = "search"; sc->st = s; sc->long_ok = 1;
-    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->text = text; sc->destroy = destroy; sc->phone = 1;
+    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->text = text; sc->destroy = destroy; sc->resume = resume; sc->phone = 1;
+    if (!SNTV_PHONE) phone_search_open(s);
     return sc;
 }
 

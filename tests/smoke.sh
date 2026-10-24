@@ -357,6 +357,11 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest_known.
   || { echo "a title in the library was not suggested while typing"; grep "search" "$OUT/search_suggest_known.log"; exit 1; }
 # the TV's own keyboard (Settings, on by default on the TV): opened while typing only, its Enter
 # searches, and the next OK opens the title (it does not bring the keyboard back)
+# Search keeps the phone page open (not only while typing): text sent from a phone searches at once
+( for i in $(seq 1 20); do sleep 0.5; curl -s -m 2 -d 'text=breaking%20bad' http://127.0.0.1:11471/ 2>/dev/null | grep -q "Sent to the TV" && break; done ) &
+run search_from_phone 360 "search,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_PHONE_HOST=192.168.1.20 HOME="$(home_with sfp '{"setupDone":1}')"
+wait
+grep -q 'search: "breaking bad" from a phone' "$OUT/search_from_phone.log" || { echo "text sent from the phone did not search"; grep -E "search|phone" "$OUT/search_from_phone.log"; exit 1; }
 run search_tv_keyboard 420 "search,ok,t:breaking,wait,wait,ok,wait,ok,wait,wait" HOME="$(home_with tvkb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')"
 grep -q "search: typing with the TV's keyboard" "$OUT/search_tv_keyboard.log" && grep -q "UI check: screen=detail" "$OUT/search_tv_keyboard.log" \
   || { echo "typing with the TV's keyboard did not search and open the title"; grep -E "search|detail|screen" "$OUT/search_tv_keyboard.log"; exit 1; }
