@@ -191,8 +191,27 @@ static int ambient_due(const Screen *top)
     return 1;
 }
 
+static void write_ppm(SDL_Window *win, const char *path)
+{
+    int w, h;
+    SDL_GL_GetDrawableSize(win, &w, &h);
+    unsigned char *px = malloc((size_t)w * h * 4);
+    if (!px) return;
+    gfx_flush();
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    FILE *f = fopen(path, "wb");
+    if (f) {
+        fprintf(f, "P6\n%d %d\n255\n", w, h);
+        for (int y = h - 1; y >= 0; y--)
+            for (int x = 0; x < w; x++) fwrite(px + ((size_t)y * w + x) * 4, 1, 3, f);
+        fclose(f);
+    }
+    free(px);
+}
+
 /* Dev aid: SNTV_SCREENSHOT=/path/out.ppm dumps the framebuffer after
- * SNTV_SCREENSHOT_FRAMES frames (default 120) and exits. Keys can be scripted with
+ * SNTV_SCREENSHOT_FRAMES frames (default 120) and exits; SNTV_SCREENSHOT_EVERY=n also
+ * writes out.ppm-00010.ppm and on every n frames before (a recording). Keys can be scripted with
  * SNTV_KEYS="down,right,ok,..." (one key every 20 frames) for headless UI checks. */
 static void dev_hooks(SDL_Window *win, int frame)
 {
@@ -273,6 +292,11 @@ static void dev_hooks(SDL_Window *win, int frame)
     if (!shot) return;
     const char *fr = getenv("SNTV_SCREENSHOT_FRAMES");
     int target = fr ? atoi(fr) : 120;
+    const char *every = getenv("SNTV_SCREENSHOT_EVERY");
+    if (every && atoi(every) > 0 && frame < target && frame % atoi(every) == 0) {
+        char path[1100]; snprintf(path, sizeof path, "%s-%05d.ppm", shot, frame);
+        write_ppm(win, path);
+    }
     if (frame != target) return;
     Screen *top = app_top();
     const char *expected = getenv("SNTV_EXPECT_SCREEN");
@@ -287,20 +311,8 @@ static void dev_hooks(SDL_Window *win, int frame)
         VideoState state = !strcmp(expected_video, "paused") ? VIDEO_PAUSED : VIDEO_PLAYING;
         if (vi.state != state) { LOGE("UI check: expected video %s, got state %d", expected_video, vi.state); exit(2); }
     }
-    int w, h;
-    SDL_GL_GetDrawableSize(win, &w, &h);
-    unsigned char *px = malloc((size_t)w * h * 4);
-    gfx_flush();
-    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
-    FILE *f = fopen(shot, "wb");
-    if (f) {
-        fprintf(f, "P6\n%d %d\n255\n", w, h);
-        for (int y = h - 1; y >= 0; y--)
-            for (int x = 0; x < w; x++) fwrite(px + ((size_t)y * w + x) * 4, 1, 3, f);
-        fclose(f);
-        LOGI("screenshot written to %s", shot);
-    }
-    free(px);
+    write_ppm(win, shot);
+    LOGI("screenshot written to %s", shot);
     g_app.quit = 1;
 }
 

@@ -34,6 +34,36 @@ static void art(float x, float y, float w, float h, float r, int i, int soft)
     gfx_rrect_grad_v(x, y + h * 0.62f, w, h * 0.38f, r, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0x30), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0xA0));
 }
 
+/* A scene in layers (sky, hills, a figure) pushed into by k: nearer layers grow more, about
+ * a point above the middle; `between` draws between the hills and the figure (a clock). */
+static void depth_scene(float x, float y, float w, float h, float k, void (*between)(float, float, float, float))
+{
+    gfx_clip_push(x, y, w, h);
+    float cx = x + w * 0.55f, cy = y + h * 0.42f;
+#define Z(px, py, s) (cx + ((px) - cx) * (s)), (cy + ((py) - cy) * (s))
+    float s0 = 1 + 0.02f * k, s2 = 1 + 0.18f * k;
+    gfx_rrect_grad_v(x, y, w, h, R_KEY, RGBA(0x1C, 0x2C, 0x4A, 0xFF), RGBA(0xD8, 0x86, 0x5A, 0xFF));
+    gfx_circle(Z(x + w * 0.24f, y + h * 0.36f, s0), h * 0.12f * s0, RGBA(0xFF, 0xE2, 0xB0, 0xE0));   /* the sun, far */
+    for (int i = 0; i < 3; i++) {   /* hills, far to near */
+        float hx = x + w * (0.1f + 0.4f * i), hy = y + h * (0.86f + 0.04f * i), r = h * (0.42f - 0.05f * i);
+        float s = 1 + (0.03f + 0.02f * i) * k;
+        gfx_circle(cx + (hx - cx) * s, cy + (hy - cy) * s, r * s, color_lerp(RGBA(0x5A, 0x3A, 0x4A, 0xFF), RGBA(0x24, 0x18, 0x22, 0xFF), i / 2.0f));
+    }
+    if (between) between(x, y, w, h);
+    /* the figure, nearest: head and shoulders */
+    float fx = x + w * 0.62f, fy = y + h * 0.66f;
+    gfx_circle(Z(fx, fy - h * 0.2f, s2), h * 0.1f * s2, RGBA(0x10, 0x0C, 0x12, 0xFF));
+    gfx_rrect(cx + (fx - w * 0.13f - cx) * s2, cy + (fy - h * 0.08f - cy) * s2, w * 0.26f * s2, h * 0.5f * s2, h * 0.12f * s2, RGBA(0x10, 0x0C, 0x12, 0xFF));
+#undef Z
+    gfx_clip_pop();
+}
+
+static void preview_clock(float x, float y, float w, float h)
+{
+    char t[16]; ui_clock_text(0, t, sizeof t);
+    font_draw_center(t, x + w * 0.62f, y + h * 0.06f, FONT_HERO | FONT_B, RGBA(0xFF, 0xF8, 0xEE, 0xF0));
+}
+
 /* A TV screen: dark glass with a hairline edge. */
 static void screen(float x, float y, float w, float h)
 {
@@ -248,6 +278,13 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         caption(g_app.advisory ? "For a few seconds as a video starts, from IMDb's parents guide" : "Videos start without it", x, base + 6, w);
         return;
     }
+    case PV_DEPTH: {
+        float k = g_app.depth_motion && !g_app.fx_light ? 0.5f - 0.5f * cosf(g_app.time * 0.9f) : 0;
+        depth_scene(sx, sy, sw, sh, k, NULL);
+        if (g_app.depth_motion) app_redraw();
+        caption(g_app.depth_motion ? "Near things come towards you, the background slides behind" : "Backdrops stay still", x, base + 6, w);
+        return;
+    }
     case PV_LETTERBOX: {   /* a scope film on a 16:9 screen: the bars black, or glowing with its colours */
         float bh = sh * 0.17f;
         gfx_rrect(sx, sy, sw, sh, R_KEY, RGBA(0, 0, 0, 0xFF));
@@ -389,7 +426,8 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         } else if (g_app.ambient_style == AMBIENT_ARTWORK) {
             art(sx, sy, sw, sh, R_KEY, 0, 0);
             gfx_rrect_grad_h(sx, sy, sw * 0.7f, sh, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0xB0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0));
-        } else if (g_app.ambient_style == AMBIENT_AURORA) { ambient_aurora(sx, sy, sw, sh, g_app.time); app_redraw(); }
+        } else if (g_app.ambient_style == AMBIENT_DEPTH) { depth_scene(sx, sy, sw, sh, 0.5f - 0.5f * cosf(g_app.time * 0.6f), preview_clock); app_redraw(); }
+        else if (g_app.ambient_style == AMBIENT_AURORA) { ambient_aurora(sx, sy, sw, sh, g_app.time); app_redraw(); }
         else if (g_app.ambient_style == AMBIENT_WARP) { ambient_warp(sx, sy, sw, sh, g_app.time); app_redraw(); }
         else if (g_app.ambient_style == AMBIENT_RAIN) { art(sx, sy, sw, sh, R_KEY, 4, 0); ambient_rain(0, 0, 0, sx, sy, sw, sh, g_app.time, 1); app_redraw(); }
         else if (g_app.ambient_style == AMBIENT_MARQUEE) {
@@ -413,7 +451,7 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
             float lx = sx + 20 + (sw - 110) * (p < 0.5f ? p * 2 : 2 - p * 2), ly = sy + 20 + (sh - 110) * (q < 0.5f ? q * 2 : 2 - q * 2);
             ui_mark(lx, ly, 70);
             app_redraw();
-        } else font_draw(t, sx + 30, sy + sh - 30 - font_height(FONT_XL | FONT_B), FONT_XL | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+        } else if (g_app.ambient_style != AMBIENT_DEPTH) font_draw(t, sx + 30, sy + sh - 30 - font_height(FONT_XL | FONT_B), FONT_XL | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
         if (g_app.ambient_minutes) snprintf(t, sizeof t, "After %d min with the remote quiet", g_app.ambient_minutes);
         else snprintf(t, sizeof t, "Off: the screen stays as it is");
         caption(t, x, base + 6, w);

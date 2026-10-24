@@ -59,7 +59,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY, IT_LETTERBOX,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -142,7 +142,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
     case CAT_INTERFACE:
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_PALETTE; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
-        SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS;
+        SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_DEPTH;
         SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
         break;
     case CAT_BREAKS:
@@ -227,6 +227,7 @@ static const char *row_title(int id)
     case IT_AI_MODEL: return "AI model";
     case IT_MEMORY: return "Memory use";
     case IT_TRANSITIONS: return "Animated screen changes";
+    case IT_DEPTH: return "Depth on backdrops";
     case IT_PIP: return "Picture-in-picture";
     case IT_BR_TEST: return "Try a break now";
     case IT_BR_ON: return "Take breaks";
@@ -344,6 +345,7 @@ static const char *row_desc(int id)
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
     case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
     case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
+    case IT_DEPTH: return "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
     case IT_AMBIENT: return "When the remote has been quiet this long.";
     case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee or a starfield.";
     case IT_FIRE_VIDEO: return "A YouTube or video link of a real fire, played full screen and looped with the clock.";
@@ -641,6 +643,7 @@ static PreviewKind preview_for(int id)
     case IT_SCRUB: return PV_SCRUB;
     case IT_AMBIENT: case IT_AMBIENT_STYLE: return PV_AMBIENT;
     case IT_TRANSITIONS: return PV_TRANSITIONS;
+    case IT_DEPTH: return PV_DEPTH;
     case IT_PREF_AUDIO: return PV_LANG_AUDIO;
     case IT_PREF_SUBS: case IT_SUBS_WHEN: return PV_LANG_SUBS;
     case IT_BR_ON: case IT_BR_LEAD: case IT_BR_TEST: case IT_BR_SCHED: case IT_BR_WHERE: return PV_BREAK;
@@ -954,6 +957,7 @@ static void draw(Screen *s)
             break;
         }
         case IT_TRANSITIONS: draw_row(y, ICON_SPARK, "Animated screen changes", NULL, foc, KIND_TOGGLE, g_app.transitions); break;
+        case IT_DEPTH: draw_row(y, ICON_SPARK, "Depth on backdrops", NULL, foc, KIND_TOGGLE, g_app.depth_motion); break;
         case IT_PIP: draw_row(y, ICON_ASPECT, "Picture-in-picture", NULL, foc, KIND_TOGGLE, g_app.pip_enabled); break;
         case IT_BR_TEST: draw_row(y, ICON_PLAY, "Try a break now", "See and hear what a break looks like", foc, KIND_ACTION, 0); break;
         case IT_BR_ON: draw_row(y, ICON_CLOCK, "Take breaks", NULL, foc, KIND_TOGGLE, g_app.breaks_on); break;
@@ -1578,6 +1582,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_HOME_STYLE: g_app.home_style = (g_app.home_style + dir + HOME_STYLE_COUNT) % HOME_STYLE_COUNT; break;
     case IT_HIDE_WATCHED: g_app.hide_watched = !g_app.hide_watched; break;
     case IT_TRANSITIONS: g_app.transitions = !g_app.transitions; break;
+    case IT_DEPTH: g_app.depth_motion = !g_app.depth_motion; break;
     case IT_PIP: g_app.pip_enabled = !g_app.pip_enabled; break;
     case IT_SUBS_SYNC: g_app.subs_autosync = !g_app.subs_autosync; break;
     case IT_SUBS_FILES: g_app.subs_prefer_files = !g_app.subs_prefer_files; break;

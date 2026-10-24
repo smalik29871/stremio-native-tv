@@ -60,7 +60,7 @@ enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
 enum { ISLAND_TIME, ISLAND_DAY, ISLAND_SECONDS, ISLAND_DIAL, ISLAND_STYLE_COUNT };   /* the clock island's styles */
 extern const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT];
 enum { AMBIENT_ARTWORK, AMBIENT_WALL, AMBIENT_CLOCK, AMBIENT_LOGO, AMBIENT_FIRE, AMBIENT_AURORA, AMBIENT_RAIN, AMBIENT_MARQUEE,
-       AMBIENT_WARP, AMBIENT_STYLE_COUNT };
+       AMBIENT_WARP, AMBIENT_DEPTH, AMBIENT_STYLE_COUNT };
 extern const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT];
 extern const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT];
 
@@ -93,6 +93,7 @@ typedef struct App {
     int spoiler_blur;          /* blur thumbnails of unwatched episodes */
     int advisory;              /* the rating and content advisory when a video starts */
     int living_letterbox;      /* a film narrower or wider than the screen: its own colours glow in the bars */
+    int depth_motion;          /* backdrops with a depth map push slowly into the picture */
     char pref_audio[8], pref_subs[8];   /* ISO 639-2/3 like "eng", or "" */
     int subs_size;             /* 0 small, 1 medium, 2 large, 3 extra large */
     int subs_pos;              /* 0 bottom, 1 raised, 2 top */

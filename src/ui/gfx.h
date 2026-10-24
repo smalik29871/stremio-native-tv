@@ -65,6 +65,11 @@ void gfx_rtex_uv(unsigned tex, float x, float y, float w, float h, float r,
 void gfx_rtex_duo(unsigned tex, float x, float y, float w, float h, float r,
                   float u0, float v0, float u1, float v1, Color ink, float colour);
 void gfx_tex_blur(unsigned tex, float x, float y, float w, float h, float u0, float v0, float u1, float v1, Color tint, float blur);
+/* Textured quads drawn after this push into the picture by `depth_tex`, a depth map of the
+ * same image (white is near): the point (cx, cy) in the image's UVs stays put, what lies at
+ * depth `focus` keeps its size and nearer things grow by up to k. fg > 0 keeps only what is
+ * nearer than fg (the people in front of a clock). depth_tex 0 turns it off again. */
+void gfx_depth(unsigned depth_tex, float cx, float cy, float k, float focus, float fg);
 
 /* Everything drawn afterwards is shifted by (dx, dy) UI units (screen transitions). */
 void gfx_set_translate(float dx, float dy);

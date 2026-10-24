@@ -304,6 +304,20 @@ static float g_fade_left = 1150, g_fade_bottom = 330;
 
 /* The image itself fades out (per-vertex alpha on a small grid), so the ambient
  * light behind it shows through with no seams. */
+static unsigned g_bd_depth; static float g_bd_k;
+
+void ui_backdrop_depth(unsigned depth_tex, float k) { g_bd_depth = k > 0 ? depth_tex : 0; g_bd_k = k; }
+
+/* Pushing into the picture: a little closer than the crop, so its far edge never shows,
+ * about a point a little right of the middle and above it (where the people usually are). */
+static void depth_on(float *u0, float *v0, float *u1, float *v1)
+{
+    if (!g_bd_depth) return;
+    float iu = (*u1 - *u0) * 0.03f, iv = (*v1 - *v0) * 0.03f;
+    *u0 += iu; *u1 -= iu; *v0 += iv; *v1 -= iv;
+    gfx_depth(g_bd_depth, *u0 + (*u1 - *u0) * 0.58f, *v0 + (*v1 - *v0) * 0.40f, g_bd_k, 0.3f, 0);
+}
+
 void ui_backdrop_image(unsigned tex, int iw, int ih, float alpha, float height)
 {
     if (!tex || alpha <= 0) return;
@@ -311,6 +325,7 @@ void ui_backdrop_image(unsigned tex, int iw, int ih, float alpha, float height)
     cover_uv(iw, ih, w, height, &u0, &v0, &u1, &v1);
     float shift = (v0 > 0) ? -v0 * 0.35f : 0;
     v0 += shift; v1 += shift;
+    depth_on(&u0, &v0, &u1, &v1);
     float left = g_fade_left, bottom = g_fade_bottom;
     float mid = x0 + (left - x0) * 0.45f, bm = bottom + (height - bottom) * 0.5f;
     float xs[4] = { x0, mid, left, SNTV_UI_W }, ax[4] = { 0.0f, 0.75f, 1.0f, 1.0f };
@@ -325,6 +340,7 @@ void ui_backdrop_image(unsigned tex, int iw, int ih, float alpha, float height)
             gfx_tex_uv4(tex, cx, cy, cw, ch, cu0, cv0, cu1, cv1, A(i, j), A(i + 1, j), A(i, j + 1), A(i + 1, j + 1));
 #undef A
         }
+    if (g_bd_depth) gfx_depth(0, 0, 0, 0, 0, 0);
 }
 
 /* The video plane through the backdrop's shape, `t` of the way (a trailer behind the
@@ -1505,7 +1521,11 @@ void ui_aperture_art(const char *url, float x, float y, float w, float h, float 
             u0 += (u1 - u0 - uw) * ph; u1 = u0 + uw;
             v0 += (v1 - v0 - vh) * 0.5f; v1 = v0 + vh;
         }
-        gfx_rtex_uv(tex, x, y, w, h, 2, u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * alpha)), 0);
+        if (g_bd_depth) {   /* square corners: the push works on plain pictures */
+            depth_on(&u0, &v0, &u1, &v1);
+            gfx_tex_uv(tex, x, y, w, h, u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * alpha)));
+            gfx_depth(0, 0, 0, 0, 0, 0);
+        } else gfx_rtex_uv(tex, x, y, w, h, 2, u0, v0, u1, v1, RGBA(255, 255, 255, (int)(255 * alpha)), 0);
     }
 }
 

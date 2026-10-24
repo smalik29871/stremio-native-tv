@@ -36,6 +36,9 @@ float ui_aperture_button(const char *label, int icon, float x, float y, int prim
  * ui_backdrop = image + fades; the split versions allow cross-fading two images. */
 void ui_backdrop(unsigned tex, int iw, int ih, float alpha, float left_fade_to, float bottom_fade_from);
 void ui_backdrop_image(unsigned tex, int iw, int ih, float alpha, float height);
+/* The next backdrop drawn (ui_backdrop_image, ui_aperture_art) pushes into the picture by
+ * this depth map, k = how far (0 off): see gfx_depth. */
+void ui_backdrop_depth(unsigned depth_tex, float k);
 void ui_backdrop_fades(float left_fade_to, float bottom_fade_from, float height);
 void ui_backdrop_video(float t, float height);
 /* The same, blurred and dimmed (needs a mipmapped texture). */

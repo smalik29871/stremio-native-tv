@@ -14,12 +14,12 @@ typedef struct {
 } Vtx;
 
 enum { MODE_SOLID = 0, MODE_TEX = 1, MODE_GLYPH = 2, MODE_TEX_BIAS = 3, MODE_RRECT = 4,
-       MODE_RRECT_TEX = 5, MODE_RING = 6, MODE_TRI = 7, MODE_RRECT_TEX_BIAS = 8, MODE_RRECT_TEX_DUO = 9 };
+       MODE_RRECT_TEX = 5, MODE_RING = 6, MODE_TRI = 7, MODE_RRECT_TEX_BIAS = 8, MODE_RRECT_TEX_DUO = 9, MODE_DEPTH = 10 };
 enum { MAXQ = 4096 };
 
 static SDL_Window *g_win;
 static GLuint g_prog, g_vbo, g_ibo;
-static GLint g_a_pos, g_a_uv, g_a_loc, g_a_col, g_a_sdf, g_a_misc, g_u_tex, g_u_proj;
+static GLint g_a_pos, g_a_uv, g_a_loc, g_a_col, g_a_sdf, g_a_misc, g_u_tex, g_u_proj, g_u_depth;
 static int g_draw_w, g_draw_h;
 static float g_scale, g_off_x, g_off_y, g_aa;
 static float g_tx, g_ty;   /* UI-space translation */
@@ -31,6 +31,8 @@ static float g_ls = 1, g_lx, g_ly, g_ltx, g_lty, g_la = 1;
 static Vtx g_v[MAXQ * 4];
 static int g_nq, g_calls, g_last_calls;
 static GLuint g_cur_tex;
+static GLuint g_depth_tex;   /* gfx_depth: textured quads push into the picture by this map */
+static float g_depth[5];
 
 static const char *VS =
     "attribute vec2 a_pos;\n attribute vec2 a_uv;\n attribute vec2 a_loc;\n attribute vec4 a_col;\n"
@@ -42,7 +44,7 @@ static const char *VS =
 /* v_sdf = (size.x, size.y, radius, soft); v_misc = (mode, extra). */
 static const char *FS =
     "#ifdef GL_FRAGMENT_PRECISION_HIGH\n precision highp float;\n#else\n precision mediump float;\n#endif\n"
-    "uniform sampler2D u_tex;\n"
+    "uniform sampler2D u_tex;\n uniform sampler2D u_depth;\n"
     "varying vec2 v_uv;\n varying vec2 v_loc;\n varying vec4 v_col;\n varying vec4 v_sdf;\n varying vec2 v_misc;\n"
     "float sdbox(float inset){ vec2 p=(v_loc-0.5)*v_sdf.xy; vec2 q=abs(p)-(v_sdf.xy*0.5-vec2(inset+v_sdf.z));\n"
     "  return length(max(q,0.0))+min(max(q.x,q.y),0.0)-v_sdf.z; }\n"
@@ -62,9 +64,18 @@ static const char *FS =
     "    gl_FragColor=vec4(v_col.rgb,v_col.a*cover(d)); }\n"
     "  else if (m<8.5) { vec4 t=texture2D(u_tex,v_uv,v_misc.y)*v_col; gl_FragColor=vec4(t.rgb,t.a*cover(sdbox(0.0))); }\n"
     /* duotone: luminance maps black -> v_col.rgb; v_misc.y blends back to the real colours */
-    "  else { vec4 t=texture2D(u_tex,v_uv); float l=dot(t.rgb,vec3(0.299,0.587,0.114));\n"
+    "  else if (m<9.5) { vec4 t=texture2D(u_tex,v_uv); float l=dot(t.rgb,vec3(0.299,0.587,0.114));\n"
     "    vec3 duo=mix(vec3(0.02),v_col.rgb,smoothstep(0.05,0.95,l));\n"
     "    gl_FragColor=vec4(mix(duo,t.rgb,v_misc.y),t.a*v_col.a*cover(sdbox(0.0))); }\n"
+    /* depth: what shows at v_uv comes from nearer the still point v_sdf.xy, the nearer the
+     * further (depth white = near): found in a few steps, as the depth there decides it.
+     * v_sdf.z how far in, v_sdf.w the depth that keeps its size; v_misc.y > 0 keeps only
+     * what is nearer than it (people in front of the clock) */
+    "  else { vec2 c=v_sdf.xy; vec2 q=v_uv;\n"
+    "    for (int i=0;i<4;i++) q=c+(v_uv-c)/(1.0+v_sdf.z*(texture2D(u_depth,q).r-v_sdf.w));\n"
+    "    vec4 t=texture2D(u_tex,q)*v_col;\n"
+    "    if (v_misc.y>0.0) t.a*=smoothstep(v_misc.y-0.035,v_misc.y+0.035,texture2D(u_depth,q).r);\n"
+    "    gl_FragColor=t; }\n"
     /* a half step of noise per pixel: a dark gradient or a blurred backdrop on an 8-bit
      * panel shows no bands (needs highp: mediump cannot hold the pixel positions) */
     "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
@@ -133,6 +144,7 @@ int gfx_init(SDL_Window *win)
     g_a_misc = glGetAttribLocation(g_prog, "a_misc");
     g_u_tex = glGetUniformLocation(g_prog, "u_tex");
     g_u_proj = glGetUniformLocation(g_prog, "u_proj");
+    g_u_depth = glGetUniformLocation(g_prog, "u_depth");
     glGenBuffers(1, &g_vbo);
     glGenBuffers(1, &g_ibo);
     static GLushort idx[MAXQ * 6];
@@ -222,6 +234,7 @@ void gfx_begin_frame(Color clear)
         -(Rr + L) / (Rr - L), -(T + B) / (T - B), 0, 1 };
     glUniformMatrix4fv(g_u_proj, 1, GL_FALSE, proj);
     glUniform1i(g_u_tex, 0);
+    if (g_u_depth >= 0) glUniform1i(g_u_depth, 1);
     glActiveTexture(GL_TEXTURE0);
     glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_ibo);
@@ -236,9 +249,24 @@ void gfx_begin_frame(Color clear)
     g_nq = 0;
     g_calls = 0;
     g_cur_tex = 0;
+    g_depth_tex = 0;
 }
 
 void gfx_flush(void) { flush(); }
+
+void gfx_depth(unsigned depth_tex, float cx, float cy, float k, float focus, float fg)
+{
+    if (depth_tex != g_depth_tex) {
+        flush();
+        if (depth_tex) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, depth_tex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+        g_depth_tex = depth_tex;
+    }
+    g_depth[0] = cx; g_depth[1] = cy; g_depth[2] = k; g_depth[3] = focus; g_depth[4] = fg;
+}
 
 void gfx_end_frame(void)
 {
@@ -259,6 +287,8 @@ static void push(const float px[4], const float py[4], const float uv[8], const 
     if (g_nq == MAXQ) flush();
     static const float LX[4] = { 0, 1, 0, 1 }, LY[4] = { 0, 0, 1, 1 };
     Vtx *v = &g_v[g_nq * 4];
+    int depth = g_depth_tex && mode == MODE_TEX;
+    if (depth) mode = MODE_DEPTH;
     for (int i = 0; i < 4; i++) {
         float ix = g_zx + (px[i] - g_zx) * g_zs + g_tx, iy = g_zy + (py[i] - g_zy) * g_zs + g_ty;
         v[i].x = g_lx + (ix - g_lx) * g_ls + g_ltx; v[i].y = g_ly + (iy - g_ly) * g_ls + g_lty;
@@ -269,6 +299,7 @@ static void push(const float px[4], const float py[4], const float uv[8], const 
         v[i].a = al < 1 ? (GLubyte)((c[i] & 0xFF) * al + 0.5f) : (GLubyte)c[i];
         v[i].sx = sx * zs; v[i].sy = sy * zs; v[i].rad = rad * zs; v[i].soft = soft * zs;
         v[i].mode = (float)mode; v[i].extra = mode == 4 || mode == 6 ? extra * zs : extra;   /* inset and ring width are lengths */
+        if (depth) { v[i].sx = g_depth[0]; v[i].sy = g_depth[1]; v[i].rad = g_depth[2]; v[i].soft = g_depth[3]; v[i].extra = g_depth[4]; }
     }
     g_nq++;
 }

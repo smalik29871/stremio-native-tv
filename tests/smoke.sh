@@ -818,6 +818,19 @@ for st in 5:Aurora 6:Rainy 7:Now 8:Warp; do
   run ambient_scene${st%%:*} 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with scene${st%%:*} "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":${st%%:*},\"ambientMinutes\":2}")"
   grep -q "ambient: ${st#*:}[a-z ]* screensaver" "$OUT/ambient_scene${st%%:*}.log" || { echo "the ${st#*:} screensaver did not start"; grep ambient "$OUT/ambient_scene${st%%:*}.log"; exit 1; }
 done
+# Depth: Home's backdrop pushes into its depth map (none when turned off); the Depth
+# screensaver stands the clock behind the people
+DEP="SNTV_DEPTH_URL=http://127.0.0.1:$PORT/depth"
+run home_depth 260 "right,right,wait,wait,wait" "$DEP"
+grep -q "depth: 43 backdrops have depth maps" "$OUT/home_depth.log" && grep -q "home: the backdrop moves in depth ([hm][0-9a-z]*)" "$OUT/home_depth.log" \
+  || { echo "Home's backdrop did not move in depth"; grep -E "depth" "$OUT/home_depth.log"; exit 1; }
+run home_depth_off 260 "right,right,wait,wait,wait" "$DEP" HOME="$(home_with depthoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"depthMotion":0}')"
+! grep -q "home: the backdrop moves in depth" "$OUT/home_depth_off.log" || { echo "Home's backdrop moved in depth while turned off"; exit 1; }
+run ambient_depth 400 "" SNTV_AMBIENT_SECONDS=1 "$DEP" HOME="$(home_with adepth '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":9,"ambientMinutes":2}')"
+grep -q "ambient: Depth screensaver" "$OUT/ambient_depth.log" && grep -q "ambient: depth backdrop [hm][0-9a-z]*, the clock [0-9]*% across behind them" "$OUT/ambient_depth.log" \
+  || { echo "the Depth screensaver did not put the clock behind the people"; grep -E "ambient|depth" "$OUT/ambient_depth.log"; exit 1; }
+run settings_depth 420 "left,down,down,down,down,down,ok,up,ok,t:depth on backdrops,down,down,down,down,left,ok"
+grep -q "settings: found Depth on backdrops" "$OUT/settings_depth.log" || { echo "Depth on backdrops is not in Settings"; grep settings "$OUT/settings_depth.log"; exit 1; }
 # your own video on TorBox: the picker lists the videos, the pick is kept, the fireplace plays it through TorBox's permanent link
 TB="SNTV_TORBOX_API=http://127.0.0.1:$PORT/torbox"
 run torbox_pick 600 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,down,ok,wait,down,ok" "$TB" HOME="$(home_with tbpick '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"torboxKey":"tbkey"}')"

@@ -12,6 +12,7 @@
 #include "../newep.h"
 #include "ambient_scenes.h"
 #include "clockface.h"
+#include "../depth.h"
 #include "font.h"
 #include "gfx.h"
 #include "theme.h"
@@ -27,6 +28,7 @@
 #define FADE_S 1.6f       /* crossfade into the next */
 #define ZOOM 0.10f        /* how much a backdrop grows over its slot */
 #define WAIT_S 5.0f       /* give up on an image that has not arrived */
+#define DEPTH_SLOT_S 22.0f   /* Depth: one backdrop, pushed into slowly */
 
 typedef struct {
     AmbientItem *items; int n;
@@ -45,6 +47,8 @@ typedef struct {
     float fv_kick;        /* when it was last (re)started */
     int fv_restarts;      /* found stopped and started again; a few and it gives way to the drawn fire */
     char fv_urls[YT_PLAY_URLS][4608]; int fv_n, fv_i;
+    int depth_logged;     /* Depth: the item last logged (+1) */
+    int depth_chosen;     /* Depth: the first backdrop was weighed against the list of maps */
 } Ambient;
 
 static Ambient *g_amb_live;   /* the screensaver a YouTube answer is for */
@@ -202,6 +206,8 @@ static void advance(Ambient *a)
     if (a->n < 2) return;
     a->prev = a->cur;
     a->cur = (a->cur + 1) % a->n;
+    if (g_app.ambient_style == AMBIENT_DEPTH)   /* the next one that has a depth map, if any does */
+        for (int i = 0; i < a->n && !depth_info(a->items[a->cur].background); i++) a->cur = (a->cur + 1) % a->n;
     a->fade = 1;
     a->t = 0;
     a->cur_ready = 0;
@@ -250,6 +256,16 @@ static void update(Screen *s, float dt)
     }
     if (g_app.ambient_style == AMBIENT_CLOCK || g_app.ambient_style == AMBIENT_AURORA || g_app.ambient_style == AMBIENT_WARP || !a->n) return;
     a->t += dt;
+    if (g_app.ambient_style == AMBIENT_DEPTH && a->n > 1) {
+        const AmbientItem *next = &a->items[(a->cur + 1) % a->n];
+        depth_texture(next->background);   /* its map on its way too */
+        /* the list of maps came after the first was chosen: on to one that has a map */
+        if (!a->depth_chosen && depth_ready()) {
+            a->depth_chosen = 1;
+            if (!depth_info(a->items[a->cur].background))
+                for (int i = 1; i < a->n; i++) if (depth_info(a->items[(a->cur + i) % a->n].background)) { advance(a); return; }
+        }
+    }
     if (a->fade > 0) { a->fade -= dt / FADE_S; if (a->fade < 0) a->fade = 0; }
     int w, h;
     const char *url = item_url(&a->items[a->cur]);
@@ -257,7 +273,7 @@ static void update(Screen *s, float dt)
     if (tex && !a->cur_ready) { a->cur_ready = 1; a->shown_at = g_app.time; a->t = 0; }
     if (!tex && (image_failed(url) || g_app.time - a->shown_at > WAIT_S)) { advance(a); return; }
     if (a->n > 1) image_prefetch(item_url(&a->items[(a->cur + 1) % a->n]));
-    if (a->cur_ready && a->t > (g_app.ambient_style == AMBIENT_RAIN ? SLOT_S * 3 : SLOT_S)) advance(a);   /* the rain lingers on one view */
+    if (a->cur_ready && a->t > (g_app.ambient_style == AMBIENT_RAIN ? SLOT_S * 3 : g_app.ambient_style == AMBIENT_DEPTH ? DEPTH_SLOT_S : SLOT_S)) advance(a);   /* the rain lingers on one view */
 }
 
 /* Cover-fit UVs, zoomed by (1 + ZOOM * k) around a point that slides across the image. */
@@ -287,6 +303,64 @@ static void clock_text(const struct tm *tmv, char *clock, size_t n)
 {
     if (g_app.clock_mode == 1) snprintf(clock, n, "%02d:%02d", tmv->tm_hour, tmv->tm_min);
     else snprintf(clock, n, "%d:%02d", tmv->tm_hour % 12 ? tmv->tm_hour % 12 : 12, tmv->tm_min);
+}
+
+/* Depth: the backdrop pushes slowly into the picture, and the clock stands in it behind the
+ * people (the place the depth map's maker chose, where they cover only a little of it). */
+static void draw_depth(Ambient *a, const struct tm *tmv, const char *clock, float sx, float sy)
+{
+    const AmbientItem *cur = &a->items[a->cur];
+    if (a->fade > 0 && a->prev != a->cur) draw_backdrop(&a->items[a->prev], 1, a->prev, 1);
+    int iw, ih;
+    unsigned tex = image_get(cur->background, &iw, &ih);
+    float in = a->cur_ready ? 1 - a->fade : 0;
+    if (!tex || in <= 0) return;
+    const DepthInfo *di = g_app.fx_light ? NULL : depth_info(cur->background);
+    unsigned dt = di ? depth_texture(cur->background) : 0;
+    float W = SNTV_UI_W, H = SNTV_UI_H, ia = (float)iw / (ih ? ih : 1), sa = W / H;
+    float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+    if (ia > sa) { float f = sa / ia; u0 = (1 - f) / 2; u1 = 1 - u0; } else { float f = ia / sa; v0 = (1 - f) / 2; v1 = 1 - v0; }
+    float iu = (u1 - u0) * 0.03f, iv = (v1 - v0) * 0.03f;   /* a little closer, so the far edge never shows */
+    u0 += iu; u1 -= iu; v0 += iv; v1 -= iv;
+    float k = a->t / DEPTH_SLOT_S; if (k > 1) k = 1;
+    float push = 0.012f + 0.11f * k * k * (3 - 2 * k), cu = u0 + (u1 - u0) * 0.5f, cv = v0 + (v1 - v0) * 0.45f;
+    Color c = RGBA(255, 255, 255, (int)(255 * in));
+    if (dt) gfx_depth(dt, cu, cv, push, 0.3f, 0);
+    else { float z = 1 + 0.06f * k, uw = (u1 - u0) / z, vh = (v1 - v0) / z; u0 = cu - uw / 2; v0 = cv - vh / 2; u1 = u0 + uw; v1 = v0 + vh; }
+    gfx_tex_uv(tex, 0, 0, W, H, u0, v0, u1, v1, c);
+    gfx_depth(0, 0, 0, 0, 0, 0);
+    /* the clock's block, where the map's maker found the people cover a little of it */
+    int behind = dt && di->fg > 0 && di->clock_x > 0;
+    float bw = 0.38f * W, bx = (behind ? di->clock_x : 0.5f) * W - bw / 2 + sx, by = 0.06f * H + sy, bh = 0.30f * H;
+    float px = 0.86f * bw * 100 / font_digits_measure(clock, 100), dh;
+    if (px > 330) px = 330;
+    dh = font_digits_height(px);
+    float cw = font_digits_measure(clock, px), cx = bx + (bw - cw) / 2, top = by + (bh - dh) / 2 - 30;
+    int al = (int)(255 * in);
+    font_digits_draw(clock, cx + 3, top + 4, px, RGBA(0, 0, 0, al * 0x50 / 255));
+    font_digits_draw(clock, cx, top, px, RGBA(0xFF, 0xF8, 0xEE, al * 0xF4 / 255));
+    char date[64]; strftime(date, sizeof date, "%A %-d %B", tmv);
+    for (char *p = date; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+    float ly = top + dh + 34;
+    font_draw_center(date, bx + bw / 2 + 2, ly + 2, FONT_S | FONT_B, RGBA(0, 0, 0, al * 0x60 / 255));
+    font_draw_center(date, bx + bw / 2, ly, FONT_S | FONT_B, RGBA(0xFF, 0xFF, 0xFF, al * 0xD8 / 255));
+    font_draw_center(cur->name, bx + bw / 2, ly + 40, FONT_XS | FONT_B, RGBA(0xFF, 0xFF, 0xFF, al * 0x90 / 255));
+    if (behind) {   /* the people in front, over the block only */
+        float x0 = bx - 40, x1 = bx + bw + 40, y0 = by - 40, y1 = by + bh + 90;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > W) x1 = W;
+        gfx_depth(dt, cu, cv, push, 0.3f, di->fg);
+        gfx_tex_uv(tex, x0, y0, x1 - x0, y1 - y0, u0 + (u1 - u0) * x0 / W, v0 + (v1 - v0) * y0 / H, u0 + (u1 - u0) * x1 / W, v0 + (v1 - v0) * y1 / H, c);
+        gfx_depth(0, 0, 0, 0, 0, 0);
+    }
+    if (a->depth_logged != a->cur + 1 && (dt || a->t > 4)) {   /* once its map is in, or clearly is not coming */
+        a->depth_logged = a->cur + 1;
+        char key[96]; depth_key(cur->background, key, sizeof key);
+        if (behind) LOGI("ambient: depth backdrop %s, the clock %.0f%% across behind them", key, di->clock_x * 100);
+        else if (dt) LOGI("ambient: depth backdrop %s, the clock in front", key);
+        else LOGI("ambient: %s has no depth map yet, shown flat", key);
+    }
 }
 
 /* Poster wall: the artwork as tiles, four across, drifting slowly up and wrapping round. */
@@ -391,6 +465,8 @@ static void draw(Screen *s)
         ambient_rain(tex, iw, ih, 0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time, a->cur_ready ? 1 - a->fade : 0.3f);
     }
 
+    if (a->n && g_app.ambient_style == AMBIENT_DEPTH) { draw_depth(a, &tmv, big, sx, sy); return; }
+
     if (a->n && g_app.ambient_style == AMBIENT_ARTWORK) {
         const AmbientItem *cur = &a->items[a->cur];
         float k = a->t / SLOT_S;
@@ -446,7 +522,7 @@ Screen *screen_ambient_create(void)
     g_amb_live = a;
     video_hold_screensaver(1);   /* this is the screensaver now: the TV's would cover it after its own wait */
     if (g_app.ambient_style == AMBIENT_FIRE) fv_start(a);
-    if (g_app.ambient_style == AMBIENT_CLOCK) font_digits_load();
+    if (g_app.ambient_style == AMBIENT_CLOCK || g_app.ambient_style == AMBIENT_DEPTH) font_digits_load();
     LOGI("ambient: %s screensaver with %d backdrops%s%s", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n,
          g_app.ambient_style == AMBIENT_CLOCK ? ", face " : "", g_app.ambient_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_app.clock_face] : "");
     s->name = "ambient"; s->st = a;

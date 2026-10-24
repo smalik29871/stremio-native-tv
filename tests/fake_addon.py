@@ -1024,6 +1024,27 @@ class H(BaseHTTPRequestHandler):
                 b = io.BytesIO(); frame.save(b, "JPEG", quality=85)
                 return self.send(200, b.getvalue(), "image/jpeg")
             return self.send(200, art("bg", (t // 10) % 6, f"{t // 60}:{t % 60:02d}"), "image/png")
+        if p.startswith("/depth/"):   # depth maps for the backdrops (tools/depth): the list, then each map
+            def fnv64(t):
+                h = 1469598103934665603
+                for b in t.encode(): h = ((h ^ b) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+                return h
+            if p == "/depth/index.txt":
+                place = os.environ.get("FAKE_DEPTH_PLACE")   # with FAKE_DEPTH_PIC: its real "threshold clock"
+                lines = ["# cuelight depth maps 1"] + ["h%016x %s" % (fnv64(f"{BASE}/bg/{i}.png"), place or "0.50 " + ("0.70", "0.30", "0.50")[i % 3]) for i in range(40)]
+                lines += ["m%s 0.50 0.70" % tt for tt in ("tt0903747", "tt0111161", "tt0468569")]   # metahub's backdrops (the library's)
+                return self.send(200, ("\n".join(lines) + "\n").encode(), "text/plain")
+            own = os.environ.get("FAKE_DEPTH_PIC")   # a real map, for screenshots
+            if own: return self.send(200, open(own, "rb").read(), "image/png")
+            if not HAVE_PIL: return self.send(404, b"{}")
+            from PIL import Image as _I, ImageDraw as _D, ImageFilter as _F
+            im = _I.new("L", (384, 216)); d = _D.Draw(im)
+            for y in range(216): d.line([(0, y), (384, y)], fill=30 + y * 50 // 216)   # the far wall, the floor nearer
+            d.ellipse((230, 40, 290, 110), fill=220); d.rounded_rectangle((200, 100, 320, 216), 30, fill=215)   # someone in front
+            b = io.BytesIO(); im.filter(_F.GaussianBlur(2)).save(b, "PNG")
+            return self.send(200, b.getvalue(), "image/png")
+        if p.startswith("/bg/") and os.environ.get("FAKE_BG_PIC"):   # a real still, for screenshots
+            return self.send(200, open(os.environ["FAKE_BG_PIC"], "rb").read(), "image/png")
         if p.startswith("/poster/") or p.startswith("/bg/"):
             i = int(p.rsplit("/", 1)[1].split(".")[0])
             if HAVE_PIL and p.startswith("/poster/") and i % 4 == 2:   # metahub serves WebP for newer titles

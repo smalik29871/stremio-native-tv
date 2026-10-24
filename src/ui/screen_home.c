@@ -13,12 +13,14 @@
 #include "font.h"
 #include "../newep.h"
 #include "../tmdb.h"
+#include "../depth.h"
 #include "theme.h"
 #include "bgtrailer.h"
 #include "widgets.h"
 #include "screen_options.h"
 #include "rail.h"
 #include "island.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -69,6 +71,7 @@ typedef struct {
     char hero_id[256];
     char want_id[256]; float want_since;   /* the focused title, and since when (HERO_REST) */
     char hero_bg[1024], hero_prev_bg[1024]; float hero_fade;
+    float depth_t0; int depth_step, depth_logged;   /* the backdrop pushing into the picture: since when */
     float hero_text_t;        /* fade/slide of the hero text on change */
     int landed;               /* first focus went to the content */
     int feat;                 /* Showcase: which of the featured row's titles is up */
@@ -771,6 +774,7 @@ static void update(Screen *s, float dt)
         if (bg) ui_set_ambient_art(bg);   /* Glass blurs it behind every screen */
         h->hero_fade = 0;
         h->hero_text_t = 0;
+        h->depth_t0 = g_app.time; h->depth_logged = 0;
     }
     if (hero && settled && g_app.home_style != HOME_COMPACT && !strcmp(hero->id, h->hero_id))
         bgtrailer_want(h->hero_id, g_theme.id == THEME_APERTURE ? rows_y() + 60 : SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f), 4.0f);
@@ -794,6 +798,25 @@ static void update(Screen *s, float dt)
 
 static void draw_showcase_controls(const Home *h);
 
+/* A backdrop with a depth map pushes slowly into the picture and back, 40 s each way, the
+ * near things coming towards you; redrawn 15 times a second, enough for a move this slow. */
+static void hero_depth(Home *h)
+{
+    ui_backdrop_depth(0, 0);
+    if (!g_app.depth_motion || g_app.fx_light || g_app.low_memory || !h->hero_bg[0]) return;
+    unsigned dt = depth_texture(h->hero_bg);
+    if (!dt) return;
+    float ph = (g_app.time - h->depth_t0) / 40.0f;
+    ui_backdrop_depth(dt, 0.004f + 0.09f * (0.5f - 0.5f * cosf(ph * 3.14159265f)));
+    if (!h->depth_logged) {
+        char key[96]; depth_key(h->hero_bg, key, sizeof key);
+        LOGI("home: the backdrop moves in depth (%s)", key);
+        h->depth_logged = 1;
+    }
+    int step = (int)(g_app.time * 15);
+    if (step != h->depth_step) { h->depth_step = step; app_redraw(); }
+}
+
 static void draw_hero(Home *h, const MetaPreview *p)
 {
     if (g_theme.id == THEME_APERTURE) {
@@ -802,7 +825,9 @@ static void draw_hero(Home *h, const MetaPreview *p)
         float tv = bgtrailer_shown(h->hero_id);   /* its trailer plays in the artwork window, as behind the other themes' heroes */
         ui_backdrop_fades(ax + 460, ah - 300, ah);
         ui_backdrop_video(tv, ah);
+        if (tv < 1) hero_depth(h);   /* not under a trailer that hides it */
         ui_aperture_art(h->hero_bg, ax, 0, SNTV_UI_W - ax, ah, (g_app.fx_light ? 1 : h->hero_fade) * (1 - tv));
+        ui_backdrop_depth(0, 0);
         gfx_gradient_h(ax - 1, 0, 460, ah, THEME_BG, COLOR_ALPHA(THEME_BG, 0));
         gfx_gradient_v(0, ah - 300, SNTV_UI_W, 300, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
         bgtrailer_draw_badge(h->hero_id, 1);
@@ -1035,7 +1060,9 @@ static void draw(Screen *s)
         float tv = bgtrailer_shown(h->hero_id);   /* the trailer playing behind the artwork */
         ui_backdrop_video(tv, bh);
         if (prev) ui_backdrop_image(prev, pw, ph, (1 - fade) * (1 - tv), bh);
+        if (tv < 1) hero_depth(h);
         if (cur) ui_backdrop_image(cur, iw, ih, fade * (1 - tv), bh);
+        ui_backdrop_depth(0, 0);
         ui_text_scrim(1100, bh);
         bgtrailer_draw_badge(h->hero_id, 1);
         draw_hero(h, hero);

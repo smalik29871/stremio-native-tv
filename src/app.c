@@ -1909,6 +1909,7 @@ static void load_prefs(void)
     g_app.spoiler_blur = store_get_int("spoilerBlur", 1);
     g_app.advisory = store_get_int("advisory", 1);
     g_app.living_letterbox = store_get_int("livingLetterbox", 1);
+    g_app.depth_motion = store_get_int("depthMotion", 1);
     g_app.subs_size = store_get_int("subsSize", 1);
     g_app.subs_pos = store_get_int("subsPos", 0);
     g_app.subs_style = store_get_int("subsStyle", 0);
@@ -2020,6 +2021,7 @@ void app_save_prefs(void)
     store_set_int("spoilerBlur", g_app.spoiler_blur);
     store_set_int("advisory", g_app.advisory);
     store_set_int("livingLetterbox", g_app.living_letterbox);
+    store_set_int("depthMotion", g_app.depth_motion);
     store_set_int("subsSize", g_app.subs_size);
     store_set_int("subsPos", g_app.subs_pos);
     store_set_int("subsStyle", g_app.subs_style);
@@ -2293,7 +2295,7 @@ void play_candidates_free(PlayCandidate *c, int n)
 const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
 const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT] = { "Time", "Day and time", "With seconds", "Small dial" };
 const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo", "Fireplace", "Aurora",
-                                                                   "Rainy window", "Now showing", "Warp" };
+                                                                   "Rainy window", "Now showing", "Warp", "Depth" };
 
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
 {
