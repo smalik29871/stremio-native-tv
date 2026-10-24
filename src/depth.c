@@ -75,7 +75,7 @@ static void on_index(HttpResponse *r, void *user)
     (void)user;
     if (r->status != 200 || !r->body || strncmp(r->body, "# cuelight depth maps", 21) != 0) {
         g_state = 3; g_failed_at = g_app.time;
-        LOGW("depth: no list of depth maps (%ld%s%s)", r->status, r->error[0] ? ", " : "", r->error);
+        LOGI("depth: no list of depth maps (%ld%s%s)", r->status, r->error[0] ? ", " : "", r->error);   /* backdrops just stay still: not a problem to show */
         return;
     }
     for (char *line = r->body, *next; line && *line; line = next) {
