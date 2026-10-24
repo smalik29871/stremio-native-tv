@@ -1117,7 +1117,9 @@ static void phone_draw(Detail *d)
     ui_pan_area(&d->ph_pan, 0, 0, W, SNTV_UI_H, 1);
     gfx_set_translate(0, -d->scroll);
     const char *bg = app_art_background(&d->preview, buf, sizeof buf);
-    ui_card(bg, 0, 0, W, PH_ART_H, 0, 0, NULL, CARD_TRUE_COLOUR);
+    gfx_clip_push(0, 0, W, PH_ART_H);   /* the artwork moves at half the page's speed, kept to its own room */
+    ui_card(bg, 0, d->scroll > 0 ? d->scroll * 0.5f : 0, W, PH_ART_H, 0, 0, NULL, CARD_TRUE_COLOUR);
+    gfx_clip_pop();
     gfx_gradient_v(0, PH_ART_H * 0.45f, W, PH_ART_H * 0.55f + 2, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
     float y = PH_ART_H - 130;
     int lines = font_draw_wrapped(d->preview.name ? d->preview.name : "", x, y, FONT_XL | FONT_B, THEME_TEXT, w, 3);
@@ -1264,9 +1266,19 @@ static void phone_draw(Detail *d)
     }
     d->ph_total = y;
     gfx_set_translate(0, 0);
-    /* Back, over the artwork */
-    gfx_circle(PH_X + 40, 72, 40, RGBA(0, 0, 0, 0x70));
-    ui_icon(ICON_CHEVRON_LEFT, PH_X + 38, 72, 34, RGBA(255, 255, 255, 255));
+    /* once the artwork has scrolled away, a bar slides in at the top with the title */
+    float k = (d->scroll - (PH_ART_H - 280)) / 120;
+    if (k > 1) k = 1;
+    if (k > 0) {
+        float hh = 144, dy = -20 * (1 - k);
+        gfx_rect(0, 0, W, hh, COLOR_ALPHA(THEME_BG, (int)(255 * k)));
+        gfx_rect(0, hh - 2, W, 2, COLOR_ALPHA(THEME_TEXT, (int)(0x18 * k)));
+        float tx = PH_X + 100;
+        font_draw_fit(d->preview.name ? d->preview.name : "", tx, 72 - font_height(FONT_M | FONT_B) / 2 + dy, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(255 * k)), W - tx - PH_X);
+    } else k = 0;
+    /* Back, over the artwork (its round backing goes as the bar comes) */
+    gfx_circle(PH_X + 40, 72, 40, RGBA(0, 0, 0, (int)(0x70 * (1 - k))));
+    ui_icon(ICON_CHEVRON_LEFT, PH_X + 38, 72, 34, k > 0.5f ? THEME_TEXT : RGBA(255, 255, 255, 255));
     ui_hit(PH_X - 10, 22, 100, 100, HIT_BACK);
     if (d->ask_open) draw_ask(d);
 }

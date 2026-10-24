@@ -79,6 +79,7 @@ typedef struct {
     Peek peek;                /* details beside the focused poster */
     float phone_y, phone_yv;  /* upright on a phone: the page's scroll */
     UiPan phone_pan;
+    UiPan hero_pan; float hero_x;   /* upright on a phone: the hero's pages, swiped across */
     int phone_btn;            /* ...and on its feature card, Play (0) or Library (1) */
 } Home;
 
@@ -517,7 +518,14 @@ static const MetaPreview *ph_hero(const Home *h)
     const Row *r = featured_row(h);
     return r && r->n ? &r->metas[h->feat % featured_count(h)] : NULL;
 }
-static float ph_rows_top(const Home *h) { return ph_hero(h) ? PH_HERO_Y + PH_HERO_H + 48 : PH_HERO_Y; }
+/* No hero yet, but the catalog it comes from is on its way: its room is kept (no jump). */
+static int ph_hero_coming(const Home *h)
+{
+    if (ph_hero(h)) return 0;
+    for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CATALOG && (h->rows[i]->loading || !h->rows[i]->requested)) return 1;
+    return 0;
+}
+static float ph_rows_top(const Home *h) { return ph_hero(h) || ph_hero_coming(h) ? PH_HERO_Y + PH_HERO_H + 48 : PH_HERO_Y; }
 
 /* The focused card kept in view (the row stays put while it already is); a finger moves it freely. */
 static void phone_scroll_row(Row *r, float dt)
@@ -546,6 +554,26 @@ static void phone_scroll_page(Home *h, float dt)
     float end = ph_rows_top(h);   /* the whole page, to the last row above the tab bar */
     for (int i = 0; i < h->n_rows; i++) if (row_visible(h->rows[i])) end += ph_row_h(h->rows[i]);
     ui_pan(&h->phone_pan, &h->phone_y, want, end + 20 - room, dt, 14);
+}
+
+/* The hero's pages follow a finger across; let go, it settles on the page it was thrown
+ * towards. Otherwise it slides to the page the carousel is on. */
+static void phone_scroll_hero(Home *h, float dt)
+{
+    int n = featured_count(h);
+    float w = SNTV_UI_W;
+    if (n < 1) { h->hero_x = 0; return; }
+    if (!ui_pan_held(&h->hero_pan) && ui_pan_free(&h->hero_pan)) {
+        int page = (int)floorf((h->hero_x + h->hero_pan.vel * 0.2f) / w + 0.5f);
+        if (page < 0) page = 0;
+        if (page > n - 1) page = n - 1;
+        if (page != h->feat % n) { h->feat = page; LOGI("home: hero swiped to %d of %d", page + 1, n); }
+        h->feat_timer = 0;
+        h->hero_pan.free = 0;   /* it eases onto the page from here */
+    }
+    float want = (float)(h->feat % n) * w;
+    ui_pan(&h->hero_pan, &h->hero_x, want, (n - 1) * w, dt, 12);
+    if (fabsf(h->hero_x - want) > 0.5f) app_redraw();
 }
 
 static float ph_button(const char *label, int icon, float x, float y, float w, float hh, int primary, int foc)
@@ -600,47 +628,123 @@ static void phone_row(Home *h, int ri, float y)
     gfx_set_alpha(1);
 }
 
+/* A title for the hero, centred: on one line, or broken at the space nearest its middle. */
+static void ph_center_title(const char *t, float cx, float y, float maxw)
+{
+    int fs = FONT_XL | FONT_B;
+    if (font_measure(t, fs) <= maxw) { font_draw_center(t, cx, y + font_height(fs), fs, THEME_TEXT); return; }
+    size_t n = strlen(t), best = 0;
+    for (size_t i = 1; i < n && i < 255; i++)
+        if (t[i] == ' ' && (!best || labs((long)i - (long)n / 2) < labs((long)best - (long)n / 2))) best = i;
+    if (!best) { font_draw_fit(t, cx - maxw / 2, y + font_height(fs), fs, THEME_TEXT, maxw); return; }
+    char a[256];
+    snprintf(a, sizeof a, "%.*s", (int)best, t);
+    font_draw_center(a, cx, y, fs, THEME_TEXT);
+    font_draw_center(t + best + 1, cx, y + font_height(fs), fs, THEME_TEXT);
+}
+
+/* One page of a phone's hero: the backdrop edge to edge (cropped to fill it, moving at a
+ * third of the page's speed as it scrolls), its logo or name and facts centred low. */
+static void ph_hero_page(const MetaPreview *p, float x, float drift, float w, float hh)
+{
+    char buf[512];
+    int iw = 0, ih = 0;
+    const char *bg = app_art_background(p, buf, sizeof buf);
+    unsigned tex = bg ? image_get(bg, &iw, &ih) : 0;
+    if (tex && iw > 0 && ih > 0) {
+        float ar = (float)iw / ih, shape = w / hh, u0 = 0, u1 = 1, v0 = 0, v1 = 1;
+        if (ar > shape) { float k = shape / ar; u0 = (1 - k) / 2; u1 = u0 + k; }
+        else { float k = ar / shape; v0 = (1 - k) / 2; v1 = v0 + k; }
+        gfx_tex_uv(tex, x, drift, w, hh, u0, v0, u1, v1, RGBA(255, 255, 255, 255));
+    } else gfx_rect(x, 0, w, hh, THEME_BG2);
+    gfx_gradient_v(x, hh * 0.35f, w, hh * 0.65f, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xC8));
+    float cx = x + w / 2, ty = hh - 430;
+    const char *logo = app_art_logo(p, buf, sizeof buf);
+    int lw = 0, lh = 0;
+    unsigned ltex = logo ? image_get(logo, &lw, &lh) : 0;
+    if (ltex && lw > 0 && lh > 0) {
+        float bw = w * 0.62f, bh = 150, lw2 = bw, lh2 = bw * lh / lw;
+        if (lh2 > bh) { lh2 = bh; lw2 = bh * lw / lh; }
+        gfx_tex(ltex, cx - lw2 / 2, ty + (bh - lh2), lw2, lh2, RGBA(255, 255, 255, 255));
+    } else ph_center_title(p->name ? p->name : "", cx, ty + 150 - 2 * font_height(FONT_XL | FONT_B), w - 120);
+    char meta[200] = "";
+    const char *type = p->type && !strcmp(p->type, "series") ? "Series" : p->type && !strcmp(p->type, "movie") ? "Film" : NULL;
+    const char *parts[4] = { p->release_info, type, p->genres.n ? p->genres.v[0] : NULL, NULL };
+    size_t n = 0;
+    for (int k = 0; k < 3; k++) if (parts[k] && *parts[k] && n < sizeof meta) n += (size_t)snprintf(meta + n, sizeof meta - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
+    if (p->imdb_rating && *p->imdb_rating && n < sizeof meta) snprintf(meta + n, sizeof meta - n, "%sIMDb %s", n ? "  \xC2\xB7  " : "", p->imdb_rating);
+    float mw = font_measure(meta, FONT_S);
+    if (mw > w - 80) mw = w - 80;
+    font_draw_fit(meta, cx - mw / 2, ty + 172, FONT_S, COLOR_ALPHA(THEME_TEXT, 0xE0), w - 80);
+}
+
+/* A phone's hero, as Nuvio and the like have it: edge to edge from the top, under the
+ * header, fading into the page; swiped across for the next title, the dots saying where. */
+static void ph_hero_draw(Home *h)
+{
+    const Row *r = featured_row(h);
+    int n = featured_count(h);
+    float W = SNTV_UI_W, H = PH_HERO_Y + PH_HERO_H;
+    float drift = h->phone_y > 0 ? h->phone_y * 0.3f : 0;
+    ui_pan_area(&h->hero_pan, 0, 0, W, PH_HERO_Y + PH_HERO_H - 170, 0);
+    gfx_clip_push(0, 0, W, H);
+    int i0 = (int)floorf(h->hero_x / W);
+    for (int i = i0; i <= i0 + 1; i++) {
+        if (i < 0 || i >= n) continue;
+        float x = i * W - h->hero_x;
+        if (x < W && x + W > 0) ph_hero_page(&r->metas[i], x, drift, W, H);
+    }
+    gfx_clip_pop();
+    gfx_gradient_v(0, 0, W, 240, RGBA(0, 0, 0, 0x99), RGBA(0, 0, 0, 0));   /* the header reads over any picture */
+    gfx_gradient_v(0, H - 150, W, 152, COLOR_ALPHA(THEME_BG, 0), THEME_BG);   /* into the page, no edge */
+    const MetaPreview *p = ph_hero(h);
+    int foc = h->focus_row == FOCUS_SHOWCASE;
+    float bh = 92, pw = W - 2 * PH_X - 80 - bh - 20;
+    if (pw > 420) pw = 420;
+    float bx = (W - pw - 20 - bh) / 2, by = H - 196;
+    ui_hit(0, 130, W, by - 150, HIT_HERO);   /* the picture opens it too */
+    ph_button("Play", ICON_PLAY, bx, by, pw, bh, 1, foc && h->phone_btn == 0);
+    ui_hit(bx, by, pw, bh, HIT_HERO);
+    LibraryItem *li = app_library_find(p->id);
+    int in_lib = li && !li->removed && !li->temp;
+    ph_button(NULL, in_lib ? ICON_CHECK : ICON_PLUS, bx + pw + 20, by, bh, bh, 0, foc && h->phone_btn == 1);
+    ui_hit(bx + pw + 20, by, bh, bh, HIT_HERO_ADD);
+    if (n > 1) {   /* the dots: the current one stretched, filling until the next comes */
+        float dw = 12, gap = 12, cur = 44, total = (n - 1) * (dw + gap) + cur, x = (W - total) / 2, cy = by + bh + 40;
+        for (int i = 0; i < n; i++) {
+            int on = i == h->feat % n;
+            float w = on ? cur : dw;
+            gfx_rrect(x, cy - dw / 2, w, dw, dw / 2, on ? COLOR_ALPHA(THEME_TEXT, 0x50) : COLOR_ALPHA(THEME_TEXT, 0x40));
+            if (on && !g_app.fx_light) {
+                float t = h->feat_timer / SHOWCASE_EVERY;
+                if (t > 1) t = 1;
+                if (w * t > dw) gfx_rrect(x, cy - dw / 2, w * t, dw, dw / 2, THEME_TEXT);
+            } else if (on) gfx_rrect(x, cy - dw / 2, w, dw, dw / 2, THEME_TEXT);
+            x += w + gap;
+        }
+    }
+}
+
 static void phone_draw(Home *h)
 {
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
     ui_pan_area(&h->phone_pan, 0, 0, SNTV_UI_W, SNTV_UI_H - PHONE_TABS_H, 1);
     float top = -h->phone_y;
     gfx_set_translate(0, top);
-    /* header: the mark and name; the account at the right */
+    if (ph_hero(h)) ph_hero_draw(h);
+    else if (ph_hero_coming(h)) {   /* its room, shimmering until it comes */
+        float H = PH_HERO_Y + PH_HERO_H;
+        gfx_rect(0, 0, SNTV_UI_W, H, THEME_BG2);
+        ui_shimmer(0, 0, SNTV_UI_W, H);
+        gfx_gradient_v(0, H - 150, SNTV_UI_W, 152, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
+    }
+    /* header, over the hero: the mark and name; the account at the right */
     ui_mark(PH_X, 36, 60);
     font_draw(SNTV_APP_NAME, PH_X + 80, 36 + (60 - font_height(FONT_L | FONT_B)) / 2, FONT_L | FONT_B, THEME_TEXT);
     float ax = SNTV_UI_W - PH_X - 72;
-    gfx_circle(ax + 36, 66, 36, COLOR_ALPHA(THEME_TEXT, 0x22));
+    gfx_circle(ax + 36, 66, 36, ph_hero(h) ? RGBA(0, 0, 0, 0x60) : COLOR_ALPHA(THEME_TEXT, 0x22));
     ui_icon(ICON_USER, ax + 36, 66, 34, THEME_TEXT);
     ui_hit(ax - 10, 20, 92, 92, HIT_RAIL + RAIL_ACCOUNT);
-    const MetaPreview *p = ph_hero(h);
-    if (p) {
-        float x = PH_X, y = PH_HERO_Y, w = SNTV_UI_W - 2 * PH_X, hh = PH_HERO_H;
-        char buf[512];
-        const char *bg = app_art_background(p, buf, sizeof buf);
-        ui_card(bg, x, y, w, hh, 0, 0, NULL, CARD_TRUE_COLOUR);
-        gfx_gradient_v(x, y + hh * 0.3f, w, hh * 0.7f, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xD8));
-        float ty = y + hh - 380;
-        font_draw("TONIGHT'S FEATURE", x + 40, ty, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0xC8));
-        int lines = font_draw_wrapped(p->name ? p->name : "", x + 40, ty + 40, FONT_XL | FONT_B, THEME_TEXT, w - 80, 2);
-        float my = ty + 40 + (lines > 1 ? 2 : 1) * font_height(FONT_XL | FONT_B) + 8;
-        char meta[200] = "";
-        const char *type = p->type && !strcmp(p->type, "series") ? "Series" : p->type && !strcmp(p->type, "movie") ? "Film" : NULL;
-        const char *parts[4] = { p->release_info, type, p->genres.n ? p->genres.v[0] : NULL, NULL };
-        size_t n = 0;
-        for (int k = 0; k < 3; k++) if (parts[k] && *parts[k]) n += (size_t)snprintf(meta + n, sizeof meta - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
-        if (p->imdb_rating && *p->imdb_rating) snprintf(meta + n, sizeof meta - n, "%sIMDb %s", n ? "  \xC2\xB7  " : "", p->imdb_rating);
-        font_draw_fit(meta, x + 40, my, FONT_S, COLOR_ALPHA(THEME_TEXT, 0xE0), w - 80);
-        float by = y + hh - 132, bh = 92;
-        int foc = h->focus_row == FOCUS_SHOWCASE;
-        float pw = w - 80 - bh - 20;
-        ph_button("Play", ICON_PLAY, x + 40, by, pw, bh, 1, foc && h->phone_btn == 0);
-        ui_hit(x + 40, by, pw, bh, HIT_HERO);
-        LibraryItem *li = app_library_find(p->id);
-        int in_lib = li && !li->removed && !li->temp;
-        ph_button(NULL, in_lib ? ICON_CHECK : ICON_PLUS, x + 40 + pw + 20, by, bh, bh, 0, foc && h->phone_btn == 1);
-        ui_hit(x + 40 + pw + 20, by, bh, bh, HIT_HERO_ADD);
-    }
     float y = ph_rows_top(h);
     int any = 0;
     for (int i = 0; i < h->n_rows; i++) {
@@ -739,12 +843,13 @@ static void update(Screen *s, float dt)
         if (g_app.home_style == HOME_SHOWCASE && featured_count(h)) { h->focus_row = FOCUS_SHOWCASE; h->landed = 1; }
         else if (g_app.home_style != HOME_SHOWCASE || !loading) { int n = next_visible(h, -1, 1); if (n >= 0) { move_focus(h, n, -1); h->landed = 1; } }
     }
-    if (g_app.home_style == HOME_SHOWCASE && featured_count(h) > 1) {
+    if ((g_app.home_style == HOME_SHOWCASE || SNTV_PHONE) && featured_count(h) > 1) {
         float was = h->feat_timer;
         if (!bgtrailer_shown(h->hero_id)) h->feat_timer += dt;   /* a trailer playing holds the carousel */
         if ((int)(was * 34 / SHOWCASE_EVERY) != (int)(h->feat_timer * 34 / SHOWCASE_EVERY) && !g_app.fx_light) app_redraw();   /* the dot's fill, a step a pixel */
-        if (h->feat_timer > SHOWCASE_EVERY && h->focus_row != FOCUS_SHOWCASE) { h->feat_timer = 0; h->feat = (h->feat + 1) % featured_count(h); app_redraw(); }
-        if (h->focus_row == FOCUS_SHOWCASE) h->feat_timer = 0;
+        int resting = SNTV_PHONE ? !g_app.finger_on && !ui_pan_held(&h->hero_pan) : h->focus_row != FOCUS_SHOWCASE;   /* a phone's: not while a finger is down */
+        if (h->feat_timer > SHOWCASE_EVERY && resting) { h->feat_timer = 0; h->feat = (h->feat + 1) % featured_count(h); app_redraw(); }
+        if (!resting) h->feat_timer = 0;
     } else if (h->focus_row == FOCUS_SHOWCASE && !SNTV_PHONE) h->focus_row = -1;
 
     float y = 0;
@@ -776,7 +881,7 @@ static void update(Screen *s, float dt)
         if (first < 0) first = 0;
         ui_pan(&r->pan, &r->scroll_x, first * (card_w(r) + GAP), (r->n + see_all(r)) * (card_w(r) + GAP) - GAP - (SNTV_UI_W - LX - THEME_MARGIN), dt, 16);
     }
-    if (SNTV_PHONE) phone_scroll_page(h, dt);
+    if (SNTV_PHONE) { phone_scroll_page(h, dt); phone_scroll_hero(h, dt); }
     h->focus_t = ui_ease(h->focus_t * 100, 100, NULL, dt, 16) / 100;
     h->prev_t = ui_ease(h->prev_t * 100, 0, NULL, dt, 16) / 100;
     h->hero_fade = ui_ease(h->hero_fade * 100, 100, NULL, dt, 7) / 100;
@@ -1148,6 +1253,14 @@ static void close_rail(Home *h)
 static int tap(Screen *s, int id)
 {
     Home *h = s->st;
+    if (id == HIT_TOP) {
+        h->focus_row = ph_hero(h) ? FOCUS_SHOWCASE : next_visible(h, -1, 1);
+        h->phone_btn = 0;
+        ui_pan_keys();   /* the page follows the focus up again */
+        LOGI("home: back to the top");
+        app_redraw();
+        return 1;
+    }
     if (SNTV_PHONE && (id == HIT_HERO || id == HIT_HERO_ADD)) { h->focus_row = FOCUS_SHOWCASE; h->phone_btn = id == HIT_HERO_ADD; return 0; }
     if (id == HIT_SHOWCASE) { h->focus_row = FOCUS_SHOWCASE; return 0; }
     if (id == HIT_HERO) return h->focus_row >= 0 ? 0 : 1;

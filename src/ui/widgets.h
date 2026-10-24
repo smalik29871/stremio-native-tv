@@ -134,6 +134,8 @@ float ui_center_wrapped(const char *text, float cx, float y, int size, Color c, 
  * not. A row shows its cards once the ones in view are, all together, not one by one. */
 int  ui_art_ready(const char *url);
 #define UI_ROW_WAIT 2.5f   /* ...or after this long, whatever has come */
+/* A band of light sweeping across a tile still loading (asks for the frames it needs). */
+void ui_shimmer(float x, float y, float w, float h);
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim,
              const char *fallback_title, int card_flags);
 /* Off while drawing cards that are only pictures (Settings previews): screens open out of
@@ -204,6 +206,7 @@ typedef struct UiPan { float vel; int free; unsigned epoch; float *at; } UiPan;
 void  ui_pan_area(UiPan *p, float x, float y, float w, float h, int vertical);
 float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed);
 int   ui_pan_free(const UiPan *p);     /* moved by the finger, not following the focus */
+int   ui_pan_held(const UiPan *p);     /* under a finger right now */
 /* main.c, from the finger: canvas units */
 int   ui_pan_catch(float x, float y);  /* down: stops a glide under the finger (1: it was gliding) */
 int   ui_pan_grab(float x, float y, int vertical);   /* a drag starts there: 1 = a scroller has it */

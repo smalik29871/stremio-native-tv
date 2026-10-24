@@ -21,20 +21,35 @@ static float item_y(int i)
 
 static int g_rail_active;   /* the section of the rail drawn last, for a tap */
 
-/* A phone held upright: the sections as tabs along the bottom instead */
+/* A phone held upright: the sections as tabs in a pill floating over the bottom of the page,
+ * the page fading out under it; the highlight behind the open tab glides to a new one. */
 static void draw_tabs(int active)
 {
     static const int TABS[] = { RAIL_HOME, RAIL_EXPLORE, RAIL_SEARCH, RAIL_LIBRARY, RAIL_SETTINGS };
-    float h = PHONE_TABS_H, y = SNTV_UI_H - h, w = (float)SNTV_UI_W / 5;
-    gfx_rect(0, y, SNTV_UI_W, h, THEME_BG2);
-    gfx_rect(0, y, SNTV_UI_W, 2, THEME_LINE);
+    static float glide = -1, glide_v, last_t;
+    float W = SNTV_UI_W, m = 28, ph = 116, pw = W - 2 * m, px = m, py = SNTV_UI_H - ph - 14;
+    float tw = (pw - 16) / 5;
+    gfx_gradient_v(0, SNTV_UI_H - PHONE_TABS_H - 30, W, PHONE_TABS_H + 30, COLOR_ALPHA(THEME_BG, 0), COLOR_ALPHA(THEME_BG, 0xF0));
+    ui_panel(px, py, pw, ph, ph / 2, COLOR_ALPHA(THEME_BG2, 0xF4));
+    gfx_rrect_ring(px, py, pw, ph, ph / 2, 2, COLOR_ALPHA(THEME_TEXT, 0x16));
+    int sel = -1;
+    for (int i = 0; i < 5; i++) if (TABS[i] == active || (TABS[i] == RAIL_LIBRARY && active == RAIL_CALENDAR)) sel = i;
+    if (sel >= 0) {
+        float want = px + 8 + tw * sel, dt = g_app.time - last_t;
+        if (dt < 0 || dt > 0.05f) dt = 0.05f;
+        last_t = g_app.time;
+        if (glide < 0 || g_app.fx_light) { glide = want; glide_v = 0; }
+        else glide = ui_ease(glide, want, &glide_v, dt, 16);
+        if (SDL_fabsf(glide - want) > 0.5f) app_redraw();
+        gfx_rrect(glide, py + 8, tw, ph - 16, (ph - 16) / 2, COLOR_ALPHA(THEME_TEXT, 0x1C));
+    }
     for (int i = 0; i < 5; i++) {
-        int t = TABS[i], on = t == active || (t == RAIL_LIBRARY && active == RAIL_CALENDAR);
+        int t = TABS[i], on = i == sel;
         Color c = on ? THEME_TEXT : THEME_TEXT_MUTED;
-        float cx = w * i + w / 2;
-        ui_icon(ICONS[t], cx, y + 50, 44, c);
-        font_draw_center(LABELS[t], cx, y + 84, FONT_XS | FONT_B, c);
-        ui_hit(w * i, y, w, h, HIT_RAIL + t);
+        float cx = px + 8 + tw * i + tw / 2;
+        ui_icon(ICONS[t], cx, py + 44, 40, c);
+        font_draw_center(LABELS[t], cx, py + 74, FONT_XS | FONT_B, c);
+        ui_hit(px + 8 + tw * i, py, tw, ph, HIT_RAIL + t);
     }
 }
 
@@ -71,7 +86,12 @@ void rail_draw(int active, int focus)
     }
 }
 
-void rail_tap(int target) { rail_go(g_rail_active, target); }
+void rail_tap(int target)
+{
+    Screen *top = app_top();
+    if (SNTV_PHONE && target == g_rail_active && top && !strcmp(top->name, "home") && top->tap && top->tap(top, HIT_TOP)) return;   /* Home again: back to its top */
+    rail_go(g_rail_active, target);
+}
 
 int rail_key(KeyAction a, int *focus, int active)
 {

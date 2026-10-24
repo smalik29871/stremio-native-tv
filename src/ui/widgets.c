@@ -1631,6 +1631,17 @@ int ui_art_ready(const char *url)
     return 0;
 }
 
+void ui_shimmer(float x, float y, float w, float h)
+{
+    if (g_app.fx_light) return;
+    float band = w * 0.7f, t = fmodf(g_app.time / 2.4f, 1.0f), bx = x - band + t * (w + band);
+    gfx_clip_push(x, y, w, h);
+    gfx_gradient_h(bx, y, band / 2, h, COLOR_ALPHA(THEME_TEXT, 0), COLOR_ALPHA(THEME_TEXT, 0x14));
+    gfx_gradient_h(bx + band / 2, y, band / 2, h, COLOR_ALPHA(THEME_TEXT, 0x14), COLOR_ALPHA(THEME_TEXT, 0));
+    gfx_clip_pop();
+    app_redraw();
+}
+
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim, const char *title, int flags)
 {
     int mip = flags & (CARD_MIP | CARD_BLUR), blur = flags & CARD_BLUR;
@@ -1661,6 +1672,7 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
         gfx_rtex_uv(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, RGBA(shade, shade, shade, (int)(255 * a)), blur ? 4.5f : 0);
     } else if (url && *url && !image_failed(url)) {
         gfx_rrect(cx, cy, cw, ch, R_CARD, THEME_POSTER_PH);   /* on its way: a quiet tile, the picture fades in over it */
+        if (gfx_handheld()) ui_shimmer(cx, cy, cw, ch);   /* a phone's: a light sweeping across it */
     } else {   /* no picture: the name on the card */
         gfx_rrect_grad_v(cx, cy, cw, ch, R_CARD, COLOR_ALPHA(THEME_TEXT, 0x18), COLOR_ALPHA(THEME_TEXT, 0x08));
         if (title) {
@@ -1769,6 +1781,7 @@ void ui_pan_release(float v)
 void ui_pan_keys(void) { g_pan_epoch++; }
 
 int ui_pan_free(const UiPan *p) { return p->free && p->epoch == g_pan_epoch; }
+int ui_pan_held(const UiPan *p) { return p == g_drag.pan && g_drag.owner == app_top(); }
 
 float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed)
 {

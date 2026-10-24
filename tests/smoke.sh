@@ -1029,6 +1029,11 @@ grep -q "touch: drag on home follows the finger up and down" "$OUT/phone_drag_le
 run phone_drag_chips 220 "wait,tap:546:1660,wait,drag:500:160:100:160,wait" $PH SNTV_EXPECT_SCREEN=library HOME="$(home_with pchips '{"setupDone":1}')"
 grep -q "touch: drag on library at .*: nothing scrolls across there" "$OUT/phone_drag_chips.log" \
   || { echo "a swipe across the Library's filters did something"; grep -E "touch:" "$OUT/phone_drag_chips.log"; exit 1; }
+# the hero is swiped across to the next title; Home tapped again goes back to the top
+run phone_hero_swipe 240 "wait,wait,wait,drag:600:400:100:400,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with phsw '{"setupDone":1}')"
+grep -q "home: hero swiped to [0-9]* of [0-9]*" "$OUT/phone_hero_swipe.log" || { echo "a swipe across the hero did not turn its page"; exit 1; }
+run phone_home_retap 280 "wait,wait,wait,drag:390:1400:390:400,wait,tap:90:1640,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with phrt '{"setupDone":1}')"
+grep -q "home: back to the top" "$OUT/phone_home_retap.log" || { echo "Home tapped again did not go back to the top"; exit 1; }
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
 LS="SNTV_WINDOW=1000x450 SNTV_HANDHELD=1"
