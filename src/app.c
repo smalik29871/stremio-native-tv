@@ -1774,6 +1774,14 @@ void app_storage(long long *total, long long *cache, long long *disk_free)
     SDL_AtomicUnlock(&g_usage_lock);
 }
 
+int app_storage_low(void)
+{
+    if (getenv("SNTV_FAKE_LOW_DISK")) return 1;
+    long long total, cache, free_b;
+    app_storage(&total, &cache, &free_b);
+    return free_b >= 0 && free_b < LOW_DISK;
+}
+
 /* Each frame: the word from a clearing, and every half hour a look at the storage. */
 static void storage_watch(float dt)
 {

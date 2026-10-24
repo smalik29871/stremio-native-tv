@@ -32,5 +32,6 @@ void image_pump(void);          /* call once per frame on the main thread */
 void image_frame_tick(void);    /* advances the LRU clock */
 int  image_busy(void);          /* decodes or uploads pending (keeps the loop awake) */
 size_t image_cache_bytes(void);
+void image_forget_prefix(const char *prefix);   /* loaded textures from addresses starting so, freed now */
 
 #endif

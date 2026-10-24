@@ -2,6 +2,7 @@
  * choice, OK toggles or opens, Back returns to the categories. Home rows can be
  * reordered and hidden; addons can be reordered (synced to the account). */
 #include "../app.h"
+#include "../depth.h"
 #include "../breaks.h"
 #include "../tmdb.h"
 #include "../ai.h"
@@ -345,7 +346,9 @@ static const char *row_desc(int id)
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
     case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
     case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
-    case IT_DEPTH: return "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
+    case IT_DEPTH: return depth_off() == 1 ? "Off for now: the TV is short of memory. It comes back by itself when there is room again."
+                        : depth_off() == 2 ? "Off for now: the TV's storage is nearly full. It comes back by itself when there is room again."
+                        : "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
     case IT_AMBIENT: return "When the remote has been quiet this long.";
     case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee or a starfield.";
     case IT_FIRE_VIDEO: return "A YouTube or video link of a real fire, played full screen and looped with the clock.";

@@ -118,6 +118,8 @@ void mem_tick(float dt)
     }
 }
 
+int mem_level_now(void) { return mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb); }
+
 void mem_playback(int playing)
 {
     /* only where room is short: elsewhere the posters stay for the way back */

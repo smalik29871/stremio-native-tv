@@ -3,6 +3,7 @@
 #include "http.h"
 #include "image.h"
 #include "log.h"
+#include "memwatch.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,9 @@ typedef struct { unsigned long long h; DepthInfo info; } Entry;
 static Entry *g_map; static size_t g_cap, g_n;
 static int g_state;          /* 0 not asked, 1 asking, 2 have the list, 3 failed */
 static double g_failed_at;
+static int g_off;            /* 0 on, 1 off for memory, 2 off for storage */
+static double g_room_since;  /* room again since then (it waits a minute before coming back) */
+#define ROOM_S 60
 
 static unsigned long long fnv64(const char *s)
 {
@@ -70,9 +74,38 @@ static const DepthInfo *find(const char *key)
     return NULL;
 }
 
+/* Depth wants room: memory short (the saver is on, or the TV is getting low) or the TV's
+ * drive nearly full turns it off at once, the list and maps let go; it comes back by
+ * itself after a minute with room again. Backdrops just stay still meanwhile. */
+static void watch_room(void)
+{
+    int why = g_app.low_memory || mem_level_now() >= 1 ? 1 : app_storage_low() ? 2 : 0;
+    if (why) {
+        g_room_since = 0;
+        if (g_off == why) return;
+        if (!g_off) {
+            free(g_map); g_map = NULL; g_cap = g_n = 0;
+            if (g_state == 2 || g_state == 3) g_state = 0;   /* asked again when it is back */
+            image_forget_prefix(base());
+            app_redraw();
+        }
+        LOGI("depth: off while %s is low; its list and maps let go", why == 1 ? "memory" : "storage");
+        g_off = why;
+        return;
+    }
+    if (!g_off) return;
+    if (!g_room_since) { g_room_since = g_app.time > 0 ? g_app.time : 0.001; return; }
+    if (g_app.time - g_room_since < ROOM_S) return;
+    LOGI("depth: back on, there is room again");
+    g_off = 0;
+}
+
+int depth_off(void) { watch_room(); return g_off; }
+
 static void on_index(HttpResponse *r, void *user)
 {
     (void)user;
+    if (g_off) { g_state = 0; return; }   /* turned off while it came */
     if (r->status != 200 || !r->body || strncmp(r->body, "# cuelight depth maps", 21) != 0) {
         g_state = 3; g_failed_at = g_app.time;
         LOGI("depth: no list of depth maps (%ld%s%s)", r->status, r->error[0] ? ", " : "", r->error);   /* backdrops just stay still: not a problem to show */
@@ -94,6 +127,8 @@ static void on_index(HttpResponse *r, void *user)
 
 const DepthInfo *depth_info(const char *url)
 {
+    watch_room();
+    if (g_off) return NULL;
     if (g_state == 3 && g_app.time - g_failed_at > RETRY_S) g_state = 0;
     if (g_state == 0) {
         char u[600];
@@ -107,7 +142,7 @@ const DepthInfo *depth_info(const char *url)
     return find(key);
 }
 
-int depth_ready(void) { depth_info(NULL); return g_state == 2; }
+int depth_ready(void) { depth_info(NULL); return g_off || g_state == 2; }   /* off: known now that none will come */
 
 unsigned depth_texture(const char *url)
 {

@@ -350,6 +350,21 @@ static void evict_if_needed(void)
     }
 }
 
+/* Every loaded texture whose address starts with prefix goes now (asked for again, it loads again). */
+void image_forget_prefix(const char *prefix)
+{
+    size_t n = strlen(prefix);
+    for (int b = 0; b < BUCKETS; b++)
+        for (Img *i = g_buckets[b]; i; i = i->next)
+            if (i->state == IMG_READY && !strncmp(i->url, prefix, n)) {
+                gfx_texture_destroy(i->tex);
+                i->tex = 0;
+                g_total_bytes -= i->bytes;
+                i->bytes = 0;
+                i->state = IMG_EVICTED;
+            }
+}
+
 static Img *get_or_create(const char *url, ImageFlags flags)
 {
     Img *i = find_flags(url, flags);

@@ -842,6 +842,13 @@ grep -q "depth: 43 backdrops have depth maps" "$OUT/home_depth.log" && grep -q "
   || { echo "Home's backdrop did not move in depth"; grep -E "depth" "$OUT/home_depth.log"; exit 1; }
 run home_depth_off 260 "right,right,wait,wait,wait" "$DEP" HOME="$(home_with depthoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"depthMotion":0}')"
 ! grep -q "home: the backdrop moves in depth" "$OUT/home_depth_off.log" || { echo "Home's backdrop moved in depth while turned off"; exit 1; }
+# Depth makes way when the TV is short of memory or storage: its list is not even asked for, the backdrop stays still
+run home_depth_lowmem 260 "right,right,wait,wait,wait" "$DEP" SNTV_FAKE_MEM=3000000,90000 HOME="$(home_with depthmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "depth: off while memory is low" "$OUT/home_depth_lowmem.log" && ! grep -q "home: the backdrop moves in depth\|backdrops have depth maps" "$OUT/home_depth_lowmem.log" \
+  || { echo "Depth stayed on with the TV short of memory"; grep -E "depth|memory" "$OUT/home_depth_lowmem.log"; exit 1; }
+run home_depth_lowdisk 260 "right,right,wait,wait,wait" "$DEP" SNTV_FAKE_LOW_DISK=1 HOME="$(home_with depthdisk '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "depth: off while storage is low" "$OUT/home_depth_lowdisk.log" && ! grep -q "home: the backdrop moves in depth" "$OUT/home_depth_lowdisk.log" \
+  || { echo "Depth stayed on with the TV's storage nearly full"; grep -E "depth|storage" "$OUT/home_depth_lowdisk.log"; exit 1; }
 run ambient_depth 400 "" SNTV_AMBIENT_SECONDS=1 "$DEP" HOME="$(home_with adepth '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":9,"ambientMinutes":2}')"
 grep -q "ambient: Depth screensaver" "$OUT/ambient_depth.log" && grep -q "ambient: depth backdrop [hm][0-9a-z]*, the clock [0-9]*% across behind them" "$OUT/ambient_depth.log" \
   || { echo "the Depth screensaver did not put the clock behind the people"; grep -E "ambient|depth" "$OUT/ambient_depth.log"; exit 1; }

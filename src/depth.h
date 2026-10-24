@@ -15,6 +15,8 @@ const DepthInfo *depth_info(const char *url);
 int depth_ready(void);
 /* Its map as a texture once loaded (and the list says there is one); 0 before. */
 unsigned depth_texture(const char *url);
+/* Turned off for want of room: 1 memory, 2 storage (0 on). It comes back by itself. */
+int depth_off(void);
 /* The name a map goes by: the TMDB file, metahub's IMDb id, else a hash of the address. */
 int depth_key(const char *url, char *key, size_t n);
 #endif
