@@ -33,6 +33,9 @@
  * app.log records every LS2 reply, which is what to read on a TV that misbehaves. */
 #include "video.h"
 #include "../log.h"
+#include "../http.h"
+#include "../sha256.h"
+#include "../store.h"
 #include "../sysinfo.h"
 #include "../platform/platform.h"
 #include "../../vendor/cJSON.h"
@@ -849,6 +852,22 @@ static int g_install_moved;   /* progress seen: a refusal now is a real failure 
 static int g_pub_wanted, g_pub;   /* the public way: to start / started */
 static char g_pub_payload[900];
 static int g_pub_logged;
+/* No Homebrew Channel (a TV in Developer Mode): the TV's own installer, as ares-install asks
+ * it. It takes a package from a path, so the app downloads the update itself and checks it
+ * against the release's SHA-256 first. */
+#define DEV_URI "luna://com.webos.appInstallService/dev/install"
+#define DEV_LOG "/tmp/sntv-devinstall.log"
+static int g_dev_wanted, g_dev;   /* g_dev: 1 downloading, 2 asked on our bus, 3 asked through luna-send-pub */
+static int g_dev_pub_wanted, g_dev_moved, g_dev_logged;
+static char g_dev_url[1024], g_dev_sha[72], g_dev_id[128], g_dev_path[600];
+
+/* The Homebrew Channel said no before anything moved: the TV's own installer instead. */
+static void no_hbchannel(void)
+{
+    if (g_dev) return;
+    g_dev_wanted = 1;
+    snprintf(g_install_text, sizeof g_install_text, "No Homebrew Channel: using the TV's own installer\xE2\x80\xA6");
+}
 
 static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
 {
@@ -861,6 +880,8 @@ static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
     if ((cJSON_IsFalse(ok) || cJSON_IsString(err)) && !g_install_moved && !g_pub) {
         g_pub_wanted = 1;   /* refused before anything moved: the public way, from the app's thread */
         snprintf(g_install_text, sizeof g_install_text, "Asking the Homebrew Channel another way\xE2\x80\xA6");
+    } else if ((cJSON_IsFalse(ok) || cJSON_IsString(err)) && !g_install_moved) {
+        /* luna-send-pub is asking now: its answer decides */
     } else if (cJSON_IsFalse(ok) || cJSON_IsString(err)) {
         g_install_state = -1;
         snprintf(g_install_text, sizeof g_install_text, "%.150s", cJSON_IsString(err) ? err->valuestring : "the Homebrew Channel refused the update");
@@ -878,17 +899,22 @@ static int on_install(LSHandle *sh, LSMessage *msg, void *ctx)
     return 1;
 }
 
-/* the request through luna-send-pub; 0 when it went out */
-static int install_pub(void)
+/* a request through luna-send-pub, its replies written to log; 0 when it went out */
+static int send_pub(const char *uri, const char *payload, const char *log)
 {
     if (access(PUB_TOOL, X_OK) != 0) return -1;
-    for (const char *c = g_pub_payload; *c; c++) if (*c == '\'') return -1;   /* it goes in single quotes */
-    unlink(PUB_LOG);
-    g_pub_logged = 0;
-    char cmd[1200];
-    snprintf(cmd, sizeof cmd, "nohup " PUB_TOOL " -i -f luna://org.webosbrew.hbchannel.service/install '%s' > " PUB_LOG " 2>&1 &", g_pub_payload);
-    LOGI("update: asking the Homebrew Channel through luna-send-pub");
+    for (const char *c = payload; *c; c++) if (*c == '\'') return -1;   /* it goes in single quotes */
+    unlink(log);
+    char cmd[1600];
+    snprintf(cmd, sizeof cmd, "nohup " PUB_TOOL " -i -f %s '%s' > %s 2>&1 &", uri, payload, log);
     return system(cmd) == 0 ? 0 : -1;
+}
+
+static int install_pub(void)
+{
+    g_pub_logged = 0;
+    LOGI("update: asking the Homebrew Channel through luna-send-pub");
+    return send_pub("luna://org.webosbrew.hbchannel.service/install", g_pub_payload, PUB_LOG);
 }
 
 /* the latest of each field in the replies written so far */
@@ -912,7 +938,9 @@ static void pub_read(void)
     const char *err = strstr(buf, "\"errorText\"");
     int refused = !err && (strstr(buf, "\"returnValue\": false") || strstr(buf, "\"returnValue\":false"));
     pthread_mutex_lock(&g_install_lock);
+    if (status[0]) g_install_moved = 1;
     if (done) { g_install_state = 2; snprintf(g_install_text, sizeof g_install_text, "Installed"); }
+    else if ((refused || err) && !g_install_moved) no_hbchannel();   /* no Homebrew Channel to answer */
     else if (refused) { g_install_state = -1; snprintf(g_install_text, sizeof g_install_text, "the Homebrew Channel refused the update"); }
     else if (err) {
         const char *a = strchr(err + 11, '"'); const char *b = a ? strchr(a + 1, '"') : NULL;
@@ -927,6 +955,160 @@ static void pub_read(void)
     if (st != 1 && !g_pub_logged) { g_pub_logged = 1; LOGI("update: installer (luna-send-pub) says %.200s", buf); }
 }
 
+static void dev_fail(const char *why)
+{
+    pthread_mutex_lock(&g_install_lock);
+    g_install_state = -1;
+    snprintf(g_install_text, sizeof g_install_text, "%.150s", why);
+    pthread_mutex_unlock(&g_install_lock);
+    LOGW("update: %s", why);
+}
+
+/* The installer's answers: {"details":{"state":"installing"...}}, at the end "installed", or
+ * "errorCode"/"reason" when it refused (not in Developer Mode, a package it would not take). */
+static int on_dev(LSHandle *sh, LSMessage *msg, void *ctx)
+{
+    (void)sh; (void)ctx;
+    const char *payload = L.MessageGetPayload(msg);
+    cJSON *r = cJSON_Parse(payload ? payload : "");
+    const cJSON *d = cJSON_GetObjectItemCaseSensitive(r, "details");
+    const cJSON *state = cJSON_GetObjectItemCaseSensitive(d, "state"), *code = cJSON_GetObjectItemCaseSensitive(d, "errorCode");
+    const cJSON *reason = cJSON_GetObjectItemCaseSensitive(d, "reason"), *ok = cJSON_GetObjectItemCaseSensitive(r, "returnValue");
+    const cJSON *err = cJSON_GetObjectItemCaseSensitive(r, "errorText");
+    pthread_mutex_lock(&g_install_lock);
+    if ((cJSON_IsFalse(ok) || cJSON_IsString(err)) && !g_dev_moved && g_dev == 2) g_dev_pub_wanted = 1;   /* not for our bus: the public way */
+    else if (cJSON_IsNumber(code) || (cJSON_IsString(state) && strstr(state->valuestring, "fail"))) {
+        g_install_state = -1;
+        snprintf(g_install_text, sizeof g_install_text, "The TV's installer refused it: %.110s", cJSON_IsString(reason) ? reason->valuestring : cJSON_IsString(state) ? state->valuestring : "an error");
+    } else if (cJSON_IsString(state) && !strcmp(state->valuestring, "installed")) {
+        g_install_state = 2;
+        snprintf(g_install_text, sizeof g_install_text, "Installed");
+    } else if (cJSON_IsString(state)) {
+        g_dev_moved = 1;
+        snprintf(g_install_text, sizeof g_install_text, "Installing (%.100s)", state->valuestring);
+    }
+    pthread_mutex_unlock(&g_install_lock);
+    LOGI("update: the TV's installer says %.200s", payload ? payload : "");
+    if (r) cJSON_Delete(r);
+    return 1;
+}
+
+static void dev_payload(char *out, size_t n)
+{
+    cJSON *p = cJSON_CreateObject();
+    cJSON_AddStringToObject(p, "id", g_dev_id);
+    cJSON_AddStringToObject(p, "ipkUrl", g_dev_path);
+    cJSON_AddTrueToObject(p, "subscribe");
+    char *txt = cJSON_PrintUnformatted(p);
+    cJSON_Delete(p);
+    snprintf(out, n, "%s", txt ? txt : "{}");
+    free(txt);
+}
+
+static void dev_ask_pub(void)
+{
+    char payload[900];
+    dev_payload(payload, sizeof payload);
+    LOGI("update: asking the TV's installer through luna-send-pub");
+    if (send_pub(DEV_URI, payload, DEV_LOG) == 0) g_dev = 3;
+    else dev_fail("This TV did not let the app install the update (no Homebrew Channel, and its installer refused)");
+}
+
+static void dev_ask(void)
+{
+    char payload[900];
+    dev_payload(payload, sizeof payload);
+    pthread_mutex_lock(&g_install_lock);
+    g_dev = 2;
+    snprintf(g_install_text, sizeof g_install_text, "Installing with the TV's installer\xE2\x80\xA6");
+    pthread_mutex_unlock(&g_install_lock);
+    LOGI("update: asking the TV's installer for %s", g_dev_path);
+    LSError e; L.ErrorInit(&e);
+    int sent = g_bus && L.Call && L.Call(g_bus, DEV_URI, payload, on_dev, NULL, NULL, &e);
+    if (!sent) { if (g_bus && L.Call) ls_error_log("dev install", &e); dev_ask_pub(); }
+    L.ErrorFree(&e);
+}
+
+/* The latest state in the installer's replies through luna-send-pub. */
+static void dev_read(void)
+{
+    FILE *f = fopen(DEV_LOG, "rb");
+    if (!f) return;
+    static char buf[16384];
+    if (fseek(f, 0, SEEK_END) == 0) { long size = ftell(f); if (size > (long)sizeof buf - 1) fseek(f, size - (long)(sizeof buf - 1), SEEK_SET); else rewind(f); }
+    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    char state[64] = "", reason[120] = "";
+    const char *p, *last = NULL;
+    for (p = buf; (p = strstr(p, "\"state\"")) != NULL; p++) last = p;
+    if (last) { const char *a = strchr(last + 7, '"'); const char *b = a ? strchr(a + 1, '"') : NULL; if (a && b && b - a - 1 < (long)sizeof state) { memcpy(state, a + 1, (size_t)(b - a - 1)); state[b - a - 1] = 0; } }
+    if ((p = strstr(buf, "\"reason\"")) != NULL) { const char *a = strchr(p + 8, '"'); const char *b = a ? strchr(a + 1, '"') : NULL; if (a && b && b - a - 1 < (long)sizeof reason) { memcpy(reason, a + 1, (size_t)(b - a - 1)); reason[b - a - 1] = 0; } }
+    int refused = !state[0] && (strstr(buf, "\"returnValue\": false") || strstr(buf, "\"returnValue\":false"));
+    pthread_mutex_lock(&g_install_lock);
+    if (!strcmp(state, "installed")) { g_install_state = 2; snprintf(g_install_text, sizeof g_install_text, "Installed"); }
+    else if (strstr(buf, "\"errorCode\"") || strstr(state, "fail") || refused) {
+        g_install_state = -1;
+        snprintf(g_install_text, sizeof g_install_text, "The TV's installer refused it: %.110s", reason[0] ? reason : state[0] ? state : "is this TV in Developer Mode?");
+    } else if (state[0]) snprintf(g_install_text, sizeof g_install_text, "Installing (%.100s)", state);
+    int st = g_install_state;
+    pthread_mutex_unlock(&g_install_lock);
+    if (st != 1 && !g_dev_logged) { g_dev_logged = 1; LOGI("update: the TV's installer (luna-send-pub) says %.200s", buf); }
+}
+
+/* On a network worker: the package, checked against the release's hash, saved where the
+ * installer can read it. */
+static void dev_fetch(HttpResponse *r, void *arg)
+{
+    (void)arg;
+    HttpResponse got;
+    memset(&got, 0, sizeof got);
+    http_request(g_dev_url, NULL, &got);
+    if (got.status != 200 || !got.body || got.len < 1024) {
+        r->status = -1;
+        snprintf(r->error, sizeof r->error, "The update did not download (%ld %.180s)", got.status, got.error);
+    } else {
+        char hex[65];
+        sha256_hex(got.body, got.len, hex);
+        FILE *f = NULL;
+        if (g_dev_sha[0] && strcasecmp(hex, g_dev_sha)) { r->status = -1; snprintf(r->error, sizeof r->error, "The download did not match the release (SHA-256)"); }
+        else if (!(f = fopen(g_dev_path, "wb")) || fwrite(got.body, 1, got.len, f) != got.len) { r->status = -1; snprintf(r->error, sizeof r->error, "No room to keep the update (%.200s)", g_dev_path); }
+        else r->status = 200;
+        if (f && fclose(f) != 0 && r->status == 200) { r->status = -1; snprintf(r->error, sizeof r->error, "No room to keep the update (%.200s)", g_dev_path); }
+    }
+    http_response_free(&got);
+}
+
+static void dev_fetched(HttpResponse *r, void *user)
+{
+    (void)user;
+    if (r->status != 200) { unlink(g_dev_path); dev_fail(r->error); return; }
+    LOGI("update: downloaded and checked, %s", g_dev_path);
+    dev_ask();
+}
+
+/* Where the package waits for the installer: the developer partition's temp folder, as
+ * ares-install uses, else the app's own data folder. */
+static void dev_download(void)
+{
+    const char *dirs[] = { "/media/developer/temp", store_dir() };
+    g_dev_path[0] = 0;
+    for (size_t i = 0; i < sizeof dirs / sizeof dirs[0] && !g_dev_path[0]; i++) {
+        if (!dirs[i] || !*dirs[i]) continue;
+        char test[600];
+        snprintf(test, sizeof test, "%s/%s-update.ipk", dirs[i], g_dev_id);
+        FILE *f = fopen(test, "wb");
+        if (f) { fclose(f); snprintf(g_dev_path, sizeof g_dev_path, "%s", test); }
+    }
+    if (!g_dev_path[0]) { dev_fail("No folder the update could be saved in"); return; }
+    pthread_mutex_lock(&g_install_lock);
+    g_dev = 1;
+    snprintf(g_install_text, sizeof g_install_text, "Downloading the update\xE2\x80\xA6");
+    pthread_mutex_unlock(&g_install_lock);
+    LOGI("update: no Homebrew Channel here; downloading for the TV's own installer");
+    http_task_async("update download", dev_fetch, NULL, dev_fetched, NULL);
+}
+
 int video_install_update(const char *ipk_url, const char *sha256, const char *app_id)
 {
     cJSON *p = cJSON_CreateObject();
@@ -937,8 +1119,12 @@ int video_install_update(const char *ipk_url, const char *sha256, const char *ap
     char *payload = cJSON_PrintUnformatted(p);
     cJSON_Delete(p);
     snprintf(g_pub_payload, sizeof g_pub_payload, "%s", payload);
+    snprintf(g_dev_url, sizeof g_dev_url, "%s", ipk_url);
+    snprintf(g_dev_sha, sizeof g_dev_sha, "%s", sha256 ? sha256 : "");
+    snprintf(g_dev_id, sizeof g_dev_id, "%s", app_id);
     pthread_mutex_lock(&g_install_lock);
     g_install_state = 1; g_install_moved = 0; g_pub = 0; g_pub_wanted = 0;
+    g_dev = 0; g_dev_wanted = 0; g_dev_pub_wanted = 0; g_dev_moved = 0; g_dev_logged = 0;
     snprintf(g_install_text, sizeof g_install_text, "Asking the Homebrew Channel\xE2\x80\xA6");
     pthread_mutex_unlock(&g_install_lock);
     if (!g_bus || !L.Call) {   /* no bus of our own: the public way only */
@@ -971,13 +1157,20 @@ int video_install_status(char *out, size_t n)
         if (install_pub() == 0) g_pub = 1;
         else {
             pthread_mutex_lock(&g_install_lock);
-            g_install_state = -1;
-            snprintf(g_install_text, sizeof g_install_text, "The Homebrew Channel did not take the update (luna-send-pub missing)");
+            no_hbchannel();
             pthread_mutex_unlock(&g_install_lock);
         }
     }
+    pthread_mutex_lock(&g_install_lock);
+    int start_dev = g_dev_wanted, dev_pub = g_dev_pub_wanted;
+    g_dev_wanted = g_dev_pub_wanted = 0;
+    pthread_mutex_unlock(&g_install_lock);
+    if (start_dev) dev_download();
+    if (dev_pub) dev_ask_pub();
     static unsigned polls;
-    if (g_pub && polls++ % 15 == 0) pub_read();   /* a few times a second */
+    if (g_pub && !g_dev && polls % 15 == 0) pub_read();   /* a few times a second */
+    if (g_dev == 3 && polls % 15 == 0) dev_read();
+    polls++;
     pthread_mutex_lock(&g_install_lock);
     snprintf(out, n, "%s", g_install_text);
     int s = g_install_state;

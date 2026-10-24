@@ -1,6 +1,7 @@
 /* Updating the app, once the viewer said Update now (the popup, or Settings > About >
- * Update): the Homebrew Channel downloads, checks and installs the new version, and the
- * system closes the app while it does. An optional countdown comes first (OK skips it).
+ * Update): the Homebrew Channel downloads, checks and installs the new version (where there
+ * is none, as in Developer Mode, the app downloads and checks it for the TV's own installer),
+ * and the system closes the app while it does. An optional countdown comes first (OK skips it).
  * Where the TV refuses the app that installer, the screen shows how to update from the
  * Homebrew Channel itself instead, and remembers so it doesn't try again unasked. */
 #include "../app.h"
@@ -132,8 +133,8 @@ static void draw(Screen *s)
     } else if (u->state == -1) {
         snprintf(line, sizeof line, "%.200s", u->status);
         center_line(line, cx, y, FONT_S, THEME_DANGER);
-        center_line("The Homebrew Channel can install it: Cuelight > Update.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
-        center_line("Open it from the Home screen   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        center_line("By hand: the Homebrew Channel (Cuelight > Update), or the release's .ipk in webOS Dev Manager.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
+        center_line("OK: try again   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
     } else {
         ui_spinner(cx, y + 10, 26);
         center_line(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
@@ -151,7 +152,8 @@ static int key(Screen *s, KeyAction a)
 #endif
         if (!u->started) start(u);
         else if (u->state == 2) g_app.quit = 1;
-        else if (u->state == -1) app_toast("Open the Homebrew Channel from the Home screen to update");   /* webOS won't let an app open another */
+        else if (u->state == -1 && u->by_hand) app_toast("Open the Homebrew Channel from the Home screen to update");   /* no installer here at all; webOS won't let an app open another */
+        else if (u->state == -1) { u->state = 0; u->status[0] = 0; start(u); }   /* again: the Homebrew Channel, else the TV's own installer */
         return 1;
     }
     if (a == KEY_BACK && (!u->started || u->state == 2 || u->state == -1)) {

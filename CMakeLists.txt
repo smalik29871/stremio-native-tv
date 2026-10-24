@@ -39,6 +39,7 @@ add_library(sntv_core STATIC
   src/http.c
   src/relay.c
   src/store.c
+  src/sha256.c
   src/subs.c
   src/skip.c
   src/quality.c
@@ -232,6 +233,9 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   add_executable(test_quality tests/test_quality.c)
   target_link_libraries(test_quality PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME source_quality COMMAND test_quality)
+  add_executable(test_sha256 tests/test_sha256.c)
+  target_link_libraries(test_sha256 PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME sha256 COMMAND test_sha256)
   add_executable(test_sun tests/test_sun.c)
   target_link_libraries(test_sun PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME sun_times COMMAND test_sun)

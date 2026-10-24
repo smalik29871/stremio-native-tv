@@ -1468,8 +1468,8 @@ static void ask_to_update(void)
     snprintf(body, sizeof body, "It downloads here, then Android asks you to confirm the install (the first time, also to let "
              "Cuelight install apps). Your sign-in, settings and progress stay. Later asks again next time (Settings > About > Update any time).");
 #else
-    snprintf(body, sizeof body, "It takes about half a minute. The app closes while the Homebrew Channel installs it; "
-             "open it again afterwards. Later asks again the next time the app starts (Settings > About > Update any time).");
+    snprintf(body, sizeof body, "It takes about half a minute. The app closes while the update installs (by the Homebrew Channel, "
+             "or the TV's own installer in Developer Mode); open it again afterwards. Later asks again next time (Settings > About > Update).");
 #endif
     app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL)));
 }
