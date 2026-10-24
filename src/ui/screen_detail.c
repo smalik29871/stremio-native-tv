@@ -80,6 +80,7 @@ typedef struct {
     int cast_focus, sim_focus, fr_focus, fr_opening, mus_focus, mus_asked; unsigned fr_gen;
     float cast_x, sim_x, fr_x, mus_x;
     UiPan ph_pan, cast_pan, sim_pan;   /* upright on a phone: a finger on the page, the cast, More like this */
+    UiPan ep_pan;                      /* a handheld on its side: a finger on the episodes */
     MetaPreview *similar; int n_similar; unsigned sim_req; int sim_asked; char sim_genre[64];
     float ph_fy, ph_fh, ph_total, ph_sx;   /* upright on a phone: the focus on the page, its length, the seasons' offset */
 } Detail;
@@ -552,9 +553,27 @@ static AboutLayout about_layout(const Detail *d, int n_cast)
     return L;
 }
 
+/* where the page ends: the last of About's rows */
+static float page_bottom(const Detail *d, int n_cast)
+{
+    AboutLayout L = about_layout(d, n_cast);
+    if (L.similar >= 0) return L.similar + 60 + SIM_H + 100;
+    if (L.music >= 0) return L.music + 60 + MUS_H + 120;
+    if (L.franchise >= 0) return L.franchise + 60 + SIM_H + 140;
+    if (L.cast >= 0) return L.cast + 60 + CAST_D + 160;
+    return L.facts + d->facts_h + 120;
+}
+
+/* a short screen (a phone on its side): the page sits this far up so the whole episode row shows */
+static float short_lift(const Detail *d)
+{
+    float t = d->meta.n_videos > 0 ? RAIL_Y + EP_H + 70 - SNTV_UI_H : 0;
+    return t > 0 ? t : 0;
+}
+
 static float scroll_target(const Detail *d, int n_cast)
 {
-    if (d->area < AREA_ABOUT) return 0;
+    if (d->area < AREA_ABOUT) return short_lift(d);
     AboutLayout L = about_layout(d, n_cast);
     float top = ABOUT_Y - 150, bottom = L.facts + d->facts_h;
     if (d->area == AREA_CAST && L.cast >= 0) bottom = L.cast + 60 + CAST_D + 100;
@@ -660,6 +679,14 @@ static void update(Screen *s, float dt)
     if (ut < 0) ut = 0;
     if (SNTV_PHONE) ;
     else if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; d->mus_x = ut; }
+    else if (gfx_handheld()) {   /* on its side: the page and the episodes follow a finger too */
+        ui_pan(&d->ph_pan, &d->scroll, st, d->has_meta ? page_bottom(d, n_cast) - SNTV_UI_H : st, dt, 11);
+        d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
+        d->sim_x = ui_ease(d->sim_x, mt, NULL, dt, 14);
+        d->fr_x = ui_ease(d->fr_x, ft, NULL, dt, 14);
+        d->mus_x = ui_ease(d->mus_x, ut, NULL, dt, 14);
+        if ((!ui_pan_free(&d->ph_pan) && fabsf(d->scroll - st) > 0.5f) || fabsf(d->cast_x - ct) > 0.5f || fabsf(d->sim_x - mt) > 0.5f || fabsf(d->fr_x - ft) > 0.5f || fabsf(d->mus_x - ut) > 0.5f) app_redraw();
+    }
     else {
         d->scroll = ui_ease(d->scroll, st, &d->scroll_v, dt, 11);
         d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
@@ -681,7 +708,8 @@ static void update(Screen *s, float dt)
         ui_pan(&d->cast_pan, &d->cast_x, row_offset(d->cast_focus, n_cast, PH_CAST_STEP, SNTV_UI_W - 80), n_cast * PH_CAST_STEP - (SNTV_UI_W - 80), dt, 14);
         ui_pan(&d->sim_pan, &d->sim_x, row_offset(d->sim_focus, d->n_similar, PH_SIM_W + 24, SNTV_UI_W - 80), d->n_similar * (PH_SIM_W + 24) - 24 - (SNTV_UI_W - 80), dt, 14);
     }
-    d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
+    if (gfx_handheld() && !SNTV_PHONE) ui_pan(&d->ep_pan, &d->rail_x, d->ep_focus * (EP_W + EP_GAP), (d->n_eps - 1) * (EP_W + EP_GAP), dt, 14);
+    else d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
     if (d->ask_open) { d->ask_t = ui_ease(d->ask_t * 100, 100, NULL, dt, 14) / 100; if (d->ask_t < 0.999f || d->ask_req) app_redraw(); }
@@ -1045,6 +1073,7 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
     int cur_idx = -1;
     if (li && li->video_id)
         for (int kk = 0; kk < d->n_eps; kk++) if (strcmp(d->meta.videos[d->ep_index[kk]].id, li->video_id) == 0) cur_idx = kk;
+    if (gfx_handheld()) ui_pan_area(&d->ep_pan, 0, RAIL_Y - 20, SNTV_UI_W, EP_H + 100, 0);
     int first = (int)(d->rail_x / (EP_W + EP_GAP)) - 1;
     if (first < 0) first = 0;
     for (int pass = 0; pass < 2; pass++)
@@ -1345,6 +1374,7 @@ static void draw(Screen *s)
 {
     Detail *d = s->st;
     if (SNTV_PHONE) { phone_draw(d); return; }
+    if (gfx_handheld()) ui_pan_area(&d->ph_pan, 0, 0, SNTV_UI_W, SNTV_UI_H, 1);
     char buf[512], lbuf[512];
     const char *bg = app_art_background(&d->preview, buf, sizeof buf);
     if (bg) ui_set_ambient_art(bg);
@@ -1390,8 +1420,9 @@ static void draw(Screen *s)
         ui_serif_title(d->preview.name, x, series ? 270 : 360, col_w, series ? FONT_HUGE : FONT_HERO, 2, COLOR_ALPHA(THEME_TEXT, a));
         y = series ? 296 : 386;
     } else if (ltex && ih > 0) {
-        float w = 640, h = w * ih / iw;
-        if (h > 180) { h = 180; w = h * iw / ih; }
+        float w = 640, h = w * ih / iw, most = 180 - (short_lift(d) > 50 ? short_lift(d) - 50 : 0);   /* smaller where the page sits up */
+        if (most < 72) most = 72;
+        if (h > most) { h = most; w = h * iw / ih; }
         gfx_tex(ltex, x, y + (180 - h), w, h, RGBA(255, 255, 255, a));
         y += 200;
     } else {
@@ -1507,7 +1538,7 @@ static void draw(Screen *s)
     stage_begin(d, stage(d, 3));
     if (series) draw_series(d, li, x);
     gfx_set_alpha(1); gfx_set_translate(0, -d->scroll);
-    if (d->has_meta && d->scroll < 160 && !(series && g_theme.id == THEME_APERTURE)) {   /* the way down to About; gone once the page moves (Aperture's episodes reach the bottom) */
+    if (d->has_meta && d->scroll < 160 && !(series && g_theme.id == THEME_APERTURE) && !gfx_handheld()) {   /* the way down to About; gone once the page moves (Aperture's episodes reach the bottom) */
         Color c = COLOR_ALPHA(THEME_TEXT_MUTED, (int)(((THEME_TEXT_MUTED) & 0xFF) * (1 - d->scroll / 160)));
         float cw = font_measure("About, cast and more", FONT_XS | FONT_B) + 36, cx = (SNTV_UI_W - cw) / 2, cy = SNTV_UI_H - 44;
         ui_icon(ICON_CHEVRON_DOWN, cx + 10, cy + font_height(FONT_XS | FONT_B) / 2, 22, c);

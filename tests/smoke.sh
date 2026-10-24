@@ -1064,6 +1064,8 @@ run fs_player_seek 420 "$FSP,drag:600:540:1200:540" $LS SNTV_EXPECT_SCREEN=playe
 grep -q "player: dragged to [0-9]* s" "$OUT/fs_player_seek.log" || { echo "a drag across the picture did not seek"; exit 1; }
 run fs_player_bright 420 "$FSP,drag:400:300:400:700" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs7 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "player: brightness [0-9]*%" "$OUT/fs_player_bright.log" || { echo "a drag down the left of the picture did not change the brightness"; exit 1; }
+# A phone on its side (2025x820): a series' title page shows its whole episode row, so a tap there opens the episode
+run ls_series_episodes 300 "right,ok,wait,wait,tap:400:640,wait,wait" SNTV_WINDOW=1250x506 SNTV_HANDHELD=1 SNTV_EXPECT_SCREEN=streams HOME="$(home_with lse '{"setupDone":1}')"
 # a finger held still on the picture plays at double speed until it lifts (and is not a tap)
 run fs_player_hold 640 "$FSP,press:1300:420,wait,wait,wait,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs8 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "player: held: double speed" "$OUT/fs_player_hold.log" && grep -q "player: let go: back to 1x" "$OUT/fs_player_hold.log" || { echo "holding the picture did not play at double speed and back"; grep "player:" "$OUT/fs_player_hold.log" | tail -5; exit 1; }
