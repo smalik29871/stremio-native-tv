@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.78
+
+- **A loading screen on phones**: sideways on a phone, a source that is still opening shows
+  the loading card, as on a TV (the backdrop, the title, the format, a ring and what is
+  happening: opening the source, getting it from TorBox, finding peers), with Back to leave,
+  instead of a paused-looking player at 0:00.
+
 ## 0.10.77
 
 - **When TorBox is down, something else plays**: a torrent TorBox had cached now also plays
