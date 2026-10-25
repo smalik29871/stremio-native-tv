@@ -29,7 +29,8 @@ static int g_sock = -1, g_port;
 static SDL_Thread *g_thread;
 static SDL_mutex *g_lock;
 static char g_title[96], g_hint[300], g_current[600];
-static char g_pending[600]; static int g_has_pending;
+static char g_pending[4096]; static int g_has_pending;   /* an addon link with its settings can run long */
+static char g_link_label[96], g_link[2048];   /* a page the field is about (an addon's settings), offered above it */
 static char g_file_slot[16];   /* "start" / "end" while a recording may be uploaded */
 static volatile int g_quit;
 static char *g_log; static char g_log_key[20];   /* the log offered while Diagnostics shows its QR */
@@ -736,14 +737,15 @@ static int handle(int fd, const struct sockaddr_in *peer)
     }
     int post = strncmp(req, "POST", 4) == 0;
     SDL_LockMutex(g_lock);
-    char title[96], hint[300], current[600], slot[16];
+    char title[96], hint[300], current[600], slot[16], link_label[96], link[2048];
     snprintf(title, sizeof title, "%s", g_title); snprintf(hint, sizeof hint, "%s", g_hint); snprintf(current, sizeof current, "%s", g_current); snprintf(slot, sizeof slot, "%s", g_file_slot);
+    snprintf(link_label, sizeof link_label, "%s", g_link_label); snprintf(link, sizeof link, "%s", g_link);
     SDL_UnlockMutex(g_lock);
-    char page[5000], et[256], eh[700], ec[1500];
+    char page[10000], et[256], eh[700], ec[1500];
     if (post && body && title[0]) {
         const char *v = strstr(body, "text=");
-        char decoded[600] = "";
-        if (v) { char raw[600]; snprintf(raw, sizeof raw, "%s", v + 5); char *amp = strchr(raw, '&'); if (amp) *amp = 0; url_decode(raw, decoded, sizeof decoded); }
+        char decoded[4096] = "";
+        if (v) { char raw[8192]; snprintf(raw, sizeof raw, "%s", v + 5); char *amp = strchr(raw, '&'); if (amp) *amp = 0; url_decode(raw, decoded, sizeof decoded); }
         /* trim */
         char *s = decoded; while (*s == ' ' || *s == '\n' || *s == '\r' || *s == '\t') s++;
         size_t len = strlen(s); while (len && (s[len - 1] == ' ' || s[len - 1] == '\n' || s[len - 1] == '\r' || s[len - 1] == '\t')) s[--len] = 0;
@@ -774,8 +776,14 @@ static int handle(int fd, const struct sockaddr_in *peer)
     char upload[900] = "";
     if (slot[0]) snprintf(upload, sizeof upload, "<h1 style='margin-top:34px'>Or send a recording from this phone</h1><p>An MP3, M4A, OGG or WAV you have (an adhan, a dua, a bell). It is stored on the TV and plays even without internet.</p>"
                           "<form method=post action=/upload enctype=multipart/form-data><input type=file name=f accept='audio/*,video/mp4,.mp3,.m4a,.ogg,.wav'><button type=submit>Send this recording to the TV</button></form>");
-    snprintf(page, sizeof page, "%s<h1>%s</h1><p>%s</p><form method=post action=/><textarea name=text rows=4 autofocus autocapitalize=off autocorrect=off spellcheck=false>%s</textarea><button type=submit>Send to the TV</button></form>%s<p><small>This page is served by your TV on your home network and only works while that field is open.</small></p>",
-             PAGE_HEAD, et, eh, ec, upload);
+    char opener[5600] = "";
+    if (link[0]) {   /* step 1 the page it is about, opened in a new tab; step 2 what it gives back, pasted below */
+        char el[5000], ell[256];
+        html_escape(link, el, sizeof el); html_escape(link_label, ell, sizeof ell);
+        snprintf(opener, sizeof opener, "<a href=\"%s\" target=_blank rel=noopener><button type=button>%s</button></a><div style='height:26px'></div>", el, ell);
+    }
+    snprintf(page, sizeof page, "%s<h1>%s</h1>%s<p>%s</p><form method=post action=/><textarea name=text rows=4 autofocus autocapitalize=off autocorrect=off spellcheck=false>%s</textarea><button type=submit>Send to the TV</button></form>%s<p><small>This page is served by your TV on your home network and only works while that field is open.</small></p>",
+             PAGE_HEAD, et, opener, eh, ec, upload);
     respond(fd, "200 OK", page);
     return 0;
 }
@@ -870,6 +878,16 @@ void phone_prompt(const char *title, const char *hint, const char *current)
     snprintf(g_current, sizeof g_current, "%s", current ? current : "");
     g_has_pending = 0;
     g_file_slot[0] = 0;
+    g_link_label[0] = g_link[0] = 0;
+    SDL_UnlockMutex(g_lock);
+}
+
+void phone_prompt_link(const char *label, const char *url)
+{
+    if (!g_lock) return;
+    SDL_LockMutex(g_lock);
+    snprintf(g_link_label, sizeof g_link_label, "%s", label ? label : "");
+    snprintf(g_link, sizeof g_link, "%s", url ? url : "");
     SDL_UnlockMutex(g_lock);
 }
 

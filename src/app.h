@@ -353,6 +353,7 @@ Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + cloc
 Screen *screen_rate_create(const char *id, const char *type, const char *title, const char *subtitle);
 struct MusicAlbum;
 Screen *screen_soundtrack_create(const struct MusicAlbum *album, const char *of);   /* one album, its tracks, a code to scan */
+Screen *screen_addon_setup_create(const Addon *a);   /* an addon's own settings, set on a phone; its new link takes its place */
 Screen *screen_profiles_create(void);  /* Who's watching: the saved accounts as profiles */
 int     profiles_at_start(void);       /* signed in, others saved and the picker wanted */
 

@@ -107,6 +107,7 @@ int video_take_open_url(char *out, size_t n)
     (*e)->DeleteLocalRef(e, s);
     return ok;
 }
+int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }   /* SDL hands it to Android: -1 where nothing opens web links (some TV boxes) */
 void video_pip_allow(int on) { static int was = -1; if (on != was) { was = on; CALL(M_PIP_ALLOW, (jboolean)(on != 0)); } }
 static int get_bool(int m)
 {

@@ -684,6 +684,18 @@ static void on_install_manifest(HttpResponse *r, void *user)
     if (addon_new(url, r->body, &a) != 0) { if (!quiet) app_toast("Invalid addon manifest"); free(url); return; }
     for (int i = 0; i < g_app.n_addons; i++)
         if (strcmp(g_app.addons[i].transport_url, url) == 0) { if (!quiet) app_toast("Addon already installed"); addon_free(&a); free(url); return; }
+    for (int i = 0; i < g_app.n_addons; i++)   /* the same addon set up again (its settings live in the link): it takes the old one's place */
+        if (a.manifest.id && g_app.addons[i].manifest.id && !strcmp(a.manifest.id, g_app.addons[i].manifest.id) && !g_app.addons[i].flag_protected) {
+            a.flag_official = g_app.addons[i].flag_official;
+            addon_free(&g_app.addons[i]);
+            g_app.addons[i] = a;
+            g_app.addons_version++;
+            LOGI("addons: %s set up again, in its place (%d)", a.manifest.name, i + 1);
+            if (!quiet) app_toast("%s updated with its new settings", a.manifest.name);
+            free(url);
+            if (g_app.auth_key) push_collection_to_account(); else persist_local_addon_urls();
+            return;
+        }
     g_app.addons = realloc(g_app.addons, sizeof(Addon) * (size_t)(g_app.n_addons + 1));
     g_app.addons[g_app.n_addons++] = a;
     g_app.addons_version++;
@@ -694,8 +706,11 @@ static void on_install_manifest(HttpResponse *r, void *user)
 
 void app_install_addon(const char *transport_url)
 {
-    char url[1024];
-    addon_url_manifest(transport_url, url, sizeof url);
+    char url[4096], in[4096];   /* a configured addon carries its settings in the link: some run to kilobytes */
+    while (*transport_url == ' ') transport_url++;
+    if (!strncmp(transport_url, "stremio://", 10)) snprintf(in, sizeof in, "https://%s", transport_url + 10);   /* an addon page's Install link */
+    else snprintf(in, sizeof in, "%s", transport_url);
+    addon_url_manifest(in, url, sizeof url);
     http_request_async(url, NULL, on_install_manifest, strdup(url));
 }
 
@@ -707,7 +722,7 @@ void app_open_links(void)
     static float looked;
     if (g_app.time - looked < 0.5f) return;
     looked = g_app.time;
-    char link[2048];
+    char link[4096];
     static int env_done;
     const char *env = env_done ? NULL : getenv("SNTV_OPEN_LINK");   /* tests: as if opened with this link */
     env_done = 1;
@@ -718,7 +733,7 @@ void app_open_links(void)
         app_push(screen_sync_create(strstr(link, "u=") ? link : NULL));   /* no device in it: this one's code */
         return;
     }
-    char url[2100];
+    char url[4200];
     if (!strncmp(link, "stremio://", 10)) snprintf(url, sizeof url, "https://%s", link + 10);
     else snprintf(url, sizeof url, "%s", link);
     const char *h = strstr(url, "://");

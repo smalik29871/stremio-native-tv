@@ -90,7 +90,6 @@ typedef struct {
     int cat;                 /* the category shown */
     int zone;                /* 0 categories, 1 rows */
     int focus;               /* row index within the category */
-    int confirm_remove;      /* addon index awaiting the second OK */
     int edit;
     Keyboard kb;
     float scroll, scroll_target, scroll_max;
@@ -555,8 +554,12 @@ static void update(Screen *s, float dt)
         return;
     }
     if (st->edit != EDIT_NONE) {   /* text sent from the phone fills the field and saves */
-        char got[600];
-        if (phone_take(got, sizeof got)) { snprintf(st->kb.text, sizeof st->kb.text, "%.255s", got); app_toast("Received from your phone"); finish_edit(st, 1); app_redraw(); }
+        char got[4096];
+        if (phone_take(got, sizeof got)) {
+            if (st->edit == EDIT_INSTALL) { app_toast("Received from your phone"); finish_edit(st, 0); if (strlen(got) > 10) app_install_addon(got); }   /* the whole link: a configured addon's outgrows the field */
+            else { snprintf(st->kb.text, sizeof st->kb.text, "%.255s", got); app_toast("Received from your phone"); finish_edit(st, 1); }
+            app_redraw();
+        }
     }
     if (st->edit == EDIT_NONE) {   /* keep the focused row inside the pane, two rows from its foot */
         int ids[MAX_ROWS + 8];
@@ -1123,12 +1126,10 @@ static void draw(Screen *s)
                 const Addon *a = &g_app.addons[id - IT_ADDON_BASE];
                 char title[200];
                 snprintf(title, sizeof title, "%d.  %s", id - IT_ADDON_BASE + 1, a->manifest.name);
-                if (st->confirm_remove == id - IT_ADDON_BASE) snprintf(v, sizeof v, "Press OK again to remove");
-                else {
-                    snprintf(v, sizeof v, "v%s  \xC2\xB7  ", a->manifest.version ? a->manifest.version : "?");
-                    for (int r = 0; r < a->manifest.n_resources; r++) snprintf(v + strlen(v), sizeof v - strlen(v), "%s%s", r ? ", " : "", a->manifest.resources[r].name);
-                    if (a->flag_protected) strncat(v, "  \xC2\xB7  built-in", sizeof v - strlen(v) - 1);
-                }
+                snprintf(v, sizeof v, "v%s  \xC2\xB7  ", a->manifest.version ? a->manifest.version : "?");
+                for (int r = 0; r < a->manifest.n_resources; r++) snprintf(v + strlen(v), sizeof v - strlen(v), "%s%s", r ? ", " : "", a->manifest.resources[r].name);
+                if (a->flag_protected) strncat(v, "  \xC2\xB7  built-in", sizeof v - strlen(v) - 1);
+                if (a->manifest.bh_configurable) strncat(v, "  \xC2\xB7  OK to configure", sizeof v - strlen(v) - 1);
                 draw_row(y, ICON_LIBRARY, title, v, foc, KIND_ACTION, 0);
                 if (foc) { ui_icon(ICON_CHEVRON_LEFT, s_r - 90, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); ui_icon(ICON_CHEVRON_RIGHT, s_r - 56, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); }
             } else if (id >= IT_ROWS_BASE) {
@@ -1669,7 +1670,6 @@ static int adjust(Settings *st, int id, int dir)
         if (id >= IT_ADDON_BASE) {
             int i = id - IT_ADDON_BASE;
             if (app_move_addon(i, dir)) st->focus += dir;
-            st->confirm_remove = -1;
             return 1;
         }
         if (id >= IT_ROWS_BASE) {
@@ -1692,6 +1692,27 @@ static void on_account_choice(int c, void *user)
     else if (c == 1) { app_forget_account(i); app_toast("Saved sign-in forgotten"); }
 }
 
+/* OK on an addon: its settings (on the addon's own page) and removing it */
+enum { ADDON_CONFIGURE, ADDON_REMOVE };
+static struct { int idx, n, act[2]; } g_addon_pick;
+
+static void on_addon_choice(int c, void *user)
+{
+    (void)user;
+    int i = g_addon_pick.idx;
+    if (c < 0 || c >= g_addon_pick.n || i < 0 || i >= g_app.n_addons) return;
+    if (g_addon_pick.act[c] == ADDON_REMOVE) { app_remove_addon(i); return; }
+    const Addon *a = &g_app.addons[i];
+    char page[2048];
+    snprintf(page, sizeof page, "%s/configure", a->base_url);   /* Stremio's convention: the link with its settings, so the page opens on them */
+    if (video_open_browser(page)) {
+        LOGI("addons: %s's settings opened in the browser", a->manifest.name);
+        app_toast("%s opens in your browser: its Install button brings the new settings back here", a->manifest.name);
+        return;
+    }
+    app_push(screen_addon_setup_create(a));
+}
+
 static void after_pin_clear(int ok, void *user) { (void)user; if (ok) { app_set_parental_pin(NULL); app_toast("PIN removed"); } }
 static void after_pin_toggle(int ok, void *user) { if (!ok) return; int *flag = user; *flag = !*flag; app_save_prefs(); }
 
@@ -1706,7 +1727,7 @@ static int tap(Screen *s, int id)
         return 1;
     }
     if (st->edit != EDIT_NONE) return keyboard_tap(&st->kb, id) ? 0 : 1;
-    if (id == HIT_BACK) { if (!g_touch_aim) { st->cat_focus[st->cat] = st->focus; st->zone = 0; st->confirm_remove = -1; } return 1; }
+    if (id == HIT_BACK) { if (!g_touch_aim) { st->cat_focus[st->cat] = st->focus; st->zone = 0; } return 1; }
     if (id == HIT_FIND) { st->zone = 0; st->search_foc = 1; return 0; }
     if (id >= HIT_CAT && id < HIT_CAT + CAT_COUNT) {
         if (st->zone == 1) st->cat_focus[st->cat] = st->focus;
@@ -1719,7 +1740,6 @@ static int tap(Screen *s, int id)
     int back = id >= HIT_LEFT && id < HIT_LEFT + n;   /* a choice's < */
     if (back) id -= HIT_LEFT;
     if (id < 0 || id >= n || IS_SEC(ids[id])) return 1;
-    if (st->zone != 1 || st->focus != id) st->confirm_remove = -1;
     st->zone = 1; st->search_foc = 0; st->focus = id;
     if (back) { if (!g_touch_aim) adjust(st, ids[id], -1); return 1; }
     return 0;
@@ -1765,14 +1785,14 @@ static int key(Screen *s, KeyAction a)
     if (!n || st->zone == 0) { st->zone = 0; st->focus = 0; return 1; }
     int id = ids[st->focus];
     switch (a) {
-    case KEY_UP: { int f = focusable(ids, n, st->focus - 1, -1); if (f >= 0) st->focus = f; st->confirm_remove = -1; return 1; }
-    case KEY_DOWN: { int f = focusable(ids, n, st->focus + 1, 1); if (f >= 0) { st->focus = f; st->confirm_remove = -1; return 1; } return 0; }
+    case KEY_UP: { int f = focusable(ids, n, st->focus - 1, -1); if (f >= 0) st->focus = f; return 1; }
+    case KEY_DOWN: { int f = focusable(ids, n, st->focus + 1, 1); if (f >= 0) { st->focus = f; return 1; } return 0; }
     case KEY_LEFT:   /* choices and reorderable rows take Left; elsewhere it goes back to the categories */
         if (row_takes_left(id) && adjust(st, id, -1)) return 1;
         st->cat_focus[st->cat] = st->focus; st->zone = 0;
         return 1;
     case KEY_RIGHT: adjust(st, id, 1); return 1;
-    case KEY_BACK: st->cat_focus[st->cat] = st->focus; st->zone = 0; st->confirm_remove = -1; return 1;
+    case KEY_BACK: st->cat_focus[st->cat] = st->focus; st->zone = 0; return 1;
     case KEY_OK:
         if (id == IT_SYNC_DEVICES) app_push(screen_sync_create(NULL));
         else if (id == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Stopped syncing. Your addons and Library stay on this TV."); } else app_push(screen_login_create()); }
@@ -1821,10 +1841,14 @@ static int key(Screen *s, KeyAction a)
         }
         else if (id == IT_SETUP) app_push(screen_welcome_create());
         else if (id >= IT_ADDON_BASE) {
-            int idx = id - IT_ADDON_BASE;
-            if (st->confirm_remove == idx) { app_remove_addon(idx); st->confirm_remove = -1; }
-            else if (g_app.addons[idx].flag_protected) app_toast("Built-in addons cannot be removed");
-            else st->confirm_remove = idx;
+            const Addon *a = &g_app.addons[id - IT_ADDON_BASE];
+            const char *items[2]; int icons[2], n = 0;
+            g_addon_pick.idx = id - IT_ADDON_BASE; g_addon_pick.n = 0;
+            if (a->manifest.bh_configurable) { items[n] = "Configure"; icons[n] = ICON_SETTINGS; g_addon_pick.act[n++] = ADDON_CONFIGURE; }
+            if (!a->flag_protected) { items[n] = "Remove"; icons[n] = ICON_CLOSE; g_addon_pick.act[n++] = ADDON_REMOVE; }
+            g_addon_pick.n = n;
+            if (!n) app_toast("Built-in addons cannot be removed");
+            else app_push(screen_options_create_ex(a->manifest.name, a->manifest.version ? a->manifest.version : NULL, NULL, items, icons, n, on_addon_choice, NULL));
         }
         else if (id >= IT_ROWS_BASE) app_home_row_toggle(st->rows[id - IT_ROWS_BASE].key);
         else adjust(st, id, 1);
@@ -1851,7 +1875,6 @@ Screen *screen_settings_create(void)
 {
     Screen *s = calloc(1, sizeof *s);
     Settings *st = calloc(1, sizeof *st);
-    st->confirm_remove = -1;
     st->rows_seen = -1;
     s->name = "settings"; s->st = st;
     s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->text = text; s->destroy = destroy; s->phone = 1;

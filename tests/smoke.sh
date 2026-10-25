@@ -682,6 +682,32 @@ run library_stats 280 "left,down,down,down,ok,up,right,right,right,right,ok"
 run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
+# an addon with a settings page: OK offers Configure; the TV shows a code to this TV's phone page,
+# which links to the addon's page and takes back the install link it ends with, and the addon
+# set up that way takes the old one's place (a phone opens the page in its browser instead)
+CONF_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/conf-a/manifest.json"
+CFH="$(home_with cfg '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+( for i in $(seq 1 40); do sleep 0.5; curl -s -m 2 http://127.0.0.1:${SNTV_PHONE_PORT:-11471}/ 2>/dev/null | grep -q "Open Configurable" && break; done
+  curl -s -m 2 http://127.0.0.1:${SNTV_PHONE_PORT:-11471}/ > "$OUT/addon_configure_page.html"
+  curl -s -m 2 -d "text=http%3A%2F%2F127.0.0.1%3A$PORT%2Fconf-bb%2Fmanifest.json" http://127.0.0.1:${SNTV_PHONE_PORT:-11471}/ > /dev/null ) & CONF_POST=$!
+run addon_configure 900 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down,down,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait," SNTV_PHONE_HOST=127.0.0.1 HOME="$CFH" SNTV_DEFAULT_ADDONS="$CONF_ADDONS"
+wait $CONF_POST
+grep -q "Open Configurable's settings" "$OUT/addon_configure_page.html" && grep -q 'href="http://127.0.0.1:[0-9]*/conf-a/configure"' "$OUT/addon_configure_page.html" \
+  || { echo "the phone page did not offer the addon's settings"; cat "$OUT/addon_configure_page.html"; exit 1; }
+grep -q "addons: Configurable set up again, in its place (2)" "$OUT/addon_configure.log" || { echo "the addon set up again did not take its own place"; grep -E "addons:|toast" "$OUT/addon_configure.log"; exit 1; }
+python3 -I - "$CFH/.local/share/stremio/nativetv/settings.json" <<'PY' || { echo "the saved addons were not the new link in the old one's place"; exit 1; }
+import json, sys
+a = json.load(open(sys.argv[1]))["localAddons"]
+sys.exit(0 if len(a) == 2 and a[1].endswith("/conf-bb/manifest.json") else 1)
+PY
+run addon_configure_browser 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down,down,ok,ok,wait,wait" SNTV_FAKE_BROWSER=1 HOME="$(home_with cfgb '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="$CONF_ADDONS"
+grep -q "video: a browser opened the page" "$OUT/addon_configure_browser.log" && grep -q "addons: Configurable's settings opened in the browser" "$OUT/addon_configure_browser.log" \
+  || { echo "the addon's settings did not open in the browser"; grep -E "addons:|video:" "$OUT/addon_configure_browser.log"; exit 1; }
+run addon_options 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down,down,ok" HOME="$(home_with cfgo '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="$CONF_ADDONS"
+grep -q "UI check: screen=options" "$OUT/addon_options.log" || { echo "OK on an addon did not open its options"; exit 1; }
+run addon_setup_screen 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down,down,ok,ok,wait,wait,wait" SNTV_PHONE_HOST=192.168.1.20 HOME="$(home_with cfgs '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="$CONF_ADDONS"
+run diagnostics_copy_phone 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,ok,ok,wait" SNTV_HANDHELD=1 SNTV_WINDOW=1280x600
+grep -q "diagnostics: the log ([0-9]* lines) copied" "$OUT/diagnostics_copy_phone.log" || { echo "a phone did not copy the log"; grep -E "diagnostics|UI check" "$OUT/diagnostics_copy_phone.log"; exit 1; }
 # the subtitles sheet: languages, then their choices; Look and timing at the end
 run player_subs_second 520 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,right,back,down,down,down,ok" SNTV_FAKE_START=200 HOME="$(home_with subs2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Choose for Second subtitles" "$OUT/player_subs_second.log" && grep -q "player: subtitles sheet: a file from Fake Addon in Portugu.*, as the second" "$OUT/player_subs_second.log" \

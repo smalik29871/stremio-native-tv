@@ -10,6 +10,9 @@ void phone_stop(void);
 int  phone_url(char *out, size_t n);             /* "http://192.168.1.20:11471/" or 0 when not listening */
 /* The field the page offers; NULL title closes it. */
 void phone_prompt(const char *title, const char *hint, const char *current);
+/* A page the open field is about (an addon's settings), offered as a button above it on the
+ * phone; phone_prompt clears it. */
+void phone_prompt_link(const char *label, const char *url);
 /* 1 when the phone sent text for the open field (copied into out). */
 int  phone_take(char *out, size_t n);
 /* Also accept an uploaded recording for `slot` ("start" or "end") on the open field's page.

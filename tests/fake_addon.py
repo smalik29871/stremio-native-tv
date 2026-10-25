@@ -428,6 +428,16 @@ class H(BaseHTTPRequestHandler):
             res = [{"wrapperType": "collection", "collectionId": cid}] + [
                 {"wrapperType": "track", "trackName": songs[i], "trackNumber": i + 1, "discNumber": 1, "trackTimeMillis": 60000 + i * 7300} for i in range(n)]
             return self.send(200, json.dumps({"resultCount": len(res), "results": res}).encode())
+        # /conf-<settings>/...: an addon that has a settings page; its settings live in the link,
+        # and whatever they are it is the same addon (one id)
+        if p.startswith("/conf-"):
+            conf, p = p[6:].split("/", 1)
+            p = "/" + p
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.configurable", name="Configurable", version="1.0." + str(len(conf)),
+                                                      description="Settings: " + conf, behaviorHints={"configurable": True})).encode())
+            if p == "/configure":
+                return self.send(200, b"<html><body>Settings page</body></html>", "text/html")
         # /dropvid/...: one source, a bigger file whose server cuts the first download partway
         # (/stallvid/...: or stops sending there and holds the connection open)
         if p.startswith("/dropvid/") or p.startswith("/stallvid/"):

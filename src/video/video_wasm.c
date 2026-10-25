@@ -110,6 +110,7 @@ void video_select_track(TrackKind kind, int index) { js_track_select((int)kind, 
 
 void video_landscape_only(int on) { (void)on; }
 int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }   /* only Android is opened with links */   /* TVs and the desktop do not turn */
+int video_open_browser(const char *url) { (void)url; return 0; }   /* no browser to hand a page to: the phone opens it */
 void video_pip_allow(int on) { (void)on; }   /* no picture in picture on a TV or the desktop */
 int  video_pip_enter(void) { return 0; }
 int  video_in_pip(void) { return 0; }

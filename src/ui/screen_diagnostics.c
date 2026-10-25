@@ -133,16 +133,34 @@ static void reload(Diag *d)
 /* QR: a short link to the whole log, served by this TV while the code shows (a phone on
  * the same Wi-Fi opens it and copies all of it); without the phone server, the lines
  * leading up to the cursor in the code itself, newest last. */
-static void build_qr(Diag *d)
+static const char *TAB_NAMES[] = { "playback", "problems", "everything" };
+
+/* The whole log shown, with what it is from above it (malloc'd) */
+static char *log_text(const Diag *d)
 {
-    static const char *TAB_NAMES[] = { "playback", "problems", "everything" };
     size_t cap = 600, len = 0;
     for (int k = 0; k < d->n_vis; k++) cap += strlen(d->lines[d->vis[k]].text) + 4;
-    char *all = malloc(cap), url[160];
+    char *all = malloc(cap);
+    if (!all) return NULL;
+    len = (size_t)snprintf(all, cap, "Cuelight %s\n%s\n%s\n%s log, %s session\n---\n", SNTV_APP_VERSION, video_backend_name(), d->system,
+                           TAB_NAMES[d->tab < 3 ? d->tab : 2], d->previous ? "previous" : "this");
+    for (int k = 0; k < d->n_vis && len < cap; k++) len += (size_t)snprintf(all + len, cap - len, "%c %s\n", d->lines[d->vis[k]].level, d->lines[d->vis[k]].text);
+    return all;
+}
+
+/* A phone cannot scan its own screen: the log goes to the clipboard, to paste into a message */
+static void copy_log(const Diag *d)
+{
+    char *all = log_text(d);
+    if (all && SDL_SetClipboardText(all) == 0) { LOGI("diagnostics: the log (%d lines) copied", d->n_vis); app_toast("Log copied (%d lines): paste it into a message", d->n_vis); }
+    else app_toast("The log could not be copied");
+    free(all);
+}
+
+static void build_qr(Diag *d)
+{
+    char *all = log_text(d), url[160];
     if (all) {
-        len = (size_t)snprintf(all, cap, "Cuelight %s\n%s\n%s\n%s log, %s session\n---\n", SNTV_APP_VERSION, video_backend_name(), d->system,
-                               TAB_NAMES[d->tab < 3 ? d->tab : 2], d->previous ? "previous" : "this");
-        for (int k = 0; k < d->n_vis && len < cap; k++) len += (size_t)snprintf(all + len, cap - len, "%c %s\n", d->lines[d->vis[k]].level, d->lines[d->vis[k]].text);
         d->qr_link = phone_offer_log(all, url, sizeof url);
         free(all);
         if (d->qr_link) {
@@ -275,6 +293,7 @@ static void draw(Screen *s)
     ui_hit(tx + 20, 222, sw, 54, HIT_SESSION);
     if (SNTV_PHONE) gfx_set_scale(1, 0, 0);
     const char *hint = d->tab == TAB_YOUTUBE ? "Left/Right tabs   \xC2\xB7   Up/Down buttons   \xC2\xB7   OK: run or play"
+                                             : gfx_handheld() ? "Tap a line: copy the log to paste in a message"
                                              : "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
     if (!SNTV_PHONE) font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
 
@@ -444,7 +463,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_LEFT: d->tab = (d->tab + TAB_COUNT - 1) % TAB_COUNT; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1;
     case KEY_RIGHT: d->tab = (d->tab + 1) % TAB_COUNT; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1;
     case KEY_BLUE: case KEY_YELLOW: d->previous = !d->previous; d->follow = 1; reload(d); return 1;
-    case KEY_OK: if (d->n_vis) { build_qr(d); d->show_qr = 1; } return 1;
+    case KEY_OK: if (d->n_vis) { if (gfx_handheld()) copy_log(d); else { build_qr(d); d->show_qr = 1; } } return 1;
     default: return 0;
     }
 }
