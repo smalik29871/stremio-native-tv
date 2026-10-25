@@ -20,6 +20,9 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #endif
 
 static int g_sock = -1, g_port;
@@ -34,6 +37,7 @@ static char *g_backup;            /* settings offered for download while the bac
 static char *g_restore; static int g_restore_open;   /* settings sent back from the phone */
 static char *g_sync_bundle, *g_sync_in; static char g_sync_key[40], g_sync_device[40];   /* Sync with another device */
 static int g_sync_sent;   /* the bundle was fetched */
+static char g_sync_pin[8]; static int g_sync_tries;   /* the number another device types to be given the key */
 
 static void html_escape(const char *s, char *out, size_t n)
 {
@@ -529,8 +533,55 @@ static void url_encode(const char *s, char *out, size_t n)
 /* Sync with another device: while its code shows, GET /sync/<key> is the page a phone's
  * camera opens (it hands over to the Cuelight app), /sync/<key>/bundle this device's
  * bundle and POST /sync/<key>/apply one to take in. Another key, or none open: nothing. */
+static void new_pin(void);
+
+/* Found on the network by another device (Find a device on my network): its name while the
+ * code is open, never the key. The key is given for the number on this screen; five wrong
+ * numbers and a new one shows. */
+static int handle_pairing(int fd, char *req, ssize_t n, const struct sockaddr_in *peer)
+{
+    int hello = !strncmp(req, "GET /sync/hello ", 16), pair = !strncmp(req, "POST /sync/pair ", 16);
+    if (!hello && !pair) return 0;
+    char ip[64]; inet_ntop(AF_INET, &peer->sin_addr, ip, sizeof ip);
+    SDL_LockMutex(g_lock);
+    int open = g_sync_key[0] != 0;
+    char device[40], key[40], pin[8]; snprintf(device, sizeof device, "%s", g_sync_device); snprintf(key, sizeof key, "%s", g_sync_key); snprintf(pin, sizeof pin, "%s", g_sync_pin);
+    SDL_UnlockMutex(g_lock);
+    if (!open) { respond_text(fd, "404 Not Found", "{}"); return 1; }
+    char out[200], dev[80] = "";
+    for (size_t i = 0, o = 0; device[i] && o + 2 < sizeof dev; i++) if (device[i] != '"' && device[i] != '\\' && (unsigned char)device[i] >= 0x20) dev[o++] = device[i], dev[o] = 0;
+    if (hello) {
+        snprintf(out, sizeof out, "{\"app\":\"cuelight\",\"device\":\"%s\"}", dev);
+        respond_text(fd, "200 OK", out);
+        LOGI("sync: %s looked for devices and found this one", ip);
+        return 1;
+    }
+    const char *body = strstr(req, "\r\n\r\n"), *p = body ? strstr(body, "pin=") : NULL;
+    char got[8] = "";
+    if (p) snprintf(got, sizeof got, "%.4s", p + 4);
+    (void)n;
+    SDL_LockMutex(g_lock);
+    int ok = got[0] && strlen(got) == 4 && !strcmp(got, g_sync_pin) && !strcmp(pin, g_sync_pin);
+    int left = 0;
+    if (ok) g_sync_tries = 0;
+    else if (++g_sync_tries >= 5) { new_pin(); g_sync_tries = 0; }
+    else left = 5 - g_sync_tries;
+    SDL_UnlockMutex(g_lock);
+    if (ok) {
+        snprintf(out, sizeof out, "{\"key\":\"%s\",\"device\":\"%s\"}", key, dev);
+        respond_text(fd, "200 OK", out);
+        LOGI("sync: %s gave the right number", ip);
+    } else {
+        snprintf(out, sizeof out, "{\"wrong\":true,\"left\":%d}", left);
+        respond_text(fd, "403 Forbidden", out);
+        LOGI("sync: %s gave a wrong number%s", ip, left ? "" : "; a new one shows");
+    }
+    return 1;
+}
+
 static int handle_sync(int fd, char *req, ssize_t n, const struct sockaddr_in *peer)
 {
+    if (handle_pairing(fd, req, n, peer)) return 1;
     int post = strncmp(req, "POST /sync/", 11) == 0;
     if (!post && strncmp(req, "GET /sync/", 10) != 0) return 0;
     const char *k = req + (post ? 11 : 10);
@@ -745,27 +796,32 @@ void phone_stop(void)
     }
 }
 
+/* This device's address on the home network (a LAN one first), or 0 */
+static int lan_ip(char *ip, size_t n)
+{
+    ip[0] = 0;
+    const char *override = getenv("SNTV_PHONE_HOST");   /* tests */
+    if (override) { snprintf(ip, n, "%s", override); return 1; }
+    struct ifaddrs *ifa = NULL;
+    if (getifaddrs(&ifa) == 0) {
+        for (struct ifaddrs *p = ifa; p; p = p->ifa_next) {
+            if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET) continue;
+            struct sockaddr_in *sa = (struct sockaddr_in *)p->ifa_addr;
+            uint32_t h = ntohl(sa->sin_addr.s_addr);
+            if ((h >> 24) == 127) continue;
+            inet_ntop(AF_INET, &sa->sin_addr, ip, (socklen_t)n);
+            if ((h >> 24) == 192 || (h >> 24) == 10 || ((h >> 24) == 172 && ((h >> 16) & 0xF0) == 16)) break;   /* prefer the LAN address */
+        }
+        freeifaddrs(ifa);
+    }
+    return ip[0] != 0;
+}
+
 int phone_url(char *out, size_t n)
 {
     if (g_sock < 0) return 0;
-    const char *override = getenv("SNTV_PHONE_HOST");   /* tests */
-    char ip[64] = "";
-    if (override) snprintf(ip, sizeof ip, "%s", override);
-    else {
-        struct ifaddrs *ifa = NULL;
-        if (getifaddrs(&ifa) == 0) {
-            for (struct ifaddrs *p = ifa; p; p = p->ifa_next) {
-                if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET) continue;
-                struct sockaddr_in *sa = (struct sockaddr_in *)p->ifa_addr;
-                uint32_t h = ntohl(sa->sin_addr.s_addr);
-                if ((h >> 24) == 127) continue;
-                inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof ip);
-                if ((h >> 24) == 192 || (h >> 24) == 10 || ((h >> 24) == 172 && ((h >> 16) & 0xF0) == 16)) break;   /* prefer the LAN address */
-            }
-            freeifaddrs(ifa);
-        }
-    }
-    if (!ip[0]) return 0;
+    char ip[64];
+    if (!lan_ip(ip, sizeof ip)) return 0;
     snprintf(out, n, "http://%s:%d/", ip, g_port);
     return 1;
 }
@@ -859,25 +915,51 @@ char *phone_take_restore(void)
     return r;
 }
 
+static void random_bytes(unsigned char *b, size_t n)
+{
+    FILE *f = fopen("/dev/urandom", "rb");
+    size_t got = f ? fread(b, 1, n, f) : 0;
+    if (f) fclose(f);
+    if (got == n) return;
+    Uint64 x = SDL_GetPerformanceCounter() ^ ((Uint64)time(NULL) << 32);
+    for (size_t i = 0; i < n; i++) { x = x * 6364136223846793005ULL + 1442695040888963407ULL; b[i] = (unsigned char)(x >> 56); }
+}
+
+/* under g_lock */
+static void new_pin(void)
+{
+    unsigned char b[4];
+    random_bytes(b, sizeof b);
+    unsigned v = ((unsigned)b[0] << 24 | (unsigned)b[1] << 16 | (unsigned)b[2] << 8 | b[3]) % 10000;
+    snprintf(g_sync_pin, sizeof g_sync_pin, "%04u", v);
+    const char *fixed = getenv("SNTV_SYNC_PIN");   /* tests */
+    if (fixed && strlen(fixed) == 4) snprintf(g_sync_pin, sizeof g_sync_pin, "%s", fixed);
+}
+
+int phone_sync_pin(char *out, size_t n)
+{
+    if (!g_lock) return 0;
+    SDL_LockMutex(g_lock);
+    snprintf(out, n, "%s", g_sync_pin);
+    SDL_UnlockMutex(g_lock);
+    return out[0] != 0;
+}
+
 int phone_offer_sync(const char *bundle, const char *device, char *url, size_t n)
 {
     if (!g_lock) return 0;
     SDL_LockMutex(g_lock);
     free(g_sync_bundle); g_sync_bundle = bundle ? strdup(bundle) : NULL;
     snprintf(g_sync_device, sizeof g_sync_device, "%s", device ? device : "");
-    if (!bundle) { g_sync_key[0] = 0; free(g_sync_in); g_sync_in = NULL; }
+    if (!bundle) { g_sync_key[0] = 0; g_sync_pin[0] = 0; free(g_sync_in); g_sync_in = NULL; }
     else if (!g_sync_key[0]) {   /* a new key each time the code opens: sign-ins go with the bundle */
         unsigned char b[16];
-        FILE *f = fopen("/dev/urandom", "rb");
-        size_t got = f ? fread(b, 1, sizeof b, f) : 0;
-        if (f) fclose(f);
-        if (got != sizeof b) {
-            Uint64 x = SDL_GetPerformanceCounter() ^ ((Uint64)time(NULL) << 32);
-            for (size_t i = 0; i < sizeof b; i++) { x = x * 6364136223846793005ULL + 1442695040888963407ULL; b[i] = (unsigned char)(x >> 56); }
-        }
+        random_bytes(b, sizeof b);
         for (size_t i = 0; i < sizeof b; i++) snprintf(g_sync_key + i * 2, 3, "%02x", b[i]);
         const char *fixed = getenv("SNTV_SYNC_KEY");   /* tests */
         if (fixed && *fixed) snprintf(g_sync_key, sizeof g_sync_key, "%s", fixed);
+        new_pin();
+        g_sync_tries = 0;
     }
     char key[40]; snprintf(key, sizeof key, "%s", g_sync_key);
     SDL_UnlockMutex(g_lock);
@@ -1110,4 +1192,136 @@ void youtube_note_result(const char *url, int played)
     int was = store_get_int(YT_FAIL_KEY[k], 0);
     if (played && was) { store_set_int(YT_FAIL_KEY[k], 0); store_save(); }
     else if (!played) { store_set_int(YT_FAIL_KEY[k], was + 1); store_save(); LOGW("youtube: %s did not start on this TV (%d time(s))", k == YT_DASH ? "DASH" : "the byte-range playlist", was + 1); }
+}
+
+/* ---- Find a device on my network ----
+ * Every address of this device's /24 is asked GET /sync/hello on the phone page's first two
+ * ports, all at once (non-blocking connects, a few seconds in all): a Cuelight showing its
+ * sync code answers with its name. Nothing else is sent until a number is typed. */
+static PhoneFound g_found[PHONE_FOUND_MAX];
+static int g_n_found, g_scan_state;   /* 0 never, 1 looking, 2 done */
+
+typedef struct { uint32_t ip; int port, fd, stage; char buf[1024]; int len; } Probe;
+
+static void probe_result(Probe *pr)
+{
+    pr->buf[pr->len] = 0;
+    const char *body = strstr(pr->buf, "\r\n\r\n");
+    if (strncmp(pr->buf, "HTTP/1.", 7) || !strstr(pr->buf, " 200 ") || !body) return;
+    cJSON *j = cJSON_Parse(body + 4);
+    const cJSON *app = cJSON_GetObjectItemCaseSensitive(j, "app"), *dev = cJSON_GetObjectItemCaseSensitive(j, "device");
+    if (cJSON_IsString(app) && !strcmp(app->valuestring, "cuelight")) {
+        struct in_addr a = { htonl(pr->ip) };
+        char ip[32]; inet_ntop(AF_INET, &a, ip, sizeof ip);
+        SDL_LockMutex(g_lock);
+        if (g_n_found < PHONE_FOUND_MAX) {
+            PhoneFound *f = &g_found[g_n_found++];
+            snprintf(f->base, sizeof f->base, "http://%s:%d/", ip, pr->port);
+            snprintf(f->device, sizeof f->device, "%s", cJSON_IsString(dev) && dev->valuestring[0] ? dev->valuestring : "Device");
+        }
+        SDL_UnlockMutex(g_lock);
+        LOGI("sync: found a %s at %s:%d", cJSON_IsString(dev) ? dev->valuestring : "device", ip, pr->port);
+    }
+    cJSON_Delete(j);
+}
+
+static void probe_batch(Probe *pr, int n)
+{
+    struct pollfd pf[256];
+    for (int i = 0; i < n; i++) {
+        pr[i].fd = socket(AF_INET, SOCK_STREAM, 0);
+        pr[i].stage = 0; pr[i].len = 0;
+        if (pr[i].fd < 0) continue;
+        fcntl(pr[i].fd, F_SETFL, fcntl(pr[i].fd, F_GETFL, 0) | O_NONBLOCK);
+        struct sockaddr_in a; memset(&a, 0, sizeof a);
+        a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(pr[i].ip); a.sin_port = htons((uint16_t)pr[i].port);
+        if (connect(pr[i].fd, (struct sockaddr *)&a, sizeof a) == 0 || errno == EINPROGRESS) pr[i].stage = 1;
+        else { close(pr[i].fd); pr[i].fd = -1; }
+    }
+    Uint32 until = SDL_GetTicks() + 2500;
+    for (;;) {
+        int np = 0, map[256];
+        for (int i = 0; i < n; i++) if (pr[i].fd >= 0 && (pr[i].stage == 1 || pr[i].stage == 2)) { pf[np].fd = pr[i].fd; pf[np].events = pr[i].stage == 1 ? POLLOUT : POLLIN; pf[np].revents = 0; map[np++] = i; }
+        int left = (int)(until - SDL_GetTicks());
+        if (!np || left <= 0 || g_quit) break;
+        if (poll(pf, (nfds_t)np, left) <= 0) break;
+        for (int k = 0; k < np; k++) {
+            Probe *p = &pr[map[k]];
+            if (!pf[k].revents) continue;
+            if (p->stage == 1) {
+                int err = 0; socklen_t el = sizeof err;
+                if (getsockopt(p->fd, SOL_SOCKET, SO_ERROR, &err, &el) || err) { p->stage = 3; continue; }
+                char req[120];
+                snprintf(req, sizeof req, "GET /sync/hello HTTP/1.0\r\nHost: x\r\nConnection: close\r\n\r\n");
+                if (send(p->fd, req, strlen(req), 0) < 0) { p->stage = 3; continue; }
+                p->stage = 2;
+            } else {
+                ssize_t m = recv(p->fd, p->buf + p->len, sizeof p->buf - 1 - (size_t)p->len, 0);
+                if (m > 0) { p->len += (int)m; if ((size_t)p->len < sizeof p->buf - 1) continue; }
+                p->stage = 3;   /* closed, failed or full: what came is the answer */
+                probe_result(p);
+            }
+        }
+    }
+    for (int i = 0; i < n; i++) if (pr[i].fd >= 0) close(pr[i].fd);
+}
+
+static int scan_main(void *arg)
+{
+    (void)arg;
+    static Probe pr[600];
+    int n = 0;
+    const char *list = getenv("SNTV_SCAN_HOSTS");   /* tests: "127.0.0.1:12020,..." */
+    if (list && *list) {
+        char tmp[600]; snprintf(tmp, sizeof tmp, "%s", list);
+        char *save = NULL;
+        for (char *t = strtok_r(tmp, ",", &save); t && n < 600; t = strtok_r(NULL, ",", &save)) {
+            unsigned a, b, c, d, port;
+            if (sscanf(t, "%u.%u.%u.%u:%u", &a, &b, &c, &d, &port) == 5 && (int)port != g_port) { pr[n].ip = a << 24 | b << 16 | c << 8 | d; pr[n].port = (int)port; n++; }
+        }
+    } else {
+        char ip[64]; struct in_addr me;
+        const char *e = getenv("SNTV_PHONE_PORT");
+        int base = e && atoi(e) > 0 ? atoi(e) : 11471;
+        if (lan_ip(ip, sizeof ip) && inet_pton(AF_INET, ip, &me) == 1) {
+            uint32_t mine = ntohl(me.s_addr), net = mine & 0xFFFFFF00u;
+            for (int port = base; port < base + 2; port++)
+                for (uint32_t h = 1; h < 255 && n < 600; h++) {
+                    if ((net | h) == mine) continue;   /* this device (its other port too: only one shows a code) */
+                    pr[n].ip = net | h; pr[n].port = port; n++;
+                }
+        }
+    }
+    LOGI("sync: looking for devices on the network (%d addresses)", n);
+    for (int i = 0; i < n && !g_quit; i += 200) probe_batch(pr + i, n - i < 200 ? n - i : 200);
+    SDL_LockMutex(g_lock);
+    int found = g_n_found;
+    g_scan_state = 2;
+    SDL_UnlockMutex(g_lock);
+    LOGI("sync: %d device%s found on the network", found, found == 1 ? "" : "s");
+    return 0;
+}
+
+void phone_scan_start(void)
+{
+    if (!g_lock) return;
+    SDL_LockMutex(g_lock);
+    int busy = g_scan_state == 1;
+    if (!busy) { g_scan_state = 1; g_n_found = 0; }
+    SDL_UnlockMutex(g_lock);
+    if (busy) return;
+    SDL_Thread *t = SDL_CreateThread(scan_main, "scan", NULL);
+    if (t) SDL_DetachThread(t);
+    else { SDL_LockMutex(g_lock); g_scan_state = 2; SDL_UnlockMutex(g_lock); }
+}
+
+int phone_scan_results(PhoneFound *out, int max, int *finished)
+{
+    if (!g_lock) { if (finished) *finished = 1; return 0; }
+    SDL_LockMutex(g_lock);
+    int n = g_n_found < max ? g_n_found : max;
+    memcpy(out, g_found, sizeof *out * (size_t)n);
+    if (finished) *finished = g_scan_state != 1;
+    SDL_UnlockMutex(g_lock);
+    return n;
 }

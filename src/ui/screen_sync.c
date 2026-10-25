@@ -22,8 +22,13 @@
 enum { C_LOADING, C_CHOOSE, C_WORKING, C_DONE, C_ERROR };
 enum { DO_BOTH, DO_SEND, DO_BRING, DO_COUNT };
 
+enum { H_CODE, H_FIND, H_PIN };   /* host: its code; looking for devices; typing another's number */
+
 typedef struct {
     int host;   /* showing this device's code */
+    int hmode, hfocus;   /* hfocus: the device row (H_FIND) or the pad key (H_PIN) */
+    PhoneFound found[PHONE_FOUND_MAX]; int n_found, scan_done, pick;
+    char pin[8], pin_msg[200]; int pairing;
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char url[160];
     char done[400];   /* host: what the last sync brought */
     /* the other side */
@@ -131,6 +136,65 @@ static void on_bundle(HttpResponse *r, void *user)
     app_redraw();
 }
 
+/* The right number: the other device's key. From here this is the other side, as if its
+ * code had been scanned. */
+static void on_paired(HttpResponse *r, void *user)
+{
+    Sync *s = user;
+    if (s != g_live) return;
+    s->pairing = 0;
+    cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
+    const cJSON *k = cJSON_GetObjectItemCaseSensitive(j, "key");
+    int key_ok = cJSON_IsString(k) && k->valuestring[0] && strlen(k->valuestring) < sizeof s->key;
+    for (const char *p = key_ok ? k->valuestring : ""; *p; p++) if (!isalnum((unsigned char)*p)) key_ok = 0;
+    if (key_ok) {
+        snprintf(s->key, sizeof s->key, "%s", k->valuestring);
+        snprintf(s->base, sizeof s->base, "%s", s->found[s->pick].base);
+        cJSON_Delete(j);
+        phone_offer_sync(NULL, NULL, NULL, 0);   /* this one's own code closes: it is the other side now */
+        s->host = 0;
+        s->state = C_LOADING; s->focus = 0; s->focus_t = 1;
+        LOGI("sync: paired with %s by its number", s->found[s->pick].device);
+        char url[300];
+        snprintf(url, sizeof url, "%ssync/%s/bundle", s->base, s->key);
+        http_request_async(url, NULL, on_bundle, s);
+        app_redraw();
+        return;
+    }
+    const cJSON *left = cJSON_GetObjectItemCaseSensitive(j, "left");
+    s->pin[0] = 0;
+    if (r->status == 403 && cJSON_IsNumber(left) && left->valueint > 0)
+        snprintf(s->pin_msg, sizeof s->pin_msg, "That is not the number. %d tr%s left.", left->valueint, left->valueint == 1 ? "y" : "ies");
+    else if (r->status == 403) snprintf(s->pin_msg, sizeof s->pin_msg, "Too many tries: the other device shows a new number now.");
+    else if (r->status == 404) snprintf(s->pin_msg, sizeof s->pin_msg, "The other device closed its code. Open Sync with another device on it again.");
+    else snprintf(s->pin_msg, sizeof s->pin_msg, "Could not reach it (%.120s).", r->status ? "it answered something else" : r->error);
+    LOGI("sync: pairing failed (%ld)", r->status);
+    cJSON_Delete(j);
+    app_redraw();
+}
+
+static void pin_digit(Sync *s, char d)
+{
+    size_t L = strlen(s->pin);
+    if (s->pairing || L >= 4) return;
+    s->pin[L] = d; s->pin[L + 1] = 0;
+    s->pin_msg[0] = 0;
+    if (L + 1 < 4) return;
+    s->pairing = 1;
+    char url[200], body[16];
+    snprintf(url, sizeof url, "%ssync/pair", s->found[s->pick].base);
+    snprintf(body, sizeof body, "pin=%s", s->pin);
+    HttpOptions o = { .post_json = body, .timeout_s = 8 };
+    http_request_async_ex(url, &o, on_paired, s);
+}
+
+static void find_start(Sync *s)
+{
+    s->hmode = H_FIND; s->hfocus = 0; s->n_found = 0; s->scan_done = 0;
+    phone_scan_start();
+    LOGI("sync: finding devices on the network");
+}
+
 static void on_sent(HttpResponse *r, void *user)
 {
     Sync *s = user;
@@ -210,6 +274,12 @@ static void update(Screen *sc, float dt)
     s->intro = ui_ease(s->intro * 100, 100, NULL, dt, 9) / 100;
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
     if (s->host) { if (phone_sync_sent()) app_sync_shared(); take_in(s); }
+    if (s->host && s->hmode == H_FIND) {
+        int was = s->n_found;
+        s->n_found = phone_scan_results(s->found, PHONE_FOUND_MAX, &s->scan_done);
+        if (!s->scan_done || s->n_found != was) app_redraw();
+    }
+    if (s->pairing) app_redraw();
 }
 
 static void wrap_center(const char *t, float cx, float y, int size, Color c, float w) { ui_center_wrapped(t, cx, y, size, c, w); }
@@ -231,20 +301,29 @@ static void draw_host(Sync *s, float k)
             ui_qr(s->qr, cx - qs / 2, py, qs);
         } else wrap_center("Connect to your home network to show the code.", cx, py + 150, FONT_M, THEME_TEXT_DIM, W - 100);
         float ty = py + qs + 80;
-        if (s->done[0]) { ui_icon(ICON_CHECK, cx, ty, 40, THEME_OK); wrap_center(s->done, cx, ty + 40, FONT_S | FONT_B, THEME_TEXT, W - 100); return; }
-        for (int i = 0; i < 3; i++) {
+        char pin[8] = "";
+        if (s->qr_ready && phone_sync_pin(pin, sizeof pin)) {   /* under the code */
+            char sp[40]; snprintf(sp, sizeof sp, "Number for another device:  %c %c %c %c", pin[0], pin[1], pin[2], pin[3]);
+            font_draw_center(sp, cx, py + qs + 44, FONT_S | FONT_B, THEME_TEXT);
+            ty += 50;
+        }
+        if (s->done[0]) { ui_icon(ICON_CHECK, cx, ty, 40, THEME_OK); wrap_center(s->done, cx, ty + 40, FONT_S | FONT_B, THEME_TEXT, W - 100); }
+        else for (int i = 0; i < 3; i++) {
             float yy = ty + i * 76;
             char num[4]; snprintf(num, sizeof num, "%d", i + 1);
             gfx_circle(70, yy + 16, 22, COLOR_ALPHA(THEME_ACCENT, 0xD0));
             font_draw_center(num, 70, yy + 16 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_ON_ACCENT);
             font_draw_fit(STEPS[i], 110, yy, FONT_S, THEME_TEXT, W - 150);
         }
+        float by = ty + 3 * 76 + 30, bw = ui_pill_width("Find a device on my network", 1, 72);
+        ui_pill("Find a device on my network", 1, ICON_SEARCH, cx - bw / 2, by, 72, PILL_SECONDARY, s->hfocus == 0 && s->keyed);
+        ui_hit(cx - bw / 2, by, bw, 72, 10);
         return;
     }
     float x = THEME_MARGIN, y = 170, qs = 380, qx = W - THEME_MARGIN - qs - 60, qy = 250;
     font_draw("Sync with another device", x, y, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
     char line[300];
-    snprintf(line, sizeof line, "Your sign-ins, addons, library, progress, lists and ratings, between %s and " SNTV_APP_NAME " on your phone. Nothing is removed on either side, and no account is needed. To sync two TVs, sync each with the phone.", me);
+    snprintf(line, sizeof line, "Your sign-ins, addons, library, progress, lists and ratings, between %s and another device with " SNTV_APP_NAME ". Nothing is removed on either side, and no account is needed.", me);
     font_draw_wrapped(line, x, y + 90, FONT_S, THEME_TEXT_DIM, qx - x - 120, 3);
     float sy = y + 260;
     if (s->done[0]) {
@@ -259,15 +338,27 @@ static void draw_host(Sync *s, float k)
         font_draw_center(num, x + 26, yy + 20 - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, THEME_ON_ACCENT);
         font_draw_fit(STEPS[i], x + 76, yy + 2, FONT_M, THEME_TEXT, qx - x - 200);
     }
+    /* no camera (another TV): it finds this one on the network and types the number */
+    float fy = sy + 3 * 96 + 40;
+    font_draw("Another TV, or no camera?", x, fy, FONT_S | FONT_B, THEME_TEXT);
+    font_draw_wrapped("On the other device choose Find a device on my network, then type the number under the code.", x, fy + 44, FONT_S, THEME_TEXT_DIM, qx - x - 200, 2);
+    float bw = ui_pill("Find a device on my network", 1, ICON_SEARCH, x, fy + 130, 76, PILL_SECONDARY, 1);
+    ui_hit(x, fy + 130, bw, 76, 10);
+    char pin[8] = "";
     if (s->qr_ready) {
         ui_panel(qx - 30, qy - 30, qs + 60, qs + 60, R_PANEL, RGBA(255, 255, 255, 0xFF));
         ui_qr(s->qr, qx, qy, qs);
-        font_draw_center("Works on your home network, while this is open", qx + qs / 2, qy + qs + 64, FONT_XS, THEME_TEXT_MUTED);
+        if (phone_sync_pin(pin, sizeof pin)) {
+            char sp[16]; snprintf(sp, sizeof sp, "%c %c %c %c", pin[0], pin[1], pin[2], pin[3]);
+            font_draw_center("Number for another device", qx + qs / 2, qy + qs + 58, FONT_XS, THEME_TEXT_MUTED);
+            font_draw_center(sp, qx + qs / 2, qy + qs + 92, FONT_XL | FONT_B, THEME_TEXT);
+        }
+        font_draw_center("Works on your home network, while this is open", qx + qs / 2, qy + qs + 200, FONT_XS, THEME_TEXT_MUTED);
     } else {
         ui_panel(qx - 30, qy - 30, qs + 60, qs + 60, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x0C));
         ui_center_wrapped("Connect this device to your home network to show the code.", qx + qs / 2, qy + qs / 2 - 40, FONT_S, THEME_TEXT_DIM, qs - 40);
     }
-    if (!gfx_handheld()) font_draw_center("Back  close", W / 2, H - 80, FONT_XS, THEME_TEXT_MUTED);
+    if (!gfx_handheld()) font_draw_center("OK  find a device   \xC2\xB7   Back  close", W / 2, H - 80, FONT_XS, THEME_TEXT_MUTED);
 }
 
 static void draw_client(Sync *s, float k)
@@ -323,20 +414,126 @@ static void draw_client(Sync *s, float k)
     if (!gfx_handheld()) font_draw_center("OK  choose   \xC2\xB7   Back  close", W / 2, H - 80, FONT_XS, THEME_TEXT_MUTED);
 }
 
+static const char *const PAD[12] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "<", "0", "" };   /* 9: delete (drawn as an arrow) */
+
+/* Find a device on my network: the Cuelights showing their code nearby */
+static void draw_find(Sync *s, float k)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H;
+    int a = (int)(255 * k);
+    float x = SNTV_PHONE ? 50 : THEME_MARGIN, w = SNTV_PHONE ? W - 100 : 1180, y = 150;
+    font_draw_fit("Find a device on my network", x, y, SNTV_PHONE ? FONT_L | FONT_B : FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, a), w);
+    y += SNTV_PHONE ? 76 : 96;
+    font_draw_wrapped("On the other device, open Settings > Accounts > Sync with another device. It shows up here.", x, y, FONT_S, THEME_TEXT_DIM, w, 3);
+    y += SNTV_PHONE ? 120 : 90;
+    float rh = SNTV_PHONE ? 110 : 104, gap = 18;
+    for (int i = 0; i < s->n_found; i++) {
+        float ry = y + i * (rh + gap);
+        int foc = s->hfocus == i && (!gfx_handheld() || s->keyed);
+        float f = foc ? (g_app.fx_light ? 1 : s->focus_t) : 0;
+        if (foc) ui_focus_under(x, ry, w, rh, R_PANEL, f);
+        gfx_rrect(x, ry, w, rh, R_PANEL, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x10));
+        Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, dim = foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED;
+        ui_icon(ICON_TV, x + 52, ry + rh / 2, 38, fg);
+        font_draw_fit(s->found[i].device, x + 100, ry + 18, FONT_M | FONT_B, fg, w - 140);
+        const char *hs = strstr(s->found[i].base, "://");
+        char addr[64]; snprintf(addr, sizeof addr, "%.*s", (int)strcspn(hs ? hs + 3 : s->found[i].base, ":/"), hs ? hs + 3 : s->found[i].base);
+        font_draw(addr, x + 100, ry + 62, FONT_XS, dim);
+        ui_hit(x, ry, w, rh, 200 + i);
+    }
+    float ey = y + s->n_found * (rh + gap) + 10;
+    if (!s->scan_done) {
+        ui_spinner(x + 24, ey + 26, 20);
+        font_draw("Looking on your home network\xE2\x80\xA6", x + 64, ey + 10, FONT_S, THEME_TEXT_DIM);
+        app_redraw();
+    } else {
+        if (!s->n_found) font_draw_wrapped("Nothing found. Check that the other device shows its code, and that both are on the same Wi-Fi or network.", x, ey, FONT_S, THEME_TEXT, w, 3);
+        float by = ey + (s->n_found ? 0 : 110);
+        int foc = s->hfocus == s->n_found && (!gfx_handheld() || s->keyed);
+        float bw = ui_pill("Look again", 1, ICON_RELOAD, x, by, 72, PILL_SECONDARY, foc);
+        ui_hit(x, by, bw, 72, 300);
+    }
+    if (!gfx_handheld()) font_draw_center("OK  choose   \xC2\xB7   Back  return", W / 2, H - 80, FONT_XS, THEME_TEXT_MUTED);
+}
+
+/* the number the chosen device shows under its code */
+static void draw_pin(Sync *s, float k)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H;
+    int a = (int)(255 * k);
+    char there[64], t[120];
+    dev_ref(s->found[s->pick].device, 0, there, sizeof there);
+    snprintf(t, sizeof t, "Sync with %s", there);
+    float cx = W / 2, y = SNTV_PHONE ? 150 : 140;
+    font_draw_center(t, cx, y, SNTV_PHONE ? FONT_L | FONT_B : FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+    snprintf(t, sizeof t, "Type the number %s shows under its code.", there);
+    ui_center_wrapped(t, cx, y + (SNTV_PHONE ? 70 : 90), FONT_S, THEME_TEXT_DIM, SNTV_PHONE ? W - 100 : 1100);
+    float bs = SNTV_PHONE ? 96 : 104, bg = 22, bx = cx - (4 * bs + 3 * bg) / 2, byy = y + (SNTV_PHONE ? 170 : 170);
+    for (int i = 0; i < 4; i++) {
+        float xx = bx + i * (bs + bg);
+        int cur = (int)strlen(s->pin) == i && !s->pairing;
+        gfx_rrect(xx, byy, bs, bs * 1.2f, 18, COLOR_ALPHA(THEME_TEXT, 0x12));
+        if (cur) gfx_rrect(xx + bs * 0.25f, byy + bs * 1.2f - 14, bs * 0.5f, 5, 2, THEME_ACCENT);
+        if (s->pin[i]) { char d[2] = { s->pin[i], 0 }; font_draw_center(d, xx + bs / 2, byy + bs * 0.6f - font_height(FONT_XL | FONT_B) / 2, FONT_XL | FONT_B, THEME_TEXT); }
+    }
+    float my = byy + bs * 1.2f + 30;
+    if (s->pairing) { ui_spinner(cx - 120, my + 18, 16); font_draw("Checking\xE2\x80\xA6", cx - 92, my + 4, FONT_S, THEME_TEXT_DIM); }
+    else if (s->pin_msg[0]) ui_center_wrapped(s->pin_msg, cx, my, FONT_S, THEME_DANGER, SNTV_PHONE ? W - 100 : 1000);
+    float ks = SNTV_PHONE ? 130 : 104, kh = SNTV_PHONE ? 96 : 84, kg = 16, kx = cx - (3 * ks + 2 * kg) / 2, ky = my + 80;
+    for (int i = 0; i < 12; i++) {
+        if (!PAD[i][0]) continue;
+        float xx = kx + (i % 3) * (ks + kg), yy = ky + (i / 3) * (kh + kg);
+        int foc = s->hfocus == i && (!gfx_handheld() || s->keyed);
+        if (foc) ui_focus_under(xx, yy, ks, kh, 16, g_app.fx_light ? 1 : s->focus_t);
+        gfx_rrect(xx, yy, ks, kh, 16, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x14));
+        if (i == 9) ui_icon(ICON_BACK, xx + ks / 2, yy + kh / 2, 34, foc ? THEME_ON_FOCUS : THEME_TEXT);   /* delete */
+        else font_draw_center(PAD[i], xx + ks / 2, yy + kh / 2 - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, foc ? THEME_ON_FOCUS : THEME_TEXT);
+        ui_hit(xx, yy, ks, kh, 400 + i);
+    }
+    if (!gfx_handheld()) font_draw_center("OK  type   \xC2\xB7   Back  return", W / 2, H - 80, FONT_XS, THEME_TEXT_MUTED);
+}
+
 static void draw(Screen *sc)
 {
     Sync *s = sc->st;
     ui_background(0);
     float k = g_app.fx_light ? 1 : s->intro;
-    if (s->host) draw_host(s, k); else draw_client(s, k);
+    if (s->host) { if (s->hmode == H_FIND) draw_find(s, k); else if (s->hmode == H_PIN) draw_pin(s, k); else draw_host(s, k); }
+    else draw_client(s, k);
 }
 
 static int key(Screen *sc, KeyAction a)
 {
     Sync *s = sc->st;
     app_redraw();
+    if (s->host && s->hmode == H_FIND) {
+        int n = s->n_found + (s->scan_done ? 1 : 0);   /* the devices, then Look again */
+        if (a == KEY_BACK) { s->hmode = H_CODE; return 1; }
+        if (a == KEY_UP || a == KEY_DOWN) s->keyed = 1;
+        if (a == KEY_UP && s->hfocus > 0) { s->hfocus--; s->focus_t = 0; }
+        else if (a == KEY_DOWN && s->hfocus < n - 1) { s->hfocus++; s->focus_t = 0; }
+        else if (a == KEY_OK && s->hfocus < s->n_found) { s->pick = s->hfocus; s->hmode = H_PIN; s->hfocus = 0; s->pin[0] = 0; s->pin_msg[0] = 0; }
+        else if (a == KEY_OK && s->scan_done) find_start(s);
+        return 1;
+    }
+    if (s->host && s->hmode == H_PIN) {
+        if (a == KEY_BACK) { if (!s->pairing) { s->hmode = H_FIND; s->hfocus = s->pick; } return 1; }
+        if (a == KEY_BACKSPACE) { size_t L = strlen(s->pin); if (L && !s->pairing) s->pin[L - 1] = 0; return 1; }
+        int c = s->hfocus % 3, r = s->hfocus / 3;
+        if (a == KEY_LEFT || a == KEY_RIGHT || a == KEY_UP || a == KEY_DOWN) { s->keyed = 1; s->focus_t = 0; }
+        if (a == KEY_LEFT && c > 0) c--;
+        else if (a == KEY_RIGHT && c < 2 && !(r == 3 && c == 1)) c++;
+        else if (a == KEY_UP && r > 0) r--;
+        else if (a == KEY_DOWN && r < 3) { r++; if (r == 3 && c == 2) c = 1; }
+        s->hfocus = r * 3 + c;
+        if (a == KEY_OK) {
+            if (s->hfocus == 9) { size_t L = strlen(s->pin); if (L && !s->pairing) s->pin[L - 1] = 0; }
+            else if (PAD[s->hfocus][0]) pin_digit(s, PAD[s->hfocus][0]);
+        }
+        return 1;
+    }
     if (a == KEY_BACK) { app_pop(); return 1; }
-    if (s->host) { if (a == KEY_OK) app_pop(); return 1; }
+    if (s->host) { if (a == KEY_OK || (a == KEY_DOWN && gfx_handheld())) { if (a == KEY_DOWN) s->keyed = 1; else find_start(s); } return 1; }
     if (s->state == C_DONE) { if (a == KEY_OK) app_pop(); return 1; }
     if (s->state == C_ERROR) {
         if (a == KEY_OK) {
@@ -357,8 +554,20 @@ static int tap(Screen *sc, int id)
 {
     Sync *s = sc->st;
     if (id == 100) return 0;   /* Done / Try again: as OK */
+    if (s->host && s->hmode == H_CODE && id == 10) { find_start(s); return 1; }
+    if (s->host && s->hmode == H_FIND && id >= 200 && id < 200 + s->n_found) { s->hfocus = id - 200; return 0; }
+    if (s->host && s->hmode == H_FIND && id == 300) { s->hfocus = s->n_found; return 0; }
+    if (s->host && s->hmode == H_PIN && id >= 400 && id < 412) { s->hfocus = id - 400; return 0; }
     if (s->state == C_CHOOSE && id >= 0 && id < DO_COUNT) { s->focus = id; return 0; }
     return 1;
+}
+
+static void text(Screen *sc, const char *utf8)
+{
+    Sync *s = sc->st;
+    if (!s->host || s->hmode != H_PIN) return;
+    for (const char *p = utf8; *p; p++) if (*p >= '0' && *p <= '9') pin_digit(s, *p);
+    app_redraw();
 }
 
 static void resume(Screen *sc) { Sync *s = sc->st; if (s->host) host_offer(s); }
@@ -402,6 +611,6 @@ Screen *screen_sync_create(const char *link)
         }
     }
     sc->name = "sync"; sc->st = s;
-    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->resume = resume; sc->destroy = destroy; sc->phone = 1;
+    sc->update = update; sc->draw = draw; sc->key = key; sc->text = text; sc->tap = tap; sc->resume = resume; sc->destroy = destroy; sc->phone = 1;
     return sc;
 }
