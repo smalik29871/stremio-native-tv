@@ -1403,11 +1403,8 @@ static void remember_resume(Streams *st, const char *url)
     store_save();
 }
 
-int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c)
+static int fill_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c, char *u)
 {
-    char why[8];
-    char *u = app_stream_playable_url(s, why, sizeof why);
-    if (!u) return 0;
     char label[200], l1[120], detail[200], rel[200];
     first_line(s->name, l1, sizeof l1);
     snprintf(label, sizeof label, "%s%s%s", s->addon_name ? s->addon_name : "", l1[0] ? " - " : "", l1);
@@ -1430,6 +1427,25 @@ int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c
     char b[8][24];
     int nb = badge_list(s, b, 8);
     for (int i = 0; i < nb; i++) { size_t u = strlen(c->badges); snprintf(c->badges + u, sizeof c->badges - u, "%s%s", u ? "|" : "", b[i]); }
+    return 1;
+}
+
+int streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c)
+{
+    char why[8];
+    char *u = app_stream_playable_url(s, why, sizeof why);
+    return u ? fill_candidate(meta, s, c, u) : 0;
+}
+
+/* The same torrent from peers on this TV, whatever else plays it (TorBox's cached copy, a
+ * debrid link the addon made from it): what is left when that service is down. 0 when the
+ * stream names no torrent or P2P can't play here (off, a streaming server set, no engine). */
+int streams_p2p_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *c)
+{
+    if (!s->info_hash || strlen(s->info_hash) < 40 || !g_app.p2p_fallback || (g_app.streaming_server && *g_app.streaming_server)) return 0;
+    char *u = torrent_engine_url(s->info_hash, s->file_idx, s->trackers);
+    if (!u || !fill_candidate(meta, s, c, u)) return 0;
+    c->p2p = 1;
     return 1;
 }
 
@@ -1653,6 +1669,13 @@ static void play_from(Streams *st, int index)
     if (held) LOGI("streams: %d sources stand by, at most 3 from one service", n);
     for (int k = 0; k < na && !p2p; k++)
         if (k < 64 && !taken[k] && all[k].p2p) { taken[k] = 1; p2p = 1; c[n++] = all[k]; }
+    /* none uncached: the torrent TorBox (or a debrid) plays, from peers, for when it is down;
+     * the picked one's own torrent first, else the recommended one's, else the list's first */
+    for (int pass = 0; pass < 3 && !p2p; pass++)
+        for (int i = 0; i < st->n && !p2p; i++) {
+            if ((pass == 0 && i != index) || (pass == 1 && i != rec) || (pass == 2 && ineligible(st, &st->items[i]))) continue;
+            if (streams_p2p_candidate(&st->meta, &st->items[i], &c[n])) { p2p = 1; n++; LOGI("streams: P2P of the same torrent rides along, for when %s is down", torbox_hash_cached(st->items[i].info_hash) ? "TorBox" : "the service"); }
+        }
     int left = 0;
     for (int k = 0; k < na; k++) if (k >= 64 || !taken[k]) all[left++] = all[k];
     play_candidates_free(all, left);

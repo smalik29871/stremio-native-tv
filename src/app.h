@@ -417,6 +417,7 @@ void streams_lookup_cancel(void);
 void streams_lookup_tick(void);
 /* A player candidate for one of those sources (0 when it cannot play here). */
 int  streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *out);
+int  streams_p2p_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *out);   /* its torrent from peers on this TV, 0 when none */
 /* Badges from PlayCandidate.badges, left to right from x, the ones that fit in max_w; returns the end. */
 float streams_draw_badges(const char *list, float x, float y, float max_w, int foc);
 

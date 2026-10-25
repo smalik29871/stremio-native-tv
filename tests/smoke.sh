@@ -896,6 +896,14 @@ run settings_p2p 400 "left,down,down,down,down,down,ok,down,down,down,down,right
 run p2p_switch 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,right" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
 grep -q "candidate 1/.* -> http://127.0.0.1:${SNTV_ENGINE_PORT:-11490}/$FAKE_TORRENT_HASH/0" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
   && grep -q "staying on P2P while it plays well" "$OUT/p2p_switch.log" && grep -q "TorBox has it again, leaving P2P" "$OUT/p2p_switch.log" || { echo "P2P fallback, the wait or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
+# TorBox said it had the torrent, then went down: the same torrent from peers plays (it only
+# came as TorBox's link), and the player stays on it until TorBox opens it again
+run torbox_down_p2p 1100 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with tbdp2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_TORBOX_API=http://127.0.0.1:$PORT/torboxdown SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=2
+grep -q "streams: P2P of the same torrent rides along, for when TorBox is down" "$OUT/torbox_down_p2p.log" \
+  && grep -q "video(null): load http://127.0.0.1:${SNTV_ENGINE_PORT:-11490}/$FAKE_TORRENT_HASH/0" "$OUT/torbox_down_p2p.log" \
+  && grep -q "toast: TorBox is not answering: playing P2P on this TV" "$OUT/torbox_down_p2p.log" \
+  && grep -q "player: TorBox still not answering (.*); staying on P2P" "$OUT/torbox_down_p2p.log" && ! grep -q "TorBox has it again, leaving P2P" "$OUT/torbox_down_p2p.log" \
+  || { echo "TorBox being down did not end in P2P of the same torrent, or the player left P2P for it"; grep -E "torbox|player: (candidate|TorBox|source)|video\(null\): load|toast" "$OUT/torbox_down_p2p.log"; exit 1; }
 fi
 # progress reaches the account as the app closes mid-film, dated the way stremio-core reads it
 # an account whose addons an old version saved with partial manifests: refetched and saved back whole

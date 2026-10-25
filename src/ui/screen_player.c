@@ -1785,8 +1785,13 @@ static void start_candidate(Player *p, int idx, double start)
         const char *e = getenv("SNTV_P2P_RECHECK");   /* tests */
         p->p2p_recheck_in = e ? (float)atof(e) : 120;
         p->p2p_stats_in = 0;
-        app_toast("No cached copy: playing P2P on this TV. It switches back when TorBox has it.");
-        torbox_queue_hash(p->cands[idx].url + strlen("http://127.0.0.1:11490/"));   /* your TorBox fetches it meanwhile */
+        const char *hash = p->cands[idx].url + strlen("http://127.0.0.1:11490/");
+        char h[41]; snprintf(h, sizeof h, "%.40s", hash);
+        if (torbox_hash_cached(h)) app_toast("TorBox is not answering: playing P2P on this TV. It goes back to TorBox when TorBox answers.");   /* TorBox has it: it is down */
+        else {
+            app_toast("No cached copy: playing P2P on this TV. It switches back when TorBox has it.");
+            torbox_queue_hash(hash);   /* your TorBox fetches it meanwhile */
+        }
     }
     const char *load = p->cands[idx].url, *final = !relayed && idx < 16 && !p->final_off[idx] ? streams_final_url(load) : NULL;
     p->final_used = final != NULL;
@@ -2080,17 +2085,23 @@ static void on_reask(const Stream *items, int n, void *user)
     Player *p = user;
     if (p != g_live || p->finished) return;
     PlayCandidate *c = calloc(7, sizeof *c);
-    int k = 0;
+    int k = 0, p2p = 0;
     unsigned char used[64] = { 0 };
-    for (int pass = 0; pass < 2; pass++)   /* sources from a service found down come last */
+    for (int pass = 0; pass < 2; pass++) {   /* sources from a service found down come last */
         for (int i = 0; i < n && i < 64 && k < 6; i++) {
             if (used[i] || !streams_candidate(&p->meta, &items[i], &c[k])) continue;
             char name[40]; int down = 0;
             streams_service(c[k].url, c[k].label, name, sizeof name);
             for (int s = 0; s < p->n_svc; s++) down |= !strcmp(p->svc[s].name, name) && p->svc[s].down;
             if (pass == 0 && down) { cand_drop(&c[k]); memset(&c[k], 0, sizeof c[k]); continue; }
+            p2p |= torrent_engine_url_is(c[k].url);
             used[i] = 1; k++;
         }
+        /* before the down service's own: the best torrent from peers (TorBox had it cached,
+         * so it only came as TorBox's link) */
+        for (int i = 0; pass == 0 && !p2p && i < n && k < 6; i++)
+            if (streams_p2p_candidate(&p->meta, &items[i], &c[k])) { p2p = 1; k++; LOGI("player: P2P of the same torrent next, the service being down"); }
+    }
     p->reask_count++;
     p->reask_at = 0;
     if (!k) { free(c); LOGI("player: asked again, still nothing to play"); app_toast("Still no source plays this. Try again in a little while"); return; }
@@ -2506,6 +2517,37 @@ static void leave_p2p_to(Player *p, PlayCandidate c)
     free(old);
 }
 
+/* TorBox found down earlier and its copy listed again (its cache list can answer while the
+ * rest is down): opened quietly first, and only once it answers is P2P left for it */
+typedef struct { Player *owner; unsigned attempt; PlayCandidate c; } TbBack;
+static void on_tb_back(const char *url, const char *error, void *user)
+{
+    TbBack *b = user;
+    Player *p = b->owner;
+    int current = p == g_live && !p->finished && b->attempt == p->attempt && p->cur < p->n_cands && torrent_engine_url_is(p->cands[p->cur].url);
+    if (current && url) {
+        char name[40];
+        streams_service(b->c.url, b->c.label, name, sizeof name);
+        for (int k = 0; k < p->n_svc; k++) if (!strcmp(p->svc[k].name, name)) p->svc[k].down = p->svc[k].fails = 0;
+        LOGI("player: %s answers again; switching at the next seek or stall", name);
+        if (p->tb_waiting) cand_drop(&p->tb_wait);
+        p->tb_wait = b->c; p->tb_waiting = 1;
+        free(b);
+        return;
+    }
+    if (current) LOGI("player: TorBox still not answering (%s); staying on P2P", error ? error : "?");
+    cand_drop(&b->c);
+    free(b);
+}
+
+static int svc_down(const Player *p, const char *url, const char *label)
+{
+    char name[40];
+    streams_service(url, label, name, sizeof name);
+    for (int k = 0; k < p->n_svc; k++) if (!strcmp(p->svc[k].name, name)) return p->svc[k].down;
+    return 0;
+}
+
 static void on_p2p_recheck(const Stream *items, int n, void *user)
 {
     Player *p = user;
@@ -2518,6 +2560,14 @@ static void on_p2p_recheck(const Stream *items, int n, void *user)
         if (want && s->tags.res && s->tags.res < want) continue;
         PlayCandidate c;
         if (!streams_candidate(&p->meta, s, &c)) continue;
+        if (torbox_is_hash_link(c.url) && svc_down(p, c.url, c.label)) {
+            TbBack *b = malloc(sizeof *b);
+            b->owner = p; b->attempt = p->attempt; b->c = c;
+            EpisodeHint ep;
+            app_episode_hint(p->meta.id, p->meta.name, p->video_id, &ep);
+            torbox_open_hash(c.url, &ep, on_tb_back, b);
+            return;
+        }
         VideoInfo vi; video_info(&vi);
         if (p->started && p->stalls_here == 0 && vi.state == VIDEO_PLAYING && !vi.buffering && !getenv("SNTV_P2P_SWITCH_NOW")) {   /* playing well: no reload now */
             if (p->tb_waiting) cand_drop(&p->tb_wait);

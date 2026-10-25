@@ -153,6 +153,8 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
+        if p.startswith("/torboxdown/"):   # TorBox down (see do_GET)
+            return self.send(503, b'{"success":false,"error":"DOWN"}')
         # TorBox adding a torrent (a multipart form): hashes starting "cafe" are cached (id 77), others start downloading (78)
         if p.startswith("/torbox/torrents/createtorrent"):
             if self.headers.get("Authorization") != "Bearer tbkey" or b"multipart/form-data" not in self.headers.get("Content-Type", "").encode():
@@ -1022,6 +1024,12 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/tmdbimg/"):
             i = int(p.rsplit("/p", 1)[1].split(".")[0]) if "/p" in p else 0
             return self.send(200, art("poster", i + 2, ""), "image/png")
+        if p.startswith("/torboxdown/"):   # TorBox that said every torrent was cached, then went down: anything else is a 503
+            if p[12:].startswith("torrents/checkcached"):
+                q = p[12:]
+                hashes = q.split("hash=")[1].split("&")[0].split(",") if "hash=" in q else []
+                return self.send(200, json.dumps({"success": True, "data": [{"hash": h, "name": "x", "size": 1} for h in hashes]}).encode())
+            return self.send(503, b'{"success":false,"error":"DOWN"}')
         if p.startswith("/torbox/"):   # TorBox: your files (key "tbkey"), and the permanent link that forwards to one
             q = p[8:]
             if q.startswith("torrents/checkcached"):   # hashes starting "cafe" are cached
