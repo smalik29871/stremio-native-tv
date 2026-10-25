@@ -248,7 +248,7 @@ static int decoder_main(void *arg)
                 SDL_UnlockMutex(g_lock);
                 if (trim) trim_disk_cache();
             }
-            px = shrink(px, &w, &h, i->flags & IMAGE_MIPMAP ? 512 : g_max_dim);
+            px = shrink(px, &w, &h, i->flags & IMAGE_MIPMAP ? 512 : i->flags & IMAGE_FULL && g_max_dim >= SNTV_IMAGE_MAX_DIM ? 1920 : g_max_dim);
             i->tint = average_tint(px, w, h);
             content_box(px, w, h, i->box);
             if (i->flags & IMAGE_MIPMAP) px = to_pot(px, &w, &h);
@@ -597,6 +597,7 @@ static void trim_disk_cache(void)
 
 static void evict_if_needed(void);
 void image_set_max_dim(int px) { g_max_dim = px > 0 ? px : SNTV_IMAGE_MAX_DIM; }
+int image_memory_low(void) { return g_max_dim < SNTV_IMAGE_MAX_DIM; }
 void image_set_budget(size_t budget_bytes) { if (budget_bytes) g_budget = budget_bytes; evict_if_needed(); }
 
 int image_init(const char *cache_dir, size_t budget_bytes)

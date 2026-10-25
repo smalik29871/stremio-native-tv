@@ -44,6 +44,7 @@ typedef struct PlayCandidate {
     int res;                    /* vertical resolution from the source's name, 0 unknown */
     char badges[96];            /* "4K|DOLBY VISION|HEVC|CACHED|2.1 GB", as the Sources page shows them */
     int recommended;            /* the Sources page's pick */
+    int p2p;                    /* P2P on this TV (no cached copy) */
     char *headers, *video_hash, *subs;   /* from the stream (Stream.headers, .video_hash, .subs), NULL none */
 } PlayCandidate;
 
@@ -313,6 +314,7 @@ Screen *screen_sync_create(const char *link);   /* NULL: show this device's code
 Screen *screen_library_create(void);   /* the account's library as a grid */
 Screen *screen_calendar_create(void);  /* upcoming and recent episodes of library series */
 Screen *screen_detail_create(const MetaPreview *preview);
+const char *screen_detail_id(const Screen *s);   /* the title a title page shows, or NULL for another screen */
 void    screen_detail_ask(const MetaPreview *preview);   /* the title page with its Ask AI panel open */
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title);
 /* The same, starting the recommended source by itself (Back returns to the list). */
@@ -379,6 +381,7 @@ void player_reload_at(Screen *s, double position_s, int paused);   /* the same s
 void streams_prefetch(const MetaPreview *meta, const char *video_id);
 /* Where this link's redirects ended, found by a check moments ago; NULL none (open the link). */
 const char *streams_final_url(const char *url);
+void streams_service(const char *url, const char *label, char *out, size_t n);   /* TorBox, a debrid service, P2P, else the link's site */
 /* Share of addons that have answered that prefetch, 0..1 (1 = ready to start at once);
  * -1 when none is running or it went stale. */
 float streams_prefetch_progress(const char *video_id);

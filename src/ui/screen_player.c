@@ -62,6 +62,7 @@ struct Player {
     PlayCandidate *cands; int n_cands, cur;
     int tries;
     uint64_t tried;                         /* sources already started here (bit per index, first 64) */
+    struct { char name[40]; int fails, down; } svc[8]; int n_svc;   /* services whose sources failed to start (TorBox, a debrid, a site) */
     int started;                            /* this source has shown a picture (the clock moved) */
     float veil;                             /* the title's artwork over the screen until the first picture, then fading */
     unsigned sub_sig; float drawn_at;       /* the subtitle lines last drawn, and when: a bare picture draws only when they change */
@@ -1742,8 +1743,49 @@ static void buffer_alternates(const Player *p, int idx)
     relay_buffer_alternates(urls, headers, n);
 }
 
+static int svc_fails(const Player *p, int idx)
+{
+    char name[40];
+    streams_service(p->cands[idx].url, p->cands[idx].label, name, sizeof name);
+    for (int k = 0; k < p->n_svc; k++) if (!strcmp(p->svc[k].name, name)) return p->svc[k].fails;
+    return 0;
+}
+
+/* A source that never started counts against its service; a second one from the same
+ * service (or TorBox not answering at all) means the service is down: its other sources
+ * are skipped, for other addons' sources and P2P. */
+static void svc_failed(Player *p, int idx, const char *why)
+{
+    char name[40];
+    streams_service(p->cands[idx].url, p->cands[idx].label, name, sizeof name);
+    if (!strcmp(name, "P2P") || !name[0]) return;
+    int k = 0;
+    while (k < p->n_svc && strcmp(p->svc[k].name, name)) k++;
+    if (k == p->n_svc) {
+        if (k == 8) return;
+        snprintf(p->svc[k].name, sizeof p->svc[k].name, "%s", name);
+        p->svc[k].fails = p->svc[k].down = 0; p->n_svc++;
+    }
+    p->svc[k].fails++;
+    int unreachable = why && (strstr(why, "did not take the torrent (0") || strstr(why, "did not take the torrent (5") || strstr(why, "did not answer"));
+    if (p->svc[k].fails < 2 && !unreachable) return;
+    p->svc[k].down = 1;
+    int skipped = 0;
+    char other[40];
+    for (int i = 0; i < p->n_cands && i < 16; i++) {
+        if (i == idx || p->dead[i]) continue;
+        streams_service(p->cands[i].url, p->cands[i].label, other, sizeof other);
+        if (!strcmp(other, name)) { p->dead[i] = 1; skipped++; }
+    }
+    if (skipped) LOGI("player: %s looks down (%s); its %d other source%s skipped for other addons'", name, why ? why : "?", skipped, skipped == 1 ? " is" : "s are");
+}
+
 static int next_candidate(const Player *p)
 {
+    /* two failed: first a source from a service that has not failed (another addon's),
+     * then P2P on this TV */
+    for (int i = p->cur + 1; p->tries >= 2 && p->tries < 6 && i < p->n_cands; i++)
+        if (!(i < 16 && p->dead[i]) && !torrent_engine_url_is(p->cands[i].url) && !svc_fails(p, i)) return i;
     for (int i = p->cur + 1; p->tries >= 2 && i < p->n_cands; i++)
         if (torrent_engine_url_is(p->cands[i].url)) return i;
     /* the next one not already found dead (checked while this one played) */
@@ -1753,8 +1795,8 @@ static int next_candidate(const Player *p)
         break;
     }
     /* then any above it not tried yet (a source picked from the panel can sit last) */
-    for (int i = 0; i < p->cur && i < 64 && p->tries < 3; i++)
-        if (!(p->tried >> i & 1) && !(i < 16 && p->dead[i])) return i;
+    for (int i = 0; i < p->cur && i < 64; i++)
+        if (!(p->tried >> i & 1) && !(i < 16 && p->dead[i]) && (p->tries < 3 || (p->tries < 6 && !svc_fails(p, i)))) return i;
     return -1;
 }
 
@@ -1885,6 +1927,7 @@ static void fail_over(Player *p, const char *why)
         p->learned = 1;
     }
     if (vi.position < 5) app_link_failed(p->cands[p->cur].url);   /* never started: sort it last for six hours */
+    if (vi.position < 5) svc_failed(p, p->cur, why);
     if (vi.position < 5) youtube_note_result(p->cands[p->cur].url, 0);   /* this TV and that way of playing YouTube */
     health_record(p, HEALTH_FAIL);
     int next = next_candidate(p);
@@ -1945,6 +1988,8 @@ static void on_warm_tb(const char *url, const char *error, void *user)
     free(q);
 }
 
+static void cand_drop(PlayCandidate *c);
+
 /* Every source failed: ask the addons again (debrid links often come back). */
 static void on_reask(const Stream *items, int n, void *user)
 {
@@ -1952,7 +1997,16 @@ static void on_reask(const Stream *items, int n, void *user)
     if (p != g_live || p->finished) return;
     PlayCandidate *c = calloc(7, sizeof *c);
     int k = 0;
-    for (int i = 0; i < n && k < 6; i++) if (streams_candidate(&p->meta, &items[i], &c[k])) k++;
+    unsigned char used[64] = { 0 };
+    for (int pass = 0; pass < 2; pass++)   /* sources from a service found down come last */
+        for (int i = 0; i < n && i < 64 && k < 6; i++) {
+            if (used[i] || !streams_candidate(&p->meta, &items[i], &c[k])) continue;
+            char name[40]; int down = 0;
+            streams_service(c[k].url, c[k].label, name, sizeof name);
+            for (int s = 0; s < p->n_svc; s++) down |= !strcmp(p->svc[s].name, name) && p->svc[s].down;
+            if (pass == 0 && down) { cand_drop(&c[k]); memset(&c[k], 0, sizeof c[k]); continue; }
+            used[i] = 1; k++;
+        }
     p->reask_count++;
     p->reask_at = 0;
     if (!k) { free(c); LOGI("player: asked again, still nothing to play"); app_toast("Still no source plays this. Try again in a little while"); return; }

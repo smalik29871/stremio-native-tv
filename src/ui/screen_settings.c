@@ -195,7 +195,7 @@ static const char *row_title(int id)
     case IT_SKIP: return "Skip intros and recaps";
     case IT_NIGHT: return "Night mode";
     case IT_ADVISORY: return "Content advisory";
-    case IT_LETTERBOX: return "Living letterbox";
+    case IT_LETTERBOX: return "Living letterbox (experimental)";
     case IT_SUBS_WHEN: return "Turn subtitles on";
     case IT_CLOCK: return "Clock";
     case IT_ISLAND_STYLE: return "Clock style";
@@ -296,7 +296,7 @@ static const char *row_desc(int id)
     case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
     case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
     case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
-    case IT_LETTERBOX: return "A film wider or narrower than the screen leaves bars. Glow: a soft blur of the picture. One colour: the scene's main colour. Both follow the film. Black: plain bars. Except Off, subtitles move into the bar below.";
+    case IT_LETTERBOX: return "Experimental: it can make playback less smooth on some TVs. A film wider or narrower than the screen leaves bars. Glow: a soft blur of the picture. One colour: the scene's main colour. Black: plain bars. Except Off, subtitles move into the bar below.";
     case IT_ADVISORY: return "When a video starts, its age rating and what it contains (violence, language, nudity...) show for a few seconds, from IMDb's parents guide.";
     case IT_NIGHT: return "Videos play quieter and subtitles one size larger, so late viewing stays easy to follow without waking anyone.";
     case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
@@ -895,7 +895,7 @@ static void draw(Screen *s)
         case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
         case IT_SKIP: draw_row(y, ICON_NEXT, "Skip intros and recaps", SKIP_NAMES[g_app.skip_mode], foc, KIND_CHOICE, 0); break;
         case IT_ADVISORY: draw_row(y, ICON_INFO, "Content advisory", NULL, foc, KIND_TOGGLE, g_app.advisory); break;
-        case IT_LETTERBOX: draw_row(y, ICON_ASPECT, "Living letterbox", LB_STYLE_NAMES[g_app.living_letterbox], foc, KIND_CHOICE, 0); break;
+        case IT_LETTERBOX: draw_row(y, ICON_ASPECT, "Living letterbox (experimental)", LB_STYLE_NAMES[g_app.living_letterbox], foc, KIND_CHOICE, 0); break;
         case IT_NIGHT: draw_row(y, ICON_MOON, "Night mode", g_app.night_mode == 2 ? "Always" : g_app.night_mode ? "11 pm to 6 am" : "Off", foc, KIND_CHOICE, 0); break;
         case IT_SUBS_WHEN: draw_row(y, ICON_GLOBE, "Turn subtitles on", g_app.subs_always ? "Always" : "Only for other languages", foc, KIND_CHOICE, 0); break;
         case IT_CLOCK: draw_row(y, ICON_CLOCK, "Clock", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0); break;

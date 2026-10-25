@@ -479,7 +479,7 @@ static int handle_backup(int fd, char *req, ssize_t n)
         SDL_UnlockMutex(g_lock);
         if (!b) { respond(fd, "404 Not Found", "<p>Open Settings > Back up or restore on the TV first."); return 1; }
         char head[300];
-        snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Disposition: attachment; filename=stremio-tv-settings.json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", strlen(b));
+        snprintf(head, sizeof head, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Disposition: attachment; filename=cuelight-settings.json\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n", strlen(b));
         send_all(fd, head, strlen(head));
         send_all(fd, b, strlen(b));
         free(b);
@@ -509,7 +509,7 @@ static int handle_backup(int fd, char *req, ssize_t n)
         respond(fd, "200 OK", page);
     } else {
         free(json);
-        snprintf(page, sizeof page, "%s<h1>That is not a settings backup</h1><p>Choose the stremio-tv-settings.json file this page saved before.</p>", PAGE_HEAD);
+        snprintf(page, sizeof page, "%s<h1>That is not a settings backup</h1><p>Choose the cuelight-settings.json file this page saved before.</p>", PAGE_HEAD);
         respond(fd, "400 Bad Request", page);
     }
     return 1;
@@ -671,9 +671,9 @@ static int handle(int fd, const struct sockaddr_in *peer)
     }
     SDL_LockMutex(g_lock); int backup_open = g_restore_open; SDL_UnlockMutex(g_lock);
     if (backup_open) {
-        snprintf(page, sizeof page, "%s<h1>Back up your TV's settings</h1><p>Themes, home rows, subtitle and source choices, breaks. Not your Stremio sign-in.</p>"
+        snprintf(page, sizeof page, "%s<h1>Back up your TV's settings</h1><p>Themes, home rows, subtitle and source choices, breaks, and your sign-ins (Stremio, TorBox, Trakt and keys). Keep the file private.</p>"
                  "<a href=/backup.json download><button type=button>Save a backup to this phone</button></a>"
-                 "<h1 style='margin-top:34px'>Restore a backup</h1><p>Choose a stremio-tv-settings.json saved before.</p>"
+                 "<h1 style='margin-top:34px'>Restore a backup</h1><p>Choose a cuelight-settings.json (or an older stremio-tv-settings.json) saved before.</p>"
                  "<form method=post action=/restore id=f><input type=file accept='.json,application/json' id=file><textarea name=text id=t hidden></textarea><button type=submit>Restore on the TV</button></form>"
                  "<script>document.getElementById('file').onchange=function(e){var r=new FileReader();r.onload=function(){document.getElementById('t').value=r.result};r.readAsText(e.target.files[0])}</script>", PAGE_HEAD);
         respond(fd, "200 OK", page);

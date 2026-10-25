@@ -11,8 +11,7 @@ OUT="${SMOKE_OUT:-$ROOT/tests/out}"
 mkdir -p "$OUT"
 LANES="${SMOKE_LANES:-1}"
 if [ "$LANES" -gt 1 ] && [ -z "${SMOKE_PART_OF:-}" ]; then
-  K="${SMOKE_PART%/*}"; N="${SMOKE_PART#*/}"
-  [ -n "${SMOKE_PART:-}" ] || { K=1; N=1; }
+  PART="${SMOKE_PART:-1/1}"; K="${PART%/*}"; N="${PART#*/}"
   pids=()
   for l in $(seq 1 "$LANES"); do   # part K of N is parts (K-1)*L+1 .. K*L of N*L
     mkdir -p "$OUT/lane$l"
@@ -183,6 +182,8 @@ run upnext_ok 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,ok
 # leaving a video mid-way: the island offers it back on Home, and Blue opens it
 run island_resume 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume.log" || { echo "Blue did not open the title left mid-way"; grep -i "island\|player" "$OUT/island_resume.log"; exit 1; }
+run island_resume_detail 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island_d '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "island: resume tt0903747" "$OUT/island_resume_detail.log" || { echo "Blue on the title page did not open the title left mid-way"; grep -i "island" "$OUT/island_resume_detail.log"; exit 1; }
 run island_resume_up 540 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with island_up '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume_up.log" || { echo "Up and OK did not open the resume card"; grep -i "island" "$OUT/island_resume_up.log"; exit 1; }
 run island_resume_focus 500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up" SNTV_FAKE_START=200 HOME="$(home_with island_f '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -355,6 +356,11 @@ run race_slow_link 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait,wait
 grep -q "streams: racing" "$OUT/race_slow_link.log" && grep -q "is slow to answer the race" "$OUT/race_slow_link.log" && ! grep -q "did not answer the race" "$OUT/race_slow_link.log" \
   && grep "player: candidate 1/" "$OUT/race_slow_link.log" | grep -q slowvideo \
   || { echo "a slow link was struck off as dead in the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_slow_link.log"; exit 1; }
+# TorBox down: six TorBox sources rank on top; at most three stand by, and once two fail
+# the rest of TorBox's are skipped for another addon's (a web scraper)
+run torbox_down_failover 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FAKE_FAIL_LOADS=2 HOME="$(home_with tbdown '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/tbdown/manifest.json,http://127.0.0.1:$PORT/manifest.json"
+grep -q "player: TorBox looks down" "$OUT/torbox_down_failover.log" && grep "player: candidate" "$OUT/torbox_down_failover.log" | sed -n 3p | grep -qv "tb=" \
+  || { echo "TorBox being down did not move playback to another addon"; grep -E "player: (candidate|source|TorBox)|streams: .*stand by" "$OUT/torbox_down_failover.log"; exit 1; }
 # what an addon says about its stream is kept: the headers it needs (the TV's player can't send
 # them, so the checks don't either and the source ranks after others), the file's hash
 # (subtitles matched to it), and the subtitles it sends along
@@ -692,6 +698,18 @@ grep -q "streams: YouTube video for tt0903747:1:1 streaming" "$OUT/streams_youtu
 run settings_tvcap 380 "left,down,down,down,down,down,ok,up,ok,t:this tv can,down,down,down,down,left,ok,ok" HOME="$(home_with tvcap '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvCaps":{"dts":[0,2],"hevc":[5,0]}}')"
 run settings_backup 420 "left,down,down,down,down,down,ok,up,ok,t:back up,down,down,down,down,left,ok,ok"
 grep -q "settings: found Back up or restore settings" "$OUT/settings_backup.log" || { echo "Back up or restore is not in Settings"; grep settings "$OUT/settings_backup.log"; exit 1; }
+# the backup carries the Stremio sign-in under the Cuelight tag; a restore follows it and keeps this TV's other accounts
+BK="$OUT/backup_saved.json"; rm -f "$BK"
+( for i in $(seq 1 30); do sleep 0.5; curl -s -m 2 -o "$BK" http://127.0.0.1:${SNTV_PHONE_PORT:-11471}/backup.json 2>/dev/null && grep -q '"_backup"' "$BK" && break; done
+  python3 -c 'import json,sys,urllib.parse; d=json.load(open(sys.argv[1])); d["authKey"]="key-two"; d["email"]="two@example.com"; d["themeName"]="restored"; print("text="+urllib.parse.quote(json.dumps(d)))' "$BK" > "$BK.post"
+  curl -s -m 2 --data-binary @"$BK.post" http://127.0.0.1:${SNTV_PHONE_PORT:-11471}/restore | grep -q "Sent to the TV" ) & BK_POST=$!
+run settings_backup_round 760 "wait,wait,wait,left,down,down,down,down,down,ok,up,ok,t:back up,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_PHONE_HOST=192.168.1.20 SNTV_API_URL="http://127.0.0.1:$PORT" HOME="$(home_with bkr '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"testkey","email":"one@example.com","accounts":[{"email":"one@example.com","authKey":"testkey"}]}')"
+wait $BK_POST
+grep -q '"_backup":"cuelight"' "$BK" && grep -q '"authKey":"testkey"' "$BK" || { echo "the backup did not carry the Cuelight tag and the Stremio sign-in"; head -c 300 "$BK"; exit 1; }
+grep -q "settings: restored" "$OUT/settings_backup_round.log" || { echo "the backup was not restored"; grep -E "settings|phone" "$OUT/settings_backup_round.log"; exit 1; }
+BKS="$OUT/home_bkr/.local/share/stremio/nativetv/settings.json"
+grep -q '"authKey":[[:space:]]*"key-two"' "$BKS" && grep -q 'one@example.com' "$BKS" && grep -q 'two@example.com' "$BKS" && grep -q '"signinsShared":[[:space:]]*1' "$BKS" \
+  || { echo "the restored sign-in was not followed, or this TV's account was lost"; grep -oE '"(authKey|email|signinsShared)":[^,]*' "$BKS"; exit 1; }
 TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktClientSecret":"sec"}'
 run trakt_connect 1200 "left,down,down,down,down,down,ok,up,ok,t:trakt,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trakt "$TK")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt
 grep -q "tracking: Trakt connected" "$OUT/trakt_connect.log" && grep -q "tracking: Trakt watchlist has 2 titles" "$OUT/trakt_connect.log" || { echo "Trakt did not connect"; grep tracking "$OUT/trakt_connect.log"; exit 1; }

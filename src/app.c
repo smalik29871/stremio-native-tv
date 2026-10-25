@@ -2455,9 +2455,35 @@ void app_shutdown(void)
 }
 
 /* ---- settings backup ---- */
+static int join_json(cJSON *mine, const cJSON *theirs);
+/* A Stremio sign-in that came in the store (from another device or a backup): this device
+ * follows it, as signing in here would. The key now in use, or NULL when signed out. */
+static const char *follow_signin(const char *old_key, int *switched_out)
+{
+    const char *key = store_get_str("authKey", NULL), *email = store_get_str("email", NULL);
+    int switched = key && (!old_key || strcmp(old_key, key) != 0);
+    if (switched_out) *switched_out = switched;
+    if (switched) {
+        app_sync_begin();   /* signed out before: this device's own addons join the account's */
+        if (old_key) {   /* another account: its library, not the last one's (as switching profiles does) */
+            library_items_free(g_app.library, g_app.n_library);
+            g_app.library = NULL; g_app.n_library = 0;
+            g_app.library_version++;
+            store_write_file("library.json", "{\"result\":[]}", 13);
+        }
+        free(g_app.auth_key); free(g_app.user_email);
+        g_app.auth_key = strdup(key);
+        g_app.user_email = email ? strdup(email) : NULL;
+        lists_set_owner(g_app.user_email);
+        g_account_gen++;
+        if (email) accounts_remember(email, key);
+    } else lists_set_owner(g_app.user_email);
+    return key;
+}
+
 static int backup_skips(const char *key)
 {
-    static const char *const SKIP[] = { "authKey", "accounts", "user", "tvCaps", "setupDone", "seenVersion", NULL };
+    static const char *const SKIP[] = { "user", "signinsShared", "tvCaps", "setupDone", "seenVersion", NULL };
     for (int i = 0; SKIP[i]; i++) if (strcmp(key, SKIP[i]) == 0) return 1;
     return 0;
 }
@@ -2467,7 +2493,7 @@ char *app_backup_settings(void)
     app_save_prefs();   /* every preference in the store, not only the ones changed so far */
     cJSON *root = store_root(), *out = cJSON_CreateObject(), *it;
     if (!out) return NULL;
-    cJSON_AddStringToObject(out, "_backup", "stremio-native-tv");
+    cJSON_AddStringToObject(out, "_backup", "cuelight");
     cJSON_AddStringToObject(out, "_version", SNTV_APP_VERSION);
     cJSON_ArrayForEach(it, root) if (it->string && !backup_skips(it->string)) cJSON_AddItemToObject(out, it->string, cJSON_Duplicate(it, 1));
     char *j = cJSON_PrintUnformatted(out);
@@ -2479,16 +2505,27 @@ int app_restore_settings(const char *json)
 {
     cJSON *in = cJSON_Parse(json), *it;
     const cJSON *tag = in ? cJSON_GetObjectItemCaseSensitive(in, "_backup") : NULL;
-    if (!cJSON_IsString(tag) || strcmp(tag->valuestring, "stremio-native-tv") != 0) { cJSON_Delete(in); return -1; }
+    if (!cJSON_IsString(tag) || (strcmp(tag->valuestring, "cuelight") != 0 && strcmp(tag->valuestring, "stremio-native-tv") != 0)) { cJSON_Delete(in); return -1; }
+    char *old_key = g_app.auth_key ? strdup(g_app.auth_key) : NULL;
     int n = 0;
     cJSON_ArrayForEach(it, in) {
         if (!it->string || it->string[0] == '_' || backup_skips(it->string)) continue;
-        store_set_json(it->string, cJSON_Duplicate(it, 1));
+        cJSON *mine = store_get_json(it->string);
+        if (!strcmp(it->string, "accounts") && cJSON_IsArray(mine) && cJSON_IsArray(it)) join_json(mine, it);   /* this TV's other accounts stay */
+        else store_set_json(it->string, cJSON_Duplicate(it, 1));
         n++;
     }
+    int signin = cJSON_GetObjectItemCaseSensitive(in, "authKey") != NULL;
     cJSON_Delete(in);
     store_save();
     load_prefs();
+    if (signin && follow_signin(old_key, NULL)) {
+        store_set_int("signinsShared", 1);   /* the device that saved it may still use that session */
+        store_save();
+        app_load_addons();
+        app_load_library();
+    }
+    free(old_key);
     LOGI("settings: restored %d from a backup", n);
     return n;
 }
@@ -2648,24 +2685,8 @@ int app_sync_apply(const char *json, int with_look, char *summary, size_t n)
     store_save();
     load_prefs();
 
-    /* a Stremio sign-in that came over: this device follows it, as signing in here would */
-    const char *key = store_get_str("authKey", NULL), *email = store_get_str("email", NULL);
-    int switched = key && (!old_key || strcmp(old_key, key) != 0);
-    if (switched) {
-        app_sync_begin();   /* signed out before: this device's own addons join the account's */
-        if (old_key) {   /* another account: its library, not the last one's (as switching profiles does) */
-            library_items_free(g_app.library, g_app.n_library);
-            g_app.library = NULL; g_app.n_library = 0;
-            g_app.library_version++;
-            store_write_file("library.json", "{\"result\":[]}", 13);
-        }
-        free(g_app.auth_key); free(g_app.user_email);
-        g_app.auth_key = strdup(key);
-        g_app.user_email = email ? strdup(email) : NULL;
-        lists_set_owner(g_app.user_email);
-        g_account_gen++;
-        if (email) accounts_remember(email, key);
-    } else lists_set_owner(g_app.user_email);
+    int switched;
+    const char *key = follow_signin(old_key, &switched);
     free(old_key);
     if (key) store_set_int("signinsShared", 1);
 

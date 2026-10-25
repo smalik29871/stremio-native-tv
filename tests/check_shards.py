@@ -13,6 +13,9 @@ for n in (4, 8, 12, 16):
         part = subprocess.run([sys.executable, "-I", shard, script, str(k), str(n)], capture_output=True, text=True, check=True).stdout
         made = set(re.findall(r"^\s*\(?\s*run (\S+) ", part, re.M)) | set(re.findall(r"idle_rate (\S+) ", part)) | {"datastore_put", "fake_track"}
         loops = set(re.findall(r"run (\w+)\$\w+ ", part))   # run name$f inside a for loop
+        for pid in set(re.findall(r"^wait \$(\w+)", part, re.M)):   # a helper started in the background for a run
+            if not re.search(r"\b%s=\$!" % pid, part):
+                bad.append(f"{k}/{n}: wait ${pid}")
         for log in set(re.findall(r"\$OUT/([A-Za-z0-9_]+)\.log", part)):
             if log not in made and not any(log.startswith(p) for p in loops):
                 bad.append(f"{k}/{n}: {log}.log")

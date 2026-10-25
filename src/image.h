@@ -4,7 +4,7 @@
 #define SNTV_IMAGE_H
 #include <stddef.h>
 
-typedef enum { IMAGE_PLAIN = 0, IMAGE_MIPMAP = 1 } ImageFlags;
+typedef enum { IMAGE_PLAIN = 0, IMAGE_MIPMAP = 1, IMAGE_FULL = 2 } ImageFlags;   /* FULL: up to 1920 px, for artwork filling the screen */
 
 int  image_init(const char *cache_dir, size_t budget_bytes);
 /* A cache folder used before (deleted on the loader's thread). Call before image_init. */
@@ -12,6 +12,7 @@ void image_drop_old_cache(const char *dir);
 void image_set_budget(size_t budget_bytes);   /* evicts down to it at once */
 /* The largest side a decoded picture keeps (0: the platform's); the memory saver lowers it. */
 void image_set_max_dim(int px);
+int image_memory_low(void);   /* artwork is being decoded smaller to save memory */
 void image_shutdown(void);
 /* Returns a texture id, or 0 while loading/failed. Requests the image on first call.
  * `age` (optional) receives frames since the texture became ready, for fade-ins. */

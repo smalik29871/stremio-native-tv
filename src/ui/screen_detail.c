@@ -1950,6 +1950,11 @@ void screen_detail_ask(const MetaPreview *p)
     ask_open(top->st);
 }
 
+const char *screen_detail_id(const Screen *s)
+{
+    return s && s->name && !strcmp(s->name, "detail") ? ((Detail *)s->st)->preview.id : NULL;
+}
+
 Screen *screen_detail_create(const MetaPreview *p)
 {
     Screen *s = calloc(1, sizeof *s);

@@ -492,10 +492,11 @@ static void dispatch_key(KeyAction a)
         return;
     }
     if (a == KEY_OK || a == KEY_LONG_OK) g_app.press_at = g_app.time;
-    if (a == KEY_BLUE && top && !g_app.pip) {   /* Blue on a browsing screen opens the title the island offers to resume */
-        static const char *const BROWSE[] = { "home", "explore", "library", "calendar", "search" };
-        for (size_t i = 0; i < sizeof BROWSE / sizeof BROWSE[0]; i++)
-            if (strcmp(top->name, BROWSE[i]) == 0 && island_key_blue()) return;
+    if (a == KEY_BLUE && top && !g_app.pip) {   /* Blue wherever the island shows the resume card opens that title */
+        static const char *const OWN_BLUE[] = { "player", "diagnostics", "ambient", "break", "options", "update", "pin", "login", "welcome" };
+        int mine = 0;
+        for (size_t i = 0; i < sizeof OWN_BLUE / sizeof OWN_BLUE[0]; i++) if (!strcmp(top->name, OWN_BLUE[i])) mine = 1;
+        if (!mine && island_key_blue()) return;
     }
     /* the corner player's keys, unless a break, a dialog or the screensaver has the screen
      * (they come first), or a title page's Play plays that title (its own corner video comes back) */

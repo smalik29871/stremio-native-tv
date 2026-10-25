@@ -215,6 +215,7 @@ static void advance(Ambient *a)
     a->shown_at = g_app.time;
 }
 
+static unsigned art_get(const char *url, int *w, int *h);
 static void update(Screen *s, float dt)
 {
     Ambient *a = s->st;
@@ -273,15 +274,49 @@ static void update(Screen *s, float dt)
     unsigned tex = image_get(url, &w, &h);
     if (tex && !a->cur_ready) { a->cur_ready = 1; a->shown_at = g_app.time; a->t = 0; }
     if (!tex && (image_failed(url) || g_app.time - a->shown_at > WAIT_S)) { advance(a); return; }
-    if (a->n > 1) image_prefetch(item_url(&a->items[(a->cur + 1) % a->n]));
+    if (a->n > 1) { int nw, nh; art_get(item_url(&a->items[(a->cur + 1) % a->n]), &nw, &nh); }   /* the next one's full-size copy on its way */
     if (a->cur_ready && a->t > (g_app.ambient_style == AMBIENT_RAIN ? SLOT_S * 3 : g_app.ambient_style == AMBIENT_DEPTH ? DEPTH_SLOT_S : SLOT_S)) advance(a);   /* the rain lingers on one view */
+}
+
+/* The screensaver fills the screen: its artwork at full size (TMDB's original, the larger
+ * metahub poster, up to 1920 px), the smaller copy until that comes or if it fails, and
+ * only the smaller one while memory is short. */
+static const char *hd_url(const char *url, char *buf, size_t n)
+{
+    const char *p;
+    if (!url || image_memory_low()) return url;
+    if ((p = strstr(url, "image.tmdb.org/t/p/w"))) {
+        const char *rest = strchr(p + 20, '/');   /* p + 19: the "w" of "w1280" */
+        int size = atoi(p + 20);
+        if (!rest) return url;
+        snprintf(buf, n, "%.*s%s%s", (int)(p + 19 - url), url, size >= 780 ? "original" : "w780", rest);
+        return buf;
+    }
+    if ((p = strstr(url, "images.metahub.space/poster/")) && (!strncmp(p + 28, "small/", 6) || !strncmp(p + 28, "medium/", 7))) {
+        snprintf(buf, n, "%.*slarge/%s", (int)(p + 28 - url), url, strchr(p + 28, '/') + 1);
+        return buf;
+    }
+    if ((p = strstr(url, "images.metahub.space/background/small/"))) {
+        snprintf(buf, n, "%.*smedium/%s", (int)(p + 32 - url), url, p + 38);
+        return buf;
+    }
+    return url;
+}
+
+static unsigned art_get(const char *url, int *w, int *h)
+{
+    char buf[1024];
+    const char *hd = hd_url(url, buf, sizeof buf);
+    unsigned t = hd ? image_get_ex(hd, IMAGE_FULL, w, h, NULL) : 0;
+    if (t) return t;
+    return image_get(url, w, h);   /* meanwhile, or instead */
 }
 
 /* Cover-fit UVs, zoomed by (1 + ZOOM * k) around a point that slides across the image. */
 static void draw_backdrop(const AmbientItem *it, float k, int dir, float alpha)
 {
     int iw, ih;
-    unsigned tex = image_get(it->background, &iw, &ih);
+    unsigned tex = art_get(it->background, &iw, &ih);
     if (!tex || alpha <= 0) return;
     float ia = (float)iw / (ih ? ih : 1), sa = (float)SNTV_UI_W / SNTV_UI_H;
     float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
@@ -313,7 +348,7 @@ static void draw_depth(Ambient *a, const struct tm *tmv, const char *clock, floa
     const AmbientItem *cur = &a->items[a->cur];
     if (a->fade > 0 && a->prev != a->cur) draw_backdrop(&a->items[a->prev], 1, a->prev, 1);
     int iw, ih;
-    unsigned tex = image_get(cur->background, &iw, &ih);
+    unsigned tex = art_get(cur->background, &iw, &ih);
     float in = a->cur_ready ? 1 - a->fade : 0;
     if (!tex || in <= 0) return;
     const DepthInfo *di = g_app.fx_light ? NULL : depth_info(cur->background);
@@ -405,10 +440,10 @@ static void draw_marquee(Ambient *a, float sx, float sy)
     int iw, ih;
     float in = a->cur_ready ? 1 - a->fade : 0;
     if (a->fade > 0 && a->prev != a->cur) {
-        unsigned pt = image_get(item_url(&a->items[a->prev]), &iw, &ih);
+        unsigned pt = art_get(item_url(&a->items[a->prev]), &iw, &ih);
         if (pt) gfx_rtex_uv(pt, px, py, pw, ph, 6, 0, 0, 1, 1, RGBA(255, 255, 255, 255), 0);
     }
-    unsigned tex = image_get(item_url(cur), &iw, &ih);
+    unsigned tex = art_get(item_url(cur), &iw, &ih);
     if (tex && in > 0) gfx_rtex_uv(tex, px, py, pw, ph, 6, 0, 0, 1, 1, RGBA(255, 255, 255, (int)(255 * in)), 0);
     float tx = px + pw + 150 + sx, ty = py + 120 + sy, tw = SNTV_UI_W - tx - THEME_MARGIN;
     if (SNTV_PHONE) { tx = 40 + sx; ty = py + ph + 60 + sy; tw = SNTV_UI_W - 80; }   /* upright: under the poster */
@@ -463,7 +498,7 @@ static void draw(Screen *s)
     if (g_app.ambient_style == AMBIENT_MARQUEE) draw_marquee(a, sx, sy);
     if (g_app.ambient_style == AMBIENT_RAIN) {
         int iw = 0, ih = 0;
-        unsigned tex = a->n ? image_get(item_url(&a->items[a->cur]), &iw, &ih) : 0;
+        unsigned tex = a->n ? art_get(item_url(&a->items[a->cur]), &iw, &ih) : 0;
         ambient_rain(tex, iw, ih, 0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time, a->cur_ready ? 1 - a->fade : 0.3f);
     }
 

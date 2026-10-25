@@ -74,6 +74,8 @@ int island_key_blue(void)
     memset(&I.resume, 0, sizeof I.resume);
     I.has_resume = 0;
     LOGI("island: resume %s", m.id ? m.id : "?");
+    const char *here = screen_detail_id(app_top());
+    if (here && m.id && !strcmp(here, m.id)) app_pop();   /* on that title's page already: a fresh one, Resume focused */
     app_push(screen_detail_create(&m));   /* the title page, its Resume button focused */
     meta_preview_free(&m);
     return 1;

@@ -475,6 +475,17 @@ class H(BaseHTTPRequestHandler):
                     {"name": "[RD+] SlowLink\n1080p", "title": "Movie.2024.1080p.WEB-DL.h264\n\U0001F4BE 2.8 GB", "url": f"{BASE}/slowvideo/2/{name}"},
                     {"name": "[RD+] SlowLink\n1080p", "title": "Movie.2024.1080p.BluRay.h264\n\U0001F4BE 3.5 GB", "url": f"{BASE}/slowvideo/3/{name}"}]}).encode())
             return self.send(404, b"{}")
+        # /tbdown/...: six TorBox sources on top (the player is told TorBox fails them), a web scraper's below
+        if p.startswith("/tbdown/"):
+            p = p[7:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.tbdown", name="Many Sources", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                url = STREAMS["streams"][0]["url"].split("?")[0]
+                tb = [{"name": f"[TB+] Many\n2160p", "title": f"Movie.2024.2160p.WEB.h265-G{k}\n\U0001F4BE 9.{k} GB", "url": f"{url}?tb={k}"} for k in range(1, 7)]
+                web = [{"name": "WebScraper\n720p", "title": f"Movie.2024.720p.WEB.h264-W{k}\n\U0001F4BE 1.{k} GB", "url": f"{url}?web={k}"} for k in range(1, 3)]
+                return self.send(200, json.dumps({"streams": tb + web}).encode())
+            return self.send(404, b"{}")
         if p.startswith("/slowvideo/"):
             import time
             time.sleep(4.5)

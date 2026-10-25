@@ -202,6 +202,26 @@ static int has_audio_lang(const Stream *s)
 }
 
 /* A torrent this TV plays itself (no streaming server set): the fallback. */
+/* The service a source comes from: TorBox or another debrid service (whichever addon found
+ * it), P2P on this TV, else the site its link is on. Sources sharing one fail together. */
+static int has_ci(const char *hay, const char *needle);
+
+void streams_service(const char *url, const char *label, char *out, size_t n)
+{
+    static const struct { const char *in_url, *in_label, *name; } KNOWN[] = {
+        { "torbox", "[TB", "TorBox" }, { "real-debrid", "[RD", "Real-Debrid" }, { "realdebrid", NULL, "Real-Debrid" },
+        { "alldebrid", "[AD", "AllDebrid" }, { "premiumize", "[PM", "Premiumize" }, { "debrid-link", "[DL", "Debrid-Link" },
+        { "easydebrid", "[ED", "EasyDebrid" }, { "offcloud", "[OC", "Offcloud" },
+    };
+    url = url ? url : ""; label = label ? label : "";
+    for (size_t i = 0; i < sizeof KNOWN / sizeof *KNOWN; i++)
+        if (has_ci(url, KNOWN[i].in_url) || (KNOWN[i].in_label && strstr(label, KNOWN[i].in_label)) || has_ci(label, KNOWN[i].name)) { snprintf(out, n, "%s", KNOWN[i].name); return; }
+    if (torrent_engine_url_is(url)) { snprintf(out, n, "P2P"); return; }
+    const char *h = strstr(url, "://");
+    h = h ? h + 3 : url;
+    snprintf(out, n, "%.*s", (int)strcspn(h, "/:?"), h);
+}
+
 static int is_p2p(const Stream *s)
 {
     return s->info_hash && !s->url && !torbox_hash_cached(s->info_hash) && !(g_app.streaming_server && *g_app.streaming_server) && g_app.p2p_fallback && torrent_engine_available();
@@ -1552,23 +1572,42 @@ static void play_from(Streams *st, int index)
     if (pip_take(st)) { free(url); return; }
     st->launched = 1;
     video_keep_awake(0);   /* the player's own loading holds the TV's screensaver from here */
-    PlayCandidate *c = calloc((size_t)st->n + 2, sizeof *c);
-    int n = 0, p2p = 0, rec = recommended(st);
+    PlayCandidate *all = calloc((size_t)st->n + 1, sizeof *all), *c = calloc((size_t)st->n + 2, sizeof *c);
+    int na = 0, n = 0, p2p = 0, rec = recommended(st);
     const char *group = st->items[index].binge_group;
     /* the one picked, the recommended one (the surest fallback, and the player marks it),
      * the rest of its binge group, then the others in the list's order */
-    for (int pass = 0; pass < 4 && n < 6; pass++)
-        for (int i = 0; i < st->n && n < 6; i++) {
+    for (int pass = 0; pass < 4; pass++)
+        for (int i = 0; i < st->n; i++) {
             if (pass == 0 && i != index) continue;
             if (pass > 0 && (i == index || (pass > 1 && i == rec))) continue;
             if (pass == 1 && i != rec) continue;
             if (pass == 2 && !(group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0)) continue;
             if (pass == 3 && group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0) continue;
             if (pass > 0 && ineligible(st, &st->items[i])) continue;   /* behind the picked one: only what may play by itself */
-            if (streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p |= is_p2p(&st->items[i]); c[n].recommended = i == rec; n++; }
+            if (streams_candidate(&st->meta, &st->items[i], &all[na])) { all[na].recommended = i == rec; all[na].p2p = is_p2p(&st->items[i]); na++; }
         }
-    for (int i = 0; i < st->n && !p2p; i++)
-        if (is_p2p(&st->items[i]) && !ineligible(st, &st->items[i]) && streams_candidate(&st->meta, &st->items[i], &c[n])) { p2p = 1; n++; }
+    /* six of them, at most three from one service (TorBox, a debrid, one site): when that
+     * service is down, the others are other addons' sources, not more of the same */
+    unsigned char taken[64] = { 0 };
+    int held = 0;
+    for (int round = 0; round < 2; round++)
+        for (int k = 0; k < na && k < 64 && n < 6; k++) {
+            if (taken[k]) continue;
+            if (round == 0 && k >= 2) {
+                char mine[48], other[48]; int same = 0;
+                streams_service(all[k].url, all[k].label, mine, sizeof mine);
+                for (int j = 0; j < n; j++) { streams_service(c[j].url, c[j].label, other, sizeof other); same += !strcmp(mine, other); }
+                if (same >= 3) { held++; continue; }
+            }
+            taken[k] = 1; p2p |= all[k].p2p; c[n++] = all[k];
+        }
+    if (held) LOGI("streams: %d sources stand by, at most 3 from one service", n);
+    for (int k = 0; k < na && !p2p; k++)
+        if (k < 64 && !taken[k] && all[k].p2p) { taken[k] = 1; p2p = 1; c[n++] = all[k]; }
+    int left = 0;
+    for (int k = 0; k < na; k++) if (k >= 64 || !taken[k]) all[left++] = all[k];
+    play_candidates_free(all, left);
     if (torrent_engine_url_is(c[0].url)) torrent_engine_start(0);   /* warm up while the player opens */
     LibraryItem *li = app_library_find(st->meta.id);
     double start = !st->from_start && li && li->video_id && strcmp(li->video_id, st->video_id) == 0 ? li->time_offset / 1000.0 : 0;   /* Restart: 0:00 */

@@ -14,7 +14,7 @@ import sys
 
 ASSIGN = re.compile(r"^[A-Z][A-Z0-9_]*=")
 REUSE = re.compile(r'HOME="\$OUT/home_')   # continues the run before it: same part
-SETUP = re.compile(r"^(mkdir|echo|cp|sed|rm|for |touch|cat|printf|[A-Z][A-Z0-9_]*=)")
+SETUP = re.compile(r"^(mkdir|echo|cp|sed|rm|for |touch|cat|printf|\(|\s|[A-Z][A-Z0-9_]*=)")   # "(" and indented: a helper started in the background
 
 
 def main():
