@@ -51,10 +51,10 @@ static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen"
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
 enum { N_RATES = 7, RATE_NORMAL = 2 };
 
-typedef struct AddonSub { char *url, *lang, *addon, *release; int matched, sync_failed; int fit; char fit_why[48]; int name; } AddonSub;   /* name: release-name match 0..100 (OpenSubtitles) */   /* fit: 0 not checked, else 1..101 */
+typedef struct AddonSub { char *url, *lang, *addon, *release; int matched, sync_failed, load_failed; int fit; char fit_why[48]; int name; } AddonSub;   /* name: release-name match 0..100 (OpenSubtitles) */   /* fit: 0 not checked, else 1..101 */
 
 typedef struct Player Player;
-typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; unsigned attempt; unsigned seq; } SubReq;   /* attempt: 0, or the source start it is about; seq: which subtitle download, for files */
+typedef struct { Player *owner; unsigned gen; int addon; int slot; int hashed; unsigned attempt; unsigned seq; int idx; } SubReq;   /* attempt: 0, or the source start it is about; seq: which subtitle download, for files */
 
 struct Player {
     MetaPreview meta;
@@ -97,7 +97,7 @@ struct Player {
     float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
     float fs_until;           /* sideways on a phone: the controls show until */
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
-    float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
+    float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none, lb_lower_logged;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
     char lb_last[2048];       /* the last frame it had, shown while the next one comes */
     char lb_prev[2048]; float lb_swap_at;   /* the one before, fading out as the last fades in (since then) */
     double lb_keys[64]; int lb_nkeys, lb_keys_state; double lb_keys_from;   /* the film's cuts ahead (keyframes): 0 not asked, 1 asking, 2 known, 3 none */
@@ -466,6 +466,7 @@ static void hash_start(Player *p)
 static double sub_fix_get(const char *url);
 
 static int sub_take(HttpResponse *r, SubTrack *out);
+static int pick_subs(Player *p, const char *lang, SubsSource prefer);
 
 static void on_sub_file(HttpResponse *r, void *user)
 {
@@ -491,8 +492,17 @@ static void on_sub_file(HttpResponse *r, void *user)
     } else if (q->slot == 2) {
         p->sync_state = 3;
     } else {
-        app_toast("Could not load that subtitle file");
         if (q->slot) p->active_addon_sub2 = -1; else p->active_addon_sub = -1;
+        if (!q->slot && q->idx >= 0 && q->idx < p->n_addon_subs) {   /* as with a source that fails: the next best in its language */
+            AddonSub *bad = &p->addon_subs[q->idx];
+            bad->load_failed = 1;
+            char lang[16]; snprintf(lang, sizeof lang, "%s", bad->lang ? bad->lang : "");
+            LOGI("subs: a %s file from %s did not load (%s); trying the next", lang, bad->addon ? bad->addon : "an addon", r->status ? "not a subtitle file" : r->error[0] ? r->error : "no answer");
+            if (lang[0] && pick_subs(p, lang, SUBS_SRC_ADDON)) {
+                LOGI("subs: %s instead", p->active_addon_sub >= 0 ? "another file" : "the video's own track");
+                app_toast("That subtitle file did not load: using another %s one", lang_display_english(lang));
+            } else app_toast("Could not load that subtitle file, and there is no other %s one", lang_display_english(lang));
+        } else app_toast("Could not load that subtitle file");
     }
     app_redraw();
     free(q);
@@ -604,7 +614,7 @@ static void select_addon_sub_slot(Player *p, int idx, int slot)
     }
     if (idx < 0) { p->sub_seq[slot]++; return; }   /* off: a download still coming is dropped */
     SubReq *q = calloc(1, sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = slot; q->seq = ++p->sub_seq[slot];
+    q->owner = p; q->gen = p->gen; q->addon = -1; q->slot = slot; q->seq = ++p->sub_seq[slot]; q->idx = idx;
     unsigned req = sub_get(p->addon_subs[idx].url, on_sub_file, q);
     if (!slot) p->sub_req = req;
 }
@@ -645,7 +655,7 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
     /* a remembered addon file: give the addons their 15 s before settling for an embedded track */
     if (prefer == SUBS_SRC_ANY && g_app.subs_prefer_files)
         for (int i = 0; i < p->n_addon_subs; i++)
-            if (p->addon_subs[i].matched && lang_same(p->addon_subs[i].lang, lang)) {
+            if (p->addon_subs[i].matched && !p->addon_subs[i].load_failed && lang_same(p->addon_subs[i].lang, lang)) {
                 if (p->active_addon_sub != i) { LOGI("player: subtitles: the file matched to this video, before its own track"); select_addon_sub(p, i); }
                 return 1;
             }
@@ -678,7 +688,7 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
                 int best = -1;
                 for (int i = 0; i < p->n_addon_subs; i++) {
                     const AddonSub *as = &p->addon_subs[i];
-                    if (!lang_same(as->lang, lang)) continue;
+                    if (!lang_same(as->lang, lang) || as->load_failed) continue;
                     if (pass == 0 && !as->matched) continue;
                     if (pass == 1 && as->name < 60) continue;
                     if (best < 0 || (pass == 1 && as->name > p->addon_subs[best].name)) best = i;
@@ -1242,43 +1252,44 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
     return s0;
 }
 
-#define LB_FADE_S 0.8f   /* a new one fades in over the last */
+#define LB_FADE_S 1.6f   /* a new one fades in over the last, slowly: the light drifts rather than flicks */
 #define LB_GROW 1.18f    /* the frame behind the screen, this much larger than it */
 #define LB_BLUR 5.6f     /* mip levels of blur: its colours, none of its shapes */
 #define LB_LIGHT 165     /* the glow's brightness (of 255): below the picture's, so the picture leads */
-#define LB_FALLOFF 0.7f  /* how dark it gets at the screen's edge */
+#define LB_FALLOFF 0.75f /* how dark it gets at the screen's edge */
 #define LB_SHADE 0.45f   /* the shadow along the picture's edge */
 #define LB_EDGE 18.0f    /* and how wide it is */
+#define LB_TINT 0.55f    /* One colour: the scene's colour at this strength */
 
-/* One frame into the bars. */
-static void lb_paint(unsigned tex, const char *url, int side, float bar, float a)
+/* One frame into the bars (the lower one too unless `lower` is 0): its light only; the
+ * falloff and the edge's shadow go over both frames at once in draw_letterbox. */
+static void lb_paint(unsigned tex, const char *url, int side, float bar, float a, int lower)
 {
+    float W = SNTV_UI_W, H = SNTV_UI_H;
+    if (g_app.living_letterbox == LB_COLOUR) {   /* the frame's main colour, flat: one hue */
+        unsigned t = image_tint(url);
+        if (!t) t = RGBA(40, 40, 40, 255);
+        Color c = RGBA((t >> 24) * LB_TINT, ((t >> 16) & 0xFF) * LB_TINT, ((t >> 8) & 0xFF) * LB_TINT, (int)(255 * a));   /* quieter than the picture */
+        if (side == 1) { gfx_rect(0, 0, W, bar, c); if (lower) gfx_rect(0, H - bar, W, bar, c); }
+        else { gfx_rect(0, 0, bar, H, c); gfx_rect(W - bar, 0, bar, H, c); }
+        return;
+    }
     /* as a lamp behind the screen (YouTube's ambient mode): the whole frame, a little larger
      * than the screen and blurred to its colours alone, shows past the picture's edges. No
      * shapes of it, mirrored or not: those read as a reflection beside the picture. */
     float box[4] = { 0, 0, 1, 1 };
     image_content_box(url, box);
-    float W = SNTV_UI_W, H = SNTV_UI_H, cw = box[2] - box[0], ch = box[3] - box[1];
+    float cw = box[2] - box[0], ch = box[3] - box[1];
     float rw = W * LB_GROW, rh = H * LB_GROW, rx = (W - rw) / 2, ry = (H - rh) / 2;   /* where the whole frame lies, enlarged */
     Color c = RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
-    Color dark = RGBA(0, 0, 0, (int)(255 * a * LB_FALLOFF)), shade = RGBA(0, 0, 0, (int)(255 * a * LB_SHADE)), clear = RGBA(0, 0, 0, 0);
 #define LB_U(x) (box[0] + ((x) - rx) / rw * cw)
 #define LB_V(y) (box[1] + ((y) - ry) / rh * ch)
     if (side == 1) {
         gfx_tex_blur(tex, 0, 0, W, bar, LB_U(0), LB_V(0), LB_U(W), LB_V(bar), c, LB_BLUR);
-        gfx_tex_blur(tex, 0, H - bar, W, bar, LB_U(0), LB_V(H - bar), LB_U(W), LB_V(H), c, LB_BLUR);
-        /* dimmer away from the picture, as light thrown on a wall; a soft shadow where it meets it */
-        gfx_gradient_v(0, 0, W, bar, dark, clear);
-        gfx_gradient_v(0, H - bar, W, bar, clear, dark);
-        gfx_gradient_v(0, bar - LB_EDGE, W, LB_EDGE, clear, shade);
-        gfx_gradient_v(0, H - bar, W, LB_EDGE, shade, clear);
+        if (lower) gfx_tex_blur(tex, 0, H - bar, W, bar, LB_U(0), LB_V(H - bar), LB_U(W), LB_V(H), c, LB_BLUR);
     } else {
         gfx_tex_blur(tex, 0, 0, bar, H, LB_U(0), LB_V(0), LB_U(bar), LB_V(H), c, LB_BLUR);
         gfx_tex_blur(tex, W - bar, 0, bar, H, LB_U(W - bar), LB_V(0), LB_U(W), LB_V(H), c, LB_BLUR);
-        gfx_gradient_h(0, 0, bar, H, dark, clear);
-        gfx_gradient_h(W - bar, 0, bar, H, clear, dark);
-        gfx_gradient_h(bar - LB_EDGE, 0, LB_EDGE, H, clear, shade);
-        gfx_gradient_h(W - bar, 0, LB_EDGE, H, shade, clear);
     }
 #undef LB_U
 #undef LB_V
@@ -1327,8 +1338,8 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     else { if (t0) p->lb_none = p->cur + 1; return; }
     if (bar < 36) return;
     p->lb_bar = bar; p->lb_side = side;
-    if (!p->lb_logged) { p->lb_logged = 1; LOGI("player: living letterbox, bars of %.0f %s (picture %.2f:1)", bar, side == 1 ? "above and below" : "at the sides", ar); }
-    if (light || !have_url) return;   /* the bars stay black; subtitles still move into them */
+    if (!p->lb_logged) { p->lb_logged = 1; LOGI("player: living letterbox, bars of %.0f %s (picture %.2f:1), %s", bar, side == 1 ? "above and below" : "at the sides", ar, LB_STYLE_NAMES[g_app.living_letterbox]); }
+    if (light || !have_url || g_app.living_letterbox == LB_BLACK) return;   /* the bars stay black; subtitles still move into them */
     /* fade in once a frame is here, out when there is none */
     float step = g_app.time - p->lb_kt;
     p->lb_kt = g_app.time;
@@ -1339,16 +1350,23 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     x = x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
     int pw0, ph0;
     unsigned tp = x < 1 && p->lb_prev[0] ? image_peek_ex(p->lb_prev, IMAGE_MIPMAP, &pw0, &ph0) : 0;
-    if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k);
-    if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1));
-    /* darker toward the screen's edge; nothing at all where the bar meets the picture */
-    int out = 0x90;
+    /* the TV draws an embedded subtitle track itself, under the app, inside the film's frame:
+     * with bars baked into the picture it sits in the lower one, which stays clear for it */
+    int lower = !(side == 1 && p->embedded_text_sel >= 0);
+    if (!lower && !p->lb_lower_logged) { p->lb_lower_logged = 1; LOGI("player: the lower bar stays clear for the TV's own subtitles"); }
+    if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k, lower);
+    if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1), lower);
+    /* dimmer away from the picture, as light thrown on a wall; a soft shadow where it meets it */
+    Color dark = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_FALLOFF)), shade = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_SHADE)), clear = RGBA(0, 0, 0, 0);
     if (side == 1) {
-        gfx_gradient_v(0, 0, W, bar, RGBA(0, 0, 0, out), RGBA(0, 0, 0, 0));
-        gfx_gradient_v(0, H - bar, W, bar, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, out));
+        gfx_gradient_v(0, 0, W, bar, dark, clear);
+        gfx_gradient_v(0, bar - LB_EDGE, W, LB_EDGE, clear, shade);
+        if (lower) { gfx_gradient_v(0, H - bar, W, bar, clear, dark); gfx_gradient_v(0, H - bar, W, LB_EDGE, shade, clear); }
     } else {
-        gfx_gradient_h(0, 0, bar, H, RGBA(0, 0, 0, out), RGBA(0, 0, 0, 0));
-        gfx_gradient_h(W - bar, 0, bar, H, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, out));
+        gfx_gradient_h(0, 0, bar, H, dark, clear);
+        gfx_gradient_h(W - bar, 0, bar, H, clear, dark);
+        gfx_gradient_h(bar - LB_EDGE, 0, LB_EDGE, H, clear, shade);
+        gfx_gradient_h(W - bar, 0, LB_EDGE, H, shade, clear);
     }
     p->lb_drawn = g_app.time;
     if (fabsf(p->lb_k - (t0 ? 1.0f : 0.0f)) > 0.01f || x < 1) app_redraw();
@@ -4278,7 +4296,7 @@ static void track_base(const Player *p, int kind, const VideoTrack *tr, int i, i
                 if (p->probe->tracks[k].kind == kind && seen++ == i) { pt = &p->probe->tracks[k]; break; }
     }
     const char *lang = lang_known(tr[i].lang) ? tr[i].lang : pt && lang_known(pt->lang) ? pt->lang : NULL;
-    if (lang) snprintf(title, tn, "%s", lang_display(lang));
+    if (lang) snprintf(title, tn, "%s", lang_display_english(lang));
     else if (tr[i].label[0]) snprintf(title, tn, "%s", tr[i].label);
     else snprintf(title, tn, "Track %d", i + 1);
     size_t o = 0;

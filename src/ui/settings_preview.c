@@ -288,20 +288,24 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
     case PV_LETTERBOX: {   /* a scope film on a 16:9 screen: the bars black, or glowing with its colours */
         float bh = sh * 0.17f;
         gfx_rrect(sx, sy, sw, sh, R_KEY, RGBA(0, 0, 0, 0xFF));
-        if (g_app.living_letterbox) {
+        int st = g_app.living_letterbox;
+        if (st == LB_GLOW || st == LB_COLOUR) {
             gfx_clip_push(sx, sy, sw, sh);
-            art(sx, sy - bh * 0.6f, sw, sh + bh * 1.2f, R_KEY, 4, 1);   /* the picture's edges, softened into the bars */
-            gfx_gradient_v(sx, sy, sw, bh, RGBA(0, 0, 0, 0xD8), RGBA(0, 0, 0, 0x50));
-            gfx_gradient_v(sx, sy + sh - bh, sw, bh, RGBA(0, 0, 0, 0x50), RGBA(0, 0, 0, 0xD8));
+            if (st == LB_GLOW) art(sx, sy - bh * 0.6f, sw, sh + bh * 1.2f, R_KEY, 4, 1);   /* the picture's colours, softened into the bars */
+            else { const Color *c = ART[4 % N_ART]; Color m = RGBA(((c[0] >> 24) + (c[1] >> 24)) / 2, (((c[0] >> 16) & 0xFF) + ((c[1] >> 16) & 0xFF)) / 2, (((c[0] >> 8) & 0xFF) + ((c[1] >> 8) & 0xFF)) / 2, 0xFF);
+                   gfx_rect(sx, sy, sw, sh, m); }   /* one colour, the scene's own */
+            gfx_gradient_v(sx, sy, sw, bh, RGBA(0, 0, 0, 0xC0), RGBA(0, 0, 0, 0));
+            gfx_gradient_v(sx, sy + sh - bh, sw, bh, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xC0));
             gfx_clip_pop();
         }
         art(sx, sy + bh, sw, sh - 2 * bh, 0, 4, 0);
         const char *line = "I'll be right here.";
         int fs = FONT_XS | FONT_B;
-        float ty = g_app.living_letterbox ? sy + sh - bh / 2 - font_height(fs) / 2 : sy + sh - bh - font_height(fs) - 14;
+        float ty = st ? sy + sh - bh / 2 - font_height(fs) / 2 : sy + sh - bh - font_height(fs) - 14;
         font_draw_center(line, sx + sw / 2 + 1, ty + 1, fs, RGBA(0, 0, 0, 0xC0));
         font_draw_center(line, sx + sw / 2, ty, fs, RGBA(0xFF, 0xFF, 0xFF, 0xF0));
-        caption(g_app.living_letterbox ? "The bars glow with the film's colours; subtitles sit in them" : "Black bars, subtitles over the picture", x, base + 6, w);
+        caption(st == LB_GLOW ? "The bars glow with the film's colours; subtitles sit in them" : st == LB_COLOUR ? "The bars take the scene's main colour; subtitles sit in them"
+                : st == LB_BLACK ? "Black bars, subtitles in the one below" : "Black bars, subtitles over the picture", x, base + 6, w);
         return;
     }
     case PV_BLUR: {

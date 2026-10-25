@@ -718,12 +718,14 @@ void phone_start(void)
     if (g_sock < 0) return;
     int one = 1;
     setsockopt(g_sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-    for (g_port = 11471; g_port < 11480; g_port++) {
+    const char *pp = getenv("SNTV_PHONE_PORT");   /* tests: apps side by side keep to their own ports */
+    int base = pp && atoi(pp) > 1024 ? atoi(pp) : 11471;
+    for (g_port = base; g_port < base + 9; g_port++) {
         struct sockaddr_in a = { 0 };
         a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_ANY); a.sin_port = htons((uint16_t)g_port);
         if (bind(g_sock, (struct sockaddr *)&a, sizeof a) == 0) break;
     }
-    if (g_port >= 11480 || listen(g_sock, 4) != 0) { close(g_sock); g_sock = -1; LOGW("phone: could not listen"); return; }
+    if (g_port >= base + 9 || listen(g_sock, 4) != 0) { close(g_sock); g_sock = -1; LOGW("phone: could not listen"); return; }
     g_thread = SDL_CreateThread(serve, "phone", NULL);
     char url[96];
     if (phone_url(url, sizeof url)) LOGI("phone: type-on-your-phone page at %s", url);

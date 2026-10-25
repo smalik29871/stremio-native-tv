@@ -43,7 +43,7 @@ def main():
             if l.lstrip().startswith("run "):
                 f = l.split()[2] if len(l.split()) > 2 else "120"
                 w = 60 + (int(f) if f.isdigit() else 120)   # start-up plus its frames
-                if l.startswith("run ") and depth == 0 and i and not SETUP.match(prev) and not REUSE.search(l):
+                if l.startswith("run ") and depth == 0 and i and not SETUP.match(prev) and not REUSE.search(l) and not prev.startswith("run "):   # a run whose check has not come yet stays with it
                     cuts.append(i)
         weight.append(w)
         if l.strip() and not l.lstrip().startswith("#"):

@@ -15,8 +15,18 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define ENGINE_PORT 11490
-static const char ENGINE_BASE[] = "http://127.0.0.1:11490/";
+static int engine_port(void)   /* 11490; tests running apps side by side give each its own */
+{
+    static int port;
+    if (!port) { const char *e = getenv("SNTV_ENGINE_PORT"); port = e && atoi(e) > 1024 ? atoi(e) : 11490; }
+    return port;
+}
+static const char *engine_base(void)   /* "http://127.0.0.1:11490/" */
+{
+    static char base[40];
+    if (!base[0]) snprintf(base, sizeof base, "http://127.0.0.1:%d/", engine_port());
+    return base;
+}
 
 static pid_t g_pid;
 static int g_cache_mb = 160;
@@ -44,21 +54,21 @@ void torrent_engine_set_cache_mb(int mb) { if (mb >= 32) g_cache_mb = mb; }
 char *torrent_engine_url(const char *info_hash, int file_idx, const char *trackers)
 {
     if (!info_hash || !torrent_engine_available()) return NULL;
-    size_t n = sizeof ENGINE_BASE + strlen(info_hash) + (trackers ? strlen(trackers) : 0) + 32;
+    size_t n = strlen(engine_base()) + 1 + strlen(info_hash) + (trackers ? strlen(trackers) : 0) + 32;
     char *u = malloc(n);
-    snprintf(u, n, "%s%s/%d%s%s", ENGINE_BASE, info_hash, file_idx < 0 ? -1 : file_idx, trackers ? "?" : "", trackers ? trackers : "");
-    for (char *c = u + sizeof ENGINE_BASE - 1; *c && *c != '/'; c++) if (*c >= 'A' && *c <= 'F') *c += 32;   /* the hash, lower case */
+    snprintf(u, n, "%s%s/%d%s%s", engine_base(), info_hash, file_idx < 0 ? -1 : file_idx, trackers ? "?" : "", trackers ? trackers : "");
+    for (char *c = u + strlen(engine_base()); *c && *c != '/'; c++) if (*c >= 'A' && *c <= 'F') *c += 32;   /* the hash, lower case */
     return u;
 }
 
-int torrent_engine_url_is(const char *url) { return url && !strncmp(url, ENGINE_BASE, sizeof ENGINE_BASE - 1); }
+int torrent_engine_url_is(const char *url) { return url && !strncmp(url, engine_base(), strlen(engine_base())); }
 
 static int answers(void)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return 0;
     struct sockaddr_in a = { 0 };
-    a.sin_family = AF_INET; a.sin_port = htons(ENGINE_PORT); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sin_family = AF_INET; a.sin_port = htons((uint16_t)engine_port()); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     int ok = connect(fd, (struct sockaddr *)&a, sizeof a) == 0;
     close(fd);
     return ok;
@@ -77,16 +87,17 @@ int torrent_engine_start(int wait_ms)
 {
     if (!torrent_engine_available()) return 0;
     if (!alive() && !answers()) {
-        char log_path[1100], cache[16], ppid[16];
+        char log_path[1100], cache[16], ppid[16], addr[32];
         snprintf(log_path, sizeof log_path, "%s/torrentd.log", store_dir());
         snprintf(cache, sizeof cache, "%d", g_cache_mb);
         snprintf(ppid, sizeof ppid, "%d", (int)getpid());
+        snprintf(addr, sizeof addr, "127.0.0.1:%d", engine_port());
         const char *path = engine_path();
         pid_t pid = fork();
         if (pid == 0) {   /* only exec-safe calls from here */
             int fd = open(log_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (fd >= 0) { dup2(fd, 1); dup2(fd, 2); close(fd); }
-            execl(path, "torrentd", "-addr", "127.0.0.1:11490", "-cache", cache, "-ppid", ppid, (char *)NULL);
+            execl(path, "torrentd", "-addr", addr, "-cache", cache, "-ppid", ppid, (char *)NULL);
             _exit(127);
         }
         if (pid < 0) { LOGW("torrent: could not start the engine (%s)", strerror(errno)); return 0; }
@@ -104,8 +115,8 @@ void torrent_engine_drop(const char *url)
 {
     if (!torrent_engine_url_is(url) || !alive()) return;
     char drop[200];
-    const char *h = url + sizeof ENGINE_BASE - 1;
-    snprintf(drop, sizeof drop, "%s%.40s/drop", ENGINE_BASE, h);
+    const char *h = url + strlen(engine_base());
+    snprintf(drop, sizeof drop, "%s%.40s/drop", engine_base(), h);
     http_request_async(drop, NULL, NULL, NULL);
 }
 

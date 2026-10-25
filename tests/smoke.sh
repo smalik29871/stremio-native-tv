@@ -1,26 +1,48 @@
 #!/usr/bin/env bash
 # Headless UI smoke test: runs the desktop build under Xvfb against the fake
 # addon, drives a few keys, and writes screenshots to tests/out/.
-# Usage: bash tests/smoke.sh [build-dir]   (SMOKE_PART=K/N runs part K of N: tests/shard.py)
+# Usage: bash tests/smoke.sh [build-dir]   (SMOKE_PART=K/N runs part K of N: tests/shard.py;
+# SMOKE_LANES=L runs that part as L smaller ones side by side, each with its own ports and folder)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${1:-$ROOT/build}"
-OUT="$ROOT/tests/out"
+OUT="${SMOKE_OUT:-$ROOT/tests/out}"
 mkdir -p "$OUT"
+LANES="${SMOKE_LANES:-1}"
+if [ -z "${SMOKE_LANES:-}" ] && [ -n "${SMOKE_PART:-}" ] && [ "$(nproc 2>/dev/null || echo 1)" -ge 4 ]; then LANES=3; fi   # a CI part on a 4-core machine: three side by side
+if [ "$LANES" -gt 1 ] && [ -z "${SMOKE_PART_OF:-}" ]; then
+  K="${SMOKE_PART%/*}"; N="${SMOKE_PART#*/}"
+  [ -n "${SMOKE_PART:-}" ] || { K=1; N=1; }
+  pids=()
+  for l in $(seq 1 "$LANES"); do   # part K of N is parts (K-1)*L+1 .. K*L of N*L
+    mkdir -p "$OUT/lane$l"
+    SMOKE_LANES=1 SMOKE_PART="$(( (K - 1) * LANES + l ))/$(( N * LANES ))" SMOKE_OUT="$OUT/lane$l" SMOKE_PORT=$(( 8765 + 10 * l )) \
+      SMOKE_SEED_PORT=$(( 6990 + l )) SNTV_PHONE_PORT=$(( 12000 + 20 * l )) SNTV_ENGINE_PORT=$(( 12500 + l )) SMOKE_XVFB_N=$(( 100 + 30 * l )) \
+      LP_NUM_THREADS=2 bash "$0" "$BUILD" > "$OUT/lane$l.txt" 2>&1 & pids+=($!)
+  done
+  failed=0
+  for i in "${!pids[@]}"; do
+    l=$(( i + 1 ))
+    if wait "${pids[$i]}"; then grep -c "^ok:" "$OUT/lane$l.txt" | sed "s/^/lane $l: /; s/$/ runs ok/"
+    else failed=1; echo "lane $l failed:"; tail -25 "$OUT/lane$l.txt"; fi
+  done
+  for l in $(seq 1 "$LANES"); do cp -f "$OUT/lane$l"/*.log "$OUT/lane$l"/*.png "$OUT/" 2>/dev/null || true; done   # where CI collects them
+  exit $failed
+fi
 if [ -n "${SMOKE_PART:-}" ] && [ -z "${SMOKE_PART_OF:-}" ]; then   # SMOKE_PART=2/4: one part of the runs (CI spreads them over machines)
   python3 -I "$ROOT/tests/shard.py" "$ROOT/tests/smoke.sh" "${SMOKE_PART%/*}" "${SMOKE_PART#*/}" > "$OUT/part.sh"
   SMOKE_PART_OF=1 exec bash "$OUT/part.sh" "$BUILD"
 fi
-PORT=8765
+PORT=${SMOKE_PORT:-8765}
 export FAKE_PUT_LOG="$OUT/datastore_put.log" FAKE_LIBRARY="$ROOT/tests/fixtures/library.json"   # the fake Stremio account
 export FAKE_TRACK_LOG="$OUT/fake_track.log"   # what the fake Trakt and SimKL were sent
 rm -f "$FAKE_PUT_LOG"
 # P2P: the app's engine (tools/torrentd.sh builds it next to the app) and a local seeder of a test video
 SEEDER=""
 if [ -x "$BUILD/torrentd" ]; then
-  "$BUILD/torrentd" -seed "$ROOT/tests/fixtures/media/seek_h264.mkv" -seed-port 6990 > "$OUT/seeder.out" 2>/dev/null & SEEDER=$!
+  "$BUILD/torrentd" -seed "$ROOT/tests/fixtures/media/seek_h264.mkv" -seed-port "${SMOKE_SEED_PORT:-6990}" > "$OUT/seeder.out" 2>/dev/null & SEEDER=$!
   for i in $(seq 1 50); do [ -s "$OUT/seeder.out" ] && break; sleep 0.1; done
-  export FAKE_TORRENT_HASH="$(head -1 "$OUT/seeder.out")" SNTV_TORRENT_PEERS=127.0.0.1:6990
+  export FAKE_TORRENT_HASH="$(head -1 "$OUT/seeder.out")" SNTV_TORRENT_PEERS=127.0.0.1:${SMOKE_SEED_PORT:-6990}
   [ -n "$FAKE_TORRENT_HASH" ] || { echo "the test seeder did not start (port 6990 busy?)"; exit 1; }
 else
   echo "skip: P2P runs (build the engine: tools/torrentd.sh host $BUILD/torrentd)"
@@ -53,7 +75,7 @@ home_with() { # name json: a separate profile for runs that need other settings
 run() { # name frames keys [extra env assignments...]
   local name="$1" frames="$2" keys="$3"; shift 3
   env "$@" SNTV_SCREENSHOT="$OUT/$name.ppm" SNTV_SCREENSHOT_FRAMES="$frames" SNTV_KEYS="$keys" \
-    xvfb-run -a -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" >"$OUT/$name.log" 2>&1 || { echo "run $name failed"; tail -20 "$OUT/$name.log"; exit 1; }
+    xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" >"$OUT/$name.log" 2>&1 || { echo "run $name failed"; tail -20 "$OUT/$name.log"; exit 1; }
   echo "ok: $name"
 }
 run home 150 "right,right"
@@ -67,7 +89,7 @@ run detail_cast 300 "wait,ok,down,down,right,ok" HOME="$(home_with about_cast "$
 grep -q 'search: the films of "Morgan Freeman" from a title page' "$OUT/detail_cast.log" && grep -q "search: no filmography from TMDB, searching the name" "$OUT/detail_cast.log" \
   || { echo "a cast member without TMDB did not fall back to a search"; grep search "$OUT/detail_cast.log"; exit 1; }
 # with TMDB: their own films and series, most popular first; talk shows and cameos left out
-run detail_cast_tmdb 900 "wait,ok,down,down,right,ok,wait,wait" HOME="$(home_with cast_tmdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run detail_cast_tmdb 900 "wait,ok,down,down,right,ok,wait,wait" HOME="$(home_with cast_tmdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q "search: 2 titles with Aaron Paul" "$OUT/detail_cast_tmdb.log" || { echo "a cast member did not open their films"; grep -E "search|tmdb" "$OUT/detail_cast_tmdb.log"; exit 1; }
 run detail_more_like 320 "wait,ok,down,down,down,ok" HOME="$(home_with about_more "$ABOUT_HOME")"
 grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "More like this did not open the title"; grep detail "$OUT/detail_more_like.log"; exit 1; }
@@ -108,7 +130,7 @@ run detail_trailer_hls_first 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait
 grep -q "youtube: dQw4w9WgXcQ 2 way(s) failed here before" "$OUT/detail_trailer_hls_first.log" && grep -q "player: candidate 1/4 .* -> http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_hls_first.log" \
   || { echo "a TV where DASH fails did not start with the playlist"; grep -E "youtube|player: candidate" "$OUT/detail_trailer_hls_first.log"; exit 1; }
 # no trailer from the addon: TMDB's, a file with no playlist, fetched in YouTube's &range= pieces
-run detail_trailer_file 360 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_file '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/notrailer/manifest.json SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run detail_trailer_file 360 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_file '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/notrailer/manifest.json SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q "youtube: fileOnly001 streams as a file" "$OUT/detail_trailer_file.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_file.log" \
   || { echo "the TMDB trailer did not stream through the chunked proxy"; grep -E "detail|youtube|video" "$OUT/detail_trailer_file.log"; exit 1; }
 LIBF="$OUT/home_trailer/.local/share/stremio/nativetv/library.json"
@@ -145,7 +167,7 @@ grep -q "player: tt0903747:1:2 opens on its still, out of the Up Next card" "$OU
 # the screensaver's last (steady by then).
 idle_rate() { # name screen keys [env...]: the app left alone for 26 s; frames per 2 s while that screen was up
   local name="$1" screen="$2" keys="$3"; shift 3
-  env "$@" SNTV_PERF_FILL=1 SNTV_KEYS="$keys" timeout 26 xvfb-run -a -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" >"$OUT/$name.log" 2>&1 || true
+  env "$@" SNTV_PERF_FILL=1 SNTV_KEYS="$keys" timeout 26 xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" >"$OUT/$name.log" 2>&1 || true
   grep -o "perf: [0-9]* frames in [0-9.]* s on $screen\$" "$OUT/$name.log" | grep -o "perf: [0-9]*" | grep -o "[0-9]*"
 }
 r="$(idle_rate idle_playing player "right,ok,down,down,play" SNTV_FAKE_START=90 HOME="$(home_with idleplay '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" | sort -n | head -1)"; [ -n "$r" ] && [ "$r" -lt 40 ] || { echo "a bare playing picture still draws $r frames in 2 s"; grep "perf: .* frames in" "$OUT/idle_playing.log"; exit 1; }
@@ -153,17 +175,17 @@ r="$(idle_rate idle_ambient ambient "wait" SNTV_AMBIENT_SECONDS=1 | tail -1)"; [
 echo "ok: idle rates"
 # OK on the card is its Play now (autoplay off, so only the key can start the next episode)
 # Up Next with no bingeGroup: the next episode plays from the same release group (NTb) by itself
-run upnext_chain 520 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/chain/manifest.json HOME="$(home_with upnext_chain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_chain 520 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/chain/manifest.json HOME="$(home_with upnext_chain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "streams: next episode like group NTb" "$OUT/upnext_chain.log" && grep -q "streams: next episode from the same release" "$OUT/upnext_chain.log" && grep "player: candidate 1/" "$OUT/upnext_chain.log" | sed -n 2p | grep -q "rel=ntb" \
   || { echo "the next episode did not stay on the same release"; grep -E "streams:|player: candidate" "$OUT/upnext_chain.log"; exit 1; }
 run upnext_ok 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_ok '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
+[ "$(grep -c 'player: candidate' "$OUT/upnext_ok.log")" -ge 2 ] || { echo "OK on the Up Next card did not start the next episode"; grep player "$OUT/upnext_ok.log"; exit 1; }
 # leaving a video mid-way: the island offers it back on Home, and Blue opens it
 run island_resume 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume.log" || { echo "Blue did not open the title left mid-way"; grep -i "island\|player" "$OUT/island_resume.log"; exit 1; }
 run island_resume_up 540 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with island_up '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume_up.log" || { echo "Up and OK did not open the resume card"; grep -i "island" "$OUT/island_resume_up.log"; exit 1; }
 run island_resume_focus 500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up" SNTV_FAKE_START=200 HOME="$(home_with island_f '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-[ "$(grep -c 'player: candidate' "$OUT/upnext_ok.log")" -ge 2 ] || { echo "OK on the Up Next card did not start the next episode"; grep player "$OUT/upnext_ok.log"; exit 1; }
 # next episode's sources still arriving (the /slow addon answers 6 s late): the Up Next
 # button and the control bar's Next button fill as a loader
 SLOW="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/slow/manifest.json"
@@ -322,6 +344,11 @@ grep -q "player: candidate" "$OUT/ep_list_untouched.log" || { echo "left alone, 
 run race_error_page 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with errpage '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/errpage/manifest.json"
 grep -q "streams: racing" "$OUT/race_error_page.log" && grep -q "player: candidate 1/" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q expiredpage \
   || { echo "an HTML error page won the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_error_page.log"; exit 1; }
+# a link that answers late (a debrid link resolving on first use) is slow, not dead: it is not struck off in the start race
+run race_slow_link 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait,wait,wait" HOME="$(home_with slowlink '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/slowlink/manifest.json,http://127.0.0.1:$PORT/manifest.json"
+grep -q "streams: racing" "$OUT/race_slow_link.log" && grep -q "is slow to answer the race" "$OUT/race_slow_link.log" && ! grep -q "did not answer the race" "$OUT/race_slow_link.log" \
+  && grep "player: candidate 1/" "$OUT/race_slow_link.log" | grep -q slowvideo \
+  || { echo "a slow link was struck off as dead in the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_slow_link.log"; exit 1; }
 # what an addon says about its stream is kept: the headers it needs (the TV's player can't send
 # them, so the checks don't either and the source ranks after others), the file's hash
 # (subtitles matched to it), and the subtitles it sends along
@@ -358,7 +385,7 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest_known.
 # the TV's own keyboard (Settings, on by default on the TV): opened while typing only, its Enter
 # searches, and the next OK opens the title (it does not bring the keyboard back)
 # Search keeps the phone page open (not only while typing): text sent from a phone searches at once
-( for i in $(seq 1 20); do sleep 0.5; curl -s -m 2 -d 'text=breaking%20bad' http://127.0.0.1:11471/ 2>/dev/null | grep -q "Sent to the TV" && break; done ) & PHONE_POST=$!
+( for i in $(seq 1 20); do sleep 0.5; curl -s -m 2 -d 'text=breaking%20bad' http://127.0.0.1:${SNTV_PHONE_PORT:-11471}/ 2>/dev/null | grep -q "Sent to the TV" && break; done ) & PHONE_POST=$!
 run search_from_phone 360 "search,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_PHONE_HOST=192.168.1.20 HOME="$(home_with sfp '{"setupDone":1}')"
 wait $PHONE_POST   # only it: a bare wait waits for the fake addon too
 grep -q 'search: "breaking bad" from a phone' "$OUT/search_from_phone.log" || { echo "text sent from the phone did not search"; grep -E "search|phone" "$OUT/search_from_phone.log"; exit 1; }
@@ -615,14 +642,17 @@ run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,do
 run player_subs_second 520 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,right,back,down,down,down,ok" SNTV_FAKE_START=200 HOME="$(home_with subs2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Choose for Second subtitles" "$OUT/player_subs_second.log" && grep -q "player: subtitles sheet: a file from Fake Addon in Portugu.*, as the second" "$OUT/player_subs_second.log" \
   || { echo "a second subtitle language was not chosen in the sheet"; grep -E "subtitles" "$OUT/player_subs_second.log"; exit 1; }
-run player_seek_thumb 238 "right,ok,down,down,play,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
+run player_seek_thumb 238 "right,ok,down,down,play,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 # a scope film framed in 16:9 (bars baked into the picture): its colours glow in the bars, the subtitles sit in the one below
-run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
+run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1)" "$OUT/player_letterbox.log" || { echo "a scope film's bars did not take its colours"; grep -E "letterbox|player: (aspect|candidate)" "$OUT/player_letterbox.log"; exit 1; }
 grep -q "player: living letterbox changes with the film's cuts" "$OUT/player_letterbox.log" && grep -qE "player: the bars follow the cut at (2\.50|6\.25|11\.00|17\.50|24\.00) s" "$OUT/player_letterbox.log" \
   || { echo "the bars did not follow the film's cuts"; grep -E "letterbox|thumbs" "$OUT/player_letterbox.log"; exit 1; }
-run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":0,"thumbServer":"http://127.0.0.1:8765/thumbs"}')"
+run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":0,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 ! grep -q "player: living letterbox" "$OUT/player_letterbox_off.log" || { echo "the living letterbox drew while turned off"; exit 1; }
+# one colour: the scene's main colour in the bars, the subtitles still in the lower one
+run player_letterbox_colour 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxcol '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":2,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1), One colour" "$OUT/player_letterbox_colour.log" || { echo "the one-colour bars did not draw"; grep letterbox "$OUT/player_letterbox_colour.log"; exit 1; }
 run settings_letterbox 420 "left,down,down,down,down,down,ok,up,ok,t:living letterbox,down,down,down,down,left,ok"
 grep -q "settings: found Living letterbox" "$OUT/settings_letterbox.log" || { echo "Living letterbox is not in Settings"; grep settings "$OUT/settings_letterbox.log"; exit 1; }
 # no helper: the TV decodes the keyframe itself (bundled FFmpeg) through its local /frame
@@ -643,9 +673,9 @@ run pin_pad 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,
 run pin_locked 300 "left,down,down,down,down,down,ok" HOME="$(home_with pinned '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"parentalPin":"1234","pinSettings":1}')"
 run settings_account 300 "left,down,down,down,down,down,ok,right" HOME="$(home_with accts '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"accounts":[{"email":"other@example.com","key":"k"}]}')"
 TM='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}'
-run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
-run player_paused_tmdb 320 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
-run detail_franchise 420 "right,right,ok,down,down,down,right,ok" HOME="$(home_with tmdb3 "$TM")" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run detail_tmdb 200 "right,right,ok" HOME="$(home_with tmdb "$TM")" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
+run player_paused_tmdb 320 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 HOME="$(home_with tmdb2 "$TM")" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
+run detail_franchise 420 "right,right,ok,down,down,down,right,ok" HOME="$(home_with tmdb3 "$TM")" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q 'detail: franchise -> tt1002' "$OUT/detail_franchise.log" || { echo "the franchise row did not open the next film"; grep -E "detail|tmdb" "$OUT/detail_franchise.log"; exit 1; }
 run settings_keys 340 "left,down,down,down,down,down,ok,right"
 run settings_rules 380 "left,down,down,down,down,down,ok,up,ok,t:largest,down,down,down,down,left,ok,right" HOME="$(home_with rules '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"srcExclude":"CAM, 3D"}')"
@@ -657,32 +687,32 @@ run settings_tvcap 380 "left,down,down,down,down,down,ok,up,ok,t:this tv can,dow
 run settings_backup 420 "left,down,down,down,down,down,ok,up,ok,t:back up,down,down,down,down,left,ok,ok"
 grep -q "settings: found Back up or restore settings" "$OUT/settings_backup.log" || { echo "Back up or restore is not in Settings"; grep settings "$OUT/settings_backup.log"; exit 1; }
 TK='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktClientSecret":"sec"}'
-run trakt_connect 1200 "left,down,down,down,down,down,ok,up,ok,t:trakt,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trakt "$TK")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+run trakt_connect 1200 "left,down,down,down,down,down,ok,up,ok,t:trakt,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trakt "$TK")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt
 grep -q "tracking: Trakt connected" "$OUT/trakt_connect.log" && grep -q "tracking: Trakt watchlist has 2 titles" "$OUT/trakt_connect.log" || { echo "Trakt did not connect"; grep tracking "$OUT/trakt_connect.log"; exit 1; }
 TK2='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktClientSecret":"sec","traktToken":"tok1","simklClientId":"scid","simklToken":"stok"}'
 # (an episode played to its end, autoplay off: a jump to 92% and Back is a peek and scrobbles no "watched")
-run trakt_scrobble 2400 "wait,wait,right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,back,back,back" HOME="$(home_with trakt2 "${TK2%\}},\"autoplayNext\":0}")" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=125 SNTV_TRAKT_API=http://127.0.0.1:8765/trakt SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+run trakt_scrobble 2400 "wait,wait,right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,back,back,back" HOME="$(home_with trakt2 "${TK2%\}},\"autoplayNext\":0}")" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=125 SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
 grep -q "tracking: Trakt start tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: Trakt stop tt0903747" "$OUT/trakt_scrobble.log" && grep -q "tracking: SimKL watched tt0903747" "$OUT/trakt_scrobble.log" \
   || { echo "playback was not scrobbled"; grep tracking "$OUT/trakt_scrobble.log"; exit 1; }
 # renewing a token that lasts a day: once, not again every second; a renewal that fails waits
 NOWS=$(date +%s)
-run trakt_renew 300 "" HOME="$(home_with trenew "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"traktClientId\":\"cid\",\"traktToken\":\"tok1\",\"traktRefresh\":\"ref1\",\"traktExpires\":$((NOWS + 3600))}")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+run trakt_renew 300 "" HOME="$(home_with trenew "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"traktClientId\":\"cid\",\"traktToken\":\"tok1\",\"traktRefresh\":\"ref1\",\"traktExpires\":$((NOWS + 3600))}")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt
 [ "$(grep -c "tracking: Trakt token renewed" "$OUT/trakt_renew.log")" = 1 ] || { echo "the Trakt token was not renewed exactly once"; grep tracking "$OUT/trakt_renew.log" | head; exit 1; }
-run trakt_renew_down 300 "" HOME="$(home_with trenew2 "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"traktClientId\":\"cid\",\"traktToken\":\"tok1\",\"traktRefresh\":\"refdown\",\"traktExpires\":$((NOWS + 3600))}")" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+run trakt_renew_down 300 "" HOME="$(home_with trenew2 "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"traktClientId\":\"cid\",\"traktToken\":\"tok1\",\"traktRefresh\":\"refdown\",\"traktExpires\":$((NOWS + 3600))}")" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt
 [ "$(grep -c "tracking: Trakt token renewal failed" "$OUT/trakt_renew_down.log")" = 1 ] || { echo "a failed Trakt renewal was not left to wait"; grep tracking "$OUT/trakt_renew_down.log" | head; exit 1; }
 # paused on a phone: Trakt's resume points reach Continue Watching when newer than the TV's
-run trakt_resume 600 "wait,wait,wait" HOME="$(home_with trakt_resume '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktToken":"tokresume"}')" SNTV_TRAKT_API=http://127.0.0.1:8765/trakt
+run trakt_resume 600 "wait,wait,wait" HOME="$(home_with trakt_resume '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid","traktToken":"tokresume"}')" SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt
 grep -q "tracking: Trakt has 2 resume points, 2 newer than this TV's" "$OUT/trakt_resume.log" || { echo "Trakt's resume points were not taken"; grep -E "tracking|library" "$OUT/trakt_resume.log"; exit 1; }
-run simkl_connect 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid"}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+run simkl_connect 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid"}')" SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
 grep -q "tracking: SimKL sign-in code SV2CODE" "$OUT/simkl_connect.log" && grep -q "tracking: SimKL connected" "$OUT/simkl_connect.log" && grep -qE '"simklRefresh":[[:space:]]*"sref"' "$OUT/home_simkl/.local/share/stremio/nativetv/settings.json" \
   || { echo "SimKL did not connect with OAuth 2.0"; grep tracking "$OUT/simkl_connect.log"; exit 1; }
 # an app registered before AUTH V2: the PIN
-run simkl_connect_v1 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl_v1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"v1app"}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+run simkl_connect_v1 2500 "left,down,down,down,down,down,ok,up,ok,t:simkl,down,down,down,down,left,ok,ok" HOME="$(home_with simkl_v1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"v1app"}')" SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
 grep -q "tracking: SimKL sign-in code SIM12" "$OUT/simkl_connect_v1.log" && grep -q "tracking: SimKL connected" "$OUT/simkl_connect_v1.log" || { echo "an old SimKL app did not fall back to the PIN"; grep tracking "$OUT/simkl_connect_v1.log"; exit 1; }
 # a week on: the token is renewed
-run simkl_refresh 150 "" HOME="$(home_with simkl_ref '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid","simklToken":"stok2","simklRefresh":"sref","simklExpires":1}')" SNTV_SIMKL_API=http://127.0.0.1:8765/simkl
+run simkl_refresh 150 "" HOME="$(home_with simkl_ref '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid","simklToken":"stok2","simklRefresh":"sref","simklExpires":1}')" SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
 grep -q "tracking: SimKL token renewed" "$OUT/simkl_refresh.log" || { echo "the SimKL token was not renewed"; grep tracking "$OUT/simkl_refresh.log"; exit 1; }
-run detail_mdblist 260 "wait,ok,down" HOME="$(home_with mdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"mdblistKey":"k"}')" SNTV_MDBLIST_API=http://127.0.0.1:8765/mdblist
+run detail_mdblist 260 "wait,ok,down" HOME="$(home_with mdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"mdblistKey":"k"}')" SNTV_MDBLIST_API=http://127.0.0.1:$PORT/mdblist
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)
 run transition_zoom 34 "right,ok" SNTV_NO_TRANSITIONS= SNTV_FRAME_DT=0.016
@@ -693,7 +723,7 @@ run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,play,wait" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
 # a recording over a paused film, ended with OK: the film is back where it was, still paused
-run break_paused 1100 "right,ok,down,down,play,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+4 SNTV_FAKE_START=200
+run break_paused 1100 "right,ok,down,down,play,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:'"$PORT"'/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+4 SNTV_FAKE_START=200
 grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && grep -q "player: paused again at 20[0-9]s" "$OUT/break_paused.log" \
   || { echo "the paused film did not come back paused where it was"; grep -E "player|break" "$OUT/break_paused.log"; exit 1; }
 # the screensaver waits while a break counts down (it froze the break, so the film never came back)
@@ -741,7 +771,7 @@ H="$(home_with sync2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"
 sed 's/"_mtime": 1714557600000/"_mtime": "2026-10-18T20:00:00.000Z"/; s/"timeOffset": 1500000/"timeOffset": 2000000/' "$ROOT/tests/fixtures/library.json" > "$H/.local/share/stremio/nativetv/library.json"
 run progress_merge 200 "right" HOME="$H" SNTV_API_URL="http://127.0.0.1:$PORT"
 grep -q '"_id":"tt0903747".*"timeOffset":2000000' "$FAKE_PUT_LOG" || { echo "newer local progress was not kept and resent"; exit 1; }
-run break_video 300 "right,ok,down,down,play,wait" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:8765"}')" SNTV_NOW=12:00
+run break_video 300 "right,ok,down,down,play,wait" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:'"$PORT"'"}')" SNTV_NOW=12:00
 # a YouTube link typed into Settings is saved by the TV itself (QuickJS runs the solver), then plays at the break with no helper
 run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
 grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
@@ -769,31 +799,31 @@ run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok
 run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run options_yellow 200 "right,right,right,yellow"
 run search_recent 200 "search,down,down" HOME="$(home_with recent '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"recentSearches":["breaking bad","midnight harbor","something about prison and hope"]}')"
-run offline_update 220 "right" SNTV_FAKE_OFFLINE=1 SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+run offline_update 220 "right" SNTV_FAKE_OFFLINE=1 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
 # a new release: at a quiet moment the app asks; Update now hands it to the Homebrew Channel
-run update_prompt 600 "" HOME="$(home_with upd1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+run update_prompt 600 "" HOME="$(home_with upd1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
 W=$(printf 'wait,%.0s' $(seq 1 40))
-run update_install 1600 "${W}down,ok" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json SNTV_FAKE_INSTALL=1
+run update_install 1600 "${W}down,ok" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json SNTV_FAKE_INSTALL=1
 grep -q "update: installing" "$OUT/update_prompt.log" && { echo "it installed without being asked"; exit 1; }
-[ "$(grep -c "update: 9.9.9 available" "$OUT/update_install.log")" = 1 ] && grep -q "update: the viewer said update now" "$OUT/update_install.log" && grep -q "update: installing 9.9.9 from http://127.0.0.1:8765/org.stremio.nativetv_9.9.9_arm.ipk" "$OUT/update_install.log" && grep -q "update: 9.9.9 installed" "$OUT/update_install.log" || { echo "the update did not install"; grep update "$OUT/update_install.log"; exit 1; }
+[ "$(grep -c "update: 9.9.9 available" "$OUT/update_install.log")" = 1 ] && grep -q "update: the viewer said update now" "$OUT/update_install.log" && grep -q "update: installing 9.9.9 from http://127.0.0.1:$PORT/org.stremio.nativetv_9.9.9_arm.ipk" "$OUT/update_install.log" && grep -q "update: 9.9.9 installed" "$OUT/update_install.log" || { echo "the update did not install"; grep update "$OUT/update_install.log"; exit 1; }
 # Later is the prompt's first choice: an OK that lands as it opens never installs
-run update_ok_is_later 1600 "${W}ok" HOME="$(home_with upd4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json SNTV_FAKE_INSTALL=1
+run update_ok_is_later 1600 "${W}ok" HOME="$(home_with upd4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json SNTV_FAKE_INSTALL=1
 grep -q "update: the viewer said later" "$OUT/update_ok_is_later.log" && ! grep -q "update: installing" "$OUT/update_ok_is_later.log" \
   || { echo "OK on the update prompt installed (Later must come first)"; grep -E "update" "$OUT/update_ok_is_later.log"; exit 1; }
 ASR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":0,"breakMethod":1,"breakAsr":1,"breakLat":"43.676","breakLon":"-79.485","breakCity":"Toronto","breakLead":5,"breaksEverywhere":1}'
 # the Android app's notice (version, apkUrl, sha256) reads the same
-run update_android_notice 600 "" HOME="$(home_with upda '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/android.json
+run update_android_notice 600 "" HOME="$(home_with upda '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/android.json
 grep -q "update: 9.9.9 available" "$OUT/update_android_notice.log" || { echo "the Android update notice was not read"; grep update "$OUT/update_android_notice.log"; exit 1; }
-run island_update 900 "$(printf 'wait,%.0s' $(seq 1 35))back" HOME="$(home_with islu '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
-run update_refused 1700 "${W}down,ok,wait,wait,wait,ok" HOME="$(home_with upd3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+run island_update 900 "$(printf 'wait,%.0s' $(seq 1 35))back" HOME="$(home_with islu '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
+run update_refused 1700 "${W}down,ok,wait,wait,wait,ok" HOME="$(home_with upd3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
 grep -q "toast: Open the Homebrew Channel from the Home screen to update" "$OUT/update_refused.log" || { echo "a refused update did not point to the Homebrew Channel"; grep -E "update|toast" "$OUT/update_refused.log"; exit 1; }
 # refused once: the next launch tells how (once per version) and doesn't ask the installer unasked
-run update_refused_again 1700 "${W}down,ok,wait,wait" HOME="$OUT/home_upd3" SNTV_UPDATE_URL=http://127.0.0.1:8765/repo.json
+run update_refused_again 1700 "${W}down,ok,wait,wait" HOME="$OUT/home_upd3" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
 grep -q "update: the viewer asked how" "$OUT/update_refused_again.log" && ! grep -q "update: installing" "$OUT/update_refused_again.log" \
   || { echo "a TV that refused the installer was asked again"; grep -E "update|toast" "$OUT/update_refused_again.log"; exit 1; }
 run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
-run break_media_length 230 "right,ok,down,down,play,wait" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
-run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:8765/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
+run break_media_length 230 "right,ok,down,down,play,wait" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:'"$PORT"'/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
+run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:$PORT/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 # the found country picks its own authority's prayer times (Saudi Arabia: Umm al-Qura)
 grep -q "breaks: prayer times by Umm al-Qura" "$OUT/break_settings.log" || { echo "the location did not pick the local prayer time method"; grep breaks "$OUT/break_settings.log"; exit 1; }
 run settings_phone 400 "left,down,down,down,down,down,ok,right,down,down,down,down,down,down,ok" SNTV_PHONE_HOST=192.168.1.20
@@ -801,16 +831,20 @@ run player_back_stops 220 "$P" HOME="$(home_with nopip '{"prefSubs":"eng","subsA
 run player_autosync 520 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,down,down,down,down,down,ok,wait" SNTV_FAKE_START=200 HOME="$(home_with subsync '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: subtitles sheet: Auto-sync Off" "$OUT/player_autosync.log" || { echo "auto-sync was not switched in the sheet"; grep -E "subtitles" "$OUT/player_autosync.log"; exit 1; }
 # two English files, no file-matched one: the one that runs to the end of the video wins
-run player_subs_bestfit 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with bestfit '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1
+run player_subs_bestfit 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/bestfit/manifest.json HOME="$(home_with bestfit '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1
 grep -q "subs: switching to file 1, it fits better" "$OUT/player_subs_bestfit.log" || { echo "the better-fitting subtitle was not picked"; grep subs "$OUT/player_subs_bestfit.log"; exit 1; }
 # OpenSubtitles.com built in: the file made for this video (its hash) is the one downloaded
-run player_subs_opensubs 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:8765/bestfit/manifest.json HOME="$(home_with os '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"osApiKey":"oskey"}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_OPENSUBS_API=http://127.0.0.1:8765/os
+run player_subs_opensubs 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/bestfit/manifest.json HOME="$(home_with os '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"osApiKey":"oskey"}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_OPENSUBS_API=http://127.0.0.1:$PORT/os
 grep -q "subs: 2 from OpenSubtitles.com, one made for this file" "$OUT/player_subs_opensubs.log" && grep -q "opensubs: file 222, 4 downloads left today" "$OUT/player_subs_opensubs.log" \
   && ! grep -q "opensubs: file 111" "$OUT/player_subs_opensubs.log" || { echo "OpenSubtitles.com did not pick the file made for this video"; grep -E "subs|opensubs" "$OUT/player_subs_opensubs.log"; exit 1; }
 AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}'
 # subtitle downloads that come late (the /latesubs addon's first English file takes 12 s): a
 # file chosen meanwhile, or Off, is not replaced by it; a choice made in the sheet stays across
 # a source switch; best-fit files fetched for a source that failed are not scored for the next
+# a subtitle file that does not load: the next one in the same language, as a source that fails gives way to the next
+run subs_fallback 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/badsubs/manifest.json SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with subfb '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "subs: a eng file from .* did not load" "$OUT/subs_fallback.log" && grep -q "subs: another file instead" "$OUT/subs_fallback.log" && grep -q "subs: loaded 6 cues" "$OUT/subs_fallback.log" \
+  || { echo "a subtitle file that failed did not give way to the next"; grep subs "$OUT/subs_fallback.log"; exit 1; }
 LATE="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/latesubs/manifest.json"
 LATE2="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/lighter/manifest.json,http://127.0.0.1:$PORT/latesubs/manifest.json"
 run subs_late_pick 2000 "right,ok,down,down,play,wait,down,right,right,right,ok,right,down,ok" "$LATE" SNTV_FAKE_NO_TEXT_TRACKS=1 HOME="$(home_with latepick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -834,9 +868,9 @@ run caps_several 700 "right,ok,down,down,play,wait,wait" SNTV_DEFAULT_ADDONS=htt
 grep -q "tv profile: a source needing several features failed; none is blamed" "$OUT/caps_several.log" && ! grep -q "tv profile: .* failed here" "$OUT/caps_several.log" \
   && sed -n '/caps=dvtruehd/,$p' "$OUT/caps_several.log" | grep -q "health: .* failed" \
   || { echo "a source needing several features taught the TV profile (or did not count against the source)"; grep -E "tv profile|health|player: (candidate|source)" "$OUT/caps_several.log"; exit 1; }
-run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
-run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
-run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "search: no suggestions from the assistant" "$OUT/search_ai.log" && { echo "the assistant's suggestions were not used"; exit 1; } || true
 grep -q "search: the assistant suggests 3 titles (Stories of hope behind bars), 3 ways to refine" "$OUT/search_ai.log" \
   || { echo "the assistant's summary or follow-ups were not taken"; grep "search" "$OUT/search_ai.log"; exit 1; }
@@ -848,10 +882,10 @@ grep -q 'search: refine "Only series"' "$OUT/search_ai_refine.log" && [ "$(grep 
 run search_ai_short 300 "search,t:korean thrillers,wait,wait" HOME="$(home_with ai4 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "search: the assistant suggests" "$OUT/search_ai_short.log" || { echo "\"korean thrillers\" did not go to the assistant"; grep "search" "$OUT/search_ai_short.log"; exit 1; }
 # a request with a film industry: the assistant's filters go to TMDB, whose titles join its picks; no word-by-word search
-run search_ai_filters 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1 SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg
+run search_ai_filters 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q "search: the assistant's filters: movies, language hi, country IN, 1 genre, 1990-1999" "$OUT/search_ai_filters.log" && grep -q "search: 2 more from TMDB for the assistant's filters" "$OUT/search_ai_filters.log" \
   || { echo "the assistant's filters did not bring TMDB's titles"; grep -E "search|tmdb" "$OUT/search_ai_filters.log"; exit 1; }
-run player_translate 600 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,up,up,up,up,down,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:8765/ai/v1
+run player_translate 600 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,up,up,up,up,down,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "player: subtitles sheet: AI translation in Fran" "$OUT/player_translate.log" || { echo "the AI translation was not offered under its language"; grep -E "subtitles" "$OUT/player_translate.log"; exit 1; }
 run settings_ai 340 "left,down,down,down,down,down,ok,right,down,down,down,down,down,down,down,down" HOME="$(home_with ai4 "$AI")"
 run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"homeStyle":2}')"
@@ -1103,7 +1137,7 @@ run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 
 grep -q "storage: only .* MB free on the TV; clearing the cache" "$OUT/storage_low.log" && grep -q "toast: The TV was low on storage" "$OUT/storage_low.log" || { echo "a TV low on storage did not get its cache cleared"; grep -E "storage|tidy|toast" "$OUT/storage_low.log"; exit 1; }
 run settings_storage 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down" SNTV_TIDY_DELAY=0
 # an episode's guest stars lead the cast drawer
-run player_guests 480 "right,ok,down,down,right,play,wait,wait,wait,wait,wait,wait,info,wait" SNTV_TMDB_API=http://127.0.0.1:8765/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:8765/tmdbimg HOME="$(home_with pguest '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
+run player_guests 480 "right,ok,down,down,right,play,wait,wait,wait,wait,wait,wait,info,wait" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg HOME="$(home_with pguest '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
 grep -q "tmdb: S[0-9]*E[0-9]* of [0-9]* has 2 guest stars" "$OUT/player_guests.log" && grep -q "player: cast drawer (6 people)" "$OUT/player_guests.log" || { echo "the episode's guest stars did not join the cast"; grep -E "tmdb|cast" "$OUT/player_guests.log"; exit 1; }
 # Home's Library row ends in a See all card
 SEEALL="$(home_with seeall '{"prefSubs":"eng","setupDone":1}')"; cp "$ROOT/tests/fixtures/library_six.json" "$SEEALL/.local/share/stremio/nativetv/library.json"

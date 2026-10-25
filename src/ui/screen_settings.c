@@ -296,7 +296,7 @@ static const char *row_desc(int id)
     case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
     case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
     case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
-    case IT_LETTERBOX: return "A film wider or narrower than the screen leaves black bars: a soft blur of the picture glows in them instead, following the scene, and subtitles move into the bar below it.";
+    case IT_LETTERBOX: return "A film wider or narrower than the screen leaves bars. Glow: a soft blur of the picture. One colour: the scene's main colour. Both follow the film. Black: plain bars. Except Off, subtitles move into the bar below.";
     case IT_ADVISORY: return "When a video starts, its age rating and what it contains (violence, language, nudity...) show for a few seconds, from IMDb's parents guide.";
     case IT_NIGHT: return "Videos play quieter and subtitles one size larger, so late viewing stays easy to follow without waking anyone.";
     case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
@@ -385,7 +385,7 @@ static int row_takes_left(int id)
     case IT_SUBS_WHEN: case IT_CLOCK: case IT_ISLAND_STYLE: case IT_CLOCK_FACE: case IT_QUALITY: case IT_RES_CAP: case IT_SRC_SIZE: case IT_SRC_HDR: case IT_AI_PROVIDER: case IT_MEMORY:
     case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
     case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
-    case IT_BR_WHERE: case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE:
+    case IT_BR_WHERE: case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_LETTERBOX:
         return 1;
     default: return 0;   /* switches and actions: Left goes back to the categories */
     }
@@ -895,7 +895,7 @@ static void draw(Screen *s)
         case IT_AUTOPLAY: draw_row(y, ICON_NEXT, "Play next episode automatically", NULL, foc, KIND_TOGGLE, g_app.autoplay_next); break;
         case IT_SKIP: draw_row(y, ICON_NEXT, "Skip intros and recaps", SKIP_NAMES[g_app.skip_mode], foc, KIND_CHOICE, 0); break;
         case IT_ADVISORY: draw_row(y, ICON_INFO, "Content advisory", NULL, foc, KIND_TOGGLE, g_app.advisory); break;
-        case IT_LETTERBOX: draw_row(y, ICON_ASPECT, "Living letterbox", NULL, foc, KIND_TOGGLE, g_app.living_letterbox); break;
+        case IT_LETTERBOX: draw_row(y, ICON_ASPECT, "Living letterbox", LB_STYLE_NAMES[g_app.living_letterbox], foc, KIND_CHOICE, 0); break;
         case IT_NIGHT: draw_row(y, ICON_MOON, "Night mode", g_app.night_mode == 2 ? "Always" : g_app.night_mode ? "11 pm to 6 am" : "Off", foc, KIND_CHOICE, 0); break;
         case IT_SUBS_WHEN: draw_row(y, ICON_GLOBE, "Turn subtitles on", g_app.subs_always ? "Always" : "Only for other languages", foc, KIND_CHOICE, 0); break;
         case IT_CLOCK: draw_row(y, ICON_CLOCK, "Clock", CLOCK_NAMES[g_app.clock_mode], foc, KIND_CHOICE, 0); break;
@@ -1646,7 +1646,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_AMBIENT: g_app.ambient_minutes = step_move(AMBIENT_STEPS, N_OF(AMBIENT_STEPS), g_app.ambient_minutes, 0, dir); break;
     case IT_BLUR: g_app.spoiler_blur = !g_app.spoiler_blur; break;
     case IT_ADVISORY: g_app.advisory = !g_app.advisory; break;
-    case IT_LETTERBOX: g_app.living_letterbox = !g_app.living_letterbox; break;
+    case IT_LETTERBOX: g_app.living_letterbox = (g_app.living_letterbox + dir + LB_STYLE_COUNT) % LB_STYLE_COUNT; break;
     case IT_AMBIENT_STYLE: g_app.ambient_style = (g_app.ambient_style + dir + AMBIENT_STYLE_COUNT) % AMBIENT_STYLE_COUNT; break;
     default:
         if (id >= IT_ACCT_BASE) return 0;   /* switching and forgetting are behind OK */

@@ -361,6 +361,13 @@ static void final_note(const char *url, const HttpResponse *r)
     c->final_at = g_app.time;
 }
 
+/* No answer before the time ran out (not refused, not an error): a link that resolves on
+ * first use (Comet, MediaFusion, Torrentio with debrid) is often still asking the service. */
+static int timed_out(const HttpResponse *r)
+{
+    return !r->status && !r->len && (strstr(r->error, "timed out") || strstr(r->error, "too slow") || strstr(r->error, "Timeout"));
+}
+
 /* What a check found, kept for the link. */
 static const LinkCheck *check_record(const char *url, const HttpResponse *r)
 {
@@ -370,7 +377,12 @@ static const LinkCheck *check_record(const char *url, const HttpResponse *r)
     c->at = g_app.time;
     free(c->info); c->info = NULL;
     c->measured_mbps = c->file_mbps = 0;
-    if (!http_looks_like_media(r)) {   /* not answering, or answering with a page instead of the file */
+    if (timed_out(r)) {   /* nothing yet: a debrid link resolving on first use can take longer; slow, not dead */
+        c->state = 5;
+        LOGI("probe: %s -> slow to answer (%s); kept in its place", host, r->error);
+        return c;
+    }
+    if (!http_looks_like_media(r)) {   /* an error, or a page instead of the file */
         c->state = 4;
         LOGW("probe: %s -> HTTP %ld %s", host, r->status, r->error);
         return c;
@@ -442,7 +454,7 @@ static void probe_next(Streams *st)
         Stream *s = &st->items[i];
         if (s->probe_state || !s->url) continue;
         const LinkCheck *c = check_find(s->url, CHECK_FRESH_S);
-        if (!c || !c->state || (c->state == 4 && g_app.time - c->at > 120)) continue;   /* a dead link is asked again soon: debrid links come back */
+        if (!c || !c->state || (c->state >= 4 && g_app.time - c->at > 120)) continue;   /* a dead or slow link is asked again soon: debrid links come back */
         check_apply(c, s);
         reused++;
     }
@@ -1443,7 +1455,9 @@ static void on_race(HttpResponse *resp, void *user)
     if (q->round == g_race_round && r->busy && !r->done) {
         r->pending--;
         int ok = http_looks_like_media(resp);   /* a 200 with an error page is no video */
-        if (!ok && r->c && q->idx < r->n) { app_link_failed(r->c[q->idx].url); LOGI("streams: source %d did not answer the race%s", q->idx + 1, resp->status == 200 || resp->status == 206 ? " with a video (an error page)" : ""); }   /* the player skips it */
+        int slow = !ok && timed_out(resp);   /* no answer in the race's time: a debrid link still resolving, not a dead one */
+        if (slow) LOGI("streams: source %d is slow to answer the race (%s); it keeps its turn", q->idx + 1, resp->error);
+        else if (!ok && r->c && q->idx < r->n) { app_link_failed(r->c[q->idx].url); LOGI("streams: source %d did not answer the race%s", q->idx + 1, resp->status == 200 || resp->status == 206 ? " with a video (an error page)" : ""); }   /* the player skips it */
         if (ok) { r->done = 1; LOGI("streams: source %d answered first (%.2f s)", q->idx + 1, resp->seconds); final_note(r->c[q->idx].url, resp); race_launch(q->idx); }
         else if (r->pending == 0) { r->done = 1; race_launch(-1); }
     }

@@ -363,6 +363,10 @@ class H(BaseHTTPRequestHandler):
         latesubs = p.startswith("/latesubs/")
         if latesubs:
             p = p[9:]
+        # /badsubs/...: the same addon, its first English file gone (404) and its second good
+        badsubs = p.startswith("/badsubs/")
+        if badsubs:
+            p = p[8:]
         # /signs/...: the same addon, its English file a credit over the dialogue and a line marked for the top
         signs = p.startswith("/signs/")
         if signs:
@@ -459,6 +463,23 @@ class H(BaseHTTPRequestHandler):
                     {"name": "ErrPage\n2160p", "title": "Movie.2024.2160p.WEB.h265\n\U0001F4BE 9.0 GB", "url": f"{BASE}/expiredpage/movie.mkv"},
                     {"name": "ErrPage\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 2.0 GB", "url": url + "?real=1"}]}).encode())
             return self.send(404, b"{}")
+        # /slowlink/...: its best-looking source answers only after 4.5 s (a debrid link resolving on first use), then plays
+        if p.startswith("/slowlink/"):
+            p = p[9:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.slowlink", name="Slow Link", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                name = os.path.basename(STREAMS["streams"][0]["url"].split("?")[0])
+                return self.send(200, json.dumps({"streams": [   # three of them: the whole start race is slow links
+                    {"name": "[RD+] SlowLink\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 3.0 GB", "url": f"{BASE}/slowvideo/1/{name}"},
+                    {"name": "[RD+] SlowLink\n1080p", "title": "Movie.2024.1080p.WEB-DL.h264\n\U0001F4BE 2.8 GB", "url": f"{BASE}/slowvideo/2/{name}"},
+                    {"name": "[RD+] SlowLink\n1080p", "title": "Movie.2024.1080p.BluRay.h264\n\U0001F4BE 3.5 GB", "url": f"{BASE}/slowvideo/3/{name}"}]}).encode())
+            return self.send(404, b"{}")
+        if p.startswith("/slowvideo/"):
+            import time
+            time.sleep(4.5)
+            self.send_response(302); self.send_header("Location", f"{BASE}/video/" + p[11:].split("/", 1)[1]); self.send_header("Content-Length", "0"); self.end_headers()
+            return
         if p.startswith("/expiredpage/"):
             return self.send(200, b"<html><body><h1>This link has expired</h1></body></html>", "text/html")
         # /wrongep/...: its best-looking source for an episode is another episode (a 4K "S01E04" for E1)
@@ -779,6 +800,9 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, ("1\n00:00:00,200 --> 00:00:30,000\n{\\an8}for, like, a portion of the day\nand also take time out\n\n"
                                    "2\n00:00:00,300 --> 00:00:30,000\n<font color=\"#00ff00\">Co-Executive Producer</font>\n\n"
                                    "3\n00:00:00,300 --> 00:00:30,000\nSeth MacFarlane\n").encode(), "text/plain")
+        if badsubs and p.startswith("/subtitles/"):
+            return self.send(200, json.dumps({"subtitles": [{"id": "gone", "url": f"{BASE}/gone.srt", "lang": "eng"},
+                                                            {"id": "good", "url": f"{BASE}/gen.srt?n=6", "lang": "eng"}]}).encode())
         if latesubs and p.startswith("/subtitles/"):
             return self.send(200, json.dumps({"subtitles": [{"id": "late", "url": f"{BASE}/gen.srt?n=7&delay=12", "lang": "eng"},
                                                             {"id": "quick", "url": f"{BASE}/gen.srt?n=5", "lang": "eng"}]}).encode())
