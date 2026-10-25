@@ -681,6 +681,13 @@ grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2
 run player_letterbox_tvsubs 700 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxsub '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: the living letterbox steps aside while the TV draws the film's own subtitles" "$OUT/player_letterbox_tvsubs.log" && ! grep -q "player: living letterbox, bars" "$OUT/player_letterbox_tvsubs.log" \
   || { echo "the living letterbox drew over the TV's own subtitles"; grep -E "letterbox|subtitles" "$OUT/player_letterbox_tvsubs.log"; exit 1; }
+# the TV ends the app (memory, mostly) and nothing can be written then: the next start says so
+# in Problems, with the last memory reading and the last lines before it
+env SNTV_KILL_SELF_AFTER=6 SNTV_KEYS="wait" SNTV_SCREENSHOT_FRAMES=100000 HOME="$(home_with killed '{"setupDone":1}')" \
+  xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" > "$OUT/killed_first.log" 2>&1 || true
+run killed_next 160 "wait,wait" HOME="$OUT/home_killed"
+grep -q "the previous session ended with no crash report: the TV closed it" "$OUT/killed_next.log" && grep -q "previous session, last memory reading: .*memory: app" "$OUT/killed_next.log" \
+  && grep -q "previous session, near its end:" "$OUT/killed_next.log" || { echo "an app the TV ended was not reported at the next start"; grep -E "previous|memory" "$OUT/killed_next.log"; exit 1; }
 run settings_letterbox 420 "left,down,down,down,down,down,ok,up,ok,t:living letterbox,down,down,down,down,left,ok"
 grep -q "settings: found Living letterbox" "$OUT/settings_letterbox.log" || { echo "Living letterbox is not in Settings"; grep settings "$OUT/settings_letterbox.log"; exit 1; }
 # no helper: the TV decodes the keyframe itself (bundled FFmpeg) through its local /frame
