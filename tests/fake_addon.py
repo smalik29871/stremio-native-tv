@@ -533,6 +533,24 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/store/") and p.endswith("/manifest.json"):   # the catalogue's addons, as they install
             n = p.split("/")[2]
             return self.send(200, json.dumps(dict(MANIFEST, id="org.fake.store." + n, name=n.title(), resources=["subtitles"], types=["movie"], catalogs=[], idPrefixes=["tt"])).encode())
+        # /addoncat/...: an addon offering an addon catalogue (addon_catalog), as stremio-addons.net's does: one ordinary
+        # addon, one cartoon catalog for grown-ups, and adult ones (flagged, or only named or with catalogs so) and a P2P one
+        if p.startswith("/addoncat/"):
+            q = p[9:]
+            if q == "/manifest.json":
+                return self.send(200, json.dumps({"id": "org.fake.addoncat", "version": "1.0.0", "name": "Fake Community", "description": "A catalogue of addons",
+                    "types": ["movie"], "resources": ["addon_catalog"], "catalogs": [], "addonCatalogs": [{"type": "all", "id": "fakecat", "name": "Fake Community"}]}).encode())
+            if q.startswith("/addon_catalog/all/fakecat.json"):
+                def it(name, n, desc="", cats=(), res=("catalog",), **hints):
+                    return {"transportUrl": f"{BASE}/store/{n}/manifest.json", "manifest": {"id": "org.fake.cat." + n, "name": name, "version": "1.0.0", "description": desc,
+                            "resources": list(res), "types": ["movie"], "catalogs": [{"type": "movie", "id": c, "name": c} for c in cats], "behaviorHints": hints}}
+                return self.send(200, json.dumps({"addons": [
+                    it("Film Club", "filmclub", "Classic films"),
+                    it("Cartoons", "cartoons", "Animation for everyone", cats=["Adult Animation", "Kids"]),
+                    it("Flagged One", "flagged", "Hidden", adult=True),
+                    it("OnlyPorn", "onlyp", "Videos"),
+                    it("Night Shelf", "night", "Late films", cats=["Hentai"]),
+                    it("Peer Movies", "peers", "From peers", res=("stream",), p2p=True)]}).encode())
         if p.startswith("/collection/"):
             def item(name, url, res, desc, **hints):
                 return {"transportUrl": url, "transportName": "http", "manifest": {"id": "org.fake." + name.lower().replace(" ", ""), "name": name, "version": "1.0.0",

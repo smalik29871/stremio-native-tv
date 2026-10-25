@@ -1,8 +1,10 @@
 /* Browse addons (Settings > Addons): Stremio's own addon catalogue, the official addons and the
  * community ones it lists (api.strem.io, as the Stremio app shows them), by kind: catalogs,
- * subtitles, tools. OK installs one; one that must be set up first opens its settings on a
- * phone (screen_addon_setup). Adult addons, P2P ones and links to a streaming server on the
- * device (Local Files) are left out. The lists are kept a day. */
+ * subtitles, tools; and, each as a list of its own, the addon catalogues of addons the viewer
+ * installed (Stremio's addon_catalog resource), as the Stremio app shows those too. OK installs
+ * one; one that must be set up first opens its settings on a phone (screen_addon_setup).
+ * Never shown: adult addons (flagged so, or named, described or with catalogs so), P2P ones,
+ * and links to a streaming server on the device (Local Files). The lists are kept a day. */
 #include "../app.h"
 #include "../http.h"
 #include "../image.h"
@@ -19,15 +21,17 @@
 
 #define OFFICIAL_URL "https://api.strem.io/addonsofficialcollection.json"
 #define COMMUNITY_URL "https://api.strem.io/addonscollection.json"
-#define MAX_ENTRIES 160
+#define MAX_ENTRIES 1200
 
-enum { K_OFFICIAL, K_CATALOGS, K_SUBTITLES, K_TOOLS, K_COUNT };
+enum { K_OFFICIAL, K_CATALOGS, K_SUBTITLES, K_TOOLS, K_COUNT, K_MAX = K_COUNT + 4 };   /* then up to four installed addon catalogues */
 static const char *const KIND_NAMES[K_COUNT] = { "Official", "Catalogs", "Subtitles", "Tools and more" };
 
 typedef struct { char *name, *desc, *url, *logo; int kind, setup; } Entry;
 
 typedef struct {
     Entry e[MAX_ENTRIES]; int n;
+    char kname[K_MAX][64]; int nk;
+    char src[K_MAX - K_COUNT + 2][1024]; int nsrc;   /* the lists: official, community, then the installed catalogues */
     int pending, failed;
     int kind, zone, focus;      /* zone 0 the kinds, 1 the list */
     float scroll;
@@ -58,6 +62,41 @@ static char *clean(const char *in)
     return out;
 }
 
+/* Adult: the addon says so, or its name, description, id or a catalog's name or id is one of
+ * these words ("adult animation" alone, cartoons for grown-ups, is not) */
+static int adult(const cJSON *m)
+{
+    static const char *const W[] = { "adult", "porn", "porno", "pornhub", "xxx", "xxxclub", "nsfw", "18+", "sex", "sexy", "erotic", "erotica", "hentai",
+        "h_anime", "cam4", "camgirl", "camgirls", "onlyfans", "onlyporn", "nude", "nudity", "milf", "jav", "pimpbunny", "brazzers", "xvideos",
+        "xhamster", "eporner", "stripchat", "chaturbate", NULL };
+    if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(m, "behaviorHints"), "adult"))) return 1;
+    size_t cap = 4096, len = 0;
+    char *t = malloc(cap);
+    t[0] = 0;
+#define PUT(s) do { const char *s_ = (s); if (s_) { size_t l_ = strlen(s_); if (len + l_ + 4 < cap) { memcpy(t + len, s_, l_); len += l_; t[len++] = ' '; t[len++] = '|'; t[len++] = ' '; t[len] = 0; } } } while (0)
+    PUT(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(m, "name")));
+    PUT(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(m, "description")));
+    PUT(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(m, "id")));
+    const cJSON *c;
+    cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(m, "catalogs")) {
+        PUT(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "name")));
+        PUT(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "id")));
+    }
+#undef PUT
+    for (char *p = t; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+    for (char *p = t; (p = strstr(p, "adult animation")); ) memcpy(p, "grown animation", 15);
+    int hit = 0;
+    for (char *p = t; *p && !hit; ) {   /* each word: letters, digits, _ and + */
+        while (*p && !((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_' || *p == '+')) p++;
+        char *w = p;
+        while ((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_' || *p == '+') p++;
+        size_t wl = (size_t)(p - w);
+        for (int i = 0; W[i] && wl; i++) if (strlen(W[i]) == wl && !strncmp(w, W[i], wl)) hit = 1;
+    }
+    free(t);
+    return hit;
+}
+
 static int has(const char *const *a, int n, const char *s) { for (int i = 0; i < n; i++) if (!strcmp(a[i], s)) return 1; return 0; }
 
 static void filter(Store *st)
@@ -67,76 +106,103 @@ static void filter(Store *st)
     if (st->focus >= st->nl) st->focus = st->nl ? st->nl - 1 : 0;
 }
 
-static void add_collection(Store *st, const char *body, int official)
+static void add_collection(Store *st, const char *body, int src)
 {
     cJSON *root = cJSON_Parse(body), *it;
-    int added = 0, left = 0;
-    cJSON_ArrayForEach(it, root) {
+    const cJSON *list = cJSON_IsArray(root) ? root : cJSON_GetObjectItemCaseSensitive(root, "addons");   /* a collection, or an addon_catalog answer */
+    int added = 0, left = 0, official = src == 0;
+    cJSON_ArrayForEach(it, list) {
         const cJSON *m = cJSON_GetObjectItemCaseSensitive(it, "manifest");
         const char *url = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(it, "transportUrl"));
         const char *name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(m, "name"));
         if (!url || !name || st->n >= MAX_ENTRIES) continue;
         const cJSON *bh = cJSON_GetObjectItemCaseSensitive(m, "behaviorHints");
         if (strncmp(url, "http", 4) || strstr(url, ":11470/") || !strstr(url, "manifest.json")   /* :11470: a streaming server on the device */
-            || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(bh, "adult")) || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(bh, "p2p"))) { left++; continue; }
-        int dup = 0;
-        for (int i = 0; i < st->n && !dup; i++) dup = !strcmp(st->e[i].url, url);
-        if (dup) continue;
+            || adult(m) || cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(bh, "p2p"))) { left++; continue; }
         const char *res[16]; int nr = 0;
         const cJSON *r;
         cJSON_ArrayForEach(r, cJSON_GetObjectItemCaseSensitive(m, "resources")) {
             const char *v = cJSON_IsString(r) ? r->valuestring : cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(r, "name"));
             if (v && nr < 16) res[nr++] = v;
         }
+        int kind = src >= 2 ? K_COUNT + src - 2 : official ? K_OFFICIAL : has(res, nr, "catalog") ? K_CATALOGS : has(res, nr, "subtitles") ? K_SUBTITLES : K_TOOLS;
+        int dup = -1;
+        for (int i = 0; i < st->n && dup < 0; i++) if (!strcmp(st->e[i].url, url)) dup = i;
+        if (dup >= 0) {   /* in more than one list: under the most official one (the lists come in any order) */
+            int rank_new = src >= 2 ? 2 : src, rank_old = st->e[dup].kind >= K_COUNT ? 2 : st->e[dup].kind == K_OFFICIAL ? 0 : 1;
+            if (rank_new < rank_old) st->e[dup].kind = kind;
+            continue;
+        }
+        char *nm = clean(name);
+        int readable = 0;   /* a name in a script the fonts do not have would read as nothing */
+        for (const char *c = nm; *c && !readable; c++) readable = (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9');
+        if (!readable) { free(nm); left++; continue; }
         Entry *e = &st->e[st->n++];
-        e->name = clean(name);
-        if (!*e->name) { free(e->name); e->name = strdup("Addon"); }
+        e->name = nm;
         const char *d = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(m, "description"));
         e->desc = clean(d ? d : "");
         e->url = strdup(url);
         const char *logo = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(m, "logo"));
         e->logo = logo && !strncmp(logo, "http", 4) ? strdup(logo) : NULL;
         e->setup = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(bh, "configurationRequired"));
-        e->kind = official ? K_OFFICIAL : has(res, nr, "catalog") ? K_CATALOGS : has(res, nr, "subtitles") ? K_SUBTITLES : K_TOOLS;
+        e->kind = kind;
         added++;
     }
     cJSON_Delete(root);
-    LOGI("addon store: %d %s addons", added, official ? "official" : "community");
+    if (src >= 2) LOGI("addon store: %d addons in %s", added, st->kname[K_COUNT + src - 2]);
+    else LOGI("addon store: %d %s addons", added, official ? "official" : "community");
     if (left) LOGI("addon store: %d left out (adult, P2P, or a link that needs a streaming server)", left);
 }
 
-static const char *collection_url(int i)
+/* Stremio's two lists, then each addon_catalog an installed addon offers */
+static void sources(Store *st)
 {
-    static char urls[2][512];
     const char *e = getenv("SNTV_ADDON_COLLECTIONS");   /* tests: "official,community" */
-    if (!e) return i ? COMMUNITY_URL : OFFICIAL_URL;
-    const char *comma = strchr(e, ',');
-    if (i == 0) snprintf(urls[0], sizeof urls[0], "%.*s", comma ? (int)(comma - e) : (int)strlen(e), e);
-    else snprintf(urls[1], sizeof urls[1], "%s", comma ? comma + 1 : "");
-    return urls[i];
+    const char *comma = e ? strchr(e, ',') : NULL;
+    if (e) { snprintf(st->src[0], sizeof st->src[0], "%.*s", comma ? (int)(comma - e) : (int)strlen(e), e); snprintf(st->src[1], sizeof st->src[1], "%s", comma ? comma + 1 : ""); }
+    else { snprintf(st->src[0], sizeof st->src[0], "%s", OFFICIAL_URL); snprintf(st->src[1], sizeof st->src[1], "%s", COMMUNITY_URL); }
+    st->nsrc = 2;
+    for (int k = 0; k < K_COUNT; k++) snprintf(st->kname[k], sizeof st->kname[k], "%s", KIND_NAMES[k]);
+    st->nk = K_COUNT;
+    for (int i = 0; i < g_app.n_addons && st->nk < K_MAX; i++) {
+        const Addon *a = &g_app.addons[i];
+        if (!a->manifest_json || !a->base_url || !strstr(a->manifest_json, "addon_catalog")) continue;
+        cJSON *m = cJSON_Parse(a->manifest_json), *c;
+        cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(m, "addonCatalogs")) {
+            const char *type = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "type")), *id = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "id"));
+            const char *name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "name"));
+            if (!type || !id || st->nk >= K_MAX || adult(m)) continue;
+            char *nm = clean(name && *name ? name : a->manifest.name ? a->manifest.name : "Addons");
+            snprintf(st->kname[st->nk++], sizeof st->kname[0], "%s", nm);
+            free(nm);
+            snprintf(st->src[st->nsrc++], sizeof st->src[0], "%s/addon_catalog/%s/%s.json", a->base_url, type, id);
+        }
+        cJSON_Delete(m);
+    }
+    if (st->nk > K_COUNT) LOGI("addon store: %d addon catalogue%s from installed addons", st->nk - K_COUNT, st->nk - K_COUNT == 1 ? "" : "s");
 }
 
 static void on_list(HttpResponse *r, void *user)
 {
-    int official = (int)(intptr_t)user;
+    int src = (int)(intptr_t)user;
     Store *st = g_live;
-    if (r->status == 200 && r->body) app_cache_put(collection_url(official ? 0 : 1), r->body, strlen(r->body));
-    if (!st) return;
+    if (!st || src >= st->nsrc) return;
+    if (r->status == 200 && r->body) app_cache_put(st->src[src], r->body, strlen(r->body));
     st->pending--;
-    if (r->status == 200 && r->body) add_collection(st, r->body, official);
-    else { st->failed++; LOGW("addon store: the %s list did not come (%ld)", official ? "official" : "community", r->status); }
+    if (r->status == 200 && r->body) add_collection(st, r->body, src);
+    else { st->failed++; LOGW("addon store: list %d did not come (%ld)", src + 1, r->status); }
     filter(st);
     app_redraw();
 }
 
 static void load(Store *st)
 {
-    for (int i = 0; i < 2; i++) {
-        const char *url = collection_url(i);
-        char *cached = app_cache_get(url, 86400);
-        if (cached) { add_collection(st, cached, i == 0); free(cached); continue; }
+    sources(st);
+    for (int i = 0; i < st->nsrc; i++) {
+        char *cached = app_cache_get(st->src[i], 86400);
+        if (cached) { add_collection(st, cached, i); free(cached); continue; }
         st->pending++;
-        http_request_async(url, NULL, on_list, (void *)(intptr_t)(i == 0));
+        http_request_async(st->src[i], NULL, on_list, (void *)(intptr_t)i);
     }
     filter(st);
 }
@@ -218,34 +284,35 @@ static void draw(Screen *s)
     if (SNTV_PHONE) {   /* upright: the kinds as chips over the list */
         float x = 40, w = SNTV_UI_W - 80;
         font_draw("Browse addons", x, 90, FONT_L | FONT_B, THEME_TEXT);
-        float cx = x;
-        for (int k = 0; k < K_COUNT; k++) {
-            snprintf(label, sizeof label, "%s", KIND_NAMES[k]);
+        float cx = x, cy = 170;   /* the chips wrap onto more lines */
+        for (int k = 0; k < st->nk; k++) {
+            snprintf(label, sizeof label, "%.30s", st->kname[k]);
             float cw = font_measure(label, FONT_XS | FONT_B) + 44;
-            if (cx + cw > x + w) break;
-            ui_hit(cx, 170, cw, 64, k);
-            gfx_rrect(cx, 170, cw, 64, 32, st->kind == k ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x14));
-            font_draw(label, cx + 22, 202 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, st->kind == k ? THEME_ON_ACCENT : THEME_TEXT);
+            if (cx + cw > x + w && cx > x) { cx = x; cy += 78; }
+            ui_hit(cx, cy, cw, 64, k);
+            gfx_rrect(cx, cy, cw, 64, 32, st->kind == k ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x14));
+            font_draw(label, cx + 22, cy + 32 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, st->kind == k ? THEME_ON_ACCENT : THEME_TEXT);
             cx += cw + 14;
         }
-        draw_list(st, x, 270, w, SNTV_UI_H - 330);
+        draw_list(st, x, cy + 100, w, SNTV_UI_H - cy - 160);
         return;
     }
     float lx = 120, lw = 440, rx = lx + lw + 80, rw = SNTV_UI_W - rx - 120;
     ui_brand(lx, 64, 48);
     font_draw("Browse addons", lx, 150, FONT_L | FONT_B, THEME_TEXT);
     font_draw_wrapped("Stremio's addon catalogue: its own addons and the community's.", lx, 216, FONT_S, THEME_TEXT_DIM, lw, 2);
-    for (int k = 0; k < K_COUNT; k++) {
-        float y = 330 + k * 86;
+    float step = st->nk > 5 ? (SNTV_UI_H - 330 - 150) / (float)st->nk : 86;
+    for (int k = 0; k < st->nk; k++) {
+        float y = 330 + k * step;
         int foc = st->kind == k;
         ui_hit(lx, y, lw, 70, k);
         if (foc) gfx_rrect(lx, y, lw, 70, 35, st->zone == 0 ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x1A));
         Color c = foc && st->zone == 0 ? THEME_ON_ACCENT : THEME_TEXT;
-        font_draw(KIND_NAMES[k], lx + 32, y + 35 - font_height(FONT_S) / 2, FONT_S | FONT_B, c);
+        font_draw_fit(st->kname[k], lx + 32, y + 35 - font_height(FONT_S) / 2, FONT_S | FONT_B, c, lw - 120);
         int n = count(st, k);
         if (n) { snprintf(label, sizeof label, "%d", n); font_draw(label, lx + lw - 32 - font_measure(label, FONT_XS), y + 35 - font_height(FONT_XS) / 2, FONT_XS, foc && st->zone == 0 ? THEME_ON_ACCENT : THEME_TEXT_MUTED); }
     }
-    font_draw(KIND_NAMES[st->kind], rx, 150, FONT_L | FONT_B, THEME_TEXT);
+    font_draw_fit(st->kname[st->kind], rx, 150, FONT_L | FONT_B, THEME_TEXT, rw);
     draw_list(st, rx, 250, rw, SNTV_UI_H - 250 - 130);
     font_draw(st->zone ? "OK: install   \xC2\xB7   Left: kinds   \xC2\xB7   Back: close" : "Up / Down: kinds   \xC2\xB7   Right: the addons   \xC2\xB7   Back: close", lx, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED);
 }
@@ -268,9 +335,9 @@ static int key(Screen *s, KeyAction a)
     }
     switch (a) {
     case KEY_UP: if (!SNTV_PHONE && st->kind > 0) pick_kind(st, st->kind - 1); return 1;
-    case KEY_DOWN: if (SNTV_PHONE) { if (st->nl) st->zone = 1; } else if (st->kind + 1 < K_COUNT) pick_kind(st, st->kind + 1); return 1;
+    case KEY_DOWN: if (SNTV_PHONE) { if (st->nl) st->zone = 1; } else if (st->kind + 1 < st->nk) pick_kind(st, st->kind + 1); return 1;
     case KEY_LEFT: if (SNTV_PHONE && st->kind > 0) pick_kind(st, st->kind - 1); return 1;
-    case KEY_RIGHT: if (SNTV_PHONE) { if (st->kind + 1 < K_COUNT) pick_kind(st, st->kind + 1); } else if (st->nl) st->zone = 1; return 1;
+    case KEY_RIGHT: if (SNTV_PHONE) { if (st->kind + 1 < st->nk) pick_kind(st, st->kind + 1); } else if (st->nl) st->zone = 1; return 1;
     case KEY_OK: if (st->nl) st->zone = 1; return 1;
     case KEY_BACK: app_pop(); return 1;
     default: return 1;
@@ -283,7 +350,7 @@ static int tap(Screen *s, int id)
     app_redraw();
     if (g_touch_aim) return 1;
     if (id >= 100) { st->zone = 1; st->focus = id - 100; install(st); return 1; }
-    if (id >= 0 && id < K_COUNT) { pick_kind(st, id); st->zone = 0; }
+    if (id >= 0 && id < st->nk) { pick_kind(st, id); st->zone = 0; }
     return 1;
 }
 
