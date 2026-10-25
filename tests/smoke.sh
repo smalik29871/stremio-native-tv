@@ -105,6 +105,15 @@ grep -q "youtube: handed [A-Za-z0-9_-]* to the YouTube app" "$OUT/trailer_youtub
 run trailer_youtube_embed 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_emb "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_EMBED=1
 grep -q "YouTube's own player plays it" "$OUT/trailer_youtube_embed.log" && grep -q "video(null): load youtube-embed:" "$OUT/trailer_youtube_embed.log" \
   || { echo "a refused trailer did not play in YouTube's own player"; grep -E "detail|youtube|video" "$OUT/trailer_youtube_embed.log"; exit 1; }
+# an LG: Cuelight YouTube (YouTube's own TV client, a companion app) plays what YouTube refuses;
+# not installed, it is offered, installed from the releases list and opened on the video
+run ytweb_trailer 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw1 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1
+grep -q "video: Cuelight YouTube opened [A-Za-z0-9_-]* at 0s (play)" "$OUT/ytweb_trailer.log" || { echo "a refused trailer did not open in Cuelight YouTube"; grep -E "detail|youtube|video|ytweb" "$OUT/ytweb_trailer.log"; exit 1; }
+run ytweb_offer 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw2 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=0 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo-yt.json
+grep -q "UI check: screen=options" "$OUT/ytweb_offer.log" || { echo "Cuelight YouTube was not offered for a refused trailer"; exit 1; }
+run ytweb_install 700 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw3 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=0 SNTV_FAKE_INSTALL=1 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo-yt.json
+grep -q "ytweb: installing Cuelight YouTube" "$OUT/ytweb_install.log" && grep -q "ytweb: installed" "$OUT/ytweb_install.log" && grep -q "video: Cuelight YouTube opened" "$OUT/ytweb_install.log" \
+  || { echo "Cuelight YouTube was not installed and opened"; grep -E "ytweb|youtube|video|UI check" "$OUT/ytweb_install.log"; exit 1; }
 run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
@@ -862,7 +871,7 @@ grep -q "still no cached copy; staying on P2P" "$OUT/p2p_playing.log" || { echo 
 run settings_p2p 400 "left,down,down,down,down,down,ok,down,down,down,down,right,down,down,down,down,down,down" HOME="$(home_with p2pset '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # P2P plays well when TorBox has it again: it stays, and goes back to the cached copy at the next seek
 run p2p_switch 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,right" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
-grep -q "candidate 1/.* -> http://127.0.0.1:11490/$FAKE_TORRENT_HASH/0" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
+grep -q "candidate 1/.* -> http://127.0.0.1:${SNTV_ENGINE_PORT:-11490}/$FAKE_TORRENT_HASH/0" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
   && grep -q "staying on P2P while it plays well" "$OUT/p2p_switch.log" && grep -q "TorBox has it again, leaving P2P" "$OUT/p2p_switch.log" || { echo "P2P fallback, the wait or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
 fi
 # progress reaches the account as the app closes mid-film, dated the way stremio-core reads it
@@ -1182,6 +1191,8 @@ run ambient_fire_embed 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0
 grep -q "video(null): load youtube-embed:dQw4w9WgXcQ (Fireplace)" "$OUT/ambient_fire_embed.log" || { echo "a refused fireplace video did not play in YouTube's own player"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_embed.log"; exit 1; }
 FRH="$(home_with firer '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 run ambient_fire_refused 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 HOME="$FRH"
+run ytweb_fire 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1 HOME="$(home_with ytwf '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
+grep -q "video: Cuelight YouTube opened dQw4w9WgXcQ at 0s (loop)" "$OUT/ytweb_fire.log" || { echo "a refused fireplace video did not open in Cuelight YouTube"; grep -E "ambient|youtube|video" "$OUT/ytweb_fire.log"; exit 1; }
 python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("fireplaceRefused") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" else 1)' "$FRH/.local/share/stremio/nativetv/settings.json" \
   || { echo "a refused fireplace video was not noted for Settings"; grep -E "ambient|youtube" "$OUT/ambient_fire_refused.log"; exit 1; }
 # Clock faces: every one draws (flip, analog, words ... aurora, planets, prayer orbit, horizon, orrery), and the island's styles

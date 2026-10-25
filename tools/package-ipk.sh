@@ -23,7 +23,7 @@ APPDIR="$WORK/data/usr/palm/applications/$ID"
 PKGDIR="$WORK/data/usr/palm/packages/$ID"
 mkdir -p "$APPDIR" "$PKGDIR" "$WORK/ctl"
 cp -r "$STAGE"/. "$APPDIR/"
-chmod 755 "$APPDIR/stremio-tv"
+[ -f "$APPDIR/stremio-tv" ] && chmod 755 "$APPDIR/stremio-tv"   # a web app (the YouTube player) has no binary
 printf '{"id":"%s","version":"%s","app":"%s"}\n' "$ID" "$VER" "$ID" > "$PKGDIR/packageinfo.json"
 SIZE=$(find "$WORK/data" -type f -printf '%s\n' | awk '{ s += $1 } END { print s }')   # bytes, as ares-package writes it
 cat > "$WORK/ctl/control" <<CTL

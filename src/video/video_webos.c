@@ -717,6 +717,7 @@ int video_init(SDL_Window *win)
     LOGI("video(webos): %s", video_backend_name());
     g_ready = 1;
     saver_register();
+    video_youtube_web_check();
     return 0;
 }
 
@@ -1257,6 +1258,37 @@ static int on_launch_reply(LSHandle *sh, LSMessage *msg, void *ctx)
     return 1;
 }
 int video_has_youtube_app(void) { return g_bus != NULL; }
+
+static volatile int g_ytweb = -1;
+static int on_ytweb_info(LSHandle *sh, LSMessage *msg, void *ctx)
+{
+    (void)sh; (void)ctx;
+    cJSON *r = cJSON_Parse(L.MessageGetPayload(msg));
+    g_ytweb = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "returnValue"));
+    cJSON_Delete(r);
+    LOGI("video(webos): Cuelight YouTube is %sinstalled", g_ytweb ? "" : "not ");
+    return 1;
+}
+int video_youtube_web_state(void) { return g_ytweb; }
+void video_youtube_web_check(void)
+{
+    if (!g_bus) return;
+    LSError e; L.ErrorInit(&e);
+    if (!L.CallOneReply(g_bus, "luna://com.webos.applicationManager/getAppInfo", "{\"id\":\"" SNTV_YTWEB_ID "\"}", on_ytweb_info, NULL, NULL, &e)) ls_error_log("getAppInfo", &e);
+    L.ErrorFree(&e);
+}
+int video_youtube_web(const char *id, double start, const char *mode)
+{
+    if (!g_bus || g_ytweb != 1 || !id || !*id) return 0;
+    char payload[300];
+    snprintf(payload, sizeof payload, "{\"id\":\"" SNTV_YTWEB_ID "\",\"params\":{\"v\":\"%.20s\",\"t\":%d,\"mode\":\"%.8s\"}}", id, (int)start, mode ? mode : "play");
+    LSError e; L.ErrorInit(&e);
+    int ok = L.CallOneReply(g_bus, "luna://com.webos.applicationManager/launch", payload, on_launch_reply, NULL, NULL, &e);
+    if (!ok) ls_error_log("launch Cuelight YouTube", &e);
+    L.ErrorFree(&e);
+    if (ok) LOGI("video(webos): Cuelight YouTube opened %s (%s)", id, mode ? mode : "play");
+    return ok;
+}
 int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }   /* a native app has no web view to give it */
 int video_open_youtube(const char *id)
 {

@@ -1,0 +1,15 @@
+{
+  "id": "org.stremio.nativetv.yt",
+  "version": "0.10.72",
+  "vendor": "Cuelight (not affiliated with Stremio or YouTube)",
+  "type": "web",
+  "main": "index.html",
+  "title": "Cuelight YouTube",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#000000",
+  "iconColor": "#2FD3A1",
+  "handlesRelaunch": true,
+  "disableBackHistoryAPI": true,
+  "requiredACG": []
+}

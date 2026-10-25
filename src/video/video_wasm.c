@@ -114,6 +114,9 @@ int video_open_browser(const char *url) { (void)url; return 0; }   /* no browser
 int video_has_youtube_app(void) { return 0; }
 int video_open_youtube(const char *id) { (void)id; return 0; }
 int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }
+int video_youtube_web_state(void) { return -1; }
+void video_youtube_web_check(void) {}
+int video_youtube_web(const char *id, double start, const char *mode) { (void)id; (void)start; (void)mode; return 0; }
 void video_pip_allow(int on) { (void)on; }   /* no picture in picture on a TV or the desktop */
 int  video_pip_enter(void) { return 0; }
 int  video_in_pip(void) { return 0; }

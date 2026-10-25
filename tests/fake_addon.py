@@ -835,6 +835,10 @@ class H(BaseHTTPRequestHandler):
             return
         if p == "/android.json":   # the Android app's update notice
             return self.send(200, json.dumps({"version": "9.9.9", "apkUrl": f"{BASE}/cuelight-android-9.9.9.apk", "sha256": "cd" * 32}).encode())
+        if p == "/repo-yt.json":   # no update, and Cuelight YouTube listed beside it (an LG installs it on first use)
+            return self.send(200, json.dumps({"packages": [
+                {"id": "org.stremio.nativetv", "manifest": {"id": "org.stremio.nativetv", "version": "0.0.1", "ipkUrl": f"{BASE}/org.stremio.nativetv_0.0.1_arm.ipk", "ipkHash": {"sha256": "ab" * 32}}},
+                {"id": "org.stremio.nativetv.yt", "manifest": {"id": "org.stremio.nativetv.yt", "version": "0.0.1", "ipkUrl": f"{BASE}/org.stremio.nativetv.yt_0.0.1_all.ipk", "ipkHash": {"sha256": "ef" * 32}}}]}).encode())
         if p == "/repo.json":   # an update notice
             return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {
                 "version": "9.9.9", "ipkUrl": f"{BASE}/org.stremio.nativetv_9.9.9_arm.ipk", "ipkHash": {"sha256": "ab" * 32}}}]}).encode())

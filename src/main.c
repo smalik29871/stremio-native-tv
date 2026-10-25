@@ -867,7 +867,7 @@ int main(int argc, char **argv)
                 store_save();
                 store_flush();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
-                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; app_library_foreground(); app_update_foreground(); mem_background(0); }
+                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; g_app.foregrounds++; app_library_foreground(); app_update_foreground(); mem_background(0); }
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
                 relay_buffer_close();   /* the first thing to give back: the source plays on directly */
@@ -883,7 +883,7 @@ int main(int argc, char **argv)
                 store_flush();   /* on flash before webOS may end us */
             } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
                 video_app_foreground();
-                if (g_backgrounded) { app_update_foreground(); app_library_foreground(); }   /* whichever of these events comes first */
+                if (g_backgrounded) { g_app.foregrounds++; app_update_foreground(); app_library_foreground(); }   /* whichever of these events comes first */
                 g_backgrounded = 0;
                 mem_background(0);
                 app_redraw();

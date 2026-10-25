@@ -191,24 +191,32 @@ void screen_options_for_title(const MetaPreview *m)
     app_push(screen_options_create(m->name ? m->name : "Options", "Hold OK (or press Yellow) on any title", items, n, title_choice, t));
 }
 
-/* YouTube refused this device (it asks to sign in to prove it is no bot): its own app, signed
- * in, plays the video; Back there returns here */
-static char g_yt_app_id[24];
+/* YouTube refused this device (it asks to sign in to prove it is no bot). An LG has Cuelight
+ * YouTube, YouTube's own TV client in a companion app, and opens it straight away, or offers to
+ * install it; the device's YouTube app is the other way. Back in either returns here. */
+enum { YT_INSTALL, YT_APP };
+static struct { char id[24]; int act[3]; } g_yt_pick;
 static void yt_app_choice(int c, void *user)
 {
     (void)user;
-    if (c != 0) return;
-    LOGI("youtube: handed %s to the YouTube app", g_yt_app_id);
-    if (!video_open_youtube(g_yt_app_id)) app_toast("The YouTube app did not open");
+    if (c < 0 || c > 2) return;
+    if (g_yt_pick.act[c] == YT_INSTALL) { app_push(screen_ytweb_install_create(g_yt_pick.id, "play")); return; }
+    if (g_yt_pick.act[c] != YT_APP) return;
+    LOGI("youtube: handed %s to the YouTube app", g_yt_pick.id);
+    if (!video_open_youtube(g_yt_pick.id)) app_toast("The YouTube app did not open");
 }
 void screen_options_youtube_app(const char *yt_id, const char *error)
 {
-    if (!yt_id || !*yt_id || !video_has_youtube_app()) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); return; }
-    static const char *const ITEMS[] = { "Open in the YouTube app", "Not now" };
-    static const int ICONS[] = { ICON_PLAY, ICON_CLOSE };
-    char body[300];
-    snprintf(g_yt_app_id, sizeof g_yt_app_id, "%s", yt_id);
-    snprintf(body, sizeof body, "YouTube is asking this %s to sign in to prove it isn't a bot, which only its own app can do. The YouTube app plays it; Back there brings you here again.",
-             gfx_handheld() ? "phone" : "TV");
-    app_push(screen_options_create_ex("YouTube would not play this here", NULL, body, ITEMS, ICONS, 2, yt_app_choice, NULL));
+    if (yt_id && *yt_id && video_youtube_web(yt_id, 0, "play")) { app_toast("Playing it in Cuelight YouTube"); return; }
+    int install = yt_id && *yt_id && video_youtube_web_state() == 0, app = yt_id && *yt_id && video_has_youtube_app();
+    if (!install && !app) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); return; }
+    const char *items[3]; int icons[3], n = 0;
+    snprintf(g_yt_pick.id, sizeof g_yt_pick.id, "%s", yt_id);
+    if (install) { items[n] = "Install Cuelight YouTube and play it"; icons[n] = ICON_PLAY; g_yt_pick.act[n++] = YT_INSTALL; }
+    if (app) { items[n] = "Open in the YouTube app"; icons[n] = install ? ICON_LINK : ICON_PLAY; g_yt_pick.act[n++] = YT_APP; }
+    items[n] = "Not now"; icons[n] = ICON_CLOSE; g_yt_pick.act[n++] = -1;
+    char body[400];
+    if (install) snprintf(body, sizeof body, "YouTube is asking this TV to sign in to prove it isn't a bot. Cuelight YouTube, a small companion app, plays it in YouTube's own TV client, where you can sign in. It installs in a few seconds; Back in it returns here.");
+    else snprintf(body, sizeof body, "YouTube is asking this %s to sign in to prove it isn't a bot, which only its own app can do. The YouTube app plays it; Back there brings you here again.", gfx_handheld() ? "phone" : "TV");
+    app_push(screen_options_create_ex("YouTube would not play this here", NULL, body, items, icons, n, yt_app_choice, NULL));
 }

@@ -26,6 +26,7 @@ case "${1:-}" in
     cp "$ROOT/deploy/webos/"*.png "$STAGE/" 2>/dev/null || true
     cp -r "$ROOT/assets" "$STAGE/"
     bash "$ROOT/tools/package-ipk.sh" "$STAGE" "$B"
+    bash "$ROOT/tools/webos-youtube.sh" "$B/youtube"   # its own package: build-webos/*.ipk stays Cuelight alone
     ;;
 esac
 if [ "${1:-}" = "--install" ]; then
