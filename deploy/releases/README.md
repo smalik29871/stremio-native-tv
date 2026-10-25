@@ -34,7 +34,7 @@ on the device and open it (allow installs from your browser or file app when ask
 
 ## Install on Windows (preview)
 
-Coming in a later release. Then: download `Cuelight-<version>-windows-x64.zip` from the
+Download `Cuelight-<version>-windows-x64.zip` from the
 [latest release](https://github.com/${RELEASES_REPO}/releases/latest), unpack it anywhere and
 run `Cuelight.exe` (Windows 10 or 11, 64-bit). The app is not signed, so Windows may say it
 "protected your PC": *More info > Run anyway*. Your sign-in and settings are kept in your user

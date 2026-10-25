@@ -22,9 +22,11 @@
 - **Cuelight YouTube is gone**: a trailer YouTube refuses opens in LG's own YouTube app,
   and the fireplace plays the copy saved for breaks, the free fireplace video, or the drawn
   fire. If it is installed, it can be removed from the TV.
-- **Windows (preview, its download comes in a later release)**: video is decoded on the
-  graphics card where it can be (Direct3D 11, DXVA2), its colours are worked out on the
-  graphics card, and AV1 plays everywhere (dav1d).
+- **Cuelight for Windows (preview)**: `Cuelight-0.10.77-windows-x64.zip` with this release,
+  unpacked anywhere and run (Windows 10 and 11, 64-bit). Video is decoded on the graphics
+  card where it can be (Direct3D 11, DXVA2), its colours are worked out on the graphics card,
+  and AV1 plays everywhere (dav1d). The keyboard drives it as a remote; the mouse works as
+  touch.
 
 ## 0.10.76
 
