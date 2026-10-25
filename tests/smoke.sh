@@ -688,6 +688,15 @@ env SNTV_KILL_SELF_AFTER=6 SNTV_KEYS="wait" SNTV_SCREENSHOT_FRAMES=100000 HOME="
 run killed_next 160 "wait,wait" HOME="$OUT/home_killed"
 grep -q "the previous session ended with no crash report: the TV closed it" "$OUT/killed_next.log" && grep -q "previous session, last memory reading: .*memory: app" "$OUT/killed_next.log" \
   && grep -q "previous session, near its end:" "$OUT/killed_next.log" || { echo "an app the TV ended was not reported at the next start"; grep -E "previous|memory" "$OUT/killed_next.log"; exit 1; }
+# ... unless the film plays through the buffer: the app reads its own text subtitle track from
+# the bytes as they come and draws it (the TV's drawing off), and the letterbox stays
+run player_own_subs 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/subsfilm/manifest.json HOME="$(home_with ownsubs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -q "mkvsubs: 2 subtitle tracks in the file: eng S_TEXT/UTF8, por S_TEXT/ASS" "$OUT/player_own_subs.log" && grep -q "player: the film's own subtitles (eng, S_TEXT/UTF8) are drawn by the app" "$OUT/player_own_subs.log" \
+  && grep -q "player: the film's own subtitles: 3 lines read so far" "$OUT/player_own_subs.log" && grep -q "player: living letterbox, bars of" "$OUT/player_own_subs.log" \
+  || { echo "the film's own subtitles were not drawn by the app with the letterbox on"; grep -E "mkvsubs|own subtitles|letterbox|subtitles" "$OUT/player_own_subs.log"; exit 1; }
+run player_own_subs_ass 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/subsfilm/manifest.json HOME="$(home_with ownass '{"prefSubs":"por","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -q "player: the film's own subtitles (por, S_TEXT/ASS) are drawn by the app" "$OUT/player_own_subs_ass.log" && grep -q "player: the film's own subtitles: 2 lines read so far" "$OUT/player_own_subs_ass.log" \
+  || { echo "the film's own ASS subtitles were not drawn by the app"; grep -E "mkvsubs|own subtitles|subtitles" "$OUT/player_own_subs_ass.log"; exit 1; }
 run settings_letterbox 420 "left,down,down,down,down,down,ok,up,ok,t:living letterbox,down,down,down,down,left,ok"
 grep -q "settings: found Living letterbox" "$OUT/settings_letterbox.log" || { echo "Living letterbox is not in Settings"; grep settings "$OUT/settings_letterbox.log"; exit 1; }
 # no helper: the TV decodes the keyframe itself (bundled FFmpeg) through its local /frame

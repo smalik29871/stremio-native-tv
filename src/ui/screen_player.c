@@ -3,6 +3,7 @@
  * candidates, intro/recap skipping, Up Next at the credits, and progress sync to
  * the Stremio library. */
 #include "../relay.h"
+#include "../mkvsubs.h"
 #include "../quality.h"
 #include "../perfstat.h"
 #include "../app.h"
@@ -131,6 +132,7 @@ struct Player {
     SubTrack track; int track_loaded; int active_addon_sub;   /* -1 none */
     unsigned sub_req;
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
+    SubTrack emb; int emb_app, emb_for, emb_num, emb_taken, emb_tried, emb_buffered;   /* the film's own text subtitles, drawn by the app from the buffer (emb_app) instead of the TV */
     int assign_second;        /* the subtitles menu picks for the second slot */
     int subs_col, subs_group, subs_row;   /* the subtitles sheet: column (0 languages, 1 options), language, option */
     char subs_group_name[48];            /* the language focused, so files arriving meanwhile cannot move it */
@@ -1296,13 +1298,74 @@ static void lb_paint(unsigned tex, const char *url, int side, float bar, float a
 #undef LB_V
 }
 
+/* ---- the film's own text subtitles, drawn by the app ----
+ * An LG draws a file's built-in subtitle track itself, under the app, and hides it while the
+ * app paints (the living letterbox). Read from the bytes the buffer downloads (mkvsubs.c),
+ * the app draws the track itself instead, the TV's own drawing off, and the letterbox stays.
+ * Only what it can be sure of: a text track of a Matroska file playing through the buffer,
+ * the same language as the TV lists in that place. Anything else stays the TV's. */
+static void emb_stop(Player *p, int to_tv)
+{
+    if (!p->emb_app) return;
+    p->emb_app = 0;
+    subs_free(&p->emb);
+    p->emb_taken = 0;
+    if (to_tv && p->embedded_text_sel >= 0) { video_select_track(TRACK_TEXT, p->embedded_text_sel); push_sub_style(p); LOGI("player: the TV draws the film's own subtitles again"); }
+}
+
+static void emb_tick(Player *p)
+{
+    int want = p->embedded_text_sel >= 0 && g_app.living_letterbox != LB_OFF && p->emb_buffered && !p->pip;
+    if (p->emb_app && (!want || p->emb_for != p->embedded_text_sel)) emb_stop(p, 1);
+    if (want && !p->emb_app && p->emb_tried != p->embedded_text_sel + 1) {
+        MkvSubHead h;
+        if (!mkvsubs_head(&h)) return;   /* its tracks not known yet */
+        p->emb_tried = p->embedded_text_sel + 1;
+        VideoTrack tr[MAX_TRACKS];
+        int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS), k = -1;
+        for (int i = 0; i < nt; i++) if (tr[i].index == p->embedded_text_sel) k = i;
+        if (k < 0 || k >= h.n || nt != h.n) { LOGI("player: the TV lists %d subtitle tracks, the file %d: the TV draws them", nt, h.n); return; }
+        const MkvSubTrack *t = &h.t[k];
+        if (!t->text) { LOGI("player: the film's subtitle track %d is pictures (%s): the TV draws it", k + 1, t->codec); return; }
+        if (tr[k].lang[0] && t->lang[0] && !lang_same(tr[k].lang, t->lang)) { LOGI("player: the film's subtitle track %d is %s here, %s in the file: the TV draws it", k + 1, tr[k].lang, t->lang); return; }
+        p->emb_app = 1; p->emb_for = p->embedded_text_sel; p->emb_num = t->number; p->emb_taken = 0;
+        subs_free(&p->emb);
+        video_select_track(TRACK_TEXT, -1);
+        LOGI("player: the film's own subtitles (%s, %s) are drawn by the app, read from the buffer", t->lang, t->codec);
+    }
+    if (!p->emb_app) return;
+    static float looked;
+    if (g_app.time - looked > 0.5f || g_app.time < looked) {   /* the TV's drawing stays off, whatever selects the track again */
+        looked = g_app.time;
+        VideoTrack tr[MAX_TRACKS];
+        int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+        for (int i = 0; i < nt; i++) if (tr[i].selected) { video_select_track(TRACK_TEXT, -1); LOGI("player: the TV's drawing of the film's subtitles turned off again (the app draws them)"); break; }
+    }
+    int have = mkvsubs_count(p->emb_num);
+    if (have <= p->emb_taken) return;
+    SubCue got[128];
+    int n = mkvsubs_take(p->emb_num, p->emb_taken, got, 128);
+    if (n <= 0) return;
+    SubCue *grown = realloc(p->emb.cues, sizeof *grown * (size_t)(p->emb.n + n));
+    if (!grown) { for (int i = 0; i < n; i++) free(got[i].text); return; }
+    p->emb.cues = grown;
+    for (int i = 0; i < n; i++) {   /* in time order: after a jump back, earlier lines come later */
+        int at = p->emb.n++;
+        while (at > 0 && p->emb.cues[at - 1].start > got[i].start) { p->emb.cues[at] = p->emb.cues[at - 1]; at--; }
+        p->emb.cues[at] = got[i];
+    }
+    if (!p->emb_taken) LOGI("player: the film's own subtitles: %d line%s read so far", n, n == 1 ? "" : "s");
+    p->emb_taken += n;
+}
+
 static void draw_letterbox(Player *p, const VideoInfo *vi)
 {
     p->lb_bar = 0; p->lb_side = 0;
     if (!g_app.living_letterbox || p->pip || p->aspect != ASPECT_FIT || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return;
     /* the TV draws a film's own subtitle track itself, under the app, and an LG hides it
-     * while the app paints during playback: the screen is left as with the letterbox off */
-    if (p->embedded_text_sel >= 0) {
+     * while the app paints during playback: unless the app draws it (emb_tick), the screen is
+     * left as with the letterbox off */
+    if (p->embedded_text_sel >= 0 && !p->emb_app) {
         if (!p->lb_aside_logged) { p->lb_aside_logged = 1; LOGI("player: the living letterbox steps aside while the TV draws the film's own subtitles"); }
         return;
     }
@@ -1568,6 +1631,7 @@ static void browse_sources(Player *p)
 /* ---- playback / fallback ------------------------------------------------------ */
 
 static void start_candidate(Player *p, int idx, double start);
+static void emb_stop(Player *p, int to_tv);
 static void buffer_alternates(const Player *p, int idx);
 static void fail_over(Player *p, const char *why);
 
@@ -1682,6 +1746,11 @@ static void start_candidate(Player *p, int idx, double start)
         } else if (p->cands[idx].headers) relayed = relay_url(u, p->cands[idx].headers);
     }
     if (!(bufferable && relayed)) relay_buffer_close();   /* this one isn't buffered: the last one's memory goes */
+    emb_stop(p, 0);
+    p->emb_tried = 0;
+    p->emb_buffered = bufferable && relayed != NULL;
+    if (p->emb_buffered) mkvsubs_open(streams_final_url(u) ? streams_final_url(u) : u, p->cands[idx].headers);   /* its own subtitle tracks, read as the buffer fills */
+    else mkvsubs_open(NULL, NULL);
     if (relayed && p->cands[idx].headers) LOGI("player: source %d asks for request headers; it plays through the local relay, which sends them", idx + 1);
     else if (relayed) LOGI("player: source %d plays through the local relay, loaded ahead", idx + 1);
     else if (p->cands[idx].headers) LOGI("player: source %d asks for request headers; the TV's player can't send them (its checks did), so it may not play", idx + 1);
@@ -2165,8 +2234,8 @@ static unsigned sub_signature(Player *p, double pos)
     static char b[2048];
     unsigned h = 2166136261u;
     for (int k = 0; k < 3; k++) {
-        const SubTrack *t = k == 1 ? &p->track2 : &p->track;
-        int loaded = k == 1 ? p->track2_loaded : p->track_loaded;
+        const SubTrack *t = k == 1 ? &p->track2 : p->emb_app && !p->track_loaded ? &p->emb : &p->track;
+        int loaded = k == 1 ? p->track2_loaded : p->track_loaded || p->emb_app;
         if (!loaded || !subs_text_at(t, pos, k == 2, b, sizeof b)) { h = (h ^ (unsigned)(k + 1)) * 16777619u; continue; }
         for (const unsigned char *c = (const unsigned char *)b; *c; c++) h = (h ^ *c) * 16777619u;
     }
@@ -2456,6 +2525,7 @@ static void update(Screen *s, float dt)
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
     ph_hold_fast(p, &vi);
+    emb_tick(p);
     if (p->tap_pending || (p->tch == 2 && !p->tch_moved)) app_redraw();
     if (vi.state == VIDEO_PLAYING) {   /* progress bar / subtitles move */
         if (!bare_playback(p, &vi)) app_redraw();
@@ -2683,6 +2753,11 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     const char *text = p->track_loaded && subs_text_at(&p->track, vi->position, 0, b1, sizeof b1) ? b1 : NULL;
     const char *text2 = p->track2_loaded && subs_text_at(&p->track2, vi->position, 0, b2, sizeof b2) ? b2 : NULL;
     const char *top = p->track_loaded && subs_text_at(&p->track, vi->position, 1, up, sizeof up) ? up : NULL;
+    if (p->emb_app && !p->track_loaded) {   /* the film's own, drawn here (its timing nudged as the TV's would be) */
+        p->emb.offset = p->embedded_offset;
+        text = subs_text_at(&p->emb, vi->position, 0, b1, sizeof b1) ? b1 : NULL;
+        top = subs_text_at(&p->emb, vi->position, 1, up, sizeof up) ? up : NULL;
+    }
     float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
     if (top) {   /* the file asks for the top ({\an8}): over a credit or a sign at the bottom */
         int lines = 1;
@@ -5867,6 +5942,8 @@ static void destroy(Screen *s)
     video_stop();
     subs_free(&p->track);
     subs_free(&p->track2);
+    subs_free(&p->emb);
+    mkvsubs_open(NULL, NULL);
     subs_free(&p->ref);
     for (int k = 0; k < 6; k++) subs_free(&p->bm_track[k]);
     xl_stop(p);
