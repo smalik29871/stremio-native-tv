@@ -232,12 +232,21 @@ int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }  
 int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!getenv("SNTV_FAKE_EMBED") || !youtube_id_valid(id)) return 0; snprintf(out, n, "youtube-embed:%.20s", id); return 1; }   /* tests: as Android does */
 int video_youtube_web_state(void) { const char *s = getenv("SNTV_FAKE_YTWEB"); return s ? atoi(s) : -1; }   /* tests: "1" installed, "0" not */
 void video_youtube_web_check(void) { if (getenv("SNTV_FAKE_YTWEB") && getenv("SNTV_FAKE_INSTALL")) setenv("SNTV_FAKE_YTWEB", "1", 1); }   /* as if it was installed meanwhile */
+static int g_ytweb_launched;
 int video_youtube_web(const char *id, double start, const char *mode, int flags)
 {
     if (video_youtube_web_state() != 1) return 0;
     if (!youtube_id_valid(id)) { LOGW("video: not a YouTube video id, Cuelight YouTube not opened"); return 0; }
     LOGI("video: Cuelight YouTube opened %s at %.0fs (%s)%s%s", id, start, mode, flags & YTWEB_SKIP_SPONSORS ? ", skipping sponsors" : "", flags & YTWEB_NO_ADVERTS ? ", without adverts" : "");
+    g_ytweb_launched = 1;
     return 1;
+}
+
+int video_youtube_web_result(char *why, size_t n)   /* tests: SNTV_FAKE_YTWEB_REFUSE answers as a TV refusing it */
+{
+    const char *r = getenv("SNTV_FAKE_YTWEB_REFUSE");
+    if (why && n) snprintf(why, n, "%s", g_ytweb_launched && r ? r : "");
+    return !g_ytweb_launched ? 0 : r ? -1 : 1;
 }
 int video_has_youtube_app(void) { return getenv("SNTV_FAKE_BROWSER") != NULL; }   /* tests: as Android does */
 int video_open_youtube(const char *id) { if (!video_has_youtube_app() || !youtube_id_valid(id)) return 0; LOGI("video: the YouTube app opened %s", id); return 1; }

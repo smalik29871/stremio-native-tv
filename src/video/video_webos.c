@@ -1252,11 +1252,33 @@ void video_select_track(TrackKind kind, int index)
 void video_landscape_only(int on) { (void)on; }
 int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }   /* only Android is opened with links */   /* TVs and the desktop do not turn */
 int video_open_browser(const char *url) { (void)url; return 0; }   /* no browser to hand a page to: the phone opens it */
+static volatile int g_ytweb_result;   /* the app manager's answer to opening Cuelight YouTube: 1 opened, -1 refused, 0 none yet */
+static char g_ytweb_why[200];
+
+/* The launch is accepted at once and answered later: a refusal (a TV that does not let a homebrew
+ * app open another, say) is only known here. ctx set: it was Cuelight YouTube. */
 static int on_launch_reply(LSHandle *sh, LSMessage *msg, void *ctx)
 {
-    (void)sh; (void)ctx;
-    LOGI("video(webos): the YouTube app -> %.200s", L.MessageGetPayload(msg));
+    (void)sh;
+    const char *what = ctx ? "Cuelight YouTube" : "the YouTube app", *p = L.MessageGetPayload(msg);
+    cJSON *r = cJSON_Parse(p);
+    int ok = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "returnValue"));
+    const char *why = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(r, "errorText"));
+    if (ok) LOGI("video(webos): %s opened", what);
+    else LOGW("video(webos): the TV would not open %s: %.150s", what, why ? why : p ? p : "no answer");
+    if (ctx) {
+        if (!ok) snprintf(g_ytweb_why, sizeof g_ytweb_why, "%.150s", why ? why : "no reason given");
+        g_ytweb_result = ok ? 1 : -1;
+    }
+    cJSON_Delete(r);
     return 1;
+}
+
+int video_youtube_web_result(char *why, size_t n)
+{
+    int r = g_ytweb_result;
+    if (why && n) snprintf(why, n, "%s", r < 0 ? g_ytweb_why : "");
+    return r;
 }
 int video_has_youtube_app(void) { return g_bus != NULL; }
 
@@ -1316,10 +1338,11 @@ int video_youtube_web(const char *id, double start, const char *mode, int flags)
     snprintf(payload, sizeof payload, "{\"id\":\"" SNTV_YTWEB_ID "\",\"params\":{\"v\":\"%.20s\",\"t\":%d,\"mode\":\"%.8s\",\"skipSponsors\":%d,\"blockAds\":%d}}",
              id, (int)start, mode ? mode : "play", !!(flags & YTWEB_SKIP_SPONSORS), !!(flags & YTWEB_NO_ADVERTS));
     LSError e; L.ErrorInit(&e);
-    int ok = L.CallOneReply(g_bus, "luna://com.webos.applicationManager/launch", payload, on_launch_reply, NULL, NULL, &e);
+    g_ytweb_result = 0;
+    int ok = L.CallOneReply(g_bus, "luna://com.webos.applicationManager/launch", payload, on_launch_reply, (void *)1, NULL, &e);
     if (!ok) ls_error_log("launch Cuelight YouTube", &e);
     L.ErrorFree(&e);
-    if (ok) LOGI("video(webos): Cuelight YouTube opened %s (%s)", id, mode ? mode : "play");
+    if (ok) LOGI("video(webos): asked the TV to open Cuelight YouTube on %s (%s)", id, mode ? mode : "play");
     return ok;
 }
 int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }   /* a native app has no web view to give it */

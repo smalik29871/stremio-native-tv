@@ -357,6 +357,14 @@ static void update(Screen *s, float dt)
 {
     Ambient *a = s->st;
     if (a->fv_web && g_app.foregrounds != a->fv_web_fg) { LOGI("ambient: back from Cuelight YouTube"); app_pop(); return; }   /* a key there ended it */
+    if (a->fv_web) {   /* the TV would not open it: the fireplace without its video, and Settings says why */
+        char why[200];
+        if (video_youtube_web_result(why, sizeof why) < 0) {
+            LOGW("ambient: the TV would not open Cuelight YouTube for the fireplace (%s)", why);
+            store_set_str("fireplaceRefused", store_get_str("fireplaceVideo", "")); store_save();
+            a->fv_web = 0;
+        }
+    }
     stage_tick(a);
     if (a->off) { if (g_app.time - a->drawn_at >= 1) app_redraw(); return; }
     if (g_app.time - a->drawn_at >= 1.0f / 30) app_redraw();

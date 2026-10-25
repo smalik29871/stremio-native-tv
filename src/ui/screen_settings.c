@@ -912,7 +912,13 @@ static void draw(Screen *s)
         s_chevron = !(id >= IT_ADDON_BASE && id < IT_ACCT_BASE);
         switch (id) {
         case IT_SYNC_DEVICES: draw_row(y, ICON_SWAP, "Sync with another device", NULL, foc, KIND_ACTION, 0); break;
-        case IT_YT_WEB: draw_row(y, ICON_PLAY, "Cuelight YouTube", video_youtube_web_state() == 1 ? "Installed  \xC2\xB7  opens by itself when YouTube refuses a video" : "Not installed  \xC2\xB7  OK to install", foc, KIND_ACTION, 0); break;
+        case IT_YT_WEB: {
+            char v[260]; const char *refused = store_get_str("ytwebRefused", "");
+            if (video_youtube_web_state() != 1) snprintf(v, sizeof v, "Not installed  \xC2\xB7  OK to install");
+            else if (*refused) snprintf(v, sizeof v, "Installed, but the TV would not open it: %.200s", refused);
+            else snprintf(v, sizeof v, "Installed  \xC2\xB7  opens by itself when YouTube refuses a video");
+            draw_row(y, ICON_PLAY, "Cuelight YouTube", v, foc, KIND_ACTION, 0); break;
+        }
         case IT_YT_SPONSORS: draw_row(y, ICON_SPEED, "Skip sponsor segments", NULL, foc, KIND_TOGGLE, store_get_int("ytSkipSponsors", 1)); break;
         case IT_YT_NOADS: draw_row(y, ICON_PLAY, "Block YouTube adverts", NULL, foc, KIND_TOGGLE, store_get_int("ytNoAdverts", 0)); break;
         case IT_AMBIENT_PREVIEW: draw_row(y, ICON_PLAY, "Preview the screensaver", g_app.ambient_style < AMBIENT_STYLE_COUNT ? AMBIENT_STYLE_NAMES[g_app.ambient_style] : NULL, foc, KIND_ACTION, 0); break;

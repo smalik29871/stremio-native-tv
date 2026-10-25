@@ -83,6 +83,7 @@ enum { YTWEB_SKIP_SPONSORS = 1, YTWEB_NO_ADVERTS = 2 };   /* flags: what its scr
 int  video_youtube_web_state(void);
 void video_youtube_web_check(void);
 int  video_youtube_web(const char *id, double start, const char *mode, int flags);
+int  video_youtube_web_result(char *why, size_t n);   /* the TV's answer to the last opening: 1 opened, -1 refused (why), 0 none yet */
 /* A phone: picture in picture, the video in a small window over other apps. allow: a video
  * is playing, so leaving the app (Home) takes it along; enter: now (1 if it went); in: it is
  * in that small window now (the app then draws no controls). 0 where there is none. */

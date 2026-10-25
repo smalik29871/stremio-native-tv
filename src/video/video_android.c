@@ -114,6 +114,7 @@ int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!youtube_
 int video_youtube_web_state(void) { return -1; }   /* the web view inside the app plays it instead */
 void video_youtube_web_check(void) {}
 int video_youtube_web(const char *id, double start, const char *mode, int flags) { (void)id; (void)start; (void)mode; (void)flags; return 0; }
+int video_youtube_web_result(char *why, size_t n) { if (why && n) *why = 0; return 0; }
 int video_open_youtube(const char *id)   /* the YouTube app's own link first; a browser takes the page where there is no app */
 {
     char u[96];

@@ -1213,6 +1213,12 @@ run ytweb_fire 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNT
 grep -q "video: Cuelight YouTube opened dQw4w9WgXcQ at 0s (loop)" "$OUT/ytweb_fire.log" || { echo "a refused fireplace video did not open in Cuelight YouTube"; grep -E "ambient|youtube|video" "$OUT/ytweb_fire.log"; exit 1; }
 python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("fireplaceRefused") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" else 1)' "$FRH/.local/share/stremio/nativetv/settings.json" \
   || { echo "a refused fireplace video was not noted for Settings"; grep -E "ambient|youtube" "$OUT/ambient_fire_refused.log"; exit 1; }
+# a TV that will not let Cuelight open the companion (it answers the launch with a no): said on screen and in
+# Settings, and the fireplace stops waiting for it
+run ytweb_fire_refused 600 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1 SNTV_FAKE_YTWEB_REFUSE="Permission denied" HOME="$(home_with ytwfr '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
+grep -q "ambient: the TV would not open Cuelight YouTube for the fireplace (Permission denied)" "$OUT/ytweb_fire_refused.log" && grep -q "toast: The TV would not open Cuelight YouTube: Permission denied" "$OUT/ytweb_fire_refused.log" \
+  && python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("ytwebRefused") == "Permission denied" else 1)' "$OUT/home_ytwfr/.local/share/stremio/nativetv/settings.json" \
+  || { echo "a TV refusing to open Cuelight YouTube was not said"; grep -E "ambient|Cuelight YouTube|toast" "$OUT/ytweb_fire_refused.log"; exit 1; }
 # Clock faces: every one draws (flip, analog, words ... aurora, planets, prayer orbit, horizon, orrery), and the island's styles
 for f in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f,\"breaksOn\":1,\"breakSched\":0,\"breakMethod\":1,\"breakLat\":\"43.676\",\"breakLon\":\"-79.485\",\"breakCity\":\"Toronto\"}")"
