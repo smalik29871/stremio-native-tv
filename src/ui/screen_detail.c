@@ -131,19 +131,25 @@ static struct { char id[128]; char yt[32]; int busy; } g_trailer;   /* one fetch
 
 static void trailer_url(const char *yt, char *out, size_t n) { snprintf(out, n, "https://www.youtube.com/watch?v=%s", yt); }
 
-static void trailer_play_saved(const char *name, const MetaPreview *meta)
+static void trailer_play_link(const char *u, const MetaPreview *meta)
 {
-    char snd[128], buf[800], vid[160];
-    snprintf(snd, sizeof snd, "sntv-sound://%s", name);
-    const char *u = phone_resolve_sound(snd, buf, sizeof buf);
-    if (!u) { app_toast("The trailer could not be opened"); return; }
+    char vid[160];
     PlayCandidate *c = calloc(1, sizeof *c);
     c->url = strdup(u);
     c->label = strdup("Trailer");
     snprintf(vid, sizeof vid, "trailer:%s", meta->id);
     char title[200]; snprintf(title, sizeof title, "%s  -  Trailer", meta->name ? meta->name : "");
-    LOGI("detail: trailer for %s from %s", meta->id, name);
     app_push(screen_player_create(meta, vid, title, c, 1, 0, 0, NULL, NULL));
+}
+
+static void trailer_play_saved(const char *name, const MetaPreview *meta)
+{
+    char snd[128], buf[800];
+    snprintf(snd, sizeof snd, "sntv-sound://%s", name);
+    const char *u = phone_resolve_sound(snd, buf, sizeof buf);
+    if (!u) { app_toast("The trailer could not be opened"); return; }
+    LOGI("detail: trailer for %s from %s", meta->id, name);
+    trailer_play_link(u, meta);
 }
 
 static void on_trailer(const char *name, const char *error, void *user)
@@ -167,6 +173,14 @@ static void on_trailer(const char *name, const char *error, void *user)
 static void on_trailer_stream(const char *url, const char *error, void *user)
 {
     (void)user;
+    char embed[64];
+    Screen *on = app_top();
+    if (!url && on && strcmp(on->name, "detail") == 0 && strcmp(((Detail *)on->st)->preview.id, g_trailer.id) == 0 && video_youtube_embed_url(g_trailer.yt, embed, sizeof embed)) {
+        g_trailer.busy = 0;
+        LOGW("detail: trailer stream for %s refused (%s); YouTube's own player plays it", g_trailer.id, error ? error : "?");
+        trailer_play_link(embed, &((Detail *)on->st)->preview);
+        return;
+    }
     if (!url) {
         LOGW("detail: trailer stream for %s refused (%s); downloading it", g_trailer.id, error ? error : "?");
         char yurl[96]; trailer_url(g_trailer.yt, yurl, sizeof yurl);

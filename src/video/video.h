@@ -71,6 +71,9 @@ int  video_open_browser(const char *url);
  * check is not ours to pass): 1 when it was handed over. has: there is such an app to try. */
 int  video_has_youtube_app(void);
 int  video_open_youtube(const char *id);
+/* YouTube's own player inside the app, where the device has one (Android: a web view): a link
+ * video_load plays for this video id (written to out, 1), for when YouTube refuses ours. */
+int  video_youtube_embed_url(const char *id, char *out, size_t n);
 /* A phone: picture in picture, the video in a small window over other apps. allow: a video
  * is playing, so leaving the app (Home) takes it along; enter: now (1 if it went); in: it is
  * in that small window now (the app then draws no controls). 0 where there is none. */

@@ -1257,6 +1257,7 @@ static int on_launch_reply(LSHandle *sh, LSMessage *msg, void *ctx)
     return 1;
 }
 int video_has_youtube_app(void) { return g_bus != NULL; }
+int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }   /* a native app has no web view to give it */
 int video_open_youtube(const char *id)
 {
     if (!g_bus || !id || !*id) return 0;

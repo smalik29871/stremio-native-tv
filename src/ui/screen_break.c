@@ -7,6 +7,7 @@
 #include "../audio.h"
 #include "../breaks.h"
 #include "../log.h"
+#include "../store.h"
 #include "../video/video.h"
 #include "font.h"
 #include "theme.h"
@@ -47,6 +48,14 @@ static void finish(Screen *s)
     app_pop();
 }
 
+static void on_saved(const char *name, const char *error, void *user)   /* refused: Settings says so on the row */
+{
+    char *url = user;
+    if (!name) { LOGW("break: YouTube would not give %s to this TV: %s", url, error ? error : "?"); store_set_str("breakRefused", url); store_save(); }
+    else if (*store_get_str("breakRefused", "")) { store_set_str("breakRefused", NULL); store_save(); }
+    free(url);
+}
+
 static int play_url(const char *url, const char *title, int *is_video)
 {
     char buf[1800];
@@ -54,7 +63,7 @@ static int play_url(const char *url, const char *title, int *is_video)
     char yt[16], saved[80];
     if (youtube_video_id(url, yt) && !youtube_saved(url, g_app.break_video, saved, sizeof saved, NULL)) {   /* the next break plays it from the TV */
         LOGI("break: %s is not saved on the TV yet; saving it for the next break", yt);
-        youtube_save(url, g_app.break_video, NULL, NULL);
+        youtube_save(url, g_app.break_video, on_saved, strdup(url));
     }
     if (!real || !*real) return 0;
     video_load(real, title, 0);

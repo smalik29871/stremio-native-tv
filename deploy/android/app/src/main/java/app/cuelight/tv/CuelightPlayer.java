@@ -43,6 +43,12 @@ import androidx.media3.ui.SubtitleView;
 
 import androidx.core.content.FileProvider;
 
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants;
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer;
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener;
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions;
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -147,7 +153,9 @@ public final class CuelightPlayer {
     // ---- from C ----
 
     public static void load(final String url, final double start) {
+        if (url.startsWith(EMBED)) { run(() -> embedLoad(url.substring(EMBED.length()), start)); return; }
         run(() -> {
+            embedStop();
             ExoPlayer p = player();
             sReady = false; sStart = start; sError = ""; sCodec = ""; sState = LOADING;
             sAudio = new String[0]; sText = new String[0]; sTracksVersion++;
@@ -168,11 +176,12 @@ public final class CuelightPlayer {
         });
     }
 
-    public static void play() { run(() -> { if (sPlayer != null) { if (sState == ENDED) sPlayer.seekTo(0); sPlayer.play(); snapshot(); } }); }
-    public static void pause() { run(() -> { if (sPlayer != null) { sPlayer.pause(); snapshot(); } }); }
-    public static void seek(final double s) { run(() -> { if (sPlayer != null) { if (sReady) sPlayer.seekTo((long) (s * 1000)); else sStart = s; snapshot(); } }); }
+    public static void play() { run(() -> { if (sEmbed) { if (sYt != null) { if (sState == ENDED) sYt.seekTo(0); sYt.play(); } return; } if (sPlayer != null) { if (sState == ENDED) sPlayer.seekTo(0); sPlayer.play(); snapshot(); } }); }
+    public static void pause() { run(() -> { if (sEmbed) { if (sYt != null) sYt.pause(); return; } if (sPlayer != null) { sPlayer.pause(); snapshot(); } }); }
+    public static void seek(final double s) { run(() -> { if (sEmbed) { if (sYt != null) sYt.seekTo((float) s); else sStart = s; return; } if (sPlayer != null) { if (sReady) sPlayer.seekTo((long) (s * 1000)); else sStart = s; snapshot(); } }); }
     public static void stop() {
         run(() -> {
+            embedStop();
             if (sPlayer != null) { sPlayer.stop(); sPlayer.clearMediaItems(); }
             sState = IDLE; sReady = false; sSubs.setCues(new ArrayList<>());
             sBox.setVisibility(View.INVISIBLE);
@@ -181,8 +190,8 @@ public final class CuelightPlayer {
         });
     }
     public static void setRate(final double r) { run(() -> { sRate = (float) r; if (sPlayer != null) sPlayer.setPlaybackParameters(new PlaybackParameters(sRate)); }); }
-    public static void setVolume(final int percent) { run(() -> { sVolume = percent / 100f; if (sPlayer != null) sPlayer.setVolume(sMuted ? 0 : sVolume); }); }
-    public static void setMuted(final boolean m) { run(() -> { sMuted = m; if (sPlayer != null) sPlayer.setVolume(m ? 0 : sVolume); }); }
+    public static void setVolume(final int percent) { run(() -> { sVolume = percent / 100f; if (sPlayer != null) sPlayer.setVolume(sMuted ? 0 : sVolume); if (sYt != null) sYt.setVolume(percent); }); }
+    public static void setMuted(final boolean m) { run(() -> { sMuted = m; if (sPlayer != null) sPlayer.setVolume(m ? 0 : sVolume); if (sYt != null) { if (m) sYt.mute(); else sYt.unMute(); } }); }
     public static void setKeepAwake(final boolean on) { run(() -> { sKeepAwake = on; keepAwake(); }); }
 
     /* The app's memory stage (0 plenty, 1 getting low, 2 tight): the player's buffers are sized by
@@ -410,6 +419,68 @@ public final class CuelightPlayer {
     }
     public static String installText() { return sUpdText; }
 
+    // ---- YouTube's own player, for a video YouTube refuses to the app's (src/ui: youtube-embed:ID) ----
+
+    private static final String EMBED = "youtube-embed:";
+    private static YouTubePlayerView sYtView;
+    private static YouTubePlayer sYt;         // once its page is ready
+    private static boolean sEmbed;            // the embedded player is the one playing
+    private static String sYtPending;         // asked for before the page was ready
+    private static double sYtPos, sYtDur;
+    private static boolean sYtBuffering;
+
+    private static void embedLoad(String id, double start) {
+        if (sPlayer != null) { sPlayer.stop(); sPlayer.clearMediaItems(); }
+        sEmbed = true; sState = LOADING; sError = ""; sCodec = "YouTube player"; sStart = start;
+        sYtPos = start; sYtDur = 0; sYtBuffering = true;
+        sAudio = new String[0]; sText = new String[0]; sTracksVersion++;
+        sView.setVisibility(View.INVISIBLE);
+        if (sYtView == null) {
+            sYtView = new YouTubePlayerView(sActivity);
+            sYtView.setEnableAutomaticInitialization(false);
+            sBox.addView(sYtView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            IFramePlayerOptions opts = new IFramePlayerOptions.Builder(sActivity).controls(0).rel(0).ivLoadPolicy(3).ccLoadPolicy(0).fullscreen(0).build();
+            sYtPending = id;
+            sYtView.initialize(new AbstractYouTubePlayerListener() {
+                @Override public void onReady(YouTubePlayer p) {
+                    sYt = p;
+                    if (sYtPending != null) { p.loadVideo(sYtPending, (float) sStart); sYtPending = null; }
+                }
+                @Override public void onStateChange(YouTubePlayer p, PlayerConstants.PlayerState st) {
+                    if (!sEmbed) return;
+                    sYtBuffering = st == PlayerConstants.PlayerState.BUFFERING;
+                    if (st == PlayerConstants.PlayerState.PLAYING) sState = PLAYING;
+                    else if (st == PlayerConstants.PlayerState.PAUSED) sState = PAUSED;
+                    else if (st == PlayerConstants.PlayerState.ENDED) sState = ENDED;
+                    keepAwake(); snapshot();
+                }
+                @Override public void onCurrentSecond(YouTubePlayer p, float s) { if (sEmbed) sYtPos = s; }
+                @Override public void onVideoDuration(YouTubePlayer p, float d) { if (sEmbed) sYtDur = d; }
+                @Override public void onError(YouTubePlayer p, PlayerConstants.PlayerError e) {
+                    if (!sEmbed) return;
+                    sState = ERROR;
+                    sError = e == PlayerConstants.PlayerError.VIDEO_NOT_PLAYABLE_IN_EMBEDDED_PLAYER ? "YouTube does not allow this video outside its own app"
+                           : e == PlayerConstants.PlayerError.VIDEO_NOT_FOUND ? "YouTube says this video is not available" : "YouTube's player: " + e.name();
+                    Log.w(TAG, "video: " + sError);
+                    snapshot();
+                }
+            }, false, opts);
+        } else if (sYt != null) sYt.loadVideo(id, (float) start);
+        else sYtPending = id;
+        sYtView.setVisibility(View.VISIBLE);
+        sBox.setVisibility(View.VISIBLE);
+        Log.i(TAG, "video: YouTube's own player");
+        snapshot();
+    }
+
+    private static void embedStop() {
+        if (!sEmbed) return;
+        sEmbed = false; sYtPending = null;
+        if (sYt != null) sYt.pause();
+        if (sYtView != null) sYtView.setVisibility(View.GONE);
+        sView.setVisibility(View.VISIBLE);
+    }
+
     public static double[] status() { return sStatus; }
     public static String error() { return sError; }
     public static String codec() { return sCodec; }
@@ -425,7 +496,7 @@ public final class CuelightPlayer {
     }
 
     private static void keepAwake() {
-        boolean on = sKeepAwake || (sPlayer != null && sPlayer.isPlaying());
+        boolean on = sKeepAwake || (sPlayer != null && sPlayer.isPlaying()) || (sEmbed && sState == PLAYING);
         if (sView != null) sView.setKeepScreenOn(on);
         // the video view is hidden when nothing plays, and a hidden view's flag counts for nothing:
         // the window's own flag keeps the screen on for the screensaver
@@ -436,6 +507,13 @@ public final class CuelightPlayer {
     }
 
     private static void snapshot() {
+        if (sEmbed) {
+            double[] s = new double[14];
+            s[0] = sState; s[1] = sYtPos; s[2] = sYtDur; s[3] = sYtBuffering ? 1 : 0; s[5] = -1;
+            s[10] = sTracksVersion; s[11] = sWarningVersion;
+            sStatus = s;
+            return;
+        }
         ExoPlayer p = sPlayer;
         double[] s = new double[14];
         int state = sState;

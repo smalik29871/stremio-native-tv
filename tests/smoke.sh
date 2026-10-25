@@ -101,6 +101,10 @@ grep -q "UI check: screen=options" "$OUT/trailer_youtube_app_offer.log" || { ech
 run trailer_youtube_app 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,ok,wait" HOME="$(home_with trailer_app3 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_BROWSER=1
 grep -q "youtube: handed [A-Za-z0-9_-]* to the YouTube app" "$OUT/trailer_youtube_app.log" && grep -q "video: the YouTube app opened" "$OUT/trailer_youtube_app.log" \
   || { echo "a refused trailer was not handed to the YouTube app"; grep -E "detail|youtube|video:|UI check" "$OUT/trailer_youtube_app.log"; exit 1; }
+# on a phone, a trailer YouTube refuses plays in YouTube's own player inside the app
+run trailer_youtube_embed 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_emb "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_EMBED=1
+grep -q "YouTube's own player plays it" "$OUT/trailer_youtube_embed.log" && grep -q "video(null): load youtube-embed:" "$OUT/trailer_youtube_embed.log" \
+  || { echo "a refused trailer did not play in YouTube's own player"; grep -E "detail|youtube|video" "$OUT/trailer_youtube_embed.log"; exit 1; }
 run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
@@ -889,6 +893,9 @@ sed 's/"_mtime": 1714557600000/"_mtime": "2026-10-18T20:00:00.000Z"/; s/"timeOff
 run progress_merge 200 "right" HOME="$H" SNTV_API_URL="http://127.0.0.1:$PORT"
 grep -q '"_id":"tt0903747".*"timeOffset":2000000' "$FAKE_PUT_LOG" || { echo "newer local progress was not kept and resent"; exit 1; }
 run break_video 300 "right,ok,down,down,play,wait" HOME="$(home_with brk5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","thumbServer":"http://127.0.0.1:'"$PORT"'"}')" SNTV_NOW=12:00
+# a break's YouTube video not saved yet, refused: YouTube's own player where the device has one
+run break_video_embed 300 "right,ok,down,down,play,wait" SNTV_FAKE_EMBED=1 SNTV_YT_BASE=http://127.0.0.1:9 HOME="$(home_with brke '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":1,"breakAudio":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')" SNTV_NOW=12:00
+grep -q "break: playing youtube-embed:dQw4w9WgXcQ (video)" "$OUT/break_video_embed.log" || { echo "a break's refused YouTube video did not play in YouTube's own player"; grep -E "break|youtube|video" "$OUT/break_video_embed.log"; exit 1; }
 # a YouTube link typed into Settings is saved by the TV itself (QuickJS runs the solver), then plays at the break with no helper
 run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
 grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
@@ -1170,6 +1177,13 @@ grep -q "memory saver on (small TV)" "$OUT/memory_playback.log" && grep -q "memo
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }
+# refused: YouTube's own player where the device has one; elsewhere Settings says so on the row
+run ambient_fire_embed 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_EMBED=1 HOME="$(home_with firee '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
+grep -q "video(null): load youtube-embed:dQw4w9WgXcQ (Fireplace)" "$OUT/ambient_fire_embed.log" || { echo "a refused fireplace video did not play in YouTube's own player"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_embed.log"; exit 1; }
+FRH="$(home_with firer '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
+run ambient_fire_refused 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 HOME="$FRH"
+python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("fireplaceRefused") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" else 1)' "$FRH/.local/share/stremio/nativetv/settings.json" \
+  || { echo "a refused fireplace video was not noted for Settings"; grep -E "ambient|youtube" "$OUT/ambient_fire_refused.log"; exit 1; }
 # Clock faces: every one draws (flip, analog, words ... aurora, planets, prayer orbit, horizon, orrery), and the island's styles
 for f in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f,\"breaksOn\":1,\"breakSched\":0,\"breakMethod\":1,\"breakLat\":\"43.676\",\"breakLon\":\"-79.485\",\"breakCity\":\"Toronto\"}")"

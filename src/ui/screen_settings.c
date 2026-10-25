@@ -1006,7 +1006,8 @@ static void draw(Screen *s)
             break;
         case IT_BR_SOUND: { static const char *S[] = { "Soft chime", "My own recording", "Silent" }; draw_row(y, ICON_BELL, "Sound", S[g_app.break_sound], foc, KIND_CHOICE, 0); break; }
         case IT_BR_AUDIO: if (torbox_is_link(g_app.break_audio)) { char tb[300], nm[256]; snprintf(tb, sizeof tb, "TorBox: %s", torbox_name(g_app.break_audio, nm, sizeof nm)); draw_row(y, ICON_AUDIO, "Recording at the start", tb, foc, KIND_ACTION, 0); break; }
-            draw_row(y, ICON_AUDIO, "Recording at the start", !g_app.break_audio ? "Not set  \xC2\xB7  send one from your phone, or a link (adhan, bell, chant)" : strncmp(g_app.break_audio, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_audio, foc, KIND_ACTION, 0); break;
+            draw_row(y, ICON_AUDIO, "Recording at the start", !g_app.break_audio ? "Not set  \xC2\xB7  send one from your phone, or a link (adhan, bell, chant)" : strncmp(g_app.break_audio, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace"
+                     : !strcmp(g_app.break_audio, store_get_str("breakRefused", "")) ? "YouTube would not give it to this TV  \xC2\xB7  OK to choose another" : g_app.break_audio, foc, KIND_ACTION, 0); break;
         case IT_BR_END: draw_row(y, ICON_AUDIO, "Recording at the end", !g_app.break_end ? "Not set  \xC2\xB7  played before playback continues (a dua, a closing bell)" : strncmp(g_app.break_end, "sntv-sound://", 13) == 0 ? "Your recording, stored on the TV  \xC2\xB7  OK to replace" : g_app.break_end, foc, KIND_ACTION, 0); break;
         case IT_BR_HEALTH: if (g_app.break_health_min) snprintf(v, sizeof v, "Every %d min of watching", g_app.break_health_min); else snprintf(v, sizeof v, "Off"); draw_row(y, ICON_STAR, "Stretch reminder", v, foc, KIND_CHOICE, 0); break;
         case IT_BR_HEALTH_LEN: snprintf(v, sizeof v, "%d min", g_app.break_health_len); draw_row(y, ICON_STAR, "Stretch length", v, foc, KIND_CHOICE, 0); break;
@@ -1078,7 +1079,8 @@ static void draw(Screen *s)
             const char *fv = store_get_str("fireplaceVideo", "");
             char tb[300], nm[256];
             if (torbox_is_link(fv)) snprintf(tb, sizeof tb, "TorBox: %s", torbox_name(fv, nm, sizeof nm));
-            draw_row(y, ICON_PLAY, "Fireplace video", torbox_is_link(fv) ? tb : fv && *fv ? fv : "Not set  \xC2\xB7  OK to add a YouTube link", foc, KIND_ACTION, 0);
+            draw_row(y, ICON_PLAY, "Fireplace video", torbox_is_link(fv) ? tb : *fv && !strcmp(fv, store_get_str("fireplaceRefused", "")) ? "YouTube would not give it to this TV  \xC2\xB7  OK to choose another"
+                     : fv && *fv ? fv : "Not set  \xC2\xB7  OK to add a YouTube link", foc, KIND_ACTION, 0);
             break;
         }
         case IT_AMBIENT_STYLE: draw_row(y, ICON_TV, "Screensaver style", AMBIENT_STYLE_NAMES[g_app.ambient_style], foc, KIND_CHOICE, 0); break;

@@ -346,6 +346,11 @@ const char *breaks_media_url(const char *stored, char *out, size_t n, int *is_vi
             snprintf(sound, sizeof sound, "sntv-sound://%s", name);
             return phone_resolve_sound(sound, out, n);
         }
+        char id[16];
+        if ((!g_app.thumb_server || !*g_app.thumb_server) && youtube_video_id(stored, id) && video_youtube_embed_url(id, out, n)) {   /* not saved yet: YouTube's own player */
+            if (is_video) *is_video = g_app.break_video;
+            return out;
+        }
         if (!g_app.thumb_server || !*g_app.thumb_server) return NULL;
         char enc[1400]; size_t o = 0;
         for (const unsigned char *p = (const unsigned char *)stored; *p && o + 4 < sizeof enc; p++) {

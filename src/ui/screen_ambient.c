@@ -114,7 +114,13 @@ static void on_fv(const char *answer, const char *error, void *user)
     char id[16] = "";
     youtube_video_id(store_get_str("fireplaceVideo", ""), id);
     a->fv_n = answer ? youtube_player_urls(answer, id, a->fv_urls, YT_PLAY_URLS) : 0;
-    if (!a->fv_n) { a->fv_state = 3; LOGW("ambient: fireplace video unavailable: %s", error ? error : "?"); return; }
+    if (!a->fv_n && video_youtube_embed_url(id, a->fv_urls[0], sizeof a->fv_urls[0])) { LOGW("ambient: YouTube refused the fireplace video (%s); its own player plays it", error ? error : "?"); a->fv_n = 1; }
+    if (!a->fv_n) {
+        a->fv_state = 3; LOGW("ambient: fireplace video unavailable: %s", error ? error : "?");
+        store_set_str("fireplaceRefused", store_get_str("fireplaceVideo", "")); store_save();   /* Settings says so on the row */
+        return;
+    }
+    if (*store_get_str("fireplaceRefused", "")) { store_set_str("fireplaceRefused", NULL); store_save(); }
     a->fv_i = 0;
     Screen *top = app_top();
     if (top && top->st != a) { a->fv_state = 4; return; }   /* a break is on top: its recording keeps the video plane */

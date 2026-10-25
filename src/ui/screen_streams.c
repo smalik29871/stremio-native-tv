@@ -1563,10 +1563,10 @@ static void on_yt_stream(const char *url, const char *error, void *user)
         LOGI("streams: the YouTube video came after its list was left; not started");
         meta_preview_free(&g_yt.meta); return;
     }
-    if (!url) { screen_options_youtube_app(g_yt.yt, error); meta_preview_free(&g_yt.meta); return; }
     static char urls[YT_PLAY_URLS][4608];
-    int nu = youtube_player_urls(url, g_yt.yt, urls, YT_PLAY_URLS);
-    if (!nu) { screen_options_youtube_app(g_yt.yt, NULL); meta_preview_free(&g_yt.meta); return; }
+    int nu = url ? youtube_player_urls(url, g_yt.yt, urls, YT_PLAY_URLS) : 0;
+    if (!nu && video_youtube_embed_url(g_yt.yt, urls[0], sizeof urls[0])) { LOGW("streams: YouTube refused %s (%s); its own player plays it", g_yt.yt, error ? error : "?"); nu = 1; }
+    if (!nu) { screen_options_youtube_app(g_yt.yt, error); meta_preview_free(&g_yt.meta); return; }
     PlayCandidate *c = calloc((size_t)nu, sizeof *c);
     for (int i = 0; i < nu; i++) { c[i].url = strdup(urls[i]); c[i].label = strdup("YouTube"); }
     LOGI("streams: YouTube video for %s streaming", g_yt.video_id);
