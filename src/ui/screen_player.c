@@ -1280,16 +1280,22 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
 #define LB_AHEAD_S 45.0     /* the frames of the cuts this far ahead are got ready while it plays */
 #define LB_SLOW_S 1.5f      /* a frame that takes longer than this to come... */
 #define LB_SLOW_N 3         /* ...this many times more than fast ones: this TV is too slow for it */
-#define LB_GROW 1.18f    /* the frame behind the screen, this much larger than it */
 #define LB_BLUR 5.6f     /* mip levels of blur: its colours, none of its shapes */
-#define LB_LIGHT 165     /* the glow's brightness (of 255): below the picture's, so the picture leads */
+#define LB_LIGHT 235     /* the light's brightness (of 255): nearly the picture's own, as a lamp's */
 #define LB_FALLOFF 0.75f /* how dark it gets at the screen's edge */
-#define LB_SHADE 0.45f   /* the shadow along the picture's edge */
-#define LB_EDGE 18.0f    /* and how wide it is */
 #define LB_TINT 0.55f    /* One colour: the scene's colour at this strength */
 
 /* One frame into the bars: its light only; the falloff and the edge's shadow go over both
  * frames at once in draw_letterbox. */
+/* The picture's edge beside each bar, in the frame's coordinates: a thin band of it (its
+ * colours there, not its shapes), first bar then second (top, bottom; or left, right). */
+static void lb_edges(const float box[4], int side, float e[4])
+{
+    float cw = box[2] - box[0], ch = box[3] - box[1];
+    if (side == 1) { e[0] = box[1] + 0.02f * ch; e[1] = box[1] + 0.09f * ch; e[2] = box[3] - 0.09f * ch; e[3] = box[3] - 0.02f * ch; }
+    else { e[0] = box[0] + 0.02f * cw; e[1] = box[0] + 0.09f * cw; e[2] = box[2] - 0.09f * cw; e[3] = box[2] - 0.02f * cw; }
+}
+
 static void lb_paint(unsigned tex, const char *url, int side, float bar, float a)
 {
     float W = SNTV_UI_W, H = SNTV_UI_H;
@@ -1301,27 +1307,20 @@ static void lb_paint(unsigned tex, const char *url, int side, float bar, float a
         else { gfx_rect(0, 0, bar, H, c); gfx_rect(W - bar, 0, bar, H, c); }
         return;
     }
-    /* as a lamp behind the screen (YouTube's ambient mode): the whole frame, a little larger
-     * than the screen and blurred to its colours alone, shows past the picture's edges. No
-     * shapes of it, mirrored or not: those read as a reflection beside the picture. */
-    float box[4] = { 0, 0, 1, 1 };
+    /* as lights behind the screen (Philips Hue, Ambilight): each part of a bar takes the colour
+     * of the picture's edge right beside it, so the bars are soft zones of light level with the
+     * picture, brightest against it (the falloff in draw_letterbox darkens them outward) */
+    float box[4] = { 0, 0, 1, 1 }, e[4];
     image_content_box(url, box);
-    float cw = box[2] - box[0], ch = box[3] - box[1];
-    /* where the whole frame lies, enlarged only across the bars: along them each colour stays
-     * level with where it is in the picture */
-    float rw = side == 2 ? W * LB_GROW : W, rh = side == 1 ? H * LB_GROW : H, rx = (W - rw) / 2, ry = (H - rh) / 2;
+    lb_edges(box, side, e);
     Color c = RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
-#define LB_U(x) (box[0] + ((x) - rx) / rw * cw)
-#define LB_V(y) (box[1] + ((y) - ry) / rh * ch)
     if (side == 1) {
-        gfx_tex_blur(tex, 0, 0, W, bar, LB_U(0), LB_V(0), LB_U(W), LB_V(bar), c, LB_BLUR);
-        gfx_tex_blur(tex, 0, H - bar, W, bar, LB_U(0), LB_V(H - bar), LB_U(W), LB_V(H), c, LB_BLUR);
+        gfx_tex_blur(tex, 0, 0, W, bar, box[0], e[0], box[2], e[1], c, LB_BLUR);
+        gfx_tex_blur(tex, 0, H - bar, W, bar, box[0], e[2], box[2], e[3], c, LB_BLUR);
     } else {
-        gfx_tex_blur(tex, 0, 0, bar, H, LB_U(0), LB_V(0), LB_U(bar), LB_V(H), c, LB_BLUR);
-        gfx_tex_blur(tex, W - bar, 0, bar, H, LB_U(W - bar), LB_V(0), LB_U(W), LB_V(H), c, LB_BLUR);
+        gfx_tex_blur(tex, 0, 0, bar, H, e[0], box[1], e[1], box[3], c, LB_BLUR);
+        gfx_tex_blur(tex, W - bar, 0, bar, H, e[2], box[1], e[3], box[3], c, LB_BLUR);
     }
-#undef LB_U
-#undef LB_V
 }
 
 /* ---- the film's own text subtitles, drawn by the app ----
@@ -1449,20 +1448,18 @@ static void lb_paint_art(Player *p, int side, float bar, float a)
  * into the bars (as a lamp behind the screen; One colour: its middle, flat). */
 static void lb_paint_glow(unsigned tex, int side, float bar, float a)
 {
-    float W = SNTV_UI_W, H = SNTV_UI_H, rw = side == 2 ? W * LB_GROW : W, rh = side == 1 ? H * LB_GROW : H, rx = (W - rw) / 2, ry = (H - rh) / 2;   /* level with the picture along the bars */
-    int one = g_app.living_letterbox == LB_COLOUR;
-    Color c = one ? RGBA(255 * LB_TINT, 255 * LB_TINT, 255 * LB_TINT, (int)(255 * a)) : RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
-#define GU(x) (one ? 0.5f : ((x) - rx) / rw)
-#define GV(y) (one ? 0.5f : ((y) - ry) / rh)
+    float W = SNTV_UI_W, H = SNTV_UI_H, box[4] = { 0, 0, 1, 1 }, e[4];
+    lb_edges(box, side, e);
+    if (g_app.living_letterbox == LB_COLOUR) { e[0] = e[1] = e[2] = e[3] = 0.5f; }   /* One colour: the picture's middle, flat */
+    Color c = g_app.living_letterbox == LB_COLOUR ? RGBA(255 * LB_TINT, 255 * LB_TINT, 255 * LB_TINT, (int)(255 * a)) : RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
+    float u0 = g_app.living_letterbox == LB_COLOUR ? 0.5f : 0, u1 = g_app.living_letterbox == LB_COLOUR ? 0.5f : 1;
     if (side == 1) {
-        gfx_tex_uv(tex, 0, 0, W, bar, GU(0), GV(0), GU(W), GV(bar), c);
-        gfx_tex_uv(tex, 0, H - bar, W, bar, GU(0), GV(H - bar), GU(W), GV(H), c);
+        gfx_tex_uv(tex, 0, 0, W, bar, u0, e[0], u1, e[1], c);
+        gfx_tex_uv(tex, 0, H - bar, W, bar, u0, e[2], u1, e[3], c);
     } else {
-        gfx_tex_uv(tex, 0, 0, bar, H, GU(0), GV(0), GU(bar), GV(H), c);
-        gfx_tex_uv(tex, W - bar, 0, bar, H, GU(W - bar), GV(0), GU(W), GV(H), c);
+        gfx_tex_uv(tex, 0, 0, bar, H, e[0], u0, e[1], u1, c);
+        gfx_tex_uv(tex, W - bar, 0, bar, H, e[2], u0, e[3], u1, c);
     }
-#undef GU
-#undef GV
 }
 
 static void draw_letterbox(Player *p, const VideoInfo *vi)
@@ -1546,18 +1543,14 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
         if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k);
         if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1));
     }
-    /* dimmer away from the picture, as light thrown on a wall; a soft shadow where it meets it */
-    Color dark = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_FALLOFF)), shade = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_SHADE)), clear = RGBA(0, 0, 0, 0);
+    /* brightest against the picture, dimmer away from it, as light thrown on a wall */
+    Color dark = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_FALLOFF)), clear = RGBA(0, 0, 0, 0);
     if (side == 1) {
         gfx_gradient_v(0, 0, W, bar, dark, clear);
-        gfx_gradient_v(0, bar - LB_EDGE, W, LB_EDGE, clear, shade);
         gfx_gradient_v(0, H - bar, W, bar, clear, dark);
-        gfx_gradient_v(0, H - bar, W, LB_EDGE, shade, clear);
     } else {
         gfx_gradient_h(0, 0, bar, H, dark, clear);
         gfx_gradient_h(W - bar, 0, bar, H, clear, dark);
-        gfx_gradient_h(bar - LB_EDGE, 0, LB_EDGE, H, clear, shade);
-        gfx_gradient_h(W - bar, 0, LB_EDGE, H, shade, clear);
     }
     p->lb_drawn = g_app.time;
     if (fabsf(p->lb_k - target) > 0.01f || x < 1) app_redraw();   /* only while it fades */
