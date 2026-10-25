@@ -11,6 +11,7 @@
 #include "../torrent.h"
 #include "../torbox.h"
 #include "font.h"
+#include "screen_options.h"
 #include "theme.h"
 #include "widgets.h"
 #include <ctype.h>
@@ -1562,10 +1563,10 @@ static void on_yt_stream(const char *url, const char *error, void *user)
         LOGI("streams: the YouTube video came after its list was left; not started");
         meta_preview_free(&g_yt.meta); return;
     }
-    if (!url) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); meta_preview_free(&g_yt.meta); return; }
+    if (!url) { screen_options_youtube_app(g_yt.yt, error); meta_preview_free(&g_yt.meta); return; }
     static char urls[YT_PLAY_URLS][4608];
     int nu = youtube_player_urls(url, g_yt.yt, urls, YT_PLAY_URLS);
-    if (!nu) { app_toast("YouTube would not play this one"); meta_preview_free(&g_yt.meta); return; }
+    if (!nu) { screen_options_youtube_app(g_yt.yt, NULL); meta_preview_free(&g_yt.meta); return; }
     PlayCandidate *c = calloc((size_t)nu, sizeof *c);
     for (int i = 0; i < nu; i++) { c[i].url = strdup(urls[i]); c[i].label = strdup("YouTube"); }
     LOGI("streams: YouTube video for %s streaming", g_yt.video_id);

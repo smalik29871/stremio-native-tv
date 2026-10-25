@@ -60,7 +60,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_AMBIENT_PREVIEW,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -144,7 +144,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_PALETTE; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_DEPTH;
-        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
+        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_AMBIENT_PREVIEW; if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
         break;
     case CAT_BREAKS:
         SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
@@ -175,6 +175,7 @@ static const char *row_title(int id)
     switch (id) {
     case IT_ACCOUNT: return "Sync with Stremio";
     case IT_SYNC_DEVICES: return "Sync with another device";
+    case IT_AMBIENT_PREVIEW: return "Preview the screensaver";
     case IT_SERVER: return "Streaming server";
     case IT_PREF_AUDIO: return "Preferred audio";
     case IT_PREF_SUBS: return "Preferred subtitles";
@@ -356,6 +357,7 @@ static const char *row_desc(int id)
                         : "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
     case IT_AMBIENT: return "When the remote has been quiet this long.";
     case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee, a starfield, depth, a gallery of museum paintings, or a different one each time.";
+    case IT_AMBIENT_PREVIEW: return "Shows the screensaver now, as it is set up. Any key ends it.";
     case IT_AMBIENT_DIM: return "The screensaver darkens this long after it starts: kinder to the panel on a long evening.";
     case IT_AMBIENT_OFF: return "The picture goes black, with a faint clock, this long into the screensaver. Any key wakes the screen.";
     case IT_FIRE_VIDEO: return "A YouTube or video link of a real fire, played full screen and looped with the clock.";
@@ -657,7 +659,7 @@ static PreviewKind preview_for(int id)
     case IT_AUTOPLAY: return PV_AUTOPLAY;
     case IT_PIP: return PV_PIP;
     case IT_SCRUB: return PV_SCRUB;
-    case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_AMBIENT_DIM: case IT_AMBIENT_OFF: return PV_AMBIENT;
+    case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_AMBIENT_DIM: case IT_AMBIENT_OFF: case IT_AMBIENT_PREVIEW: return PV_AMBIENT;
     case IT_TRANSITIONS: return PV_TRANSITIONS;
     case IT_DEPTH: return PV_DEPTH;
     case IT_PREF_AUDIO: return PV_LANG_AUDIO;
@@ -881,6 +883,7 @@ static void draw(Screen *s)
         s_chevron = !(id >= IT_ADDON_BASE && id < IT_ACCT_BASE);
         switch (id) {
         case IT_SYNC_DEVICES: draw_row(y, ICON_SWAP, "Sync with another device", NULL, foc, KIND_ACTION, 0); break;
+        case IT_AMBIENT_PREVIEW: draw_row(y, ICON_PLAY, "Preview the screensaver", g_app.ambient_style < AMBIENT_STYLE_COUNT ? AMBIENT_STYLE_NAMES[g_app.ambient_style] : NULL, foc, KIND_ACTION, 0); break;
         case IT_ACCOUNT:
             draw_row(y, ICON_USER, "Sync with Stremio", NULL, foc, KIND_TOGGLE, g_app.auth_key != NULL);
             break;
@@ -1795,6 +1798,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_BACK: st->cat_focus[st->cat] = st->focus; st->zone = 0; return 1;
     case KEY_OK:
         if (id == IT_SYNC_DEVICES) app_push(screen_sync_create(NULL));
+        else if (id == IT_AMBIENT_PREVIEW) { LOGI("settings: previewing the screensaver (%s)", AMBIENT_STYLE_NAMES[g_app.ambient_style]); app_push(screen_ambient_create()); }
         else if (id == IT_ACCOUNT) { if (g_app.auth_key) { app_logout(); app_toast("Stopped syncing. Your addons and Library stay on this TV."); } else app_push(screen_login_create()); }
         else if (id == IT_SERVER) begin_edit(st, EDIT_SERVER);
         else if (id == IT_INSTALL) begin_edit(st, EDIT_INSTALL);

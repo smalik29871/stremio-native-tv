@@ -152,7 +152,9 @@ static void on_trailer(const char *name, const char *error, void *user)
     g_trailer.busy = 0;
     if (!name) {
         LOGW("detail: trailer for %s failed: %s", g_trailer.id, error ? error : "?");
-        app_toast("The trailer could not be fetched%s%s", error ? ": " : "", error ? error : "");
+        Screen *top = app_top();
+        if (top && strcmp(top->name, "detail") == 0 && strcmp(((Detail *)top->st)->preview.id, g_trailer.id) == 0) screen_options_youtube_app(g_trailer.yt, error);
+        else app_toast("The trailer could not be fetched%s%s", error ? ": " : "", error ? error : "");
         return;
     }
     Screen *top = app_top();

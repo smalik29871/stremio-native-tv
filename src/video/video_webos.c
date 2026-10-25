@@ -1250,6 +1250,24 @@ void video_select_track(TrackKind kind, int index)
 void video_landscape_only(int on) { (void)on; }
 int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }   /* only Android is opened with links */   /* TVs and the desktop do not turn */
 int video_open_browser(const char *url) { (void)url; return 0; }   /* no browser to hand a page to: the phone opens it */
+static int on_launch_reply(LSHandle *sh, LSMessage *msg, void *ctx)
+{
+    (void)sh; (void)ctx;
+    LOGI("video(webos): the YouTube app -> %.200s", L.MessageGetPayload(msg));
+    return 1;
+}
+int video_has_youtube_app(void) { return g_bus != NULL; }
+int video_open_youtube(const char *id)
+{
+    if (!g_bus || !id || !*id) return 0;
+    char payload[300];
+    snprintf(payload, sizeof payload, "{\"id\":\"youtube.leanback.v4\",\"params\":{\"contentTarget\":\"https://www.youtube.com/tv?v=%.20s\"}}", id);
+    LSError e; L.ErrorInit(&e);
+    int ok = L.CallOneReply(g_bus, "luna://com.webos.applicationManager/launch", payload, on_launch_reply, NULL, NULL, &e);
+    if (!ok) ls_error_log("launch YouTube", &e);
+    L.ErrorFree(&e);
+    return ok;
+}
 void video_pip_allow(int on) { (void)on; }   /* no picture in picture on a TV or the desktop */
 int  video_pip_enter(void) { return 0; }
 int  video_in_pip(void) { return 0; }

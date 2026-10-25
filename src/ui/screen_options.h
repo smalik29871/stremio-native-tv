@@ -10,3 +10,4 @@ Screen *screen_options_create_ex(const char *title, const char *subtitle, const 
                                  const char *const *items, const int *icons, int n, OptionsFn fn, void *user);
 void screen_options_for_title(const MetaPreview *m);   /* watched / Continue Watching / Library / lists */
 void screen_options_lists(const MetaPreview *m);       /* Save to a list */
+void screen_options_youtube_app(const char *yt_id, const char *error);   /* YouTube refused this device: offers its own app */

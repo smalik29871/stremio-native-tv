@@ -4,6 +4,8 @@
 #include "../app.h"
 #include "../ai.h"
 #include "../lists.h"
+#include "../log.h"
+#include "../video/video.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -187,4 +189,26 @@ void screen_options_for_title(const MetaPreview *m)
     TitleOpt *t = calloc(1, sizeof *t);
     meta_preview_copy(&t->m, m);
     app_push(screen_options_create(m->name ? m->name : "Options", "Hold OK (or press Yellow) on any title", items, n, title_choice, t));
+}
+
+/* YouTube refused this device (it asks to sign in to prove it is no bot): its own app, signed
+ * in, plays the video; Back there returns here */
+static char g_yt_app_id[24];
+static void yt_app_choice(int c, void *user)
+{
+    (void)user;
+    if (c != 0) return;
+    LOGI("youtube: handed %s to the YouTube app", g_yt_app_id);
+    if (!video_open_youtube(g_yt_app_id)) app_toast("The YouTube app did not open");
+}
+void screen_options_youtube_app(const char *yt_id, const char *error)
+{
+    if (!yt_id || !*yt_id || !video_has_youtube_app()) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); return; }
+    static const char *const ITEMS[] = { "Open in the YouTube app", "Not now" };
+    static const int ICONS[] = { ICON_PLAY, ICON_CLOSE };
+    char body[300];
+    snprintf(g_yt_app_id, sizeof g_yt_app_id, "%s", yt_id);
+    snprintf(body, sizeof body, "YouTube is asking this %s to sign in to prove it isn't a bot, which only its own app can do. The YouTube app plays it; Back there brings you here again.",
+             gfx_handheld() ? "phone" : "TV");
+    app_push(screen_options_create_ex("YouTube would not play this here", NULL, body, ITEMS, ICONS, 2, yt_app_choice, NULL));
 }

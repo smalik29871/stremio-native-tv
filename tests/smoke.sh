@@ -95,10 +95,20 @@ grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "Mo
 run detail_about_series 300 "right,ok,down,down,down"
 run detail_trailer_app 320 "wait,ok,right,ok,wait,wait,wait,wait" HOME="$(home_with trailer_app "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9
 grep -q "detail: trailer for .* failed" "$OUT/detail_trailer_app.log" && ! grep -q "open app" "$OUT/detail_trailer_app.log" || { echo "a refused trailer did not say so"; grep -E "detail|youtube" "$OUT/detail_trailer_app.log"; exit 1; }
+# where the device has a YouTube app (a phone, an LG), a trailer YouTube refuses is offered to it
+run trailer_youtube_app_offer 360 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_app2 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_BROWSER=1
+grep -q "UI check: screen=options" "$OUT/trailer_youtube_app_offer.log" || { echo "a refused trailer did not offer the YouTube app"; exit 1; }
+run trailer_youtube_app 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,ok,wait" HOME="$(home_with trailer_app3 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_BROWSER=1
+grep -q "youtube: handed [A-Za-z0-9_-]* to the YouTube app" "$OUT/trailer_youtube_app.log" && grep -q "video: the YouTube app opened" "$OUT/trailer_youtube_app.log" \
+  || { echo "a refused trailer was not handed to the YouTube app"; grep -E "detail|youtube|video:|UI check" "$OUT/trailer_youtube_app.log"; exit 1; }
 run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
 grep -q "settings: found Pure black (OLED) in Interface" "$OUT/settings_find_one.log" || { echo "a single match did not open its row"; grep settings "$OUT/settings_find_one.log"; exit 1; }
+# the screensaver, as it is set up, from Settings
+run ambient_preview 600 "left,down,down,down,down,down,ok,up,ok,t:preview the screensaver,down,down,down,down,left,ok,ok,wait,wait,wait,wait" HOME="$(home_with ambprev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":2}')"
+grep -q "settings: previewing the screensaver" "$OUT/ambient_preview.log" && grep -q "UI check: screen=ambient" "$OUT/ambient_preview.log" \
+  || { echo "the screensaver could not be previewed from Settings"; grep -E "settings|ambient|UI check" "$OUT/ambient_preview.log"; exit 1; }
 run intro 70 "" SNTV_INTRO=1 SNTV_FRAME_DT=0.03 SNTV_NO_TRANSITIONS=
 grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not finish"; exit 1; }
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"

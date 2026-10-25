@@ -107,7 +107,17 @@ int video_take_open_url(char *out, size_t n)
     (*e)->DeleteLocalRef(e, s);
     return ok;
 }
-int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }   /* SDL hands it to Android: -1 where nothing opens web links (some TV boxes) */
+int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }
+int video_has_youtube_app(void) { return 1; }
+int video_open_youtube(const char *id)   /* the YouTube app's own link first; a browser takes the page where there is no app */
+{
+    char u[96];
+    if (!id || !*id) return 0;
+    snprintf(u, sizeof u, "vnd.youtube:%.20s", id);
+    if (SDL_OpenURL(u) == 0) return 1;
+    snprintf(u, sizeof u, "https://www.youtube.com/watch?v=%.20s", id);
+    return SDL_OpenURL(u) == 0;
+}   /* SDL hands it to Android: -1 where nothing opens web links (some TV boxes) */
 void video_pip_allow(int on) { static int was = -1; if (on != was) { was = on; CALL(M_PIP_ALLOW, (jboolean)(on != 0)); } }
 static int get_bool(int m)
 {
