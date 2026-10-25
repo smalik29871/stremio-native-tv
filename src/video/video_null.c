@@ -60,6 +60,16 @@ int video_load(const char *url, const char *title, double start)
         }
         if (!ok) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The source refused the request (HTTP %ld)", r.status); }
         http_response_free(&r);
+        const char *then = ok ? getenv("SNTV_FAKE_FETCH_THEN") : NULL;   /* more reads after it, as a player seeking: "0,262144" */
+        for (const char *t = then; t && *t; t = strchr(t, ',') ? strchr(t, ',') + 1 : NULL) {
+            HttpOptions o2 = { .range_bytes = 65536, .range_start = strtoull(t, NULL, 10), .timeout_s = 8, .no_json_accept = 1 };
+            HttpResponse r2;
+            http_request_ex(url, &o2, &r2);
+            int same = o2.range_start == 0 || getenv("SNTV_FAKE_FETCH_PATTERN") == NULL;
+            for (size_t i = 0; !same && i < r2.len; i++) if ((unsigned char)r2.body[i] != (unsigned char)(((o2.range_start + i) * 7 + 3) % 251)) break; else if (i + 1 == r2.len) same = 1;
+            LOGI("video(null): then %zu bytes from %llu, status %ld%s", r2.len, (unsigned long long)o2.range_start, r2.status, same ? "" : ", not the file's bytes");
+            http_response_free(&r2);
+        }
     }
     return 0;
 }

@@ -48,7 +48,9 @@ static SDL_atomic_t g_conns;
  * back). How far ahead it may go is a budget from the TV's free memory, looked at again
  * every few seconds: more room, further ahead (up to two minutes); less, it holds less;
  * too little, it lets go and the source plays on directly. */
-enum { VLEN = 64 << 10, AHEAD_S = 120, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10, NBLK = 64, READERS = 16 };   /* JUMP: further past what is in, it starts again there */
+enum { VLEN = 64 << 10, AHEAD_S = 120, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10, NBLK = 64, READERS = 16,
+       HEAD = 8 << 20, GAP = 48 << 20 };   /* JUMP: further past what is in, it starts again there; HEAD: the file's start, read again on a seek;
+                                              GAP: a step back this far behind what is in comes from the source, the rest still from the buffer */
 #define BUDGET_MAX ((uint64_t)192 << 20)   /* never more than this much memory */
 #define BUDGET_SMALL ((uint64_t)64 << 20)  /* on a 1 GB TV */
 #define BUDGET_MIN ((uint64_t)48 << 20)    /* the budget can't reach this: no buffer (or it lets go) */
@@ -234,7 +236,7 @@ static int send_all(int fd, const char *p, size_t n)
     return 1;
 }
 
-typedef struct { int fd, head_only, sent_head; long status; } Conn;
+typedef struct { int fd, head_only, sent_head; long status; uint64_t sent; } Conn;
 
 static int on_head(void *user, long status, const char *type, uint64_t length, const char *content_range)
 {
@@ -253,7 +255,9 @@ static int on_head(void *user, long status, const char *type, uint64_t length, c
 static int on_data(void *user, const char *data, size_t n)
 {
     Conn *c = user;
-    return send_all(c->fd, data, n);
+    if (!send_all(c->fd, data, n)) return 0;
+    c->sent += n;
+    return 1;
 }
 
 static void answer(int fd, const char *status)
@@ -472,6 +476,12 @@ static void passthrough_rest(int fd, const char *url, const char *headers, uint6
     http_stream(url, headers, range, &cb);
 }
 
+static uint64_t head_bytes(void)   /* HEAD; tests make it small to suit their small files */
+{
+    const char *e = getenv("SNTV_FAKE_HEAD_KB");
+    return e && atoi(e) > 0 ? (uint64_t)atoi(e) << 10 : (uint64_t)HEAD;
+}
+
 /* The player's request, from the buffer when its route is the buffered one. 0: not
  * handled here (the plain relay answers it). */
 static int buffered_serve(int fd, const char *token, const char *range, int ranged, int head_only)
@@ -493,6 +503,9 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
     if (from >= size || to < from) { SDL_UnlockMutex(g_lock); answer(fd, "416 Range Not Satisfiable"); return 1; }
     /* the index near the end that players read first goes straight to the source: the buffer stays where the film is */
     if (size > 4 * (uint64_t)TAIL && from >= size - TAIL) { SDL_UnlockMutex(g_lock); return 0; }
+    /* so does the file's start, which some players read again at every seek: what is buffered ahead is not thrown away for it */
+    uint64_t head = head_bytes();
+    if (from < head && from < g_buf.lo && g_buf.pos >= 4 * head) { SDL_UnlockMutex(g_lock); LOGI("relay: the file's start asked again; from the source, the buffer stays"); return 0; }
     char type[96], *url = strdup(g_buf.url), *headers = g_buf.headers ? strdup(g_buf.headers) : NULL;
     snprintf(type, sizeof type, "%s", g_buf.type);
     unsigned route = g_buf.route;
@@ -500,7 +513,9 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
     if (!head_only) {   /* a HEAD reads nothing: it doesn't move the buffer */
         for (int i = 0; i < READERS && me < 0; i++) if (!g_buf.rd[i].used) me = i;
         if (me < 0) { SDL_UnlockMutex(g_lock); free(url); free(headers); return 0; }
-        if (!(from >= g_buf.lo && from <= g_buf.hi + JUMP)) {   /* a jump outside it: the buffer starts again there */
+        int near = from < g_buf.lo && g_buf.lo - from <= GAP && g_buf.hi > g_buf.lo;   /* just behind it (a seek lands on an earlier keyframe) */
+        if (!(from >= g_buf.lo && from <= g_buf.hi + JUMP) && !near) {   /* a jump outside it: the buffer starts again there */
+            LOGI("relay: a jump to %.1f MB, outside what is in (%.1f-%.1f MB); the buffer starts again there", from / 1048576.0, g_buf.lo / 1048576.0, g_buf.hi / 1048576.0);
             g_buf.gen++;
             g_buf.lo = g_buf.hi = from;
             g_buf.fails = 0;
@@ -526,6 +541,17 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
     while (chunk && at <= to) {
         SDL_LockMutex(g_lock);
         int gone = route != g_buf.route || g_buf.stopped;
+        if (!gone && at < g_buf.lo && g_buf.lo - at <= GAP && g_buf.lo <= to) {   /* the step back before what is in: from the source, then the buffer */
+            uint64_t lo = g_buf.lo;
+            SDL_UnlockMutex(g_lock);
+            Conn c = { .fd = fd, .sent_head = 1 };
+            char gap[64];
+            snprintf(gap, sizeof gap, "%llu-%llu", (unsigned long long)at, (unsigned long long)(lo - 1));
+            HttpStream cb = { rest_head, on_data, &c };
+            if (http_stream(url, headers, gap, &cb) != 0 || c.sent != lo - at) break;   /* the source or the player stopped: the player asks again */
+            at = lo;
+            continue;
+        }
         if (!gone && (at < g_buf.lo || at >= g_buf.hi)) {   /* not in yet: the download is on its way */
             if (at < g_buf.lo || at > g_buf.hi + JUMP || g_buf.gave_up || ++waited > 60) gone = 1;   /* someone jumped elsewhere, or it is not coming: from the source */
             else { dl_start_locked(); SDL_CondWaitTimeout(g_buf.cond, g_lock, 1000); SDL_UnlockMutex(g_lock); continue; }

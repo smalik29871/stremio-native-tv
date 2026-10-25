@@ -2,14 +2,14 @@
 # Headless UI smoke test: runs the desktop build under Xvfb against the fake
 # addon, drives a few keys, and writes screenshots to tests/out/.
 # Usage: bash tests/smoke.sh [build-dir]   (SMOKE_PART=K/N runs part K of N: tests/shard.py;
-# SMOKE_LANES=L runs that part as L smaller ones side by side, each with its own ports and folder)
+# SMOKE_LANES=L runs that part as L smaller ones side by side, each with its own ports and folder: about 1.5x
+# faster on a 4-core machine, but runs that wait on timing (breaks, the screensaver's handoff) can fail there)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${1:-$ROOT/build}"
 OUT="${SMOKE_OUT:-$ROOT/tests/out}"
 mkdir -p "$OUT"
 LANES="${SMOKE_LANES:-1}"
-if [ -z "${SMOKE_LANES:-}" ] && [ -n "${SMOKE_PART:-}" ] && [ "$(nproc 2>/dev/null || echo 1)" -ge 4 ]; then LANES=3; fi   # a CI part on a 4-core machine: three side by side
 if [ "$LANES" -gt 1 ] && [ -z "${SMOKE_PART_OF:-}" ]; then
   K="${SMOKE_PART%/*}"; N="${SMOKE_PART#*/}"
   [ -n "${SMOKE_PART:-}" ] || { K=1; N=1; }
@@ -284,6 +284,12 @@ grep -q "relay: 127.0.0.1 dropped at 0.1 MB; going on from there" "$OUT/buffer_d
 run buffer_ring 700 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=700000 SNTV_FAKE_FETCH_PATTERN=1 SNTV_FAKE_BUFFER_KB=300 SNTV_FAKE_BLOCK_KB=64 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dropvid/manifest.json HOME="$(home_with bufring "$HDRP")"
 grep -q "relay: 127.0.0.1 from 700000-765535, 206 (from the buffer)" "$OUT/buffer_ring.log" && grep -q "video(null): the bytes are the file's" "$OUT/buffer_ring.log" && ! grep -q "did not start through the relay" "$OUT/buffer_ring.log" \
   || { echo "the bytes out of a ring that went round were not the file's"; grep -E "relay|video\(null\)" "$OUT/buffer_ring.log"; exit 1; }
+# a seek's reads that start just behind what is in (an earlier keyframe), or at the file's start (players read its header
+# again), do not throw away what is buffered ahead: those bytes come from the source, the rest still from the buffer
+run buffer_keeps 900 "right,ok,down,down,play,wait,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FETCH_FROM=700000 SNTV_FAKE_FETCH_THEN=0,600000,780000 SNTV_FAKE_FETCH_PATTERN=1 SNTV_FAKE_BUFFER_KB=300 SNTV_FAKE_BLOCK_KB=64 SNTV_FAKE_HEAD_KB=64 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/dropvid/manifest.json HOME="$(home_with bufkeep "$HDRP")"
+grep -q "relay: the file's start asked again; from the source, the buffer stays" "$OUT/buffer_keeps.log" && grep -q "video(null): then 65536 bytes from 600000, status 206$" "$OUT/buffer_keeps.log" \
+  && grep -q "video(null): then 65536 bytes from 780000, status 206$" "$OUT/buffer_keeps.log" && ! grep -q "the buffer starts again there" "$OUT/buffer_keeps.log" \
+  || { echo "a step back or a header read threw away the buffer ahead"; grep -E "relay|video\(null\)" "$OUT/buffer_keeps.log"; exit 1; }
 run buffer_no_room 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FREE_MB=200 HOME="$(home_with bufroom "$HDRP")"
 grep -q "relay: 200 MB of memory free on the TV: no buffer ahead" "$OUT/buffer_no_room.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_no_room.log" && ! grep -q "from the buffer" "$OUT/buffer_no_room.log" \
   || { echo "with too little memory free, the buffer was made or the source did not play"; grep -E "relay|video\(null\)" "$OUT/buffer_no_room.log"; exit 1; }

@@ -936,6 +936,19 @@ int main(int argc, char **argv)
     Uint32 closing = SDL_GetTicks();
     relay_buffer_close();   /* its download stops at its next bytes; its memory goes now */
     app_shutdown();
+#if defined(SNTV_PLATFORM_ANDROID)
+    /* Android keeps the process (and every thread still in it) after SDL_main returns, so a
+     * thread finishing a download after its memory is freed brought "Cuelight has stopped"
+     * at each close. What must last is written, the watch progress delivered, and the
+     * process ends here: the system frees the rest, the player included. */
+    http_shutdown();   /* waits for the requests that must reach the server (watch progress) */
+    store_save();
+    store_shutdown();
+    remove(alive);
+    LOGI("main: closed in %u ms", SDL_GetTicks() - closing);
+    log_shutdown();
+    _exit(0);
+#endif
     video_shutdown();
     audio_shutdown();
     phone_stop();
