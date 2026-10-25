@@ -2,9 +2,10 @@
 
 *Your cue to press play.* Cuelight is a fast native player for LG webOS TVs (3.0 and newer)
 that works with your **Stremio account and addons**, installed from the
-[Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) without root.
-Samsung Tizen builds (native `.tpk`, WebAssembly `.wgt`) are in the tree but have not been
-run on a Samsung set yet.
+[Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) without root. The
+same code builds an **Android** app for phones, tablets, Android TV, Google TV and Fire TV
+(Android 7 and newer). Samsung Tizen builds (native `.tpk`, WebAssembly `.wgt`) are in the
+tree but have not been run on a Samsung set yet.
 
 It is written in C99 on SDL2 + OpenGL ES 2 and hands playback to the TV's own video
 pipeline, so it starts in a second, scrolls at full frame rate on 2016 hardware and plays
@@ -41,6 +42,17 @@ a private repository's release files need a GitHub login that a TV does not have
 
 Or download the `.ipk` from the [latest release](https://github.com/smalik29871/cuelight-releases/releases/latest)
 and install it with Developer Mode (`ares-install`) or Dev Manager.
+
+**Cuelight YouTube** (optional, LG only) is a small companion listed beside Cuelight in the
+same repository. It opens YouTube's own TV client for the trailers, YouTube sources and
+fireplace video YouTube refuses to Cuelight; Cuelight offers to install it the first time it
+is needed, or install it from Settings > Interface. It does not replace LG's YouTube app.
+
+## Install on Android
+
+Download the `.apk` from the [latest release](https://github.com/smalik29871/cuelight-releases/releases/latest)
+on the device and open it (allow installs from your browser or file app when asked). It
+updates itself from Settings > About > Update; Android asks you to confirm each install.
 
 First start asks six questions (languages, when subtitles turn on, intro skipping,
 autoplay, background, sign-in by QR code). Everything can be changed later in Settings.
@@ -88,8 +100,10 @@ These show the Signal theme.
   windows, restrained coral focus markers, quiet playback controls, pause title
   cards, a cached seek filmstrip, and subtitle/audio drawers. Select it in
   Settings > Interface > Theme. See [the native prototype guide](docs/APERTURE.md).
-- **Four themes**, switched in Settings > Interface, six accent colours each:
-  **Signal** (default: graphite, lime, sharp corners, a solid accent frame for focus,
+- **Eight themes**, switched in Settings > Interface, most with six accent colours:
+  **Streaming** (the default: familiar and calm), **Aperture** (editorial, below),
+  **Mist** (cool and soft), **Sunset** (warm dusk tones),
+  **Signal** (graphite, lime, sharp corners, a solid accent frame for focus,
   capital titles, mono metadata, numbered rows), **Marquee** (warm ink and parchment,
   amber, condensed display titles, a light bar under the focused card), **Glass**
   (frosted panels over the artwork, a white focus glow) and **Metro** (flat colour
@@ -144,6 +158,24 @@ These show the Signal theme.
   language are picked from the file header.
 - **Stats for nerds** (Red): codec, resolution, fps, bitrate, buffer, stalls, file hash.
 - **Screensaver** with drifting backdrops and a clock after a quiet spell, OLED-safe.
+
+### When YouTube refuses
+YouTube sometimes asks a device to prove it is no bot before it gives a video to a
+third-party player. When it refuses a trailer, an addon's YouTube video or the fireplace
+video:
+- **On Android** the video plays in YouTube's own embedded player
+  ([android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player)),
+  inside Cuelight's player screen with the same controls.
+- **On LG** Cuelight opens **Cuelight YouTube**, a small web app that runs YouTube's own TV
+  client (the one LG's YouTube app runs), where YouTube's checks pass and you can sign in.
+  Back returns to Cuelight; the fireplace loops under a clock. Two switches under it in
+  Settings > Interface: **Skip sponsor segments** (on: it jumps over the sponsor reads,
+  self-promotion and subscribe reminders viewers marked in
+  [SponsorBlock](https://sponsor.ajay.app), asking by the first characters of the video's
+  hash, never the video itself) and **Block YouTube adverts** (off: it takes the adverts
+  out of the player's data; YouTube may notice and refuse to play, so turn it off if it
+  does).
+- Where neither is available, Cuelight offers the device's YouTube app.
 
 ### Subtitles
 - Addon subtitles (SRT, VTT) drawn by the app with four **styles**, four sizes and three
@@ -230,11 +262,14 @@ plays offline, shown full screen if it is a video), and playback continues where
 ### Where ideas came from
 Stremio-Kai: per-series track memory, "subtitles only for other languages", the player
 clock and end time, the first-run setup, the OLED theme. The Nuvio port
-([nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy)): cache-first
-Home, Automatic/Full/Light effects, spoiler blur, QR sign-in, skip intro and credits
-Up Next, the exported-window / ACB split, dlopen'd curl, the log file. Left out on
-purpose for stability: FFmpeg transcoding, libass, trailers, the Samsung .NET host, Trakt/Simkl/debrid integrations
-(those are Stremio addons) and a plugin engine. See `docs/ROADMAP.md`.
+([nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy)) and NuvioMobile:
+cache-first Home, Automatic/Full/Light effects, spoiler blur, QR sign-in, skip intro and
+credits Up Next, the exported-window / ACB split, dlopen'd curl, the log file, the phone
+layout. [youtube-webos](https://github.com/webosbrew/youtube-webos): running YouTube's TV
+client as an LG web app. These are designs followed, not code: those projects are GPL 3.0
+and nothing of theirs is copied here (see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)).
+Left out on purpose for stability: FFmpeg transcoding, libass, the Samsung .NET host and a
+plugin engine. See `docs/ROADMAP.md`.
 
 ## Settings at a glance
 
@@ -245,7 +280,7 @@ purpose for stability: FFmpeg transcoding, libass, trailers, the Samsung .NET ho
 | Take breaks | Schedules, location, method, lead time, length, sound, stretch, bedtime, custom times |
 | Audio & subtitles | Preferred languages, when subtitles turn on, auto-sync, size, style |
 | Sources | Quality preference, resolution cap, pre-flight check, automatic recommendation |
-| Interface | Home style, hide watched, effects, page transitions, OLED background, screensaver, blur, memory use |
+| Interface | Theme, Home style, hide watched, effects, page transitions, OLED background, screensaver and its preview, blur, Cuelight YouTube and its sponsor and advert switches (LG), memory use |
 | Home rows | Order and visibility of rows |
 | Addons | Install from URL, remove, reorder (synced to the account) |
 | Parental | PIN, PIN for Settings, hide adult addons |
@@ -331,6 +366,19 @@ Useful hooks: `SNTV_KEYS`, `SNTV_SCREENSHOT`, `SNTV_FAKE_DURATION/START`, `SNTV_
 `ar` + tar layout itself, and refuses to package anything that looks like a credential file.
 `TMDB_API_KEY` in the environment bakes a built-in TMDB key into the binary.
 
+### Cuelight YouTube (the LG companion)
+`tools/webos-youtube.sh <out-dir>` packages `deploy/webos-youtube` (a web app: an
+`index.html` that opens YouTube's TV client, and the script webOS loads into its pages)
+at Cuelight's version; `tools/webos.sh --ipk` runs it too. `node tests/webos_youtube_check.js`
+checks the page and the script in a browser engine with YouTube faked (needs Playwright).
+
+### Android (.apk, Android 7+)
+Android SDK (platform 35, build-tools, NDK 27.2.12479018, CMake 3.22.1), JDK 17+ and
+Gradle 8.9+: `ANDROID_HOME=<sdk> tools/android.sh`. It builds SDL2, curl and Mbed TLS with
+the NDK (`tools/android-deps.sh`), then the APK in `deploy/android`. Signing comes from
+`ANDROID_KEYSTORE` and `ANDROID_KEY_PASSWORD`; without them the build is debug-signed. See
+`docs/ANDROID_TV.md`.
+
 ### Samsung Tizen native (.tpk, Tizen 4.0-9)
 Tizen Studio with the TV native rootstrap: `tools/tizen-native.sh`. Left unsigned on
 purpose; sign with your certificate profile (`TIZEN_SIGN_PROFILE=...`). 2018-2020 sets
@@ -345,9 +393,11 @@ this build; a `fetch()`-based `http_wasm.c` is the first thing to add before the
 
 Bump the version in `deploy/webos/appinfo.json`, `deploy/webos/packageinfo.json`,
 `src/platform/platform.h` and the Tizen manifests, add a `## x.y.z` section to
-`CHANGELOG.md`, and push to `main`. CI builds and checks the package and, because that
-version has no release yet, publishes it with the Homebrew Channel files. TVs pick it up
-from the channel.
+`CHANGELOG.md`, and push to `main`. CI builds and checks the packages and, because that
+version has no release yet, publishes them to
+[cuelight-releases](https://github.com/smalik29871/cuelight-releases): Cuelight's `.ipk`,
+Cuelight YouTube's `.ipk`, the Android `.apk`, and the Homebrew Channel files listing both
+LG apps. TVs pick it up from the channel; installed apps offer the update themselves.
 
 ## What is verified, and what is not
 
@@ -357,6 +407,8 @@ from the channel.
 | Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (399 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
+| Android | Built in CI with the NDK; in use on phones and Android TV. The embedded YouTube player is not yet confirmed on a device |
+| Cuelight YouTube | The page and its script checked in a browser engine with YouTube faked (`tests/webos_youtube_check.js`); not yet confirmed on a TV |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
 | Tizen native and WebAssembly | Written against the platform APIs; not compiled with Tizen Studio or run on a Samsung TV |
 | Remote scancodes | Match LG's `SDL_webOS.h` (Back 482, Exit 505, colours 486-489) |
@@ -393,8 +445,8 @@ src/
   ui/screen_*.c        home, explore, library, calendar, detail, streams, player, search,
                        settings, login, welcome, pin, break, ambient, diagnostics
   video/               backend interface; null (desktop), webOS (com.webos.media), Tizen, wasm
-deploy/                webOS appinfo + icons, Tizen manifests
-tools/                 linux.sh, webos.sh, check-ipk.sh, package-ipk.sh, tizen-*.sh, thumbs/ (ffmpeg preview server)
+deploy/                webOS appinfo + icons, webos-youtube/ (the companion), android/ (Gradle project), Tizen manifests
+tools/                 linux.sh, webos.sh, webos-youtube.sh, android.sh, check-ipk.sh, package-ipk.sh, hb-repo.sh, tizen-*.sh, thumbs/ (ffmpeg preview server)
 tests/                 unit tests, fake_addon.py, smoke.sh, fixtures
 docs/                  BREAKS.md (break schedules research), ROADMAP.md, PORTING-NOTES.md, screenshots/
 vendor/                cJSON, qrcodegen, stb_truetype, stb_image, libwebp decoder, QuickJS-ng
@@ -407,18 +459,24 @@ Everything lives in the app's writable directory (`SDL_GetPrefPath`, falling bac
 resume points), cached JSON and artwork, `app.log` and `app.prev.log`. No credentials are
 compiled into the binary except the optional TMDB key a CI secret provides.
 
+## Licence
+
+Copyright (c) 2026 Shahrukh. **All rights reserved.** You may install and use the published
+builds, and read and build the source, for your own personal, non-commercial use; anything
+else (redistributing, publishing modified versions, using the code elsewhere) needs written
+permission. The full terms, including your rights under FFmpeg's LGPL, are in
+[LICENSE](LICENSE).
+
 ## Third-party code
 
-`vendor/libwebp` is libwebp 1.4.0's decoder (BSD-3-Clause, see `vendor/libwebp/COPYING`);
-`vendor/cJSON` (MIT), `vendor/qrcodegen` (MIT), `vendor/quickjs` (QuickJS-ng 0.17, MIT),
-FFmpeg 7.1.1 (LGPL 2.1; built from its source by `tools/ffmpeg.sh` with only the H.264 and
-HEVC decoders, no GPL parts, and linked statically: this repository has everything needed
-to rebuild the app against a changed FFmpeg),
-the P2P engine's Go modules (anacrolix/torrent and its dependencies, MPL 2.0, MIT, BSD;
-fetched by `go build` at the versions pinned in `tools/torrentd/go.sum`),
-`stb_truetype` and `stb_image` (public domain) keep their own licences in place. The
-YouTube solver in `assets/yt` is yt-dlp/ejs 0.8.0 (Unlicense; it bundles meriyah, ISC,
-and astring, MIT, with their licences in the file header). The fonts in `assets/fonts` (Inter, Space
-Grotesk, JetBrains Mono, Open Sans, Bebas Neue, DM Serif Display) are under the SIL Open Font License 1.1, each
-with its licence file next to it. Prayer times use the published PrayTimes.org method
-parameters, reimplemented in `src/suntimes.c` (see `docs/BREAKS.md`).
+Cuelight bundles open-source components that keep their own licences: FFmpeg's decoders
+(LGPL 2.1, linked statically; this repository has everything needed to rebuild the app
+against a changed FFmpeg), QuickJS-ng, cJSON, QR Code generator, android-youtube-player
+(MIT), libwebp (BSD-3-Clause), stb (public domain), the P2P engine's Go modules (MPL 2.0,
+MIT, BSD), yt-dlp/ejs (Unlicense), the fonts (SIL OFL 1.1), and on Android SDL2 (zlib),
+curl, Mbed TLS and AndroidX Media3 (Apache 2.0). Data comes from TMDB (this product uses
+the TMDB API but is not endorsed or certified by TMDB), SponsorBlock (CC BY-NC-SA 4.0),
+Open-Meteo (CC BY 4.0) and others. Versions, licences, licence texts and every service the
+app talks to are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Prayer times
+use the published PrayTimes.org method parameters, reimplemented in `src/suntimes.c` (see
+`docs/BREAKS.md`).

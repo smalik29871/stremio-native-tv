@@ -1,0 +1,38 @@
+Cuelight
+Copyright (c) 2026 Shahrukh (https://github.com/smalik29871). All rights reserved.
+
+This applies to Cuelight's own source code, artwork and documentation in this repository
+and in the builds made from it (the LG webOS app, the Cuelight YouTube companion, the
+Android app and the Samsung Tizen builds). It does not apply to the third-party
+components listed in THIRD-PARTY-NOTICES.md, which stay under their own licences.
+
+What you may do
+---------------
+1. Download the published builds and install and use them on devices you own or control,
+   for your own personal, non-commercial use.
+2. Read the source code, and build it for that same personal use.
+
+Anything else needs written permission from the copyright holder. In particular, you may
+not redistribute, sell, sublicense or publish Cuelight or modified versions of it, in
+source or binary form, or use its code in another product.
+
+Third-party components
+----------------------
+Nothing in this notice limits the rights you have under the licence of a third-party
+component. Cuelight links FFmpeg's decoders statically under the GNU Lesser General Public
+License 2.1: you may modify Cuelight for your own use and reverse engineer it to debug
+such modifications, and you may relink it against a modified FFmpeg, as that licence
+provides. Everything needed to rebuild it is in this repository (see README.md,
+"Building", and tools/ffmpeg.sh).
+
+No warranty
+-----------
+Cuelight is provided "as is", without warranty of any kind, express or implied, including
+the warranties of merchantability, fitness for a particular purpose and non-infringement.
+In no event shall the copyright holder be liable for any claim, damages or other
+liability arising from, out of or in connection with Cuelight or its use.
+
+Cuelight is an independent project. It is not affiliated with, endorsed by or made by
+Stremio, LG, Samsung, Google or YouTube. Their names are used only to say what Cuelight
+works with. It plays only what your own addons and accounts provide; you are responsible
+for having the right to watch what you play.
