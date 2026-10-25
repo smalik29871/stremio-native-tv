@@ -10,11 +10,10 @@
 #include "torrent.h"
 #include "video/video.h"
 #include <stdio.h>
-#if defined(__GLIBC__) || defined(__ANDROID__)
+#if defined(__ANDROID__)
+#include <dlfcn.h>       /* mallopt(M_PURGE) exists from Android 9; the app runs from 7, so it is looked up */
+#elif defined(__GLIBC__)
 #include <malloc.h>
-#endif
-#ifndef M_PURGE
-#define M_PURGE (-101)   /* bionic: give freed pages back */
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -66,7 +65,9 @@ size_t mem_normal_budget(void)
 static void give_back(void)
 {
 #if defined(__ANDROID__)
-    mallopt(M_PURGE, 0);
+    static int (*purge)(int, int); static int looked;
+    if (!looked) { looked = 1; *(void **)&purge = dlsym(RTLD_DEFAULT, "mallopt"); }
+    if (purge) purge(-101 /* M_PURGE */, 0);
 #elif defined(__GLIBC__)
     malloc_trim(0);
 #endif

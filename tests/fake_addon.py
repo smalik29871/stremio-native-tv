@@ -639,7 +639,7 @@ class H(BaseHTTPRequestHandler):
             if p.startswith("/stream/"):
                 first = STREAMS["streams"][0]
                 return self.send(200, json.dumps({"streams": [{"name": "Slow\n2160p", "title": "Movie.2024.2160p.WEB-DL", "url": first["url"] + "?wait=40&q=2160"},
-                                                              {"name": "Slow\n1080p", "title": "Movie.2024.1080p.WEB-DL", "url": first["url"] + "?q=1080"}]}).encode())
+                                                              {"name": "Slow\n1080p", "title": "Movie.2024.1080p.WEB-DL", "url": first["url"] + "?wait=0&q=1080"}]}).encode())
             return self.send(404, b"{}")
         if p.startswith("/many/"):   # a debrid-sized answer: more playable copies than the player is handed
             p = p[5:]
@@ -886,7 +886,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(503, b"")
             drop = drop or stall or die
             mirror, other = "?mirror=1" in p, "?other=1" in p   # the same file elsewhere; the same size, other bytes
-            name = os.path.basename(p.split("?")[0])   # whatever the link carries after the file (a TorBox id, a quality tag), the file is the same
+            name = os.path.basename(re.split(r"\?(torbox|drop|stall|die|mirror|other|scope|wait)=", p)[0])   # TorBox links carry their id; a bare ?q= copy (a quality the fake has no file for) is a dead link
             path = os.path.join(MEDIA_DIR, name)
             if not os.path.isfile(path):
                 return self.send(404, b"")
