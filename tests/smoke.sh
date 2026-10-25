@@ -855,9 +855,9 @@ run detail_mdblist 260 "wait,ok,down" HOME="$(home_with mdb '{"prefSubs":"eng","
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)
 run transition_zoom 34 "right,ok" SNTV_NO_TRANSITIONS= SNTV_FRAME_DT=0.016
-run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000
+run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000 SNTV_MEM_SAMPLE_S=0.5   # read twice a second: the step down comes whatever the frame rate
 grep -q "memory saver on (memory got tight)" "$OUT/home_mem_tight.log" && grep -q "memory: tight (87 MB free of 2929): the saver" "$OUT/home_mem_tight.log" || { echo "a tight TV did not step down"; grep -E "memory" "$OUT/home_mem_tight.log"; exit 1; }
-run home_mem_low 600 "right,right" SNTV_FAKE_MEM=3000000,400000
+run home_mem_low 600 "right,right" SNTV_FAKE_MEM=3000000,400000 SNTV_MEM_SAMPLE_S=0.5
 grep -q "memory: getting low (390 MB free of 2929): poster prefetch" "$OUT/home_mem_low.log" && ! grep -q "memory saver on" "$OUT/home_mem_low.log" || { echo "a TV getting low did not pause the extras"; grep -E "memory" "$OUT/home_mem_low.log"; exit 1; }
 run home_lowmem 150 "right,right" HOME="$(home_with lowmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"memoryMode":1}')"
 BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":723,"breakLead":5,"breaksEverywhere":1}'

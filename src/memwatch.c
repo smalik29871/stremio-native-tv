@@ -143,8 +143,10 @@ void mem_tick(float dt)
         else if (l == 40 || l == 5) { if (g_st.stage < 1) { g_st.stage = 1; stage_apply(1); } }   /* BACKGROUND, RUNNING_MODERATE */
         else if (l == 20) mem_background(1);                                        /* UI_HIDDEN */
     }
+    static float every = 0;
+    if (!every) { const char *e = getenv("SNTV_MEM_SAMPLE_S"); every = e && atof(e) > 0 ? (float)atof(e) : 5; }   /* tests: sooner than every 5 s */
     g_since_sample += dt;
-    if (g_since_sample < 5) return;
+    if (g_since_sample < every) return;
     g_since_sample = 0;
     if (!mem_sample(&g_last)) return;
     /* a reading in the log when it has moved: if the TV ends the app, the next start shows the last */
