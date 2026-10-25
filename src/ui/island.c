@@ -116,7 +116,11 @@ void island_draw(int in_player, int show_clock)
         tw = font_measure(now, fs) + 44 + dial;
         if (g_update_version[0]) { char up[32]; snprintf(up, sizeof up, "Update %s", g_update_version); tw += font_measure(up, FONT_XS | FONT_B) + 52; }
         break;
-    case IS_NOTICE: tw = font_measure(g_app.toast, fs) + 84; if (tw > 1100) tw = 1100; if (SNTV_PHONE && tw > SNTV_UI_W - 40) tw = SNTV_UI_W - 40; th = 60; break;
+    case IS_NOTICE:
+        tw = font_measure(g_app.toast, fs) + 84; th = 60;
+        if (tw > 1100) tw = 1100;
+        if (SNTV_PHONE && tw > SNTV_UI_W - 40) { tw = SNTV_UI_W - 40; th = 60 + font_height(fs); }   /* a phone: two lines rather than cut */
+        break;
     case IS_PROGRESS: tw = font_measure(I.progress, fs) + 220; th = 60; break;
     case IS_RESUME: {
         float a = font_measure(I.resume_line, fs), b = font_measure("RESUME", FONT_XS | FONT_B) + 200;
@@ -179,7 +183,9 @@ void island_draw(int in_player, int show_clock)
         break;
     case IS_NOTICE:
         gfx_circle(x + 32, y + I.h / 2, 7, THEME_ACCENT2);
-        font_draw_fit(g_app.toast, x + 54, cy, fs, THEME_TEXT, tw - 80);
+        if (SNTV_PHONE && font_measure(g_app.toast, fs) > tw - 80)
+            font_draw_wrapped(g_app.toast, x + 54, y + (I.h - 2 * font_height(fs)) / 2, fs, THEME_TEXT, tw - 80, 2);
+        else font_draw_fit(g_app.toast, x + 54, cy, fs, THEME_TEXT, tw - 80);
         break;
     case IS_PROGRESS: {
         font_draw_fit(I.progress, x + 26, cy, fs, THEME_TEXT, tw - 200);

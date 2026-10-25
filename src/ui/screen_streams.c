@@ -138,7 +138,7 @@ static const char *rule_broken(const Stream *s)
 static const char *ineligible(const Streams *st, const Stream *s)
 {
     if (is_notice(s)) return "a notice, not a video";
-    if (!playable(s)) return "it cannot play on this TV";
+    if (!playable(s)) return SNTV_PHONE ? "it cannot play on this phone" : "it cannot play on this TV";
     if (s->probe_state == 4) return "its link does not answer";
     /* a link that failed a moment ago only goes last (rank): asked again, debrid links often come back */
     const char *rule = rule_broken(s);
@@ -1161,10 +1161,10 @@ static void draw_aperture(Streams *st)
         char why[160] = "";
         if (!ok) { char *u = app_stream_playable_url(sm, why, sizeof why); free(u); }   /* the reason it cannot play here */
         const char *gate = ok ? ineligible(st, sm) : NULL;
-        const char *note = !ok ? (why[0] ? why : "Cannot play on this TV") : gate && !strcmp(gate, "it is another episode") ? "Another episode" : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
+        const char *note = !ok ? (why[0] ? why : SNTV_PHONE ? "Cannot play on this phone" : "Cannot play on this TV") : gate && !strcmp(gate, "it is another episode") ? "Another episode" : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
             : sm->probe_state == 2 && link_mbps(sm) > 0 && sm->file_mbps > link_mbps(sm) * 0.85 ? "Heavier than this connection"
             : quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 1) ? warn[0] : sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
-        char p2p[48] = "P2P on this TV";
+        char p2p[48]; snprintf(p2p, sizeof p2p, "P2P on this %s", SNTV_PHONE ? "phone" : "TV");
         if (is_p2p(sm) && sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders);
         const char *flag = is_mine(sm) ? "In your TorBox" : from_torbox(sm) ? "From your TorBox" : is_p2p(sm) ? p2p : same_release(st, sm) ? "Same release"
             : sm->probe_state == 2 && ok ? "Verified" : NULL;
@@ -1251,12 +1251,15 @@ static void draw(Screen *s)
         gfx_circle(x + 44, LIST_Y + h / 2, 26, foc ? THEME_FOCUS : THEME_ACCENT2);
         ui_icon(ICON_STAR, x + 44, LIST_Y + h / 2, 26, foc ? THEME_ON_FOCUS : THEME_ON_ACCENT);
         static const char *HEAD[QUAL_MODE_COUNT] = { "Recommended for this TV", "Recommended for this TV", "Highest quality", "Balanced pick", "Smallest download" };
-        font_draw(HEAD[g_app.quality_mode], x + 90, LIST_Y + 18, FONT_XS | FONT_B, THEME_ACCENT2);
+        const char *head_label = SNTV_PHONE && g_app.quality_mode <= 1 ? "Recommended for this phone" : HEAD[g_app.quality_mode];
+        font_draw(head_label, x + 90, LIST_Y + 18, FONT_XS | FONT_B, THEME_ACCENT2);
         char l1[200], summary[200];
         first_line(sm->name, l1, sizeof l1);
         char head[300];
-        snprintf(head, sizeof head, "%s%s%s", sm->addon_name, l1[0] ? "  \xC2\xB7  " : "", l1);
-        font_draw_fit(head, x + 90, LIST_Y + 46, FONT_M | FONT_B, THEME_TEXT, w - 320);
+        if (SNTV_PHONE) snprintf(head, sizeof head, "%s", l1[0] ? l1 : sm->addon_name ? sm->addon_name : "");   /* a phone: the stream's name; its addon goes on the line below */
+        else snprintf(head, sizeof head, "%s%s%s", sm->addon_name, l1[0] ? "  \xC2\xB7  " : "", l1);
+        float text_w = SNTV_PHONE ? w - 90 - 96 : w - 320;
+        font_draw_fit(head, x + 90, LIST_Y + 46, FONT_M | FONT_B, THEME_TEXT, text_w);
         if (sm->probe_state == 2 && sm->probe) {
             char d[200];
             probe_describe(sm->probe, d, sizeof d);
@@ -1270,11 +1273,19 @@ static void draw(Screen *s)
                 snprintf(summary + u, sizeof summary - u, "%s", summary[0] ? "  \xC2\xB7  checking the file..." : "Checking the file...");
             }
         }
-        font_draw_fit(summary[0] ? summary : "Playable on this TV", x + 90, LIST_Y + 88, FONT_XS, THEME_TEXT_DIM, w - 320);
+        if (SNTV_PHONE && l1[0] && sm->addon_name) {
+            char with[260]; snprintf(with, sizeof with, "%s%s%s", sm->addon_name, summary[0] ? "  \xC2\xB7  " : "", summary);
+            snprintf(summary, sizeof summary, "%.199s", with);
+        }
+        font_draw_fit(summary[0] ? summary : SNTV_PHONE ? "Playable here" : "Playable on this TV", x + 90, LIST_Y + 88, FONT_XS, THEME_TEXT_DIM, text_w);
         char why[200];
         why_not_sharper(st, rec, why, sizeof why);
-        if (why[0]) font_draw_fit(why, x + 90, LIST_Y + 114, FONT_XS, THEME_TEXT_MUTED, w - 320);
-        ui_pill("Play", 1, ICON_PLAY, x + w - 170, LIST_Y + (h - 56) / 2, 56, foc ? PILL_PRIMARY : PILL_SECONDARY, foc);
+        if (why[0]) font_draw_fit(why, x + 90, LIST_Y + 114, FONT_XS, THEME_TEXT_MUTED, text_w);
+        if (SNTV_PHONE) {   /* a round play button: the text keeps the width */
+            float bx = x + w - 52, by = LIST_Y + h / 2;
+            gfx_circle(bx, by, 30, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x22));
+            ui_icon(ICON_PLAY, bx + 2, by, 26, foc ? THEME_ON_FOCUS : THEME_TEXT);
+        } else ui_pill("Play", 1, ICON_PLAY, x + w - 170, LIST_Y + (h - 56) / 2, 56, foc ? PILL_PRIMARY : PILL_SECONDARY, foc);
         list_y += REC_H;
     }
 
@@ -1327,7 +1338,7 @@ static void draw(Screen *s)
             if (k > 0) gfx_rrect(x + 24, ry + h - 5, bw * k, 3, theme_pill_r(4), THEME_OK);
         }
         char p2p[48];
-        if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this TV"); }
+        if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this %s", SNTV_PHONE ? "phone" : "TV"); }
         const char *flag = is_mine(sm) ? "In your TorBox" : sm->info_hash ? (from_torbox(sm) ? "From your TorBox" : g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
         if (same_release(st, sm)) flag = "Same release";
         int tb = fetching(st, sm);

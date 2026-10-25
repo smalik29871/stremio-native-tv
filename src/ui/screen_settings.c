@@ -490,6 +490,28 @@ static void draw_row_body(float y, Icon icon, const char *title, const char *val
     Color fg = focused ? THEME_ON_FOCUS : THEME_TEXT, dim = focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xA8) : THEME_TEXT_MUTED;
     gfx_rrect(x + 20, y + h / 2 - 26, 52, 52, theme_pill_r(52), focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0x14) : COLOR_ALPHA(THEME_ACCENT, 0x1C));
     ui_icon(icon, x + 46, y + h / 2, 26, focused ? fg : THEME_ACCENT);
+    if (SNTV_PHONE && value && value[0] && (kind == KIND_CHOICE || kind == KIND_ACTION)) {
+        /* a phone: the value is the second line and the title has the width; a choice steps with ‹ › at the edge */
+        float th2 = font_height(FONT_S | FONT_B), ty = y + (h - th2 - font_height(FONT_XS | FONT_B) - 6) / 2, rx = x + w - 30;
+        float ctl = kind == KIND_CHOICE ? (s_steps > 1 ? 190 : 100) : s_chevron ? 50 : 10, tw2 = w - 92 - ctl - 10;
+        font_draw_fit(title, x + 92, ty, FONT_S | FONT_B, fg, tw2);
+        font_draw_fit(value, x + 92, ty + th2 + 6, FONT_XS | FONT_B, focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xC8) : kind == KIND_CHOICE ? THEME_ACCENT : THEME_TEXT_DIM, tw2);
+        if (kind == KIND_CHOICE) {
+            float lx = rx - ctl + 34;
+            if (s_steps > 1) {   /* the scale between the arrows */
+                float t0 = lx + 26, t1 = rx - 36, tw = t1 - t0, cy2 = y + h / 2, kx = t0 + tw * s_step / (s_steps - 1);
+                Color track = focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0x30) : COLOR_ALPHA(THEME_TEXT, 0x26), lit = focused ? THEME_ON_FOCUS : THEME_ACCENT;
+                gfx_rrect(t0, cy2 - 2, tw, 4, 2, track);
+                if (kx > t0 + 2) gfx_rrect(t0, cy2 - 2, kx - t0, 4, 2, lit);
+                gfx_circle(kx, cy2, 8, lit);
+                if (focused) gfx_circle(kx, cy2, 3.5f, THEME_FOCUS);
+            }
+            ui_icon(ICON_CHEVRON_LEFT, lx, y + h / 2, 24, dim);
+            ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 24, dim);
+            ui_hit(lx - 34, y, 68, h, HIT_LEFT + s_hit_row);   /* the left arrow steps back, the rest of the row forward */
+        } else if (s_chevron) ui_icon(ICON_CHEVRON_RIGHT, rx - 10, y + h / 2, 22, dim);
+        return;
+    }
     /* an action's value is its second line (unless it has help of its own), with an arrow at the end */
     const char *sub = s_desc;
     if (kind == KIND_ACTION && !sub && value) { sub = value; value = NULL; }

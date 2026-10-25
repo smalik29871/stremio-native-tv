@@ -1226,6 +1226,9 @@ run ambient_gallery 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_ART_API=http://127.0.0.1:
 grep -q "ambient: a gallery of 3 works from the Art Institute of Chicago" "$OUT/ambient_gallery.log" || { echo "the gallery did not get its works"; grep ambient "$OUT/ambient_gallery.log"; exit 1; }
 run ambient_dim 1200 "" SNTV_AMBIENT_SECONDS=1 SNTV_AMBIENT_DIM_S=1 SNTV_AMBIENT_OFF_S=3 HOME="$(home_with dim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":0,"ambientMinutes":2}')"
 grep -q "ambient: dimmed after [0-9]* s" "$OUT/ambient_dim.log" && grep -q "ambient: picture off after [0-9]* s" "$OUT/ambient_dim.log" || { echo "the screensaver did not dim and go black"; grep ambient "$OUT/ambient_dim.log"; exit 1; }
+run ambient_no_dim 200 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with nodim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":0,"ambientMinutes":2,"ambientDimMin":30}')"
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("ambientDimMinV2", 0) == 0 else 1)' "$OUT/home_nodim/.local/share/stremio/nativetv/settings.json" && ! grep -q "ambient: dimmed" "$OUT/ambient_no_dim.log" \
+  || { echo "the screensaver still dims by default"; grep -E "ambient" "$OUT/ambient_no_dim.log"; exit 1; }
 run island_dial 150 "" HOME="$(home_with isl_dial '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":3}')"
 run island_seconds 150 "" HOME="$(home_with isl_sec '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":2}')"
 run ambient_paused 300 "right,ok,down,down,play,wait,ok" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_START=200 HOME="$(home_with fresh_ambient_paused '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -1262,6 +1265,12 @@ run phone_signin_pw 300 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wai
 run phone_about 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:364,wait,wait" $PH SNTV_EXPECT_SCREEN=whatsnew HOME="$(home_with ph12 '{"setupDone":1}')"
 run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:803,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
 run phone_calendar 220 "wait,tap:546:1660,wait,tap:370:76,wait,wait" $PH SNTV_EXPECT_SCREEN=calendar HOME="$(home_with ph14 '{"setupDone":1}')"
+# a phone's real size (600 units across, as 360-400 dp phones are): settings rows keep their titles with the
+# value below, the sync page fits a short screen with its button, the recommendation names the stream
+PR="SNTV_WINDOW=450x975 SNTV_HANDHELD=1 SNTV_PHONE_UNITS=600"
+run phone600_breaks 400 "wait,tap:540:1227,wait,tap:300:352,wait,wait" $PR SNTV_EXPECT_SCREEN=settings HOME="$(home_with p6br '{"setupDone":1}')"
+run phone600_sources 400 "wait,wait,wait,ok,wait,wait,ok,wait,wait,wait" $PR SNTV_EXPECT_SCREEN=streams HOME="$(home_with p6src '{"setupDone":1,"autoplay":0,"autoRec":0}')"
+run phone600_sync_short 300 "wait,wait,wait" SNTV_WINDOW=450x800 SNTV_HANDHELD=1 SNTV_PHONE_UNITS=600 SNTV_OPEN_LINK="cuelight://sync" SNTV_PHONE_HOST=192.168.1.20 SNTV_PHONE_PORT=11640 SNTV_SYNC_PIN=4805 SNTV_EXPECT_SCREEN=sync HOME="$(home_with p6sy '{"setupDone":1}')"
 # touch that follows the finger: a dragged page and row, the player's gestures (a phone plays sideways)
 # a phone's size: its canvas from its width in dp (here 450 px at 1.1 px a dp: 409 dp, 660 units across)
 run phone_size_dp 160 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 SNTV_DENSITY=1.1 SNTV_EXPECT_SCREEN=home HOME="$(home_with psz '{"setupDone":1}')"
