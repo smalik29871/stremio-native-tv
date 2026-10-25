@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.13)
 project(stremio_native_tv C)
 
-# SNTV_PLATFORM: linux (desktop preview), webos, tizen, wasm, android (deploy/android runs it)
-set(SNTV_PLATFORM "linux" CACHE STRING "Target platform: linux | webos | tizen | wasm | android")
+# SNTV_PLATFORM: linux (desktop preview), webos, tizen, wasm, android (deploy/android runs it),
+# windows (tools/windows.sh cross-compiles it with MinGW-w64)
+set(SNTV_PLATFORM "linux" CACHE STRING "Target platform: linux | webos | tizen | wasm | android | windows")
 option(SNTV_BUILD_TESTS "Build host unit tests" ON)
 
 set(CMAKE_C_STANDARD 99)
@@ -75,10 +76,29 @@ target_link_libraries(sntv_core PUBLIC quickjs)
 # Static FFmpeg (tools/ffmpeg.sh: H.264 and HEVC decoders only) for seek previews decoded
 # on the TV. Without it the app builds and previews need the home helper.
 set(SNTV_FFMPEG_PREFIX "" CACHE PATH "Prefix of the static FFmpeg built by tools/ffmpeg.sh")
+# The desktop player (src/video/video_ffmpeg.c) on Linux or Windows: the fuller FFmpeg of
+# tools/ffmpeg-player.sh, which also serves the seek previews. Without it the desktop build
+# simulates playback (video_null.c), as the tests want.
+set(SNTV_PLAYER_FFMPEG "" CACHE PATH "Prefix of the FFmpeg built by tools/ffmpeg-player.sh")
+if(SNTV_PLAYER_FFMPEG)
+  set(SNTV_FFMPEG_PREFIX ${SNTV_PLAYER_FFMPEG})
+endif()
 if(SNTV_FFMPEG_PREFIX)
   target_compile_definitions(sntv_core PUBLIC SNTV_HAVE_FFMPEG=1)
   target_include_directories(sntv_core PRIVATE ${SNTV_FFMPEG_PREFIX}/include)
-  target_link_libraries(sntv_core PUBLIC ${SNTV_FFMPEG_PREFIX}/lib/libavcodec.a ${SNTV_FFMPEG_PREFIX}/lib/libavutil.a m)
+  if(SNTV_PLAYER_FFMPEG)
+    set(FF ${SNTV_PLAYER_FFMPEG}/lib)
+    target_include_directories(sntv_core PUBLIC ${SNTV_PLAYER_FFMPEG}/include)
+    target_compile_definitions(sntv_core PUBLIC SNTV_DESKTOP_PLAYER=1)
+    target_link_libraries(sntv_core PUBLIC ${FF}/libavformat.a ${FF}/libavcodec.a ${FF}/libswscale.a ${FF}/libswresample.a ${FF}/libavutil.a)
+    if(SNTV_PLATFORM STREQUAL "windows")
+      target_link_libraries(sntv_core PUBLIC ${FF}/libz.a ws2_32 secur32 bcrypt crypt32 ncrypt ole32 user32 d3d11 dxgi)
+    else()
+      target_link_libraries(sntv_core PUBLIC ssl crypto z m)
+    endif()
+  else()
+    target_link_libraries(sntv_core PUBLIC ${SNTV_FFMPEG_PREFIX}/lib/libavcodec.a ${SNTV_FFMPEG_PREFIX}/lib/libavutil.a m)
+  endif()
 endif()
 # Optional: a TMDB key baked into the build (CI takes it from a repository secret), so
 # cast photos and age ratings work without the viewer entering one.
@@ -102,6 +122,31 @@ if(SNTV_PLATFORM STREQUAL "wasm")
   add_compile_options(-sUSE_SDL=2)
   add_link_options(-sUSE_SDL=2 -sFULL_ES2=1 -sALLOW_MEMORY_GROWTH=1 -sASYNCIFY
                    -sEXPORTED_RUNTIME_METHODS=ccall,cwrap --preload-file ${CMAKE_SOURCE_DIR}/assets@/assets)
+elseif(SNTV_PLATFORM STREQUAL "windows")
+  # SDL2 and ANGLE (OpenGL ES 2 over Direct3D) prebuilt by MSYS2, fetched by tools/windows.sh;
+  # libcurl.dll built here from curl's source with Windows' own TLS (Schannel) and loaded
+  # at run time, as libcurl is everywhere.
+  set(SNTV_WIN_DEPS "" CACHE PATH "MSYS2 mingw64 tree with SDL2 and ANGLE (tools/windows.sh)")
+  set(SNTV_WIN_CURL "" CACHE PATH "curl source tree (tools/windows.sh)")
+  target_include_directories(sntv_core PUBLIC ${SNTV_WIN_DEPS}/include/SDL2 ${SNTV_WIN_DEPS}/include)
+  target_compile_definitions(sntv_core PUBLIC _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN)
+  target_compile_options(sntv_core PUBLIC -include ${CMAKE_SOURCE_DIR}/src/platform/win_posix.h)
+  target_sources(sntv_core PRIVATE src/platform/win_posix.c)
+  target_link_libraries(sntv_core PUBLIC ws2_32 iphlpapi shlwapi)
+  set(SNTV_LINK_LIBS mingw32 ${SNTV_WIN_DEPS}/lib/libSDL2main.a ${SNTV_WIN_DEPS}/lib/libSDL2.dll.a
+      ${SNTV_WIN_DEPS}/lib/libGLESv2.dll.a ws2_32 iphlpapi shlwapi m)
+  foreach(o CURL_USE_SCHANNEL CURL_DISABLE_LDAP CURL_ZLIB CURL_WINDOWS_SSPI)
+    set(${o} ON CACHE BOOL "" FORCE)
+  endforeach()
+  foreach(o CURL_USE_OPENSSL BUILD_CURL_EXE BUILD_TESTING BUILD_LIBCURL_DOCS BUILD_MISC_DOCS ENABLE_CURL_MANUAL CURL_USE_LIBPSL
+            CURL_USE_LIBSSH2 USE_NGHTTP2 USE_LIBIDN2 CURL_USE_PKGCONFIG BUILD_STATIC_LIBS CURL_BROTLI CURL_ZSTD)
+    set(${o} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  set(ZLIB_INCLUDE_DIR ${SNTV_WIN_DEPS}/include CACHE PATH "" FORCE)
+  set(ZLIB_LIBRARY ${SNTV_WIN_DEPS}/lib/libz.dll.a CACHE FILEPATH "" FORCE)
+  set(BUILD_SHARED_LIBS ON)
+  add_subdirectory(${SNTV_WIN_CURL} curl EXCLUDE_FROM_ALL)
+  set(BUILD_SHARED_LIBS OFF)
 elseif(SNTV_PLATFORM STREQUAL "android")
   # SDL2 built from its source (tools/android-deps.sh fetches it), GLES2, log and android
   # from the NDK. libcurl is loaded at run time as everywhere (shipped in the APK).
@@ -162,6 +207,8 @@ elseif(SNTV_PLATFORM STREQUAL "tizen")
   set(SNTV_PLATFORM_INCLUDES ${TIZEN_INCLUDE_DIRS})
 elseif(SNTV_PLATFORM STREQUAL "wasm")
   set(SNTV_VIDEO_SRC src/video/video_wasm.c)
+elseif(SNTV_PLATFORM STREQUAL "windows")
+  set(SNTV_VIDEO_SRC src/video/video_ffmpeg.c)
 elseif(SNTV_PLATFORM STREQUAL "android")
   set(SNTV_VIDEO_SRC src/video/video_android.c)   # ExoPlayer over JNI (CuelightPlayer.java)
   # the bundled files, listed for unpacking from the APK (src/main.c)
@@ -172,6 +219,8 @@ elseif(SNTV_PLATFORM STREQUAL "android")
   endforeach()
   string(APPEND SNTV_ASSET_INDEX "    NULL,\n};\n")
   file(WRITE ${CMAKE_BINARY_DIR}/generated/assets_index.h "${SNTV_ASSET_INDEX}")
+elseif(SNTV_PLAYER_FFMPEG)
+  set(SNTV_VIDEO_SRC src/video/video_ffmpeg.c)
 else()
   set(SNTV_VIDEO_SRC src/video/video_null.c)
 endif()
@@ -200,6 +249,14 @@ if(SNTV_PLATFORM STREQUAL "android")
   add_library(stremio-tv SHARED ${SNTV_APP_SRC})   # libmain.so, what SDL's activity loads
   set_target_properties(stremio-tv PROPERTIES OUTPUT_NAME main)
   add_dependencies(stremio-tv libcurl_shared)       # built and packaged with it, loaded at run time
+elseif(SNTV_PLATFORM STREQUAL "windows")
+  enable_language(RC)   # the icon and version (deploy/windows/cuelight.rc)
+  file(STRINGS src/platform/platform.h SNTV_VER_LINE REGEX "SNTV_APP_VERSION \"")
+  string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)" SNTV_VER "${SNTV_VER_LINE}")
+  set_source_files_properties(deploy/windows/cuelight.rc PROPERTIES COMPILE_DEFINITIONS
+      "SNTV_VER_MAJOR=${CMAKE_MATCH_1};SNTV_VER_MINOR=${CMAKE_MATCH_2};SNTV_VER_PATCH=${CMAKE_MATCH_3};SNTV_VER_STRING=\\\"${SNTV_VER}\\\"")
+  add_executable(stremio-tv WIN32 ${SNTV_APP_SRC} deploy/windows/cuelight.rc)   # a window, no console
+  add_dependencies(stremio-tv libcurl_shared)        # libcurl.dll beside it, loaded at run time
 else()
   add_executable(stremio-tv ${SNTV_APP_SRC})
 endif()

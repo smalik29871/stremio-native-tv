@@ -10,7 +10,7 @@ paths below are) sit next to the component; the others are linked.
 
 | Component | Version | Licence | Where it is used | Licence text |
 |---|---|---|---|---|
-| [FFmpeg](https://ffmpeg.org) (libavcodec, libavutil) | 7.1.1 | LGPL 2.1 or later | Seek previews: only the H.264 and HEVC decoders, no GPL parts, linked statically (webOS, Android) | [COPYING.LGPLv2.1](https://git.ffmpeg.org/gitweb/ffmpeg.git/blob/refs/heads/release/7.1:/COPYING.LGPLv2.1) |
+| [FFmpeg](https://ffmpeg.org) (libavcodec, libavutil; on Windows also libavformat, libswscale, libswresample) | 7.1.1 | LGPL 2.1 or later | Seek previews: only the H.264 and HEVC decoders (webOS, Android). On Windows the whole player: demuxers, HTTP(S) and HLS, video, audio and text-subtitle decoders (`tools/ffmpeg-player.sh`). No GPL or nonfree parts; linked statically | [COPYING.LGPLv2.1](https://git.ffmpeg.org/gitweb/ffmpeg.git/blob/refs/heads/release/7.1:/COPYING.LGPLv2.1) |
 | [QuickJS-ng](https://github.com/quickjs-ng/quickjs) | 0.17 | MIT | Runs the YouTube solver in a sandbox | `vendor/quickjs/LICENSE` |
 | [cJSON](https://github.com/DaveGamble/cJSON) | | MIT | JSON | header of `vendor/cJSON.h` |
 | [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (Project Nayuki) | | MIT | QR codes on screen | header of `vendor/qrcodegen.c` |
@@ -33,6 +33,17 @@ paths below are) sit next to the component; the others are linked.
 
 These libraries bring their own dependencies (Kotlin's standard library, Guava and other
 AndroidX parts), all under Apache 2.0.
+
+### Windows app only
+
+| Component | Version | Licence | Where it is used | Licence text |
+|---|---|---|---|---|
+| [SDL2](https://libsdl.org) (MSYS2 build) | 2.32.10 | zlib | Window, input, audio (`SDL2.dll`) | [LICENSE.txt](https://github.com/libsdl-org/SDL/blob/release-2.32.10/LICENSE.txt) |
+| [ANGLE](https://chromium.googlesource.com/angle/angle) (MSYS2 build) | 2.1.25748 | BSD-3-Clause | OpenGL ES over Direct3D (`libEGL.dll`, `libGLESv2.dll`) | [LICENSE](https://chromium.googlesource.com/angle/angle/+/refs/heads/main/LICENSE) |
+| [curl](https://curl.se) | 8.11.0 | curl (MIT-style) | HTTP, with Windows' own TLS (`libcurl.dll`) | [COPYING](https://curl.se/docs/copyright.html) |
+| [zlib](https://zlib.net) | 1.3 | zlib | Compressed data (`zlib1.dll`, and in FFmpeg) | [LICENSE](https://zlib.net/zlib_license.html) |
+| GCC runtime (libgcc, libstdc++), [MinGW-w64 winpthreads](https://www.mingw-w64.org) | 16.2, 14.0 | GPL 3 with the GCC Runtime Library Exception; MIT and BSD | Loaded by ANGLE and the app (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) | [Runtime exception](https://www.gnu.org/licenses/gcc-exception-3.1.html), [winpthreads COPYING](https://sourceforge.net/p/mingw-w64/mingw-w64/ci/master/tree/mingw-w64-libraries/winpthreads/COPYING) |
+| [Khronos OpenGL ES headers](https://github.com/KhronosGroup/OpenGL-Registry) | | MIT | Building only (headers) | in the headers |
 
 ### On the TV, not bundled
 

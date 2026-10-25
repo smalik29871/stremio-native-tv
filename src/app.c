@@ -30,7 +30,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/statvfs.h>
+#endif
 #include <time.h>
 #include <sys/stat.h>
 
@@ -1517,6 +1519,14 @@ static void on_update_answer(int choice, void *user)
     else LOGI("update: the viewer said later");
 }
 
+#ifdef SNTV_PLATFORM_WINDOWS
+static void on_update_download(int choice, void *user)
+{
+    (void)user;
+    if (choice == 1 && video_open_browser("https://github.com/smalik29871/cuelight-releases/releases/latest")) LOGI("update: the download page opened");
+}
+#endif
+
 /* The question, at a quiet moment: nothing installs unless the viewer says so. */
 static void ask_to_update(void)
 {
@@ -1524,6 +1534,14 @@ static void ask_to_update(void)
     static const int ICONS[] = { ICON_CLOCK, ICON_RELOAD };
     char sub[80], body[300];
     snprintf(sub, sizeof sub, "Version %s  \xC2\xB7  you have %s", g_update_version, SNTV_APP_VERSION);
+#ifdef SNTV_PLATFORM_WINDOWS   /* no installer: the new folder replaces this one; settings are kept in your user folder */
+    {
+        static const char *const GET[] = { "Later", "Open the download page" };
+        snprintf(body, sizeof body, "Download the Windows zip and unpack it over this folder (or anywhere: your sign-in, settings and progress are kept in your user folder, not here).");
+        app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, GET, ICONS, 2, on_update_download, NULL)));
+        return;
+    }
+#endif
     if (!app_update_installs_here()) {   /* this TV won't let the app install: say once per version where it's done */
         if (!strcmp(store_get_str("updateHowToldFor", ""), g_update_version)) return;
         store_set_str("updateHowToldFor", g_update_version); store_save();

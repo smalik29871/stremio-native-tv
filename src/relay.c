@@ -19,23 +19,17 @@ void app_home_mbps_note(double mbps) __attribute__((weak));
 #include "log.h"
 #include "memwatch.h"
 #include "store.h"
+#include "platform/compat.h"
 #include <SDL.h>
-#include <arpa/inet.h>
 #include <errno.h>
-#include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
 
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
-#endif
+
 
 enum { MAX_ROUTES = 8, MAX_CONNS = 12 };   /* seeks open new requests while old ones close */
 typedef struct { char token[33]; char *url, *headers; char name[64]; } Route;
@@ -645,10 +639,8 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
 static int serve_one(void *arg)
 {
     int fd = (int)(intptr_t)arg;
-    struct timeval tv = { 5, 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-    struct timeval wt = { 300, 0 };   /* paused: the player stops reading; after 5 min it reconnects when played again */
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &wt, sizeof wt);
+    sock_timeout(fd, SO_RCVTIMEO, 5);
+    sock_timeout(fd, SO_SNDTIMEO, 300);   /* paused: the player stops reading; after 5 min it reconnects when played again */
     char req[4096];
     size_t got = 0;
     while (got < sizeof req - 1) {
@@ -689,7 +681,7 @@ static int serve_one(void *arg)
     }
     free(url); free(headers);
     shutdown(fd, SHUT_RDWR);
-    close(fd);
+    sock_close(fd);
     SDL_AtomicAdd(&g_conns, -1);
     return 0;
 }
@@ -698,13 +690,13 @@ static int listen_loop(void *arg)
 {
     (void)arg;
     for (;;) {
-        int fd = accept(g_sock, NULL, NULL);
+        int fd = (int)accept(g_sock, NULL, NULL);
         if (fd < 0) { if (errno == EINTR) continue; SDL_Delay(50); continue; }
-        if (SDL_AtomicGet(&g_conns) >= MAX_CONNS) { answer(fd, "503 Busy"); close(fd); continue; }   /* old requests still closing */
+        if (SDL_AtomicGet(&g_conns) >= MAX_CONNS) { answer(fd, "503 Busy"); sock_close(fd); continue; }   /* old requests still closing */
         SDL_AtomicAdd(&g_conns, 1);
         SDL_Thread *t = SDL_CreateThread(serve_one, "relay", (void *)(intptr_t)fd);
         if (t) SDL_DetachThread(t);
-        else { answer(fd, "503 Busy"); close(fd); SDL_AtomicAdd(&g_conns, -1); }
+        else { answer(fd, "503 Busy"); sock_close(fd); SDL_AtomicAdd(&g_conns, -1); }
     }
     return 0;
 }
@@ -715,20 +707,23 @@ static int start(void)
     if (g_failed) return 0;   /* tried once this run: the direct link from now on */
     g_failed = 1;
     if (!g_lock && !(g_lock = SDL_CreateMutex())) return 0;
-    int s = socket(AF_INET, SOCK_STREAM, 0);
+    sock_startup();
+    int s = (int)socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) { LOGW("relay: no socket; sources open directly"); return 0; }
+#ifndef _WIN32   /* Windows would let two apps share the port */
     int one = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+#endif
     int port;
     for (port = 11481; port < 11490; port++) {   /* 11471-79 the phone page, 11490 the P2P engine */
         struct sockaddr_in a = { 0 };
         a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = htons((uint16_t)port);   /* this TV only */
         if (bind(s, (struct sockaddr *)&a, sizeof a) == 0) break;
     }
-    if (port >= 11490 || listen(s, 8) != 0) { close(s); LOGW("relay: could not listen; sources open directly"); return 0; }
+    if (port >= 11490 || listen(s, 8) != 0) { sock_close(s); LOGW("relay: could not listen; sources open directly"); return 0; }
     g_sock = s; g_port = port;
     SDL_Thread *t = SDL_CreateThread(listen_loop, "relay-listen", NULL);
-    if (!t) { close(s); g_sock = -1; LOGW("relay: no thread; sources open directly"); return 0; }
+    if (!t) { sock_close(s); g_sock = -1; LOGW("relay: no thread; sources open directly"); return 0; }
     SDL_DetachThread(t);
     g_failed = 0;
     LOGI("relay: listening on 127.0.0.1:%d", port);

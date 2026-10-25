@@ -152,6 +152,8 @@ static int g_awake, g_saver_held;
 void video_keep_awake(int on) { g_awake = on; CALL(M_AWAKE, (jboolean)(g_awake || g_saver_held)); }
 void video_hold_screensaver(int on) { g_saver_held = on; CALL(M_AWAKE, (jboolean)(g_awake || g_saver_held)); }
 void video_memory_stage(int stage) { CALL(M_MEM_STAGE, (jint)stage); }
+unsigned video_frame_texture(int *w, int *h, float *aspect) { (void)w; (void)h; (void)aspect; return 0; }   /* the video is a plane of its own */
+int video_subtitle_text(char *out, size_t n) { if (n) *out = 0; return 0; }
 
 /* CuelightActivity.onTrimMemory, on Android's thread: the watch acts on the next frame. */
 JNIEXPORT void JNICALL Java_app_cuelight_tv_CuelightActivity_nativeTrimMemory(JNIEnv *e, jclass c, jint level) { (void)e; (void)c; mem_system_trim((int)level); }

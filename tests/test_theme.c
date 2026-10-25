@@ -14,6 +14,8 @@ int font_init(const char *regular, const char *bold, const char *alt, int kind)
     return 0;
 }
 
+unsigned video_frame_texture(int *w, int *h, float *aspect) { (void)w; (void)h; (void)aspect; return 0; }   /* gfx.c asks; no video here */
+
 int main(void)
 {
     /* Appending the theme must not reinterpret existing profiles. */

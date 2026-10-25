@@ -17,7 +17,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/statvfs.h>
+#endif
 #include <unistd.h>
 #include <dirent.h>
 #include <time.h>

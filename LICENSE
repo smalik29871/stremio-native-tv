@@ -3,7 +3,7 @@ Copyright (c) 2026 Shahrukh (https://github.com/smalik29871). All rights reserve
 
 This applies to Cuelight's own source code, artwork and documentation in this repository
 and in the builds made from it (the LG webOS app, the Cuelight YouTube companion, the
-Android app and the Samsung Tizen builds). It does not apply to the third-party
+Android app, the Windows app and the Samsung Tizen builds). It does not apply to the third-party
 components listed in THIRD-PARTY-NOTICES.md, which stay under their own licences.
 
 What you may do
@@ -23,7 +23,7 @@ component. Cuelight links FFmpeg's decoders statically under the GNU Lesser Gene
 License 2.1: you may modify Cuelight for your own use and reverse engineer it to debug
 such modifications, and you may relink it against a modified FFmpeg, as that licence
 provides. Everything needed to rebuild it is in this repository (see README.md,
-"Building", and tools/ffmpeg.sh).
+"Building", tools/ffmpeg.sh and tools/ffmpeg-player.sh).
 
 No warranty
 -----------

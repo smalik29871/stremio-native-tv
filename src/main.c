@@ -29,7 +29,9 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
+#ifndef _WIN32
 #include <sys/vfs.h>
+#endif
 #include <signal.h>
 #if defined(__linux__) && !defined(__EMSCRIPTEN__) && !defined(__SANITIZE_ADDRESS__)
 #define SNTV_CRASH_LOG 1
@@ -40,6 +42,14 @@
 #endif
 #include <SDL.h>
 #include <GLES2/gl2.h>
+#ifdef _WIN32
+#define SNTV_KILL_SELF() TerminateProcess(GetCurrentProcess(), 9)
+#include <windows.h>
+#include <fcntl.h>
+#else
+#include <signal.h>
+#define SNTV_KILL_SELF() kill(getpid(), SIGKILL)
+#endif
 
 static int dir_writable(const char *dir)
 {
@@ -56,10 +66,15 @@ static int dir_writable(const char *dir)
  * with it. Such a folder is used only when nothing else is writable. */
 static int in_ram(const char *dir)
 {
+#ifdef _WIN32
+    (void)dir;
+    return 0;
+#else
     struct statfs fs;
     if (statfs(dir, &fs) != 0) return 0;
     unsigned long type = (unsigned long)(unsigned int)fs.f_type;
     return type == 0x01021994UL || type == 0x858458f6UL;   /* tmpfs, ramfs */
+#endif
 }
 
 static char g_moved[300];   /* said once the log is open: where the data came from */
@@ -680,6 +695,18 @@ int main(int argc, char **argv)
 #ifdef SIGPIPE
     signal(SIGPIPE, SIG_IGN);   /* a player hanging up on the phone server must not end the app */
 #endif
+#ifdef SNTV_PLATFORM_WINDOWS
+    {   /* opened from a shortcut or a download folder: "assets/..." is beside the .exe */
+        char *base = SDL_GetBasePath();
+        if (base) { _chdir(base); SDL_free(base); }
+    }
+    _fmode = _O_BINARY;   /* files as written, no \r added before each \n */
+    SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");   /* OpenGL ES through ANGLE (Direct3D), not the driver's own */
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");   /* sharp on a scaled display */
+#endif
+#ifdef SNTV_DESKTOP_PLAYER
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");   /* a computer: a click is a tap, a drag a swipe */
+#endif
 #ifdef SNTV_PLATFORM_WEBOS
     /* Without these the remote's Back/Exit keys never reach the app. Must be set before the window exists. */
     SDL_SetHint("SDL_WEBOS_ACCESS_POLICY_KEYS_BACK", "true");
@@ -834,6 +861,12 @@ int main(int argc, char **argv)
             if (e.type == SDL_QUIT) g_app.quit = 1;
             else if (e.type == SDL_TEXTINPUT && top && top->text) { ui_pan_keys(); top->text(top, e.text.text); }
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
+#ifdef SNTV_DESKTOP_PLAYER
+            else if (e.type == SDL_MOUSEWHEEL && e.wheel.y) {   /* the wheel moves the focus a step a notch */
+                g_app.last_input = g_app.time;
+                for (int n = 0; n < (e.wheel.y > 0 ? e.wheel.y : -e.wheel.y) && n < 4; n++) dispatch_key(e.wheel.y > 0 ? KEY_UP : KEY_DOWN);
+            }
+#endif
             else if (e.type == SDL_KEYUP) {
                 g_seen_keyup = 1;
                 SDL_Event d = e; d.type = SDL_KEYDOWN;
@@ -844,6 +877,14 @@ int main(int argc, char **argv)
                 }
             }
             else if (e.type == SDL_KEYDOWN) {
+#if defined(SNTV_PLATFORM_WINDOWS) || defined(SNTV_PLATFORM_LINUX)
+                if (!e.key.repeat && (e.key.keysym.sym == SDLK_F11 || (e.key.keysym.sym == SDLK_RETURN && (e.key.keysym.mod & KMOD_ALT)))) {   /* a computer: full screen and back */
+                    Uint32 fs = SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+                    SDL_SetWindowFullscreen(win, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+                    app_redraw();
+                    continue;
+                }
+#endif
                 perf_key();
                 KeyAction a = input_map(&e);
                 g_app.last_input = g_app.time;
@@ -953,7 +994,7 @@ int main(int argc, char **argv)
         app_library_flush(0);
         mem_tick(dt);
         { static float kill_at = -2; if (kill_at == -2) { const char *k = getenv("SNTV_KILL_SELF_AFTER"); kill_at = k ? (float)atof(k) : -1; }   /* tests: the TV ending the app */
-          if (kill_at >= 0 && g_app.time > kill_at) kill(getpid(), SIGKILL); }
+          if (kill_at >= 0 && g_app.time > kill_at) SNTV_KILL_SELF(); }
         { static float away_at = -2; if (away_at == -2) { const char *k = getenv("SNTV_BACKGROUND_AFTER"); away_at = k ? (float)atof(k) : -1; }   /* tests: sent to the background (Home, recents) */
           if (away_at >= 0 && g_app.time > away_at) { SDL_Event ev = { .type = SDL_APP_WILLENTERBACKGROUND }; SDL_PushEvent(&ev); away_at = -1; } }
         app_update_check(dt);

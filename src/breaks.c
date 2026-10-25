@@ -70,7 +70,11 @@ int breaks_next_prayer(char *out, size_t n)
     else snprintf(out, n, "%s at %d:%02d %s", ev[next].name, m / 60 % 12 ? m / 60 % 12 : 12, m % 60, m / 60 < 12 ? "AM" : "PM");
     return 1;
 }
+#ifdef _WIN32   /* no tm_gmtoff: the same fields read as UTC, less the moment they are here */
+double breaks_tz_hours(void) { struct tm t = now_tm(), u = t; return (double)(timegm(&u) - mktime(&t)) / 3600.0; }
+#else
 double breaks_tz_hours(void) { struct tm t = now_tm(); return t.tm_gmtoff / 3600.0; }
+#endif
 int breaks_location_known(void) { return g_app.break_lat != 0 || g_app.break_lon != 0; }
 
 int breaks_method(void)

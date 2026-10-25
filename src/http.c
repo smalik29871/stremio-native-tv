@@ -1,7 +1,7 @@
 #include "http.h"
 #include "log.h"
 #include "platform/platform.h"
-#include <dlfcn.h>
+#include "platform/compat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,7 +51,11 @@ static struct {
 static int load_curl(void)
 {
     static const char *names[] = {
+#ifdef _WIN32
+        "libcurl.dll", "libcurl-4.dll", NULL   /* beside the app */
+#else
         "libcurl.so.5", "libcurl.so.4", "libcurl-gnutls.so.4", "libcurl.so", NULL
+#endif
     };
     for (int i = 0; names[i] && !C.lib; i++)
         C.lib = dlopen(names[i], RTLD_NOW | RTLD_LOCAL);

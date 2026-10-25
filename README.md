@@ -57,6 +57,22 @@ updates itself from Settings > About > Update; Android asks you to confirm each 
 First start asks six questions (languages, when subtitles turn on, intro skipping,
 autoplay, background, sign-in by QR code). Everything can be changed later in Settings.
 
+## Windows (preview)
+
+Download `Cuelight-<version>-windows-x64.zip` from the
+[latest release](https://github.com/smalik29871/cuelight-releases/releases/latest), unpack it
+anywhere and run `Cuelight.exe` (Windows 10 or 11, 64-bit; no installer). Windows may say it
+"protected your PC" the first time because the app is not signed: *More info > Run anyway*.
+Sign-in, settings and progress are kept in `%APPDATA%\stremio\nativetv`, so a new version
+unpacked over the old (or anywhere else) keeps them.
+
+The keyboard drives it as a remote: arrows, Enter, Esc (back), P (play/pause), F3 (search),
+F11 or Alt+Enter (full screen); clicks and drags work as taps and swipes. Video is decoded by
+the app's own FFmpeg (H.264, HEVC, VP9, AV1 on GPUs that decode it, AAC, AC-3, E-AC-3, DTS,
+TrueHD, Opus...) and drawn with the UI; text subtitles inside the file are shown, picture
+subtitles (PGS) are not yet. HDR plays as SDR. YouTube trailers YouTube refuses open in the
+browser.
+
 ## Screenshots
 
 Captured from the desktop build against the test addon, so the artwork is generated and
@@ -355,6 +371,14 @@ Headless UI check (needs Xvfb + Pillow): `bash tests/smoke.sh` writes screenshot
 Useful hooks: `SNTV_KEYS`, `SNTV_SCREENSHOT`, `SNTV_FAKE_DURATION/START`, `SNTV_NOW`,
 `SNTV_FAKE_MEM`, `SNTV_TMDB_API`, `SNTV_AI_API`, `SNTV_NO_TRANSITIONS`.
 
+### Windows (.exe, cross-compiled on Linux)
+```
+sudo apt install gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix cmake nasm zstd zip golang
+tools/windows.sh          # fetches SDL2 + ANGLE (MSYS2), curl and FFmpeg; builds build-win/Cuelight/ and a zip
+```
+The desktop player (`src/video/video_ffmpeg.c`) also runs on Linux:
+`tools/ffmpeg-player.sh host <prefix>`, then configure with `-DSNTV_PLAYER_FFMPEG=<prefix>`.
+
 ### LG webOS (.ipk)
 1. Get `arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz` from
    [openlgtv/buildroot-nc4 releases](https://github.com/openlgtv/buildroot-nc4/releases)
@@ -413,6 +437,8 @@ LG apps. TVs pick it up from the channel; installed apps offer the update themse
 | Cuelight YouTube | The page and its script checked in a browser engine with YouTube faked (`tests/webos_youtube_check.js`); not yet confirmed on a TV |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
 | Tizen native and WebAssembly | Written against the platform APIs; not compiled with Tizen Studio or run on a Samsung TV |
+| Windows | Cross-compiled with MinGW-w64; run under Wine (with Microsoft's shader compiler, as Windows has): Home, playback with the file's subtitles, settings saved. Not yet run on a Windows PC |
+| Desktop player | Plays MKV/MP4 with sound and subtitles on the Linux build (screenshots); 4K HEVC speed and hardware decoding not yet measured |
 | Remote scancodes | Match LG's `SDL_webOS.h` (Back 482, Exit 505, colours 486-489) |
 
 ## Layout
@@ -456,8 +482,8 @@ vendor/                cJSON, qrcodegen, stb_truetype, stb_image, libwebp decode
 
 ## Configuration and data
 
-Everything lives in the app's writable directory (`SDL_GetPrefPath`, falling back to
-`$HOME/.org.stremio.nativetv`): `settings.json` (auth key, preferences, keys you entered,
+Everything lives in the app's writable directory (`SDL_GetPrefPath`: `%APPDATA%\stremio\nativetv`
+on Windows; falling back to `$HOME/.org.stremio.nativetv`): `settings.json` (auth key, preferences, keys you entered,
 resume points), cached JSON and artwork, `app.log` and `app.prev.log`. No credentials are
 compiled into the binary except the optional TMDB key a CI secret provides.
 

@@ -1,6 +1,7 @@
 #include "gfx.h"
 #include "../log.h"
 #include "../platform/platform.h"
+#include "../video/video.h"
 #include <GLES2/gl2.h>
 #include <math.h>
 #include <stddef.h>
@@ -448,8 +449,28 @@ void gfx_rtex_duo(unsigned tex, float x, float y, float w, float h, float r, flo
     aquad(x, y, w, h, u0, v0, u1, v1, ink, ink, ink, ink, clamp_r(r, w, h), g_aa, MODE_RRECT_TEX_DUO, colour, tex);
 }
 
+/* The desktop's decoded picture fitted into (x, y, w, h), bars round it as a TV's plane has:
+ * where it lands, in UI units. 0 when the backend has none (a TV: a hole instead). */
+static unsigned video_fit(float x, float y, float w, float h, float *fx, float *fy, float *fw, float *fh)
+{
+    int tw, th; float ta;
+    unsigned t = video_frame_texture(&tw, &th, &ta);
+    if (!t || ta <= 0) return 0;
+    *fw = w; *fh = w / ta;
+    if (*fh > h) { *fh = h; *fw = h * ta; }
+    *fx = x + (w - *fw) / 2; *fy = y + (h - *fh) / 2;
+    return t;
+}
+
 void gfx_video_hole(float x, float y, float w, float h)
 {
+    float fx, fy, fw, fh;
+    unsigned t = video_fit(x, y, w, h, &fx, &fy, &fw, &fh);
+    if (t) {   /* the desktop: its picture, drawn here */
+        gfx_rect(x, y, w, h, RGBA(0, 0, 0, 0xFF));
+        gfx_tex(t, fx, fy, fw, fh, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+        return;
+    }
     /* Overwrite the framebuffer with transparent black so the compositor shows
      * the hardware video plane underneath. Needs an RGBA8 window surface. */
     flush();
@@ -463,6 +484,14 @@ void gfx_video_hole(float x, float y, float w, float h)
  * drawn here fades toward transparent, so the video blends into the artwork's edges. */
 void gfx_video_fade(float x, float y, float w, float h, float tl, float tr, float bl, float br)
 {
+    float fx, fy, fw, fh;
+    unsigned t = video_fit(0, 0, SNTV_UI_W, SNTV_UI_H, &fx, &fy, &fw, &fh);   /* a TV's plane covers the screen */
+    if (t) {   /* the desktop: that part of its picture, faded in by as much */
+#define W(a) RGBA(0xFF, 0xFF, 0xFF, (int)(255 * (a)))
+        gfx_tex_uv4(t, x, y, w, h, (x - fx) / fw, (y - fy) / fh, (x + w - fx) / fw, (y + h - fy) / fh, W(tl), W(tr), W(bl), W(br));
+#undef W
+        return;
+    }
     flush();
     glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
 #define F(a) RGBA(0, 0, 0, (int)(255 * (a)))

@@ -108,6 +108,8 @@ void video_app_foreground(void) {}
 void video_keep_awake(int on) { (void)on; }
 void video_hold_screensaver(int on) { (void)on; }
 void video_memory_stage(int stage) { (void)stage; }
+unsigned video_frame_texture(int *w, int *h, float *aspect) { (void)w; (void)h; (void)aspect; return 0; }   /* the video is a plane of its own */
+int video_subtitle_text(char *out, size_t n) { if (n) *out = 0; return 0; }
 int video_paused_on_purpose(void) { return g_paused_by_user; }   /* asked for, unless SNTV_FAKE_PAUSE_STALL paused it */
 
 /* No installer here. SNTV_FAKE_INSTALL (tests) walks through the steps a TV shows. */

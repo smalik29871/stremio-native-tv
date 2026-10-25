@@ -3,7 +3,7 @@
 #define SNTV_PLATFORM_H
 
 #if !defined(SNTV_PLATFORM_LINUX) && !defined(SNTV_PLATFORM_WEBOS) && \
-    !defined(SNTV_PLATFORM_TIZEN) && !defined(SNTV_PLATFORM_WASM) && !defined(SNTV_PLATFORM_ANDROID)
+    !defined(SNTV_PLATFORM_TIZEN) && !defined(SNTV_PLATFORM_WASM) && !defined(SNTV_PLATFORM_ANDROID) && !defined(SNTV_PLATFORM_WINDOWS)
 #define SNTV_PLATFORM_LINUX 1
 #endif
 

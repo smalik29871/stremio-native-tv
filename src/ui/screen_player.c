@@ -2803,6 +2803,8 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
         text = subs_text_at(&p->emb, vi->position, 0, b1, sizeof b1) ? b1 : NULL;
         top = subs_text_at(&p->emb, vi->position, 1, up, sizeof up) ? up : NULL;
     }
+    static char vb[1024];
+    if (!text && !p->track_loaded && video_subtitle_text(vb, sizeof vb)) text = vb;   /* the desktop player's, from inside the file */
     float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
     if (top) {   /* the file asks for the top ({\an8}): over a credit or a sign at the bottom */
         int lines = 1;
@@ -3496,6 +3498,8 @@ static void media_badges(const Player *p, const VideoInfo *vi, char *res, size_t
 static void draw_video_area(Player *p, float x, float y, float w, float h)
 {
 #ifdef SNTV_PLATFORM_LINUX
+    int tw, th; float ta;
+    if (video_frame_texture(&tw, &th, &ta)) { gfx_video_hole(x, y, w, h); return; }   /* the desktop player's own picture */
     char buf[512];
     const char *bg = app_art_background(&p->meta, buf, sizeof buf);
     int iw, ih;

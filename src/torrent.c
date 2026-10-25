@@ -2,18 +2,16 @@
 #include "http.h"
 #include "log.h"
 #include "store.h"
+#include "platform/compat.h"
 #include <SDL.h>
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netinet/in.h>
+#ifndef _WIN32
 #include <signal.h>
+#include <sys/wait.h>
+#endif
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 static int engine_port(void)   /* 11490; tests running apps side by side give each its own */
 {
@@ -28,7 +26,12 @@ static const char *engine_base(void)   /* "http://127.0.0.1:11490/" */
     return base;
 }
 
+#ifdef _WIN32
+static HANDLE g_proc;   /* the engine's process */
+static int g_pid;
+#else
 static pid_t g_pid;
+#endif
 static int g_cache_mb = 160;
 
 static const char *engine_path(void)
@@ -40,9 +43,15 @@ static const char *engine_path(void)
         const char *env = getenv("SNTV_TORRENTD");   /* tests and desktop builds */
         char *base = SDL_GetBasePath();
         if (env && *env) snprintf(path, sizeof path, "%s", env);
+#ifdef _WIN32
+        else snprintf(path, sizeof path, "%storrentd.exe", base ? base : "");
+        if (base) SDL_free(base);
+        if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) path[0] = 0;
+#else
         else snprintf(path, sizeof path, "%storrentd", base ? base : "");
         if (base) SDL_free(base);
         if (access(path, X_OK) != 0) path[0] = 0;
+#endif
     }
     return path;
 }
@@ -77,22 +86,30 @@ int torrent_engine_url_is(const char *url) { return url && !strncmp(url, engine_
 
 static int answers(void)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    sock_startup();
+    int fd = (int)socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return 0;
     struct sockaddr_in a = { 0 };
     a.sin_family = AF_INET; a.sin_port = htons((uint16_t)engine_port()); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     int ok = connect(fd, (struct sockaddr *)&a, sizeof a) == 0;
-    close(fd);
+    sock_close(fd);
     return ok;
 }
 
 static int alive(void)
 {
+#ifdef _WIN32
+    if (!g_proc) return 0;
+    if (WaitForSingleObject(g_proc, 0) == WAIT_TIMEOUT) return 1;
+    CloseHandle(g_proc); g_proc = NULL; g_pid = 0;
+    return 0;
+#else
     if (g_pid <= 0) return 0;
     int st;
     if (waitpid(g_pid, &st, WNOHANG) == 0) return 1;
     g_pid = 0;   /* it stopped (idle) and is reaped now */
     return 0;
+#endif
 }
 
 int torrent_engine_start(int wait_ms)
@@ -105,6 +122,22 @@ int torrent_engine_start(int wait_ms)
         snprintf(ppid, sizeof ppid, "%d", (int)getpid());
         snprintf(addr, sizeof addr, "127.0.0.1:%d", engine_port());
         const char *path = engine_path();
+#ifdef _WIN32   /* its own process, no window, its output in the log */
+        SECURITY_ATTRIBUTES sa = { sizeof sa, NULL, TRUE };
+        HANDLE logf = CreateFileA(log_path, GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        STARTUPINFOA si = { 0 }; PROCESS_INFORMATION pi = { 0 };
+        si.cb = sizeof si;
+        if (logf != INVALID_HANDLE_VALUE) { si.dwFlags = STARTF_USESTDHANDLES; si.hStdOutput = si.hStdError = logf; }
+        char cmd[1400];
+        snprintf(cmd, sizeof cmd, "\"%s\" -addr %s -cache %s -ppid %lu", path, addr, cache, (unsigned long)GetCurrentProcessId());
+        BOOL ok = CreateProcessA(path, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+        if (logf != INVALID_HANDLE_VALUE) CloseHandle(logf);
+        if (!ok) { LOGW("torrent: could not start the engine (Windows error %lu)", GetLastError()); return 0; }
+        CloseHandle(pi.hThread);
+        g_proc = pi.hProcess; g_pid = (int)pi.dwProcessId;
+        (void)ppid;
+        LOGI("torrent: engine started (pid %d, %d MB of RAM for pieces)", g_pid, g_cache_mb);
+#else
         pid_t pid = fork();
         if (pid == 0) {   /* only exec-safe calls from here */
             int fd = open(log_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -115,6 +148,7 @@ int torrent_engine_start(int wait_ms)
         if (pid < 0) { LOGW("torrent: could not start the engine (%s)", strerror(errno)); return 0; }
         g_pid = pid;
         LOGI("torrent: engine started (pid %d, %d MB of RAM for pieces)", (int)pid, g_cache_mb);
+#endif
     }
     for (int waited = 0; ; waited += 25) {
         if (answers()) return 1;
@@ -135,9 +169,15 @@ void torrent_engine_drop(const char *url)
 void torrent_engine_stop(void)
 {
     if (!alive()) return;
+#ifdef _WIN32
+    TerminateProcess(g_proc, 0);
+    WaitForSingleObject(g_proc, 500);
+    CloseHandle(g_proc); g_proc = NULL; g_pid = 0;
+#else
     kill(g_pid, SIGTERM);
     for (int i = 0; i < 20; i++) { int st; if (waitpid(g_pid, &st, WNOHANG) == g_pid) { g_pid = 0; return; } SDL_Delay(25); }
     kill(g_pid, SIGKILL);
     waitpid(g_pid, NULL, 0);
     g_pid = 0;
+#endif
 }

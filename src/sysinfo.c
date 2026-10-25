@@ -2,8 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "platform/compat.h"
+#ifndef _WIN32
 #include <sys/utsname.h>
-#include <dlfcn.h>
+#endif
 
 static int read_first(const char *path, char *buf, size_t n)
 {
@@ -50,9 +52,17 @@ int sysinfo_webos_release(char *out, size_t n, const char **source)
         *source = "os-release";
         return atoi(ver);
     }
+#ifdef _WIN32   /* the real version: GetVersionEx is told an old one without a manifest */
+    typedef LONG (WINAPI *RtlGetVersion_t)(OSVERSIONINFOW *);
+    OSVERSIONINFOW v = { sizeof v };
+    RtlGetVersion_t get = (RtlGetVersion_t)(intptr_t)GetProcAddress(GetModuleHandleA("ntdll.dll"), "RtlGetVersion");
+    if (get && get(&v) == 0) snprintf(out, n, "Windows %lu.%lu build %lu", v.dwMajorVersion, v.dwMinorVersion, v.dwBuildNumber);
+    else snprintf(out, n, "Windows");
+#else
     struct utsname u;
     if (uname(&u) == 0) snprintf(out, n, "%s %s %s", u.sysname, u.release, u.machine);
     else out[0] = 0;
+#endif
     return 0;
 }
 
@@ -80,6 +90,12 @@ void sysinfo_probe_decoders(void)
 {
     static const int AVCODEC[] = { 62, 61, 60, 59, 58, 57, 56, 55, 54, -1 }, OPENH264[] = { 8, 7, 6, 5, 4, -1 }, ZERO[] = { 0, -1 };
     char text[96];
+#ifdef SNTV_DESKTOP_PLAYER
+    (void)AVCODEC; (void)OPENH264; (void)ZERO; (void)text; (void)open_any;   /* the desktop decodes with its own FFmpeg, not the system's */
+    append("FFmpeg (built in)");
+    g_decoders_ready = 1;
+    return;
+#endif
     void *h = open_any("libavcodec", AVCODEC);
     if (h) {
         unsigned (*version)(void) = (unsigned (*)(void))dlsym(h, "avcodec_version");

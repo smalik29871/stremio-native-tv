@@ -14,16 +14,13 @@
 #include <strings.h>
 #include <time.h>
 #include <stdint.h>
-#if !defined(_WIN32)
-#include <arpa/inet.h>
+#include "platform/compat.h"
+#ifdef _WIN32
+#include <iphlpapi.h>
+#else
 #include <ifaddrs.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
 #endif
+#include <errno.h>
 
 static int g_sock = -1, g_port;
 static SDL_Thread *g_thread;
@@ -214,7 +211,7 @@ static int frames_main(void *arg)
         SDL_LockMutex(g_frames_lock);
         while (!g_frames && !g_quit) SDL_CondWait(g_frames_cond, g_frames_lock);
         if (g_quit) {   /* closing: nobody is waiting for these pictures */
-            while (g_frames) { FrameJob *o = g_frames; g_frames = o->next; close(o->fd); free(o); }
+            while (g_frames) { FrameJob *o = g_frames; g_frames = o->next; sock_close(o->fd); free(o); }
             SDL_UnlockMutex(g_frames_lock);
             return 0;
         }
@@ -232,7 +229,7 @@ static int frames_main(void *arg)
                 for (int i = 0; i < n; i++) { size_t u = strlen(text); snprintf(text + u, sizeof text - u, "%.3f\n", ks[i]); }
                 respond_text(j->fd, "200 OK", text);
             }
-            close(j->fd);
+            sock_close(j->fd);
             free(j);
             continue;
         }
@@ -244,7 +241,7 @@ static int frames_main(void *arg)
             send_all(j->fd, (const char *)bmp, len);
             free(bmp);
         } else respond_text(j->fd, "404 Not Found", err);
-        close(j->fd);
+        sock_close(j->fd);
         free(j);
     }
 }
@@ -266,13 +263,12 @@ static int queue_frame(int fd, const char *req)
         p += len + (p[len] == '&');
     }
     if (strncmp(j->url, "http", 4) != 0) { free(j); return 0; }
-    struct timeval tv = { 30, 0 };
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    sock_timeout(fd, SO_SNDTIMEO, 30);
     SDL_LockMutex(g_frames_lock);
     j->next = g_frames; g_frames = j;
     int n = 0;
     for (FrameJob **pp = &g_frames; *pp; ) {   /* past the newest few: turn away */
-        if (++n > FRAMES_WAITING) { FrameJob *old = *pp; *pp = old->next; respond_text(old->fd, "503 Service Unavailable", "busy"); close(old->fd); free(old); }
+        if (++n > FRAMES_WAITING) { FrameJob *old = *pp; *pp = old->next; respond_text(old->fd, "503 Service Unavailable", "busy"); sock_close(old->fd); free(old); }
         else pp = &(*pp)->next;
     }
     if (!g_frames_thread) g_frames_thread = SDL_CreateThread(frames_main, "frames", NULL);
@@ -419,7 +415,7 @@ static void yt_whole(YtJob *j, const char *hdr)
 static int yt_main(void *arg)
 {
     YtJob *j = arg;
-    if (strstr(j->url, ".m3u8") || strstr(j->url, "/manifest/hls")) { yt_playlist(j); close(j->fd); free(j); return 0; }
+    if (strstr(j->url, ".m3u8") || strstr(j->url, "/manifest/hls")) { yt_playlist(j); sock_close(j->fd); free(j); return 0; }
     uint64_t total = url_clen(j->url);
     char head[400], hdr[300];
     snprintf(hdr, sizeof hdr, "User-Agent: %s", youtube_ua_for(j->url));
@@ -467,7 +463,7 @@ static int yt_main(void *arg)
         if (ahead) { HttpResponse drop; yt_piece_join(ahead, &drop); http_response_free(&drop); }
         free(piece_url);
     }
-    close(j->fd);
+    sock_close(j->fd);
     free(j);
     return 0;
 }
@@ -656,8 +652,7 @@ static int handle_sync(int fd, char *req, ssize_t n, const struct sockaddr_in *p
         char *buf = malloc((size_t)clen + 1);
         if (!buf) { respond_text(fd, "500 Internal Server Error", "no memory"); return 1; }
         memcpy(buf, body, (size_t)(have < clen ? have : clen));
-        struct timeval tv = { 20, 0 };
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        sock_timeout(fd, SO_RCVTIMEO, 20);
         while (have < clen) { ssize_t m = recv(fd, buf + have, (size_t)(clen - have), 0); if (m <= 0) break; have += m; }
         if (have < clen) { free(buf); respond_text(fd, "400 Bad Request", "the bundle was cut off"); return 1; }
         buf[clen] = 0;
@@ -793,11 +788,10 @@ static int serve(void *arg)
     (void)arg;
     while (!g_quit) {
         struct sockaddr_in peer; socklen_t pl = sizeof peer;
-        int fd = accept(g_sock, (struct sockaddr *)&peer, &pl);
+        int fd = (int)accept(g_sock, (struct sockaddr *)&peer, &pl);
         if (fd < 0) { if (g_quit) break; SDL_Delay(50); continue; }
-        struct timeval tv = { 5, 0 };
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-        if (!handle(fd, &peer)) close(fd);
+        sock_timeout(fd, SO_RCVTIMEO, 5);
+        if (!handle(fd, &peer)) sock_close(fd);
     }
     return 0;
 }
@@ -808,10 +802,13 @@ void phone_start(void)
     g_lock = SDL_CreateMutex();
     g_frames_lock = SDL_CreateMutex();
     g_frames_cond = SDL_CreateCond();
-    g_sock = socket(AF_INET, SOCK_STREAM, 0);
+    sock_startup();
+    g_sock = (int)socket(AF_INET, SOCK_STREAM, 0);
     if (g_sock < 0) return;
+#ifndef _WIN32   /* Windows would let two apps share the port */
     int one = 1;
     setsockopt(g_sock, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+#endif
     const char *pp = getenv("SNTV_PHONE_PORT");   /* tests: apps side by side keep to their own ports */
     int base = pp && atoi(pp) > 1024 ? atoi(pp) : 11471;
     for (g_port = base; g_port < base + 9; g_port++) {
@@ -819,7 +816,7 @@ void phone_start(void)
         a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_ANY); a.sin_port = htons((uint16_t)g_port);
         if (bind(g_sock, (struct sockaddr *)&a, sizeof a) == 0) break;
     }
-    if (g_port >= base + 9 || listen(g_sock, 4) != 0) { close(g_sock); g_sock = -1; LOGW("phone: could not listen"); return; }
+    if (g_port >= base + 9 || listen(g_sock, 4) != 0) { sock_close(g_sock); g_sock = -1; LOGW("phone: could not listen"); return; }
     g_thread = SDL_CreateThread(serve, "phone", NULL);
     char url[96];
     if (phone_url(url, sizeof url)) LOGI("phone: type-on-your-phone page at %s", url);
@@ -828,7 +825,7 @@ void phone_start(void)
 void phone_stop(void)
 {
     g_quit = 1;
-    if (g_sock >= 0) { shutdown(g_sock, SHUT_RDWR); close(g_sock); g_sock = -1; }
+    if (g_sock >= 0) { shutdown(g_sock, SHUT_RDWR); sock_close(g_sock); g_sock = -1; }
     if (g_thread) SDL_WaitThread(g_thread, NULL);
     if (g_frames_lock) {
         frames_stop();   /* a source gone quiet must not hold the close */
@@ -845,6 +842,23 @@ static int lan_ip(char *ip, size_t n)
     ip[0] = 0;
     const char *override = getenv("SNTV_PHONE_HOST");   /* tests */
     if (override) { snprintf(ip, n, "%s", override); return 1; }
+#ifdef _WIN32   /* the adapters' IPv4 addresses */
+    ULONG len = 16384;
+    IP_ADAPTER_ADDRESSES *aa = malloc(len);
+    if (aa && GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER, NULL, aa, &len) == NO_ERROR)
+        for (IP_ADAPTER_ADDRESSES *a = aa; a; a = a->Next) {
+            if (a->OperStatus != IfOperStatusUp) continue;
+            for (IP_ADAPTER_UNICAST_ADDRESS *u = a->FirstUnicastAddress; u; u = u->Next) {
+                struct sockaddr_in *sa = (struct sockaddr_in *)u->Address.lpSockaddr;
+                if (sa->sin_family != AF_INET) continue;
+                uint32_t h = ntohl(sa->sin_addr.s_addr);
+                if ((h >> 24) == 127 || (h >> 16) == 0xA9FE) continue;   /* loopback, link-local */
+                inet_ntop(AF_INET, &sa->sin_addr, ip, (socklen_t)n);
+                if ((h >> 24) == 192 || (h >> 24) == 10 || ((h >> 24) == 172 && ((h >> 16) & 0xF0) == 16)) { free(aa); return 1; }
+            }
+        }
+    free(aa);
+#else
     struct ifaddrs *ifa = NULL;
     if (getifaddrs(&ifa) == 0) {
         for (struct ifaddrs *p = ifa; p; p = p->ifa_next) {
@@ -857,6 +871,7 @@ static int lan_ip(char *ip, size_t n)
         }
         freeifaddrs(ifa);
     }
+#endif
     return ip[0] != 0;
 }
 
@@ -971,6 +986,9 @@ char *phone_take_restore(void)
 
 static void random_bytes(unsigned char *b, size_t n)
 {
+#ifdef _WIN32
+    for (size_t i = 0; i < n; i++) { unsigned v; if (rand_s(&v)) break; b[i] = (unsigned char)v; if (i + 1 == n) return; }
+#endif
     FILE *f = fopen("/dev/urandom", "rb");
     size_t got = f ? fread(b, 1, n, f) : 0;
     if (f) fclose(f);
@@ -1283,14 +1301,14 @@ static void probe_batch(Probe *pr, int n)
 {
     struct pollfd pf[256];
     for (int i = 0; i < n; i++) {
-        pr[i].fd = socket(AF_INET, SOCK_STREAM, 0);
+        pr[i].fd = (int)socket(AF_INET, SOCK_STREAM, 0);
         pr[i].stage = 0; pr[i].len = 0;
         if (pr[i].fd < 0) continue;
-        fcntl(pr[i].fd, F_SETFL, fcntl(pr[i].fd, F_GETFL, 0) | O_NONBLOCK);
+        sock_nonblock(pr[i].fd);
         struct sockaddr_in a; memset(&a, 0, sizeof a);
         a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(pr[i].ip); a.sin_port = htons((uint16_t)pr[i].port);
-        if (connect(pr[i].fd, (struct sockaddr *)&a, sizeof a) == 0 || errno == EINPROGRESS) pr[i].stage = 1;
-        else { close(pr[i].fd); pr[i].fd = -1; }
+        if (connect(pr[i].fd, (struct sockaddr *)&a, sizeof a) == 0 || sock_in_progress()) pr[i].stage = 1;
+        else { sock_close(pr[i].fd); pr[i].fd = -1; }
     }
     Uint32 until = SDL_GetTicks() + 2500;
     for (;;) {
@@ -1304,7 +1322,7 @@ static void probe_batch(Probe *pr, int n)
             if (!pf[k].revents) continue;
             if (p->stage == 1) {
                 int err = 0; socklen_t el = sizeof err;
-                if (getsockopt(p->fd, SOL_SOCKET, SO_ERROR, &err, &el) || err) { p->stage = 3; continue; }
+                if (getsockopt(p->fd, SOL_SOCKET, SO_ERROR, (char *)&err, &el) || err) { p->stage = 3; continue; }
                 char req[120];
                 snprintf(req, sizeof req, "GET /sync/hello HTTP/1.0\r\nHost: x\r\nConnection: close\r\n\r\n");
                 if (send(p->fd, req, strlen(req), 0) < 0) { p->stage = 3; continue; }
@@ -1317,7 +1335,7 @@ static void probe_batch(Probe *pr, int n)
             }
         }
     }
-    for (int i = 0; i < n; i++) if (pr[i].fd >= 0) close(pr[i].fd);
+    for (int i = 0; i < n; i++) if (pr[i].fd >= 0) sock_close(pr[i].fd);
 }
 
 static int scan_main(void *arg)
