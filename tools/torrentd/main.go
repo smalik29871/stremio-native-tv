@@ -150,6 +150,14 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok")
 	case r.URL.Path == "/stats.json":
 		s.stats(w)
+	case r.URL.Path == "/cache": // the app's memory watch resizes the piece cache as memory goes
+		if mb, err := strconv.Atoi(r.URL.Query().Get("mb")); err == nil && mb >= 32 {
+			s.cacheB = int64(mb) << 20
+			s.store.setCap(s.cacheB)
+			debug.SetMemoryLimit(s.cacheB + 96<<20)
+			log.Printf("torrentd: %d MB of RAM for pieces now", mb)
+		}
+		io.WriteString(w, "ok")
 	case len(parts) == 2 && parts[1] == "drop":
 		if ih, ok := parseHash(parts[0]); ok {
 			if t, found := s.cl.Torrent(ih); found {

@@ -610,6 +610,8 @@ static volatile int g_keep_awake;
 void video_keep_awake(int on) { g_keep_awake = on; }
 static volatile int g_saver_held;   /* the app's own screensaver is up */
 static void saver_register(void);
+void video_memory_stage(int stage) { (void)stage; }
+
 void video_hold_screensaver(int on)
 {
     if (on != g_saver_held) LOGI("video(webos): the app's screensaver %s", on ? "is up: the TV's held off" : "closed");

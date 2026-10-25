@@ -3,6 +3,7 @@
  * its static methods over JNI; video_update reads the snapshot it keeps. */
 #include "video.h"
 #include "../log.h"
+#include "../memwatch.h"
 #include <SDL.h>
 #include <SDL_system.h>
 #include <jni.h>
@@ -12,7 +13,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -22,6 +23,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "deviceVolume", "()F" }, { "setDeviceVolume", "(F)V" }, { "brightness", "()F" }, { "setBrightness", "(F)V" },
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
+    { "setMemoryStage", "(I)V" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -132,6 +134,10 @@ int   video_set_brightness(float v) { if (!env()) return 0; CALL(M_SET_BRIGHT, (
 static int g_awake, g_saver_held;
 void video_keep_awake(int on) { g_awake = on; CALL(M_AWAKE, (jboolean)(g_awake || g_saver_held)); }
 void video_hold_screensaver(int on) { g_saver_held = on; CALL(M_AWAKE, (jboolean)(g_awake || g_saver_held)); }
+void video_memory_stage(int stage) { CALL(M_MEM_STAGE, (jint)stage); }
+
+/* CuelightActivity.onTrimMemory, on Android's thread: the watch acts on the next frame. */
+JNIEXPORT void JNICALL Java_app_cuelight_tv_CuelightActivity_nativeTrimMemory(JNIEnv *e, jclass c, jint level) { (void)e; (void)c; mem_system_trim((int)level); }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 
 /* Updating itself comes in a later milestone (PackageInstaller); until then the release page. */

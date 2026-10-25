@@ -6,6 +6,7 @@
 #include "../quality.h"
 #include "../perfstat.h"
 #include "../app.h"
+#include "../memwatch.h"
 #include "../http.h"
 #include "../image.h"
 #include "../frames.h"
@@ -1404,7 +1405,7 @@ static unsigned aperture_cached_frame(const Player *p, double t, int *w, int *h)
 
 static void draw_aperture_filmstrip(Player *p, const VideoInfo *vi, double pos, float by)
 {
-    int span = g_app.low_memory ? 0 : 2;
+    int span = g_app.low_memory || mem_stage() >= 1 ? 0 : 2;   /* the strip's neighbours cost decodes */
     float total = 344 + span * 2 * (230 + 16), x = (SNTV_UI_W - total) / 2;
     float bottom = by - 96;
     gfx_gradient_v(0, by - 410, SNTV_UI_W, 350, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xD0));

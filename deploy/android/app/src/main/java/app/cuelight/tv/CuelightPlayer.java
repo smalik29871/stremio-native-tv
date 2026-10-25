@@ -34,6 +34,7 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -114,6 +115,7 @@ public final class CuelightPlayer {
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER);
         sPlayer = new ExoPlayer.Builder(sActivity, renderers)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(sActivity, http)))
+            .setLoadControl(loadControl())
             .build();
         sPlayer.setVideoSurfaceView(sView);
         sPlayer.setTrackSelectionParameters(sPlayer.getTrackSelectionParameters().buildUpon()
@@ -182,6 +184,24 @@ public final class CuelightPlayer {
     public static void setVolume(final int percent) { run(() -> { sVolume = percent / 100f; if (sPlayer != null) sPlayer.setVolume(sMuted ? 0 : sVolume); }); }
     public static void setMuted(final boolean m) { run(() -> { sMuted = m; if (sPlayer != null) sPlayer.setVolume(m ? 0 : sVolume); }); }
     public static void setKeepAwake(final boolean on) { run(() -> { sKeepAwake = on; keepAwake(); }); }
+
+    /* The app's memory stage (0 plenty, 1 getting low, 2 tight): the player's buffers are sized by
+     * it when it is built; one standing idle is let go so the next load builds a leaner one. */
+    private static int sMemStage;
+    public static void setMemoryStage(final int stage) {
+        run(() -> {
+            if (sMemStage == stage) return;
+            sMemStage = stage;
+            if (sPlayer != null && !sPlayer.isPlaying() && sPlayer.getPlaybackState() == Player.STATE_IDLE) { sPlayer.release(); sPlayer = null; }
+        });
+    }
+
+    private static DefaultLoadControl loadControl() {
+        DefaultLoadControl.Builder b = new DefaultLoadControl.Builder();
+        if (sMemStage >= 2) b.setBufferDurationsMs(8000, 20000, 1500, 3000).setTargetBufferBytes(12 << 20);
+        else if (sMemStage == 1) b.setBufferDurationsMs(15000, 30000, 2000, 4000).setTargetBufferBytes(24 << 20);
+        return b.build();
+    }
     public static void setRect(final int x, final int y, final int w, final int h) { run(() -> { sRectX = x; sRectY = y; sRectW = w; sRectH = h; layout(); }); }
 
     /* index: group << 8 | track, as tracks() lists them; -1 turns the file's subtitles off. */

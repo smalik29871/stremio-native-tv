@@ -93,6 +93,8 @@ void video_hold_screensaver(int on);
 /* Paused by a video_pause() call (the viewer, the app going to the background, a break),
  * not a stall that the TV reports as a pause (LG does). */
 int video_paused_on_purpose(void);
+/* The memory stage (memwatch.h): the backend sizes its buffers by it where it can (Android). */
+void video_memory_stage(int stage);
 
 /* Updating the app itself (here because the system bus lives in this backend). On webOS
  * the Homebrew Channel's service downloads the package, checks its SHA-256 and installs

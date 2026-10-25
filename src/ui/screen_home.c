@@ -3,6 +3,7 @@
  * progress), My Library, and one row per addon catalog. Everything eases;
  * rows are served from the disk cache first and refreshed in the background. */
 #include "../app.h"
+#include "../memwatch.h"
 #include "../perfstat.h"
 #include "../lists.h"
 #include "../tracking.h"
@@ -927,7 +928,7 @@ static void update(Screen *s, float dt)
             if (j >= r->focus - 1 && j <= r->focus + 1) image_prefetch(app_art_background(&r->metas[j], buf, sizeof buf));
         }
         int nr = next_visible(h, h->focus_row, 1);
-        if (nr >= 0 && !g_app.low_memory) { Row *n2 = h->rows[nr]; for (int j = 0; j < n2->n && j < 8; j++) image_prefetch(app_art_poster(&n2->metas[j], buf, sizeof buf)); }
+        if (nr >= 0 && !g_app.low_memory && mem_stage() < 1) { Row *n2 = h->rows[nr];   /* the next row's posters ahead, while memory allows */ for (int j = 0; j < n2->n && j < 8; j++) image_prefetch(app_art_poster(&n2->metas[j], buf, sizeof buf)); }
     }
     if (g_app.addons_loading) app_redraw();
 }

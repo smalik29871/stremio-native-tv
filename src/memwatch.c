@@ -7,9 +7,14 @@
 #include "app.h"
 #include "image.h"
 #include "log.h"
+#include "torrent.h"
+#include "video/video.h"
 #include <stdio.h>
-#ifdef __GLIBC__
+#if defined(__GLIBC__) || defined(__ANDROID__)
 #include <malloc.h>
+#endif
+#ifndef M_PURGE
+#define M_PURGE (-101)   /* bionic: give freed pages back */
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -60,9 +65,39 @@ size_t mem_normal_budget(void)
 /* Freed memory goes back to the system; glibc otherwise keeps it for the app. */
 static void give_back(void)
 {
-#ifdef __GLIBC__
+#if defined(__ANDROID__)
+    mallopt(M_PURGE, 0);
+#elif defined(__GLIBC__)
     malloc_trim(0);
 #endif
+}
+
+static MemStageState g_st;
+static int g_fx_forced, g_bg;
+static volatile int g_trim;   /* Android's onTrimMemory level, waiting for the main thread */
+
+static void stage_apply(int st)
+{
+    if (st == mem_stage()) return;
+    mem_stage_set(st);
+    torrent_engine_set_cache_mb(st >= 1 ? (g_app.low_memory ? 64 : 96) : (g_app.low_memory ? 96 : 192));
+    if (st >= 2 && !g_app.fx_light) { g_app.fx_light = 1; g_fx_forced = 1; }   /* the glass and the drift cost memory too */
+    else if (st < 2 && g_fx_forced) { g_app.fx_light = 0; g_fx_forced = 0; }
+    video_memory_stage(st);
+    LOGI("memory: %s (%ld MB free of %ld): %s", st == 2 ? "tight" : st == 1 ? "getting low" : "room again", g_last.avail_kb / 1024, g_last.total_kb / 1024,
+         st == 2 ? "the saver, light effects, the plain clock screensaver, a smaller script sandbox"
+         : st == 1 ? "poster prefetch, trailers and seek strips paused, the P2P cache halved" : "everything back");
+    app_redraw();
+}
+
+void mem_system_trim(int level) { g_trim = level; }
+
+void mem_background(int on)
+{
+    if (g_bg == on) return;
+    g_bg = on;
+    if (on) { image_set_budget(12u << 20); give_back(); LOGI("memory: in the background: the artwork let go"); }
+    else { image_set_budget(mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb) >= 2 ? 16u << 20 : g_app.low_memory ? 48u << 20 : mem_normal_budget()); LOGI("memory: back in front: the artwork budget restored"); }
 }
 
 static int g_playing;   /* a video fills the screen: the artwork cache shrinks for the decoder */
@@ -98,11 +133,21 @@ void mem_apply_mode(void)
 
 void mem_tick(float dt)
 {
+    if (g_trim) {   /* Android asked, from its thread */
+        int l = g_trim; g_trim = 0;
+        mem_sample(&g_last);
+        LOGI("memory: the system asks for memory (trim level %d)", l);
+        if (l >= 80 || l == 15) mem_emergency();                                    /* COMPLETE, RUNNING_CRITICAL */
+        else if (l >= 60 || l == 10) { g_st.stage = 2; g_st.down_for = 0; stage_apply(2); }   /* MODERATE, RUNNING_LOW */
+        else if (l == 40 || l == 5) { if (g_st.stage < 1) { g_st.stage = 1; stage_apply(1); } }   /* BACKGROUND, RUNNING_MODERATE */
+        else if (l == 20) mem_background(1);                                        /* UI_HIDDEN */
+    }
     g_since_sample += dt;
     if (g_since_sample < 5) return;
     g_since_sample = 0;
     if (!mem_sample(&g_last)) return;
     int level = mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb);
+    stage_apply(mem_stage_step(&g_st, level, 5));
     if (level == 2) {
         if (++g_tight_runs >= 2 && g_app.memory_mode != 2 && g_reason != WHY_TIGHT && g_reason != WHY_CHOSEN) {
             apply(1, WHY_TIGHT);
@@ -138,6 +183,7 @@ void mem_emergency(void)
     image_set_budget(16u << 20);
     give_back();
     if (g_app.memory_mode != 2 && g_reason != WHY_CHOSEN) { apply(1, WHY_TIGHT); g_tight_runs = 6; if (!g_toasted++) app_toast("Memory is tight: keeping fewer rows and posters"); }
+    g_st.stage = 2; g_st.down_for = 0; stage_apply(2);
 }
 
 const char *mem_reason_text(void)
@@ -154,7 +200,11 @@ int mem_describe(char *buf, size_t n)
 {
     MemSample m;
     if (!mem_sample(&m)) { snprintf(buf, n, "memory unknown"); return 0; }
-    if (m.total_kb >= 1024 * 1024) snprintf(buf, n, "%.1f GB in the TV  \xC2\xB7  %ld MB free  \xC2\xB7  app %ld MB", m.total_kb / 1048576.0, m.avail_kb / 1024, m.rss_kb / 1024);
-    else snprintf(buf, n, "%ld MB in the TV  \xC2\xB7  %ld MB free  \xC2\xB7  app %ld MB", m.total_kb / 1024, m.avail_kb / 1024, m.rss_kb / 1024);
+    int len = m.total_kb >= 1024 * 1024 ? snprintf(buf, n, "%.1f GB in the TV  \xC2\xB7  %ld MB free  \xC2\xB7  app %ld MB", m.total_kb / 1048576.0, m.avail_kb / 1024, m.rss_kb / 1024)
+                                       : snprintf(buf, n, "%ld MB in the TV  \xC2\xB7  %ld MB free  \xC2\xB7  app %ld MB", m.total_kb / 1024, m.avail_kb / 1024, m.rss_kb / 1024);
+    if (len > 0 && (size_t)len < n) {
+        if (g_app.low_memory) snprintf(buf + len, n - len, "  \xC2\xB7  saver on (%s)", mem_reason_text());
+        else if (mem_stage()) snprintf(buf + len, n - len, "  \xC2\xB7  %s", mem_stage() == 2 ? "tight" : "getting low");
+    }
     return 1;
 }

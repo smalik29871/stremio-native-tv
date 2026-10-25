@@ -106,6 +106,7 @@ void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 void video_keep_awake(int on) { (void)on; }
 void video_hold_screensaver(int on) { (void)on; }
+void video_memory_stage(int stage) { (void)stage; }
 int video_paused_on_purpose(void) { return g_paused_by_user; }   /* asked for, unless SNTV_FAKE_PAUSE_STALL paused it */
 
 /* No installer here. SNTV_FAKE_INSTALL (tests) walks through the steps a TV shows. */

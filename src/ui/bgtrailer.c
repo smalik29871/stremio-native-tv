@@ -3,6 +3,7 @@
  * at what is left, so the trailer blends into the same edges the artwork had. */
 #include "bgtrailer.h"
 #include "../app.h"
+#include "../memwatch.h"
 #include "../platform/platform.h"
 #include "../http.h"
 #include "../log.h"
@@ -135,7 +136,7 @@ static void on_trailer(const ImdbTrailer *t, int n, long status, void *user)
 void bgtrailer_want(const char *id, float height, float dwell)
 {
     if (!g_app.auto_trailers || SNTV_PHONE ||   /* upright on a phone the artwork is a card: no room behind it */
-         !id || strncmp(id, "tt", 2) != 0 || g_app.pip) return;
+         !id || strncmp(id, "tt", 2) != 0 || g_app.pip || mem_stage() >= 1) return;   /* and not while memory is getting low */
     B.wanted = 1;
     if (strcmp(id, B.id) != 0) {
         if (B.state != BT_IDLE) finish(BT_IDLE);

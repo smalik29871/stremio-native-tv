@@ -825,11 +825,12 @@ int main(int argc, char **argv)
                 video_app_background();
                 relay_buffer_close();   /* the buffer's memory back to the TV while we are away */
                 g_backgrounded = 1;
+                mem_background(1);
                 app_library_flush(1);
                 store_save();
                 store_flush();
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
-                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; app_library_foreground(); app_update_foreground(); }
+                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; app_library_foreground(); app_update_foreground(); mem_background(0); }
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
                 relay_buffer_close();   /* the first thing to give back: the source plays on directly */
@@ -839,6 +840,7 @@ int main(int argc, char **argv)
                 video_app_background();
                 relay_buffer_close();
                 g_backgrounded = 1;
+                mem_background(1);
                 app_library_flush(1);
                 store_save();
                 store_flush();   /* on flash before webOS may end us */
@@ -846,6 +848,7 @@ int main(int argc, char **argv)
                 video_app_foreground();
                 if (g_backgrounded) { app_update_foreground(); app_library_foreground(); }   /* whichever of these events comes first */
                 g_backgrounded = 0;
+                mem_background(0);
                 app_redraw();
             }
             app_redraw();

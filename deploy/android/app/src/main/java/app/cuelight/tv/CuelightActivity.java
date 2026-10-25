@@ -19,6 +19,14 @@ public class CuelightActivity extends SDLActivity {
         return new String[] { "SDL2", "main" };
     }
 
+    /* Android's word on memory: the C app's memory watch steps down (src/memwatch.c). */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        try { nativeTrimMemory(level); } catch (UnsatisfiedLinkError ignored) { }   // before the app's library is up
+    }
+    private static native void nativeTrimMemory(int level);
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // a phone (its short side under 600 dp): the app draws larger (src/ui/gfx.c)

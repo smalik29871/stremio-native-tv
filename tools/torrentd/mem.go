@@ -82,6 +82,14 @@ func (s *memStorage) OpenTorrent(_ context.Context, info *metainfo.Info, ih meta
 
 func (s *memStorage) Close() error { return nil }
 
+// setCap changes the cap; what is over it goes at the next eviction pass.
+func (s *memStorage) setCap(c int64) {
+	s.mu.Lock()
+	s.cap = c
+	s.mu.Unlock()
+	s.evict()
+}
+
 func (s *memStorage) attach(ih metainfo.Hash, t *torrent.Torrent) {
 	s.mu.Lock()
 	if mt := s.ts[ih]; mt != nil {

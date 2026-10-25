@@ -206,12 +206,18 @@ plays offline, shown full screen if it is a video), and playback continues where
   network threads, handed to the screen within an 8 ms budget per frame, and anything
   slower is logged with its host. Idle, the app wakes the instant a key arrives.
 - An **Automatic effects level** measures the TV and drops to Light when it cannot keep up.
-- A **memory saver** that watches the TV: on a small set (under 2 GB) it is on from the
+- A **memory saver** that watches the TV: on a small set (about 1 GB) it is on from the
   start; on any set it turns itself on when free memory gets tight (fewer rows and
   posters kept, artwork budget cut, posters decoded at half size), and off again once
-  there is room. While a video fills the screen on such a TV the artwork cache shrinks
-  further so the decoder has room, and freed memory is handed back to the system. It
-  also answers the system's low-memory warning. Settings > Interface shows why it is on.
+  there is room. Before that it steps down in stages: as memory gets low, poster
+  prefetch, trailers and seek strips pause and the P2P cache halves; when it is tight,
+  the saver comes on, effects go light, the screensaver falls back to the plain clock
+  and the script sandbox shrinks; each comes back by itself after a minute or two of
+  room. Behind the TV's Home the artwork is let go. While a video fills the screen on
+  such a TV the artwork cache shrinks further so the decoder has room, and freed memory
+  is handed back to the system. It also answers the system's low-memory warning (and
+  Android's trim levels, where the player's buffers are sized by the stage too).
+  Settings > Interface shows why it is on; Diagnostics shows the stage.
 - **Shared connections**: the network workers share DNS answers and TLS sessions, so a
   server one of them has reached is resumed by the others without a full handshake.
 - **libcurl via `dlopen`**, because LG ships `libcurl.so.5` and the SDK ships `.so.4`.

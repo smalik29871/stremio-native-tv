@@ -9,6 +9,7 @@
 #include "../store.h"
 #include "../youtube.h"
 #include "../breaks.h"
+#include "../memwatch.h"
 #include "../http.h"
 #include "../../vendor/cJSON.h"
 #include "../torbox.h"
@@ -710,6 +711,10 @@ Screen *screen_ambient_create(void)
         g_style = (int)env_sec("SNTV_AMBIENT_PICK", (float)(r % AMBIENT_SHUFFLE));
         g_face = (int)((r / 1000) % CLOCKFACE_COUNT);
         LOGI("ambient: shuffle picked %s%s%s", AMBIENT_STYLE_NAMES[g_style], g_style == AMBIENT_CLOCK ? ", face " : "", g_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_face] : "");
+    }
+    if (mem_stage() >= 2 && g_style != AMBIENT_CLOCK && g_style != AMBIENT_LOGO) {   /* tight: the plain clock costs nothing */
+        LOGI("ambient: memory is tight; the plain clock instead of %s", AMBIENT_STYLE_NAMES[g_style]);
+        g_style = AMBIENT_CLOCK; g_face = CLOCKFACE_DIGITAL;
     }
     collect(a);
     a->shown_at = a->born = g_app.time;

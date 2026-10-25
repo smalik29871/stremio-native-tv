@@ -1,6 +1,10 @@
 /* The pure part of the memory watch, kept apart so the unit test links without the app. */
 #include "memwatch.h"
 
+static int g_stage;   /* here, with the pure part, so a library user (the YouTube solver) can read it */
+int  mem_stage(void) { return g_stage; }
+void mem_stage_set(int st) { g_stage = st; }
+
 int mem_level(long total_kb, long avail_kb, long rss_kb)
 {
     if (total_kb <= 0) return 0;
@@ -13,3 +17,15 @@ int mem_level(long total_kb, long avail_kb, long rss_kb)
     return 0;
 }
 
+
+int mem_stage_step(MemStageState *st, int level, float dt_s)
+{
+    if (level > st->stage) {
+        st->down_for = 0;
+        if ((st->up_for += dt_s) >= 10) { st->stage = level; st->up_for = 0; }
+    } else if (level < st->stage) {
+        st->up_for = 0;
+        if ((st->down_for += dt_s) >= (st->stage == 2 ? 120 : 60)) { st->stage--; st->down_for = 0; }
+    } else st->up_for = st->down_for = 0;
+    return st->stage;
+}

@@ -2,6 +2,7 @@
 #include "http.h"
 #include "store.h"
 #include "log.h"
+#include "memwatch.h"
 #include "cJSON.h"
 #include "quickjs/quickjs.h"
 #include <SDL.h>
@@ -231,7 +232,7 @@ static void *js_thread(void *arg)
     JsRun *j = arg;
     JSRuntime *rt = JS_NewRuntime();
     if (!rt) { snprintf(j->err, sizeof j->err, "QuickJS could not start"); return NULL; }
-    JS_SetMemoryLimit(rt, (size_t)384 << 20);
+    JS_SetMemoryLimit(rt, (size_t)(mem_stage() >= 2 ? 96 : 384) << 20);   /* the solver needs far less; the cap is for a runaway */
     JS_SetMaxStackSize(rt, (size_t)12 << 20);
     JSContext *ctx = JS_NewContext(rt);
     JSValue global = JS_GetGlobalObject(ctx);

@@ -49,7 +49,19 @@ static const char *engine_path(void)
 
 int torrent_engine_available(void) { return engine_path()[0] != 0; }
 
-void torrent_engine_set_cache_mb(int mb) { if (mb >= 32) g_cache_mb = mb; }
+static void on_cache(HttpResponse *r, void *user) { (void)r; (void)user; }
+
+/* The engine's RAM for pieces: for the next start, and resized now while it runs. */
+void torrent_engine_set_cache_mb(int mb)
+{
+    if (mb < 32 || mb == g_cache_mb) return;
+    g_cache_mb = mb;
+    if (g_pid > 0) {
+        char url[80]; snprintf(url, sizeof url, "%scache?mb=%d", engine_base(), mb);
+        http_request_async(url, NULL, on_cache, NULL);
+        LOGI("torrent: the engine's cache set to %d MB", mb);
+    }
+}
 
 char *torrent_engine_url(const char *info_hash, int file_idx, const char *trackers)
 {
