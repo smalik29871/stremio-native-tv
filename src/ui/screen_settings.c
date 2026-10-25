@@ -1847,7 +1847,7 @@ static int key(Screen *s, KeyAction a)
         else if (id >= IT_ADDON_BASE) {
             const Addon *a = &g_app.addons[id - IT_ADDON_BASE];
             const char *items[2]; int icons[2], n = 0;
-            g_addon_pick.idx = id - IT_ADDON_BASE; g_addon_pick.n = 0;
+            g_addon_pick.idx = id - IT_ADDON_BASE;
             if (a->manifest.bh_configurable) { items[n] = "Configure"; icons[n] = ICON_SETTINGS; g_addon_pick.act[n++] = ADDON_CONFIGURE; }
             if (!a->flag_protected) { items[n] = "Remove"; icons[n] = ICON_CLOSE; g_addon_pick.act[n++] = ADDON_REMOVE; }
             g_addon_pick.n = n;

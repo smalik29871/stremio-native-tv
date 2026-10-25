@@ -130,9 +130,6 @@ static void reload(Diag *d)
     refilter(d);
 }
 
-/* QR: a short link to the whole log, served by this TV while the code shows (a phone on
- * the same Wi-Fi opens it and copies all of it); without the phone server, the lines
- * leading up to the cursor in the code itself, newest last. */
 static const char *TAB_NAMES[] = { "playback", "problems", "everything" };
 
 /* The whole log shown, with what it is from above it (malloc'd) */
@@ -157,6 +154,9 @@ static void copy_log(const Diag *d)
     free(all);
 }
 
+/* QR: a short link to the whole log, served by this TV while the code shows (a phone on
+ * the same Wi-Fi opens it and copies all of it); without the phone server, the lines
+ * leading up to the cursor in the code itself, newest last. */
 static void build_qr(Diag *d)
 {
     char *all = log_text(d), url[160];

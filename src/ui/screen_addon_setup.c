@@ -14,7 +14,7 @@
 #include <string.h>
 
 typedef struct {
-    char name[96], id[160];
+    char name[96];
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
     int qr_ready, via_phone;   /* via_phone: the code is this TV's page, not the addon's */
     int sent, seen_version;
@@ -23,6 +23,11 @@ typedef struct {
 } Setup;
 
 enum { HIT_OUTSIDE = 1, HIT_PANEL };
+
+static void ask_for_link(void)
+{
+    phone_prompt("Send the new install link", "When you have saved your choices, paste the install link the addon's page gave you (stremio://\xE2\x80\xA6 or https://\xE2\x80\xA6/manifest.json).", "");
+}
 
 static void update(Screen *s, float dt)
 {
@@ -34,7 +39,7 @@ static void update(Screen *s, float dt)
         while (*g == ' ') g++;
         if ((strncmp(g, "stremio://", 10) && strncmp(g, "http", 4)) || !strstr(g, "manifest.json")) {
             snprintf(o->status, sizeof o->status, "That is not an install link: it ends in manifest.json. Send it again from your phone.");
-            phone_prompt("Send the new install link", "Paste the install link the addon's page gave you (stremio://\xE2\x80\xA6 or https://\xE2\x80\xA6/manifest.json).", "");
+            ask_for_link();
             app_redraw();
             return;
         }
@@ -48,7 +53,7 @@ static void update(Screen *s, float dt)
     if (o->sent && g_app.time - o->sent_at > 15) {
         o->sent = 0;
         snprintf(o->status, sizeof o->status, "That link did not install. Check it on the addon's page and send it again.");
-        phone_prompt("Send the new install link", "Paste the install link the addon's page gave you (stremio://\xE2\x80\xA6 or https://\xE2\x80\xA6/manifest.json).", "");
+        ask_for_link();
         app_redraw();
     }
     if (o->sent) app_redraw();
@@ -140,14 +145,13 @@ Screen *screen_addon_setup_create(const Addon *a)
     Screen *s = calloc(1, sizeof *s);
     Setup *o = calloc(1, sizeof *o);
     snprintf(o->name, sizeof o->name, "%s", a->manifest.name ? a->manifest.name : "This addon");
-    snprintf(o->id, sizeof o->id, "%s", a->manifest.id ? a->manifest.id : "");
     char page[2048], code[200];
     snprintf(page, sizeof page, "%s/configure", a->base_url);
     o->via_phone = phone_url(code, sizeof code);
     if (o->via_phone) {
         char label[160];
         snprintf(label, sizeof label, "Open %s's settings", o->name);
-        phone_prompt("Send the new install link", "When you have saved your choices, paste the install link the addon's page gave you (stremio://\xE2\x80\xA6 or https://\xE2\x80\xA6/manifest.json).", "");
+        ask_for_link();
         phone_prompt_link(label, page);
     }
     uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
