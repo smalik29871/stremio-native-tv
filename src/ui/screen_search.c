@@ -545,7 +545,7 @@ static void suggest(Search *s)
     static char subs[96][32];
     if (strlen(tw) >= 2) {
         for (int i = 0; i < s->n_recent; i++) sugg_offer(c, &n, 96, s->recent[i], "Recent", t, 0);
-        for (int i = 0; i < s->n && n < 96; i++) {   /* what the addons found: kind and year */
+        for (int i = 0; i < s->n && i < 96 && n < 96; i++) {   /* what the addons found: kind and year (subs is by result: past the 96th it wrote over other memory) */
             const MetaPreview *m = &s->results[i];
             snprintf(subs[i], sizeof subs[0], "%s%s%s", m->type && !strcmp(m->type, "series") ? "Series" : "Film", m->release_info ? "  \xC2\xB7  " : "", m->release_info ? m->release_info : "");
             sugg_offer(c, &n, 96, m->name, subs[i], t, 1);
