@@ -126,6 +126,12 @@ grep -q "addon store: 1 official addons" "$OUT/store_install.log" && grep -q "ad
 run store_setup 600 "left,down,down,down,down,down,ok,up,ok,t:browse addons,down,down,down,down,left,ok,ok,wait,down,down,right,down,ok,wait" HOME="$(home_with store2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" "$STORE"
 grep -q "addon store: Needs Setup is set up first" "$OUT/store_setup.log" && grep -q "UI check: screen=addon_setup" "$OUT/store_setup.log" \
   || { echo "an addon that must be set up first did not open its settings"; grep -E "addon store|addons:|UI check" "$OUT/store_setup.log"; exit 1; }
+# an addon catalogue the viewer installed (as stremio-addons.net's) is a list of its own; adult addons never show,
+# flagged or not (by name, or a catalog), nor P2P ones; cartoons for grown-ups are not adult
+run store_addoncat 700 "left,down,down,down,down,down,ok,up,ok,t:browse addons,down,down,down,down,left,ok,ok,wait,down,down,down,down,right,wait" HOME="$(home_with store3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" "$STORE" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/addoncat/manifest.json"
+grep -q "addon store: 1 addon catalogue from installed addons" "$OUT/store_addoncat.log" && grep -q "addon store: 2 addons in Fake Community" "$OUT/store_addoncat.log" \
+  && grep -q "addon store: 4 left out (adult, P2P, or a link that needs a streaming server)" "$OUT/store_addoncat.log" \
+  || { echo "an installed addon catalogue was not listed, or adult or P2P addons showed"; grep -E "addon store|addons:" "$OUT/store_addoncat.log"; exit 1; }
 # Help for this device, opened on Get Cuelight on other devices: OK on a card opens its page, or says to scan it
 run help_get 460 "left,down,down,down,down,down,ok,up,ok,t:get cuelight,down,down,down,down,left,ok,ok,wait,right,ok,wait"
 grep -q "help: 7 topics for Computer" "$OUT/help_get.log" && grep -qE "help: opened the page for LG TV|toast: No browser here" "$OUT/help_get.log" \
