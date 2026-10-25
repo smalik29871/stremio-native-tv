@@ -58,6 +58,8 @@ autoplay, background, sign-in by QR code). Everything can be changed later in Se
 
 ## Windows (preview)
 
+> The Windows download is not in the releases yet; it comes once CI builds it.
+
 Download `Cuelight-<version>-windows-x64.zip` from the
 [latest release](https://github.com/smalik29871/cuelight-releases/releases/latest), unpack it
 anywhere and run `Cuelight.exe` (Windows 10 or 11, 64-bit; no installer). Windows may say it

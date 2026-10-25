@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.10.77
+
+- **When TorBox is down, something else plays**: a torrent TorBox had cached now also plays
+  from peers on this TV, and the plain links your other addons found always have a place
+  behind the debrid ones, since every addon going through TorBox (AIOStreams, Comet,
+  Torrentio with a key) fails with it. While TorBox stays down the player keeps to what
+  works, and goes back to TorBox once it answers.
+- **An addon's error clip is not played as the film**: the 30-second "Debrid provider is
+  currently unavailable" video AIOStreams sends when TorBox is down is caught at its first
+  frame; the next source plays.
+- **Browse addons** (Settings > Addons): Stremio's own catalogue of addons by kind
+  (official, catalogs, subtitles, tools), with logos; OK installs one, and one that must
+  be set up first opens its settings on your phone. An addon catalogue you install yourself
+  (stremio-addons.net's, say) adds its list. Adult addons are never shown.
+- **Recommended addons**: Cinemeta, OpenSubtitles, The Movie Database, YouTube and Public
+  Domain Movies, one OK each.
+- **Help** (Settings > About): a short guide written for this device (remote, touch, or
+  keyboard and mouse), and **Get Cuelight on other devices**, a code to scan for LG,
+  Android and Windows.
+- **Cuelight YouTube is gone**: a trailer YouTube refuses opens in LG's own YouTube app,
+  and the fireplace plays the copy saved for breaks, the free fireplace video, or the drawn
+  fire. If it is installed, it can be removed from the TV.
+- **Windows (preview, its download comes in a later release)**: video is decoded on the
+  graphics card where it can be (Direct3D 11, DXVA2), its colours are worked out on the
+  graphics card, and AV1 plays everywhere (dav1d).
+
 ## 0.10.76
 
 - **A real fireplace out of the box**: with no fireplace video set, or when the one set will
