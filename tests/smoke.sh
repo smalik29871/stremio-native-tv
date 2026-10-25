@@ -128,6 +128,13 @@ run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,do
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
 grep -q "settings: found Pure black (OLED) in Interface" "$OUT/settings_find_one.log" || { echo "a single match did not open its row"; grep settings "$OUT/settings_find_one.log"; exit 1; }
+# recommended addons are found by name, though the rest of Addons (the viewer's own) is not searched
+run settings_find_addon 340 "left,down,down,down,down,down,ok,up,ok,t:public domain,down,down,down,down,left,ok"
+grep -q "settings: found Public Domain Movies in Addons" "$OUT/settings_find_addon.log" || { echo "Find a setting did not find a recommended addon"; grep settings "$OUT/settings_find_addon.log"; exit 1; }
+# Help for this device, opened on Get Cuelight on other devices: OK on a card opens its page, or says to scan it
+run help_get 460 "left,down,down,down,down,down,ok,up,ok,t:get cuelight,down,down,down,down,left,ok,ok,wait,right,ok,wait"
+grep -q "help: 7 topics for Computer" "$OUT/help_get.log" && grep -qE "help: opened the page for LG TV|toast: No browser here" "$OUT/help_get.log" \
+  || { echo "Help did not open on Get Cuelight, or its card did nothing"; grep -E "help|toast|settings" "$OUT/help_get.log"; exit 1; }
 # the screensaver, as it is set up, from Settings
 run ambient_preview 600 "left,down,down,down,down,down,ok,up,ok,t:preview the screensaver,down,down,down,down,left,ok,ok,wait,wait,wait,wait" HOME="$(home_with ambprev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":2}')"
 grep -q "settings: previewing the screensaver" "$OUT/ambient_preview.log" && grep -q "UI check: screen=ambient" "$OUT/ambient_preview.log" \
