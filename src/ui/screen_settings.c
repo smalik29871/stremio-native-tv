@@ -1183,7 +1183,7 @@ static void draw(Screen *s)
         default:
             if (id >= IT_REC_BASE) {
                 int r = id - IT_REC_BASE, have = rec_installed(r);
-                draw_row(y, have ? ICON_CHECK : ICON_PLUS, REC[r].name, have ? "Installed" : "OK to install", foc, KIND_ACTION, 0);
+                draw_row(y, have ? ICON_CHECK : ICON_PLUS, REC[r].name, have ? "Installed" : SNTV_PHONE ? "Tap to install" : "OK to install", foc, KIND_ACTION, 0);
             } else if (id >= IT_ACCT_BASE) {
                 char t[160]; snprintf(t, sizeof t, "Switch to %s", st->accounts[id - IT_ACCT_BASE]);
                 draw_row(y, ICON_USER, t, "Saved sign-in  \xC2\xB7  OK to switch or forget", foc, KIND_ACTION, 0);

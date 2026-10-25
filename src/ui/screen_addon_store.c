@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define OFFICIAL_URL "https://api.strem.io/addonsofficialcollection.json"
 #define COMMUNITY_URL "https://api.strem.io/addonscollection.json"
@@ -31,7 +32,8 @@ typedef struct { char *name, *desc, *url, *logo; int kind, setup; } Entry;
 typedef struct {
     Entry e[MAX_ENTRIES]; int n;
     char kname[K_MAX][64]; int nk;
-    char src[K_MAX - K_COUNT + 2][1024]; int nsrc;   /* the lists: official, community, then the installed catalogues */
+    char src[K_MAX - K_COUNT + 8][1024]; int nsrc;   /* the lists: official, community, then the installed catalogues */
+    int skind[K_MAX - K_COUNT + 8];                   /* the chip each installed catalogue's list fills */
     int pending, failed;
     int kind, zone, focus;      /* zone 0 the kinds, 1 the list */
     float scroll;
@@ -125,7 +127,7 @@ static void add_collection(Store *st, const char *body, int src)
             const char *v = cJSON_IsString(r) ? r->valuestring : cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(r, "name"));
             if (v && nr < 16) res[nr++] = v;
         }
-        int kind = src >= 2 ? K_COUNT + src - 2 : official ? K_OFFICIAL : has(res, nr, "catalog") ? K_CATALOGS : has(res, nr, "subtitles") ? K_SUBTITLES : K_TOOLS;
+        int kind = src >= 2 ? st->skind[src] : official ? K_OFFICIAL : has(res, nr, "catalog") ? K_CATALOGS : has(res, nr, "subtitles") ? K_SUBTITLES : K_TOOLS;
         int dup = -1;
         for (int i = 0; i < st->n && dup < 0; i++) if (!strcmp(st->e[i].url, url)) dup = i;
         if (dup >= 0) {   /* in more than one list: under the most official one (the lists come in any order) */
@@ -149,7 +151,7 @@ static void add_collection(Store *st, const char *body, int src)
         added++;
     }
     cJSON_Delete(root);
-    if (src >= 2) LOGI("addon store: %d addons in %s", added, st->kname[K_COUNT + src - 2]);
+    if (src >= 2) LOGI("addon store: %d addons in %s", added, st->kname[st->skind[src]]);
     else LOGI("addon store: %d %s addons", added, official ? "official" : "community");
     if (left) LOGI("addon store: %d left out (adult, P2P, or a link that needs a streaming server)", left);
 }
@@ -167,14 +169,30 @@ static void sources(Store *st)
     for (int i = 0; i < g_app.n_addons && st->nk < K_MAX; i++) {
         const Addon *a = &g_app.addons[i];
         if (!a->manifest_json || !a->base_url || !strstr(a->manifest_json, "addon_catalog")) continue;
-        cJSON *m = cJSON_Parse(a->manifest_json), *c;
-        cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(m, "addonCatalogs")) {
+        cJSON *m = cJSON_Parse(a->manifest_json), *c, *d;
+        const cJSON *cats = cJSON_GetObjectItemCaseSensitive(m, "addonCatalogs");
+        cJSON_ArrayForEach(c, cats) {
             const char *type = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "type")), *id = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "id"));
             const char *name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(c, "name"));
-            if (!type || !id || st->nk >= K_MAX || adult(m)) continue;
+            if (!type || !id || st->nsrc >= (int)(sizeof st->src / sizeof st->src[0]) || adult(m)) continue;
+            if ((!strcmp(id, "official") || !strcmp(id, "community")) && name && (!strcasecmp(name, "Official") || !strcasecmp(name, "Community")))
+                continue;   /* Stremio's own two lists, which Cinemeta offers again per type: shown already */
+            int all = 0, first = 1;   /* one list per catalogue: its "all" type, or else each type into the same chip */
+            cJSON_ArrayForEach(d, cats) {
+                const char *dt = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(d, "type")), *di = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(d, "id"));
+                if (!dt || !di || strcmp(di, id)) continue;
+                if (!strcmp(dt, "all")) all = 1;
+                if (d == c) break;
+                first = 0;
+            }
+            if (all && strcmp(type, "all")) continue;
             char *nm = clean(name && *name ? name : a->manifest.name ? a->manifest.name : "Addons");
-            snprintf(st->kname[st->nk++], sizeof st->kname[0], "%s", nm);
+            int k = -1;   /* a chip of the same name takes it in */
+            for (int j = 0; j < st->nk && k < 0; j++) if (!strcasecmp(st->kname[j], nm)) k = j;
+            if (k < 0 && (first || all) && st->nk < K_MAX) { k = st->nk++; snprintf(st->kname[k], sizeof st->kname[0], "%s", nm); }
             free(nm);
+            if (k < 0) continue;
+            st->skind[st->nsrc] = k;
             snprintf(st->src[st->nsrc++], sizeof st->src[0], "%s/addon_catalog/%s/%s.json", a->base_url, type, id);
         }
         cJSON_Delete(m);

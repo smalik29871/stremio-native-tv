@@ -539,7 +539,10 @@ class H(BaseHTTPRequestHandler):
             q = p[9:]
             if q == "/manifest.json":
                 return self.send(200, json.dumps({"id": "org.fake.addoncat", "version": "1.0.0", "name": "Fake Community", "description": "A catalogue of addons",
-                    "types": ["movie"], "resources": ["addon_catalog"], "catalogs": [], "addonCatalogs": [{"type": "all", "id": "fakecat", "name": "Fake Community"}]}).encode())
+                    "types": ["movie"], "resources": ["addon_catalog"], "catalogs": [], "addonCatalogs": [{"type": "all", "id": "fakecat", "name": "Fake Community"}, {"type": "movie", "id": "fakecat", "name": "Fake Community"},
+                    # as Cinemeta offers them: Stremio's own two lists again, per type
+                    {"type": "all", "id": "official", "name": "Official"}, {"type": "movie", "id": "official", "name": "Official"},
+                    {"type": "series", "id": "official", "name": "Official"}, {"type": "all", "id": "community", "name": "Community"}]}).encode())
             if q.startswith("/addon_catalog/all/fakecat.json"):
                 def it(name, n, desc="", cats=(), res=("catalog",), **hints):
                     return {"transportUrl": f"{BASE}/store/{n}/manifest.json", "manifest": {"id": "org.fake.cat." + n, "name": name, "version": "1.0.0", "description": desc,
