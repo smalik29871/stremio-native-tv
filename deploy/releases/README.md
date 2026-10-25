@@ -56,7 +56,7 @@ The builds include open-source components under their own licences, among them F
 H.264 and HEVC decoders (LGPL 2.1, linked statically: the source repository has everything
 needed to rebuild Cuelight against a changed FFmpeg), QuickJS-ng, cJSON, libwebp, the
 P2P engine's Go modules (MPL 2.0 and others), the fonts (SIL OFL 1.1), and on Android
-SDL2, curl, Mbed TLS, AndroidX Media3 and android-youtube-player, and on Windows SDL2,
+SDL2, curl, Mbed TLS, AndroidX Media3 and android-youtube-player, and on Windows SDL2, dav1d (BSD 2-clause),
 ANGLE, curl and zlib. This product uses the
 TMDB API but is not endorsed or certified by TMDB. Weather data by
 Open-Meteo.com (CC BY 4.0). The free fireplace video is "Holiday Fireplace" by Berkeley
