@@ -599,7 +599,8 @@ static void draw_scene(Screen *s)
     Ambient *a = s->st;
     a->drawn_at = g_app.time;
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF));
-    time_t now = time(NULL);
+    struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);   /* one reading: time() runs a little behind this clock, and */
+    time_t now = ts.tv_sec;                                   /* its second with this fraction sent the hands back a second */
     struct tm tmv;
     localtime_r(&now, &tmv);
     /* burn-in guard: a different offset every minute */
@@ -607,7 +608,6 @@ static void draw_scene(Screen *s)
     char big[16];
     clock_text(&tmv, big, sizeof big);
     if (g_style == AMBIENT_CLOCK) {   /* a clock face on black, wandering a little every minute */
-        struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
         clockface_draw(g_face, SNTV_UI_W / 2 + sx * 4, SNTV_UI_H / 2 + sy * 4, 1, &tmv, tmv.tm_sec + ts.tv_nsec / 1e9);
         if (g_face != CLOCKFACE_PRAYER && g_face != CLOCKFACE_HORIZON) prayer_line(SNTV_UI_W / 2 + sx * 4, SNTV_UI_H - 70 + sy * 4, 1);
         return;

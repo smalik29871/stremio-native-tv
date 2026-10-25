@@ -443,8 +443,8 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         }
         gfx_clip_pop();
         if (g_app.ambient_style == AMBIENT_CLOCK) {
-            time_t now = time(NULL); struct tm tmv; localtime_r(&now, &tmv);
-            struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+            struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);   /* the second and its fraction from one reading */
+            time_t now = ts.tv_sec; struct tm tmv; localtime_r(&now, &tmv);
             gfx_clip_push(sx, sy, sw, sh);
             clockface_draw(g_app.clock_face, sx + sw / 2, sy + sh / 2, sh / 1080 * 1.15f, &tmv, tmv.tm_sec + ts.tv_nsec / 1e9);
             gfx_clip_pop();
