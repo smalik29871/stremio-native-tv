@@ -185,6 +185,9 @@ static size_t image_budget(void) { return mem_normal_budget(); }   /* 0 = unknow
 
 /* Bundled Inter (regular + bold) next to the binary, else system fallbacks. */
 static int g_pip_focus;   /* the corner player is the focused element */
+#ifdef SNTV_DESKTOP_PLAYER
+static void toggle_fullscreen(void);
+#endif
 static int g_dev_hold;    /* SNTV_KEYS "hold": the next OK press counts as held already */
 
 static int ambient_due(const Screen *top)
@@ -426,7 +429,7 @@ static void touch_motion(float fx, float fy)
             g_touch.step = g_touch.vertical ? (dy < 0 ? KEY_DOWN : KEY_UP) : (dx < 0 ? KEY_RIGHT : KEY_LEFT);   /* content follows the finger */
             Screen *top = app_top();
             int id;
-            if (top && top->tap && ui_hit_find(ux, uy, top, &id) && !(id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) && id != HIT_TRAILER_SOUND && !(id >= HIT_PIP && id <= HIT_PIP_CLOSE)) {
+            if (top && top->tap && ui_hit_find(ux, uy, top, &id) && !(id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) && id != HIT_TRAILER_SOUND && !(id >= HIT_PIP && id <= HIT_PIP_CLOSE) && id != HIT_WIN_BACK && id != HIT_WIN_FULL) {
                 g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;   /* the steps move what it started on */
             }
         }
@@ -504,6 +507,10 @@ static void touch_event(const SDL_Event *e)
     if (top && ui_hit_find(ux, uy, top, &id)) {
         if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
         if (id == HIT_TRAILER_SOUND) { bgtrailer_key_sound(); return; }
+#ifdef SNTV_DESKTOP_PLAYER
+        if (id == HIT_WIN_BACK) { dispatch_key(KEY_BACK); app_redraw(); return; }
+        if (id == HIT_WIN_FULL) { toggle_fullscreen(); return; }
+#endif
         if (g_app.pip && (id == HIT_PIP || id == HIT_PIP_FULL || id == HIT_PIP_CLOSE)) { g_pip_focus = 0; if (id == HIT_PIP_CLOSE) app_pip_close(); else app_pip_restore(); app_redraw(); return; }
         if (!top->tap || !top->tap(top, id)) dispatch_key(press);
         app_redraw();
@@ -512,6 +519,47 @@ static void touch_event(const SDL_Event *e)
     if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
 }
 #ifdef SNTV_DESKTOP_PLAYER
+static SDL_Window *g_win;
+static float g_mouse_x = -1, g_mouse_y = -1, g_mouse_t = -100;   /* the pointer (canvas units) and when it last moved */
+
+static void toggle_fullscreen(void)
+{
+    Uint32 fs = SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+    SDL_SetWindowFullscreen(g_win, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+    LOGI("window: %s", fs ? "in a window" : "full screen");
+    app_redraw();
+}
+
+/* A computer, while the mouse is in use: Back at the top left (below Home), full screen at the
+ * top right, and scrollbars on what scrolls. They fade out a few seconds after it stops. */
+static void window_chrome(void)
+{
+    float idle = g_app.time - g_mouse_t;
+    if (idle > 3.0f) return;
+    float a = idle < 2.5f ? 1.0f : (3.0f - idle) / 0.5f;
+    gfx_set_alpha(a);
+    ui_pan_bars(g_mouse_x, g_mouse_y);
+    Screen *top = app_top();
+    int over_back = g_mouse_x < 100 && g_mouse_y < 100, over_full = g_mouse_x > SNTV_UI_W - 96 && g_mouse_y < 96;
+    if (g_app.depth > 1 && top && strcmp(top->name, "intro") != 0) {
+        gfx_circle(60, 60, 30, RGBA(0, 0, 0, over_back ? 0xD0 : 0x90));
+        ui_icon(ICON_CHEVRON_LEFT, 58, 60, 30, THEME_TEXT);
+        ui_hit(28, 28, 64, 64, HIT_WIN_BACK);
+    }
+    float fx = SNTV_UI_W - 48, fy = 48, k = 11, l = 8;   /* four corners: out to full screen, in to a window */
+    int fs = (SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+    gfx_circle(fx, fy, 26, RGBA(0, 0, 0, over_full ? 0xD0 : 0x90));
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2) {   /* an L at each corner: its point outward, or near the middle in full screen */
+            float d = fs ? k - l : k, cx = fx + sx * d, cy = fy + sy * d, ax = fs ? sx * l : -sx * l, ay = fs ? sy * l : -sy * l;
+            gfx_line(cx, cy, cx + ax, cy, 3, THEME_TEXT);
+            gfx_line(cx, cy, cx, cy + ay, 3, THEME_TEXT);
+        }
+    ui_hit(fx - 30, fy - 30, 60, 60, HIT_WIN_FULL);
+    gfx_set_alpha(1);
+    app_redraw();   /* until it has faded */
+}
+
 /* A computer: the focus goes where the pointer rests (a hover); nothing opens until a click.
  * The lists hold still under it, or one sliding to its new focus would slide from the pointer. */
 static void mouse_hover(SDL_Window *win, int x, int y)
@@ -525,6 +573,8 @@ static void mouse_hover(SDL_Window *win, int x, int y)
     float ux, uy;
     touch_to_ui((float)x / ww, (float)y / wh, &ux, &uy);
     g_app.last_input = g_app.time;
+    if (g_app.time - g_mouse_t > 3.0f) app_redraw();   /* the window's buttons come back */
+    g_mouse_x = ux; g_mouse_y = uy; g_mouse_t = g_app.time;
     int on_pip = ui_hit_find(ux, uy, top, &id) && id >= HIT_PIP && id <= HIT_PIP_CLOSE;
     if (g_app.pip && (on_pip || g_pip_focus)) {   /* the corner player: its buttons show under the pointer */
         int want = !on_pip ? 0 : id == HIT_PIP_CLOSE ? 2 : 1;
@@ -532,7 +582,7 @@ static void mouse_hover(SDL_Window *win, int x, int y)
         if (on_pip) { last_id = -1; return; }
     }
     if (!ui_hit_find(ux, uy, top, &id)) { last_id = -1; return; }
-    if ((id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) || id == HIT_TRAILER_SOUND || (id == last_id && top == last_top)) return;
+    if ((id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) || id == HIT_TRAILER_SOUND || id == HIT_WIN_BACK || id == HIT_WIN_FULL || (id == last_id && top == last_top)) return;
     last_id = id; last_top = top;
     ui_pan_hold();
     g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;
@@ -817,6 +867,9 @@ int main(int argc, char **argv)
     if (ws && sscanf(ws, "%dx%d", &w, &h) != 2) { w = 1280; h = 720; }
 #endif
     SDL_Window *win = SDL_CreateWindow(SNTV_APP_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
+#ifdef SNTV_DESKTOP_PLAYER
+    g_win = win;
+#endif
     if (!win) { LOGE("SDL_CreateWindow: %s", SDL_GetError()); return 1; }
     SDL_GLContext ctx = SDL_GL_CreateContext(win);
     if (!ctx) { LOGE("SDL_GL_CreateContext: %s", SDL_GetError()); return 1; }
@@ -901,7 +954,11 @@ int main(int argc, char **argv)
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
 #ifdef SNTV_DESKTOP_PLAYER
             else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID && !e.motion.state) mouse_hover(win, e.motion.x, e.motion.y);
-            else if (e.type == SDL_MOUSEWHEEL && e.wheel.y) {   /* the wheel moves the focus a step a notch */
+            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.clicks == 2 && top && !strcmp(top->name, "player")) toggle_fullscreen();   /* a double click on the film */
+            else if (e.type == SDL_MOUSEWHEEL && (e.wheel.y || e.wheel.x) && ui_pan_wheel(g_mouse_x, g_mouse_y, (SDL_GetModState() & KMOD_SHIFT) ? 0 : (float)e.wheel.y, (SDL_GetModState() & KMOD_SHIFT) ? (float)e.wheel.y : (float)-e.wheel.x)) {
+                g_app.last_input = g_app.time; g_mouse_t = g_app.time; app_redraw();   /* the wheel scrolls what is under the pointer */
+            }
+            else if (e.type == SDL_MOUSEWHEEL && e.wheel.y) {   /* nothing scrolls there: the wheel moves the focus a step a notch */
                 g_app.last_input = g_app.time;
                 for (int n = 0; n < (e.wheel.y > 0 ? e.wheel.y : -e.wheel.y) && n < 4; n++) dispatch_key(e.wheel.y > 0 ? KEY_UP : KEY_DOWN);
             }
@@ -918,9 +975,13 @@ int main(int argc, char **argv)
             else if (e.type == SDL_KEYDOWN) {
 #if defined(SNTV_PLATFORM_WINDOWS) || defined(SNTV_PLATFORM_LINUX)
                 if (!e.key.repeat && (e.key.keysym.sym == SDLK_F11 || (e.key.keysym.sym == SDLK_RETURN && (e.key.keysym.mod & KMOD_ALT)))) {   /* a computer: full screen and back */
+#ifdef SNTV_DESKTOP_PLAYER
+                    toggle_fullscreen();
+#else
                     Uint32 fs = SDL_GetWindowFlags(win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
                     SDL_SetWindowFullscreen(win, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                     app_redraw();
+#endif
                     continue;
                 }
 #endif
@@ -1059,6 +1120,9 @@ int main(int argc, char **argv)
             if (g_app.pip && !(top && !strcmp(top->name, "ambient"))) player_pip_draw(g_app.pip, g_pip_focus);   /* not a still frame over the screensaver */
             if (top && strcmp(top->name, "break") != 0 && strcmp(top->name, "pin") != 0) breaks_draw_banner();
             island_draw(in_player, top && !in_player && strcmp(top->name, "ambient") != 0);   /* the player has its clock in its controls */
+#ifdef SNTV_DESKTOP_PLAYER
+            if (top && strcmp(top->name, "ambient") != 0) window_chrome();
+#endif
             intro_draw();
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();

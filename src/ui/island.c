@@ -208,8 +208,13 @@ void island_draw(int in_player, int show_clock)
         snprintf(left, sizeof left, "%d min left", I.resume_min);
         float rx = lx + font_measure_tracked("RESUME", FONT_XS | FONT_B, 1.5f) + 14;
         font_draw(left, rx, ky, FONT_XS, THEME_TEXT_DIM);
-        /* the remote's blue key opens it, or OK once Up has focused it; by touch, a tap on it */
-        if (!gfx_handheld() || g_focus) {
+        /* the remote's blue key opens it, or OK once Up has focused it; by touch or a mouse, a tap or a click on it */
+#ifdef SNTV_DESKTOP_PLAYER
+        int remote = 0;
+#else
+        int remote = !gfx_handheld();
+#endif
+        if (remote || g_focus) {
             const char *k = g_focus ? "OK" : "Blue";
             float kw = font_measure(k, FONT_XS | FONT_B) + 18, kx = x + I.w - kw - 20;
             gfx_rrect(kx, ky - 2, kw, 28, 6, g_focus ? THEME_FOCUS : THEME_BLUE);

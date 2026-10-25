@@ -695,7 +695,7 @@ static void update(Screen *s, float dt)
     if (ut < 0) ut = 0;
     if (SNTV_PHONE) ;
     else if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; d->mus_x = ut; }
-    else if (gfx_handheld()) {   /* on its side: the page and the episodes follow a finger too */
+    else if (ui_pointer()) {   /* on its side, or with a mouse: the page and the episodes follow a finger (or the wheel) too */
         ui_pan(&d->ph_pan, &d->scroll, st, d->has_meta ? page_bottom(d, n_cast) - SNTV_UI_H : st, dt, 11);
         d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
         d->sim_x = ui_ease(d->sim_x, mt, NULL, dt, 14);
@@ -724,7 +724,7 @@ static void update(Screen *s, float dt)
         ui_pan(&d->cast_pan, &d->cast_x, row_offset(d->cast_focus, n_cast, PH_CAST_STEP, SNTV_UI_W - 80), n_cast * PH_CAST_STEP - (SNTV_UI_W - 80), dt, 14);
         ui_pan(&d->sim_pan, &d->sim_x, row_offset(d->sim_focus, d->n_similar, PH_SIM_W + 24, SNTV_UI_W - 80), d->n_similar * (PH_SIM_W + 24) - 24 - (SNTV_UI_W - 80), dt, 14);
     }
-    if (gfx_handheld() && !SNTV_PHONE) ui_pan(&d->ep_pan, &d->rail_x, d->ep_focus * (EP_W + EP_GAP), (d->n_eps - 1) * (EP_W + EP_GAP), dt, 14);
+    if (ui_pointer() && !SNTV_PHONE) ui_pan(&d->ep_pan, &d->rail_x, d->ep_focus * (EP_W + EP_GAP), (d->n_eps - 1) * (EP_W + EP_GAP), dt, 14);
     else d->rail_x = ui_ease(d->rail_x, d->ep_focus * (EP_W + EP_GAP), NULL, dt, 14);   /* the focused episode leads the row */
     d->focus_t = ui_ease(d->focus_t * 100, 100, NULL, dt, 16) / 100;
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
@@ -1089,7 +1089,7 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
     int cur_idx = -1;
     if (li && li->video_id)
         for (int kk = 0; kk < d->n_eps; kk++) if (strcmp(d->meta.videos[d->ep_index[kk]].id, li->video_id) == 0) cur_idx = kk;
-    if (gfx_handheld()) ui_pan_area(&d->ep_pan, 0, RAIL_Y - 20, SNTV_UI_W, EP_H + 100, 0);
+    if (ui_pointer()) ui_pan_area(&d->ep_pan, 0, RAIL_Y - 20, SNTV_UI_W, EP_H + 100, 0);
     int first = (int)(d->rail_x / (EP_W + EP_GAP)) - 1;
     if (first < 0) first = 0;
     for (int pass = 0; pass < 2; pass++)
@@ -1390,7 +1390,7 @@ static void draw(Screen *s)
 {
     Detail *d = s->st;
     if (SNTV_PHONE) { phone_draw(d); return; }
-    if (gfx_handheld()) ui_pan_area(&d->ph_pan, 0, 0, SNTV_UI_W, SNTV_UI_H, 1);
+    if (ui_pointer()) ui_pan_area(&d->ph_pan, 0, 0, SNTV_UI_W, SNTV_UI_H, 1);
     char buf[512], lbuf[512];
     const char *bg = app_art_background(&d->preview, buf, sizeof buf);
     if (bg) ui_set_ambient_art(bg);

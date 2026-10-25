@@ -2069,8 +2069,14 @@ static void load_prefs(void)
     g_app.fx_light = g_app.fx_setting == FX_LIGHT;
     g_app.spoiler_blur = store_get_int("spoilerBlur", 1);
     g_app.advisory = store_get_int("advisory", 1);
-    g_app.living_letterbox = store_get_int("livingLetterbox", LB_GLOW);
-    if (g_app.living_letterbox < 0 || g_app.living_letterbox >= LB_STYLE_COUNT) g_app.living_letterbox = LB_GLOW;
+    g_app.living_letterbox = store_get_int("livingLetterbox", LB_OFF);
+    if (g_app.living_letterbox < 0 || g_app.living_letterbox >= LB_STYLE_COUNT) g_app.living_letterbox = LB_OFF;
+    if (!store_get_int("letterboxOffOnce", 0)) {   /* 0.10.79: off for everyone once (it lags on TVs); whoever wants it turns it on again */
+        if (g_app.living_letterbox != LB_OFF) LOGI("settings: the living letterbox is off now (it was %s); Settings turns it on again", LB_STYLE_NAMES[g_app.living_letterbox]);
+        g_app.living_letterbox = LB_OFF;
+        store_set_int("livingLetterbox", LB_OFF);
+        store_set_int("letterboxOffOnce", 1);
+    }
     g_app.depth_motion = store_get_int("depthMotion", 1);
     g_app.subs_size = store_get_int("subsSize", 1);
     g_app.subs_pos = store_get_int("subsPos", 0);

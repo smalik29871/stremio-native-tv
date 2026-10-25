@@ -1728,6 +1728,39 @@ static int pan_at(float x, float y, int vertical)   /* the innermost (last drawn
     return -1;
 }
 
+int ui_pan_wheel(float x, float y, float dy, float dx)
+{
+    int i = dy ? pan_at(x, y, 1) : pan_at(x, y, 0);
+    if (i < 0 || g_pans[i].pan->max <= 0) return 0;
+    UiPan *p = g_pans[i].pan;
+    float v = *p->at - (dy ? dy : dx) * 140;   /* a notch: about a row */
+    *p->at = v < 0 ? 0 : v > p->max ? p->max : v;
+    p->free = 1; p->epoch = g_pan_epoch; p->vel = 0;
+    return 1;
+}
+
+void ui_pan_bars(float px, float py)
+{
+    for (int i = 0; i < g_n_pans; i++) {
+        UiPan *p = g_pans[i].pan;
+        if (g_pans[i].owner != app_top() || !p->at || p->max <= 1) continue;
+        float x = g_pans[i].x, y = g_pans[i].y, w = g_pans[i].w, h = g_pans[i].h, at = *p->at;
+        if (at < 0) at = 0; else if (at > p->max) at = p->max;
+        int inside = px >= x && px < x + w && py >= y && py < y + h;
+        if (g_pans[i].vertical) {   /* always, thin, at the right edge; stronger under the pointer */
+            float len = h * h / (h + p->max); if (len < 48) len = 48;
+            float ty = y + (h - len) * at / p->max;
+            gfx_rrect(x + w - 10, y + 4, 6, h - 8, 3, COLOR_ALPHA(THEME_TEXT, 0x14));
+            gfx_rrect(x + w - 10, ty + 4, 6, len - 8, 3, COLOR_ALPHA(THEME_TEXT, inside ? 0x90 : 0x50));
+        } else if (inside) {   /* a row: only under the pointer, or every row would carry one */
+            float len = w * w / (w + p->max); if (len < 64) len = 64;
+            float tx = x + (w - len) * at / p->max;
+            gfx_rrect(x + 4, y + h - 8, w - 8, 5, 2.5f, COLOR_ALPHA(THEME_TEXT, 0x14));
+            gfx_rrect(tx + 4, y + h - 8, len - 8, 5, 2.5f, COLOR_ALPHA(THEME_TEXT, 0x80));
+        }
+    }
+}
+
 int ui_pan_catch(float x, float y)
 {
     int caught = 0;
@@ -1792,7 +1825,7 @@ int ui_pan_held(const UiPan *p) { return p == g_drag.pan && g_drag.owner == app_
 float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed)
 {
     if (max < 0) max = 0;
-    p->at = pos;
+    p->at = pos; p->max = max;
     if (p->epoch != g_pan_epoch) { p->free = 0; p->epoch = g_pan_epoch; }   /* a key since: the focus leads */
     if (p == g_drag.pan) {   /* under the finger; past an end it stretches, a third as far */
         float x = g_drag.start - g_drag.d;
