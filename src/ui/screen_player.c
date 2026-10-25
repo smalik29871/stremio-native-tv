@@ -303,6 +303,7 @@ static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n)
 
 static int subs_key(Player *p, KeyAction a);
 static void full_draw(Player *p, const VideoInfo *vi);
+static void full_draw_loading(Player *p);
 static void picture_tap_settle(Player *p);
 static void ph_hold_fast(Player *p, const VideoInfo *vi);
 static void subs_open(Player *p);
@@ -4260,6 +4261,10 @@ static void draw(Screen *s)
     if (gfx_handheld() && !p->pip) {   /* a phone sideways: its own touch controls over the picture */
         draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
         if (!video_in_pip()) draw_letterbox(p, &vi);
+        if (p->veil > 0 && !video_in_pip()) {   /* opening: the loading card, as on a TV, and Back to leave */
+            if (p->bridge) draw_bridge(p, &vi, p->veil); else draw_veil(p, &vi, p->veil);
+            if (p->veil > 0.5f && !p->ph_sheet) { full_draw_loading(p); return; }
+        }
         draw_subtitle(p, &vi);
         if (!video_in_pip()) full_draw(p, &vi);   /* in picture in picture: the picture alone */
         return;
@@ -5617,6 +5622,13 @@ static void ph_transport(Player *p, const VideoInfo *vi, float cx, float cy, flo
 }
 
 /* Sideways on a phone: the picture is the whole screen; the controls over it. */
+/* Under the loading card on a phone: no controls yet (nothing to pause or seek), only Back */
+static void full_draw_loading(Player *p)
+{
+    p->ph_pic[0] = 0; p->ph_pic[1] = 0; p->ph_pic[2] = SNTV_UI_W; p->ph_pic[3] = SNTV_UI_H;
+    ph_round(ICON_CHEVRON_LEFT, NULL, 96, 84, 44, 0, PHH_BACK);
+}
+
 static void full_draw(Player *p, const VideoInfo *vi)
 {
     float W = SNTV_UI_W, H = SNTV_UI_H;
