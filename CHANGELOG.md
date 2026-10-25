@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.76
+
+- **A real fireplace out of the box**: with no fireplace video set, or when the one set will
+  not play (YouTube refuses it and nothing else can play it), the screensaver streams a
+  real fireplace filmed by Berkeley Community Media, shared under an open licence (CC BY-SA)
+  on the Internet Archive, and credits it at the bottom. Nothing is kept on the TV. It is
+  standard definition. Settings > Interface > Free fireplace video turns it off; offline,
+  the drawn fire shows.
+- **The fireplace plays the copy saved for Take breaks**: a fireplace video that is a
+  YouTube link already saved on the TV for a break (with its picture) now plays from the
+  TV, as the break does, so YouTube refusing to stream it no longer matters. Nothing new
+  is saved for the fireplace.
+- **A drawn fire that looks real** when no video can play: flames that leap, lean and tear at
+  the tips, in a firebrick hearth lit by them, on charred logs with glowing cracks, over
+  coals that brighten and dim, with sparks rising.
+- **When the TV will not open Cuelight YouTube**, Cuelight says so with the TV's reason,
+  on screen and on its row in Settings > Interface, and the fireplace stops waiting for
+  it and shows the drawn fire.
+
 ## 0.10.75
 
 - **Phones, at their real size**: most phones draw Cuelight on a narrower canvas than the

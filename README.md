@@ -15,11 +15,11 @@ account API**: the same account, addons, Library and Continue Watching as the of
 > Cuelight is an independent project. It is **not affiliated with, endorsed by or made by
 > Stremio**; "Stremio" is used only to say which accounts and addons it works with.
 
-> **v0.10.75.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.10.76.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 449 scripted scenarios against a fake addon. See *What is verified* below.
+> 455 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -157,7 +157,9 @@ These show the Signal theme.
   turn on only when the audio is in another language; forced subtitles in the audio's
   language are picked from the file header.
 - **Stats for nerds** (Red): codec, resolution, fps, bitrate, buffer, stalls, file hash.
-- **Screensaver** with drifting backdrops and a clock after a quiet spell, OLED-safe.
+- **Screensaver** with drifting backdrops and a clock after a quiet spell, OLED-safe. The
+  fireplace style plays your own fireplace video, or a free one under an open licence
+  (streamed, never kept), or draws its own fire when offline.
 
 ### When YouTube refuses
 YouTube sometimes asks a device to prove it is no bot before it gives a video to a
@@ -404,7 +406,7 @@ LG apps. TVs pick it up from the channel; installed apps offer the update themse
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (449 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (455 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Android | Built in CI with the NDK; in use on phones and Android TV. The embedded YouTube player is not yet confirmed on a device |
@@ -476,7 +478,8 @@ against a changed FFmpeg), QuickJS-ng, cJSON, QR Code generator, android-youtube
 MIT, BSD), yt-dlp/ejs (Unlicense), the fonts (SIL OFL 1.1), and on Android SDL2 (zlib),
 curl, Mbed TLS and AndroidX Media3 (Apache 2.0). Data comes from TMDB (this product uses
 the TMDB API but is not endorsed or certified by TMDB), SponsorBlock (CC BY-NC-SA 4.0),
-Open-Meteo (CC BY 4.0) and others. Versions, licences, licence texts and every service the
+Open-Meteo (CC BY 4.0) and others; the free fireplace video is "Holiday Fireplace" by
+Berkeley Community Media (CC BY-SA 3.0, Internet Archive). Versions, licences, licence texts and every service the
 app talks to are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Prayer times
 use the published PrayTimes.org method parameters, reimplemented in `src/suntimes.c` (see
 `docs/BREAKS.md`).
