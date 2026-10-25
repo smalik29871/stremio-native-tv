@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.73
+
+- **Cuelight YouTube on LG TVs**: when YouTube refuses a trailer, an addon's YouTube video
+  or the fireplace video, Cuelight opens a small companion app with YouTube's own TV client,
+  where YouTube's checks pass and you can sign in. Back returns to Cuelight; the fireplace
+  loops under a clock. Cuelight offers to install it the first time it is needed (or
+  Settings > Interface > Cuelight YouTube). It does not replace LG's YouTube app.
+- **Sponsor segments skipped**: in Cuelight YouTube, the sponsor reads, self-promotion and
+  subscribe reminders viewers marked in SponsorBlock are jumped over, with a small notice
+  (on unless turned off). **Block YouTube adverts** is there too, off: YouTube may notice
+  and refuse to play.
+- **YouTube's own player on Android** for what YouTube refuses to Cuelight's, inside the
+  player screen with the same controls; elsewhere the device's YouTube app is offered.
+- **Addon settings, as in Stremio**: OK on an addon in Settings opens Configure and
+  Remove. Configure opens the addon's page in the browser on a phone, or as a QR code for
+  your phone on a TV; the addon set up again replaces your own install in place.
+- **Preview the screensaver** from Settings > Interface.
+- **Diagnostics on a phone**: tap a line to copy the log, ready to paste in a message.
+- **Closing from Android's recents list** no longer says "The app closed unexpectedly" at
+  the next start; a real crash still does.
+- **Clock faces move smoothly**: the seconds hand, comet or star no longer steps back at
+  each tick.
+- **Licence**: Cuelight's own code is all rights reserved, free to use for yourself; the
+  open-source parts and the services it uses are listed in THIRD-PARTY-NOTICES.md.
+
 ## 0.10.72
 
 - **Streaming stays seamless**: a stall that LG reports as a pause is rescued like any
