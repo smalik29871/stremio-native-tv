@@ -182,8 +182,12 @@ run upnext_ok 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,ok
 # leaving a video mid-way: the island offers it back on Home, and Blue opens it
 run island_resume 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume.log" || { echo "Blue did not open the title left mid-way"; grep -i "island\|player" "$OUT/island_resume.log"; exit 1; }
-run island_resume_detail 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island_d '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-grep -q "island: resume tt0903747" "$OUT/island_resume_detail.log" || { echo "Blue on the title page did not open the title left mid-way"; grep -i "island" "$OUT/island_resume_detail.log"; exit 1; }
+# Blue opens it from any screen (Settings here); not shown on that title's own page, whose Resume button is there
+run island_resume_detail 620 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,wait,blue,back,left,down,down,down,down,down,ok,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island_d '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+[ "$(grep -c "island: resume tt0903747" "$OUT/island_resume_detail.log")" = 1 ] || { echo "Blue did not open the title left mid-way from Settings only"; grep -iE "island|settings" "$OUT/island_resume_detail.log"; exit 1; }
+# by touch: a tap on the card opens it (a phone has no Blue key; the card shows no Blue label there)
+run island_resume_tap 560 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,tap:1650:88,wait" SNTV_FAKE_START=200 HOME="$(home_with island_t '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "island: resume tt0903747" "$OUT/island_resume_tap.log" || { echo "a tap on the resume card did not open the title"; grep -iE "island|UI check" "$OUT/island_resume_tap.log"; exit 1; }
 run island_resume_up 540 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with island_up '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume_up.log" || { echo "Up and OK did not open the resume card"; grep -i "island" "$OUT/island_resume_up.log"; exit 1; }
 run island_resume_focus 500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up" SNTV_FAKE_START=200 HOME="$(home_with island_f '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"

@@ -470,6 +470,7 @@ static void touch_event(const SDL_Event *e)
     touch_to_ui(e->tfinger.x, e->tfinger.y, &ux, &uy);
     ui_pan_keys();   /* what it does may move the focus: the lists follow it again */
     Screen *top = app_top();
+    if (top && strcmp(top->name, "player") && island_tap(ux, uy)) { app_redraw(); return; }   /* the resume card, over the screen */
     if (top && ui_hit_find(ux, uy, top, &id)) {
         if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
         if (!top->tap || !top->tap(top, id)) dispatch_key(press);

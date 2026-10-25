@@ -52,6 +52,14 @@ int island_has_focus(void)
 
 void island_drop_focus(void) { g_focus = 0; }
 
+static float g_rect[4];  /* where the resume card was drawn last frame (w 0: none), for a finger */
+
+int island_tap(float x, float y)
+{
+    if (g_rect[2] <= 0 || x < g_rect[0] || x > g_rect[0] + g_rect[2] || y < g_rect[1] || y > g_rect[1] + g_rect[3]) return 0;
+    return island_key_blue();
+}
+
 int island_take_focus(void)
 {
     if (I.kind != IS_RESUME || !I.has_resume) return 0;
@@ -85,7 +93,9 @@ static int current_kind(int show_clock)
 {
     if (g_app.toast[0] && g_app.time < g_app.toast_until) return IS_NOTICE;
     if (I.progress[0] && g_app.time - I.progress_at < 0.5f) return IS_PROGRESS;
-    if (I.has_resume && g_app.time - I.resume_at < RESUME_FOR && show_clock) return IS_RESUME;
+    const char *here = screen_detail_id(app_top());
+    int on_its_page = here && I.resume.id && !strcmp(here, I.resume.id);   /* its own Resume button is right there */
+    if (I.has_resume && g_app.time - I.resume_at < RESUME_FOR && show_clock && !on_its_page) return IS_RESUME;
     if (show_clock && g_app.clock_mode != 2 && !SNTV_PHONE) return IS_CLOCK;   /* a phone shows its own */
     return IS_NONE;
 }
@@ -135,6 +145,7 @@ void island_draw(int in_player, int show_clock)
         font_draw(t, ox + 48, y + (oh - font_height(fs)) / 2, fs, THEME_TEXT);
     }
     g_bottom = in_player || I.w < 2 || I.h < 2 ? 0 : y + I.h;
+    g_rect[0] = x; g_rect[1] = y; g_rect[2] = kind == IS_RESUME && !in_player ? I.w : 0; g_rect[3] = I.h;
     if (I.w < 2 || I.h < 2) return;
 
     float r = theme_pill_r(I.h), busy = kind == IS_NOTICE || kind == IS_PROGRESS || kind == IS_RESUME;
@@ -191,11 +202,13 @@ void island_draw(int in_player, int show_clock)
         snprintf(left, sizeof left, "%d min left", I.resume_min);
         float rx = lx + font_measure_tracked("RESUME", FONT_XS | FONT_B, 1.5f) + 14;
         font_draw(left, rx, ky, FONT_XS, THEME_TEXT_DIM);
-        /* the remote's blue key opens it, or OK once Up has focused it */
-        const char *k = g_focus ? "OK" : "Blue";
-        float kw = font_measure(k, FONT_XS | FONT_B) + 18, kx = x + I.w - kw - 20;
-        gfx_rrect(kx, ky - 2, kw, 28, 6, g_focus ? THEME_FOCUS : THEME_BLUE);
-        font_draw(k, kx + 9, ky + (24 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, g_focus ? THEME_ON_FOCUS : RGBA(0x06, 0x12, 0x1E, 0xFF));
+        /* the remote's blue key opens it, or OK once Up has focused it; by touch, a tap on it */
+        if (!gfx_handheld() || g_focus) {
+            const char *k = g_focus ? "OK" : "Blue";
+            float kw = font_measure(k, FONT_XS | FONT_B) + 18, kx = x + I.w - kw - 20;
+            gfx_rrect(kx, ky - 2, kw, 28, 6, g_focus ? THEME_FOCUS : THEME_BLUE);
+            font_draw(k, kx + 9, ky + (24 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, g_focus ? THEME_ON_FOCUS : RGBA(0x06, 0x12, 0x1E, 0xFF));
+        } else ui_icon(ICON_CHEVRON_RIGHT, x + I.w - 34, y + I.h / 2, 26, THEME_TEXT_DIM);
         font_draw_fit(I.resume_line, lx, y + I.h - 16 - font_height(fs), fs, THEME_TEXT, tw - 52);
         break;
     }
