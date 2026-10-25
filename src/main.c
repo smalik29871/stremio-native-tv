@@ -585,6 +585,35 @@ static void crash_log_install(void)
 }
 #endif
 
+/* After an unclean exit: what the last session's log says about how it ended, in this one's
+ * Problems (the crash handler's line, or with none, its last memory reading and last lines:
+ * a TV ends an app on its own, for memory most often, and nothing can be written then). */
+static void last_session_report(const char *path)
+{
+    FILE *f = path ? fopen(path, "rb") : NULL;
+    if (!f) return;
+    static char buf[32768];
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f), from = size > (long)sizeof buf - 1 ? size - (long)sizeof buf + 1 : 0;
+    fseek(f, from, SEEK_SET);
+    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    const char *lines[512]; int nl = 0;
+    for (char *l = buf, *e; *l && nl < 512; l = e + 1) {
+        e = strchr(l, '\n');
+        if (!e) { if (*l) lines[nl++] = l; break; }
+        *e = 0;
+        if (*l && (from == 0 || l != buf)) lines[nl++] = l;   /* not a line cut at the start */
+    }
+    for (int i = nl - 1; i >= 0; i--)
+        if (strstr(lines[i], " E crash: ")) { LOGW("the previous session crashed: %s", strstr(lines[i], "crash: ") + 7); return; }
+    LOGW("the previous session ended with no crash report: the TV closed it (it does when memory runs out or the app stops answering)");
+    for (int i = nl - 1; i >= 0; i--)
+        if (strstr(lines[i], " memory") || strstr(lines[i], "memory: ")) { LOGW("previous session, last memory reading: %s", lines[i]); break; }
+    for (int i = nl > 4 ? nl - 4 : 0; i < nl; i++) LOGW("previous session, near its end: %s", lines[i]);
+}
+
 #ifdef SNTV_PLATFORM_ANDROID
 #include "assets_index.h"
 /* Inside the APK the bundled files (fonts, the YouTube solver, sounds) are not files the C
@@ -666,7 +695,7 @@ int main(int argc, char **argv)
     char alive[1200]; snprintf(alive, sizeof alive, "%s/session.alive", dir);
     int crashed = 0;
     { FILE *f = fopen(alive, "r"); if (f) { crashed = 1; fclose(f); } f = fopen(alive, "w"); if (f) fclose(f); }
-    if (crashed) LOGW("the previous session did not exit cleanly");
+    if (crashed) { LOGW("the previous session did not exit cleanly"); last_session_report(log_previous_path()); }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -890,6 +919,8 @@ int main(int argc, char **argv)
         newep_tick();
         app_library_flush(0);
         mem_tick(dt);
+        { static float kill_at = -2; if (kill_at == -2) { const char *k = getenv("SNTV_KILL_SELF_AFTER"); kill_at = k ? (float)atof(k) : -1; }   /* tests: the TV ending the app */
+          if (kill_at >= 0 && g_app.time > kill_at) kill(getpid(), SIGKILL); }
         app_update_check(dt);
         app_open_links();
         { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }

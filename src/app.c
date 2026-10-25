@@ -1888,7 +1888,11 @@ static int tidy_main(void *arg)
     }
     TidyUsage u;
     tidy_usage(store_dir(), &u);
-    int low = !j->clear && u.disk_free >= 0 && (u.disk_free < LOW_DISK || getenv("SNTV_FAKE_LOW_DISK")) && u.cache > (1 << 20);
+    const char *min_env = getenv("SNTV_AUTO_CLEAR_MIN_MB");   /* tests */
+    long long worth = (min_env ? atoll(min_env) : 64) << 20;
+    int low_disk = !j->clear && u.disk_free >= 0 && (u.disk_free < LOW_DISK || getenv("SNTV_FAKE_LOW_DISK"));
+    int low = low_disk && u.cache > worth;   /* a small cache would not make the room, and goes again at each start */
+    if (low_disk && !low) LOGI("storage: only %lld MB free on the TV; the cache (%lld MB) is too small to make a difference, so it stays", u.disk_free >> 20, u.cache >> 20);
     if (low) {   /* the TV needs the room (an app to install or update): the cache goes */
         LOGW("storage: only %lld MB free on the TV; clearing the cache (%lld MB)", u.disk_free >> 20, u.cache >> 20);
         tidy_clear(store_dir(), &r);

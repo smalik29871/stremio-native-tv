@@ -125,7 +125,7 @@ static long long folder_bytes(const char *dir, int depth)
 }
 
 static const char *const CACHE_DIRS[] = { "img", "cache", "fontcache", "yt" };
-static const char *const CACHE_FILES[] = { "app.prev.log", "torrentd.log" };
+static const char *const CACHE_FILES[] = { "torrentd.log" };   /* not app.prev.log: after a crash it is the only record of it */
 
 void tidy_usage(const char *data_dir, TidyUsage *out)
 {

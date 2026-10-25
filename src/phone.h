@@ -32,4 +32,10 @@ int phone_offer_log(const char *text, char *url, size_t n);
 int phone_offer_sync(const char *bundle, const char *device, char *url, size_t n);
 char *phone_take_sync(void);
 int phone_sync_sent(void);   /* 1 once after the bundle was fetched */
+int phone_sync_pin(char *out, size_t n);   /* the 4-digit number another device types to sync without a camera */
+/* Find a device on my network: asks every address nearby for a Cuelight showing its code. */
+#define PHONE_FOUND_MAX 12
+typedef struct { char base[64], device[40]; } PhoneFound;
+void phone_scan_start(void);
+int  phone_scan_results(PhoneFound *out, int max, int *finished);
 #endif

@@ -146,6 +146,12 @@ void mem_tick(float dt)
     if (g_since_sample < 5) return;
     g_since_sample = 0;
     if (!mem_sample(&g_last)) return;
+    /* a reading in the log when it has moved: if the TV ends the app, the next start shows the last */
+    static long logged_rss = -1, logged_avail = -1;
+    if (logged_rss < 0 || labs(g_last.rss_kb - logged_rss) >= 32 * 1024 || labs(g_last.avail_kb - logged_avail) >= 128 * 1024) {
+        logged_rss = g_last.rss_kb; logged_avail = g_last.avail_kb;
+        LOGI("memory: app %ld MB, %ld MB free of %ld MB", g_last.rss_kb / 1024, g_last.avail_kb / 1024, g_last.total_kb / 1024);
+    }
     int level = mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb);
     stage_apply(mem_stage_step(&g_st, level, 5));
     if (level == 2) {

@@ -12,6 +12,7 @@
  * straight from the source: the picture never depends on it. */
 #include "relay.h"
 #include "app.h"
+#include "mkvsubs.h"
 #include "http.h"
 #include "log.h"
 #include "memwatch.h"
@@ -358,6 +359,7 @@ static int dl_data(void *user, const char *data, size_t n)
     trim_locked();
     SDL_CondBroadcast(g_buf.cond);
     SDL_UnlockMutex(g_lock);
+    mkvsubs_feed(at, (const uint8_t *)data, take);   /* the film's own subtitle lines, as they pass */
     d->got += take;
     if (take < n) { d->held = 1; return 0; }   /* full for now: the rest later */
     return 1;
@@ -876,6 +878,25 @@ double relay_buffer_waiting_s(void)
     double s = g_buf.token[0] && !g_buf.stopped && g_buf.asked_at && !g_buf.got_any && !g_buf.size ? (SDL_GetTicks() - g_buf.asked_at) / 1000.0 : -1;
     SDL_UnlockMutex(g_lock);
     return s;
+}
+
+int relay_buffer_span(uint64_t *lo, uint64_t *hi)
+{
+    if (!g_lock) return 0;
+    SDL_LockMutex(g_lock);
+    int ok = g_buf.token[0] && !g_buf.stopped && g_buf.hi > g_buf.lo;
+    *lo = g_buf.lo; *hi = g_buf.hi;
+    SDL_UnlockMutex(g_lock);
+    return ok;
+}
+
+int relay_buffer_copy(uint64_t at, void *out, size_t n)
+{
+    if (!g_lock) return 0;
+    SDL_LockMutex(g_lock);
+    int ok = at >= g_buf.lo && at + n <= g_buf.hi && get_locked(at, out, n);
+    SDL_UnlockMutex(g_lock);
+    return ok;
 }
 
 void relay_buffer_close(void)

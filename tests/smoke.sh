@@ -420,6 +420,17 @@ grep -qE '"mdblistKey":[[:space:]]*"md123"' "$SYH/.local/share/stremio/nativetv/
 # Trakt stays on its device (two sharing a refresh token lock each other out); a list entry both have is not doubled
 ! grep -q traktToken "$SYC/.local/share/stremio/nativetv/settings.json" && [ "$(grep -o '"id":[[:space:]]*"tt0111161"' "$SYH/.local/share/stremio/nativetv/settings.json" | wc -l)" = 1 ] \
   || { echo "Trakt was copied, or a list entry was doubled"; exit 1; }
+# no camera (another TV): the other device finds this one on the network and types the number
+# under its code; a wrong number is refused, the right one syncs as a scanned code would
+PRH="$(home_with pairh '{"setupDone":1,"ratings":{"":{"tt0111161":{"r":9,"t":1729700000}}}}')"
+PRC="$(home_with pairc '{"setupDone":1,"mdblistKey":"md456"}')"
+( run pair_host 3000 "left,down,down,down,down,down,ok,up,ok,t:sync with another,down,down,down,down,left,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_PHONE_HOST=127.0.0.1 SNTV_PHONE_PORT=$(( ${SNTV_PHONE_PORT:-11471} + 130 )) SNTV_SYNC_PIN=4821 HOME="$PRH" ) & PAIR_HOST=$!
+for i in $(seq 1 150); do grep -q "sync: showing" "$OUT/pair_host.log" 2>/dev/null && break; sleep 0.2; done
+run pair_client 1400 "left,down,down,down,down,down,ok,up,ok,t:sync with another,down,down,down,down,left,ok,ok,wait,wait,ok,wait,wait,wait,wait,wait,wait,ok,wait,t:1111,wait,wait,wait,t:4821,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_PHONE_HOST=127.0.0.1 SNTV_PHONE_PORT=$(( ${SNTV_PHONE_PORT:-11471} + 150 )) SNTV_SCAN_HOSTS="127.0.0.1:$(grep -o 'page at http://[0-9.]*:[0-9]*' "$OUT/pair_host.log" | grep -o '[0-9]*$')" HOME="$PRC"
+wait $PAIR_HOST
+grep -q "sync: found a Computer at 127.0.0.1" "$OUT/pair_client.log" && grep -q "sync: pairing failed (403)" "$OUT/pair_client.log" && grep -q "sync: paired with Computer by its number" "$OUT/pair_client.log" \
+  && grep -q "sync: sent this device's bundle to Computer" "$OUT/pair_client.log" && grep -q "sync: 127.0.0.1 gave a wrong number" "$OUT/pair_host.log" && grep -q "sync: took in 1 sign-ins" "$OUT/pair_host.log" \
+  || { echo "a device without a camera did not find, pair with and sync the other"; grep sync "$OUT/pair_client.log"; grep sync "$OUT/pair_host.log"; exit 1; }
 # a link to anywhere but the home network is refused: sign-ins must not go elsewhere
 run sync_outside 160 "wait,wait" SNTV_NO_PHONE=1 SNTV_EXPECT_SCREEN=sync SNTV_OPEN_LINK="cuelight://sync?u=http%3A%2F%2F192.168.1.5.example.com%2F&k=abc" HOME="$(home_with syncx '{"setupDone":1}')"
 grep -q "sync: a link that is not a device on the home network" "$OUT/sync_outside.log" && ! grep -q "sync: found" "$OUT/sync_outside.log" || { echo "a link outside the home network was followed"; exit 1; }
@@ -669,15 +680,36 @@ grep -q "player: subtitles sheet: Choose for Second subtitles" "$OUT/player_subs
   || { echo "a second subtitle language was not chosen in the sheet"; grep -E "subtitles" "$OUT/player_subs_second.log"; exit 1; }
 run player_seek_thumb 238 "right,ok,down,down,play,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 # a scope film framed in 16:9 (bars baked into the picture): its colours glow in the bars, the subtitles sit in the one below
-run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1)" "$OUT/player_letterbox.log" || { echo "a scope film's bars did not take its colours"; grep -E "letterbox|player: (aspect|candidate)" "$OUT/player_letterbox.log"; exit 1; }
 grep -q "player: living letterbox changes with the film's cuts" "$OUT/player_letterbox.log" && grep -qE "player: the bars follow the cut at (2\.50|6\.25|11\.00|17\.50|24\.00) s" "$OUT/player_letterbox.log" \
   || { echo "the bars did not follow the film's cuts"; grep -E "letterbox|thumbs" "$OUT/player_letterbox.log"; exit 1; }
 run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":0,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 ! grep -q "player: living letterbox" "$OUT/player_letterbox_off.log" || { echo "the living letterbox drew while turned off"; exit 1; }
 # one colour: the scene's main colour in the bars, the subtitles still in the lower one
-run player_letterbox_colour 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxcol '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":2,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+run player_letterbox_colour 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxcol '{"prefSubs":"","setupDone":1,"livingLetterbox":2,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1), One colour" "$OUT/player_letterbox_colour.log" || { echo "the one-colour bars did not draw"; grep letterbox "$OUT/player_letterbox_colour.log"; exit 1; }
+# the TV draws a film's own subtitle track itself and an LG hides it while the app paints: the
+# letterbox steps aside then, the screen left as with it off
+run player_letterbox_tvsubs 700 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxsub '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -q "player: the living letterbox steps aside while the TV draws the film's own subtitles" "$OUT/player_letterbox_tvsubs.log" && ! grep -q "player: living letterbox, bars" "$OUT/player_letterbox_tvsubs.log" \
+  || { echo "the living letterbox drew over the TV's own subtitles"; grep -E "letterbox|subtitles" "$OUT/player_letterbox_tvsubs.log"; exit 1; }
+# the TV ends the app (memory, mostly) and nothing can be written then: the next start says so
+# in Problems, with the last memory reading and the last lines before it
+env SNTV_KILL_SELF_AFTER=6 SNTV_KEYS="wait" SNTV_SCREENSHOT_FRAMES=100000 HOME="$(home_with killed '{"setupDone":1}')" \
+  xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" > "$OUT/killed_first.log" 2>&1 || true
+run killed_next 160 "wait,wait" HOME="$OUT/home_killed"
+grep -q "the previous session ended with no crash report: the TV closed it" "$OUT/killed_next.log" && grep -q "previous session, last memory reading: .*memory: app" "$OUT/killed_next.log" \
+  && grep -q "previous session, near its end:" "$OUT/killed_next.log" || { echo "an app the TV ended was not reported at the next start"; grep -E "previous|memory" "$OUT/killed_next.log"; exit 1; }
+# ... unless the film plays through the buffer: the app reads its own text subtitle track from
+# the bytes as they come and draws it (the TV's drawing off), and the letterbox stays
+run player_own_subs 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/subsfilm/manifest.json HOME="$(home_with ownsubs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -q "mkvsubs: 2 subtitle tracks in the file: eng S_TEXT/UTF8, por S_TEXT/ASS" "$OUT/player_own_subs.log" && grep -q "player: the film's own subtitles (eng, S_TEXT/UTF8) are drawn by the app" "$OUT/player_own_subs.log" \
+  && grep -q "player: the film's own subtitles: 3 lines read so far" "$OUT/player_own_subs.log" && grep -q "player: living letterbox, bars of" "$OUT/player_own_subs.log" \
+  || { echo "the film's own subtitles were not drawn by the app with the letterbox on"; grep -E "mkvsubs|own subtitles|letterbox|subtitles" "$OUT/player_own_subs.log"; exit 1; }
+run player_own_subs_ass 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/subsfilm/manifest.json HOME="$(home_with ownass '{"prefSubs":"por","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -q "player: the film's own subtitles (por, S_TEXT/ASS) are drawn by the app" "$OUT/player_own_subs_ass.log" && grep -q "player: the film's own subtitles: 2 lines read so far" "$OUT/player_own_subs_ass.log" \
+  || { echo "the film's own ASS subtitles were not drawn by the app"; grep -E "mkvsubs|own subtitles|subtitles" "$OUT/player_own_subs_ass.log"; exit 1; }
 run settings_letterbox 420 "left,down,down,down,down,down,ok,up,ok,t:living letterbox,down,down,down,down,left,ok"
 grep -q "settings: found Living letterbox" "$OUT/settings_letterbox.log" || { echo "Living letterbox is not in Settings"; grep settings "$OUT/settings_letterbox.log"; exit 1; }
 # no helper: the TV decodes the keyframe itself (bundled FFmpeg) through its local /frame
@@ -1193,8 +1225,15 @@ run phone_streams_scrolled 360 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wai
 run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:905,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
 grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cache cleared" "$OUT/storage_clear.log" || { echo "Storage did not count or clear the cache"; grep -E "storage|tidy" "$OUT/storage_clear.log"; exit 1; }
 # a TV low on storage: the cache clears by itself and says so once
-run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 HOME="$(home_with stlow '{"setupDone":1}')"
+run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 SNTV_AUTO_CLEAR_MIN_MB=0 HOME="$(home_with stlow '{"setupDone":1}')"
 grep -q "storage: only .* MB free on the TV; clearing the cache" "$OUT/storage_low.log" && grep -q "toast: The TV was low on storage" "$OUT/storage_low.log" || { echo "a TV low on storage did not get its cache cleared"; grep -E "storage|tidy|toast" "$OUT/storage_low.log"; exit 1; }
+# ... but a cache too small to make the room stays (it would go at every start), and the last
+# session's log is never part of it (after a crash it is the only record)
+STH="$(home_with stsmall '{"setupDone":1}')"; echo "12:00:00 E crash: SIGSEGV at 0x0" > "$STH/.local/share/stremio/nativetv/app.prev.log"
+run storage_low_small 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 HOME="$STH"
+grep -q "the cache (.* MB) is too small to make a difference, so it stays" "$OUT/storage_low_small.log" && ! grep -q "clearing the cache" "$OUT/storage_low_small.log" \
+  && grep -q "E crash: SIGSEGV" "$STH/.local/share/stremio/nativetv/app.prev.log" \
+  || { echo "a small cache was cleared on a TV low on storage"; grep -E "storage|tidy" "$OUT/storage_low_small.log"; exit 1; }
 run settings_storage 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down" SNTV_TIDY_DELAY=0
 # an episode's guest stars lead the cast drawer
 run player_guests 480 "right,ok,down,down,right,play,wait,wait,wait,wait,wait,wait,info,wait" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg HOME="$(home_with pguest '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"

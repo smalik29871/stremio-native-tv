@@ -398,6 +398,9 @@ class H(BaseHTTPRequestHandler):
         scope = p.startswith("/scope/")   # its sources are scope films framed in 16:9 (black bars in the picture): the living letterbox
         if scope:
             p = p[6:]
+        subsfilm = p.startswith("/subsfilm/")   # its source is a scope film whose file carries its own subtitle tracks (SRT, ASS)
+        if subsfilm:
+            p = p[9:]
         # an iTunes store stand-in: two soundtrack albums of Breaking Bad among names that only look alike
         if p.startswith("/itunes/search"):
             term = urllib.parse.parse_qs(urllib.parse.urlparse(p).query).get("term", [""])[0].lower()
@@ -744,6 +747,8 @@ class H(BaseHTTPRequestHandler):
                 app_extras={"cast": [{"name": n, "character": c, "photo": f"{BASE}/tmdbimg/p{i}.png"} for i, (n, c) in enumerate(
                     [("Tim Robbins", "Andy Dufresne"), ("Morgan Freeman", "Ellis Boyd 'Red' Redding"), ("Bob Gunton", "Warden Norton"), ("William Sadler", "Heywood")])]})}).encode())
         if p.startswith("/stream/"):
+            if subsfilm:
+                return self.send(200, json.dumps({"streams": [{"name": "Own Subs\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 2.0 GB", "url": f"{BASE}/video/subs_h264.mkv?scope=1"}]}).encode())
             if scope:
                 return self.send(200, json.dumps({"streams": [dict(st, url=st["url"] + ("&" if "?" in st["url"] else "?") + "scope=1") if st.get("url") else st for st in STREAMS["streams"]]}).encode())
             return self.send(200, json.dumps(STREAMS).encode())
