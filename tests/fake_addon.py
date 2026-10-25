@@ -1167,6 +1167,11 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"data": works}).encode(), "application/json")
         if p.startswith("/ipapi"):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
+        if p.startswith("/thumbsslow/"):   # a TV too slow for the letterbox: every frame takes 1.8 s
+            import time
+            if "/frame" in p:
+                time.sleep(1.8)
+            p = "/thumbs/" + p[len("/thumbsslow/"):]
         if p.startswith("/thumbs/keyframes"):   # the scope film's cuts, irregular as a film's are; others list none
             if "scope%3D1" not in p:
                 return self.send(404, b"no keyframe index", "text/plain")

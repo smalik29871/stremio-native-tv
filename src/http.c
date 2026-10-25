@@ -313,11 +313,18 @@ int http_request(const char *url, const char *post_json, HttpResponse *out)
 int http_request_ex(const char *url, const HttpOptions *opt, HttpResponse *out)
 {
     if (!C.lib) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "libcurl unavailable"); return -1; }
-    CURL *h = C.easy_init();
+    CURL *h = opt && opt->keep && *opt->keep ? (CURL *)*opt->keep : C.easy_init();
     if (!h) { memset(out, 0, sizeof *out); snprintf(out->error, sizeof out->error, "curl_easy_init failed"); return -1; }
     int rc = request_with(h, url, opt ? opt->post_json : NULL, opt, out);
-    C.easy_cleanup(h);
+    if (opt && opt->keep) *opt->keep = h;   /* its connection (and TLS session) serves the next read */
+    else C.easy_cleanup(h);
     return rc;
+}
+
+void http_keep_free(void **keep)
+{
+    if (keep && *keep && C.lib) C.easy_cleanup((CURL *)*keep);
+    if (keep) *keep = NULL;
 }
 
 int http_looks_like_media(const HttpResponse *r)

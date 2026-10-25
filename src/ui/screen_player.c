@@ -110,7 +110,12 @@ struct Player {
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
     float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none, lb_aside_logged;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
     char lb_last[2048];       /* the last frame it had, shown while the next one comes */
-    char lb_prev[2048]; float lb_swap_at;   /* the one before, fading out as the last fades in (since then) */
+    char lb_prev[2048]; float lb_swap_at, lb_fade;   /* the one before, fading out as the last fades in (since then, over this long) */
+    char lb_ahead[2048]; float lb_ahead_at;   /* the frame of a cut ahead being got ready now (asked then): one at a time */
+    char lb_asked[2048]; float lb_ask_at;     /* the frame the bars wanted and did not have yet (asked then) */
+    int lb_slow_n, lb_slow, lb_ready_n;       /* frames that came too late; 1: too slow here, the artwork's colour instead; cuts made ready */
+    double lb_next_t;                         /* where the bars change next (a redraw then) */
+    float lb_ar; int lb_ar_cur;               /* the picture's shape the frames showed (bars baked in), for source lb_ar_cur - 1 */
     double lb_keys[64]; int lb_nkeys, lb_keys_state; double lb_keys_from;   /* the film's cuts ahead (keyframes): 0 not asked, 1 asking, 2 known, 3 none */
     double lb_shown;                       /* the time of the frame in the bars (-1 none) */
     int lb_cuts_logged;
@@ -1270,7 +1275,11 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
     return s0;
 }
 
-#define LB_FADE_S 1.6f   /* a new one fades in over the last, slowly: the light drifts rather than flicks */
+#define LB_FADE_CUT 0.5f    /* at a cut the new light comes quickly, as the picture changed */
+#define LB_FADE_DRIFT 1.5f  /* every few seconds (no list of cuts): it drifts rather than flicks */
+#define LB_AHEAD_S 45.0     /* the frames of the cuts this far ahead are got ready while it plays */
+#define LB_SLOW_S 1.5f      /* a frame that takes longer than this to come... */
+#define LB_SLOW_N 3         /* ...this many times more than fast ones: this TV is too slow for it */
 #define LB_GROW 1.18f    /* the frame behind the screen, this much larger than it */
 #define LB_BLUR 5.6f     /* mip levels of blur: its colours, none of its shapes */
 #define LB_LIGHT 165     /* the glow's brightness (of 255): below the picture's, so the picture leads */
@@ -1380,37 +1389,120 @@ static void emb_tick(Player *p)
     p->emb_taken += n;
 }
 
+/* A frame wanted came: how long it took. Slow ones, again and again, and the bars stop
+ * asking for frames: they take the film's artwork's colour instead. */
+static void lb_timed(Player *p, float took)
+{
+    if (took > LB_SLOW_S) p->lb_slow_n++;
+    else if (p->lb_slow_n > 0) p->lb_slow_n--;
+    if (!p->lb_slow && p->lb_slow_n >= LB_SLOW_N) {
+        p->lb_slow = 1;
+        LOGI("player: the living letterbox is too slow on this TV (a frame took %.1f s): the bars take the colour of the film's artwork", took);
+    }
+}
+
+/* Work ahead: the frames of the cuts coming in the next LB_AHEAD_S, one at a time, so at a
+ * cut the bars have it already. From update(), every frame, whether or not it draws. */
+static void lb_work_ahead(Player *p, const VideoInfo *vi)
+{
+    if (!p->lb_side || p->lb_slow || p->lb_keys_state != 2 || !p->lb_nkeys || p->seek_commit > 0 || vi->state != VIDEO_PLAYING) return;
+    int w, h;
+    if (p->lb_ahead[0]) {   /* one on its way: wait for it */
+        if (image_peek_ex(p->lb_ahead, IMAGE_MIPMAP, &w, &h)) { lb_timed(p, g_app.time - p->lb_ahead_at); if (p->lb_ready_n++ < 3) LOGI("player: the bars' frame at %.2f s is ready ahead", strtod(strstr(p->lb_ahead, "t=") + 2, NULL)); }
+        else if (!image_failed(p->lb_ahead) && g_app.time - p->lb_ahead_at < 20) { image_get_ex(p->lb_ahead, IMAGE_MIPMAP, &w, &h, NULL); return; }
+        p->lb_ahead[0] = 0;
+    }
+    if (p->lb_asked[0] && (image_failed(p->lb_asked) || g_app.time - p->lb_ask_at > 20)) p->lb_asked[0] = 0;   /* it will not come */
+    if (p->lb_asked[0]) return;   /* the frame wanted now comes first */
+    double gap = vi->width >= 3000 ? 4.0 : 2.0, last = p->lb_shown >= 0 ? p->lb_shown : vi->position;
+    char url[2048];
+    for (int i = 0; i < p->lb_nkeys; i++) {
+        double k = p->lb_keys[i];
+        if (k <= last + 0.05 || k - last < gap) continue;
+        if (k > vi->position + LB_AHEAD_S) break;
+        last = k;
+        if (!lb_frame_url(p, k, url, sizeof url) || image_peek_ex(url, IMAGE_MIPMAP, &w, &h) || image_failed(url)) continue;
+        image_get_ex(url, IMAGE_MIPMAP, &w, &h, NULL);
+        snprintf(p->lb_ahead, sizeof p->lb_ahead, "%s", url);
+        p->lb_ahead_at = g_app.time;
+        return;
+    }
+}
+
+/* Too slow here: the bars take the artwork's colour, flat, as One colour does with a scene's. */
+static void lb_paint_art(Player *p, int side, float bar, float a)
+{
+    char buf[1024];
+    const char *bg = app_art_background(&p->meta, buf, sizeof buf);
+    int w, h;
+    unsigned t = bg && image_get(bg, &w, &h) ? image_tint(bg) : 0;
+    if (!t) { app_redraw(); return; }   /* the artwork is on its way */
+    Color c = RGBA((t >> 24) * LB_TINT, ((t >> 16) & 0xFF) * LB_TINT, ((t >> 8) & 0xFF) * LB_TINT, (int)(255 * a));
+    float W = SNTV_UI_W, H = SNTV_UI_H;
+    if (side == 1) { gfx_rect(0, 0, W, bar, c); gfx_rect(0, H - bar, W, bar, c); }
+    else { gfx_rect(0, 0, bar, H, c); gfx_rect(W - bar, 0, bar, H, c); }
+}
+
+/* A computer: the playing picture's own colours, a few texels eased over time, stretched
+ * into the bars (as a lamp behind the screen; One colour: its middle, flat). */
+static void lb_paint_glow(unsigned tex, int side, float bar, float a)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H, rw = W * LB_GROW, rh = H * LB_GROW, rx = (W - rw) / 2, ry = (H - rh) / 2;
+    int one = g_app.living_letterbox == LB_COLOUR;
+    Color c = one ? RGBA(255 * LB_TINT, 255 * LB_TINT, 255 * LB_TINT, (int)(255 * a)) : RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
+#define GU(x) (one ? 0.5f : ((x) - rx) / rw)
+#define GV(y) (one ? 0.5f : ((y) - ry) / rh)
+    if (side == 1) {
+        gfx_tex_uv(tex, 0, 0, W, bar, GU(0), GV(0), GU(W), GV(bar), c);
+        gfx_tex_uv(tex, 0, H - bar, W, bar, GU(0), GV(H - bar), GU(W), GV(H), c);
+    } else {
+        gfx_tex_uv(tex, 0, 0, bar, H, GU(0), GV(0), GU(bar), GV(H), c);
+        gfx_tex_uv(tex, W - bar, 0, bar, H, GU(W - bar), GV(0), GU(W), GV(H), c);
+    }
+#undef GU
+#undef GV
+}
+
 static void draw_letterbox(Player *p, const VideoInfo *vi)
 {
     p->lb_bar = 0; p->lb_side = 0;
-    if (!g_app.living_letterbox || p->pip || p->aspect != ASPECT_FIT || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return;
+    int paint = g_app.living_letterbox != LB_OFF;   /* off, the bars still say where subtitles may sit */
+    if ((!paint && !g_app.subs_in_bars) || p->pip || p->aspect != ASPECT_FIT || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return;
     /* the TV draws a film's own subtitle track itself, under the app, and an LG hides it
      * while the app paints during playback: unless the app draws it (emb_tick), the screen is
      * left as with the letterbox off */
-    if (p->embedded_text_sel >= 0 && !p->emb_app) {
+    if (paint && p->embedded_text_sel >= 0 && !p->emb_app) {
         if (!p->lb_aside_logged) { p->lb_aside_logged = 1; LOGI("player: the living letterbox steps aside while the TV draws the film's own subtitles"); }
         return;
     }
     double pos = p->seek_commit > 0 ? p->seek_target : vi->position;
     char u0[2048], u1[2048];
-    /* no frames while the film starts, nor for a source already seen to fill the screen */
-    int starting = p->lb_none == p->cur + 1 || g_app.time - p->load_started <= 3;
-    if (!starting && !p->lb_keys_state && !g_app.fx_light) lb_ask_keys(p, pos > 1 ? pos - 1 : 0);
+    /* no frames while the film starts, nor for a source already seen to fill the screen, nor where it is too slow */
+#ifdef SNTV_DESKTOP_PLAYER
+    unsigned glow = paint && !g_app.fx_light ? video_glow_texture() : 0;   /* a computer draws the picture: its own colours, live */
+#else
+    unsigned glow = 0;
+#endif
+    int starting = p->lb_none == p->cur + 1 || g_app.time - p->load_started <= 3, frames = paint && !glow && !p->lb_slow && !g_app.fx_light;
+    if (frames && !starting && !p->lb_keys_state) lb_ask_keys(p, pos > 1 ? pos - 1 : 0);
     double gap = vi->width >= 3000 ? 4.0 : 2.0;   /* a 4K film's keyframes are big: not so often */
     double s1, s0 = lb_pick(p, pos, gap, &s1);
-    int have_url = !starting && lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s1, u1, sizeof u1);
-    int w0 = 0, h0 = 0, light = g_app.fx_light;
+    p->lb_next_t = s1;
+    int have_url = frames && !starting && lb_frame_url(p, s0, u0, sizeof u0) && lb_frame_url(p, s1, u1, sizeof u1);
+    int w0 = 0, h0 = 0;
     unsigned t0 = 0;
-    if (have_url && !light) {
+    if (have_url) {
         int seeking = p->seek_commit > 0;   /* the seek previews have the TV's decoder then */
-        /* mipmapped, so the GPU blurs them for free; only the frame of now is shown (the next
-         * is asked ahead), so the bars never show what has not happened yet */
+        /* mipmapped, so the GPU blurs them for free; only the frame of now is shown (the ones
+         * ahead are got ready by lb_work_ahead), so the bars never show what has not happened yet */
         unsigned now_t = seeking ? image_peek_ex(u0, IMAGE_MIPMAP, &w0, &h0) : image_get_ex(u0, IMAGE_MIPMAP, &w0, &h0, NULL);
-        if (!seeking) { int a, b; image_get_ex(u1, IMAGE_MIPMAP, &a, &b, NULL); }
+        if (!now_t && !seeking && strcmp(u0, p->lb_asked) != 0) { snprintf(p->lb_asked, sizeof p->lb_asked, "%s", u0); p->lb_ask_at = g_app.time; }   /* not ready: wanted from now */
+        if (now_t && p->lb_asked[0] && !strcmp(u0, p->lb_asked)) { lb_timed(p, g_app.time - p->lb_ask_at); p->lb_asked[0] = 0; }
         if (now_t && strcmp(u0, p->lb_last) != 0) {   /* a new frame: it fades in over the last */
             snprintf(p->lb_prev, sizeof p->lb_prev, "%s", p->lb_last);
             snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
             p->lb_swap_at = g_app.time;
+            p->lb_fade = p->lb_keys_state == 2 ? LB_FADE_CUT : LB_FADE_DRIFT;
             p->lb_shown = s0;
             if (p->lb_keys_state == 2 && p->lb_cuts_logged < 3) { p->lb_cuts_logged++; LOGI("player: the bars follow the cut at %.2f s", s0); }
         }
@@ -1423,6 +1515,8 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     else if (t0 && image_peek_ex(p->lb_last, IMAGE_PLAIN, &w0, &h0) && h0 > 0) ar = (float)w0 / h0;   /* the mipmapped copy is padded square-ish */
     if (t0) image_content_box(p->lb_last, box);
     if (ar > 0 && box[3] - box[1] > 0.2f && box[2] - box[0] > 0.2f) ar *= (box[2] - box[0]) / (box[3] - box[1]);
+    if (t0 && ar > 0) { p->lb_ar = ar; p->lb_ar_cur = p->cur + 1; }   /* kept: the bars stay their size when the frames stop (too slow) */
+    else if (p->lb_ar_cur == p->cur + 1 && p->lb_ar > 0) ar = p->lb_ar;
     float W = SNTV_UI_W, H = SNTV_UI_H, A = W / H, bar;
     int side;
     if (ar > A * 1.04f) { side = 1; bar = (H - W / ar) / 2; }
@@ -1430,20 +1524,26 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     else { if (t0) p->lb_none = p->cur + 1; return; }
     if (bar < 36) return;
     p->lb_bar = bar; p->lb_side = side;
-    if (!p->lb_logged) { p->lb_logged = 1; LOGI("player: living letterbox, bars of %.0f %s (picture %.2f:1), %s", bar, side == 1 ? "above and below" : "at the sides", ar, LB_STYLE_NAMES[g_app.living_letterbox]); }
-    if (light || !have_url || g_app.living_letterbox == LB_BLACK) return;   /* the bars stay black; subtitles still move into them */
+    if (!p->lb_logged) { p->lb_logged = 1; LOGI("player: living letterbox, bars of %.0f %s (picture %.2f:1), %s%s", bar, side == 1 ? "above and below" : "at the sides", ar, LB_STYLE_NAMES[g_app.living_letterbox], g_app.subs_in_bars ? ", subtitles in them" : ""); }
+    if (!paint || g_app.fx_light || (!have_url && !p->lb_slow && !glow)) return;   /* the bars stay black; subtitles still move into them */
     /* fade in once a frame is here, out when there is none */
     float step = g_app.time - p->lb_kt;
     p->lb_kt = g_app.time;
     if (step > 0.5f) step = 0.5f;
-    p->lb_k += ((t0 ? 1.0f : 0.0f) - p->lb_k) * (step * 2.5f > 1 ? 1 : step * 2.5f);
+    float target = t0 || p->lb_slow || glow ? 1.0f : 0.0f;
+    p->lb_k += (target - p->lb_k) * (step * 2.5f > 1 ? 1 : step * 2.5f);
     if (p->lb_k < 0.01f) return;
-    float x = (g_app.time - p->lb_swap_at) / LB_FADE_S;   /* the new frame over the last one */
-    x = x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
-    int pw0, ph0;
-    unsigned tp = x < 1 && p->lb_prev[0] ? image_peek_ex(p->lb_prev, IMAGE_MIPMAP, &pw0, &ph0) : 0;
-    if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k);
-    if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1));
+    float x = 1;
+    if (glow) lb_paint_glow(glow, side, bar, p->lb_k);
+    else if (p->lb_slow) lb_paint_art(p, side, bar, p->lb_k);
+    else {
+        x = (g_app.time - p->lb_swap_at) / (p->lb_fade > 0 ? p->lb_fade : LB_FADE_DRIFT);   /* the new frame over the last one */
+        x = x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
+        int pw0, ph0;
+        unsigned tp = x < 1 && p->lb_prev[0] ? image_peek_ex(p->lb_prev, IMAGE_MIPMAP, &pw0, &ph0) : 0;
+        if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k);
+        if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1));
+    }
     /* dimmer away from the picture, as light thrown on a wall; a soft shadow where it meets it */
     Color dark = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_FALLOFF)), shade = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_SHADE)), clear = RGBA(0, 0, 0, 0);
     if (side == 1) {
@@ -1458,7 +1558,7 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
         gfx_gradient_h(W - bar, 0, LB_EDGE, H, shade, clear);
     }
     p->lb_drawn = g_app.time;
-    if (fabsf(p->lb_k - (t0 ? 1.0f : 0.0f)) > 0.01f || x < 1) app_redraw();
+    if (fabsf(p->lb_k - target) > 0.01f || x < 1) app_redraw();   /* only while it fades */
 }
 
 /* Chapter containing `pos` (-1 none) */
@@ -2642,7 +2742,10 @@ static void update(Screen *s, float dt)
     if (p->tb_held) { p->tb_held = 0; start_candidate(p, p->cur, p->tb_held_start); }   /* back on top: TorBox's answer starts now */
     VideoInfo vi;
     video_info(&vi);
-    if (p->lb_side && p->lb_k > 0.01f && vi.state == VIDEO_PLAYING && g_app.time - p->lb_drawn > 0.25f) app_redraw();   /* the letterbox follows the picture, four times a second */
+    if (p->lb_side && g_app.living_letterbox != LB_OFF && vi.state == VIDEO_PLAYING) {   /* the bars change at the next cut: a frame then, none in between */
+        if (p->lb_next_t > 0 && vi.position >= p->lb_next_t - 0.02) { p->lb_next_t = 0; app_redraw(); }
+        lb_work_ahead(p, &vi);
+    }
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
     ph_hold_fast(p, &vi);
@@ -2901,7 +3004,7 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
         if (g_app.subs_pos == 2 && bottom < tb + 24 + lh) bottom = tb + 24 + lh * 2;   /* yours at the top too: under it */
         ui_subtitle(top, tb, sub_size(p), g_app.subs_style);
     }
-    if (g_app.subs_pos == 0 && p->lb_side == 1 && p->lb_bar >= 90) bottom = SNTV_UI_H - p->lb_bar * 0.2f;   /* in the bar under a scope picture */
+    if (g_app.subs_pos == 0 && g_app.subs_in_bars && p->lb_side == 1 && p->lb_bar >= 90) bottom = SNTV_UI_H - p->lb_bar * 0.2f;   /* in the bar under a scope picture */
     if (g_app.subs_pos != 2 && g_app.time < p->overlay_until && !subs_tuning(p) && bottom > SNTV_UI_H - 250) bottom = SNTV_UI_H - 250;   /* above the controls */
     int r = subs_tuning(p) ? p->subs_row : -1;
     if (!text && !text2 && p->embedded_text_sel < 0 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS))

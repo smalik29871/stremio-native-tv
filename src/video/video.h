@@ -92,6 +92,9 @@ int   video_set_brightness(float v);
  * and shape (width over height, pixel aspect included); 0 while there is none, and always 0
  * on a TV or a phone, whose video is a plane of its own under the UI. */
 unsigned video_frame_texture(int *w, int *h, float *aspect);
+#ifdef SNTV_DESKTOP_PLAYER
+unsigned video_glow_texture(void);   /* the picture as a few texels of its colours, eased (0 while none) */
+#endif
 /* The desktop's text subtitles from inside the file, the lines due now: 1 with some (the
  * player screen draws them as its own), else 0. A TV draws its own. */
 int video_subtitle_text(char *out, size_t n);

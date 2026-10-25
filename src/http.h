@@ -45,7 +45,9 @@ typedef struct HttpOptions {
     HttpWorkFn work;        /* off the main thread: see above */
     HttpFreeFn free_parsed; /* frees r->parsed when the callback left it (or was cancelled) */
     const volatile int *stop; /* blocking calls: give up once this is set */
+    void **keep;            /* blocking calls from one thread: the connection stays open here for the next (http_keep_free) */
 } HttpOptions;
+void http_keep_free(void **keep);
 
 int  http_init(void);          /* 0 on success */
 /* Addresses answered inside the app instead of over the network (cuelight://...): `answer`

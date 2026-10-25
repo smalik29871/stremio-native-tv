@@ -769,9 +769,18 @@ run player_seek_thumb 238 "right,ok,down,down,play,wait,right,right,right,right,
 run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1)" "$OUT/player_letterbox.log" || { echo "a scope film's bars did not take its colours"; grep -E "letterbox|player: (aspect|candidate)" "$OUT/player_letterbox.log"; exit 1; }
 grep -q "player: living letterbox changes with the film's cuts" "$OUT/player_letterbox.log" && grep -qE "player: the bars follow the cut at (2\.50|6\.25|11\.00|17\.50|24\.00) s" "$OUT/player_letterbox.log" \
+  && grep -qE "player: the bars' frame at [0-9.]+ s is ready ahead" "$OUT/player_letterbox.log" && ! grep -q "too slow on this TV" "$OUT/player_letterbox.log" \
   || { echo "the bars did not follow the film's cuts"; grep -E "letterbox|thumbs" "$OUT/player_letterbox.log"; exit 1; }
 run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":0,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 ! grep -q "player: living letterbox" "$OUT/player_letterbox_off.log" || { echo "the living letterbox drew while turned off"; exit 1; }
+# a TV too slow for it (each frame takes 1.8 s): the bars take the artwork's colour instead of lagging
+run player_letterbox_slow 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxslow '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsslow"}')"
+grep -q "player: the living letterbox is too slow on this TV" "$OUT/player_letterbox_slow.log" \
+  || { echo "a TV too slow for the letterbox did not fall back to the artwork's colour"; grep -E "letterbox|bars" "$OUT/player_letterbox_slow.log"; exit 1; }
+# subtitles in the black bars is its own setting: with it off the glow stays and the subtitles stay over the picture
+run player_subs_in_bars 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with subsbars '{"letterboxOffOnce":1,"livingLetterbox":1,"subsInBars":0,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -qE "player: living letterbox, bars of 1[34][0-9] above and below \(picture 2\.[34][0-9]:1\), Glow$" "$OUT/player_subs_in_bars.log" && grep -qE "player: living letterbox, bars of .*, Glow, subtitles in them" "$OUT/player_letterbox.log" \
+  || { echo "Subtitles in the black bars did not follow its own setting"; grep -E "living letterbox" "$OUT/player_subs_in_bars.log" "$OUT/player_letterbox.log"; exit 1; }
 # one colour: the scene's main colour in the bars, the subtitles still in the lower one
 run player_letterbox_colour 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxcol '{"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"livingLetterbox":2,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1), One colour" "$OUT/player_letterbox_colour.log" || { echo "the one-colour bars did not draw"; grep letterbox "$OUT/player_letterbox_colour.log"; exit 1; }
@@ -802,6 +811,10 @@ grep -q "mkvsubs: 2 subtitle tracks in the file: eng S_TEXT/UTF8, por S_TEXT/ASS
 run player_own_subs_ass 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/subsfilm/manifest.json HOME="$(home_with ownass '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"por","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: the film's own subtitles (por, S_TEXT/ASS) are drawn by the app" "$OUT/player_own_subs_ass.log" && grep -q "player: the film's own subtitles: 2 lines read so far" "$OUT/player_own_subs_ass.log" \
   || { echo "the film's own ASS subtitles were not drawn by the app"; grep -E "mkvsubs|own subtitles|subtitles" "$OUT/player_own_subs_ass.log"; exit 1; }
+# the old "Black" (bars black, subtitles in them): the letterbox off, Subtitles in the black bars on
+run letterbox_black_moves 120 "wait" HOME="$(home_with lbblack '{"setupDone":1,"livingLetterbox":3,"letterboxOffOnce":1}')"
+grep -qE '"subsInBars":\s*1' "$OUT/home_lbblack/.local/share/stremio/nativetv/settings.json" && grep -qE '"livingLetterbox":\s*0' "$OUT/home_lbblack/.local/share/stremio/nativetv/settings.json" \
+  || { echo "the old Black letterbox did not become Subtitles in the black bars"; cat "$OUT/home_lbblack/.local/share/stremio/nativetv/settings.json"; exit 1; }
 # 0.10.79: the living letterbox is off for everyone once, whatever it was; turned on again it stays on
 run letterbox_off_once 120 "wait" HOME="$(home_with lbonce '{"setupDone":1,"livingLetterbox":1}')"
 grep -q "settings: the living letterbox is off now (it was Glow)" "$OUT/letterbox_off_once.log" && grep -qE '"letterboxOffOnce":\s*1' "$OUT/home_lbonce/.local/share/stremio/nativetv/settings.json" && grep -qE '"livingLetterbox":\s*0' "$OUT/home_lbonce/.local/share/stremio/nativetv/settings.json" \

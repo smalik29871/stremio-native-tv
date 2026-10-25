@@ -14,7 +14,7 @@
 
 enum { C_NONE, C_MKV, C_MP4 };
 enum { V_NONE, V_H264, V_HEVC };
-enum { HEAD_BYTES = 256 << 10, BLOCK_READ = 1 << 20, MAX_ELEMENT = 32 << 20, MAX_KEYS = 20000, CACHED = 3 };
+enum { HEAD_BYTES = 256 << 10, FIRST_READ = 192 << 10, MAX_ELEMENT = 32 << 20, MAX_KEYS = 20000, CACHED = 3 };
 
 typedef struct { double t; uint64_t pos; uint32_t size; } Key;   /* mp4: the sample; mkv: its cluster (size 0) */
 
@@ -257,7 +257,7 @@ static int mkv_index(FramesRead rd, void *ctx, Index *ix, const uint8_t *b, size
 static uint8_t *mkv_keyframe(FramesRead rd, void *ctx, const Index *ix, const Key *k, size_t *n, char *err, size_t en)
 {
     uint8_t *b; size_t got; uint64_t total;
-    if (!rd(ctx, k->pos, BLOCK_READ, &b, &got, &total)) { fail(err, en, "the video did not answer"); return NULL; }
+    if (!rd(ctx, k->pos, FIRST_READ, &b, &got, &total)) { fail(err, en, "the video did not answer"); return NULL; }   /* the cluster's start: its first block is the keyframe */
     const uint8_t *end = b + got;
     uint32_t id; uint64_t size;
     int h = ebml(b, end, &id, &size);
@@ -291,10 +291,14 @@ static uint8_t *mkv_keyframe(FramesRead rd, void *ctx, const Index *ix, const Ke
                     uint64_t at = k->pos + (uint64_t)(blk + tl + 3 - b), len = blk_size - (uint64_t)tl - 3;
                     uint8_t *frame;
                     if (blk + blk_size <= end) { frame = malloc(len + 64); memcpy(frame, blk + tl + 3, len); }
-                    else {   /* a big keyframe: fetch exactly its bytes */
-                        size_t g2;
-                        if (len > MAX_ELEMENT || !rd(ctx, at, len, &frame, &g2, &total) || g2 < len) { free(b); fail(err, en, "the keyframe could not be read"); return NULL; }
-                        frame = realloc(frame, len + 64);
+                    else {   /* a big keyframe: what came, then only the rest of its bytes */
+                        size_t have = (size_t)(end - (blk + tl + 3)), g2;
+                        uint8_t *rest;
+                        if (len > MAX_ELEMENT || !rd(ctx, at + have, len - have, &rest, &g2, &total) || g2 < len - have) { free(b); fail(err, en, "the keyframe could not be read"); return NULL; }
+                        frame = malloc(len + 64);
+                        memcpy(frame, blk + tl + 3, have);
+                        memcpy(frame + have, rest, len - have);
+                        free(rest);
                     }
                     memset(frame + len, 0, 64);
                     free(b);
@@ -608,10 +612,12 @@ uint8_t *frames_picture(FramesRead rd, void *ctx, const char *key, double t, int
 static volatile int g_stop;
 void frames_stop(void) { g_stop = 1; }
 
+static void *g_conn;   /* one connection kept open for the reads (they all come from the frames thread) */
+
 static int http_read(void *ctx, uint64_t off, uint64_t len, uint8_t **buf, size_t *got, uint64_t *total)
 {
     HttpResponse r;
-    HttpOptions o = { .range_start = off, .range_bytes = len, .timeout_s = 20, .no_json_accept = 1, .stop = &g_stop };
+    HttpOptions o = { .range_start = off, .range_bytes = len, .timeout_s = 20, .no_json_accept = 1, .stop = &g_stop, .keep = &g_conn };
     http_request_ex((const char *)ctx, &o, &r);
     *buf = NULL; *got = 0; *total = r.total_size;
     if (r.status != 206 && !(r.status == 200 && off == 0)) { http_response_free(&r); return 0; }

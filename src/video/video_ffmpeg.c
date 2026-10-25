@@ -26,6 +26,7 @@ void app_redraw(void);
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
 #include <GLES2/gl2.h>
+#include <math.h>
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -836,6 +837,99 @@ static void picture_upload(Player *pl)
     SDL_UnlockMutex(pl->fm);
 }
 
+/* ---- the picture's glow (a computer's living letterbox) ----
+ * The picture shrunk in three passes (to 160x90, 40x22, 16x9) and eased into the last over
+ * a few pictures, so the bars carry its colours as it plays, with no decoding of their own:
+ * drawn stretched, the 16x9 texture is the blur. */
+static const char *GLOW_FS =
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH\n precision highp float;\n#else\n precision mediump float;\n#endif\n"
+    "varying vec2 v_uv;\n uniform sampler2D u_t;\n uniform float u_a;\n"
+    "void main(){ gl_FragColor=vec4(texture2D(u_t,v_uv).rgb,u_a); }\n";
+static GLuint g_glow_prog, g_glow_tex[4], g_glow_fb[4];
+static GLint g_glow_ua;
+static double g_glow_pts = -3;
+static const int GLOW_W[4] = { 160, 40, 16, 16 }, GLOW_H[4] = { 90, 22, 9, 9 };   /* the last: the eased one */
+
+static int glow_init(void)
+{
+    if (g_glow_prog) return g_glow_prog > 0 ? 1 : 0;
+    if (!g_yuv_vbo) {   /* the quad, when the YUV shader is not in use */
+        static const float quad[8] = { -1, -1, 1, -1, -1, 1, 1, 1 };
+        glGenBuffers(1, &g_yuv_vbo); glBindBuffer(GL_ARRAY_BUFFER, g_yuv_vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW); glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+    GLuint vs = yuv_shader(GL_VERTEX_SHADER, YUV_VS), fs = yuv_shader(GL_FRAGMENT_SHADER, GLOW_FS);
+    GLint ok = 0;
+    if (vs && fs) {
+        g_glow_prog = glCreateProgram();
+        glAttachShader(g_glow_prog, vs); glAttachShader(g_glow_prog, fs);
+        glBindAttribLocation(g_glow_prog, 0, "a_pos");
+        glLinkProgram(g_glow_prog);
+        glGetProgramiv(g_glow_prog, GL_LINK_STATUS, &ok);
+    }
+    if (vs) glDeleteShader(vs);
+    if (fs) glDeleteShader(fs);
+    if (!ok) { if (g_glow_prog) glDeleteProgram(g_glow_prog); g_glow_prog = (GLuint)-1; LOGW("video(ffmpeg): no glow shader"); return 0; }
+    glUseProgram(g_glow_prog);
+    glUniform1i(glGetUniformLocation(g_glow_prog, "u_t"), 0);
+    g_glow_ua = glGetUniformLocation(g_glow_prog, "u_a");
+    glGenTextures(4, g_glow_tex); glGenFramebuffers(4, g_glow_fb);
+    for (int i = 0; i < 4; i++) {
+        glBindTexture(GL_TEXTURE_2D, g_glow_tex[i]); tex_params();
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, GLOW_W[i], GLOW_H[i], 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_glow_fb[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_glow_tex[i], 0);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return 1;
+}
+
+static void glow_pass(GLuint src, int dst, float alpha)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_glow_fb[dst]);
+    glViewport(0, 0, GLOW_W[dst], GLOW_H[dst]);
+    glBindTexture(GL_TEXTURE_2D, src);
+    glUniform1f(g_glow_ua, alpha);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+static int g_glow_want;   /* asked for lately: kept up to date before each frame */
+
+static void glow_update(void)   /* video_update, before the screen draws: its own GL state, then the screen sets its own */
+{
+    Player *pl = P;
+    if (!g_glow_want || !pl || pl->vi < 0 || !g_tex || g_tex_serial != pl->serial || !glow_init()) return;
+    g_glow_want = 0;
+    if (g_glow_pts != g_tex_pts) {
+        int first = g_glow_pts == -3 || fabs(g_tex_pts - g_glow_pts) > 2;   /* a jump (a seek, another film): at once, not eased */
+        GLint prev_fb = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fb);
+        glUseProgram(g_glow_prog);
+        glActiveTexture(GL_TEXTURE0);
+        glDisable(GL_SCISSOR_TEST); glDisable(GL_BLEND);
+        glBindBuffer(GL_ARRAY_BUFFER, g_yuv_vbo);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+        glow_pass(g_tex, 0, 1);
+        glow_pass(g_glow_tex[0], 1, 1);
+        glow_pass(g_glow_tex[1], 2, 1);
+        if (!first) { glEnable(GL_BLEND); glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE); }   /* the colours eased, its alpha kept whole */
+        glow_pass(g_glow_tex[2], 3, first ? 1.0f : 0.18f);   /* eased: a few pictures to follow a change, no flicker */
+        glDisableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fb);
+        glEnable(GL_BLEND);   /* the screen sets the rest (gfx_begin_frame) */
+        g_glow_pts = g_tex_pts;
+    }
+}
+
+unsigned video_glow_texture(void)
+{
+    Player *pl = P;
+    g_glow_want = 1;
+    if (!pl || pl->vi < 0 || g_glow_prog == (GLuint)-1 || g_glow_pts == -3 || g_tex_serial != pl->serial) return 0;
+    return g_glow_tex[3];
+}
+
 /* ---- the interface ------------------------------------------------------------------- */
 
 int video_init(SDL_Window *win)
@@ -855,6 +949,7 @@ const char *video_backend_name(void) { return "ffmpeg (desktop)"; }
 
 int video_load(const char *url, const char *title, double start)
 {
+    g_glow_pts = -3;   /* a new picture: its glow from its first frame */
     player_drop();
     g_loads++;
     memset(&g_info, 0, sizeof g_info);
@@ -919,6 +1014,7 @@ void video_update(void)
         int have = pl->f_n > 0;
         SDL_UnlockMutex(pl->fm);
         picture_upload(pl);
+        glow_update();
         if (have && pl->ai < 0 && g_wall_base < 0 && !g_paused) { g_wall_base = pl->fr[pl->f_r].pts >= 0 ? pl->fr[pl->f_r].pts : 0; g_wall_at = SDL_GetPerformanceCounter(); }
     }
     int started = pl->vi >= 0 ? (g_tex_serial == pl->serial || pl->f_n > 0) : pl->clock_pts >= 0;

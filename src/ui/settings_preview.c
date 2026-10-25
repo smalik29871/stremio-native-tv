@@ -301,11 +301,12 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         art(sx, sy + bh, sw, sh - 2 * bh, 0, 4, 0);
         const char *line = "I'll be right here.";
         int fs = FONT_XS | FONT_B;
-        float ty = st ? sy + sh - bh / 2 - font_height(fs) / 2 : sy + sh - bh - font_height(fs) - 14;
+        float ty = g_app.subs_in_bars ? sy + sh - bh / 2 - font_height(fs) / 2 : sy + sh - bh - font_height(fs) - 14;
         font_draw_center(line, sx + sw / 2 + 1, ty + 1, fs, RGBA(0, 0, 0, 0xC0));
         font_draw_center(line, sx + sw / 2, ty, fs, RGBA(0xFF, 0xFF, 0xFF, 0xF0));
-        caption(st == LB_GLOW ? "The bars glow with the film's colours; subtitles sit in them" : st == LB_COLOUR ? "The bars take the scene's main colour; subtitles sit in them"
-                : st == LB_BLACK ? "Black bars, subtitles in the one below" : "Black bars, subtitles over the picture", x, base + 6, w);
+        caption(st == LB_GLOW ? (g_app.subs_in_bars ? "The bars glow with the film's colours; subtitles sit in them" : "The bars glow with the film's colours")
+                : st == LB_COLOUR ? (g_app.subs_in_bars ? "The bars take the scene's main colour; subtitles sit in them" : "The bars take the scene's main colour")
+                : g_app.subs_in_bars ? "Black bars, subtitles in the one below" : "Black bars, subtitles over the picture", x, base + 6, w);
         return;
     }
     case PV_BLUR: {

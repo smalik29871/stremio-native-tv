@@ -2069,8 +2069,10 @@ static void load_prefs(void)
     g_app.fx_light = g_app.fx_setting == FX_LIGHT;
     g_app.spoiler_blur = store_get_int("spoilerBlur", 1);
     g_app.advisory = store_get_int("advisory", 1);
-    g_app.living_letterbox = store_get_int("livingLetterbox", LB_OFF);
-    if (g_app.living_letterbox < 0 || g_app.living_letterbox >= LB_STYLE_COUNT) g_app.living_letterbox = LB_OFF;
+    int lb_was = store_get_int("livingLetterbox", -1);   /* -1: never set (it was Glow then); 3: the old "Black" (bars black, subtitles in them) */
+    g_app.living_letterbox = lb_was == LB_GLOW || lb_was == LB_COLOUR ? lb_was : LB_OFF;
+    g_app.subs_in_bars = store_get_int("subsInBars", lb_was != LB_OFF);   /* every style but Off put them there */
+    if (lb_was == 3) { store_set_int("livingLetterbox", LB_OFF); store_set_int("subsInBars", g_app.subs_in_bars); }   /* the old "Black": the letterbox off, its subtitles kept in the bars */
     if (!store_get_int("letterboxOffOnce", 0)) {   /* 0.10.79: off for everyone once (it lags on TVs); whoever wants it turns it on again */
         if (g_app.living_letterbox != LB_OFF) LOGI("settings: the living letterbox is off now (it was %s); Settings turns it on again", LB_STYLE_NAMES[g_app.living_letterbox]);
         g_app.living_letterbox = LB_OFF;
@@ -2191,6 +2193,7 @@ void app_save_prefs(void)
     store_set_int("spoilerBlur", g_app.spoiler_blur);
     store_set_int("advisory", g_app.advisory);
     store_set_int("livingLetterbox", g_app.living_letterbox);
+    store_set_int("subsInBars", g_app.subs_in_bars);
     store_set_int("depthMotion", g_app.depth_motion);
     store_set_int("subsSize", g_app.subs_size);
     store_set_int("subsPos", g_app.subs_pos);
@@ -2467,7 +2470,7 @@ void play_candidates_free(PlayCandidate *c, int n)
 
 const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
 const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT] = { "Time", "Day and time", "With seconds", "Small dial" };
-const char *const LB_STYLE_NAMES[LB_STYLE_COUNT] = { "Off", "Glow", "One colour", "Black" };
+const char *const LB_STYLE_NAMES[LB_STYLE_COUNT] = { "Off", "Glow", "One colour" };
 const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo", "Fireplace", "Aurora",
                                                                    "Rainy window", "Now showing", "Warp", "Depth", "Art gallery", "Shuffle" };
 

@@ -1,0 +1,89 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 8c24dcb..04bdc78 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -3,8 +3,8 @@
+ # .ipk plus the Homebrew Channel repository files to the public releases repository
+ # (RELEASES_REPO, written with the RELEASES_TOKEN secret), so TVs subscribed to
+ # .../releases/latest/download/repo.json get the update; this source repository can
+-# stay private. While it is still public the release is made here too, so TVs on
+-# older versions (which look here) find the build that moves them over.
++# stay private. Releases are made only there: every update check and download link
++# in the app points at it.
+ # To ship a new version: bump the version in appinfo.json and push to main, or push it to a
+ # claude/ branch: once every job is green, main is fast-forwarded to it and it is published.
+ name: Build
+@@ -361,16 +361,10 @@ jobs:
+           else
+             echo "publish=true" >> "$GITHUB_OUTPUT"
+           fi
+-          # here too while this repository is public (TVs on older versions look here)
+-          if [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" = "false" ] && ! gh release view "$TAG" >/dev/null 2>&1; then
+-            echo "here=true" >> "$GITHUB_OUTPUT"
+-          else
+-            echo "here=false" >> "$GITHUB_OUTPUT"
+-          fi
+           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+       - name: The Android app's update notice
+-        if: steps.ver.outputs.publish == 'true' || steps.ver.outputs.here == 'true'
++        if: steps.ver.outputs.publish == 'true'
+         env:
+           VERSION: ${{ steps.ver.outputs.version }}
+           TAG: ${{ steps.ver.outputs.tag }}
+@@ -387,7 +381,7 @@ jobs:
+           PY
+           cat dist/android.json
+       - name: Release notes from CHANGELOG
+-        if: steps.ver.outputs.publish == 'true' || steps.ver.outputs.here == 'true'
++        if: steps.ver.outputs.publish == 'true'
+         env:
+           VERSION: ${{ steps.ver.outputs.version }}
+         run: |
+@@ -434,40 +428,12 @@ jobs:
+         run: |
+           # what people see when they open the releases repository: kept current on every release
+           git clone -q --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" pub
+-          cat > pub/README.md <<EOF
+-          # Cuelight for LG webOS
+-
+-          *Your cue to press play.* Cuelight is a fast native player for LG webOS TVs (webOS 3.0 and
+-          newer) that works with your Stremio account and addons: the same sign-in, addons, Library and
+-          Continue Watching.
+-
+-          > Cuelight is an independent project. It is not affiliated with, endorsed by or made by Stremio.
+-
+-          ## Install
+-
+-          1. Install the [Homebrew Channel](https://github.com/webosbrew/webos-homebrew-channel) on your TV.
+-          2. In the Homebrew Channel, open **Settings > Add repository** and enter:
+-
+-             \`https://github.com/${RELEASES_REPO}/releases/latest/download/repo.json\`
+-          3. Back in the app list, install **Cuelight** (listed as "Stremio (native)" before 0.10.57).
+-
+-          ## Updates
+-
+-          Cuelight checks for new versions itself (Settings > About). The newest is **${TAG}**: see
+-          [Releases](https://github.com/${RELEASES_REPO}/releases) for what changed.
+-          EOF
++          # deploy/releases/README.md with the tag and repository filled in, beside the licence and notices
++          sed -e "s|\${TAG}|${TAG}|g" -e "s|\${RELEASES_REPO}|${RELEASES_REPO}|g" deploy/releases/README.md > pub/README.md
++          cp LICENSE THIRD-PARTY-NOTICES.md pub/
+           cd pub
+-          if ! git diff --quiet; then
+-            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qam "README for ${TAG}"
++          git add README.md LICENSE THIRD-PARTY-NOTICES.md
++          if ! git diff --cached --quiet; then
++            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "README, licence and notices for ${TAG}"
+             git push -q origin HEAD
+           fi
+-      - name: Create the release here too
+-        if: steps.ver.outputs.here == 'true'
+-        env:
+-          GH_TOKEN: ${{ github.token }}
+-          TAG: ${{ steps.ver.outputs.tag }}
+-        run: |
+-          gh release create "$TAG" dist/* \
+-            --target "$GITHUB_SHA" \
+-            --title "Cuelight $TAG" \
+-            --notes-file notes.md
