@@ -107,7 +107,7 @@ int video_take_open_url(char *out, size_t n)
     (*e)->DeleteLocalRef(e, s);
     return ok;
 }
-int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }   /* -1 where nothing opens web links (some TV boxes) */
+int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }   /* 0 where nothing opens web links (some TV boxes) */
 int video_has_youtube_app(void) { return 1; }
 int video_open_youtube(const char *id)   /* the YouTube app's own link first; a browser takes the page where there is no app */
 {

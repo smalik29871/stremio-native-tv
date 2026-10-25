@@ -17,9 +17,9 @@ typedef struct {
     char name[96];
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
     int qr_ready, via_phone;   /* via_phone: the code is this TV's page, not the addon's */
-    int sent, seen_version;
+    int sent;
     float sent_at, t;
-    char status[200];
+    char status[200], link[4096];
 } Setup;
 
 enum { HIT_OUTSIDE = 1, HIT_PANEL };
@@ -44,12 +44,13 @@ static void update(Screen *s, float dt)
             return;
         }
         LOGI("addons: a new link for %s came from the phone", o->name);
-        o->sent = 1; o->sent_at = g_app.time; o->seen_version = g_app.addons_version;
+        o->sent = 1; o->sent_at = g_app.time;
+        snprintf(o->link, sizeof o->link, "%s", g);
         snprintf(o->status, sizeof o->status, "Received. Updating %s\xE2\x80\xA6", o->name);
         app_install_addon(g);
         app_redraw();
     }
-    if (o->sent && g_app.addons_version != o->seen_version) { app_pop(); return; }   /* installed: its toast says so */
+    if (o->sent && app_addon_index(o->link) >= 0) { app_pop(); return; }   /* installed: its toast says so */
     if (o->sent && g_app.time - o->sent_at > 15) {
         o->sent = 0;
         snprintf(o->status, sizeof o->status, "That link did not install. Check it on the addon's page and send it again.");

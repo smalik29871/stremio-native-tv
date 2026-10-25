@@ -1695,15 +1695,16 @@ static void on_account_choice(int c, void *user)
     else if (c == 1) { app_forget_account(i); app_toast("Saved sign-in forgotten"); }
 }
 
-/* OK on an addon: its settings (on the addon's own page) and removing it */
+/* OK on an addon: its settings (on the addon's own page) and removing it. The addon is kept by
+ * its link: the list can change while the sheet is open. */
 enum { ADDON_CONFIGURE, ADDON_REMOVE };
-static struct { int idx, n, act[2]; } g_addon_pick;
+static struct { char link[4096]; int n, act[2]; } g_addon_pick;
 
 static void on_addon_choice(int c, void *user)
 {
     (void)user;
-    int i = g_addon_pick.idx;
-    if (c < 0 || c >= g_addon_pick.n || i < 0 || i >= g_app.n_addons) return;
+    int i = app_addon_index(g_addon_pick.link);
+    if (c < 0 || c >= g_addon_pick.n || i < 0) return;
     if (g_addon_pick.act[c] == ADDON_REMOVE) { app_remove_addon(i); return; }
     const Addon *a = &g_app.addons[i];
     char page[2048];
@@ -1847,7 +1848,7 @@ static int key(Screen *s, KeyAction a)
         else if (id >= IT_ADDON_BASE) {
             const Addon *a = &g_app.addons[id - IT_ADDON_BASE];
             const char *items[2]; int icons[2], n = 0;
-            g_addon_pick.idx = id - IT_ADDON_BASE;
+            snprintf(g_addon_pick.link, sizeof g_addon_pick.link, "%s", a->transport_url);
             if (a->manifest.bh_configurable) { items[n] = "Configure"; icons[n] = ICON_SETTINGS; g_addon_pick.act[n++] = ADDON_CONFIGURE; }
             if (!a->flag_protected) { items[n] = "Remove"; icons[n] = ICON_CLOSE; g_addon_pick.act[n++] = ADDON_REMOVE; }
             g_addon_pick.n = n;

@@ -506,8 +506,7 @@ static void unloaded_clear(void) { while (g_n_unloaded) free(g_unloaded[--g_n_un
  * once its list arrives (the built-in catalog stays out: no other app could read it). */
 enum { DEFAULTS_MAX_MERGE = 32 };
 static char *g_merge[DEFAULTS_MAX_MERGE]; static int g_n_merge;
-static int g_quiet_installs;   /* addons a sync adds: no toast for each */
-static void install_addon(const char *transport_url, int replace);
+static void install_addon(const char *transport_url, int replace, int quiet);
 
 void app_sync_begin(void)
 {
@@ -527,7 +526,7 @@ static void merge_into_account(void)
     for (int m = 0; m < g_n_merge; m++) {
         int have = 0;
         for (int i = 0; i < g_app.n_addons; i++) if (!strcmp(g_app.addons[i].transport_url, g_merge[m])) have = 1;
-        if (!have) install_addon(g_merge[m], 0);   /* fetches it and saves the account's list */
+        if (!have) install_addon(g_merge[m], 0, 0);   /* fetches it and saves the account's list */
         free(g_merge[m]);
     }
     g_n_merge = 0;
@@ -675,16 +674,17 @@ static void persist_local_addon_urls(void)
     store_save();
 }
 
-typedef struct { char *url; int replace; } Install;   /* replace: one the viewer installs takes the place of the same addon; a merge only adds */
+/* replace: one the viewer installs takes the place of the same addon; a merge only adds.
+ * quiet: a sync's, no toast for each. gen: the account it was asked under. */
+typedef struct { char *url; int replace, quiet; uintptr_t gen; } Install;
 
 static void on_install_manifest(HttpResponse *r, void *user)
 {
     Install *in = user;
     char *url = in->url;
-    int replace = in->replace;
+    int replace = in->replace, quiet = in->quiet, stale = in->gen != g_account_gen;
     free(in);
-    int quiet = g_quiet_installs > 0;
-    if (quiet) g_quiet_installs--;
+    if (stale) { LOGI("addons: an install for the previous account, dropped"); free(url); return; }
     if (r->status != 200) { if (!quiet) app_toast("Could not fetch addon: %s", r->error[0] ? r->error : "HTTP error"); free(url); return; }
     Addon a;
     if (addon_new(url, r->body, &a) != 0) { if (!quiet) app_toast("Invalid addon manifest"); free(url); return; }
@@ -708,19 +708,34 @@ static void on_install_manifest(HttpResponse *r, void *user)
     if (g_app.auth_key) push_collection_to_account(); else persist_local_addon_urls();
 }
 
-static void install_addon(const char *transport_url, int replace)
+/* an install link as it is kept: an addon page's stremio:// is https, and it names the manifest */
+static void addon_link(const char *link, char *url, size_t n)
 {
-    char url[4096], in[4096];   /* a configured addon carries its settings in the link: some run to kilobytes */
-    while (*transport_url == ' ') transport_url++;
-    if (!strncmp(transport_url, "stremio://", 10)) snprintf(in, sizeof in, "https://%s", transport_url + 10);   /* an addon page's Install link */
-    else snprintf(in, sizeof in, "%s", transport_url);
-    addon_url_manifest(in, url, sizeof url);
+    char in[4096];   /* a configured addon carries its settings in the link: some run to kilobytes */
+    while (*link == ' ') link++;
+    if (!strncmp(link, "stremio://", 10)) snprintf(in, sizeof in, "https://%s", link + 10);
+    else snprintf(in, sizeof in, "%s", link);
+    addon_url_manifest(in, url, n);
+}
+
+static void install_addon(const char *transport_url, int replace, int quiet)
+{
+    char url[4096];
+    addon_link(transport_url, url, sizeof url);
     Install *job = malloc(sizeof *job);
-    job->url = strdup(url); job->replace = replace;
+    job->url = strdup(url); job->replace = replace; job->quiet = quiet; job->gen = g_account_gen;
     http_request_async(url, NULL, on_install_manifest, job);
 }
 
-void app_install_addon(const char *transport_url) { install_addon(transport_url, 1); }
+void app_install_addon(const char *transport_url) { install_addon(transport_url, 1, 0); }
+
+int app_addon_index(const char *link)
+{
+    char url[4096];
+    addon_link(link, url, sizeof url);
+    for (int i = 0; i < g_app.n_addons; i++) if (!strcmp(g_app.addons[i].transport_url, url)) return i;
+    return -1;
+}
 
 /* Opened with an addon's install link (stremio://host/.../manifest.json, as addon pages offer):
  * it installs, as Settings > Addons would. Only the host goes in the log: an addon's address
@@ -2764,8 +2779,7 @@ int app_sync_apply(const char *json, int with_look, char *summary, size_t n)
     if (g_app.auth_key) {
         for (int i = 0; i < n_add; i++) {
             if (switched && g_n_merge < DEFAULTS_MAX_MERGE) { g_merge[g_n_merge++] = add[i]; continue; }   /* once the account's list is in */
-            g_quiet_installs++;
-            install_addon(add[i], 0);
+            install_addon(add[i], 0, 1);
             free(add[i]);
         }
     } else if (n_add) {
