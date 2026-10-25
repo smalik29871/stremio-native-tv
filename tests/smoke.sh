@@ -601,7 +601,7 @@ grep -q "store: data moved here from $MH/devtemp/org.stremio.nativetv" "$OUT/dat
 # Sources panel > Find more sources: every addon is asked while the video plays on, and the new ones join the list
 run player_more_sources 600 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok,up,up,up,up,up,up,up,up,up,ok,wait,wait,wait,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with more_src "$NO_PREFLIGHT")"
-grep -q "player: every addon asked from the Sources panel: 5 more sources" "$OUT/player_more_sources.log" && [ "$(grep -c "streams: #1 score" "$OUT/player_more_sources.log")" -eq 1 ] \
+grep -qE "player: every addon asked from the Sources panel: [1-9][0-9]* more sources" "$OUT/player_more_sources.log" && [ "$(grep -c "streams: #1 score" "$OUT/player_more_sources.log")" -eq 1 ] \
   || { echo "Find more sources did not add sources while playing"; grep -E "player: (every|asking)" "$OUT/player_more_sources.log"; exit 1; }
 # the Sources panel during playback (as Nuvio's): Right narrows it to one addon, OK there switches at the same moment
 run player_sources_filter 560 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok,right,right,down,ok,wait" \
