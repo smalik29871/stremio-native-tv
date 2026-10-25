@@ -357,8 +357,8 @@ static const char *row_desc(int id)
                         : "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
     case IT_AMBIENT: return "When the remote has been quiet this long.";
     case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee, a starfield, depth, a gallery of museum paintings, or a different one each time.";
-    case IT_AMBIENT_DIM: return "The screensaver darkens this long after it comes up: kinder to the panel on a long evening.";
-    case IT_AMBIENT_OFF: return "The picture goes black, with a faint clock, this long after the screensaver comes up. Any key brings it back.";
+    case IT_AMBIENT_DIM: return "The screensaver darkens this long after it starts: kinder to the panel on a long evening.";
+    case IT_AMBIENT_OFF: return "The picture goes black, with a faint clock, this long into the screensaver. Any key wakes the screen.";
     case IT_FIRE_VIDEO: return "A YouTube or video link of a real fire, played full screen and looped with the clock.";
     case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
     case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";
