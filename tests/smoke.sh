@@ -1130,6 +1130,10 @@ run phone_title 220 "wait,wait,tap:152:1050,wait,wait,wait" $PH SNTV_EXPECT_SCRE
 run phone_series 260 "wait,wait,tap:400:1050,wait,wait,wait,up,up,up,up" $PH SNTV_EXPECT_SCREEN=detail HOME="$(home_with ph3 '{"setupDone":1}')"
 run phone_sources 300 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=streams HOME="$(home_with ph4 '{"setupDone":1}')"
 run phone_search 300 "wait,tap:390:1660,wait,tap:390:180,wait,t:brea,wait,wait,ok,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=search HOME="$(home_with ph5 '{"setupDone":1}')"
+# a phone keyboard's space bar sends the key as well as the text: a space, not OK (which closed the keyboard)
+run phone_search_space 400 "wait,tap:390:1660,wait,tap:390:180,wait,t:breaking,space,t:bad,wait,wait,ok,wait,wait" $PH SNTV_EXPECT_SCREEN=search HOME="$(home_with phsp '{"setupDone":1}')"
+grep -qE '"recentSearches":[[:space:]]*\["breaking bad"\]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json" \
+  || { echo "the space bar of a phone keyboard did not type a space"; grep -o '"recentSearches":[^]]*]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json"; exit 1; }
 run phone_settings 240 "wait,tap:702:1660,wait,tap:300:300,wait,wait" $PH SNTV_EXPECT_SCREEN=settings HOME="$(home_with ph6 '{"setupDone":1}')"
 run phone_explore 220 "wait,tap:234:1660,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=explore HOME="$(home_with ph7 '{"setupDone":1}')"
 run phone_library 200 "wait,tap:546:1660,wait,wait" $PH SNTV_EXPECT_SCREEN=library HOME="$(home_with ph8 '{"setupDone":1}')"

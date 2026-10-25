@@ -277,6 +277,13 @@ static void dev_hooks(SDL_Window *win, int frame)
                 drag.x = e.tfinger.x; drag.y = e.tfinger.y; drag.dx = (float)(qx - px) / dw; drag.dy = (float)(qy - py) / dh; drag.left = 8; drag.until = press ? SDL_GetTicks() + 1000 : 0;
                 continue;
             }
+            if (strcmp(tok, "space") == 0) {   /* a phone keyboard's space bar: the key, then the text */
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_SPACE; SDL_PushEvent(&e);
+                e.type = SDL_KEYUP; SDL_PushEvent(&e);
+                memset(&e, 0, sizeof e); e.type = SDL_TEXTINPUT; snprintf(e.text.text, sizeof e.text.text, " "); SDL_PushEvent(&e);
+                continue;
+            }
             if (strncmp(tok, "t:", 2) == 0) {   /* typed text */
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_TEXTINPUT;
