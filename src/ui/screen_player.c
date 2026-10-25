@@ -1307,7 +1307,9 @@ static void lb_paint(unsigned tex, const char *url, int side, float bar, float a
     float box[4] = { 0, 0, 1, 1 };
     image_content_box(url, box);
     float cw = box[2] - box[0], ch = box[3] - box[1];
-    float rw = W * LB_GROW, rh = H * LB_GROW, rx = (W - rw) / 2, ry = (H - rh) / 2;   /* where the whole frame lies, enlarged */
+    /* where the whole frame lies, enlarged only across the bars: along them each colour stays
+     * level with where it is in the picture */
+    float rw = side == 2 ? W * LB_GROW : W, rh = side == 1 ? H * LB_GROW : H, rx = (W - rw) / 2, ry = (H - rh) / 2;
     Color c = RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
 #define LB_U(x) (box[0] + ((x) - rx) / rw * cw)
 #define LB_V(y) (box[1] + ((y) - ry) / rh * ch)
@@ -1447,7 +1449,7 @@ static void lb_paint_art(Player *p, int side, float bar, float a)
  * into the bars (as a lamp behind the screen; One colour: its middle, flat). */
 static void lb_paint_glow(unsigned tex, int side, float bar, float a)
 {
-    float W = SNTV_UI_W, H = SNTV_UI_H, rw = W * LB_GROW, rh = H * LB_GROW, rx = (W - rw) / 2, ry = (H - rh) / 2;
+    float W = SNTV_UI_W, H = SNTV_UI_H, rw = side == 2 ? W * LB_GROW : W, rh = side == 1 ? H * LB_GROW : H, rx = (W - rw) / 2, ry = (H - rh) / 2;   /* level with the picture along the bars */
     int one = g_app.living_letterbox == LB_COLOUR;
     Color c = one ? RGBA(255 * LB_TINT, 255 * LB_TINT, 255 * LB_TINT, (int)(255 * a)) : RGBA(LB_LIGHT, LB_LIGHT, LB_LIGHT, (int)(255 * a));
 #define GU(x) (one ? 0.5f : ((x) - rx) / rw)
