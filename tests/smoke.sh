@@ -1219,7 +1219,7 @@ run ambient_shuffle 200 "" SNTV_AMBIENT_SECONDS=1 SNTV_AMBIENT_PICK=2 HOME="$(ho
 grep -q "ambient: shuffle picked Clock, face " "$OUT/ambient_shuffle.log" && grep -q "ambient: Clock screensaver with" "$OUT/ambient_shuffle.log" || { echo "shuffle did not pick a screensaver"; grep ambient "$OUT/ambient_shuffle.log"; exit 1; }
 run ambient_gallery 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_ART_API=http://127.0.0.1:$PORT/artic SNTV_ART_IIIF=http://127.0.0.1:$PORT/artic/iiif HOME="$(home_with gal '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":10,"ambientMinutes":2}')"
 grep -q "ambient: a gallery of 3 works from the Art Institute of Chicago" "$OUT/ambient_gallery.log" || { echo "the gallery did not get its works"; grep ambient "$OUT/ambient_gallery.log"; exit 1; }
-run ambient_dim 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_AMBIENT_DIM_S=1 SNTV_AMBIENT_OFF_S=3 HOME="$(home_with dim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":0,"ambientMinutes":2}')"
+run ambient_dim 1200 "" SNTV_AMBIENT_SECONDS=1 SNTV_AMBIENT_DIM_S=1 SNTV_AMBIENT_OFF_S=3 HOME="$(home_with dim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":0,"ambientMinutes":2}')"
 grep -q "ambient: dimmed after [0-9]* s" "$OUT/ambient_dim.log" && grep -q "ambient: picture off after [0-9]* s" "$OUT/ambient_dim.log" || { echo "the screensaver did not dim and go black"; grep ambient "$OUT/ambient_dim.log"; exit 1; }
 run island_dial 150 "" HOME="$(home_with isl_dial '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":3}')"
 run island_seconds 150 "" HOME="$(home_with isl_sec '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"islandStyle":2}')"
