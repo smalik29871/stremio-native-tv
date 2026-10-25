@@ -82,10 +82,10 @@ int main(void)
     make("app.prev.log", 40, 60);
     TidyUsage u;
     tidy_usage(root, &u);
-    CHECK(u.total > u.cache && u.cache >= (7 * 1024 + 300 + 40) * 1024LL);
+    CHECK(u.total > u.cache && u.cache >= (7 * 1024 + 300) * 1024LL);
     tidy_clear(root, &r);
-    CHECK(!exists("img/poster.img") && !exists("img/abc.img") && !exists("cache/fresh.json") && !exists("yt/abcd1234-0badf00d.solver.js") && !exists("app.prev.log"));
-    CHECK(exists("settings.json") && exists("sounds/start.mp3") && exists("library.json.98.tmp"));
+    CHECK(!exists("img/poster.img") && !exists("img/abc.img") && !exists("cache/fresh.json") && !exists("yt/abcd1234-0badf00d.solver.js"));
+    CHECK(exists("settings.json") && exists("sounds/start.mp3") && exists("library.json.98.tmp") && exists("app.prev.log"));   /* the last session's log: the only record of a crash */
     TidyUsage after;
     tidy_usage(root, &after);
     CHECK(after.cache == 0 && after.total == u.total - r.freed);

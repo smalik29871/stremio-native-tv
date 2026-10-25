@@ -1180,8 +1180,15 @@ run phone_streams_scrolled 360 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wai
 run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:905,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
 grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cache cleared" "$OUT/storage_clear.log" || { echo "Storage did not count or clear the cache"; grep -E "storage|tidy" "$OUT/storage_clear.log"; exit 1; }
 # a TV low on storage: the cache clears by itself and says so once
-run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 HOME="$(home_with stlow '{"setupDone":1}')"
+run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 SNTV_AUTO_CLEAR_MIN_MB=0 HOME="$(home_with stlow '{"setupDone":1}')"
 grep -q "storage: only .* MB free on the TV; clearing the cache" "$OUT/storage_low.log" && grep -q "toast: The TV was low on storage" "$OUT/storage_low.log" || { echo "a TV low on storage did not get its cache cleared"; grep -E "storage|tidy|toast" "$OUT/storage_low.log"; exit 1; }
+# ... but a cache too small to make the room stays (it would go at every start), and the last
+# session's log is never part of it (after a crash it is the only record)
+STH="$(home_with stsmall '{"setupDone":1}')"; echo "12:00:00 E crash: SIGSEGV at 0x0" > "$STH/.local/share/stremio/nativetv/app.prev.log"
+run storage_low_small 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 HOME="$STH"
+grep -q "the cache (.* MB) is too small to make a difference, so it stays" "$OUT/storage_low_small.log" && ! grep -q "clearing the cache" "$OUT/storage_low_small.log" \
+  && grep -q "E crash: SIGSEGV" "$STH/.local/share/stremio/nativetv/app.prev.log" \
+  || { echo "a small cache was cleared on a TV low on storage"; grep -E "storage|tidy" "$OUT/storage_low_small.log"; exit 1; }
 run settings_storage 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down" SNTV_TIDY_DELAY=0
 # an episode's guest stars lead the cast drawer
 run player_guests 480 "right,ok,down,down,right,play,wait,wait,wait,wait,wait,wait,info,wait" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg HOME="$(home_with pguest '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
