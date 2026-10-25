@@ -2024,6 +2024,8 @@ static void load_prefs(void)
     g_app.auto_trailers = store_get_int("autoTrailers", 1);
     g_app.ambient_minutes = store_get_int("ambientMinutes", 5);
     g_app.ambient_style = store_get_int("ambientStyle", AMBIENT_ARTWORK);
+    g_app.ambient_dim_min = store_get_int("ambientDimMin", 30);
+    g_app.ambient_off_min = store_get_int("ambientOffMin", 0);
     if (g_app.ambient_style < 0 || g_app.ambient_style >= AMBIENT_STYLE_COUNT) g_app.ambient_style = AMBIENT_ARTWORK;
     g_app.quality_mode = store_get_int("qualityMode", QUAL_ADDON_ORDER);
     if (g_app.quality_mode < 0 || g_app.quality_mode >= QUAL_MODE_COUNT) g_app.quality_mode = QUAL_ADDON_ORDER;
@@ -2125,6 +2127,8 @@ void app_save_prefs(void)
     store_set_int("autoTrailers", g_app.auto_trailers);
     store_set_int("ambientMinutes", g_app.ambient_minutes);
     store_set_int("ambientStyle", g_app.ambient_style);
+    store_set_int("ambientDimMin", g_app.ambient_dim_min);
+    store_set_int("ambientOffMin", g_app.ambient_off_min);
     store_set_int("qualityMode", g_app.quality_mode);
     store_set_int("resCap", g_app.res_cap);
     store_set_int("autoRecommended", g_app.auto_recommended);
@@ -2381,7 +2385,7 @@ const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase"
 const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT] = { "Time", "Day and time", "With seconds", "Small dial" };
 const char *const LB_STYLE_NAMES[LB_STYLE_COUNT] = { "Off", "Glow", "One colour", "Black" };
 const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT] = { "Artwork", "Poster wall", "Clock", "Floating logo", "Fireplace", "Aurora",
-                                                                   "Rainy window", "Now showing", "Warp", "Depth" };
+                                                                   "Rainy window", "Now showing", "Warp", "Depth", "Art gallery", "Shuffle" };
 
 void meta_preview_copy(MetaPreview *dst, const MetaPreview *src)
 {

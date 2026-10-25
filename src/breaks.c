@@ -51,6 +51,25 @@ static struct tm now_tm(void)
 }
 
 int breaks_minute_now(void) { struct tm t = now_tm(); return t.tm_hour * 60 + t.tm_min; }
+
+int breaks_next_prayer(char *out, size_t n)
+{
+    BreakEvent ev[16]; int c = breaks_today(ev, 16), now = breaks_minute_now(), next = -1, first = -1;
+    out[0] = 0;
+    for (int i = 0; i < c; i++) {
+        if (ev[i].kind != BRK_KIND_PRAYER) continue;
+        if (first < 0) first = i;
+        if (ev[i].minute > now && next < 0) next = i;
+    }
+    if (next < 0) next = first;
+    if (next < 0) return 0;
+    int until = ev[next].minute - now, m = ev[next].minute % 1440;
+    if (until <= 0) until += 1440;
+    if (until < 60) snprintf(out, n, "%s in %d min", ev[next].name, until);
+    else if (g_app.clock_mode == 1) snprintf(out, n, "%s at %02d:%02d", ev[next].name, m / 60, m % 60);
+    else snprintf(out, n, "%s at %d:%02d %s", ev[next].name, m / 60 % 12 ? m / 60 % 12 : 12, m % 60, m / 60 < 12 ? "AM" : "PM");
+    return 1;
+}
 double breaks_tz_hours(void) { struct tm t = now_tm(); return t.tm_gmtoff / 3600.0; }
 int breaks_location_known(void) { return g_app.break_lat != 0 || g_app.break_lon != 0; }
 

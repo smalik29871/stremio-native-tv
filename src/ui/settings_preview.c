@@ -455,6 +455,28 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
             float lx = sx + 20 + (sw - 110) * (p < 0.5f ? p * 2 : 2 - p * 2), ly = sy + 20 + (sh - 110) * (q < 0.5f ? q * 2 : 2 - q * 2);
             ui_mark(lx, ly, 70);
             app_redraw();
+        } else if (g_app.ambient_style == AMBIENT_GALLERY) {   /* a painting in a frame on the wall */
+            gfx_rrect_grad_v(sx, sy, sw, sh, R_KEY, RGBA(0x26, 0x22, 0x1E, 0xFF), RGBA(0x0C, 0x0A, 0x09, 0xFF));
+            float pw = sw * 0.42f, ph = pw * 0.8f, px = sx + sw / 2 - pw / 2, py = sy + sh * 0.42f - ph / 2, m = ph * 0.07f;
+            gfx_shadow(px - m - 6, py - m + 10, pw + 2 * m + 12, ph + 2 * m + 12, 2, 24, RGBA(0, 0, 0, 0xA0));
+            gfx_rect(px - m - 6, py - m - 6, pw + 2 * m + 12, ph + 2 * m + 12, RGBA(0x2A, 0x1E, 0x16, 0xFF));
+            gfx_rect(px - m, py - m, pw + 2 * m, ph + 2 * m, RGBA(0xF2, 0xEE, 0xE6, 0xFF));
+            art(px, py, pw, ph, 0, 3, 0);
+            font_draw_center("The Art Institute of Chicago", sx + sw / 2, py + ph + m + 18, FONT_XS, RGBA(0xA8, 0xA0, 0x94, 0xFF));
+        } else if (g_app.ambient_style == AMBIENT_SHUFFLE) {   /* a few of them, as tiles */
+            float tw = (sw - 50) / 3, th = (sh - 50) / 2;
+            for (int i = 0; i < 6; i++) {
+                float tx = sx + 15 + (i % 3) * (tw + 10), ty = sy + 15 + (i / 3) * (th + 10);
+                gfx_clip_push(tx, ty, tw, th);
+                if (i == 0) ambient_aurora(tx, ty, tw, th, g_app.time);
+                else if (i == 1) ambient_warp(tx, ty, tw, th, g_app.time);
+                else if (i == 2) art(tx, ty, tw, th, 4, 1 + i, 0);
+                else if (i == 3) { gfx_rect(tx, ty, tw, th, RGBA(0, 0, 0, 0xFF)); font_draw_center(t, tx + tw / 2, ty + th / 2 - font_height(FONT_L | FONT_B) / 2, FONT_L | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF)); }
+                else if (i == 4) { gfx_rect(tx, ty, tw, th, RGBA(0, 0, 0, 0xFF)); ui_mark(tx + tw / 2 - 24, ty + th / 2 - 24, 48); }
+                else art(tx, ty, tw, th, 4, 0, 0);
+                gfx_clip_pop();
+            }
+            app_redraw();
         } else if (g_app.ambient_style != AMBIENT_DEPTH) font_draw(t, sx + 30, sy + sh - 30 - font_height(FONT_XL | FONT_B), FONT_XL | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
         if (g_app.ambient_minutes) snprintf(t, sizeof t, "After %d min with the remote quiet", g_app.ambient_minutes);
         else snprintf(t, sizeof t, "Off: the screen stays as it is");

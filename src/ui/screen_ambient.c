@@ -8,6 +8,9 @@
 #include "../video/video.h"
 #include "../store.h"
 #include "../youtube.h"
+#include "../breaks.h"
+#include "../http.h"
+#include "../../vendor/cJSON.h"
 #include "../torbox.h"
 #include "../newep.h"
 #include "ambient_scenes.h"
@@ -50,9 +53,48 @@ typedef struct {
     int depth_logged;     /* Depth: the item last logged (+1) */
     int depth_chosen;     /* Depth: the first backdrop was weighed against the list of maps */
     float drawn_at;       /* the last frame: it moves slowly, thirty a second is plenty (a TV left on for hours) */
+    float born;           /* g_app.time the screensaver came up */
+    int dim; float dim_at;   /* dimmed, and when (the dark comes over a few seconds) */
+    int off;              /* the picture is off: black with a faint clock, until a key */
+    int gal_state;        /* Art gallery: 0 not asked, 1 asking the museum, 2 works on the wall, 3 none came */
 } Ambient;
 
 static Ambient *g_amb_live;   /* the screensaver a YouTube answer is for */
+static int g_style, g_face;   /* the screensaver in use: the chosen one, or what Shuffle picked */
+
+static float env_sec(const char *name, float dflt) { const char *v = getenv(name); return v && *v ? (float)atof(v) : dflt; }   /* test hooks */
+
+/* "Maghrib in 42 min", once breaks are on and the tradition has prayers; worked out once a minute. */
+static const char *prayer_line_now(void)
+{
+    static char line[64]; static int at = -1;
+    if (!g_app.breaks_on) return NULL;
+    int now = breaks_minute_now();
+    if (at != now) { at = now; breaks_next_prayer(line, sizeof line); }
+    return line[0] ? line : NULL;
+}
+
+static void prayer_line(float x, float y, int align)   /* 0 left, 1 centre, 2 right */
+{
+    const char *np = prayer_line_now();
+    if (!np) return;
+    float w = font_measure(np, FONT_S);
+    font_draw_shadow(np, align == 1 ? x - w / 2 : align == 2 ? x - w : x, y, FONT_S, RGBA(0xFF, 0xE0, 0xA0, 0xE0), RGBA(0, 0, 0, 0xA0));
+}
+
+/* Dimming and the picture going off, so a TV left on all night is spared. */
+static void stage_tick(Ambient *a)
+{
+    float up = g_app.time - a->born;
+    float dim_s = env_sec("SNTV_AMBIENT_DIM_S", g_app.ambient_dim_min * 60.0f), off_s = env_sec("SNTV_AMBIENT_OFF_S", g_app.ambient_off_min * 60.0f);
+    if (!a->dim && dim_s > 0 && up >= dim_s) { a->dim = 1; a->dim_at = g_app.time; LOGI("ambient: dimmed after %.0f s", up); }
+    if (!a->off && off_s > 0 && up >= off_s) {
+        a->off = 1;
+        if (a->fv_state == 2) { video_stop(); a->fv_state = 3; }
+        video_hold_screensaver(0);   /* the TV may now run its own saver or sleep */
+        LOGI("ambient: picture off after %.0f s; a key brings it back", up);
+    }
+}
 
 static void fv_play(Ambient *a)
 {
@@ -160,6 +202,88 @@ static void draw_fire(Ambient *a, float sx, float sy, const char *clock, struct 
 
 #define LOGO_S 150.0f
 
+/* ---- Art gallery: public-domain works from the Art Institute of Chicago's open API, hung
+ * in a frame on a dark wall with the artist's name, the way The Frame does it ---- */
+
+static void on_gallery(HttpResponse *r, void *user)
+{
+    Ambient *a = user;
+    if (a != g_amb_live) return;
+    cJSON *root = r->status == 200 && r->body ? cJSON_Parse(r->body) : NULL;
+    const cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data"), *w;
+    const char *iiif = getenv("SNTV_ART_IIIF");
+    int width = image_memory_low() ? 843 : 1686, n = cJSON_IsArray(data) ? cJSON_GetArraySize(data) : 0;
+    AmbientItem *items = n ? calloc((size_t)n, sizeof *items) : NULL;
+    int got = 0;
+    cJSON_ArrayForEach(w, data) {
+        const cJSON *img = cJSON_GetObjectItemCaseSensitive(w, "image_id"), *title = cJSON_GetObjectItemCaseSensitive(w, "title");
+        const cJSON *artist = cJSON_GetObjectItemCaseSensitive(w, "artist_display"), *date = cJSON_GetObjectItemCaseSensitive(w, "date_display");
+        if (!cJSON_IsString(img) || !*img->valuestring) continue;
+        AmbientItem *it = &items[got++];
+        snprintf(it->background, sizeof it->background, "%s/%s/full/%d,/0/default.jpg", iiif && *iiif ? iiif : "https://www.artic.edu/iiif/2", img->valuestring, width);
+        snprintf(it->name, sizeof it->name, "%s", cJSON_IsString(title) ? title->valuestring : "Untitled");
+        char who[96] = "";
+        if (cJSON_IsString(artist)) { snprintf(who, sizeof who, "%s", artist->valuestring); char *nl = strchr(who, '\n'); if (nl) *nl = 0; }   /* the first line: the name */
+        snprintf(it->caption, sizeof it->caption, "%s%s%s", who, *who && cJSON_IsString(date) && *date->valuestring ? ", " : "", cJSON_IsString(date) ? date->valuestring : "");
+    }
+    cJSON_Delete(root);
+    if (got) {
+        free(a->items);
+        a->items = items; a->n = got; a->cur = 0; a->prev = 0; a->cur_ready = 0; a->fade = 0; a->t = 0; a->shown_at = g_app.time;
+        a->gal_state = 2;
+        LOGI("ambient: a gallery of %d works from the Art Institute of Chicago", got);
+    } else {
+        free(items);
+        a->gal_state = 3;
+        LOGW("ambient: the museum sent no works (HTTP %ld); your artwork hangs instead", r->status);
+    }
+    app_redraw();
+}
+
+static void gallery_ask(Ambient *a)
+{
+    const char *base = getenv("SNTV_ART_API");
+    char url[400];
+    unsigned page = 1 + ((unsigned)time(NULL) / 97) % 60;   /* a different room each day or so; relevance order keeps the paintings first */
+    snprintf(url, sizeof url, "%s/api/v1/artworks/search?q=painting&query[term][is_public_domain]=true&fields=id,title,artist_display,date_display,image_id&limit=40&page=%u",
+             base && *base ? base : "https://api.artic.edu", page);
+    a->gal_state = 1;
+    http_request_async(url, NULL, on_gallery, a);
+}
+
+static unsigned art_get(const char *url, int *w, int *h);
+
+static void draw_gallery(Ambient *a, float sx, float sy)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H;
+    gfx_gradient_v(0, 0, W, H, RGBA(0x26, 0x22, 0x1E, 0xFF), RGBA(0x0C, 0x0A, 0x09, 0xFF));
+    gfx_shadow(W * 0.2f, -H * 0.3f, W * 0.6f, H * 0.7f, H * 0.3f, H * 0.3f, RGBA(0x60, 0x50, 0x40, 0x50));   /* a spotlight from above */
+    if (!a->n) return;
+    const AmbientItem *it = &a->items[a->cur];
+    int iw, ih;
+    unsigned tex = art_get(it->background, &iw, &ih);
+    if (!tex) { font_draw_center(a->gal_state == 1 ? "Choosing from the museum\xE2\x80\xA6" : "Hanging the next work\xE2\x80\xA6", W / 2, H / 2, FONT_S, RGBA(0x80, 0x78, 0x70, 0xC0)); return; }
+    float alpha = a->fade > 0 ? 1 - a->fade : 1;
+    float maxw = W * (SNTV_PHONE ? 0.82f : 0.56f), maxh = H * (SNTV_PHONE ? 0.5f : 0.56f), ia = (float)iw / (ih ? ih : 1);
+    float pw = maxw, ph = pw / ia;
+    if (ph > maxh) { ph = maxh; pw = ph * ia; }
+    float matte = ph * 0.055f, frame = ph * 0.018f;
+    float px = W / 2 - pw / 2 + sx, py = H * (SNTV_PHONE ? 0.42f : 0.47f) - ph / 2 + sy;
+    float fx = px - matte - frame, fy = py - matte - frame, fw = pw + 2 * (matte + frame), fh = ph + 2 * (matte + frame);
+    int al = (int)(255 * alpha);
+    gfx_shadow(fx, fy + 24, fw, fh, 2, 60, RGBA(0, 0, 0, (int)(0xB0 * alpha)));
+    gfx_rect(fx, fy, fw, fh, RGBA(0x2A, 0x1E, 0x16, al));                                   /* the frame */
+    gfx_rect_outline(fx + frame * 0.45f, fy + frame * 0.45f, fw - frame * 0.9f, fh - frame * 0.9f, frame * 0.12f + 0.5f, RGBA(0xC8, 0xA8, 0x60, (int)(0x90 * alpha)));   /* a gilt line */
+    gfx_rect(px - matte, py - matte, pw + 2 * matte, ph + 2 * matte, RGBA(0xF2, 0xEE, 0xE6, al));   /* the matte */
+    gfx_rect(px - 2, py - 2, pw + 4, ph + 4, RGBA(0x9A, 0x92, 0x88, al));                      /* its bevel */
+    gfx_tex(tex, px, py, pw, ph, RGBA(255, 255, 255, al));
+    float ty = fy + fh + 34;
+    font_draw_center(it->name, W / 2 + sx, ty, FONT_M | FONT_B, RGBA(0xF0, 0xE8, 0xDC, al));
+    if (it->caption[0]) font_draw_center(it->caption, W / 2 + sx, ty + font_height(FONT_M | FONT_B) + 6, FONT_S, RGBA(0xA8, 0xA0, 0x94, al));
+    font_draw(a->gal_state == 2 ? "Art Institute of Chicago" : "From your library", THEME_MARGIN + sx, H - 110 + sy, FONT_XS | FONT_B, THEME_TEXT_DIM);
+    if (a->fade > 0) app_redraw();
+}
+
 static void collect(Ambient *a)
 {
     const AmbientItem *pool;
@@ -199,7 +323,7 @@ static void collect(Ambient *a)
 /* the picture a style shows of a title: its poster in the cinema, else the backdrop */
 static const char *item_url(const AmbientItem *it)
 {
-    return g_app.ambient_style == AMBIENT_MARQUEE && it->poster[0] ? it->poster : it->background;
+    return g_style == AMBIENT_MARQUEE && it->poster[0] ? it->poster : it->background;
 }
 
 static void advance(Ambient *a)
@@ -207,7 +331,7 @@ static void advance(Ambient *a)
     if (a->n < 2) return;
     a->prev = a->cur;
     a->cur = (a->cur + 1) % a->n;
-    if (g_app.ambient_style == AMBIENT_DEPTH)   /* the next one that has a depth map, if any does */
+    if (g_style == AMBIENT_DEPTH)   /* the next one that has a depth map, if any does */
         for (int i = 0; i < a->n && !depth_info(a->items[a->cur].background); i++) a->cur = (a->cur + 1) % a->n;
     a->fade = 1;
     a->t = 0;
@@ -219,8 +343,10 @@ static unsigned art_get(const char *url, int *w, int *h);
 static void update(Screen *s, float dt)
 {
     Ambient *a = s->st;
+    stage_tick(a);
+    if (a->off) { if (g_app.time - a->drawn_at >= 1) app_redraw(); return; }
     if (g_app.time - a->drawn_at >= 1.0f / 30) app_redraw();
-    if (g_app.ambient_style == AMBIENT_LOGO) {   /* drifts and bounces off the edges */
+    if (g_style == AMBIENT_LOGO) {   /* drifts and bounces off the edges */
         a->lx += a->lvx * dt; a->ly += a->lvy * dt;
         if (a->lx < 40) { a->lx = 40; a->lvx = -a->lvx; }
         if (a->ly < 40) { a->ly = 40; a->lvy = -a->lvy; }
@@ -228,9 +354,9 @@ static void update(Screen *s, float dt)
         if (a->ly > SNTV_UI_H - 40 - LOGO_S) { a->ly = SNTV_UI_H - 40 - LOGO_S; a->lvy = -a->lvy; }
         return;
     }
-    if (g_app.ambient_style == AMBIENT_WALL) { a->wall_y += dt * 18; return; }
-    if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 4) fv_play(a);
-    if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real one: looped, or the next way to play it */
+    if (g_style == AMBIENT_WALL) { a->wall_y += dt * 18; return; }
+    if (g_style == AMBIENT_FIRE && a->fv_state == 4) fv_play(a);
+    if (g_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real one: looped, or the next way to play it */
         VideoInfo vi; video_info(&vi);
         int settled = g_app.time - a->fv_kick > 2;   /* the backend takes a moment to say it is playing again */
         if (vi.state == VIDEO_ENDED && settled) { a->fv_kick = g_app.time; video_seek(0); video_play(); }
@@ -241,7 +367,7 @@ static void update(Screen *s, float dt)
         }
         return;
     }
-    if (g_app.ambient_style == AMBIENT_FIRE) {   /* 24 steps a second, whatever the frame rate */
+    if (g_style == AMBIENT_FIRE) {   /* 24 steps a second, whatever the frame rate */
         if (!a->heat) {
             a->heat = calloc(FIRE_W * FIRE_H, 1); a->px = calloc(FIRE_W * FIRE_H, 4); a->seed = (unsigned)time(NULL);
             if (!a->heat || !a->px) return;
@@ -256,9 +382,9 @@ static void update(Screen *s, float dt)
         }
         return;
     }
-    if (g_app.ambient_style == AMBIENT_CLOCK || g_app.ambient_style == AMBIENT_AURORA || g_app.ambient_style == AMBIENT_WARP || !a->n) return;
+    if (g_style == AMBIENT_CLOCK || g_style == AMBIENT_AURORA || g_style == AMBIENT_WARP || !a->n) return;
     a->t += dt;
-    if (g_app.ambient_style == AMBIENT_DEPTH && a->n > 1) {
+    if (g_style == AMBIENT_DEPTH && a->n > 1) {
         const AmbientItem *next = &a->items[(a->cur + 1) % a->n];
         depth_texture(next->background);   /* its map on its way too */
         /* the list of maps came after the first was chosen: on to one that has a map */
@@ -275,7 +401,7 @@ static void update(Screen *s, float dt)
     if (tex && !a->cur_ready) { a->cur_ready = 1; a->shown_at = g_app.time; a->t = 0; }
     if (!tex && (image_failed(url) || g_app.time - a->shown_at > WAIT_S)) { advance(a); return; }
     if (a->n > 1) { int nw, nh; art_get(item_url(&a->items[(a->cur + 1) % a->n]), &nw, &nh); }   /* the next one's full-size copy on its way */
-    if (a->cur_ready && a->t > (g_app.ambient_style == AMBIENT_RAIN ? SLOT_S * 3 : g_app.ambient_style == AMBIENT_DEPTH ? DEPTH_SLOT_S : SLOT_S)) advance(a);   /* the rain lingers on one view */
+    if (a->cur_ready && a->t > (g_style == AMBIENT_RAIN ? SLOT_S * 3 : g_style == AMBIENT_GALLERY ? SLOT_S * 4 : g_style == AMBIENT_DEPTH ? DEPTH_SLOT_S : SLOT_S)) advance(a);   /* the rain lingers on one view */
 }
 
 /* The screensaver fills the screen: its artwork at full size (TMDB's original, the larger
@@ -454,7 +580,7 @@ static void draw_marquee(Ambient *a, float sx, float sy)
     font_draw_fit(line, tx, ty + 50 + font_height(FONT_XL | FONT_B) + 14, FONT_M, RGBA(0xE0, 0xC8, 0xB0, 0xD0), tw);
 }
 
-static void draw(Screen *s)
+static void draw_scene(Screen *s)
 {
     Ambient *a = s->st;
     a->drawn_at = g_app.time;
@@ -466,45 +592,49 @@ static void draw(Screen *s)
     float sx = (float)((tmv.tm_min % 5) - 2) * 7, sy = (float)(((tmv.tm_min / 5) % 3) - 1) * 7;
     char big[16];
     clock_text(&tmv, big, sizeof big);
-    if (g_app.ambient_style == AMBIENT_CLOCK) {   /* a clock face on black, wandering a little every minute */
+    if (g_style == AMBIENT_CLOCK) {   /* a clock face on black, wandering a little every minute */
         struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
-        clockface_draw(g_app.clock_face, SNTV_UI_W / 2 + sx * 4, SNTV_UI_H / 2 + sy * 4, 1, &tmv, tmv.tm_sec + ts.tv_nsec / 1e9);
+        clockface_draw(g_face, SNTV_UI_W / 2 + sx * 4, SNTV_UI_H / 2 + sy * 4, 1, &tmv, tmv.tm_sec + ts.tv_nsec / 1e9);
+        if (g_face != CLOCKFACE_PRAYER && g_face != CLOCKFACE_HORIZON) prayer_line(SNTV_UI_W / 2 + sx * 4, SNTV_UI_H - 70 + sy * 4, 1);
         return;
     }
-    if (g_app.ambient_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real fireplace, the clock over it */
+    if (g_style == AMBIENT_FIRE && a->fv_state == 2) {   /* the real fireplace, the clock over it */
         gfx_video_hole(0, 0, SNTV_UI_W, SNTV_UI_H);
         gfx_gradient_v(0, 0, SNTV_UI_W, 300, RGBA(0, 0, 0, 0x90), RGBA(0, 0, 0, 0));
         char date[64]; strftime(date, sizeof date, "%A, %B %-d", &tmv);
         float cx = SNTV_UI_W / 2 + sx * 6, cy = 70 + sy * 4;
         font_draw_center(big, cx, cy, FONT_HUGE | FONT_B, RGBA(0xF4, 0xEC, 0xE4, 0xF0));
         font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 6, FONT_M, RGBA(0xE0, 0xD0, 0xC4, 0xD0));
+        prayer_line(cx, cy + font_height(FONT_HUGE | FONT_B) + font_height(FONT_M) + 12, 1);
         return;
     }
-    if (g_app.ambient_style == AMBIENT_FIRE) {
+    if (g_style == AMBIENT_FIRE) {
         draw_fire(a, sx, sy, big, &tmv);
         const char *hint = a->fv_state == 1 ? "Getting the fireplace video\xE2\x80\xA6" : !*store_get_str("fireplaceVideo", "") ? "For a real fireplace, add a video in Settings > Interface > Fireplace video" : NULL;
         if (hint) font_draw_center(hint, SNTV_UI_W / 2, SNTV_UI_H - 34, FONT_XS, RGBA(0x90, 0x80, 0x78, 0xC0));
+        prayer_line(SNTV_UI_W / 2 + sx * 6, 70 + sy * 4 + font_height(FONT_HUGE | FONT_B) + font_height(FONT_M) + 12, 1);
         return;
     }
-    if (g_app.ambient_style == AMBIENT_LOGO) {
+    if (g_style == AMBIENT_LOGO) {
         ui_mark(a->lx, a->ly, LOGO_S);
         float cw = font_measure(big, FONT_L | FONT_B);
         font_draw(big, SNTV_UI_W - THEME_MARGIN - cw + sx, SNTV_UI_H - 110 + sy, FONT_L | FONT_B, RGBA(0x90, 0x90, 0x98, 0xFF));
         return;
     }
-    if (g_app.ambient_style == AMBIENT_WALL) draw_wall(a);
-    if (g_app.ambient_style == AMBIENT_AURORA) ambient_aurora(0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time);
-    if (g_app.ambient_style == AMBIENT_WARP) ambient_warp(0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time);
-    if (g_app.ambient_style == AMBIENT_MARQUEE) draw_marquee(a, sx, sy);
-    if (g_app.ambient_style == AMBIENT_RAIN) {
+    if (g_style == AMBIENT_WALL) draw_wall(a);
+    if (g_style == AMBIENT_AURORA) ambient_aurora(0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time);
+    if (g_style == AMBIENT_WARP) ambient_warp(0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time);
+    if (g_style == AMBIENT_MARQUEE) draw_marquee(a, sx, sy);
+    if (g_style == AMBIENT_RAIN) {
         int iw = 0, ih = 0;
         unsigned tex = a->n ? art_get(item_url(&a->items[a->cur]), &iw, &ih) : 0;
         ambient_rain(tex, iw, ih, 0, 0, SNTV_UI_W, SNTV_UI_H, g_app.time, a->cur_ready ? 1 - a->fade : 0.3f);
     }
 
-    if (a->n && g_app.ambient_style == AMBIENT_DEPTH) { draw_depth(a, &tmv, big, sx, sy); return; }
+    if (a->n && g_style == AMBIENT_DEPTH) { draw_depth(a, &tmv, big, sx, sy); prayer_line(SNTV_UI_W / 2 + sx, SNTV_UI_H - 70 + sy, 1); return; }
 
-    if (a->n && g_app.ambient_style == AMBIENT_ARTWORK) {
+    if (g_style == AMBIENT_GALLERY) draw_gallery(a, sx, sy);
+    if (a->n && g_style == AMBIENT_ARTWORK) {
         const AmbientItem *cur = &a->items[a->cur];
         float k = a->t / SLOT_S;
         if (k > 1) k = 1;
@@ -524,7 +654,28 @@ static void draw(Screen *s)
     font_draw_shadow(clock, cx, cy, FONT_TITLE | FONT_B, THEME_TEXT, RGBA(0, 0, 0, 0xA0));
     if (g_app.clock_mode != 1) font_draw_shadow(tmv.tm_hour < 12 ? "AM" : "PM", cx + cw + 12, cy + 14, FONT_M | FONT_B, THEME_TEXT_DIM, RGBA(0, 0, 0, 0xA0));
     font_draw_shadow(date, SNTV_UI_W - THEME_MARGIN - font_measure(date, FONT_S) + sx, cy + 88, FONT_S, THEME_TEXT_DIM, RGBA(0, 0, 0, 0xA0));
+    prayer_line(SNTV_UI_W - THEME_MARGIN + sx, cy + 88 + font_height(FONT_S) + 6, 2);
     ui_brand(THEME_MARGIN + sx, 56 + sy, 44);
+}
+
+static void draw(Screen *s)
+{
+    Ambient *a = s->st;
+    if (a->off) {   /* black, and a faint clock that moves about so the TV is known to be on */
+        a->drawn_at = g_app.time;
+        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF));
+        time_t now = time(NULL); struct tm tmv; localtime_r(&now, &tmv);
+        char big[16]; clock_text(&tmv, big, sizeof big);
+        float x = SNTV_UI_W * (0.15f + 0.6f * ((tmv.tm_min * 7) % 10) / 9.0f), y = SNTV_UI_H * (0.2f + 0.6f * ((tmv.tm_min * 3) % 7) / 6.0f);
+        font_draw(big, x, y, FONT_M, RGBA(0x48, 0x48, 0x50, 0xFF));
+        return;
+    }
+    draw_scene(s);
+    if (a->dim) {
+        float p = (g_app.time - a->dim_at) / 8;
+        if (p < 1) app_redraw(); else p = 1;
+        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(0xA8 * p)));
+    }
 }
 
 static int key(Screen *s, KeyAction a)
@@ -553,15 +704,23 @@ Screen *screen_ambient_create(void)
 {
     Screen *s = calloc(1, sizeof *s);
     Ambient *a = calloc(1, sizeof *a);
+    g_style = g_app.ambient_style; g_face = g_app.clock_face;
+    if (g_app.ambient_style == AMBIENT_SHUFFLE) {   /* a different one each time */
+        unsigned r = (unsigned)time(NULL) * 2654435761u ^ (unsigned)(g_app.time * 1000);
+        g_style = (int)env_sec("SNTV_AMBIENT_PICK", (float)(r % AMBIENT_SHUFFLE));
+        g_face = (int)((r / 1000) % CLOCKFACE_COUNT);
+        LOGI("ambient: shuffle picked %s%s%s", AMBIENT_STYLE_NAMES[g_style], g_style == AMBIENT_CLOCK ? ", face " : "", g_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_face] : "");
+    }
     collect(a);
-    a->shown_at = g_app.time;
+    a->shown_at = a->born = g_app.time;
     a->lx = SNTV_UI_W * 0.3f; a->ly = SNTV_UI_H * 0.35f; a->lvx = 90; a->lvy = 64;
     g_amb_live = a;
     video_hold_screensaver(1);   /* this is the screensaver now: the TV's would cover it after its own wait */
-    if (g_app.ambient_style == AMBIENT_FIRE) fv_start(a);
-    if (g_app.ambient_style == AMBIENT_CLOCK || g_app.ambient_style == AMBIENT_DEPTH) font_digits_load();
-    LOGI("ambient: %s screensaver with %d backdrops%s%s", AMBIENT_STYLE_NAMES[g_app.ambient_style], a->n,
-         g_app.ambient_style == AMBIENT_CLOCK ? ", face " : "", g_app.ambient_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_app.clock_face] : "");
+    if (g_style == AMBIENT_FIRE) fv_start(a);
+    if (g_style == AMBIENT_GALLERY) gallery_ask(a);
+    if (g_style == AMBIENT_CLOCK || g_style == AMBIENT_DEPTH) font_digits_load();
+    LOGI("ambient: %s screensaver with %d backdrops%s%s", AMBIENT_STYLE_NAMES[g_style], a->n,
+         g_style == AMBIENT_CLOCK ? ", face " : "", g_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_face] : "");
     s->name = "ambient"; s->st = a;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;

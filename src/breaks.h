@@ -27,6 +27,10 @@ void breaks_draw_banner(void);       /* the reminder, over whatever screen is up
 void breaks_fire_now(const char *name, const char *detail, int kind);   /* "Try a break now" */
 void breaks_skip_today(void);
 int  breaks_minute_now(void);        /* local minute of day (SNTV_NOW=HH:MM overrides) */
+/* The next prayer of the day, as a line for the screen: "Maghrib in 42 min", "Isha at 9:14 PM",
+ * tomorrow's first once today's are past. 0 (and an empty line) when the tradition has no
+ * prayer times or the location is not known. */
+int  breaks_next_prayer(char *out, size_t n);
 void breaks_settings_changed(void);   /* recompute today's times before the next check */
 /* A break recording as the TV can play it: a file sent from the phone, a direct link,
  * a YouTube link saved on the TV (youtube.h), or another page link fetched by the home

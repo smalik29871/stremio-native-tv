@@ -61,7 +61,7 @@ enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
 enum { ISLAND_TIME, ISLAND_DAY, ISLAND_SECONDS, ISLAND_DIAL, ISLAND_STYLE_COUNT };   /* the clock island's styles */
 extern const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT];
 enum { AMBIENT_ARTWORK, AMBIENT_WALL, AMBIENT_CLOCK, AMBIENT_LOGO, AMBIENT_FIRE, AMBIENT_AURORA, AMBIENT_RAIN, AMBIENT_MARQUEE,
-       AMBIENT_WARP, AMBIENT_DEPTH, AMBIENT_STYLE_COUNT };
+       AMBIENT_WARP, AMBIENT_DEPTH, AMBIENT_GALLERY, AMBIENT_SHUFFLE, AMBIENT_STYLE_COUNT };   /* stored by number: add at the end */
 extern const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT];
 enum { LB_OFF, LB_GLOW, LB_COLOUR, LB_BLACK, LB_STYLE_COUNT };
 extern const char *const LB_STYLE_NAMES[LB_STYLE_COUNT];
@@ -115,7 +115,9 @@ typedef struct App {
     int auto_trailers;         /* trailers play behind the artwork: 0 off, 1 muted, 2 with sound */
     float ok_hold;             /* OK held on a long-press screen: 0 not held, else 0..1 toward options (1 = release opens them) */
     int ambient_minutes;       /* screensaver after this long idle; 0 off */
-    int ambient_style;         /* AMBIENT_ARTWORK, _WALL, _CLOCK, _LOGO */
+    int ambient_style;         /* AMBIENT_ARTWORK, _WALL, _CLOCK, ... _SHUFFLE */
+    int ambient_dim_min;       /* the screensaver dims this long after it starts; 0 never */
+    int ambient_off_min;       /* and goes black (a faint clock only) after this long; 0 never */
     int quality_mode;          /* QUAL_*: how sources are ranked */
     int res_cap;               /* 2160, 1080 or 720 */
     int auto_recommended;      /* play the recommended source without asking */
@@ -411,7 +413,7 @@ int  streams_candidate(const MetaPreview *meta, const Stream *s, PlayCandidate *
 float streams_draw_badges(const char *list, float x, float y, float max_w, int foc);
 
 /* Titles with artwork worth showing in the screensaver (library + catalog rows). */
-typedef struct AmbientItem { char id[64], type[16], name[128], background[512], poster[512]; } AmbientItem;
+typedef struct AmbientItem { char id[64], type[16], name[128], background[512], poster[512]; char caption[160]; /* Art gallery: the artist and the year */ } AmbientItem;
 void app_ambient_offer(const MetaPreview *m);
 int  app_ambient_pool(const AmbientItem **out);
 

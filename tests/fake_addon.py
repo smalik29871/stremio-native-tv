@@ -1070,6 +1070,15 @@ class H(BaseHTTPRequestHandler):
             return self.send(404, b"{}")
         if p.startswith("/weather/v1/forecast"):   # Open-Meteo stand-in: a mild, partly cloudy day
             return self.send(200, json.dumps({"current": {"temperature_2m": 18.4, "weather_code": 2, "is_day": 1}}).encode())
+        if p.startswith("/artic/iiif/"):   # a work from the museum: one of the backdrops
+            i = int(p.split("/")[3].replace("img", "") or 0)
+            return self.send(200, art("bg", i, ""), "image/jpeg") if HAVE_PIL else self.send(200, png(640, 360, PALETTE[i % len(PALETTE)]), "image/png")
+        if p.startswith("/artic/"):
+            works = [{"id": 1, "title": "A Sunday on La Grande Jatte", "artist_display": "Georges Seurat\nFrench, 1859-1891", "date_display": "1884/86", "image_id": "img1"},
+                     {"id": 2, "title": "Nighthawks", "artist_display": "Edward Hopper\nAmerican, 1882-1967", "date_display": "1942", "image_id": "img2"},
+                     {"id": 3, "title": "The Bedroom", "artist_display": "Vincent van Gogh\nDutch, 1853-1890", "date_display": "1889", "image_id": "img3"},
+                     {"id": 4, "title": "Untitled", "artist_display": "", "date_display": "", "image_id": None}]
+            return self.send(200, json.dumps({"data": works}).encode(), "application/json")
         if p.startswith("/ipapi"):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
         if p.startswith("/thumbs/keyframes"):   # the scope film's cuts, irregular as a film's are; others list none

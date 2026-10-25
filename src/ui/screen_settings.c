@@ -60,7 +60,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -145,7 +145,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_PALETTE; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_DEPTH;
-        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
+        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
         break;
     case CAT_BREAKS:
         SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
@@ -264,6 +264,8 @@ static const char *row_title(int id)
     case IT_ASK_PROFILE: return "Ask who's watching at start";
     case IT_AMBIENT: return "Screensaver";
     case IT_AMBIENT_STYLE: return "Screensaver style";
+    case IT_AMBIENT_DIM: return "Dim the screensaver";
+    case IT_AMBIENT_OFF: return "Picture off";
     case IT_FIRE_VIDEO: return "Fireplace video";
     case IT_BLUR: return "Blur unwatched episodes";
     case IT_DIAG: return "Diagnostics";
@@ -302,7 +304,7 @@ static const char *row_desc(int id)
     case IT_PIP: return "Back keeps the video playing in a corner while you browse.";
     case IT_CLOCK: return "In the corner of every screen; hidden while a video plays.";
     case IT_ISLAND_STYLE: return "Just the time, the day too, seconds, or a small dial beside it.";
-    case IT_CLOCK_FACE: return "Digital, flip cards, a dial, words, rings, nixie tubes, stacked digits, an LED alarm clock, dot matrix, neon, rolling drums, planets in orbit or the sky of the hour.";
+    case IT_CLOCK_FACE: return "Digital, flip cards, a dial, words, rings, nixie tubes, stacked digits, an LED alarm clock, dot matrix, neon, rolling drums, planets, the sky of the hour, a station clock, liquid digits, the weather, an aurora, a solar system that tells the time, the day as an orbit with the prayers on it, the horizon, or the planets where they stand tonight.";
     case IT_SCRUB: return "The picture follows the timeline while you seek.";
     case IT_PREF_AUDIO: return "Picked by itself when a video has it.";
     case IT_PREF_SUBS: return "Picked by itself from the video and your addons.";
@@ -354,7 +356,9 @@ static const char *row_desc(int id)
                         : depth_off() == 2 ? "Off for now: the TV's storage is nearly full. It comes back by itself when there is room again."
                         : "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
     case IT_AMBIENT: return "When the remote has been quiet this long.";
-    case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee or a starfield.";
+    case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee, a starfield, depth, a gallery of museum paintings, or a different one each time.";
+    case IT_AMBIENT_DIM: return "The screensaver darkens this long after it comes up: kinder to the panel on a long evening.";
+    case IT_AMBIENT_OFF: return "The picture goes black, with a faint clock, this long after the screensaver comes up. Any key brings it back.";
     case IT_FIRE_VIDEO: return "A YouTube or video link of a real fire, played full screen and looped with the clock.";
     case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
     case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";
@@ -385,7 +389,7 @@ static int row_takes_left(int id)
     case IT_SUBS_WHEN: case IT_CLOCK: case IT_ISLAND_STYLE: case IT_CLOCK_FACE: case IT_QUALITY: case IT_RES_CAP: case IT_SRC_SIZE: case IT_SRC_HDR: case IT_AI_PROVIDER: case IT_MEMORY:
     case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
     case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
-    case IT_BR_WHERE: case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_LETTERBOX:
+    case IT_BR_WHERE: case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_LETTERBOX: case IT_AMBIENT_DIM: case IT_AMBIENT_OFF:
         return 1;
     default: return 0;   /* switches and actions: Left goes back to the categories */
     }
@@ -424,7 +428,7 @@ static int s_steps, s_step;  /* a scale: how many steps, and where the value is 
 
 /* Settings that are a scale, low to high: Left/Right walk them and the row draws a slider. */
 static const int ADDON_WAITS[] = { 3, 5, 8, 15, 30, 99 }, BR_LEADS[] = { 1, 2, 3, 5, 10, 15 },
-                 BR_LENS[] = { -1, 0, 3, 5, 10, 15, 20, 30 }, BR_HEALTH_LENS[] = { 2, 3, 5, 10 }, AMBIENT_STEPS[] = { 0, 2, 5, 10, 20 }, SRC_SIZES[] = { 0, 2, 5, 10, 20, 40 };
+                 BR_LENS[] = { -1, 0, 3, 5, 10, 15, 20, 30 }, BR_HEALTH_LENS[] = { 2, 3, 5, 10 }, AMBIENT_STEPS[] = { 0, 2, 5, 10, 20 }, DIM_STEPS[] = { 0, 5, 10, 20, 30, 60 }, OFF_STEPS[] = { 0, 15, 30, 60, 120, 240 }, SRC_SIZES[] = { 0, 2, 5, 10, 20, 40 };
 #define N_OF(a) ((int)(sizeof (a) / sizeof (a)[0]))
 static int step_in(const int *l, int n, int v, int dflt) { for (int i = 0; i < n; i++) if (l[i] == v) return i; return dflt; }
 static int step_move(const int *l, int n, int v, int dflt, int dir) { return l[(step_in(l, n, v, dflt) + dir + n) % n]; }
@@ -440,6 +444,8 @@ static int scale_of(int id, int *step)
     case IT_BR_LEN: *step = step_in(BR_LENS, N_OF(BR_LENS), g_app.break_len_min, 4); return N_OF(BR_LENS);
     case IT_BR_HEALTH_LEN: *step = step_in(BR_HEALTH_LENS, N_OF(BR_HEALTH_LENS), g_app.break_health_len, 1); return N_OF(BR_HEALTH_LENS);
     case IT_AMBIENT: *step = step_in(AMBIENT_STEPS, N_OF(AMBIENT_STEPS), g_app.ambient_minutes, 0); return N_OF(AMBIENT_STEPS);
+    case IT_AMBIENT_DIM: *step = step_in(DIM_STEPS, N_OF(DIM_STEPS), g_app.ambient_dim_min, 0); return N_OF(DIM_STEPS);
+    case IT_AMBIENT_OFF: *step = step_in(OFF_STEPS, N_OF(OFF_STEPS), g_app.ambient_off_min, 0); return N_OF(OFF_STEPS);
     default: *step = 0; return 0;
     }
 }
@@ -648,7 +654,7 @@ static PreviewKind preview_for(int id)
     case IT_AUTOPLAY: return PV_AUTOPLAY;
     case IT_PIP: return PV_PIP;
     case IT_SCRUB: return PV_SCRUB;
-    case IT_AMBIENT: case IT_AMBIENT_STYLE: return PV_AMBIENT;
+    case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_AMBIENT_DIM: case IT_AMBIENT_OFF: return PV_AMBIENT;
     case IT_TRANSITIONS: return PV_TRANSITIONS;
     case IT_DEPTH: return PV_DEPTH;
     case IT_PREF_AUDIO: return PV_LANG_AUDIO;
@@ -1070,6 +1076,14 @@ static void draw(Screen *s)
             break;
         }
         case IT_AMBIENT_STYLE: draw_row(y, ICON_TV, "Screensaver style", AMBIENT_STYLE_NAMES[g_app.ambient_style], foc, KIND_CHOICE, 0); break;
+        case IT_AMBIENT_DIM:
+            if (g_app.ambient_dim_min) snprintf(v, sizeof v, "After %d min", g_app.ambient_dim_min); else snprintf(v, sizeof v, "Never");
+            draw_row(y, ICON_MOON, "Dim the screensaver", v, foc, KIND_CHOICE, 0);
+            break;
+        case IT_AMBIENT_OFF:
+            if (g_app.ambient_off_min >= 60) snprintf(v, sizeof v, "After %d h", g_app.ambient_off_min / 60); else if (g_app.ambient_off_min) snprintf(v, sizeof v, "After %d min", g_app.ambient_off_min); else snprintf(v, sizeof v, "Never");
+            draw_row(y, ICON_MOON, "Picture off", v, foc, KIND_CHOICE, 0);
+            break;
         case IT_BLUR: draw_row(y, ICON_EYE, "Blur unwatched episodes", NULL, foc, KIND_TOGGLE, g_app.spoiler_blur); break;
         case IT_DIAG: {   /* what this TV runs, at a glance */
             char mem[160], info[300];
@@ -1648,6 +1662,8 @@ static int adjust(Settings *st, int id, int dir)
     case IT_ADVISORY: g_app.advisory = !g_app.advisory; break;
     case IT_LETTERBOX: g_app.living_letterbox = (g_app.living_letterbox + dir + LB_STYLE_COUNT) % LB_STYLE_COUNT; break;
     case IT_AMBIENT_STYLE: g_app.ambient_style = (g_app.ambient_style + dir + AMBIENT_STYLE_COUNT) % AMBIENT_STYLE_COUNT; break;
+    case IT_AMBIENT_DIM: g_app.ambient_dim_min = step_move(DIM_STEPS, N_OF(DIM_STEPS), g_app.ambient_dim_min, 0, dir); break;
+    case IT_AMBIENT_OFF: g_app.ambient_off_min = step_move(OFF_STEPS, N_OF(OFF_STEPS), g_app.ambient_off_min, 0, dir); break;
     default:
         if (id >= IT_ACCT_BASE) return 0;   /* switching and forgetting are behind OK */
         if (id >= IT_ADDON_BASE) {

@@ -402,6 +402,12 @@ public final class CuelightPlayer {
     private static void keepAwake() {
         boolean on = sKeepAwake || (sPlayer != null && sPlayer.isPlaying());
         if (sView != null) sView.setKeepScreenOn(on);
+        // the video view is hidden when nothing plays, and a hidden view's flag counts for nothing:
+        // the window's own flag keeps the screen on for the screensaver
+        if (sActivity != null) {
+            if (on) sActivity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            else sActivity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
     }
 
     private static void snapshot() {
