@@ -79,9 +79,10 @@ int  video_youtube_embed_url(const char *id, char *out, size_t n);
  * view inside the app (an LG). state: 1 installed, 0 not, -1 not known yet or none here; check asks
  * again (after installing it); open: mode "play", "loop" (the fireplace) or "break", 1 when sent. */
 #define SNTV_YTWEB_ID "org.stremio.nativetv.yt"
+enum { YTWEB_SKIP_SPONSORS = 1, YTWEB_NO_ADVERTS = 2 };   /* flags: what its script does in YouTube's page */
 int  video_youtube_web_state(void);
 void video_youtube_web_check(void);
-int  video_youtube_web(const char *id, double start, const char *mode);
+int  video_youtube_web(const char *id, double start, const char *mode, int flags);
 /* A phone: picture in picture, the video in a small window over other apps. allow: a video
  * is playing, so leaving the app (Home) takes it along; enter: now (1 if it went); in: it is
  * in that small window now (the app then draws no controls). 0 where there is none. */

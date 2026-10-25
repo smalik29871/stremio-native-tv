@@ -1487,6 +1487,11 @@ void app_update_check_now(void)
 
 void app_releases_fetch(void) { http_request_async(repo_url(), NULL, on_repo, NULL); }
 
+int app_ytweb_flags(void)
+{
+    return (store_get_int("ytSkipSponsors", 1) ? YTWEB_SKIP_SPONSORS : 0) | (store_get_int("ytNoAdverts", 0) ? YTWEB_NO_ADVERTS : 0);
+}
+
 /* Somewhere it is fine for the app to close for a minute: nothing playing, no break. */
 static int quiet_moment(void)
 {

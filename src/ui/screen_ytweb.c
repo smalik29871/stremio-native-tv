@@ -42,7 +42,7 @@ static void update(Screen *s, float dt)
         char id[24], mode[8];
         snprintf(id, sizeof id, "%s", w->id); snprintf(mode, sizeof mode, "%s", w->mode);
         app_pop();
-        if (id[0] && video_youtube_web(id, 0, mode)) return;
+        if (id[0] && video_youtube_web(id, 0, mode, app_ytweb_flags())) return;
         app_toast("Cuelight YouTube is installed: it opens by itself when YouTube refuses a video");
         return;
     }

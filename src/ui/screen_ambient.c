@@ -116,7 +116,7 @@ static void on_fv(const char *answer, const char *error, void *user)
     youtube_video_id(store_get_str("fireplaceVideo", ""), id);
     a->fv_n = answer ? youtube_player_urls(answer, id, a->fv_urls, YT_PLAY_URLS) : 0;
     if (!a->fv_n && video_youtube_embed_url(id, a->fv_urls[0], sizeof a->fv_urls[0])) { LOGW("ambient: YouTube refused the fireplace video (%s); its own player plays it", error ? error : "?"); a->fv_n = 1; }
-    if (!a->fv_n && video_youtube_web(id, 0, "loop")) {
+    if (!a->fv_n && video_youtube_web(id, 0, "loop", app_ytweb_flags())) {
         a->fv_state = 3; a->fv_web = 1; a->fv_web_fg = g_app.foregrounds;
         LOGI("ambient: YouTube refused the fireplace video (%s); Cuelight YouTube plays it", error ? error : "?");
         return;

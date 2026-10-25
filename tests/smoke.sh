@@ -114,6 +114,13 @@ grep -q "UI check: screen=options" "$OUT/ytweb_offer.log" || { echo "Cuelight Yo
 run ytweb_install 700 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw3 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=0 SNTV_FAKE_INSTALL=1 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo-yt.json
 grep -q "ytweb: installing Cuelight YouTube" "$OUT/ytweb_install.log" && grep -q "ytweb: installed" "$OUT/ytweb_install.log" && grep -q "video: Cuelight YouTube opened" "$OUT/ytweb_install.log" \
   || { echo "Cuelight YouTube was not installed and opened"; grep -E "ytweb|youtube|video|UI check" "$OUT/ytweb_install.log"; exit 1; }
+# it skips sponsor segments unless turned off, and leaves adverts out only when asked (Settings > Interface)
+grep -q "video: Cuelight YouTube opened [A-Za-z0-9_-]* at 0s (play), skipping sponsors$" "$OUT/ytweb_trailer.log" || { echo "Cuelight YouTube was not told to skip sponsor segments by default"; grep "Cuelight YouTube" "$OUT/ytweb_trailer.log"; exit 1; }
+run ytweb_flags 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytwfl '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ytSkipSponsors":0,"ytNoAdverts":1}')" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1
+grep -q "video: Cuelight YouTube opened [A-Za-z0-9_-]* at 0s (play), without adverts$" "$OUT/ytweb_flags.log" || { echo "Cuelight YouTube was not given the viewer's advert and sponsor settings"; grep "Cuelight YouTube" "$OUT/ytweb_flags.log"; exit 1; }
+run ytweb_adverts_setting 600 "left,down,down,down,down,down,ok,up,ok,t:block youtube adverts,down,down,down,down,left,ok,ok,wait,wait" HOME="$(home_with ytwad "$ABOUT_HOME")" SNTV_FAKE_YTWEB=1
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get('ytNoAdverts')==1 and d.get('ytSkipSponsors',1)==1 else 1)" "$OUT/home_ytwad/.local/share/stremio/nativetv/settings.json" \
+  || { echo "Block YouTube adverts did not switch on from Settings"; grep -E "settings" "$OUT/ytweb_adverts_setting.log"; exit 1; }
 run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
@@ -164,9 +171,9 @@ run player 280 "right,ok,down,down,play,wait"
 run player_subs 360 "right,ok,down,down,play,wait,down,right,right,right,ok" HOME="$(home_with subs1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # the video's own track stays (always in sync) over a file matched to it, unless the setting asks for files
 ! grep -q "player: subtitles: the file matched to this video, before its own track" "$OUT/player_subs.log" || { echo "a matched file replaced the video's own track"; grep -E "subtitles|subs:" "$OUT/player_subs.log"; exit 1; }
+grep -q "player: subtitles in" "$OUT/player_subs.log" || { echo "the Subtitles sheet did not open"; grep -E "drawer|subtitles" "$OUT/player_subs.log"; exit 1; }
 run player_subs_files 360 "right,ok,down,down,play,wait" HOME="$(home_with subsfiles '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsPreferFiles":1}')"
 grep -q "player: subtitles: the file matched to this video, before its own track" "$OUT/player_subs_files.log" || { echo "with files preferred, the video's own track was kept"; grep -E "subtitles|subs:" "$OUT/player_subs_files.log"; exit 1; }
-grep -q "player: subtitles in" "$OUT/player_subs.log" || { echo "the Subtitles sheet did not open"; grep -E "drawer|subtitles" "$OUT/player_subs.log"; exit 1; }
 run player_audio 400 "right,ok,down,down,play,wait,down,right,right,right,right,ok,down"
 run player_cue 300 "right,ok,down,down,play,wait" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "right,ok,down,down,play,wait,right,right,right" SNTV_FAKE_DURATION=1
