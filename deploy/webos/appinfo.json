@@ -1,6 +1,6 @@
 {
   "id": "org.stremio.nativetv",
-  "version": "0.10.78",
+  "version": "0.10.79",
   "vendor": "Cuelight (not affiliated with Stremio)",
   "type": "native",
   "main": "stremio-tv",

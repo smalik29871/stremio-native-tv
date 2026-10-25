@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.79
+
+- **Living letterbox, rebuilt** (off by default now, and switched off once for everyone; Settings
+  turns it on again): Glow lights the bars like Philips Hue or Ambilight, each part taking the
+  colour of the picture's edge beside it, brightest against the picture. On a TV it works
+  ahead (the frames of the next scene changes are ready before they come), reads less, redraws
+  only when it changes, and where the TV is too slow for it the bars take the colour of the
+  film's artwork instead of lagging. On Windows it glows live with the playing picture.
+- **Subtitles in the black bars** (Audio & subtitles) is its own setting; the letterbox's
+  "Black" choice is gone (it became this).
+- **Windows, with a mouse**: the focus follows the pointer, a click opens, a right-click shows a
+  title's options, the wheel scrolls what is under it, with scrollbars, a Back arrow and a full
+  screen switch (also F11 or a double click on the film). The player has buttons to click (play,
+  -10/+10, the bar to drag, subtitles, audio, speed, sources, episodes), the corner player and
+  the trailer's sound badge are clickable, and the update and break screens have buttons.
+- **Windows playback**: trailers no longer freeze when the mouse stops, video is smoother (every
+  frame on time), and the buffer ahead holds up to 2 GB and 20 minutes. Words that meant this
+  device say PC, and the resume card is clicked instead of the remote's Blue.
+- **Browse addons**: one chip per catalogue (no more extra "Official" ones), the list scrolls by
+  finger, and a failed install says why (and logs it for Diagnostics).
+
 ## 0.10.78
 
 - **A loading screen on phones**: sideways on a phone, a source that is still opening shows
