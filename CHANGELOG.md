@@ -33,9 +33,10 @@
   the TV's drawing of it is turned off again after its pipeline applies the track selection
   (it did so late at the first start, so both showed until the track was switched by hand),
   and a selection made for a language preference no longer turns it back on.
-- **A crash opening a title after a search**: the sources prefetched for a title page compared
-  their video id through a pointer that had been stepped on (seen on an LG as a crash in that
-  compare); the id is now kept inline, so nothing there can dangle.
+- **A crash opening a title after a search**: a search with more than 96 results wrote the
+  suggestions' "Film · Oct 2024" lines past their table, over the title page's prefetch pointer,
+  and the page opened next crashed comparing it. The table stops at 96, the prefetch keeps its
+  id inline, and a prefetch cleared twice no longer takes the last episode's answers as this one's.
 - **Memory in stages**: as memory gets low, poster prefetch, trailers and seek strips
   pause and the P2P cache halves; when it is tight the saver comes on, effects go light,
   the screensaver falls back to the plain clock and the script sandbox shrinks; each
