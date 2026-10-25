@@ -60,14 +60,14 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS, IT_BROWSE,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
        SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_SUBS_ACCT, SEC_RECOMMENDED, SEC_COUNT };
 static const char *const SEC_NAMES[SEC_COUNT] = { "Sync", "Streaming", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
-    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME, "Subtitles", "Recommended addons" };
+    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME, "Subtitles", "More addons" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
 
 /* Addons to start with, one press each: catalogs, subtitles and free sources from Stremio and
@@ -180,7 +180,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         for (int i = 0; i < st->n_rows && n < max; i++) ids[n++] = IT_ROWS_BASE + i;
         break;
     case CAT_ADDONS: ids[n++] = IT_INSTALL; for (int i = 0; i < g_app.n_addons && n < max; i++) ids[n++] = IT_ADDON_BASE + i;
-        SEC(SEC_RECOMMENDED); for (int i = 0; i < N_REC && n < max; i++) ids[n++] = IT_REC_BASE + i;
+        SEC(SEC_RECOMMENDED); ids[n++] = IT_BROWSE; for (int i = 0; i < N_REC && n < max; i++) ids[n++] = IT_REC_BASE + i;
         break;
     case CAT_ABOUT: SEC(SEC_CUELIGHT); ids[n++] = IT_ABOUT_APP; ids[n++] = IT_WHATSNEW;
         SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; SEC(SEC_HELP); ids[n++] = IT_HELP; ids[n++] = IT_GET_APPS; ids[n++] = IT_DIAG; ids[n++] = IT_STORAGE; ids[n++] = IT_SETUP; break;
@@ -301,6 +301,7 @@ static const char *row_title(int id)
     case IT_INSTALL: return "Install addon from URL";
     case IT_HELP: return "Help: how Cuelight works";
     case IT_GET_APPS: return "Get Cuelight on other devices";
+    case IT_BROWSE: return "Browse addons";
     default: return NULL;
     }
 }
@@ -311,6 +312,7 @@ static const char *row_desc(int id)
     switch (id) {
     case IT_HELP: return "A short guide for this device: getting started, addons, the controls, watching, your other devices and what to do when something goes wrong.";
     case IT_GET_APPS: return "Cuelight for LG TVs, Android and Windows: a code to scan for each, and the link where this device has a browser.";
+    case IT_BROWSE: return "Stremio's addon catalogue, its own addons and the community's: catalogs, subtitles and tools. OK on one installs it.";
     case IT_STORAGE: return "Artwork, addon replies and YouTube data kept so screens open faster. Clearing them frees the space for the TV's own apps; "
                             "they come back as you browse. Your sign-in, settings and Library stay. When the TV runs low on storage the cache clears by itself. OK clears it now.";
     case IT_ABOUT_APP: return SNTV_APP_NAME " is a fast player made for TVs, written from scratch in C for the TV's own hardware. It plays from addons in the open Stremio addon format, "
@@ -1177,6 +1179,7 @@ static void draw(Screen *s)
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         case IT_HELP: draw_row(y, ICON_INFO, "Help: how Cuelight works", "Getting started, addons, controls, problems", foc, KIND_ACTION, 0); break;
         case IT_GET_APPS: draw_row(y, ICON_TV, "Get Cuelight on other devices", "LG TV, Android, Windows", foc, KIND_ACTION, 0); break;
+        case IT_BROWSE: draw_row(y, ICON_PLUS, "Browse addons", "Catalogs, subtitles, tools", foc, KIND_ACTION, 0); break;
         default:
             if (id >= IT_REC_BASE) {
                 int r = id - IT_REC_BASE, have = rec_installed(r);
@@ -1366,7 +1369,7 @@ static void find_setting(Settings *st, const char *q)
             if (c == CAT_ROWS) continue;   /* a list of the viewer's own, not settings */
             int ids[MAX_ROWS + 8], n = rows_for(st, c, ids, MAX_ROWS + 8);
             for (int i = 0; i < n && g_found.n < FOUND_MAX; i++) {
-                if (c == CAT_ADDONS && !(ids[i] >= IT_REC_BASE && ids[i] < IT_REC_BASE + N_REC)) continue;   /* only the recommended ones, not the viewer's own */
+                if (c == CAT_ADDONS && ids[i] != IT_BROWSE && !(ids[i] >= IT_REC_BASE && ids[i] < IT_REC_BASE + N_REC)) continue;   /* only Browse and the recommended ones, not the viewer's own */
                 const char *t = row_title(ids[i]);
                 if (pass == 1 && ids[i] == IT_ABOUT_APP) continue;   /* prose about the app, not a setting's help */
                 if (!t || !(pass == 0 ? words_in(q, t) : !words_in(q, t) && words_in(q, row_desc(ids[i])))) continue;
@@ -1901,6 +1904,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_HIDE_ADULT) app_push(screen_pin_create("Parental PIN", 0, after_pin_toggle, &g_app.hide_adult));
         else if (id == IT_HELP) app_push(screen_help_create(0));
         else if (id == IT_GET_APPS) app_push(screen_help_create(1));
+        else if (id == IT_BROWSE) app_push(screen_addon_store_create());
         else if (id >= IT_REC_BASE) {
             int r = id - IT_REC_BASE;
             if (rec_installed(r)) app_toast("%s is installed already", REC[r].name);

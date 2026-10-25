@@ -68,7 +68,7 @@ static void build(Help *h)
         NULL };
     add(h, "Getting started", START);
     static const char *const ADDONS[] = {
-        "Settings > Addons > Recommended addons adds a catalog, subtitles or free films with one press. Install addon from URL takes any addon's manifest.json link.",
+        "Settings > Addons > Browse addons has Stremio's catalogue of addons by kind (catalogs, subtitles, tools): OK on one installs it. The recommended ones below it add a catalog, subtitles or free films with one press. Install addon from URL takes any addon's manifest.json link.",
         "On a TV, every text field shows a code: scan it with your phone and paste the link there; it lands on the TV.",
         "OK on an addon configures it (when it has settings) or removes it. Left and Right move it up and down the list: the order decides which sources come first.",
         "Addons are made by others. Cuelight plays what they return: install the ones you trust, and only watch what you have the right to.",

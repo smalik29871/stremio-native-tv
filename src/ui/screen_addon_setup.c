@@ -17,6 +17,7 @@ typedef struct {
     char name[96];
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
     int qr_ready, via_phone;   /* via_phone: the code is this TV's page, not the addon's */
+    int fresh;                 /* not installed yet (Browse addons): it is added, not updated */
     int sent;
     float sent_at, t;
     char status[200], link[4096];
@@ -101,11 +102,12 @@ static void draw(Screen *s)
     if (o->via_phone) {
         snprintf(a, sizeof a, "Scan the code. Your phone opens a page from this TV.");
         snprintf(b, sizeof b, "Tap \xE2\x80\x9COpen %s's settings\xE2\x80\x9D, choose what you like, then copy the install link it gives you (press and hold its Install button, Copy link).", o->name);
-        snprintf(c, sizeof c, "Paste it on the page and send. %s is updated here, in the same place in your list.", o->name);
+        if (o->fresh) snprintf(c, sizeof c, "Paste it on the page and send. %s is added to your addons here.", o->name);
+        else snprintf(c, sizeof c, "Paste it on the page and send. %s is updated here, in the same place in your list.", o->name);
     } else {
         snprintf(a, sizeof a, "Scan the code to open %s's settings on your phone and choose what you like.", o->name);
         snprintf(b, sizeof b, "Copy the install link it gives you (press and hold its Install button, Copy link).");
-        snprintf(c, sizeof c, "On this TV, Settings > Addons > Install addon from URL takes that link: %s is updated in its place.", o->name);
+        snprintf(c, sizeof c, o->fresh ? "On this TV, Settings > Addons > Install addon from URL takes that link: %s is added." : "On this TV, Settings > Addons > Install addon from URL takes that link: %s is updated in its place.", o->name);
     }
     step(1, a, tx, ty, tw, &sh); ty += sh;
     step(2, b, tx, ty, tw, &sh); ty += sh;
@@ -146,6 +148,7 @@ Screen *screen_addon_setup_create(const Addon *a)
     Screen *s = calloc(1, sizeof *s);
     Setup *o = calloc(1, sizeof *o);
     snprintf(o->name, sizeof o->name, "%s", a->manifest.name ? a->manifest.name : "This addon");
+    o->fresh = !a->transport_url;
     char page[2048], code[200];
     snprintf(page, sizeof page, "%s/configure", a->base_url);
     o->via_phone = phone_url(code, sizeof code);

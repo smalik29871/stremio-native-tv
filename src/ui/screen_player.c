@@ -2004,15 +2004,15 @@ static int decoder_failure(const Player *p, const VideoInfo *vi)
     return 1;
 }
 
-/* A video far shorter than the film or episode: the clip an addon (AIOStreams, Comet...)
- * streams in place of the file when its debrid service is down ("Debrid provider is
- * currently unavailable"), or a sample. 1 with why filled. Not trailers or YouTube. */
+/* Under a minute and a half where a film or an episode runs longer than twenty: the clip an
+ * addon (AIOStreams, Comet...) streams in place of the file when its debrid service is down
+ * ("Debrid provider is currently unavailable"), or a sample. 1 with why filled. Not trailers,
+ * YouTube, or titles that are short themselves. */
 static int error_clip(const Player *p, double secs, char *why, size_t n)
 {
-    if (p->trailer || (p->cands[p->cur].label && !strcmp(p->cands[p->cur].label, "YouTube"))) return 0;
+    if (p->trailer || (p->cands[p->cur].label && !strcmp(p->cands[p->cur].label, "YouTube")) || getenv("SNTV_NO_CLIP_CHECK")) return 0;
     double mins = quality_runtime_minutes(p->meta.runtime);
-    int clip = mins >= 20 ? secs < mins * 60 * 0.25 && secs < 600 : secs < 90;
-    if (!clip) return 0;
+    if (secs >= 90 || (mins > 0 && mins < 20)) return 0;
     if (mins > 0) snprintf(why, n, "a %.0f-second clip, not the %.0f-minute video (the addon's error video)", secs, mins);
     else snprintf(why, n, "a %.0f-second clip (the addon's error video)", secs);
     return 1;

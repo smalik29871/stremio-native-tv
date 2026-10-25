@@ -115,6 +115,17 @@ grep -q "settings: found Pure black (OLED) in Interface" "$OUT/settings_find_one
 # recommended addons are found by name, though the rest of Addons (the viewer's own) is not searched
 run settings_find_addon 340 "left,down,down,down,down,down,ok,up,ok,t:public domain,down,down,down,down,left,ok"
 grep -q "settings: found Public Domain Movies in Addons" "$OUT/settings_find_addon.log" || { echo "Find a setting did not find a recommended addon"; grep settings "$OUT/settings_find_addon.log"; exit 1; }
+# Browse addons: Stremio's addon catalogue by kind, adult addons and Local Files left out; OK installs one,
+# and one that must be set up first opens its settings on a phone
+STORE="SNTV_ADDON_COLLECTIONS=http://127.0.0.1:$PORT/collection/official.json,http://127.0.0.1:$PORT/collection/community.json"
+run store_install 700 "left,down,down,down,down,down,ok,up,ok,t:browse addons,down,down,down,down,left,ok,ok,wait,down,down,right,ok,wait,wait,wait" HOME="$(home_with store1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" "$STORE"
+grep -q "addon store: 1 official addons" "$OUT/store_install.log" && grep -q "addon store: 4 community addons" "$OUT/store_install.log" \
+  && grep -q "addon store: 2 left out (adult, P2P, or a link that needs a streaming server)" "$OUT/store_install.log" \
+  && grep -q "addon store: installing Fake Subs" "$OUT/store_install.log" && grep -q "toast: Installed Subs" "$OUT/store_install.log" \
+  || { echo "Browse addons did not list Stremio's catalogue, or did not install from it"; grep -E "addon store|addons:|toast" "$OUT/store_install.log"; exit 1; }
+run store_setup 600 "left,down,down,down,down,down,ok,up,ok,t:browse addons,down,down,down,down,left,ok,ok,wait,down,down,right,down,ok,wait" HOME="$(home_with store2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" "$STORE"
+grep -q "addon store: Needs Setup is set up first" "$OUT/store_setup.log" && grep -q "UI check: screen=addon_setup" "$OUT/store_setup.log" \
+  || { echo "an addon that must be set up first did not open its settings"; grep -E "addon store|addons:|UI check" "$OUT/store_setup.log"; exit 1; }
 # Help for this device, opened on Get Cuelight on other devices: OK on a card opens its page, or says to scan it
 run help_get 460 "left,down,down,down,down,down,ok,up,ok,t:get cuelight,down,down,down,down,left,ok,ok,wait,right,ok,wait"
 grep -q "help: 7 topics for Computer" "$OUT/help_get.log" && grep -qE "help: opened the page for LG TV|toast: No browser here" "$OUT/help_get.log" \
@@ -170,7 +181,7 @@ run player_subs_files 360 "right,ok,down,down,play,wait" HOME="$(home_with subsf
 grep -q "player: subtitles: the file matched to this video, before its own track" "$OUT/player_subs_files.log" || { echo "with files preferred, the video's own track was kept"; grep -E "subtitles|subs:" "$OUT/player_subs_files.log"; exit 1; }
 run player_audio 400 "right,ok,down,down,play,wait,down,right,right,right,right,ok,down"
 run player_cue 300 "right,ok,down,down,play,wait" SNTV_FAKE_NO_TEXT_TRACKS=1
-run player_seek 268 "right,ok,down,down,play,wait,right,right,right" SNTV_FAKE_DURATION=1
+run player_seek 268 "right,ok,down,down,play,wait,right,right,right" SNTV_FAKE_DURATION=1 SNTV_NO_CLIP_CHECK=1
 # an episode watched to the end, the next one not played: the series stays in Continue Watching at the next episode
 # (played to its end: a seek or a resume this close counts once it plays most of what was left)
 CWH="$(home_with cw_next '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
@@ -985,7 +996,7 @@ run update_refused_again 1700 "${W}down,ok,wait,wait" HOME="$OUT/home_upd3" SNTV
 grep -q "update: the viewer asked how" "$OUT/update_refused_again.log" && ! grep -q "update: installing" "$OUT/update_refused_again.log" \
   || { echo "a TV that refused the installer was asked again"; grep -E "update|toast" "$OUT/update_refused_again.log"; exit 1; }
 run break_asr_change 520 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,right,back,back" HOME="$(home_with asr "$ASR")" TZ=America/Toronto SNTV_NOW=15:58
-run break_media_length 230 "right,ok,down,down,play,wait" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:'"$PORT"'/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6
+run break_media_length 230 "right,ok,down,down,play,wait" HOME="$(home_with bml '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:'"$PORT"'/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00 SNTV_FAKE_DURATION=6 SNTV_NO_CLIP_CHECK=1
 run break_settings 480 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,ok" SNTV_IPAPI=http://127.0.0.1:$PORT/ipapi HOME="$(home_with brk3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1}')"
 # the found country picks its own authority's prayer times (Saudi Arabia: Umm al-Qura)
 grep -q "breaks: prayer times by Umm al-Qura" "$OUT/break_settings.log" || { echo "the location did not pick the local prayer time method"; grep breaks "$OUT/break_settings.log"; exit 1; }

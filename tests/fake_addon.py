@@ -528,6 +528,24 @@ class H(BaseHTTPRequestHandler):
                 web = [{"name": "WebStreamr\n720p", "title": f"Movie.2024.720p.WEB.h264-W{k}\n💾 1.{k} GB", "url": f"{url}?web={k}"} for k in range(1, 3)]
                 return self.send(200, json.dumps({"streams": tb + web}).encode())
             return self.send(404, b"{}")
+        # /collection/...: Stremio's addon catalogue (api.strem.io addonsofficialcollection.json and
+        # addonscollection.json), with one adult addon, one that must be set up first and one on http
+        if p.startswith("/store/") and p.endswith("/manifest.json"):   # the catalogue's addons, as they install
+            n = p.split("/")[2]
+            return self.send(200, json.dumps(dict(MANIFEST, id="org.fake.store." + n, name=n.title(), resources=["subtitles"], types=["movie"], catalogs=[], idPrefixes=["tt"])).encode())
+        if p.startswith("/collection/"):
+            def item(name, url, res, desc, **hints):
+                return {"transportUrl": url, "transportName": "http", "manifest": {"id": "org.fake." + name.lower().replace(" ", ""), "name": name, "version": "1.0.0",
+                        "description": desc, "resources": res, "types": ["movie"], "behaviorHints": hints}}
+            if p.startswith("/collection/official.json"):
+                return self.send(200, json.dumps([item("Fake Official", f"http://127.0.0.1:{PORT}/manifest.json", ["catalog", "meta"], "An official addon")]).encode())
+            return self.send(200, json.dumps([
+                item("Ratings Catalog", f"http://127.0.0.1:{PORT}/store/ratings/manifest.json", ["catalog"], "Catalogs with ratings"),
+                item("Fake Subs", f"http://127.0.0.1:{PORT}/store/subs/manifest.json", [{"name": "subtitles", "types": ["movie"]}], "Subtitles in many languages"),
+                item("Needs Setup", f"http://127.0.0.1:{PORT}/store/setup/manifest.json", ["subtitles"], "Configure me first", configurable=True, configurationRequired=True),
+                item("Credits Helper", f"http://127.0.0.1:{PORT}/store/credits/manifest.json", ["stream"], "Says if there is a scene after the credits"),
+                item("Grown Ups", f"http://127.0.0.1:{PORT}/store/adult/manifest.json", ["catalog"], "Adult", adult=True),
+                item("Local Thing", "http://127.0.0.1:11470/local-addon/manifest.json", ["stream"], "Needs a streaming server")]).encode())
         if p.startswith("/slowvideo/"):
             import time
             time.sleep(4.5)
