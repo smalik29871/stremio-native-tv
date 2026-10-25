@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.75
+
+- **Phones, at their real size**: most phones draw Cuelight on a narrower canvas than the
+  layouts were tried at, and Settings rows with a value cut their titles to a few letters.
+  On a phone the value is now the line under the title, which has the width, and a choice
+  steps with small arrows at the edge. Long notices wrap onto a second line instead of
+  being cut. The sources' recommendation shows the stream's name, with a round play
+  button, and says "this phone" rather than "this TV".
+- **Sync with another device fits a phone's screen**: the code takes the room left, the
+  steps pack closer, and "Find a device on my network" is always on screen.
+- **Screensavers no longer dim** unless you turn it on (Settings > Interface > Dim the
+  screensaver): the 30 minutes every install had without choosing it is not kept.
+
 ## 0.10.74
 
 - **Security fixes**: an addon's YouTube id goes into a launch or a player only when it is
