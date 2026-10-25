@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.74
+
+- **Security fixes**: an addon's YouTube id goes into a launch or a player only when it is
+  a real video id, so a made-up one can no longer name another app for the TV to open; an
+  addon's settings link opens, or is offered on the phone page, only when it is a web page;
+  Cuelight YouTube, asked again while open, takes only a video id.
+- **Cuelight YouTube shows in Settings on every LG**: Cuelight now finds the companion by
+  its folder too, as some TVs never answer the question it asked, which hid its rows and
+  kept it from opening. They have their own heading in Settings > Interface.
+- **Cuelight YouTube has its own icon**, in the app list and the Homebrew Channel.
+
 ## 0.10.73
 
 - **Cuelight YouTube on LG TVs**: when YouTube refuses a trailer, an addon's YouTube video

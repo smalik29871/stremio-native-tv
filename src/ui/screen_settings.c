@@ -64,10 +64,10 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
-       SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_SUBS_ACCT, SEC_COUNT };
+       SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_SUBS_ACCT, SEC_YOUTUBE, SEC_COUNT };
 static const char *const SEC_NAMES[SEC_COUNT] = { "Sync", "Streaming", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
-    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME, "Subtitles" };
+    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME, "Subtitles", "Cuelight YouTube" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
@@ -144,7 +144,8 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_PALETTE; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_DEPTH;
-        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_AMBIENT_PREVIEW; if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } if (video_youtube_web_state() >= 0) { ids[n++] = IT_YT_WEB; ids[n++] = IT_YT_SPONSORS; ids[n++] = IT_YT_NOADS; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
+        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; } ids[n++] = IT_AMBIENT_PREVIEW; if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
+        if (video_youtube_web_state() >= 0) { SEC(SEC_YOUTUBE); ids[n++] = IT_YT_WEB; ids[n++] = IT_YT_SPONSORS; ids[n++] = IT_YT_NOADS; }   /* an LG: the companion and its switches, under their own heading */
         break;
     case CAT_BREAKS:
         SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;

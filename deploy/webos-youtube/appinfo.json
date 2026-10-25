@@ -1,6 +1,6 @@
 {
   "id": "org.stremio.nativetv.yt",
-  "version": "0.10.73",
+  "version": "0.10.74",
   "vendor": "Cuelight (not affiliated with Stremio or YouTube)",
   "type": "web",
   "main": "index.html",

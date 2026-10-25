@@ -1265,14 +1265,45 @@ static int on_ytweb_info(LSHandle *sh, LSMessage *msg, void *ctx)
 {
     (void)sh; (void)ctx;
     cJSON *r = cJSON_Parse(L.MessageGetPayload(msg));
-    g_ytweb = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "returnValue"));
+    int there = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "returnValue"));
     cJSON_Delete(r);
-    LOGI("video(webos): Cuelight YouTube is %sinstalled", g_ytweb ? "" : "not ");
+    if (there) g_ytweb = 1;   /* a "no" does not undo its folder being there: the answer may be a refusal */
+    LOGI("video(webos): the app manager says Cuelight YouTube is %sinstalled", there ? "" : "not ");
     return 1;
+}
+
+/* Its folder beside Cuelight's (the Homebrew Channel installs both in one place): no need of the
+ * app manager, which may not answer a homebrew app. 1 there, 0 not, -1 nowhere to look. */
+static int ytweb_on_disk(void)
+{
+    static const char *const ROOTS[] = { "/media/developer/apps/usr/palm/applications", "/media/cryptofs/apps/usr/palm/applications" };
+    char path[1024], *base = SDL_GetBasePath();
+    int looked = 0;
+    if (base) {   /* .../applications/<Cuelight's id>/ */
+        size_t n = strlen(base);
+        while (n && base[n - 1] == '/') base[--n] = 0;
+        char *slash = strrchr(base, '/');
+        if (slash) {
+            *slash = 0;
+            snprintf(path, sizeof path, "%s/" SNTV_YTWEB_ID "/appinfo.json", base);
+            looked = 1;
+            if (access(path, R_OK) == 0) { SDL_free(base); return 1; }
+        }
+        SDL_free(base);
+    }
+    for (size_t i = 0; i < sizeof ROOTS / sizeof *ROOTS; i++) {
+        snprintf(path, sizeof path, "%s/" SNTV_YTWEB_ID "/appinfo.json", ROOTS[i]);
+        if (access(path, R_OK) == 0) return 1;
+        if (access(ROOTS[i], X_OK) == 0) looked = 1;
+    }
+    return looked ? 0 : -1;
 }
 int video_youtube_web_state(void) { return g_ytweb; }
 void video_youtube_web_check(void)
 {
+    int disk = ytweb_on_disk();
+    g_ytweb = disk == 1 ? 1 : 0;   /* known from here on: Settings shows its rows, and an install is offered when it is not there */
+    LOGI("video(webos): Cuelight YouTube is %sinstalled%s", g_ytweb ? "" : "not ", disk < 0 ? " (no folder to look in; asking the app manager)" : "");
     if (!g_bus) return;
     LSError e; L.ErrorInit(&e);
     if (!L.CallOneReply(g_bus, "luna://com.webos.applicationManager/getAppInfo", "{\"id\":\"" SNTV_YTWEB_ID "\"}", on_ytweb_info, NULL, NULL, &e)) ls_error_log("getAppInfo", &e);

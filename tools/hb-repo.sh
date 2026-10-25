@@ -66,6 +66,8 @@ index = {
 if yt:   # Cuelight's YouTube player: Cuelight installs it from here the first time YouTube refuses its own
     ytname = os.path.basename(yt)
     shutil.copy(yt, os.path.join(out, ytname))
+    shutil.copy("deploy/webos-youtube/largeIcon.png", os.path.join(out, "youtubeIcon.png"))   # its own icon in the channel's list
+    yticon = f"{base}/youtubeIcon.png"
     ytsha = hashlib.sha256(open(yt, "rb").read()).hexdigest()
     ytm = {
         "id": "org.stremio.nativetv.yt",
@@ -73,7 +75,7 @@ if yt:   # Cuelight's YouTube player: Cuelight installs it from here the first t
         "type": "web",
         "title": "Cuelight YouTube",
         "appDescription": "Plays in YouTube's own TV client the trailers, fireplace and break videos YouTube refuses to Cuelight. Opened by Cuelight; Back returns to it.",
-        "iconUri": icon,
+        "iconUri": yticon,
         "sourceUrl": f"https://github.com/{repo}",
         "rootRequired": False,
         "ipkUrl": f"{base}/{ytname}",
@@ -81,7 +83,7 @@ if yt:   # Cuelight's YouTube player: Cuelight installs it from here the first t
         "ipkSize": os.path.getsize(yt),
     }
     json.dump(ytm, open(os.path.join(out, "org.stremio.nativetv.yt.manifest.json"), "w"), indent=2)
-    index["packages"].append({"id": ytm["id"], "title": ytm["title"], "iconUri": icon, "manifestUrl": f"{base}/org.stremio.nativetv.yt.manifest.json",
+    index["packages"].append({"id": ytm["id"], "title": ytm["title"], "iconUri": yticon, "manifestUrl": f"{base}/org.stremio.nativetv.yt.manifest.json",
                               "manifest": ytm, "pool": "main", "shortDescription": ytm["appDescription"]})
     index["paging"]["count"] = index["paging"]["itemsTotal"] = len(index["packages"])
     print(f"hb-repo.sh: and {ytname} sha256={ytsha[:12]}...")

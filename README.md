@@ -15,11 +15,11 @@ account API**: the same account, addons, Library and Continue Watching as the of
 > Cuelight is an independent project. It is **not affiliated with, endorsed by or made by
 > Stremio**; "Stremio" is used only to say which accounts and addons it works with.
 
-> **v0.10.73.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.10.74.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
-> 444 scripted scenarios against a fake addon. See *What is verified* below.
+> 445 scripted scenarios against a fake addon. See *What is verified* below.
 
 ## Install on an LG TV
 
@@ -404,7 +404,7 @@ LG apps. TVs pick it up from the channel; installed apps offer the update themse
 | Area | Status |
 |---|---|
 | Addon protocol and API parsing, link login, subtitles and alignment, skip markers, language matching, track memory, source scoring, container headers, prayer times, memory watch | Unit tests (`tests/test_*.c`; MKV/MP4 fixtures made with ffmpeg) |
-| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (444 scripted runs, screenshots in `tests/out/`) |
+| Every screen and flow: rail, three Home styles, Explore, Library, Calendar, detail, sources, player menus, subtitles and auto-sync, AI panels, breaks, PIN, phone entry, settings, diagnostics, screensaver | Smoke-tested headless under Xvfb against `tests/fake_addon.py` (445 scripted runs, screenshots in `tests/out/`) |
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Android | Built in CI with the NDK; in use on phones and Android TV. The embedded YouTube player is not yet confirmed on a device |
