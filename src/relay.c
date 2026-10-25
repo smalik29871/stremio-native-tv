@@ -46,10 +46,16 @@ static SDL_atomic_t g_conns;
  * back). How far ahead it may go is a budget from the TV's free memory, looked at again
  * every few seconds: more room, further ahead (up to two minutes); less, it holds less;
  * too little, it lets go and the source plays on directly. */
-enum { VLEN = 64 << 10, AHEAD_S = 120, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10, NBLK = 64, READERS = 16,
+#ifdef SNTV_DESKTOP_PLAYER   /* a computer has memory to spare: up to 2 GB, 20 minutes ahead, more kept behind for a step back */
+enum { AHEAD_S = 20 * 60, BACKLOG = 64 << 20, NBLK = 512 };
+#define BUDGET_MAX ((uint64_t)2048 << 20)
+#else
+enum { AHEAD_S = 120, BACKLOG = 8 << 20, NBLK = 64 };
+#define BUDGET_MAX ((uint64_t)256 << 20)   /* never more than this much memory */
+#endif
+enum { VLEN = 64 << 10, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10, READERS = 16,
        HEAD = 8 << 20, GAP = 48 << 20 };   /* JUMP: further past what is in, it starts again there; HEAD: the file's start, read again on a seek;
                                               GAP: a step back this far behind what is in comes from the source, the rest still from the buffer */
-#define BUDGET_MAX ((uint64_t)256 << 20)   /* never more than this much memory */
 #define BUDGET_SMALL ((uint64_t)64 << 20)  /* on a 1 GB TV */
 #define BUDGET_MIN ((uint64_t)48 << 20)    /* the budget can't reach this: no buffer (or it lets go) */
 #define MIN_AHEAD ((uint64_t)16 << 20)   /* at least this much ahead, whatever the rate */

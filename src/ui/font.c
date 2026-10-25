@@ -342,19 +342,51 @@ static float walk(const char *s, const char *end, float x, float y, int size, Co
     return (pen - (pen > 0 ? tr : 0)) * scale;
 }
 
-float font_measure(const char *s, int size) { return s ? walk(s, NULL, 0, 0, size, 0, 0, 0, 0, NULL) : 0; }
-void font_draw(const char *s, float x, float y, int size, Color c) { if (s) walk(s, NULL, x, y, size, c, 1, 0, 0, NULL); }
-float font_measure_tracked(const char *s, int size, float track) { return s ? walk(s, NULL, 0, 0, size, 0, 0, track, 0, NULL) : 0; }
-void font_draw_tracked(const char *s, float x, float y, int size, Color c, float track) { if (s) walk(s, NULL, x, y, size, c, 1, track, 0, NULL); }
+#ifdef SNTV_DESKTOP_PLAYER
+/* A computer: the app's words say "this TV" and "the TV" for the device it runs on, so here
+ * they say PC. Words about a real TV (an LG, webOS, Android TV, the Homebrew Channel) stay. */
+static const char *on_pc(const char *s)
+{
+    static char buf[4][2048];
+    static int next;
+    if (!s || !strstr(s, "TV") || strlen(s) >= sizeof buf[0] - 8 || strstr(s, "LG") || strstr(s, "webOS") || strstr(s, "Android") || strstr(s, "Homebrew")) return s;
+    static const char *const FROM[] = { "this TV", "This TV", "the TV", "The TV" };
+    char *o = buf[next], *end = buf[next] + sizeof buf[0] - 1;
+    next = (next + 1) % 4;
+    const char *start = o;
+    for (const char *p = s; *p && o < end; ) {
+        int hit = -1;
+        for (int k = 0; k < 4 && hit < 0; k++) {
+            size_t n = strlen(FROM[k]);
+            char after = p[n];
+            if (!strncmp(p, FROM[k], n) && (p == s || !((p[-1] | 32) >= 'a' && (p[-1] | 32) <= 'z')) && !(after >= 'A' && after <= 'Z')) hit = k;
+        }
+        if (hit >= 0) { size_t n = strlen(FROM[hit]); memcpy(o, FROM[hit], n - 2); o += n - 2; memcpy(o, "PC", 2); o += 2; p += n; }
+        else *o++ = *p++;
+    }
+    *o = 0;
+    return start;
+}
+#define PC(s) ((s) = on_pc(s))
+#else
+#define PC(s) ((void)0)
+#endif
+
+float font_measure(const char *s, int size) { PC(s); return s ? walk(s, NULL, 0, 0, size, 0, 0, 0, 0, NULL) : 0; }
+void font_draw(const char *s, float x, float y, int size, Color c) { PC(s); if (s) walk(s, NULL, x, y, size, c, 1, 0, 0, NULL); }
+float font_measure_tracked(const char *s, int size, float track) { PC(s); return s ? walk(s, NULL, 0, 0, size, 0, 0, track, 0, NULL) : 0; }
+void font_draw_tracked(const char *s, float x, float y, int size, Color c, float track) { PC(s); if (s) walk(s, NULL, x, y, size, c, 1, track, 0, NULL); }
 
 void font_draw_center(const char *s, float cx, float y, int size, Color c)
 {
+    PC(s);
     if (!s) return;
     font_draw(s, cx - font_measure(s, size) / 2, y, size, c);
 }
 
 void font_draw_shadow(const char *s, float x, float y, int size, Color c, Color shadow)
 {
+    PC(s);
     if (!s) return;
     float o = (size & 0xFFF) >= FONT_L ? 3 : 2;
     Color sh2 = color_mul_alpha(shadow, 0.5f);
@@ -368,6 +400,7 @@ void font_draw_shadow(const char *s, float x, float y, int size, Color c, Color 
 /* One pass to find the cut (it used to re-measure from the start for every glyph removed). */
 void font_draw_fit(const char *s, float x, float y, int size, Color c, float max_w)
 {
+    PC(s);
     if (!s) return;
     const char *end = NULL;
     walk(s, NULL, 0, 0, size, 0, 0, 0, max_w, &end);
@@ -383,6 +416,7 @@ void font_draw_fit(const char *s, float x, float y, int size, Color c, float max
 
 int font_draw_wrapped(const char *s, float x, float y, int size, Color c, float max_w, int max_lines)
 {
+    PC(s);
     if (!s) return 0;
     float lh = font_height(size);
     int lines = 0;

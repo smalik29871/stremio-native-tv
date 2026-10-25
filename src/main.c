@@ -1046,6 +1046,9 @@ int main(int argc, char **argv)
         /* Idle frame skipping: when nothing animates or arrives, don't redraw at all.
          * Keeps old TVs cool and leaves the CPU to the network threads. Dev hooks and
          * the first second always render. */
+#ifdef SNTV_DESKTOP_PLAYER
+        { VideoInfo pv; video_info(&pv); if (pv.state == VIDEO_PLAYING) g_app.need_redraw = 1; }   /* a computer draws the picture itself: every refresh while one plays, so each frame shows on time */
+#endif
         int must_draw = g_app.need_redraw || frame < 60 || getenv("SNTV_SCREENSHOT");
         if (must_draw) {
             g_app.need_redraw = 0;
