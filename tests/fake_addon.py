@@ -320,7 +320,13 @@ class H(BaseHTTPRequestHandler):
             if client["clientName"] == "TVHTML5" and req["playbackContext"]["contentPlaybackContext"].get("signatureTimestamp") != 20250:
                 return self.send(400, b'{"error":"the TV client needs the signature timestamp"}')
             if client["clientName"] in ("VISIONOS", "ANDROID", "IOS") and req["videoId"].startswith("tv"):   # the bot check: the app falls back to the TV client
+                with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                    f.write(("yt refused " + client["clientName"] + " " + req["videoId"] + "\n").encode())
                 return self.send(200, json.dumps({"playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you\u2019re not a bot"}}).encode())
+            if client["clientName"] == "TVHTML5" and req["videoId"].startswith("tvbot"):   # the TV app's first ask is walled too; a fresh visitor passes
+                H.tv_asked = getattr(H, "tv_asked", 0) + 1
+                if H.tv_asked == 1:
+                    return self.send(200, json.dumps({"playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "Sign in to confirm you\u2019re not a bot"}}).encode())
             media = os.path.getsize(os.path.join(MEDIA_DIR, "sample_h264_aac.mp4"))
             vfrag = os.path.getsize(os.path.join(MEDIA_DIR, "yt_video_frag.mp4"))   # fragmented, with a sidx, as YouTube's are
             afrag = os.path.getsize(os.path.join(MEDIA_DIR, "yt_audio_frag.m4a"))
@@ -337,11 +343,13 @@ class H(BaseHTTPRequestHandler):
             pot = req["videoId"].startswith("pot")
             vc = "TVHTML5" if client["clientName"] == "TVHTML5" else "VISIONOS"
             need = "&pot=need" if pot and vc == "VISIONOS" else ""
+            # "savepot...": the phone apps' file with sound wants the token past its first bytes too; the TV app's does not
+            fneed = "&c=" + vc + "&pot=file" if req["videoId"].startswith("savepot") and vc != "TVHTML5" else ""
             return self.send(200, json.dumps({
                 "playabilityStatus": {"status": "OK"},
                 "videoDetails": {"videoId": req["videoId"], "title": "Adhan (fixture)", "lengthSeconds": "185"},
                 "streamingData": {
-                    "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123"}],
+                    "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123{fneed}"}],
                     "adaptiveFormats": [
                         {"itag": 137, "mimeType": "video/mp4; codecs=\"avc1.640028\"", "bitrate": 4400000, "width": 1920, "height": 1080, "fps": 30,
                          "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v1080&c={vc}&clen={vfrag}{need}"},
@@ -349,7 +357,7 @@ class H(BaseHTTPRequestHandler):
                          "initRange": {"start": "0", "end": "802"}, "indexRange": {"start": "803", "end": "962"}, "contentLength": str(vfrag), "url": f"{BASE}/yt/media/video.mp4?id=v720&c={vc}&clen={vfrag}{need}"},
                         {"itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 150000, "url": f"{BASE}/yt/media/opus.webm?n=abc123"},
                         {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 130000, "audioSampleRate": "44100", "contentLength": str(afrag),
-                         "initRange": {"start": "0", "end": "732"}, "indexRange": {"start": "733", "end": "784"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={afrag}{need}"},
+                         "initRange": {"start": "0", "end": "732"}, "indexRange": {"start": "733", "end": "784"}, "url": f"{BASE}/yt/media/audio.m4a?n=abc123&clen={afrag}{need}{fneed}"},
                         {"itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 135000, "isDrc": True, "url": f"{BASE}/yt/media/drc.m4a?n=abc123"}]}}).encode())
         return self.send(404, b"{}")
 
@@ -771,6 +779,8 @@ class H(BaseHTTPRequestHandler):
             # links are bound to the app they were issued to, as googlevideo's are
             ua = self.headers.get("User-Agent") or ""
             if ("c=IOS" in p and "ios.youtube" not in ua) or ("c=VISIONOS" in p and "Macintosh" not in ua) or ("c=TVHTML5" in p and "SMART-TV" not in ua):
+                return self.send(403, b"")
+            if "pot=file" in p:   # refused outright without a token (a small file, all in one ask)
                 return self.send(403, b"")
             if "pot=need" in p:   # the first bytes come, the rest is refused without a token
                 rq = p.split("&range=")[1].split("&")[0] if "&range=" in p else (self.headers.get("Range") or "bytes=0-")[6:]

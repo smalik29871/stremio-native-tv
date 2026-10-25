@@ -16,7 +16,7 @@
 #include <dirent.h>
 #include <stdarg.h>
 
-/* The YouTube apps the TV pretends to be, in order (values from yt-dlp 2026.08.19). The
+/* The YouTube apps the TV pretends to be, in order (values from yt-dlp 2026.10.21). The
  * visionOS app is yt-dlp's default: its formats need neither the player script nor a
  * proof-of-origin token. YouTube's TV app (Cobalt) is the fallback: no token either, but
  * the player's signature and "n" challenges must be solved. */
@@ -30,16 +30,16 @@ static const Client CLIENTS[] = {
     { "VISIONOS", "1.02", "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
       "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", 101, 0, 0, NULL, 0 },
     /* YouTube's phone apps, as Nuvio asks them: plain URLs, and iOS adds an HLS playlist */
-    { "ANDROID", "20.10.35", "com.google.android.youtube/20.10.35 (Linux; U; Android 14; en_US) gzip",
-      NULL, NULL, "Android", "14", 3, 0, 0, "MOBILE", 34 },
-    { "IOS", "20.10.1", "com.google.ios.youtube/20.10.1 (iPhone16,2; U; CPU iOS 17_4 like Mac OS X)",
-      NULL, "iPhone16,2", "iPhone", "17.4.0.21E219", 5, 0, 0, "MOBILE", 0 },
+    { "ANDROID", "21.26.364", "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+      NULL, NULL, "Android", "11", 3, 0, 0, "MOBILE", 30 },
+    { "IOS", "21.26.4", "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+      "Apple", "iPhone16,2", "iPhone", "18.3.2.22D82", 5, 0, 0, "MOBILE", 0 },
     /* yt-dlp's "tv_samsung": as the Cobalt TV app YouTube now hands out copy-protected
      * formats without an account; as a Samsung TV it does not */
     { "TVHTML5", "5.20260707", "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/2.4.0 TV Safari/538.1",
-      "Samsung", "UKS9800", "Tizen", "2.4.0", 7, 1, 0 },
-    { "WEB_EMBEDDED_PLAYER", "2.20260708.00.00", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
-      NULL, NULL, NULL, NULL, 56, 1, 1 },
+      "Samsung", "UKS9800", "Tizen", "2.4.0", 7, 1, 0, NULL, 0 },
+    { "WEB_EMBEDDED_PLAYER", "2.20260708.00.00", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)",
+      NULL, NULL, NULL, NULL, 56, 1, 1, NULL, 0 },
 };
 enum { CHUNK = 4 << 20, MAX_BYTES = 200 << 20, MAX_SECONDS = 3600 };
 
@@ -620,6 +620,9 @@ static cJSON *player_request(const Client *c, const char *video_id, const char *
     return resp;
 }
 
+/* "Sign in to confirm you're not a bot": YouTube's wall for this session, not a verdict on the video */
+static int bot_check(const char *why) { return why && (strstr(why, "not a bot") || strstr(why, "LOGIN_REQUIRED") || strstr(why, "Sign in")); }
+
 /* The watch page, as a browser opens it: a visitor id (YouTube distrusts requests
  * without one) and the current player version. */
 static void watch_page(const char *id, char *visitor, size_t vn, char *player_id, size_t pn)
@@ -971,6 +974,14 @@ static cJSON *dash_from_tv(const char *id)
     int sts = player_sts(player_id, &player_js);
     if (!sts) LOGW("youtube: no signature timestamp for player %s", player_id);
     cJSON *resp = player_request(tv, id, visitor[0] ? visitor : NULL, sts, NULL, why, sizeof why);
+    if (!resp && bot_check(why) && !getenv("SNTV_YT_NO_RETRY")) {   /* the wall is per session: a new visitor id, a moment later, often passes */
+        LOGI("youtube: %s: the TV app was refused too; asking again with a fresh visitor id", id);
+        SDL_Delay(1500);
+        visitor[0] = 0;
+        watch_page(id, visitor, sizeof visitor, NULL, 0);
+        why[0] = 0;
+        resp = player_request(tv, id, visitor[0] ? visitor : NULL, sts, NULL, why, sizeof why);
+    }
     tset(id, 2, resp != NULL, "%s", resp ? "answered" : why);
     const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
     if (resp && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")))
@@ -1010,6 +1021,7 @@ static cJSON *dash_from_tv(const char *id)
         char *n = q ? param(q + 1, "n") : NULL, *n2 = NULL, *sig2 = NULL, err[400] = "";
         char *media = strdup(url);
         int ok = solve(player_id, &player_js, n && *n ? n : NULL, sig, &n2, &sig2, err, sizeof err);
+        if (!ok && !sig && n && *n) LOGW("youtube: the TV client's n challenge was not solved (%.200s); its links may be slow or refused", err);
         if (!ok && sig) { LOGW("youtube: the TV client's signature was not solved: %.200s", err); tset(id, 3, 0, "the link puzzle was not solved: %.120s", err); cJSON_Delete(d); d = NULL; }
         else {
             if (n2) { char *m = with_n(media, n2); free(media); media = m; }
@@ -1052,6 +1064,11 @@ static void stream_task(HttpResponse *r, void *arg)
         char this_why[300] = "";
         cJSON *resp = player_request(c, s->id, visitor[0] ? visitor : NULL, 0, key[0] ? key : NULL, this_why, sizeof this_why);
         if (!why[0]) snprintf(why, sizeof why, "%s", this_why);
+        if (!resp && bot_check(this_why)) {   /* the sign-in wall: the other token-free clients get the same answer; the TV app is asked below */
+            LOGI("youtube: %s: the token-free clients are refused (a bot check); asking as the TV app", s->id);
+            if (!strcmp(c->name, "VISIONOS")) tset(s->id, 0, 0, "%s", this_why);
+            break;
+        }
         const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
         const cJSON *m = cJSON_GetObjectItemCaseSensitive(sd, "hlsManifestUrl"), *f;
         if (!hls && cJSON_IsString(m) && m->valuestring[0]) { hls = strdup(m->valuestring); LOGI("youtube: %s playlist from the %s client", s->id, c->name); }
@@ -1142,12 +1159,14 @@ static void save_task(HttpResponse *r, void *arg)
     char player_id[32] = "", visitor[256] = "";
     watch_page(s->id, visitor, sizeof visitor, player_id, sizeof player_id);
 
-    /* 2. each client in turn until one may play it */
+    /* 2. each client in turn until one may play it, and its file comes: a client that
+     * answers but whose file is then refused (a proof-of-origin wall) gives way to the next */
     const Client *c = NULL;
-    cJSON *resp = NULL;
     char *player_js = NULL, why[300] = "";
-    for (size_t i = 0; i < sizeof CLIENTS / sizeof *CLIENTS && !resp; i++) {
+    int saved = 0, walled = 0;   /* walled: a bot check met; the other token-free clients get the same, so only the TV and embedded players are asked */
+    for (size_t i = 0; i < sizeof CLIENTS / sizeof *CLIENTS && !saved; i++) {
         c = &CLIENTS[i];
+        if (walled && !c->needs_js) continue;
         int sts = 0;
         if (c->needs_js) {   /* the signature timestamp, from the player script (kept per version) */
             if (!player_id[0]) {
@@ -1169,68 +1188,78 @@ static void save_task(HttpResponse *r, void *arg)
             }
         }
         char this_why[300] = "";
-        resp = player_request(c, s->id, visitor[0] ? visitor : NULL, sts, NULL, this_why, sizeof this_why);
+        cJSON *resp = player_request(c, s->id, visitor[0] ? visitor : NULL, sts, NULL, this_why, sizeof this_why);
         if (!why[0]) snprintf(why, sizeof why, "%s", this_why);   /* the first refusal says the most */
-        if (resp) {
-            const cJSON *len = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
-            if (cJSON_IsString(len) && atoi(len->valuestring) > MAX_SECONDS) { fail(r, "it is longer than an hour%s", ""); cJSON_Delete(resp); free(player_js); return; }
-            if (!pick_format(cJSON_GetObjectItemCaseSensitive(resp, "streamingData"), s->video).fmt) {
-                LOGW("youtube: %s client offered no playable format", c->name);
-                cJSON_Delete(resp); resp = NULL;
-            }
+        if (!resp && !c->needs_js && bot_check(this_why) && !walled) { walled = 1; LOGI("youtube: %s: the token-free clients are refused (a bot check); asking as the TV app", s->id); }
+        if (!resp && !strcmp(c->name, "TVHTML5") && bot_check(this_why) && !getenv("SNTV_YT_NO_RETRY")) {   /* the wall is per session: a new visitor id, a moment later, often passes */
+            LOGI("youtube: %s: the TV app was refused too; asking again with a fresh visitor id", s->id);
+            SDL_Delay(1500);
+            visitor[0] = 0;
+            watch_page(s->id, visitor, sizeof visitor, NULL, 0);
+            this_why[0] = 0;
+            resp = player_request(c, s->id, visitor[0] ? visitor : NULL, sts, NULL, this_why, sizeof this_why);
         }
-    }
-    if (!resp) { fail(r, "%.250s", why[0] ? why : "YouTube offered no playable format"); free(player_js); return; }
-    const cJSON *details = cJSON_GetObjectItemCaseSensitive(resp, "videoDetails");
-    Pick p = pick_format(cJSON_GetObjectItemCaseSensitive(resp, "streamingData"), s->video);
+        if (!resp) continue;
+        const cJSON *len = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
+        if (cJSON_IsString(len) && atoi(len->valuestring) > MAX_SECONDS) { fail(r, "it is longer than an hour%s", ""); cJSON_Delete(resp); free(player_js); return; }
+        const cJSON *details = cJSON_GetObjectItemCaseSensitive(resp, "videoDetails");
+        Pick p = pick_format(cJSON_GetObjectItemCaseSensitive(resp, "streamingData"), s->video);
+        if (!p.fmt) { LOGW("youtube: %s client offered no playable format", c->name); cJSON_Delete(resp); continue; }
 
-    /* 4. the format's URL: a plain one, or a signature cipher; both carry the n challenge */
-    const cJSON *plain = cJSON_GetObjectItemCaseSensitive(p.fmt, "url");
-    const cJSON *cipher = cJSON_GetObjectItemCaseSensitive(p.fmt, "signatureCipher");
-    char *media = cJSON_IsString(plain) ? strdup(plain->valuestring) : cJSON_IsString(cipher) ? param(cipher->valuestring, "url") : NULL;
-    char *sig = cJSON_IsString(cipher) ? param(cipher->valuestring, "s") : NULL;
-    char *sp = cJSON_IsString(cipher) ? param(cipher->valuestring, "sp") : NULL;
-    const char *q = media ? strchr(media, '?') : NULL;
-    char *n = q && c->needs_js ? param(q + 1, "n") : NULL;   /* other clients' URLs play as they are */
-    const cJSON *clen = cJSON_GetObjectItemCaseSensitive(p.fmt, "contentLength");
-    uint64_t expect = cJSON_IsString(clen) ? strtoull(clen->valuestring, NULL, 10) : 0;
-    const cJSON *title = cJSON_GetObjectItemCaseSensitive(details, "title");
-    LOGI("youtube: %s \"%.80s\", itag %d from the %s client%s%s", s->id, cJSON_IsString(title) ? title->valuestring : "",
-         itag(p.fmt), c->name,
-         sig ? ", ciphered" : "", n ? ", n challenge" : "");
-    cJSON_Delete(resp);
-    int ok = media != NULL;
-    if (!ok) fail(r, "the format had no address%s", "");
-    if (ok && (n || sig)) {
-        char *n2 = NULL, *sig2 = NULL, err[400] = "";
-        ok = solve(player_id, &player_js, n, sig, &n2, &sig2, err, sizeof err);
-        if (!ok && sig) fail(r, "the signature could not be solved: %.200s", err);
-        else {
-            if (!ok) LOGW("youtube: n challenge not solved (%s); trying unsolved, it may be slow or refused", err);
-            ok = 1;
-            if (n2) { char *m = with_n(media, n2); free(media); media = m; }
-            if (sig2) {
-                char enc[600];
-                http_url_encode(sig2, enc, sizeof enc);
-                size_t l = strlen(media) + strlen(enc) + 32;
-                char *m = malloc(l);
-                snprintf(m, l, "%s&%s=%s", media, sp ? sp : "signature", enc);
-                free(media); media = m;
+        /* 4. the format's URL: a plain one, or a signature cipher; both carry the n challenge */
+        const cJSON *plain = cJSON_GetObjectItemCaseSensitive(p.fmt, "url");
+        const cJSON *cipher = cJSON_GetObjectItemCaseSensitive(p.fmt, "signatureCipher");
+        char *media = cJSON_IsString(plain) ? strdup(plain->valuestring) : cJSON_IsString(cipher) ? param(cipher->valuestring, "url") : NULL;
+        char *sig = cJSON_IsString(cipher) ? param(cipher->valuestring, "s") : NULL;
+        char *sp = cJSON_IsString(cipher) ? param(cipher->valuestring, "sp") : NULL;
+        const char *q = media ? strchr(media, '?') : NULL;
+        char *n = q && c->needs_js ? param(q + 1, "n") : NULL;   /* other clients' URLs play as they are */
+        const cJSON *clen = cJSON_GetObjectItemCaseSensitive(p.fmt, "contentLength");
+        uint64_t expect = cJSON_IsString(clen) ? strtoull(clen->valuestring, NULL, 10) : 0;
+        const cJSON *title = cJSON_GetObjectItemCaseSensitive(details, "title");
+        LOGI("youtube: %s \"%.80s\", itag %d from the %s client%s%s", s->id, cJSON_IsString(title) ? title->valuestring : "",
+             itag(p.fmt), c->name,
+             sig ? ", ciphered" : "", n ? ", n challenge" : "");
+        int video = p.video; const char *ext = p.ext;
+        cJSON_Delete(resp);
+        int ok = media != NULL;
+        if (!ok) { if (!why[0]) snprintf(why, sizeof why, "the format had no address"); }
+        if (ok && (n || sig)) {
+            char *n2 = NULL, *sig2 = NULL, err[400] = "";
+            ok = solve(player_id, &player_js, n, sig, &n2, &sig2, err, sizeof err);
+            if (!ok && sig) { LOGW("youtube: the %s client's signature was not solved: %.200s", c->name, err); if (!why[0]) snprintf(why, sizeof why, "the signature could not be solved: %.200s", err); }
+            else {
+                if (!ok) LOGW("youtube: n challenge not solved (%s); trying unsolved, it may be slow or refused", err);
+                ok = 1;
+                if (n2) { char *m = with_n(media, n2); free(media); media = m; }
+                if (sig2) {
+                    char enc[600];
+                    http_url_encode(sig2, enc, sizeof enc);
+                    size_t l = strlen(media) + strlen(enc) + 32;
+                    char *m = malloc(l);
+                    snprintf(m, l, "%s&%s=%s", media, sp ? sp : "signature", enc);
+                    free(media); media = m;
+                }
             }
+            free(n2); free(sig2);
         }
-        free(n2); free(sig2);
-    }
-    free(player_js); free(sig); free(sp); free(n);
+        free(sig); free(sp); free(n);
 
-    /* 5. the file, in pieces, into the sounds folder */
-    if (ok) {
-        char name[80], path[700];
-        file_name(name, sizeof name, s->id, p.video, p.ext);
-        snprintf(path, sizeof path, "%s/sounds/%s", store_dir(), name);
-        snprintf(headers, sizeof headers, "User-Agent: %s\nOrigin: https://www.youtube.com", c->ua);
-        if (download(media, headers, path, expect, r)) { r->status = 200; r->body = strdup(name); r->len = strlen(name); }
+        /* 5. the file, in pieces, into the sounds folder; refused, the next client's */
+        if (ok) {
+            char name[80], path[700];
+            file_name(name, sizeof name, s->id, video, ext);
+            snprintf(path, sizeof path, "%s/sounds/%s", store_dir(), name);
+            snprintf(headers, sizeof headers, "User-Agent: %s\nOrigin: https://www.youtube.com", c->ua);
+            HttpResponse dl = { 0 };
+            if (download(media, headers, path, expect, &dl)) { r->status = 200; r->body = strdup(name); r->len = strlen(name); saved = 1; }
+            else { LOGW("youtube: the %s client's file was refused (%.200s); the next client", c->name, dl.error); snprintf(why, sizeof why, "%.250s", dl.error); }
+            http_response_free(&dl);
+        }
+        free(media);
     }
-    free(media);
+    free(player_js);
+    if (!saved) fail(r, "%.250s", why[0] ? why : "YouTube offered no playable format");
 }
 
 /* ---- the main-thread side ------------------------------------------------------ */

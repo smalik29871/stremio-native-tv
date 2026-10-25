@@ -280,6 +280,8 @@ static Search *still_open(Search *s, unsigned generation)
     return NULL;
 }
 
+static void search_addons(Search *s, const char *q, int pick, int rank, int year, int kind);
+
 static void on_result(HttpResponse *r, void *user)
 {
     Pending *p = user;
@@ -310,11 +312,17 @@ static void on_result(HttpResponse *r, void *user)
             free(metas);
             regroup(s);
         }
+        if (s->pending == 0 && s->n == 0 && s->last_query[0]) {   /* none of the assistant's titles was found: the words themselves, then */
+            LOGI("search: none of the assistant's titles was found; searching the words instead");
+            search_addons(s, s->last_query, 0, 0, 0, -1);
+        }
         app_redraw();
         free(p);
         return;
     }
+    if (!r->parsed) LOGW("search: no usable answer (HTTP %ld %s)", r->status, r->error);
     if (r->parsed) { ParsedMetas *pm = r->parsed; r->parsed = NULL; metas = pm->m; n = pm->n; free(pm);
+        LOGI("search: %d result%s for \"%s\"", n, n == 1 ? "" : "s", p->want);
         s->results = realloc(s->results, sizeof(MetaPreview) * (size_t)(s->n + n));
         for (int i = 0; i < n; i++) {
             int dup = 0;
@@ -336,6 +344,7 @@ static void search_addons(Search *s, const char *q, int pick, int rank, int year
     char extra[600];
     const char *kv[] = { "search", q, NULL };
     addon_extra_query(extra, sizeof extra, kv);
+    if (!pick) LOGI("search: asking the addons for \"%s\"", q);
     int typed = 0;
     for (int a = 0; a < g_app.n_addons && kind >= 0 && !typed; a++)
         for (int c = 0; c < g_app.addons[a].manifest.n_catalogs; c++) {
@@ -466,8 +475,8 @@ static int looks_like_a_request(const char *q)
     words_of(q, w, sizeof w);
     int words = 1, len = (int)strlen(q);
     for (const char *c = w; *c; c++) if (*c == ' ') words++;
-    if (words >= 3 && len >= 12) return 1;
-    if (words < 2) return 0;
+    (void)len;
+    if (words < 2) return 0;   /* three plain words are a title as often as not ("Final Destination: Bloodlines"): a request names what it wants */
     for (int i = 0; ASKS[i]; i++) if (has_word(w, ASKS[i], strlen(ASKS[i]), 0)) return 1;
     return 0;
 }

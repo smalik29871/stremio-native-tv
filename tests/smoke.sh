@@ -816,8 +816,16 @@ grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q 
 run break_yt_play 300 "right,ok,down,down,play,wait" HOME="$OUT/home_brkyt" SNTV_NOW=12:00
 grep -q "break: playing http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_play.log" || { echo "saved YouTube recording not played"; grep break "$OUT/break_yt_play.log"; exit 1; }
 # YouTube's bot check on the visionOS client: the TV client, with the solver, takes over
+: > "$OUT/fake_track.log"   # only this run's asks count below
 run break_yt_tv 400 "right,ok,down,down,play,wait" HOME="$(home_with brkyt2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0,"breakAudio":"https://youtu.be/tvOnlyVid01"}')" SNTV_NOW=12:00
 grep -q "itag 140 from the TVHTML5 client" "$OUT/break_yt_tv.log" && grep -q "ready as yt-tvOnlyVid01-audio.m4a" "$OUT/break_yt_tv.log" || { echo "TV client fallback failed"; grep youtube "$OUT/break_yt_tv.log"; exit 1; }
+[ "$(grep -c "yt refused ANDROID tvOnlyVid01\|yt refused IOS tvOnlyVid01" "$OUT/fake_track.log")" = 0 ] || { echo "after the bot check the other token-free clients were still asked"; grep "yt refused" "$OUT/fake_track.log"; exit 1; }
+# the sign-in wall on the TV app too: once more with a fresh visitor id, which passes
+run break_yt_retry 500 "right,ok,down,down,play,wait" HOME="$(home_with brkyt3 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0,"breakAudio":"https://youtu.be/tvbotVid001"}')" SNTV_NOW=12:00
+grep -q "asking again with a fresh visitor id" "$OUT/break_yt_retry.log" && grep -q "ready as yt-tvbotVid001-audio.m4a" "$OUT/break_yt_retry.log" || { echo "the retry with a fresh visitor id failed"; grep youtube "$OUT/break_yt_retry.log"; exit 1; }
+# the phone apps' file is refused past its first bytes (a token wall): the next client's file is taken
+run break_yt_savepot 500 "right,ok,down,down,play,wait" HOME="$(home_with brkyt4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0,"breakAudio":"https://youtu.be/savepotVid1"}')" SNTV_NOW=12:00
+grep -q "the VISIONOS client's file was refused" "$OUT/break_yt_savepot.log" && grep -q "ready as yt-savepotVid1-audio.m4a" "$OUT/break_yt_savepot.log" || { echo "a refused file did not move to the next client"; grep youtube "$OUT/break_yt_savepot.log"; exit 1; }
 # hold OK: a short press still opens the title; the hint fills, then the release opens the sheet
 HOLD="wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait"
 run options_sheet 400 "right,right,hold,$HOLD,release"
@@ -908,6 +916,10 @@ grep -q "tv profile: a source needing several features failed; none is blamed" "
   || { echo "a source needing several features taught the TV profile (or did not count against the source)"; grep -E "tv profile|health|player: (candidate|source)" "$OUT/caps_several.log"; exit 1; }
 run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+# three plain words are a title, not a request for the assistant: the addons are searched at once
+run search_title_ai 520 "search,ok,t:the shawshank redemption,wait,wait,ok,wait,ok,wait,wait" HOME="$(home_with ai1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q "the assistant suggests" "$OUT/search_title_ai.log" && { echo "a plain title went to the assistant"; grep search "$OUT/search_title_ai.log"; exit 1; }
+grep -q 'search: 1 result for "the shawshank redemption"' "$OUT/search_title_ai.log" && grep -qE "UI check: screen=(detail|player)" "$OUT/search_title_ai.log" || { echo "a three-word title was not found and opened"; grep -E "search|screen" "$OUT/search_title_ai.log"; exit 1; }
 run search_ai 360 "search,t:something about prison and hope" HOME="$(home_with ai2 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "search: no suggestions from the assistant" "$OUT/search_ai.log" && { echo "the assistant's suggestions were not used"; exit 1; } || true
 grep -q "search: the assistant suggests 3 titles (Stories of hope behind bars), 3 ways to refine" "$OUT/search_ai.log" \
