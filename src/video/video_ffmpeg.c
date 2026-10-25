@@ -2,8 +2,10 @@
  * picture is a texture the UI draws where a TV would show its video plane (gfx_video_hole).
  *
  * Three threads per video: one reads packets into two queues (picture, sound), one decodes
- * the picture into RGBA frames (swscale, so the GPU only stretches them), one decodes the
- * sound into a FIFO that SDL's audio callback drains. The sound is the clock; without
+ * the picture, one decodes the sound into a FIFO that SDL's audio callback drains. The picture
+ * is decoded on the graphics card where it can be (D3D11 or DXVA2 on Windows) and copied back;
+ * the common YUV layouts go to the GPU as they are and a shader turns them into colours, the
+ * rest become RGBA by swscale. The sound is the clock; without
  * sound, the wall clock from the first frame. A seek or a load bumps a serial number, and
  * whatever carries an older one is dropped on the way. Text subtitles in the file are
  * decoded on the reading thread into cues the player screen draws (video_subtitle_text). */
@@ -15,6 +17,8 @@
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libavutil/time.h>
@@ -38,7 +42,7 @@ typedef struct {
     SDL_mutex *m; SDL_cond *c;
 } Queue;
 
-typedef struct { uint8_t *rgba; int w, h, cap; double pts; int serial; } Frame;
+typedef struct { uint8_t *rgba; int w, h, cap; AVFrame *yuv; double pts; int serial; } Frame;   /* yuv: planes for the shader, else rgba */
 typedef struct { double start, end; char text[512]; } Cue;
 
 typedef struct {
@@ -47,6 +51,7 @@ typedef struct {
     AVFormatContext *fmt;
     int vi, ai, si;            /* stream indexes (-1 none) */
     AVCodecContext *vdec, *adec, *sdec;
+    enum AVPixelFormat hw_fmt; /* the decoder's frames on the graphics card (AV_PIX_FMT_NONE: none) */
     SDL_Thread *reader, *vthread, *athread;
     volatile int abort;
     /* reading */
@@ -86,6 +91,9 @@ static int g_sar_num = 1, g_sar_den = 1;
 static VideoTrack g_atracks[MAX_TRACKS], g_ttracks[MAX_TRACKS]; static int g_na, g_nt;
 static int g_text_sel = -1;    /* index into g_ttracks, -1 none */
 static int g_sub_sync_ms;
+static SDL_Window *g_win;
+static volatile int g_yuv_ok;  /* the YUV shader built (1) or not (0: swscale for everything) */
+static AVBufferRef *g_hw_dev; static enum AVHWDeviceType g_hw_type = AV_HWDEVICE_TYPE_NONE; static int g_hw_tried;
 
 /* ---- packet queues ------------------------------------------------------------------- */
 
@@ -146,7 +154,7 @@ static double clock_now(void)
     return g_wall_base + (g_paused ? 0 : (double)(SDL_GetPerformanceCounter() - g_wall_at) / SDL_GetPerformanceFrequency() * g_rate);
 }
 
-static int open_decoder(AVStream *st, AVCodecContext **out, int threads);
+static int open_decoder(Player *pl, AVStream *st, AVCodecContext **out, int threads);
 
 /* ---- sound --------------------------------------------------------------------------- */
 
@@ -209,7 +217,7 @@ static int audio_thread(void *arg)
         if (!q_get(pl, &pl->aq, &p, &ps)) break;
         if (pl->reopen_audio) {   /* another sound track: its own decoder, before its first packet */
             avcodec_free_context(&pl->adec);
-            if (open_decoder(pl->fmt->streams[pl->ai], &pl->adec, 1) < 0) LOGW("video(ffmpeg): no decoder for that sound track");
+            if (open_decoder(pl, pl->fmt->streams[pl->ai], &pl->adec, 1) < 0) LOGW("video(ffmpeg): no decoder for that sound track");
             pl->reopen_audio = 0; serial = -1;
         }
         if (!pl->adec) { av_packet_free(&p); continue; }
@@ -262,11 +270,69 @@ static int audio_thread(void *arg)
 
 /* ---- pictures ------------------------------------------------------------------------ */
 
+/* The layouts the shader reads: 0 three 8-bit planes, 1 NV12, 2 three 10-bit planes, 3 P010; -1 others */
+static int yuv_layout(int fmt)
+{
+    switch (fmt) {
+    case AV_PIX_FMT_YUV420P: case AV_PIX_FMT_YUVJ420P: return 0;
+    case AV_PIX_FMT_NV12: return 1;
+    case AV_PIX_FMT_YUV420P10LE: return 2;
+    case AV_PIX_FMT_P010LE: return 3;
+    default: return -1;
+    }
+}
+
+/* The graphics card's format when it was offered, else the first the processor decodes to
+ * (FFmpeg asks again without it when the card turns this video down). */
+static enum AVPixelFormat pick_format(AVCodecContext *d, const enum AVPixelFormat *fmts)
+{
+    Player *pl = d->opaque;
+    for (const enum AVPixelFormat *p = fmts; *p != AV_PIX_FMT_NONE; p++) if (*p == pl->hw_fmt) return *p;
+    for (const enum AVPixelFormat *p = fmts; *p != AV_PIX_FMT_NONE; p++) {
+        const AVPixFmtDescriptor *ds = av_pix_fmt_desc_get(*p);
+        if (ds && !(ds->flags & AV_PIX_FMT_FLAG_HWACCEL)) return *p;
+    }
+    return AV_PIX_FMT_NONE;
+}
+
+/* Decoding on the graphics card for this decoder, where the card and FFmpeg both can: one
+ * device for the app's life (made on the first video), shared by every decoder. */
+static void use_hardware(Player *pl, AVCodecContext *d, const AVCodec *c)
+{
+#ifdef _WIN32
+    static const enum AVHWDeviceType types[] = { AV_HWDEVICE_TYPE_D3D11VA, AV_HWDEVICE_TYPE_DXVA2 };
+#else
+    static const enum AVHWDeviceType types[] = { AV_HWDEVICE_TYPE_VAAPI };
+#endif
+    if (getenv("SNTV_NO_HWDEC")) return;
+    if (!g_hw_tried) {
+        g_hw_tried = 1;
+        for (unsigned t = 0; t < sizeof types / sizeof *types && !g_hw_dev; t++) {
+            int compiled = 0;   /* an FFmpeg without it says so for every codec */
+            for (enum AVHWDeviceType i = AV_HWDEVICE_TYPE_NONE; (i = av_hwdevice_iterate_types(i)) != AV_HWDEVICE_TYPE_NONE;) if (i == types[t]) compiled = 1;
+            if (compiled && av_hwdevice_ctx_create(&g_hw_dev, types[t], NULL, NULL, 0) == 0) g_hw_type = types[t];
+        }
+        LOGI("video(ffmpeg): graphics card decoding: %s", g_hw_dev ? av_hwdevice_get_type_name(g_hw_type) : "none");
+    }
+    if (!g_hw_dev) return;
+    for (int i = 0;; i++) {
+        const AVCodecHWConfig *cfg = avcodec_get_hw_config(c, i);
+        if (!cfg) return;
+        if ((cfg->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) && cfg->device_type == g_hw_type) {
+            d->hw_device_ctx = av_buffer_ref(g_hw_dev);
+            pl->hw_fmt = cfg->pix_fmt;
+            d->opaque = pl;
+            d->get_format = pick_format;
+            return;
+        }
+    }
+}
+
 static int video_thread(void *arg)
 {
     Player *pl = arg;
-    AVFrame *f = av_frame_alloc();
-    int serial = -1;
+    AVFrame *dec = av_frame_alloc(), *back = av_frame_alloc(), *f = dec;   /* back: a picture copied from the graphics card */
+    int serial = -1, said_hw = 0;
     while (!pl->abort) {
         AVPacket *p; int ps;
         if (!q_get(pl, &pl->vq, &p, &ps)) break;
@@ -276,10 +342,34 @@ static int video_thread(void *arg)
         int r = avcodec_send_packet(pl->vdec, p);
         av_packet_free(&p);
         if (r < 0 && r != AVERROR(EAGAIN) && r != AVERROR_EOF) continue;
-        while (!pl->abort && avcodec_receive_frame(pl->vdec, f) == 0) {
+        while (!pl->abort && (f = dec, avcodec_receive_frame(pl->vdec, f) == 0)) {
             double pts = ts(pl->fmt->streams[pl->vi], f->best_effort_timestamp);
             if (pl->serial != serial) { av_frame_unref(f); break; }
             if (pts >= 0 && pts < pl->seek_to - 0.05 && pl->seek_to > 0) { av_frame_unref(f); continue; }   /* decoded up to the seek point, not shown */
+            AVFrame *pic = f;
+            if (pl->hw_fmt != AV_PIX_FMT_NONE && f->format == pl->hw_fmt) {   /* decoded on the graphics card: copied back */
+                if (!said_hw) { said_hw = 1; LOGI("video(ffmpeg): decoding on the graphics card (%s)", av_hwdevice_get_type_name(g_hw_type)); }
+                av_frame_unref(back);
+                if (av_hwframe_transfer_data(back, f, 0) < 0) { av_frame_unref(f); continue; }
+                av_frame_copy_props(back, f);
+                av_frame_unref(f);
+                pic = back;
+            }
+            if (pic->sample_aspect_ratio.num > 0 && pic->sample_aspect_ratio.den > 0) { g_sar_num = pic->sample_aspect_ratio.num; g_sar_den = pic->sample_aspect_ratio.den; }
+            if (g_yuv_ok && yuv_layout(pic->format) >= 0) {   /* the planes as they are: the shader makes the colours */
+                SDL_LockMutex(pl->fm);
+                while (pl->f_n == FRAMES && !pl->abort && pl->serial == serial) SDL_CondWaitTimeout(pl->fc, pl->fm, 50);
+                if (pl->abort || pl->serial != serial) { SDL_UnlockMutex(pl->fm); av_frame_unref(pic); break; }
+                Frame *fr = &pl->fr[(pl->f_r + pl->f_n) % FRAMES];
+                SDL_UnlockMutex(pl->fm);
+                if (!fr->yuv && !(fr->yuv = av_frame_alloc())) { av_frame_unref(pic); continue; }
+                av_frame_unref(fr->yuv);
+                fr->w = pic->width; fr->h = pic->height; fr->pts = pts; fr->serial = serial;
+                av_frame_move_ref(fr->yuv, pic);
+                SDL_LockMutex(pl->fm); pl->f_n++; SDL_UnlockMutex(pl->fm);
+                continue;
+            }
+            f = pic;   /* swscale reads it from here on */
             int ow = f->width, oh = f->height;
             if (ow > MAX_PIC_W) { oh = (int)((int64_t)oh * MAX_PIC_W / ow) & ~1; ow = MAX_PIC_W; }
             if (!pl->sws || pl->sws_w != f->width || pl->sws_h != f->height || pl->sws_fmt != f->format || pl->sws_ow != ow) {
@@ -291,8 +381,6 @@ static int video_thread(void *arg)
                            : f->colorspace == AVCOL_SPC_BT2020_NCL ? SWS_CS_BT2020 : SWS_CS_ITU601;
                     sws_setColorspaceDetails(pl->sws, sws_getCoefficients(cs), f->color_range == AVCOL_RANGE_JPEG, sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16, 1 << 16);
                 }
-                g_sar_num = f->sample_aspect_ratio.num > 0 ? f->sample_aspect_ratio.num : 1;
-                g_sar_den = f->sample_aspect_ratio.den > 0 ? f->sample_aspect_ratio.den : 1;
             }
             if (!pl->sws) { av_frame_unref(f); continue; }
             SDL_LockMutex(pl->fm);   /* a free slot, or wait for the screen to show one */
@@ -306,13 +394,14 @@ static int video_thread(void *arg)
                 uint8_t *dst[1] = { fr->rgba }; int ls[1] = { ow * 4 };
                 sws_scale(pl->sws, (const uint8_t *const *)f->data, f->linesize, 0, f->height, dst, ls);
                 fr->w = ow; fr->h = oh; fr->pts = pts; fr->serial = serial;
+                if (fr->yuv) av_frame_unref(fr->yuv);
                 SDL_LockMutex(pl->fm); pl->f_n++; SDL_UnlockMutex(pl->fm);
             }
             av_frame_unref(f);
         }
         if (end) pl->vdone = 1;
     }
-    av_frame_free(&f);
+    av_frame_free(&dec); av_frame_free(&back);
     return 0;
 }
 
@@ -363,7 +452,7 @@ static void subtitle_packet(Player *pl, AVPacket *pk)
     SDL_UnlockMutex(pl->sm);
 }
 
-static int open_decoder(AVStream *st, AVCodecContext **out, int threads)
+static int open_decoder(Player *pl, AVStream *st, AVCodecContext **out, int threads)
 {
     const AVCodec *c = avcodec_find_decoder(st->codecpar->codec_id);
     if (!c) return -1;
@@ -372,6 +461,7 @@ static int open_decoder(AVStream *st, AVCodecContext **out, int threads)
     avcodec_parameters_to_context(d, st->codecpar);
     d->pkt_timebase = st->time_base;
     if (threads) d->thread_count = 0;   /* as many as the machine has */
+    if (pl && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) { use_hardware(pl, d, c); LOGI("video(ffmpeg): picture by %s%s", c->name, d->hw_device_ctx ? ", the graphics card where it can" : ""); }
     if (avcodec_open2(d, c, NULL) < 0) { avcodec_free_context(&d); return -1; }
     *out = d;
     return 0;
@@ -382,7 +472,7 @@ static void open_text(Player *pl, int stream)
     if (pl->sdec) avcodec_free_context(&pl->sdec);
     pl->si = -1;
     SDL_LockMutex(pl->sm); pl->ncue = 0; SDL_UnlockMutex(pl->sm);
-    if (stream >= 0 && open_decoder(pl->fmt->streams[stream], &pl->sdec, 0) == 0) pl->si = stream;
+    if (stream >= 0 && open_decoder(pl, pl->fmt->streams[stream], &pl->sdec, 0) == 0) pl->si = stream;
 }
 
 /* ---- reading ------------------------------------------------------------------------- */
@@ -443,11 +533,11 @@ static int reader_thread(void *arg)
     if ((r = avformat_find_stream_info(pl->fmt, NULL)) < 0) { if (!pl->abort) set_error(pl, "Could not read the video", r); return 0; }
     pl->vi = av_find_best_stream(pl->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
     pl->ai = av_find_best_stream(pl->fmt, AVMEDIA_TYPE_AUDIO, -1, pl->vi, NULL, 0);
-    if (pl->vi >= 0 && open_decoder(pl->fmt->streams[pl->vi], &pl->vdec, 1) < 0) {
+    if (pl->vi >= 0 && open_decoder(pl, pl->fmt->streams[pl->vi], &pl->vdec, 1) < 0) {
         LOGW("video(ffmpeg): no decoder for the picture (%s)", avcodec_get_name(pl->fmt->streams[pl->vi]->codecpar->codec_id));
         pl->vi = -1;
     }
-    if (pl->ai >= 0 && (open_decoder(pl->fmt->streams[pl->ai], &pl->adec, 1) < 0 || audio_open(pl) < 0)) {
+    if (pl->ai >= 0 && (open_decoder(pl, pl->fmt->streams[pl->ai], &pl->adec, 1) < 0 || audio_open(pl) < 0)) {
         if (pl->adec) avcodec_free_context(&pl->adec);
         if (pl == P) { snprintf(g_info.warning, sizeof g_info.warning, "This computer can't play this video's sound."); g_info.warning_version++; }
         pl->ai = -1;
@@ -550,7 +640,7 @@ static void player_free(Player *pl)
     avcodec_free_context(&pl->vdec); avcodec_free_context(&pl->adec); avcodec_free_context(&pl->sdec);
     if (pl->fmt) avformat_close_input(&pl->fmt);
     sws_freeContext(pl->sws);
-    for (int i = 0; i < FRAMES; i++) free(pl->fr[i].rgba);
+    for (int i = 0; i < FRAMES; i++) { free(pl->fr[i].rgba); av_frame_free(&pl->fr[i].yuv); }
     free(pl->fifo); free(pl->url);
     SDL_DestroyMutex(pl->fm); SDL_DestroyCond(pl->fc); SDL_DestroyMutex(pl->am); SDL_DestroyMutex(pl->sm);
     free(pl);
@@ -572,17 +662,193 @@ static void player_drop(void)
     if (t) SDL_DetachThread(t); else { player_free(pl); SDL_AtomicAdd(&g_closing_n, -1); }
 }
 
+/* ---- the picture on the screen ------------------------------------------------------- */
+
+/* YUV planes to colours, drawn into the picture's texture: the planes are 8-bit textures (a
+ * 16-bit sample is two bytes, low and high, put back together here), cropped to the picture
+ * (u_cy, u_cc: a plane's rows are wider than the picture), then the video's own matrix. */
+static const char *YUV_VS =
+    "attribute vec2 a_pos;\n varying vec2 v_uv;\n"
+    "void main(){ v_uv=a_pos*0.5+0.5; gl_Position=vec4(a_pos,0.0,1.0); }\n";
+static const char *YUV_FS =
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH\n precision highp float;\n#else\n precision mediump float;\n#endif\n"
+    "varying vec2 v_uv;\n uniform sampler2D u_y, u_u, u_v;\n uniform vec2 u_cy, u_cc, u_k;\n uniform float u_mode;\n"
+    "uniform mat3 u_m;\n uniform vec3 u_off;\n"
+    "float w16(vec2 lh){ return lh.y*u_k.y+lh.x*u_k.x; }\n"
+    "void main(){\n"
+    "  vec2 a=v_uv*u_cy, b=v_uv*u_cc; vec3 c;\n"
+    "  if (u_mode<0.5) c=vec3(texture2D(u_y,a).r, texture2D(u_u,b).r, texture2D(u_v,b).r);\n"
+    "  else if (u_mode<1.5) { vec4 q=texture2D(u_u,b); c=vec3(texture2D(u_y,a).r, q.r, q.a); }\n"
+    "  else if (u_mode<2.5) c=vec3(w16(texture2D(u_y,a).ra), w16(texture2D(u_u,b).ra), w16(texture2D(u_v,b).ra));\n"
+    "  else { vec4 q=texture2D(u_u,b); c=vec3(w16(texture2D(u_y,a).ra), w16(q.rg), w16(q.ba)); }\n"
+    "  gl_FragColor=vec4(clamp(u_m*(c-u_off),0.0,1.0),1.0);\n"
+    "}\n";
+static GLuint g_yuv_prog, g_yuv_vbo, g_fbo, g_planes[3];
+static int g_pl_w[3], g_pl_h[3]; static GLenum g_pl_f[3];
+static GLint g_u_cy, g_u_cc, g_u_k, g_u_mode, g_u_m, g_u_off;
+
+static GLuint yuv_shader(GLenum type, const char *src)
+{
+    GLuint sh = glCreateShader(type); GLint ok = 0;
+    glShaderSource(sh, 1, &src, NULL); glCompileShader(sh);
+    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char log[512]; glGetShaderInfoLog(sh, sizeof log, NULL, log); LOGW("video(ffmpeg): YUV shader: %s", log); glDeleteShader(sh); return 0; }
+    return sh;
+}
+
+/* On the GL thread, once: without it every picture goes through swscale */
+static void yuv_init(void)
+{
+    if (getenv("SNTV_NO_GPU_YUV")) return;
+    GLuint vs = yuv_shader(GL_VERTEX_SHADER, YUV_VS), fs = yuv_shader(GL_FRAGMENT_SHADER, YUV_FS);
+    GLint ok = 0;
+    if (vs && fs) {
+        g_yuv_prog = glCreateProgram();
+        glAttachShader(g_yuv_prog, vs); glAttachShader(g_yuv_prog, fs);
+        glBindAttribLocation(g_yuv_prog, 0, "a_pos");
+        glLinkProgram(g_yuv_prog);
+        glGetProgramiv(g_yuv_prog, GL_LINK_STATUS, &ok);
+    }
+    if (vs) glDeleteShader(vs);
+    if (fs) glDeleteShader(fs);
+    if (!ok) { if (g_yuv_prog) glDeleteProgram(g_yuv_prog); g_yuv_prog = 0; LOGW("video(ffmpeg): colours by swscale (no YUV shader)"); return; }
+    glUseProgram(g_yuv_prog);
+    glUniform1i(glGetUniformLocation(g_yuv_prog, "u_y"), 0);
+    glUniform1i(glGetUniformLocation(g_yuv_prog, "u_u"), 1);
+    glUniform1i(glGetUniformLocation(g_yuv_prog, "u_v"), 2);
+    g_u_cy = glGetUniformLocation(g_yuv_prog, "u_cy"); g_u_cc = glGetUniformLocation(g_yuv_prog, "u_cc");
+    g_u_k = glGetUniformLocation(g_yuv_prog, "u_k"); g_u_mode = glGetUniformLocation(g_yuv_prog, "u_mode");
+    g_u_m = glGetUniformLocation(g_yuv_prog, "u_m"); g_u_off = glGetUniformLocation(g_yuv_prog, "u_off");
+    static const float quad[8] = { -1, -1, 1, -1, -1, 1, 1, 1 };
+    glGenBuffers(1, &g_yuv_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, g_yuv_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof quad, quad, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glGenFramebuffers(1, &g_fbo);
+    g_yuv_ok = 1;
+}
+
+static void tex_params(void)
+{
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+/* The picture's texture at w x h (made or resized) and bound */
+static void pic_texture(int w, int h, const void *rgba)
+{
+    if (!g_tex) { glGenTextures(1, &g_tex); glBindTexture(GL_TEXTURE_2D, g_tex); tex_params(); }
+    else glBindTexture(GL_TEXTURE_2D, g_tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    if (w != g_tex_w || h != g_tex_h) { glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba); g_tex_w = w; g_tex_h = h; }
+    else if (rgba) glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+}
+
+/* One plane into texture unit i: a row's bytes over bpp texels of format fmt */
+static void plane(int i, const uint8_t *data, int linesize, int rows, int bpp, GLenum fmt)
+{
+    int tw = linesize / bpp;
+    glActiveTexture(GL_TEXTURE0 + i);
+    if (!g_planes[i]) { glGenTextures(1, &g_planes[i]); glBindTexture(GL_TEXTURE_2D, g_planes[i]); tex_params(); }
+    else glBindTexture(GL_TEXTURE_2D, g_planes[i]);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (g_pl_w[i] != tw || g_pl_h[i] != rows || g_pl_f[i] != fmt) {
+        glTexImage2D(GL_TEXTURE_2D, 0, (GLint)fmt, tw, rows, 0, fmt, GL_UNSIGNED_BYTE, data);
+        g_pl_w[i] = tw; g_pl_h[i] = rows; g_pl_f[i] = fmt;
+    } else glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tw, rows, fmt, GL_UNSIGNED_BYTE, data);
+}
+
+/* The planes of f drawn into the picture's texture, no bigger than the window */
+static void yuv_draw(const AVFrame *f)
+{
+    int layout = yuv_layout(f->format), deep = layout >= 2;
+    int w = f->width, h = f->height, cw = (w + 1) / 2, ch = (h + 1) / 2;
+    if (layout < 0 || f->linesize[0] <= 0 || f->linesize[1] <= 0) return;
+    switch (layout) {
+    case 0: plane(0, f->data[0], f->linesize[0], h, 1, GL_LUMINANCE); plane(1, f->data[1], f->linesize[1], ch, 1, GL_LUMINANCE); plane(2, f->data[2], f->linesize[2], ch, 1, GL_LUMINANCE); break;
+    case 1: plane(0, f->data[0], f->linesize[0], h, 1, GL_LUMINANCE); plane(1, f->data[1], f->linesize[1], ch, 2, GL_LUMINANCE_ALPHA); break;
+    case 2: plane(0, f->data[0], f->linesize[0], h, 2, GL_LUMINANCE_ALPHA); plane(1, f->data[1], f->linesize[1], ch, 2, GL_LUMINANCE_ALPHA); plane(2, f->data[2], f->linesize[2], ch, 2, GL_LUMINANCE_ALPHA); break;
+    default: plane(0, f->data[0], f->linesize[0], h, 2, GL_LUMINANCE_ALPHA); plane(1, f->data[1], f->linesize[1], ch, 4, GL_RGBA); break;
+    }
+    /* no bigger than the window: the shader's own filtering does the shrinking once */
+    int ow = w, oh = h, dw = 0, dh = 0;
+    if (g_win) SDL_GL_GetDrawableSize(g_win, &dw, &dh);
+    if (dw > 0 && dh > 0 && (ow > dw || oh > dh)) {
+        double k = (double)dw / ow < (double)dh / oh ? (double)dw / ow : (double)dh / oh;
+        ow = (int)(ow * k + 0.5); oh = (int)(oh * k + 0.5);
+        if (ow < 2) ow = 2;
+        if (oh < 2) oh = 2;
+    }
+    glActiveTexture(GL_TEXTURE0);
+    pic_texture(ow, oh, NULL);
+    GLint prev_fb = 0; glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fb);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_tex, 0);
+    glBindTexture(GL_TEXTURE_2D, g_planes[0]);
+    glViewport(0, 0, ow, oh);
+    glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST);
+    glUseProgram(g_yuv_prog);
+    /* the video's matrix (BT.709 for HD, BT.2020, else BT.601) and range, at its bit depth */
+    int hd = f->colorspace == AVCOL_SPC_BT709 || (f->colorspace == AVCOL_SPC_UNSPECIFIED && h >= 720);
+    float kr = hd ? 0.2126f : 0.299f, kb = hd ? 0.0722f : 0.114f;
+    if (f->colorspace == AVCOL_SPC_BT2020_NCL || f->colorspace == AVCOL_SPC_BT2020_CL) { kr = 0.2627f; kb = 0.0593f; }
+    float kg = 1 - kr - kb, top = deep ? 1023.0f : 255.0f, sh = deep ? 4.0f : 1.0f;
+    int full = f->color_range == AVCOL_RANGE_JPEG || f->format == AV_PIX_FMT_YUVJ420P;
+    float oy = full ? 0 : 16 * sh / top, sy = full ? 1 : top / (219 * sh), oc = 128 * sh / top, sc = full ? 1 : top / (224 * sh);
+    float m[9] = {   /* column-major: Y, Cb, Cr columns */
+        sy, sy, sy,
+        0, -2 * kb * (1 - kb) / kg * sc, 2 * (1 - kb) * sc,
+        2 * (1 - kr) * sc, -2 * kr * (1 - kr) / kg * sc, 0 };
+    glUniformMatrix3fv(g_u_m, 1, GL_FALSE, m);
+    glUniform3f(g_u_off, oy, oc, oc);
+    glUniform1f(g_u_mode, (float)layout);
+    /* a 16-bit sample from its bytes: 10 bits low-aligned (yuv420p10) or high-aligned (P010) */
+    if (layout == 2) glUniform2f(g_u_k, 255.0f / 1023, 255.0f * 256 / 1023);
+    else glUniform2f(g_u_k, 255.0f / 65472, 255.0f * 256 / 65472);
+    int bpp0 = deep ? 2 : 1, bpp1 = layout == 1 ? 2 : layout == 3 ? 4 : bpp0;
+    glUniform2f(g_u_cy, (float)w / (f->linesize[0] / bpp0), 1);
+    glUniform2f(g_u_cc, (float)cw / (f->linesize[1] / bpp1), 1);
+    glBindBuffer(GL_ARRAY_BUFFER, g_yuv_vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, g_planes[0]);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev_fb);
+    glEnable(GL_BLEND);   /* the rest of the state is the screen's to set: gfx_begin_frame does */
+}
+
+/* The picture due now into the texture, on the GL thread (before the frame is drawn) */
+static void picture_upload(Player *pl)
+{
+    SDL_LockMutex(pl->fm);
+    Frame *f = pl->f_n > 0 ? &pl->fr[pl->f_r] : NULL;
+    if (f && f->serial == pl->serial && (f->pts != g_tex_pts || g_tex_serial != f->serial)) {
+        if (f->yuv && f->yuv->data[0]) yuv_draw(f->yuv);
+        else if (f->rgba) { glActiveTexture(GL_TEXTURE0); pic_texture(f->w, f->h, f->rgba); }
+        g_tex_pts = f->pts; g_tex_serial = f->serial; g_shown_pts = f->pts;
+    }
+    SDL_UnlockMutex(pl->fm);
+}
+
 /* ---- the interface ------------------------------------------------------------------- */
 
 int video_init(SDL_Window *win)
 {
-    (void)win;
+    g_win = win;
+    yuv_init();
     avformat_network_init();
     av_log_set_level(AV_LOG_ERROR);
     g_info.state = VIDEO_IDLE;
     return 0;
 }
-void video_shutdown(void) { Player *pl = P; P = NULL; player_free(pl); while (g_closing) SDL_Delay(5); if (g_tex) glDeleteTextures(1, &g_tex); g_tex = 0; avformat_network_deinit(); }
+void video_shutdown(void) { Player *pl = P; P = NULL; player_free(pl); while (g_closing) SDL_Delay(5); if (g_tex) glDeleteTextures(1, &g_tex); g_tex = 0;
+    if (g_planes[0]) glDeleteTextures(3, g_planes);
+    if (g_yuv_prog) { glDeleteProgram(g_yuv_prog); glDeleteBuffers(1, &g_yuv_vbo); glDeleteFramebuffers(1, &g_fbo); }
+    av_buffer_unref(&g_hw_dev); avformat_network_deinit(); }
 const char *video_backend_name(void) { return "ffmpeg (desktop)"; }
 
 int video_load(const char *url, const char *title, double start)
@@ -597,7 +863,7 @@ int video_load(const char *url, const char *title, double start)
     Player *pl = calloc(1, sizeof *pl);
     if (!pl || !(pl->url = strdup(url))) { free(pl); g_info.state = VIDEO_ERROR; snprintf(g_info.error, sizeof g_info.error, "Out of memory"); return -1; }
     pl->start = start > 0 ? start : 0; pl->gen = g_loads;
-    pl->vi = pl->ai = pl->si = -1;
+    pl->vi = pl->ai = pl->si = -1; pl->hw_fmt = AV_PIX_FMT_NONE;
     q_init(&pl->vq); q_init(&pl->aq);
     pl->fm = SDL_CreateMutex(); pl->fc = SDL_CreateCond(); pl->am = SDL_CreateMutex(); pl->sm = SDL_CreateMutex();
     pl->clock_pts = -1; pl->a_serial = -1;
@@ -650,6 +916,7 @@ void video_update(void)
         while (pl->f_n > 1 && pl->fr[(pl->f_r + 1) % FRAMES].pts <= now) { pl->f_r = (pl->f_r + 1) % FRAMES; pl->f_n--; SDL_CondSignal(pl->fc); }
         int have = pl->f_n > 0;
         SDL_UnlockMutex(pl->fm);
+        picture_upload(pl);
         if (have && pl->ai < 0 && g_wall_base < 0 && !g_paused) { g_wall_base = pl->fr[pl->f_r].pts >= 0 ? pl->fr[pl->f_r].pts : 0; g_wall_at = SDL_GetPerformanceCounter(); }
     }
     int started = pl->vi >= 0 ? (g_tex_serial == pl->serial || pl->f_n > 0) : pl->clock_pts >= 0;
@@ -666,30 +933,12 @@ void video_update(void)
 
 void video_info(VideoInfo *out) { *out = g_info; }
 
-/* The picture now, uploaded on the screen's thread (the GL context's): its texture and
- * shape, 0 while there is none (TV backends always 0: their video is a plane of its own). */
+/* The picture now: its texture and shape, 0 while there is none (TV backends always 0: their
+ * video is a plane of its own). video_update brings it up to date. */
 unsigned video_frame_texture(int *w, int *h, float *aspect)
 {
     Player *pl = P;
-    if (!pl || pl->vi < 0) return 0;
-    SDL_LockMutex(pl->fm);
-    Frame *f = pl->f_n > 0 ? &pl->fr[pl->f_r] : NULL;
-    if (f && f->serial == pl->serial && (f->pts != g_tex_pts || g_tex_serial != f->serial)) {
-        if (!g_tex) {
-            glGenTextures(1, &g_tex);
-            glBindTexture(GL_TEXTURE_2D, g_tex);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        } else glBindTexture(GL_TEXTURE_2D, g_tex);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-        if (f->w != g_tex_w || f->h != g_tex_h) { glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, f->w, f->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, f->rgba); g_tex_w = f->w; g_tex_h = f->h; }
-        else glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, f->w, f->h, GL_RGBA, GL_UNSIGNED_BYTE, f->rgba);
-        g_tex_pts = f->pts; g_tex_serial = f->serial; g_shown_pts = f->pts;
-    }
-    SDL_UnlockMutex(pl->fm);
-    if (!g_tex || g_tex_serial != pl->serial) return 0;
+    if (!pl || pl->vi < 0 || !g_tex || g_tex_serial != pl->serial) return 0;
     *w = g_tex_w; *h = g_tex_h;
     *aspect = (float)g_tex_w * g_sar_num / ((float)g_tex_h * g_sar_den);
     return g_tex;

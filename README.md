@@ -1,4 +1,8 @@
-# Cuelight
+# Cuelight (beta)
+
+> **Beta:** Cuelight is in active development. It is used every day on LG TVs and Android,
+> but expect rough edges, and the Windows app is a preview. Problems are best reported with
+> the log from Settings > Diagnostics.
 
 *Your cue to press play.* Cuelight is a fast native player for LG webOS TVs (3.0 and newer)
 that works with your **Stremio account and addons**, installed from the
@@ -68,10 +72,12 @@ unpacked over the old (or anywhere else) keeps them.
 
 The keyboard drives it as a remote: arrows, Enter, Esc (back), P (play/pause), F3 (search),
 F11 or Alt+Enter (full screen); clicks and drags work as taps and swipes. Video is decoded by
-the app's own FFmpeg (H.264, HEVC, VP9, AV1 on GPUs that decode it, AAC, AC-3, E-AC-3, DTS,
-TrueHD, Opus...) and drawn with the UI; text subtitles inside the file are shown, picture
+the app's own FFmpeg (H.264, HEVC, VP9, AV1, AAC, AC-3, E-AC-3, DTS, TrueHD, Opus...): on the
+graphics card where it can (Direct3D 11, or DXVA2 on older cards; H.264, HEVC and VP9),
+otherwise on the processor, AV1 by dav1d. The picture's colours are worked out on the
+graphics card, and it is drawn with the UI; text subtitles inside the file are shown, picture
 subtitles (PGS) are not yet. HDR plays as SDR. YouTube trailers YouTube refuses open in the
-browser.
+browser. Everything it needs is in the zip: nothing is downloaded when it runs.
 
 ## Screenshots
 
@@ -437,8 +443,8 @@ LG apps. TVs pick it up from the channel; installed apps offer the update themse
 | Cuelight YouTube | The page and its script checked in a browser engine with YouTube faked (`tests/webos_youtube_check.js`); not yet confirmed on a TV |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
 | Tizen native and WebAssembly | Written against the platform APIs; not compiled with Tizen Studio or run on a Samsung TV |
-| Windows | Cross-compiled with MinGW-w64; run under Wine (with Microsoft's shader compiler, as Windows has): Home, playback with the file's subtitles, settings saved. Not yet run on a Windows PC |
-| Desktop player | Plays MKV/MP4 with sound and subtitles on the Linux build (screenshots); 4K HEVC speed and hardware decoding not yet measured |
+| Windows | Cross-compiled with MinGW-w64; run under Wine (with Microsoft's shader compiler, as Windows has): Home, playback with the file's subtitles (H.264, and AV1 10-bit by dav1d), settings saved. Not yet run on a Windows PC |
+| Desktop player | Plays MKV/MP4 with sound and subtitles on the Linux build (screenshots); the GPU colour conversion matches swscale's to within 2 levels for 8-bit, 10-bit, NV12 and P010 pictures. Decoding on the graphics card is written (D3D11VA, DXVA2) but Wine has no video decoder, so it fell back to the processor there: not yet seen working on a real card; 4K HEVC speed not yet measured |
 | Remote scancodes | Match LG's `SDL_webOS.h` (Back 482, Exit 505, colours 486-489) |
 
 ## Layout

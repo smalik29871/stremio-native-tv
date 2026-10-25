@@ -4,13 +4,15 @@
 # swscale. LGPL 2.1 (no GPL or nonfree parts enabled); linked statically, and this repository
 # has everything needed to rebuild the app against a changed FFmpeg.
 #   tools/ffmpeg-player.sh host  <prefix>   Linux desktop (TLS from OpenSSL, as the system's)
-#   tools/ffmpeg-player.sh win64 <prefix>   Windows x64 with MinGW-w64 (TLS from Schannel, D3D11 decoding)
+#   tools/ffmpeg-player.sh win64 <prefix>   Windows x64 with MinGW-w64 (TLS from Schannel, decoding on the
+#                                           graphics card through D3D11/DXVA2, AV1 in software by dav1d)
 # The source is a shallow clone of $FFMPEG_TAG kept in $FFMPEG_SRC (default: next to the prefix).
 set -euo pipefail
 TARGET="$1"; PREFIX="$(mkdir -p "$2" && cd "$2" && pwd)"
 : "${FFMPEG_TAG:=n7.1.1}"
 : "${FFMPEG_SRC:=$PREFIX/../ffmpeg-src-$FFMPEG_TAG}"
-STAMP="$FFMPEG_TAG-player-$TARGET-3"
+: "${DAV1D_PKG:=1.5.4-1}"   # the MSYS2 package (win64)
+STAMP="$FFMPEG_TAG-player-$TARGET-4"
 if [ -f "$PREFIX/lib/libavformat.a" ] && [ "$(cat "$PREFIX/.tag" 2>/dev/null)" = "$STAMP" ]; then
   echo "ffmpeg: $PREFIX is up to date ($STAMP)"; exit 0
 fi
@@ -32,6 +34,7 @@ case "$TARGET" in
   host)
     EXTRA=(--enable-openssl)
     command -v nasm >/dev/null || EXTRA+=(--disable-x86asm)
+    pkg-config --exists dav1d 2>/dev/null && EXTRA+=(--enable-libdav1d --enable-decoder=libdav1d)   # AV1 in software, when the system has it
     ;;
   win64)
     if [ ! -f "$PREFIX/lib/libz.a" ]; then   # zlib (compressed Matroska tracks, gzip over HTTP), built for MinGW
@@ -40,7 +43,15 @@ case "$TARGET" in
       make -C "$Z" -f win32/Makefile.gcc PREFIX=x86_64-w64-mingw32- libz.a >/dev/null
       mkdir -p "$PREFIX/lib" "$PREFIX/include"; cp "$Z/libz.a" "$PREFIX/lib/"; cp "$Z/zlib.h" "$Z/zconf.h" "$PREFIX/include/"; rm -rf "$Z"
     fi
-    EXTRA=(--extra-cflags=-I"$PREFIX/include" --extra-ldflags=-L"$PREFIX/lib" --enable-cross-compile --arch=x86_64 --target-os=mingw32 --cross-prefix=x86_64-w64-mingw32-
+    if [ ! -f "$PREFIX/lib/libdav1d.a" ]; then   # dav1d (VideoLAN, BSD-2): AV1 in software, where the graphics card has no AV1; MSYS2's static build
+      D="$PREFIX/.dav1d"; rm -rf "$D"; mkdir -p "$D"
+      curl -sSfL https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-dav1d-$DAV1D_PKG-any.pkg.tar.zst | tar --zstd -x -C "$D"
+      mkdir -p "$PREFIX/lib/pkgconfig" "$PREFIX/include"; cp "$D/mingw64/lib/libdav1d.a" "$PREFIX/lib/"; cp -r "$D/mingw64/include/dav1d" "$PREFIX/include/"
+      sed -e "s|^prefix=.*|prefix=$PREFIX|" "$D/mingw64/lib/pkgconfig/dav1d.pc" > "$PREFIX/lib/pkgconfig/dav1d.pc"; rm -rf "$D"
+    fi
+    export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
+    EXTRA=(--pkg-config=pkg-config --pkg-config-flags=--static --enable-libdav1d --enable-decoder=libdav1d
+           --extra-cflags=-I"$PREFIX/include" --extra-ldflags=-L"$PREFIX/lib" --enable-cross-compile --arch=x86_64 --target-os=mingw32 --cross-prefix=x86_64-w64-mingw32-
            --enable-schannel --enable-d3d11va --enable-dxva2 --enable-hwaccel=h264_d3d11va,hevc_d3d11va,vp9_d3d11va,av1_d3d11va,h264_dxva2,hevc_dxva2
            --enable-w32threads --disable-pthreads)
     ;;

@@ -42,6 +42,7 @@ AndroidX parts), all under Apache 2.0.
 | [ANGLE](https://chromium.googlesource.com/angle/angle) (MSYS2 build) | 2.1.25748 | BSD-3-Clause | OpenGL ES over Direct3D (`libEGL.dll`, `libGLESv2.dll`) | [LICENSE](https://chromium.googlesource.com/angle/angle/+/refs/heads/main/LICENSE) |
 | [curl](https://curl.se) | 8.11.0 | curl (MIT-style) | HTTP, with Windows' own TLS (`libcurl.dll`) | [COPYING](https://curl.se/docs/copyright.html) |
 | [zlib](https://zlib.net) | 1.3 | zlib | Compressed data (`zlib1.dll`, and in FFmpeg) | [LICENSE](https://zlib.net/zlib_license.html) |
+| [dav1d](https://code.videolan.org/videolan/dav1d) (VideoLAN; MSYS2 build) | 1.5.4 | BSD-2-Clause | AV1 decoded on the processor, where the graphics card cannot; linked statically into FFmpeg | [COPYING](https://code.videolan.org/videolan/dav1d/-/blob/1.5.4/COPYING) |
 | GCC runtime (libgcc, libstdc++), [MinGW-w64 winpthreads](https://www.mingw-w64.org) | 16.2, 14.0 | GPL 3 with the GCC Runtime Library Exception; MIT and BSD | Loaded by ANGLE and the app (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) | [Runtime exception](https://www.gnu.org/licenses/gcc-exception-3.1.html), [winpthreads COPYING](https://sourceforge.net/p/mingw-w64/mingw-w64/ci/master/tree/mingw-w64-libraries/winpthreads/COPYING) |
 | [Khronos OpenGL ES headers](https://github.com/KhronosGroup/OpenGL-Registry) | | MIT | Building only (headers) | in the headers |
 

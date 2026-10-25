@@ -1,4 +1,7 @@
-# Cuelight
+# Cuelight (beta)
+
+> **Beta:** Cuelight is in active development. Expect rough edges; the Windows app is a
+> preview. Settings > Diagnostics in the app shows a log to report a problem with.
 
 *Your cue to press play.* Cuelight is a fast native player that works with your Stremio
 account and addons: the same sign-in, addons, Library and Continue Watching. It runs on
