@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.10.71
+
+- **Built-in subtitles with the living letterbox**: a film's own text subtitle track (SRT, ASS)
+  is read from the video as it buffers and drawn by the app, so the bars stay lit and your
+  subtitle size, style and position apply. Picture subtitles, and sources not played through
+  the buffer, stay the TV's, and the letterbox steps aside for them instead of hiding them.
+- **Sync without a camera**: on the other device, choose Find a device on my network and type
+  the 4-digit number shown under the code. TV to TV works now, and so does a phone with no camera.
+- **Crashes leave a trace**: after the app closes unexpectedly, Problems in Diagnostics says how:
+  the crash itself, or that the TV closed it, with its last memory reading and what it was doing.
+  The last session's log is no longer cleared with the cache, and the cache is no longer cleared
+  at every start on a TV short of storage when it is too small to make a difference.
+- **Phones**: the space bar types a space (it closed the keyboard and lost the space); tap the
+  resume card to resume (no Blue key on a phone), and it no longer covers that title's own page;
+  the player uses the screen past a camera cutout, so no strip shows beside the picture.
+
 ## 0.10.70
 
 - **TorBox down no longer stops playback**: at most three of the sources standing by come
