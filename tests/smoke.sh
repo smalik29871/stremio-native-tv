@@ -574,6 +574,10 @@ run pip_home 360 "$P,back,back"
 run pip_restore 380 "$P,back,back,play"
 run pip_claim 340 "$P,ok"
 run pip_stop 340 "$P,back,stop"
+# a click (or a tap) on the corner player: full screen again
+run pip_click 420 "right,ok,down,down,play,wait,back,wait,tap:1568:800,wait" HOME="$(home_with pipclick '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"pipEnabled":1}')" SNTV_FAKE_DURATION=600
+grep -q "toast: Playing in the corner" "$OUT/pip_click.log" && grep -q "pip: full screen again" "$OUT/pip_click.log" \
+  || { echo "a click on the corner player did not bring it back to full screen"; grep -E "pip|toast" "$OUT/pip_click.log"; exit 1; }
 run player_stats 300 "right,ok,down,down,play,wait,red"
 run player_bar 300 "right,ok,down,down,play,wait,down"
 run player_bar_style 520 "right,ok,down,down,play,wait,down,right,right,right,ok,down,down,right,right,down,right"

@@ -1780,6 +1780,12 @@ void ui_pan_release(float v)
 
 void ui_pan_keys(void) { g_pan_epoch++; }
 
+void ui_pan_hold(void)
+{
+    for (int i = 0; i < g_n_pans; i++)
+        if (g_pans[i].owner == app_top()) { g_pans[i].pan->free = 1; g_pans[i].pan->epoch = g_pan_epoch; }
+}
+
 int ui_pan_free(const UiPan *p) { return p->free && p->epoch == g_pan_epoch; }
 int ui_pan_held(const UiPan *p) { return p == g_drag.pan && g_drag.owner == app_top(); }
 

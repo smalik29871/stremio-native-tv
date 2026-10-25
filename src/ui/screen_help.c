@@ -231,9 +231,9 @@ static int tap(Screen *s, int id)
 {
     Help *h = s->st;
     app_redraw();
-    if (id >= 100) { h->zone = 1; h->card = id - 100; open_card(h); return 1; }
+    if (id >= 100) { h->zone = 1; h->card = id - 100; if (!g_touch_aim) open_card(h); return 1; }
     h->focus = id; h->zone = 0;
-    if (SNTV_PHONE) { h->page = 1; if (is_get(h)) { h->zone = 1; h->card = 0; } }
+    if (SNTV_PHONE && !g_touch_aim) { h->page = 1; if (is_get(h)) { h->zone = 1; h->card = 0; } }
     return 1;
 }
 

@@ -189,7 +189,7 @@ void  ui_mark(float x, float y, float size);   /* Cuelight's mark on its tile, u
  * own ids; HIT_RAIL + item for the side menu). ui_hit_find gives the last one drawn at a
  * canvas point, of the screen on top. */
 struct Screen;
-enum { HIT_RAIL = 0x7F000000 };
+enum { HIT_RAIL = 0x7F000000, HIT_TRAILER_SOUND = 0x7E000000, HIT_PIP = 0x7D000000, HIT_PIP_FULL, HIT_PIP_CLOSE };   /* the corner player: itself, its two buttons */
 /* Set while a swipe aims: Screen.tap should only move the focus, never act (open, close, change). */
 extern int g_touch_aim;
 void ui_hit(float x, float y, float w, float h, int id);
@@ -213,6 +213,7 @@ int   ui_pan_grab(float x, float y, int vertical);   /* a drag starts there: 1 =
 void  ui_pan_drag(float d);            /* how far the finger has gone along it since the grab */
 void  ui_pan_release(float v);         /* let go, moving at v canvas units a second */
 void  ui_pan_keys(void);               /* a key: every scroller follows its focus again */
+void  ui_pan_hold(void);               /* a mouse pointing: the top screen's scrollers stay where they are as the focus moves */
 
 /* A QR code made by qrcodegen, dark modules on a white rounded square. */
 void ui_qr(const uint8_t *qr, float x, float y, float size);

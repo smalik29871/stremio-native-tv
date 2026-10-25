@@ -6277,6 +6277,7 @@ void player_pip_draw(Screen *s, int focused)
     pip_rect(&x, &y, &w, &h);
     if (!g_app.fx_light) gfx_shadow(x, y, w, h, 4, 44, RGBA(0, 0, 0, 0xC0));
     draw_video_area(p, x, y, w, h);
+    ui_hit(x, y, w, h, HIT_PIP);   /* a click or a tap: full screen */
     if (focused) { if (!g_app.fx_light) gfx_shadow(x - 4, y - 4, w + 8, h + 8, 6, 30, COLOR_ALPHA(THEME_ACCENT2, 0xA0)); gfx_rrect_ring(x, y, w, h, 2, 4, THEME_TEXT); }
     else gfx_rrect_ring(x, y, w, h, 2, 2, COLOR_ALPHA(THEME_TEXT, 0x50));
     if (focused) {   /* two choices, for remotes without a Stop key */
@@ -6284,6 +6285,8 @@ void player_pip_draw(Screen *s, int focused)
         float bx = x + (w - bw1 - bw2 - 16) / 2, by = y + h / 2 - 26;
         ui_pill("Full screen", 1, ICON_PLAY, bx, by, 52, PILL_SECONDARY, focused == 1);
         ui_pill("Close", 1, ICON_BACK, bx + bw1 + 16, by, 52, PILL_SECONDARY, focused == 2);
+        ui_hit(bx, by, bw1, 52, HIT_PIP_FULL);
+        ui_hit(bx + bw1 + 16, by, bw2, 52, HIT_PIP_CLOSE);
     }
     gfx_gradient_v(x, y + h - 96, w, 96, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xC8));
     font_draw_fit(p->title, x + 18, y + h - 64, FONT_XS | FONT_B, THEME_TEXT, w - 36);
@@ -6292,7 +6295,11 @@ void player_pip_draw(Screen *s, int focused)
     if (focused) { /* the buttons take the middle */ }
     else if (vi.state == VIDEO_PAUSED) { gfx_circle(cx, cy, 34, RGBA(0, 0, 0, 0x90)); ui_icon(ICON_PLAY, cx + 3, cy, 30, THEME_TEXT); }
     else if (vi.state == VIDEO_LOADING || vi.buffering) ui_spinner(cx, cy, 20);
+#ifdef SNTV_DESKTOP_PLAYER
+    if (!focused) ui_chip("Click or P: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), THEME_TEXT_DIM);   /* a computer: the pointer shows the buttons */
+#else
     if (!gfx_handheld()) ui_chip(focused ? "Left/Right: choose  \xC2\xB7  OK: select  \xC2\xB7  Up: back" : "Down: select  \xC2\xB7  Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), focused ? THEME_TEXT : THEME_TEXT_DIM);
+#endif
     if (vi.state == VIDEO_PLAYING) app_redraw();
 }
 

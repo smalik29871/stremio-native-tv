@@ -225,7 +225,11 @@ void app_pip_enter(void)
     Screen *top = app_top();
     if (top && strcmp(top->name, "streams") == 0 && g_app.depth > 1) app_pop();   /* land on the episodes, not the source list */
     else if (top && top->resume) top->resume(top);
+#ifdef SNTV_DESKTOP_PLAYER
+    app_toast("Playing in the corner.  Click it for full screen or to close it");
+#else
     app_toast("Playing in the corner.  Play/Pause: full screen  \xC2\xB7  Stop: close");
+#endif
     app_redraw();
 }
 
@@ -235,6 +239,7 @@ void app_pip_restore(void)
     if (!s) return;
     g_app.pip = NULL;
     g_app.toast_until = 0;   /* the "playing in the corner" note no longer applies */
+    LOGI("pip: full screen again");
     player_set_pip(s, 0);
     app_push(s);
     app_redraw();
@@ -246,6 +251,7 @@ void app_pip_close(void)
     if (!s) return;
     g_app.pip = NULL;
     g_app.toast_until = 0;
+    LOGI("pip: closed");
     player_set_pip(s, 0);
     if (s->destroy) s->destroy(s);
     app_redraw();

@@ -14,6 +14,7 @@
 #include "../youtube.h"
 #include "../audio.h"
 #include "../platform/platform.h"
+void app_redraw(void);
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
@@ -830,6 +831,7 @@ static void picture_upload(Player *pl)
         if (f->yuv && f->yuv->data[0]) yuv_draw(f->yuv);
         else if (f->rgba) { glActiveTexture(GL_TEXTURE0); pic_texture(f->w, f->h, f->rgba); }
         g_tex_pts = f->pts; g_tex_serial = f->serial; g_shown_pts = f->pts;
+        app_redraw();   /* the app draws the picture here: a new one needs a frame, mouse or not */
     }
     SDL_UnlockMutex(pl->fm);
 }

@@ -278,6 +278,14 @@ static void dev_hooks(SDL_Window *win, int frame)
                 SDL_PushEvent(&e);
                 continue;
             }
+            if (sscanf(tok, "hover:%f:%f", &tx, &ty) == 2) {   /* a mouse pointer resting at canvas units x:y, no button down */
+                int px, py, pw, ph;
+                gfx_ui_to_pixels(tx, ty, 0, 0, &px, &py, &pw, &ph);
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_MOUSEMOTION; e.motion.x = px; e.motion.y = py;
+                SDL_PushEvent(&e);
+                continue;
+            }
             float tx2, ty2;
             int press = sscanf(tok, "press:%f:%f", &tx, &ty) == 2;   /* a finger held still at x:y for a second */
             if (press) { tx2 = tx; ty2 = ty; }
@@ -418,7 +426,7 @@ static void touch_motion(float fx, float fy)
             g_touch.step = g_touch.vertical ? (dy < 0 ? KEY_DOWN : KEY_UP) : (dx < 0 ? KEY_RIGHT : KEY_LEFT);   /* content follows the finger */
             Screen *top = app_top();
             int id;
-            if (top && top->tap && ui_hit_find(ux, uy, top, &id) && !(id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT)) {
+            if (top && top->tap && ui_hit_find(ux, uy, top, &id) && !(id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) && id != HIT_TRAILER_SOUND && !(id >= HIT_PIP && id <= HIT_PIP_CLOSE)) {
                 g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;   /* the steps move what it started on */
             }
         }
@@ -495,12 +503,42 @@ static void touch_event(const SDL_Event *e)
     if (top && strcmp(top->name, "player") && island_tap(ux, uy)) { app_redraw(); return; }   /* the resume card, over the screen */
     if (top && ui_hit_find(ux, uy, top, &id)) {
         if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
+        if (id == HIT_TRAILER_SOUND) { bgtrailer_key_sound(); return; }
+        if (g_app.pip && (id == HIT_PIP || id == HIT_PIP_FULL || id == HIT_PIP_CLOSE)) { g_pip_focus = 0; if (id == HIT_PIP_CLOSE) app_pip_close(); else app_pip_restore(); app_redraw(); return; }
         if (!top->tap || !top->tap(top, id)) dispatch_key(press);
         app_redraw();
         return;
     }
     if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
 }
+#ifdef SNTV_DESKTOP_PLAYER
+/* A computer: the focus goes where the pointer rests (a hover); nothing opens until a click.
+ * The lists hold still under it, or one sliding to its new focus would slide from the pointer. */
+static void mouse_hover(SDL_Window *win, int x, int y)
+{
+    static int last_id = -1;
+    static const Screen *last_top;
+    int ww, wh, id;
+    SDL_GetWindowSize(win, &ww, &wh);
+    Screen *top = app_top();
+    if (ww <= 0 || wh <= 0 || !top || !top->tap || g_touch.down) return;
+    float ux, uy;
+    touch_to_ui((float)x / ww, (float)y / wh, &ux, &uy);
+    g_app.last_input = g_app.time;
+    int on_pip = ui_hit_find(ux, uy, top, &id) && id >= HIT_PIP && id <= HIT_PIP_CLOSE;
+    if (g_app.pip && (on_pip || g_pip_focus)) {   /* the corner player: its buttons show under the pointer */
+        int want = !on_pip ? 0 : id == HIT_PIP_CLOSE ? 2 : 1;
+        if (want != g_pip_focus) { g_pip_focus = want; app_redraw(); }
+        if (on_pip) { last_id = -1; return; }
+    }
+    if (!ui_hit_find(ux, uy, top, &id)) { last_id = -1; return; }
+    if ((id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) || id == HIT_TRAILER_SOUND || (id == last_id && top == last_top)) return;
+    last_id = id; last_top = top;
+    ui_pan_hold();
+    g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;
+    app_redraw();
+}
+#endif
 static int g_backgrounded;   /* hidden or sent to the background (not just an overlay over us) */
 
 /* The marker a clean exit removes says whether the app was away: a system ends an app it
@@ -862,6 +900,7 @@ int main(int argc, char **argv)
             else if (e.type == SDL_TEXTINPUT && top && top->text) { ui_pan_keys(); top->text(top, e.text.text); }
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
 #ifdef SNTV_DESKTOP_PLAYER
+            else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID && !e.motion.state) mouse_hover(win, e.motion.x, e.motion.y);
             else if (e.type == SDL_MOUSEWHEEL && e.wheel.y) {   /* the wheel moves the focus a step a notch */
                 g_app.last_input = g_app.time;
                 for (int n = 0; n < (e.wheel.y > 0 ? e.wheel.y : -e.wheel.y) && n < 4; n++) dispatch_key(e.wheel.y > 0 ? KEY_UP : KEY_DOWN);

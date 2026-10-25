@@ -562,7 +562,7 @@ static int tap(Screen *sc, int id)
 {
     Sync *s = sc->st;
     if (id == 100) return 0;   /* Done / Try again: as OK */
-    if (s->host && s->hmode == H_CODE && id == 10) { find_start(s); return 1; }
+    if (s->host && s->hmode == H_CODE && id == 10) { if (!g_touch_aim) find_start(s); return 1; }
     if (s->host && s->hmode == H_FIND && id >= 200 && id < 200 + s->n_found) { s->hfocus = id - 200; return 0; }
     if (s->host && s->hmode == H_FIND && id == 300) { s->hfocus = s->n_found; return 0; }
     if (s->host && s->hmode == H_PIN && id >= 400 && id < 412) { s->hfocus = id - 400; return 0; }

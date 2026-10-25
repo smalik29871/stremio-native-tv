@@ -1266,6 +1266,7 @@ static int tap(Screen *s, int id)
 {
     Home *h = s->st;
     if (id == HIT_TOP) {
+        if (g_touch_aim) return 1;
         h->focus_row = FOCUS_SHOWCASE;   /* the top of the page (Down from there goes to the first row) */
         h->phone_btn = 0;
         ui_pan_keys();   /* the page follows the focus up again */

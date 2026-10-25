@@ -202,12 +202,18 @@ void bgtrailer_draw_badge(const char *id, int with_key)
 {
     float t = bgtrailer_shown(id);
     if (t <= 0) return;
+#ifdef SNTV_DESKTOP_PLAYER
+    (void)with_key;   /* a computer: the badge itself is the switch */
+    const char *label = !B.muted ? "Sound on" : "Sound off  \xC2\xB7  click to turn it on";
+#else
     const char *label = !B.muted ? "Sound on" : with_key ? "Sound off  \xC2\xB7  Play/Pause turns it on" : "Sound off";
+#endif
     int fs = FONT_XS | FONT_B;
     float h = 48, w = 24 + 28 + 12 + font_measure(label, fs) + 24, x = SNTV_UI_W - THEME_MARGIN - w, y = 96;
     if (island_bottom() + 14 > y) y = island_bottom() + 14;   /* under the island, whatever it is showing */
     Color fg = COLOR_ALPHA(THEME_TEXT, (int)(255 * t));
     gfx_rrect(x, y, w, h, theme_pill_r(h), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), (int)(0x99 * t)));
+    ui_hit(x, y, w, h, HIT_TRAILER_SOUND);   /* a click or a tap on it: the sound on or off */
     float ix = x + 24 + 14, iy = y + h / 2;
     ui_icon(ICON_AUDIO, ix, iy, 26, fg);
     if (B.muted) gfx_line(ix - 14, iy - 14, ix + 14, iy + 14, 3, fg);
