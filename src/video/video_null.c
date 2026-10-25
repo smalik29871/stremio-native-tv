@@ -3,6 +3,7 @@
 #include "../http.h"
 #include "video.h"
 #include "../log.h"
+#include "../youtube.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <math.h>
@@ -228,17 +229,18 @@ void video_select_track(TrackKind kind, int index)
 
 void video_landscape_only(int on) { (void)on; }
 int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }   /* only Android is opened with links */   /* TVs and the desktop do not turn */
-int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!getenv("SNTV_FAKE_EMBED") || !id || !*id) return 0; snprintf(out, n, "youtube-embed:%.20s", id); return 1; }   /* tests: as Android does */
+int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!getenv("SNTV_FAKE_EMBED") || !youtube_id_valid(id)) return 0; snprintf(out, n, "youtube-embed:%.20s", id); return 1; }   /* tests: as Android does */
 int video_youtube_web_state(void) { const char *s = getenv("SNTV_FAKE_YTWEB"); return s ? atoi(s) : -1; }   /* tests: "1" installed, "0" not */
 void video_youtube_web_check(void) { if (getenv("SNTV_FAKE_YTWEB") && getenv("SNTV_FAKE_INSTALL")) setenv("SNTV_FAKE_YTWEB", "1", 1); }   /* as if it was installed meanwhile */
 int video_youtube_web(const char *id, double start, const char *mode, int flags)
 {
     if (video_youtube_web_state() != 1) return 0;
+    if (!youtube_id_valid(id)) { LOGW("video: not a YouTube video id, Cuelight YouTube not opened"); return 0; }
     LOGI("video: Cuelight YouTube opened %s at %.0fs (%s)%s%s", id, start, mode, flags & YTWEB_SKIP_SPONSORS ? ", skipping sponsors" : "", flags & YTWEB_NO_ADVERTS ? ", without adverts" : "");
     return 1;
 }
 int video_has_youtube_app(void) { return getenv("SNTV_FAKE_BROWSER") != NULL; }   /* tests: as Android does */
-int video_open_youtube(const char *id) { if (!video_has_youtube_app() || !id) return 0; LOGI("video: the YouTube app opened %s", id); return 1; }
+int video_open_youtube(const char *id) { if (!video_has_youtube_app() || !youtube_id_valid(id)) return 0; LOGI("video: the YouTube app opened %s", id); return 1; }
 int video_open_browser(const char *url) { (void)url; if (!getenv("SNTV_FAKE_BROWSER")) return 0; LOGI("video: a browser opened the page"); return 1; }   /* tests: as Android does */
 void video_pip_allow(int on) { (void)on; }   /* no picture in picture on a TV or the desktop */
 int  video_pip_enter(void) { return 0; }

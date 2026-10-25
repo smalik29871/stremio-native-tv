@@ -93,6 +93,12 @@ async function page(browser, params, opts = {}) {
       check(asked.length === 0 && t === 12, 'off: SponsorBlock is not asked and nothing is skipped');
     }
   }
+  // relaunched by anyone: only a video id goes into the address
+  p = await page(b, { v: 'abcdefghijk', mode: 'play' });
+  await p.evaluate(() => document.dispatchEvent(new CustomEvent('webOSRelaunch', { detail: { v: 'x"/><img src=x>', t: 5 } })));
+  check(await p.evaluate(() => location.hash) === '#/watch?v=abcdefghijk', 'a relaunch with something other than a video id is ignored');
+  await p.evaluate(() => document.dispatchEvent(new CustomEvent('webOSRelaunch', { detail: { v: 'zyxwvutsrqp', t: -3 } })));
+  check(await p.evaluate(() => location.hash) === '#/watch?v=zyxwvutsrqp', 'a relaunch with a video id opens it (a negative start dropped)');
   // the launch page
 
       for (const [params, want] of [[{ v: 'dQw4w9WgXcQ', t: 42 }, 'https://www.youtube.com/tv#/watch?v=dQw4w9WgXcQ&t=42s'],

@@ -8,6 +8,7 @@
 
 /* The 11-character video id of a youtube.com / youtu.be / music / shorts link, else 0. */
 int youtube_video_id(const char *url, char id[16]);
+int youtube_id_valid(const char *id);   /* exactly a video id (11 of A-Z a-z 0-9 - _): what may go into a launch or a player */
 
 /* A saved copy of the link: its name in the sounds folder ("yt-ID-audio.m4a"), the
  * wanted kind first, then the other one. 0 when nothing was saved. */

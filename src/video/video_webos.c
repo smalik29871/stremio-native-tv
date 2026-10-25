@@ -37,6 +37,7 @@
 #include "../sha256.h"
 #include "../store.h"
 #include "../sysinfo.h"
+#include "../youtube.h"
 #include "../platform/platform.h"
 #include "../../vendor/cJSON.h"
 #include <dlfcn.h>
@@ -1279,7 +1280,7 @@ void video_youtube_web_check(void)
 }
 int video_youtube_web(const char *id, double start, const char *mode, int flags)
 {
-    if (!g_bus || g_ytweb != 1 || !id || !*id) return 0;
+    if (!g_bus || g_ytweb != 1 || !youtube_id_valid(id)) return 0;   /* an addon's id goes into the launch: only a real one */
     char payload[300];
     snprintf(payload, sizeof payload, "{\"id\":\"" SNTV_YTWEB_ID "\",\"params\":{\"v\":\"%.20s\",\"t\":%d,\"mode\":\"%.8s\",\"skipSponsors\":%d,\"blockAds\":%d}}",
              id, (int)start, mode ? mode : "play", !!(flags & YTWEB_SKIP_SPONSORS), !!(flags & YTWEB_NO_ADVERTS));
@@ -1293,7 +1294,7 @@ int video_youtube_web(const char *id, double start, const char *mode, int flags)
 int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }   /* a native app has no web view to give it */
 int video_open_youtube(const char *id)
 {
-    if (!g_bus || !id || !*id) return 0;
+    if (!g_bus || !youtube_id_valid(id)) return 0;
     char payload[300];
     snprintf(payload, sizeof payload, "{\"id\":\"youtube.leanback.v4\",\"params\":{\"contentTarget\":\"https://www.youtube.com/tv?v=%.20s\"}}", id);
     LSError e; L.ErrorInit(&e);

@@ -43,6 +43,16 @@ static cJSON *solve(const char *player, const char *kind, const char *challenge,
 
 int main(void)
 {
+    /* only a real video id may go into a launch or a player: an addon's ytId is anything it likes */
+    CHECK(youtube_id_valid("dQw4w9WgXcQ"));
+    CHECK(youtube_id_valid("a-b_c-d_e-f"));
+    CHECK(!youtube_id_valid("x\"},\"id\":\"evil"));
+    CHECK(!youtube_id_valid("dQw4w9WgXc"));
+    CHECK(!youtube_id_valid("dQw4w9WgXcQQ"));
+    CHECK(!youtube_id_valid("dQw4w9 gXcQ"));
+    CHECK(!youtube_id_valid(""));
+    CHECK(!youtube_id_valid(NULL));
+
     CHECK(id_is("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ"));
     CHECK(id_is("https://youtube.com/watch?feature=share&v=dQw4w9WgXcQ&t=10", "dQw4w9WgXcQ"));
     CHECK(id_is("https://youtu.be/dQw4w9WgXcQ?si=abc", "dQw4w9WgXcQ"));

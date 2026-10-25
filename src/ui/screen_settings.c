@@ -1722,6 +1722,7 @@ static void on_addon_choice(int c, void *user)
     const Addon *a = &g_app.addons[i];
     char page[2048];
     snprintf(page, sizeof page, "%s/configure", a->base_url);   /* Stremio's convention: the link with its settings, so the page opens on them */
+    if (strncmp(page, "https://", 8) && strncmp(page, "http://", 7)) { app_toast("This addon's settings are not a web page"); return; }   /* a synced addon's link can be anything: only a web page opens */
     if (video_open_browser(page)) {
         LOGI("addons: %s's settings opened in the browser", a->manifest.name);
         app_toast("%s opens in your browser: its Install button brings the new settings back here", a->manifest.name);

@@ -109,6 +109,9 @@ grep -q "YouTube's own player plays it" "$OUT/trailer_youtube_embed.log" && grep
 # not installed, it is offered, installed from the releases list and opened on the video
 run ytweb_trailer 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw1 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1
 grep -q "video: Cuelight YouTube opened [A-Za-z0-9_-]* at 0s (play)" "$OUT/ytweb_trailer.log" || { echo "a refused trailer did not open in Cuelight YouTube"; grep -E "detail|youtube|video|ytweb" "$OUT/ytweb_trailer.log"; exit 1; }
+# an addon's trailer id that tries to close the TV's launch request and name another app: never launched
+run ytweb_bad_id 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytwbad "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1 SNTV_FAKE_BROWSER=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/badyt/manifest.json
+! grep -q "video: Cuelight YouTube opened\|video: the YouTube app opened" "$OUT/ytweb_bad_id.log" || { echo "an addon's made-up YouTube id was handed to a launch"; grep -E "youtube|YouTube|video:" "$OUT/ytweb_bad_id.log"; exit 1; }
 run ytweb_offer 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw2 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=0 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo-yt.json
 grep -q "UI check: screen=options" "$OUT/ytweb_offer.log" || { echo "Cuelight YouTube was not offered for a refused trailer"; exit 1; }
 run ytweb_install 700 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw3 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=0 SNTV_FAKE_INSTALL=1 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo-yt.json

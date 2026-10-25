@@ -6,6 +6,7 @@
 #include "../lists.h"
 #include "../log.h"
 #include "../video/video.h"
+#include "../youtube.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -207,7 +208,8 @@ static void yt_app_choice(int c, void *user)
 }
 void screen_options_youtube_app(const char *yt_id, const char *error)
 {
-    if (yt_id && *yt_id && video_youtube_web(yt_id, 0, "play", app_ytweb_flags())) { app_toast("Playing it in Cuelight YouTube"); return; }
+    if (!youtube_id_valid(yt_id)) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); return; }   /* not a video id: nothing to hand on */
+    if (video_youtube_web(yt_id, 0, "play", app_ytweb_flags())) { app_toast("Playing it in Cuelight YouTube"); return; }
     int install = yt_id && *yt_id && video_youtube_web_state() == 0, app = yt_id && *yt_id && video_has_youtube_app();
     if (!install && !app) { app_toast("YouTube would not play this one%s%s", error ? ": " : "", error ? error : ""); return; }
     const char *items[3]; int icons[3], n = 0;

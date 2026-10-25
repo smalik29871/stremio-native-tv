@@ -886,8 +886,9 @@ void phone_prompt_link(const char *label, const char *url)
 {
     if (!g_lock) return;
     SDL_LockMutex(g_lock);
-    snprintf(g_link_label, sizeof g_link_label, "%s", label ? label : "");
-    snprintf(g_link, sizeof g_link, "%s", url ? url : "");
+    int web = url && (!strncmp(url, "https://", 8) || !strncmp(url, "http://", 7));   /* a javascript: or other link never goes on the page */
+    snprintf(g_link_label, sizeof g_link_label, "%s", web && label ? label : "");
+    snprintf(g_link, sizeof g_link, "%s", web ? url : "");
     SDL_UnlockMutex(g_lock);
 }
 

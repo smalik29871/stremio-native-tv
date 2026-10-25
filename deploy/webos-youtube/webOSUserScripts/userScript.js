@@ -143,10 +143,11 @@
   /* Cuelight asks again while this is open: the new video, in its mode */
   document.addEventListener("webOSRelaunch", function (e) {
     var q = (e && e.detail) || params(window.PalmSystem && window.PalmSystem.launchParams);
-    if (!q.v) return;
+    if (!/^[\w-]{11}$/.test(q.v || "")) return;   /* whoever relaunches it: only a video id goes into the address */
     mode = q.mode || "play"; want = q.v; seenPlaying = false;
     skipSponsors = q.skipSponsors !== 0; blockAds = q.blockAds === 1;
     if (mode === "loop") showClock();
-    location.hash = "#/watch?v=" + q.v + (q.t ? "&t=" + (q.t | 0) + "s" : "");
+    var t = Math.max(0, q.t | 0);
+    location.hash = "#/watch?v=" + q.v + (t ? "&t=" + t + "s" : "");
   }, true);
 })();

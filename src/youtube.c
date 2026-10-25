@@ -63,6 +63,14 @@ static int id_at(const char *p, char id[16])
     return 1;
 }
 
+int youtube_id_valid(const char *id)
+{
+    if (!id) return 0;
+    int k = 0;
+    while (k < 11 && id_char(id[k])) k++;
+    return k == 11 && !id[11];
+}
+
 int youtube_video_id(const char *url, char id[16])
 {
     if (!url) return 0;
