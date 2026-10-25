@@ -98,7 +98,7 @@ struct Player {
     float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
     float fs_until;           /* sideways on a phone: the controls show until */
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
-    float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none, lb_lower_logged;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
+    float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none, lb_aside_logged;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
     char lb_last[2048];       /* the last frame it had, shown while the next one comes */
     char lb_prev[2048]; float lb_swap_at;   /* the one before, fading out as the last fades in (since then) */
     double lb_keys[64]; int lb_nkeys, lb_keys_state; double lb_keys_from;   /* the film's cuts ahead (keyframes): 0 not asked, 1 asking, 2 known, 3 none */
@@ -1262,16 +1262,16 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
 #define LB_EDGE 18.0f    /* and how wide it is */
 #define LB_TINT 0.55f    /* One colour: the scene's colour at this strength */
 
-/* One frame into the bars (the lower one too unless `lower` is 0): its light only; the
- * falloff and the edge's shadow go over both frames at once in draw_letterbox. */
-static void lb_paint(unsigned tex, const char *url, int side, float bar, float a, int lower)
+/* One frame into the bars: its light only; the falloff and the edge's shadow go over both
+ * frames at once in draw_letterbox. */
+static void lb_paint(unsigned tex, const char *url, int side, float bar, float a)
 {
     float W = SNTV_UI_W, H = SNTV_UI_H;
     if (g_app.living_letterbox == LB_COLOUR) {   /* the frame's main colour, flat: one hue */
         unsigned t = image_tint(url);
         if (!t) t = RGBA(40, 40, 40, 255);
         Color c = RGBA((t >> 24) * LB_TINT, ((t >> 16) & 0xFF) * LB_TINT, ((t >> 8) & 0xFF) * LB_TINT, (int)(255 * a));   /* quieter than the picture */
-        if (side == 1) { gfx_rect(0, 0, W, bar, c); if (lower) gfx_rect(0, H - bar, W, bar, c); }
+        if (side == 1) { gfx_rect(0, 0, W, bar, c); gfx_rect(0, H - bar, W, bar, c); }
         else { gfx_rect(0, 0, bar, H, c); gfx_rect(W - bar, 0, bar, H, c); }
         return;
     }
@@ -1287,7 +1287,7 @@ static void lb_paint(unsigned tex, const char *url, int side, float bar, float a
 #define LB_V(y) (box[1] + ((y) - ry) / rh * ch)
     if (side == 1) {
         gfx_tex_blur(tex, 0, 0, W, bar, LB_U(0), LB_V(0), LB_U(W), LB_V(bar), c, LB_BLUR);
-        if (lower) gfx_tex_blur(tex, 0, H - bar, W, bar, LB_U(0), LB_V(H - bar), LB_U(W), LB_V(H), c, LB_BLUR);
+        gfx_tex_blur(tex, 0, H - bar, W, bar, LB_U(0), LB_V(H - bar), LB_U(W), LB_V(H), c, LB_BLUR);
     } else {
         gfx_tex_blur(tex, 0, 0, bar, H, LB_U(0), LB_V(0), LB_U(bar), LB_V(H), c, LB_BLUR);
         gfx_tex_blur(tex, W - bar, 0, bar, H, LB_U(W - bar), LB_V(0), LB_U(W), LB_V(H), c, LB_BLUR);
@@ -1300,6 +1300,12 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
 {
     p->lb_bar = 0; p->lb_side = 0;
     if (!g_app.living_letterbox || p->pip || p->aspect != ASPECT_FIT || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return;
+    /* the TV draws a film's own subtitle track itself, under the app, and an LG hides it
+     * while the app paints during playback: the screen is left as with the letterbox off */
+    if (p->embedded_text_sel >= 0) {
+        if (!p->lb_aside_logged) { p->lb_aside_logged = 1; LOGI("player: the living letterbox steps aside while the TV draws the film's own subtitles"); }
+        return;
+    }
     double pos = p->seek_commit > 0 ? p->seek_target : vi->position;
     char u0[2048], u1[2048];
     /* no frames while the film starts, nor for a source already seen to fill the screen */
@@ -1351,18 +1357,15 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     x = x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
     int pw0, ph0;
     unsigned tp = x < 1 && p->lb_prev[0] ? image_peek_ex(p->lb_prev, IMAGE_MIPMAP, &pw0, &ph0) : 0;
-    /* the TV draws an embedded subtitle track itself, under the app, inside the film's frame:
-     * with bars baked into the picture it sits in the lower one, which stays clear for it */
-    int lower = !(side == 1 && p->embedded_text_sel >= 0);
-    if (!lower && !p->lb_lower_logged) { p->lb_lower_logged = 1; LOGI("player: the lower bar stays clear for the TV's own subtitles"); }
-    if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k, lower);
-    if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1), lower);
+    if (tp) lb_paint(tp, p->lb_prev, side, bar, p->lb_k);
+    if (t0) lb_paint(t0, p->lb_last, side, bar, p->lb_k * (tp ? x : 1));
     /* dimmer away from the picture, as light thrown on a wall; a soft shadow where it meets it */
     Color dark = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_FALLOFF)), shade = RGBA(0, 0, 0, (int)(255 * p->lb_k * LB_SHADE)), clear = RGBA(0, 0, 0, 0);
     if (side == 1) {
         gfx_gradient_v(0, 0, W, bar, dark, clear);
         gfx_gradient_v(0, bar - LB_EDGE, W, LB_EDGE, clear, shade);
-        if (lower) { gfx_gradient_v(0, H - bar, W, bar, clear, dark); gfx_gradient_v(0, H - bar, W, LB_EDGE, shade, clear); }
+        gfx_gradient_v(0, H - bar, W, bar, clear, dark);
+        gfx_gradient_v(0, H - bar, W, LB_EDGE, shade, clear);
     } else {
         gfx_gradient_h(0, 0, bar, H, dark, clear);
         gfx_gradient_h(W - bar, 0, bar, H, clear, dark);
