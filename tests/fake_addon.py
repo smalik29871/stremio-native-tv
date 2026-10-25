@@ -515,6 +515,19 @@ class H(BaseHTTPRequestHandler):
                 web = [{"name": "WebScraper\n720p", "title": f"Movie.2024.720p.WEB.h264-W{k}\n\U0001F4BE 1.{k} GB", "url": f"{url}?web={k}"} for k in range(1, 3)]
                 return self.send(200, json.dumps({"streams": tb + web}).encode())
             return self.send(404, b"{}")
+        # /aiotb/...: an AIOStreams-like list while TorBox is down: six "[TB]" links that stream
+        # its 30-second "Debrid provider is currently unavailable" video, below them two plain links
+        if p.startswith("/aiotb/"):
+            p = p[6:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.aiotb", name="AIOStreams", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                url = STREAMS["streams"][0]["url"].split("?")[0]
+                tb = [{"name": f"[TB⚡] Torrentio {r}", "title": f"Movie.2024.{r}.WEB.h265-G{k}\n💾 {9 - k}.0 GB", "url": f"{url}?errclip={k}"}
+                      for k, r in enumerate(["2160p", "2160p", "1080p", "1080p", "1080p", "720p"], 1)]
+                web = [{"name": "WebStreamr\n720p", "title": f"Movie.2024.720p.WEB.h264-W{k}\n💾 1.{k} GB", "url": f"{url}?web={k}"} for k in range(1, 3)]
+                return self.send(200, json.dumps({"streams": tb + web}).encode())
+            return self.send(404, b"{}")
         if p.startswith("/slowvideo/"):
             import time
             time.sleep(4.5)

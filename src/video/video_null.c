@@ -74,6 +74,8 @@ int video_load(const char *url, const char *title, double start)
     /* test hooks: SNTV_FAKE_DURATION / SNTV_FAKE_START (seconds) */
     const char *fd = getenv("SNTV_FAKE_DURATION"), *fs = getenv("SNTV_FAKE_START");
     if (fd) g.duration = atof(fd);
+    const char *clip = getenv("SNTV_FAKE_CLIP");   /* links naming it are an addon's 30-second error video */
+    if (clip && strstr(url, clip)) g.duration = 30;
     if (fs && start <= 0) g.position = atof(fs);
     snprintf(g.codec, sizeof g.codec, "H264 1920x1080 / AAC 5.1");
     g.width = 1920; g.height = 1080; g.fps = 24; g.bitrate = 8200000;

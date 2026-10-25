@@ -210,7 +210,8 @@ static int has_ci(const char *hay, const char *needle);
 void streams_service(const char *url, const char *label, char *out, size_t n)
 {
     static const struct { const char *in_url, *in_label, *name; } KNOWN[] = {
-        { "torbox", "[TB", "TorBox" }, { "real-debrid", "[RD", "Real-Debrid" }, { "realdebrid", NULL, "Real-Debrid" },
+        { "torbox", "[TB", "TorBox" }, { "torbox", "TB\xE2\x9A\xA1", "TorBox" }, { "torbox", "TB+", "TorBox" },   /* [TB], TB⚡, TB+: the label AIOStreams, Comet and Torrentio give */
+        { "real-debrid", "[RD", "Real-Debrid" }, { "realdebrid", "RD\xE2\x9A\xA1", "Real-Debrid" }, { "realdebrid", "RD+", "Real-Debrid" },
         { "alldebrid", "[AD", "AllDebrid" }, { "premiumize", "[PM", "Premiumize" }, { "debrid-link", "[DL", "Debrid-Link" },
         { "easydebrid", "[ED", "EasyDebrid" }, { "offcloud", "[OC", "Offcloud" },
     };
@@ -221,6 +222,18 @@ void streams_service(const char *url, const char *label, char *out, size_t n)
     const char *h = strstr(url, "://");
     h = h ? h + 3 : url;
     snprintf(out, n, "%.*s", (int)strcspn(h, "/:?"), h);
+}
+
+/* A plain link: not through a debrid service (cached, waiting for a download, or named
+ * for one) and not a torrent. When TorBox or a debrid is down, these still play. */
+int streams_is_direct(const Stream *s)
+{
+    if (!s->url || strncmp(s->url, "http", 4) || torrent_engine_url_is(s->url) || s->tags.cached) return 0;
+    char name[48];
+    streams_service(s->url, s->name, name, sizeof name);
+    static const char *const DEBRID[] = { "TorBox", "Real-Debrid", "AllDebrid", "Premiumize", "Debrid-Link", "EasyDebrid", "Offcloud" };
+    for (size_t i = 0; i < sizeof DEBRID / sizeof *DEBRID; i++) if (!strcmp(name, DEBRID[i])) return 0;
+    return 1;
 }
 
 static int is_p2p(const Stream *s)
@@ -1637,6 +1650,7 @@ static void play_from(Streams *st, int index)
     st->launched = 1;
     video_keep_awake(0);   /* the player's own loading holds the TV's screensaver from here */
     PlayCandidate *all = calloc((size_t)st->n + 1, sizeof *all), *c = calloc((size_t)st->n + 2, sizeof *c);
+    unsigned char direct[64] = { 0 };   /* all[k] is a plain link (streams_is_direct) */
     int na = 0, n = 0, p2p = 0, rec = recommended(st);
     const char *group = st->items[index].binge_group;
     /* the one picked, the recommended one (the surest fallback, and the player marks it),
@@ -1649,14 +1663,22 @@ static void play_from(Streams *st, int index)
             if (pass == 2 && !(group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0)) continue;
             if (pass == 3 && group && st->items[i].binge_group && strcmp(group, st->items[i].binge_group) == 0) continue;
             if (pass > 0 && ineligible(st, &st->items[i])) continue;   /* behind the picked one: only what may play by itself */
-            if (streams_candidate(&st->meta, &st->items[i], &all[na])) { all[na].recommended = i == rec; all[na].p2p = is_p2p(&st->items[i]); na++; }
+            if (streams_candidate(&st->meta, &st->items[i], &all[na])) { all[na].recommended = i == rec; all[na].p2p = is_p2p(&st->items[i]); if (na < 64) direct[na] = (unsigned char)streams_is_direct(&st->items[i]); na++; }
         }
     /* six of them, at most three from one service (TorBox, a debrid, one site): when that
-     * service is down, the others are other addons' sources, not more of the same */
+     * service is down, the others are other addons' sources, not more of the same. Two plain
+     * links always have a place: debrid sources rank first, and when TorBox is down every
+     * addon that goes through it (AIOStreams, Comet, Torrentio with a key) fails together */
     unsigned char taken[64] = { 0 };
-    int held = 0;
-    for (int round = 0; round < 2; round++)
-        for (int k = 0; k < na && k < 64 && n < 6; k++) {
+    int held = 0, ndirect = 0;
+    for (int round = 0; round < 3; round++)
+        for (int k = 0; k < na && k < 64 && n < (round == 0 ? 5 : round == 1 ? 7 : 6); k++) {
+            if (round == 1) {
+                if (taken[k] || !direct[k]) continue;
+                if (ndirect >= 2) break;
+                taken[k] = 1; ndirect++; c[n++] = all[k];
+                continue;
+            }
             if (taken[k]) continue;
             if (round == 0 && k >= 2) {
                 char mine[48], other[48]; int same = 0;
@@ -1664,7 +1686,7 @@ static void play_from(Streams *st, int index)
                 for (int j = 0; j < n; j++) { streams_service(c[j].url, c[j].label, other, sizeof other); same += !strcmp(mine, other); }
                 if (same >= 3) { held++; continue; }
             }
-            taken[k] = 1; p2p |= all[k].p2p; c[n++] = all[k];
+            taken[k] = 1; p2p |= all[k].p2p; ndirect += direct[k]; c[n++] = all[k];
         }
     if (held) LOGI("streams: %d sources stand by, at most 3 from one service", n);
     for (int k = 0; k < na && !p2p; k++)

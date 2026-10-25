@@ -157,6 +157,7 @@ struct Player {
     int seek_flash_step;                    /* seconds the last press moved (double on a double press) */
     float rest_t;                           /* paused and left alone: the controls fade, the title stays */
     int trailer;                            /* video_id "trailer:…": nothing is saved against the title */
+    int length_checked;                     /* this source's length looked at once it played (an addon's error clip) */
     int tracked;                            /* Trakt was told this one started */
     /* fallback: what the viewer had on, carried to the next source */
     char keep_audio[16]; int keep_sub_kind, keep_sub_idx; char keep_sub_lang[16];   /* kind: 0 none, 1 addon file, 2 file track, 3 off */
@@ -1736,7 +1737,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->bm_state = 0;
     p->load_started = g_app.time;
     if (idx < 64) p->tried |= 1ull << idx;
-    p->started = 0; p->p2p_peers = -1; p->p2p_info = 0; p->thumbs_warm = 0;
+    p->started = 0; p->p2p_peers = -1; p->p2p_info = 0; p->thumbs_warm = 0; p->length_checked = 0;
     p->stalls_here = 0; p->lighter_to = -1;
     for (int w = 0; w < 2; w++) { p->warm[w].state = 0; p->warm[w].idx = -1; p->warm[w].at = g_app.time; }
     p->drain_n = 0; p->drain_t = 0;
@@ -1856,7 +1857,7 @@ static void svc_failed(Player *p, int idx, const char *why)
         p->svc[k].fails = p->svc[k].down = 0; p->n_svc++;
     }
     p->svc[k].fails++;
-    int unreachable = why && (strstr(why, "did not take the torrent (0") || strstr(why, "did not take the torrent (5") || strstr(why, "did not answer"));
+    int unreachable = why && (strstr(why, "did not take the torrent (0") || strstr(why, "did not take the torrent (5") || strstr(why, "did not answer") || strstr(why, "error video"));
     if (p->svc[k].fails < 2 && !unreachable) return;
     p->svc[k].down = 1;
     int skipped = 0;
@@ -2003,10 +2004,26 @@ static int decoder_failure(const Player *p, const VideoInfo *vi)
     return 1;
 }
 
+/* A video far shorter than the film or episode: the clip an addon (AIOStreams, Comet...)
+ * streams in place of the file when its debrid service is down ("Debrid provider is
+ * currently unavailable"), or a sample. 1 with why filled. Not trailers or YouTube. */
+static int error_clip(const Player *p, double secs, char *why, size_t n)
+{
+    if (p->trailer || (p->cands[p->cur].label && !strcmp(p->cands[p->cur].label, "YouTube"))) return 0;
+    double mins = quality_runtime_minutes(p->meta.runtime);
+    int clip = mins >= 20 ? secs < mins * 60 * 0.25 && secs < 600 : secs < 90;
+    if (!clip) return 0;
+    if (mins > 0) snprintf(why, n, "a %.0f-second clip, not the %.0f-minute video (the addon's error video)", secs, mins);
+    else snprintf(why, n, "a %.0f-second clip (the addon's error video)", secs);
+    return 1;
+}
+
 static void fail_over(Player *p, const char *why)
 {
     VideoInfo vi;
     video_info(&vi);
+    int clip = strstr(why, "error video") != NULL;   /* it played, but was never the film */
+    if (clip) vi.position = 0;
     double resume = vi.position > 5 ? vi.position : 0;
     if (!p->learned && decoder_failure(p, &vi)) {   /* the error never names the decoder: only a source needing one feature says which failed */
         unsigned needs = p->cands[p->cur].needs;
@@ -2085,16 +2102,19 @@ static void on_reask(const Stream *items, int n, void *user)
     Player *p = user;
     if (p != g_live || p->finished) return;
     PlayCandidate *c = calloc(7, sizeof *c);
-    int k = 0, p2p = 0;
+    int k = 0, p2p = 0, debrid = 0;
     unsigned char used[64] = { 0 };
     for (int pass = 0; pass < 2; pass++) {   /* sources from a service found down come last */
         for (int i = 0; i < n && i < 64 && k < 6; i++) {
+            int direct = streams_is_direct(&items[i]);
+            if (pass == 0 && !direct && debrid >= 4) continue;   /* room for plain links: every debrid source may share the outage */
             if (used[i] || !streams_candidate(&p->meta, &items[i], &c[k])) continue;
             char name[40]; int down = 0;
             streams_service(c[k].url, c[k].label, name, sizeof name);
             for (int s = 0; s < p->n_svc; s++) down |= !strcmp(p->svc[s].name, name) && p->svc[s].down;
             if (pass == 0 && down) { cand_drop(&c[k]); memset(&c[k], 0, sizeof c[k]); continue; }
             p2p |= torrent_engine_url_is(c[k].url);
+            debrid += !direct;
             used[i] = 1; k++;
         }
         /* before the down service's own: the best torrent from peers (TorBox had it cached,
@@ -2687,6 +2707,15 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    if (p->started && !p->length_checked && vi.duration > 0 && !p->error_handled) {
+        p->length_checked = 1;
+        char why[160];
+        if (error_clip(p, vi.duration, why, sizeof why)) {
+            LOGW("player: source %d is %s; the next one", p->cur + 1, why);
+            p->error_handled = 1;
+            fail_over(p, why);
+        }
+    }
     if (p->bridge == 1 && p->started) { p->bridge = 2; LOGI("player: the picture came %.1f s after the still", g_app.time - p->bridge_t0); }
     if (p->started && p->pause_when_started) { p->pause_when_started = 0; video_pause(); p->viewer_paused = 1; LOGI("player: paused again at %.0fs, as before the break", vi.position); }
     if (p->catchup_until < 0 && p->started) p->catchup_until = g_app.time + 12;
