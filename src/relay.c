@@ -11,6 +11,7 @@
  * buffer can't go on (memory, a source that keeps failing), the connection carries on
  * straight from the source: the picture never depends on it. */
 #include "relay.h"
+#include "app.h"
 #include "http.h"
 #include "log.h"
 #include "memwatch.h"
@@ -51,7 +52,7 @@ static SDL_atomic_t g_conns;
 enum { VLEN = 64 << 10, AHEAD_S = 120, BACKLOG = 8 << 20, JUMP = 2 << 20, TAIL = 32 << 20, CHUNK = 256 << 10, NBLK = 64, READERS = 16,
        HEAD = 8 << 20, GAP = 48 << 20 };   /* JUMP: further past what is in, it starts again there; HEAD: the file's start, read again on a seek;
                                               GAP: a step back this far behind what is in comes from the source, the rest still from the buffer */
-#define BUDGET_MAX ((uint64_t)192 << 20)   /* never more than this much memory */
+#define BUDGET_MAX ((uint64_t)256 << 20)   /* never more than this much memory */
 #define BUDGET_SMALL ((uint64_t)64 << 20)  /* on a 1 GB TV */
 #define BUDGET_MIN ((uint64_t)48 << 20)    /* the budget can't reach this: no buffer (or it lets go) */
 #define MIN_AHEAD ((uint64_t)16 << 20)   /* at least this much ahead, whatever the rate */
@@ -76,6 +77,11 @@ typedef struct {
     struct { char *url, *headers; int tried; } alt[6];   /* other links to perhaps the same file, for a handoff */
     int n_alt;
     Uint32 mem_at;           /* when free memory was last looked at */
+    Uint32 asked_at;         /* when the player first asked for it (0 not yet) */
+    int slow;                /* the source sends slower than the video plays, with the buffer going down */
+    double in_rate;          /* bytes a second coming in lately (while there was room) */
+    Uint32 slow_since, win_at, hungry_at; uint64_t win_bytes, hungry_bytes;   /* measuring: a window of 5 s; a hungry stretch (never held) for the home speed */
+    int handoff_for_slow;    /* a slow source was handed off once already */
     SDL_cond *cond;
 } Buf;
 static Buf g_buf;
@@ -270,6 +276,36 @@ static void answer(int fd, const char *status)
 /* ---- the download ahead ---- */
 typedef struct { unsigned route, gen; uint64_t from, got; long status; int bad, held; } Dl;   /* held: stopped by us (room, a jump) */
 
+/* How fast the source sends while the buffer wants more: a 5 s window for the rate the
+ * player's fallback logic looks at, and a longer hungry stretch (never held back) that
+ * says what this home's connection carries, for choosing sources that fit it. */
+static void rate_note_locked(size_t took)
+{
+    Uint32 now = SDL_GetTicks();
+    if (!g_buf.win_at) { g_buf.win_at = now; g_buf.win_bytes = 0; }
+    g_buf.win_bytes += took;
+    if (now - g_buf.win_at >= 5000) {
+        double r = g_buf.win_bytes * 1000.0 / (now - g_buf.win_at);
+        g_buf.in_rate = g_buf.in_rate > 0 ? g_buf.in_rate * 0.5 + r * 0.5 : r;
+        g_buf.win_at = now; g_buf.win_bytes = 0;
+        int hungry = ahead_now() < ahead_limit() / 2;
+        double ahead_s = g_buf.rate > 0 ? ahead_now() / g_buf.rate : 999;
+        if (g_buf.rate > 0 && hungry && g_buf.in_rate < g_buf.rate * 0.9 && ahead_s < 30) {
+            if (!g_buf.slow_since) g_buf.slow_since = now;
+            else if (now - g_buf.slow_since > 15000 && !g_buf.slow) { g_buf.slow = 1; LOGW("relay: the source sends %.1f Mbit/s, the video needs %.1f; %.0f s left in the buffer", g_buf.in_rate * 8 / 1e6, g_buf.rate * 8 / 1e6, ahead_s); SDL_CondBroadcast(g_buf.cond); }
+        } else if (g_buf.in_rate >= g_buf.rate) { if (g_buf.slow) LOGI("relay: the source keeps up again (%.1f Mbit/s)", g_buf.in_rate * 8 / 1e6); g_buf.slow = 0; g_buf.slow_since = 0; }
+    }
+    if (!g_buf.hungry_at) { g_buf.hungry_at = now; g_buf.hungry_bytes = 0; }
+    g_buf.hungry_bytes += took;
+    static uint64_t sample_bytes;
+    if (!sample_bytes) { const char *e = getenv("SNTV_SPEED_SAMPLE_KB"); sample_bytes = e && *e ? (uint64_t)strtoull(e, NULL, 10) << 10 : 8u << 20; }   /* tests: small files */
+    if (g_buf.hungry_bytes >= sample_bytes && now - g_buf.hungry_at >= (sample_bytes < (1u << 20) ? 0u : 2000u)) {   /* 8 MB that nothing held back: what the line carries */
+        Uint32 ms = now - g_buf.hungry_at > 0 ? now - g_buf.hungry_at : 1;
+        app_home_mbps_note(g_buf.hungry_bytes * 8.0 / 1e6 / (ms / 1000.0));
+        g_buf.hungry_at = now; g_buf.hungry_bytes = 0;
+    }
+}
+
 static int dl_head(void *user, long status, const char *type, uint64_t length, const char *content_range)
 {
     Dl *d = user;
@@ -301,8 +337,21 @@ static int dl_data(void *user, const char *data, size_t n)
     if (floor < g_buf.lo) floor = g_buf.lo;
     uint64_t used = at > floor ? at - floor : 0;   /* what nobody needs any more (behind the step-back room) is free */
     uint64_t room = used < g_buf.budget ? g_buf.budget - used : 0;
+    if (ours && ahead_now() >= ahead_limit()) {   /* far enough ahead: the connection waits for room rather than being dropped and made again */
+        static int hold_ms = -1;
+        if (hold_ms < 0) { const char *e = getenv("SNTV_RELAY_HOLD_MS"); hold_ms = e && *e ? atoi(e) : 20000; }
+        g_buf.hungry_at = 0;   /* no longer measuring the home speed: the source is being held back */
+        for (int waited = 0; ours && ahead_now() >= ahead_limit() && waited < hold_ms; waited += 250) {
+            SDL_CondWaitTimeout(g_buf.cond, g_lock, 250);
+            SDL_UnlockMutex(g_lock); budget_tick(); SDL_LockMutex(g_lock);
+            ours = d->route == g_buf.route && d->gen == g_buf.gen && !g_buf.stopped;
+            at = g_buf.hi; floor = g_buf.pos > backlog() ? g_buf.pos - backlog() : 0; if (floor < g_buf.lo) floor = g_buf.lo;
+            used = at > floor ? at - floor : 0; room = used < g_buf.budget ? g_buf.budget - used : 0;
+        }
+    }
     size_t take = !ours || ahead_now() >= ahead_limit() ? 0 : room < n ? (size_t)room : n;   /* as much as fits */
     if (!take) { SDL_UnlockMutex(g_lock); d->held = 1; return 0; }   /* a jump, a stop, or far enough ahead: picked up again from here later */
+    rate_note_locked(take);
     if (!put_locked(at, data, take)) { let_go_locked("no memory for its next block"); SDL_UnlockMutex(g_lock); d->held = 1; return 0; }
     g_buf.hi = at + take;
     g_buf.got_any = 1;
@@ -402,9 +451,18 @@ static int dl_thread(void *arg)
         }
         if (route != g_buf.route || g_buf.stopped) { if (route == g_buf.route) g_buf.running = 0; SDL_UnlockMutex(g_lock); break; }
         Dl d = { route, g_buf.gen, g_buf.hi, 0, 0, 0, 0 };
+        g_buf.hungry_at = 0; g_buf.win_at = 0;
         char *url = strdup(g_buf.url), *headers = g_buf.headers ? strdup(g_buf.headers) : NULL;
         SDL_UnlockMutex(g_lock);
         if (!host[0]) host_of(url, host, sizeof host);
+        SDL_LockMutex(g_lock);
+        int slow_now = g_buf.slow && !g_buf.handoff_for_slow && g_buf.n_alt;
+        if (slow_now) g_buf.handoff_for_slow = 1;
+        SDL_UnlockMutex(g_lock);
+        if (slow_now) {   /* too slow: the same file from another link, from this very byte */
+            LOGI("relay: %s is too slow; trying an identical copy", host);
+            if (handoff(route, host, sizeof host)) { SDL_LockMutex(g_lock); g_buf.slow = 0; g_buf.slow_since = 0; g_buf.in_rate = 0; SDL_UnlockMutex(g_lock); free(url); free(headers); continue; }
+        }
         char range[32];
         snprintf(range, sizeof range, "%llu-", (unsigned long long)d.from);
         HttpStream cb = { dl_head, dl_data, &d };
@@ -488,6 +546,7 @@ static int buffered_serve(int fd, const char *token, const char *range, int rang
 {
     SDL_LockMutex(g_lock);
     if (!g_buf.token[0] || strcmp(token, g_buf.token) || g_buf.stopped) { SDL_UnlockMutex(g_lock); return 0; }
+    if (!g_buf.asked_at) g_buf.asked_at = SDL_GetTicks();
     dl_start_locked();
     for (int i = 0; i < 150 && !g_buf.size && !g_buf.stopped && !strcmp(token, g_buf.token); i++) SDL_CondWaitTimeout(g_buf.cond, g_lock, 100);   /* the source's size, from the download's first answer */
     if (!g_buf.size || g_buf.stopped || strcmp(token, g_buf.token)) { SDL_UnlockMutex(g_lock); return 0; }
@@ -728,6 +787,7 @@ static void buf_drop_locked(void)
     free_blocks_locked();
     g_buf.size = g_buf.lo = g_buf.hi = g_buf.pos = 0; g_buf.budget = g_buf.max_budget = 0; g_buf.rate = 0;
     g_buf.stopped = g_buf.fails = g_buf.running = g_buf.got_any = g_buf.dead = 0;
+    g_buf.asked_at = g_buf.slow_since = g_buf.win_at = g_buf.hungry_at = 0; g_buf.slow = g_buf.handoff_for_slow = 0; g_buf.in_rate = 0; g_buf.win_bytes = g_buf.hungry_bytes = 0;
     memset(g_buf.rd, 0, sizeof g_buf.rd);
     if (g_buf.cond) SDL_CondBroadcast(g_buf.cond);
 }
@@ -795,7 +855,7 @@ int relay_buffer_failing(void)
 {
     if (!g_lock) return 0;
     SDL_LockMutex(g_lock);
-    int failing = g_buf.token[0] && !g_buf.stopped && g_buf.failing;
+    int failing = g_buf.token[0] && !g_buf.stopped && (g_buf.failing || (g_buf.slow && (g_buf.handoff_for_slow || !g_buf.n_alt)));
     SDL_UnlockMutex(g_lock);
     return failing;
 }
@@ -807,6 +867,15 @@ int relay_buffer_source_failed(void)
     int failed = g_buf.dead;
     SDL_UnlockMutex(g_lock);
     return failed;
+}
+
+double relay_buffer_waiting_s(void)
+{
+    if (!g_lock) return -1;
+    SDL_LockMutex(g_lock);
+    double s = g_buf.token[0] && !g_buf.stopped && g_buf.asked_at && !g_buf.got_any && !g_buf.size ? (SDL_GetTicks() - g_buf.asked_at) / 1000.0 : -1;
+    SDL_UnlockMutex(g_lock);
+    return s;
 }
 
 void relay_buffer_close(void)

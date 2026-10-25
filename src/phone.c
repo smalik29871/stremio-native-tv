@@ -373,6 +373,30 @@ static void yt_playlist(YtJob *j)
 }
 
 /* a whole small file (an HLS piece): fetched with the right User-Agent and passed on */
+/* A piece fetched on its own thread, so the next one downloads while the current one is sent */
+typedef struct { char *url, *hdr; uint64_t from; HttpResponse r; SDL_Thread *t; } YtPiece;
+static int yt_piece_main(void *arg)
+{
+    YtPiece *p = arg;
+    HttpOptions o = { .timeout_s = 60, .no_json_accept = 1, .headers = p->hdr };
+    http_request_ex(p->url, &o, &p->r);
+    return 0;
+}
+static YtPiece *yt_piece_start(const char *url, const char *hdr, uint64_t from)
+{
+    YtPiece *p = calloc(1, sizeof *p);
+    p->url = strdup(url); p->hdr = strdup(hdr); p->from = from;
+    p->t = SDL_CreateThread(yt_piece_main, "yt-ahead", p);
+    if (!p->t) { free(p->url); free(p->hdr); free(p); return NULL; }
+    return p;
+}
+static void yt_piece_join(YtPiece *p, HttpResponse *out)
+{
+    SDL_WaitThread(p->t, NULL);
+    *out = p->r;
+    free(p->url); free(p->hdr); free(p);
+}
+
 static void yt_whole(YtJob *j, const char *hdr)
 {
     HttpResponse r;
@@ -407,13 +431,23 @@ static int yt_main(void *arg)
         char *piece_url = malloc(ul);
         uint64_t stop = j->ranged ? last + 1 : total;
         int sent_head = 0;
+        YtPiece *ahead = NULL;   /* the next piece, fetched while this one goes to the player */
         for (uint64_t pos = j->start; pos < stop && piece_url; ) {
             uint64_t end = pos + YT_PIECE - 1 < stop - 1 ? pos + YT_PIECE - 1 : stop - 1;
-            snprintf(piece_url, ul, "%s&range=%llu-%llu", j->url, (unsigned long long)pos, (unsigned long long)end);
             HttpResponse r;
-            HttpOptions o = { .timeout_s = 60, .no_json_accept = 1, .headers = hdr };
-            http_request_ex(piece_url, &o, &r);
+            if (ahead && ahead->from == pos) { yt_piece_join(ahead, &r); ahead = NULL; }
+            else {
+                if (ahead) { HttpResponse drop; yt_piece_join(ahead, &drop); http_response_free(&drop); ahead = NULL; }
+                snprintf(piece_url, ul, "%s&range=%llu-%llu", j->url, (unsigned long long)pos, (unsigned long long)end);
+                HttpOptions o = { .timeout_s = 60, .no_json_accept = 1, .headers = hdr };
+                http_request_ex(piece_url, &o, &r);
+            }
             int ok = (r.status == 200 || r.status == 206) && r.len > 0;
+            if (ok && pos + r.len < stop) {   /* the one after, on its way meanwhile */
+                uint64_t np = pos + r.len, ne = np + YT_PIECE - 1 < stop - 1 ? np + YT_PIECE - 1 : stop - 1;
+                snprintf(piece_url, ul, "%s&range=%llu-%llu", j->url, (unsigned long long)np, (unsigned long long)ne);
+                ahead = yt_piece_start(piece_url, hdr, np);
+            }
             if (!sent_head) {   /* the first piece decides: a refusal is reported, not a cut-off stream */
                 if (!ok) { LOGW("yt proxy: YouTube answered %ld", r.status); respond_text(j->fd, r.status == 403 ? "403 Forbidden" : "502 Bad Gateway", "YouTube refused"); http_response_free(&r); break; }
                 send_all(j->fd, head, strlen(head)); sent_head = 1;
@@ -425,6 +459,7 @@ static int yt_main(void *arg)
             http_response_free(&r);
             if (!ok) break;   /* the player stopped reading, or YouTube refused */
         }
+        if (ahead) { HttpResponse drop; yt_piece_join(ahead, &drop); http_response_free(&drop); }
         free(piece_url);
     }
     close(j->fd);

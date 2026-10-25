@@ -269,7 +269,8 @@ grep -q "player: source 1 did not start through the relay; opening its link dire
 # The buffer ahead: a source plays through the relay with a ring in memory; the player's
 # first bytes and a seek's come out of it; with too little memory free there is no buffer
 # and it still plays.
-run buffer_plays 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 HOME="$(home_with bufplay "$HDRP")"
+run buffer_plays 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_SPEED_SAMPLE_KB=64 HOME="$(home_with bufplay "$HDRP")"
+grep -q "speed: this home carries about [0-9]* Mbit/s" "$OUT/buffer_plays.log" || { echo "the buffered play did not teach the home speed"; grep -E "relay|speed" "$OUT/buffer_plays.log"; exit 1; }
 grep -q "relay: a buffer in memory, up to [0-9]* MB for now" "$OUT/buffer_plays.log" \
   && grep -q "player: source 1 plays through the local relay, loaded ahead" "$OUT/buffer_plays.log" && grep -q "relay: 127.0.0.1 from 0-65535, 206 (from the buffer)" "$OUT/buffer_plays.log" \
   && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_plays.log" && grep -q "relay: buffering 127.0.0.1 ahead" "$OUT/buffer_plays.log" \
@@ -623,8 +624,20 @@ grep -q "player: next source 2 does not answer" "$OUT/fallback_rescue.log" && gr
 run fallback_drain 4000 "right,ok,down,down,play,wait" "$LIGHTER" "$FB" HOME="$(home_with fb2 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DRAIN=1 SNTV_DRAIN_EVERY=1 SNTV_WARM_AFTER=1
 grep -q "player: buffer draining .* switching to source [23] ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
   || { echo "the draining buffer did not move to a working lighter source"; grep -E "player" "$OUT/fallback_drain.log"; exit 1; }
-run fallback_race 2000 "right,ok,down,down,play,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
-grep -q "player: candidate 1/[0-9]* Fake Addon - Example" "$OUT/fallback_race.log" \
+# a seek while the buffer drains: the samples start afresh, so the switch waits for new evidence (not the old samples against the new)
+run drain_after_seek 4000 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,right" "$LIGHTER" "$FB" HOME="$(home_with fb2s "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DRAIN=1 SNTV_DRAIN_EVERY=1 SNTV_WARM_AFTER=1
+jmp=$(grep "the drain samples start afresh" "$OUT/drain_after_seek.log" | head -1 | cut -c1-8); sw=$(grep "switching to source" "$OUT/drain_after_seek.log" | head -1 | cut -c1-8)
+[ -n "$jmp" ] && [ -n "$sw" ] && [ $(( $(date -u -d "$sw" +%s) - $(date -u -d "$jmp" +%s) )) -ge 3 ] || { echo "a seek did not restart the drain samples (jump $jmp, switch $sw)"; grep -E "player" "$OUT/drain_after_seek.log"; exit 1; }
+# a stall the TV reports as a pause (nobody pressed pause): a stall all the same, rescued like one
+run stall_as_pause 1800 "right,ok,down,down,play,wait" "$LIGHTER" "$FB" HOME="$(home_with fb2p "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_PAUSE_STALL=2 SNTV_RESCUE_AFTER=3 SNTV_WARM_AFTER=1
+grep -q "player: the pipeline paused by itself" "$OUT/stall_as_pause.log" && grep -q "player: rescue (The source stopped sending video) -> source 2" "$OUT/stall_as_pause.log" \
+  || { echo "a stall reported as a pause was not rescued"; grep -E "player|video\(null\)" "$OUT/stall_as_pause.log"; exit 1; }
+# the best source answers nothing at all: the next one after a few seconds, not the TV's 40
+run first_byte 1500 "right,ok,down,down,play,wait" SNTV_FAKE_FETCH=1 HOME="$(home_with fbyte "$NO_PREFLIGHT")" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/slowstart/manifest.json,http://127.0.0.1:$PORT/manifest.json" SNTV_NO_RACE=1 SNTV_NO_BUFFER= SNTV_FIRST_BYTE=2
+grep -q "player: source 1 sent nothing in [0-9]*s; the next one" "$OUT/first_byte.log" && grep -q "player: candidate 2/" "$OUT/first_byte.log" \
+  || { echo "a silent source was not given up on quickly"; grep -E "player|relay" "$OUT/first_byte.log"; exit 1; }
+run fallback_race 2000 "right,ok,down,down,play,wait,wait,wait" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/slowstart/manifest.json,http://127.0.0.1:$PORT/manifest.json" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
+grep -q "player: candidate 1/[0-9]* Slow Start Addon - Slow @0s -> .*q=1080" "$OUT/fallback_race.log" \
   || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
 # (P2P off: with the engine built, its copy would play and nothing would be asked again)
 run fallback_reask 5000 "right,ok,down,down,play,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
@@ -746,8 +759,8 @@ BR='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"
 run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,play,wait" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
-# a recording over a paused film, ended with OK: the film is back where it was, still paused
-run break_paused 1100 "right,ok,down,down,play,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:'"$PORT"'/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+4 SNTV_FAKE_START=200
+# a recording over a paused film; when the break ends the film is back where it was, still paused
+run break_paused 1300 "right,ok,down,down,play,wait,ok,wait" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+8 SNTV_FAKE_START=200 SNTV_BREAK_LEN_S=4
 grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && grep -q "player: paused again at 20[0-9]s" "$OUT/break_paused.log" \
   || { echo "the paused film did not come back paused where it was"; grep -E "player|break" "$OUT/break_paused.log"; exit 1; }
 # the screensaver waits while a break counts down (it froze the break, so the film never came back)
@@ -764,9 +777,10 @@ if [ -n "${FAKE_TORRENT_HASH:-}" ]; then
 run p2p_playing 420 "right,ok,down,down,play,wait" HOME="$(home_with p2p1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=1
 grep -q "still no cached copy; staying on P2P" "$OUT/p2p_playing.log" || { echo "P2P did not keep playing without a cached copy"; grep -E "player|p2p" "$OUT/p2p_playing.log"; exit 1; }
 run settings_p2p 400 "left,down,down,down,down,down,ok,down,down,down,down,right,down,down,down,down,down,down" HOME="$(home_with p2pset '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-run p2p_switch 700 "right,ok,down,down,play,wait" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
+# P2P plays well when TorBox has it again: it stays, and goes back to the cached copy at the next seek
+run p2p_switch 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,right" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
 grep -q "candidate 1/.* -> http://127.0.0.1:11490/$FAKE_TORRENT_HASH/0" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
-  && grep -q "TorBox has it again" "$OUT/p2p_switch.log" || { echo "P2P fallback or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
+  && grep -q "staying on P2P while it plays well" "$OUT/p2p_switch.log" && grep -q "TorBox has it again, leaving P2P" "$OUT/p2p_switch.log" || { echo "P2P fallback, the wait or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
 fi
 # progress reaches the account as the app closes mid-film, dated the way stremio-core reads it
 # an account whose addons an old version saved with partial manifests: refetched and saved back whole

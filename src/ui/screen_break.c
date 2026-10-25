@@ -19,6 +19,7 @@ typedef struct {
     char name[48], detail[64]; int kind;
     float elapsed; int len_s;
     int until_media;       /* the break lasts as long as the recording */
+    int forced_len;        /* tests: ends at len_s whatever plays */
     int media_started;
     float closing_at;      /* elapsed when the closing recording started */
     Screen *player; int paused_video, was_paused, took_media, show_video; double resume_pos;
@@ -74,7 +75,7 @@ static void update(Screen *s, float dt)
     } else if (b->stage == 1) {
         if (vi.state == VIDEO_LOADING || vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) b->media_started = 1;
         int stopped = vi.state == VIDEO_ENDED || vi.state == VIDEO_ERROR || vi.state == VIDEO_IDLE;
-        int opening_done = !b->took_media || (b->media_started ? stopped : b->elapsed > 20);   /* never started: give up */
+        int opening_done = b->forced_len || !b->took_media || (b->media_started ? stopped : b->elapsed > 20);   /* never started: give up */
         int time_up = b->until_media || (b->len_s > 0 && b->elapsed >= b->len_s);
         if (time_up && opening_done) {
             if (b->took_media && g_app.break_end && *g_app.break_end) {
@@ -188,6 +189,7 @@ Screen *screen_break_create(const char *name, const char *detail, int kind)
     b->until_media = g_app.break_len_min < 0 && kind != BRK_KIND_HEALTH && kind != BRK_KIND_BEDTIME;
     b->len_s = kind == BRK_KIND_HEALTH ? g_app.break_health_len * 60 : b->until_media ? 0 : g_app.break_len_min * 60;
     if (kind == BRK_KIND_BEDTIME) b->len_s = 0;
+    { const char *e = getenv("SNTV_BREAK_LEN_S"); if (e && *e) { b->len_s = atoi(e); b->until_media = 0; b->forced_len = 1; } }   /* tests: a break this long, whatever plays */
     b->player = find_player();
     VideoInfo vi; video_info(&vi);
     if (b->player) b->resume_pos = player_resume_point(b->player);   /* loading or reconnecting reports 0: the player knows the spot */

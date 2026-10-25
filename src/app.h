@@ -240,6 +240,8 @@ int app_update_installs_here(void);
 enum { TORBOX_FOR_FIREPLACE, TORBOX_FOR_BREAK, TORBOX_FOR_PLAY };
 Screen *screen_torbox_create(int target);
 int  app_link_dead(const char *url);
+void app_home_mbps_note(double mbps);   /* the relay saw the line carry this much */
+double app_home_mbps(void);            /* about what this home's connection carries, 0 unknown */
 
 /* Resolve a stream to a playable URL. Returns malloc'd string or NULL (with reason). */
 char *app_stream_playable_url(const Stream *s, char *reason, size_t reason_len);

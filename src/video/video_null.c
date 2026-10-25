@@ -25,8 +25,44 @@ static double g_played_here;
 
 static int g_muted;
 
+typedef struct { char *url; unsigned gen; } Fetch;
+static unsigned g_fetch_gen; static int g_fetch_pending;
+static SDL_atomic_t g_fetch_done; static int g_fetch_ok; static long g_fetch_status; static unsigned g_fetch_done_gen;
+static int fetch_main(void *arg)
+{
+    Fetch *fx = arg;
+    const char *from = getenv("SNTV_FAKE_FETCH_FROM");   /* a seek: the bytes from there */
+    HttpOptions o = { .range_bytes = 65536, .range_start = from ? strtoull(from, NULL, 10) : 0, .timeout_s = 8, .no_json_accept = 1 };
+    HttpResponse r;
+    http_request_ex(fx->url, &o, &r);
+    int ok = from ? (r.status == 206 && r.has_range && r.range_from == o.range_start && r.len == 65536) : http_looks_like_media(&r);   /* mid-file bytes are no header */
+    LOGI("video(null): fetched %zu bytes, status %ld%s", r.len, r.status, ok ? "" : ": not a video");
+    if (ok && from && getenv("SNTV_FAKE_FETCH_PATTERN")) {   /* the test file's bytes past its header: byte i is (i * 7 + 3) % 251 */
+        size_t bad = r.len;
+        for (size_t i = 0; i < r.len && bad == r.len; i++) if ((unsigned char)r.body[i] != (unsigned char)(((o.range_start + i) * 7 + 3) % 251)) bad = i;
+        if (bad == r.len) LOGI("video(null): the bytes are the file's");
+        else LOGW("video(null): byte %zu differs from the file's", (size_t)o.range_start + bad);
+    }
+    const char *then = ok ? getenv("SNTV_FAKE_FETCH_THEN") : NULL;   /* more reads after it, as a player seeking: "0,262144" */
+    for (const char *t = then; t && *t; t = strchr(t, ',') ? strchr(t, ',') + 1 : NULL) {
+        HttpOptions o2 = { .range_bytes = 65536, .range_start = strtoull(t, NULL, 10), .timeout_s = 8, .no_json_accept = 1 };
+        HttpResponse r2;
+        http_request_ex(fx->url, &o2, &r2);
+        int same = o2.range_start == 0 || getenv("SNTV_FAKE_FETCH_PATTERN") == NULL;
+        for (size_t i = 0; !same && i < r2.len; i++) if ((unsigned char)r2.body[i] != (unsigned char)(((o2.range_start + i) * 7 + 3) % 251)) break; else if (i + 1 == r2.len) same = 1;
+        LOGI("video(null): then %zu bytes from %llu, status %ld%s", r2.len, (unsigned long long)o2.range_start, r2.status, same ? "" : ", not the file's bytes");
+        http_response_free(&r2);
+    }
+    g_fetch_ok = ok; g_fetch_status = r.status; g_fetch_done_gen = fx->gen;
+    http_response_free(&r);
+    SDL_AtomicSet(&g_fetch_done, 1);
+    free(fx->url); free(fx);
+    return 0;
+}
+
 int video_load(const char *url, const char *title, double start)
 {
+    g_fetch_pending = 0;
     g_loads++; g_loaded_at = SDL_GetTicks(); g_played_here = 0; g_muted = 0; g_bad_warned = -1;
     LOGI("video(null): load %s (%s) from %.0fs", url, title ? title : "", start);
     memset(&g, 0, sizeof g);
@@ -44,38 +80,21 @@ int video_load(const char *url, const char *title, double start)
     g_audio_sel = 0; g_text_sel = -1; g_rate = 1.0;
     g.tracks_version = 1;
     /* test hook: SNTV_FAKE_FETCH=1 reads the first 64 KB from the address as a TV's player
-     * would (no headers of its own) and fails the load when that is not a video */
+     * would (no headers of its own, on its own thread, the load pending meanwhile) and
+     * fails the load when that is not a video */
     if (getenv("SNTV_FAKE_FETCH") && !strncmp(url, "http", 4)) {
-        const char *from = getenv("SNTV_FAKE_FETCH_FROM");   /* a seek: the bytes from there */
-        HttpOptions o = { .range_bytes = 65536, .range_start = from ? strtoull(from, NULL, 10) : 0, .timeout_s = 8, .no_json_accept = 1 };
-        HttpResponse r;
-        http_request_ex(url, &o, &r);
-        int ok = from ? (r.status == 206 && r.has_range && r.range_from == o.range_start && r.len == 65536) : http_looks_like_media(&r);   /* mid-file bytes are no header */
-        LOGI("video(null): fetched %zu bytes, status %ld%s", r.len, r.status, ok ? "" : ": not a video");
-        if (ok && from && getenv("SNTV_FAKE_FETCH_PATTERN")) {   /* the test file's bytes past its header: byte i is (i * 7 + 3) % 251 */
-            size_t bad = r.len;
-            for (size_t i = 0; i < r.len && bad == r.len; i++) if ((unsigned char)r.body[i] != (unsigned char)(((o.range_start + i) * 7 + 3) % 251)) bad = i;
-            if (bad == r.len) LOGI("video(null): the bytes are the file's");
-            else LOGW("video(null): byte %zu differs from the file's", (size_t)o.range_start + bad);
-        }
-        if (!ok) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The source refused the request (HTTP %ld)", r.status); }
-        http_response_free(&r);
-        const char *then = ok ? getenv("SNTV_FAKE_FETCH_THEN") : NULL;   /* more reads after it, as a player seeking: "0,262144" */
-        for (const char *t = then; t && *t; t = strchr(t, ',') ? strchr(t, ',') + 1 : NULL) {
-            HttpOptions o2 = { .range_bytes = 65536, .range_start = strtoull(t, NULL, 10), .timeout_s = 8, .no_json_accept = 1 };
-            HttpResponse r2;
-            http_request_ex(url, &o2, &r2);
-            int same = o2.range_start == 0 || getenv("SNTV_FAKE_FETCH_PATTERN") == NULL;
-            for (size_t i = 0; !same && i < r2.len; i++) if ((unsigned char)r2.body[i] != (unsigned char)(((o2.range_start + i) * 7 + 3) % 251)) break; else if (i + 1 == r2.len) same = 1;
-            LOGI("video(null): then %zu bytes from %llu, status %ld%s", r2.len, (unsigned long long)o2.range_start, r2.status, same ? "" : ", not the file's bytes");
-            http_response_free(&r2);
-        }
+        Fetch *fx = calloc(1, sizeof *fx);
+        fx->url = strdup(url); fx->gen = ++g_fetch_gen;
+        SDL_Thread *t = SDL_CreateThread(fetch_main, "fake-fetch", fx);
+        if (t) { SDL_DetachThread(t); g_fetch_pending = 1; }
+        else { free(fx->url); free(fx); }
     }
     return 0;
 }
 
-void video_play(void) { if (g.state == VIDEO_PAUSED || g.state == VIDEO_LOADING) g.state = VIDEO_PLAYING; }
-void video_pause(void) { if (g.state == VIDEO_PLAYING) g.state = VIDEO_PAUSED; }
+static int g_paused_by_user;
+void video_play(void) { g_paused_by_user = 0; if (g.state == VIDEO_PAUSED || g.state == VIDEO_LOADING) g.state = VIDEO_PLAYING; }
+void video_pause(void) { g_paused_by_user = 1; if (g.state == VIDEO_PLAYING) g.state = VIDEO_PAUSED; }
 void video_seek(double s) { g.position = s < 0 ? 0 : s; if (g.duration && g.position > g.duration) g.position = g.duration; }
 void video_stop(void) { g.state = VIDEO_IDLE; }
 void video_set_rate(double r) { g_rate = r; }
@@ -87,7 +106,7 @@ void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 void video_keep_awake(int on) { (void)on; }
 void video_hold_screensaver(int on) { (void)on; }
-int video_paused_on_purpose(void) { return 1; }   /* a pause here is always asked for */
+int video_paused_on_purpose(void) { return g_paused_by_user; }   /* asked for, unless SNTV_FAKE_PAUSE_STALL paused it */
 
 /* No installer here. SNTV_FAKE_INSTALL (tests) walks through the steps a TV shows. */
 static double g_install_at;
@@ -112,6 +131,13 @@ void video_update(void)
     Uint32 now = SDL_GetTicks();
     double dt = (now - g_last) / 1000.0;
     g_last = now;
+    if (g_fetch_pending) {   /* the TV's first read is on its way: nothing plays before it answers */
+        if (!SDL_AtomicGet(&g_fetch_done)) return;
+        SDL_AtomicSet(&g_fetch_done, 0);
+        if (g_fetch_done_gen != g_fetch_gen) return;   /* an older load's answer; this one's is still coming */
+        g_fetch_pending = 0;
+        if (!g_fetch_ok) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The source refused the request (HTTP %ld)", g_fetch_status); return; }
+    }
     /* test hook: SNTV_FAKE_FAIL_LOADS=n fails the first n sources opened */
     const char *fl = getenv("SNTV_FAKE_FAIL_LOADS");
     if (g.state == VIDEO_LOADING && fl && g_loads <= atoi(fl)) { g.state = VIDEO_ERROR; g.position = 0; snprintf(g.error, sizeof g.error, getenv("SNTV_FAKE_FAIL_CODE") ? "Network Error (code %s)" : "The link expired (SNTV_FAKE_FAIL_LOADS)", getenv("SNTV_FAKE_FAIL_CODE")); return; }
@@ -145,6 +171,9 @@ void video_update(void)
         /* SNTV_FAKE_NET_ERROR_AFTER=s: the connection drops after s seconds (as webOS reports it) */
         if (net && g_played_here > atof(net)) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "Network error (code 300)"); LOGI("video(null): the connection dropped (SNTV_FAKE_NET_ERROR_AFTER)"); return; }
         if (dead && g_played_here > atof(dead)) { if (!g.buffering) LOGI("video(null): the source stopped (SNTV_FAKE_DEAD_AFTER)"); g.buffering = 1; return; }
+        /* SNTV_FAKE_PAUSE_STALL=s: after s seconds the pipeline reports itself paused, with no buffering flag (as LG does for some stalls) */
+        const char *pst = getenv("SNTV_FAKE_PAUSE_STALL");
+        if (pst && g_played_here > atof(pst)) { if (g.state == VIDEO_PLAYING) LOGI("video(null): paused by the pipeline (SNTV_FAKE_PAUSE_STALL)"); g.state = VIDEO_PAUSED; return; }
         if (drain && g.duration > 0) {
             double ahead = 20 - g_played_here * 0.5;
             g.buffer_ahead = ahead > 0 ? ahead : 0;

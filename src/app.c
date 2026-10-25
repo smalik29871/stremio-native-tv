@@ -1551,6 +1551,32 @@ static void dead_load(void)
     }
 }
 
+/* What this home's connection carries, learnt from the relay while films play: a
+ * moving figure, kept with when it was last seen. Sources heavier than it sort lower. */
+static double g_home_mbps = -1;
+void app_home_mbps_note(double mbps)
+{
+    if (mbps <= 0.5) return;
+    if (mbps > 2000) mbps = 2000;   /* a local file, or a line faster than any film needs */
+    double old = app_home_mbps();
+    g_home_mbps = old > 0 ? old * 0.7 + mbps * 0.3 : mbps;
+    static double logged;
+    if (fabs(g_home_mbps - logged) > logged * 0.15 + 1) { logged = g_home_mbps; LOGI("speed: this home carries about %.0f Mbit/s (saw %.0f)", g_home_mbps, mbps); }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "mbps", (int)(g_home_mbps * 10) / 10.0);
+    cJSON_AddNumberToObject(o, "at", (double)time(NULL));
+    store_set_json("homeSpeed", o);
+    store_save();
+}
+double app_home_mbps(void)
+{
+    if (g_home_mbps >= 0) return g_home_mbps;
+    const cJSON *o = store_get_json("homeSpeed");
+    const cJSON *m = cJSON_GetObjectItemCaseSensitive(o, "mbps"), *at = cJSON_GetObjectItemCaseSensitive(o, "at");
+    g_home_mbps = cJSON_IsNumber(m) && cJSON_IsNumber(at) && time(NULL) - (time_t)at->valuedouble < 30 * 86400 ? m->valuedouble : 0;   /* a month old says little */
+    return g_home_mbps;
+}
+
 void app_link_failed(const char *url)
 {
     if (!url || strncmp(url, "http", 4) != 0) return;

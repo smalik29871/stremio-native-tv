@@ -577,13 +577,13 @@ class H(BaseHTTPRequestHandler):
             if p.startswith("/stream/"):
                 key = ("only:" if only else "") + p.split("?")[0]
                 P2P_ASKED[key] = P2P_ASKED.get(key, 0) + 1
-                streams = [{"name": "Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\U0001F464 25 \U0001F4BE 155 KB",
+                streams = [{"name": "Torrent Addon\n1080p", "title": "Show.1080p.WEB.x264.mkv\n\U0001F464 25 \U0001F4BE 155 KB",
                             "infoHash": os.environ.get("FAKE_TORRENT_HASH", "0" * 40).upper(), "fileIdx": 0,
                             "sources": ["tracker:udp://127.0.0.1:1/announce", "dht:" + os.environ.get("FAKE_TORRENT_HASH", "")]},
-                           {"name": "[TB download] Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\u23F3 needs a download",
+                           {"name": "[TB download] Torrent Addon\n1080p", "title": "Show.1080p.WEB.x264.mkv\n\u23F3 needs a download",
                             "url": f"{BASE}/video/never_cached.mkv"}]
                 if P2P_ASKED[key] > 1 and not only:
-                    streams.insert(0, {"name": "[TB+] Torrent Addon\n1080p", "title": "Show.S02E03.1080p.WEB.x264.mkv\n\u26A1 cached",
+                    streams.insert(0, {"name": "[TB+] Torrent Addon\n1080p", "title": "Show.1080p.WEB.x264.mkv\n\u26A1 cached",
                                        "url": f"{BASE}/video/sample_h264_aac.mkv"})
                 return self.send(200, json.dumps({"streams": streams}).encode())
         disc = p.startswith("/tbdisc/")   # the same, its series torrent a disc rip
@@ -619,6 +619,16 @@ class H(BaseHTTPRequestHandler):
                 first = STREAMS["streams"][0]
                 return self.send(200, json.dumps({"streams": [{"name": "Lighter\n2160p", "title": "Movie.2024.2160p.WEB-DL", "url": first["url"] + "?q=2160"},
                                                               {"name": "Lighter\n480p", "title": "Movie.2024.480p.WEB-DL", "url": first["url"] + "?q=480"}]}).encode())
+            return self.send(404, b"{}")
+        if p.startswith("/slowstart/"):   # the best copy answers nothing for a long while (a debrid link resolving), the other at once
+            p = p[10:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.slowstart", name="Slow Start Addon",
+                                                      resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                first = STREAMS["streams"][0]
+                return self.send(200, json.dumps({"streams": [{"name": "Slow\n2160p", "title": "Movie.2024.2160p.WEB-DL", "url": first["url"] + "?wait=40&q=2160"},
+                                                              {"name": "Slow\n1080p", "title": "Movie.2024.1080p.WEB-DL", "url": first["url"] + "?q=1080"}]}).encode())
             return self.send(404, b"{}")
         if p.startswith("/many/"):   # a debrid-sized answer: more playable copies than the player is handed
             p = p[5:]
@@ -851,6 +861,9 @@ class H(BaseHTTPRequestHandler):
                 pass
             return
         if p.startswith("/video/"):
+            if "?wait=" in p:   # nothing, not even headers, for this long (a link that takes its time)
+                import time
+                time.sleep(float(p.split("?wait=")[1].split("&")[0]))
             drop = int(p.split("?drop=")[1]) if "?drop=" in p else 0   # the server cuts a download from 0 after this many bytes
             stall = int(p.split("?stall=")[1]) if "?stall=" in p else 0   # or goes quiet there, the connection left open
             die = int(p.split("?die=")[1]) if "?die=" in p else 0   # or closes there and refuses the rest
@@ -858,7 +871,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(503, b"")
             drop = drop or stall or die
             mirror, other = "?mirror=1" in p, "?other=1" in p   # the same file elsewhere; the same size, other bytes
-            name = os.path.basename(re.split(r"\?(torbox|drop|stall|die|mirror|other)=", p)[0])   # TorBox links carry their id
+            name = os.path.basename(p.split("?")[0])   # whatever the link carries after the file (a TorBox id, a quality tag), the file is the same
             path = os.path.join(MEDIA_DIR, name)
             if not os.path.isfile(path):
                 return self.send(404, b"")

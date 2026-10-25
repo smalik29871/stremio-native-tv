@@ -21,5 +21,6 @@ double relay_buffer_ahead(void);   /* seconds of video loaded past what the play
 void relay_buffer_close(void);     /* playback over: the buffer's memory goes */
 void relay_buffer_alternates(const char *const *urls, const char *const *headers, int n);   /* links that may lead to the same file: if the source stops partway, the buffer carries on from one that proves identical */
 int  relay_buffer_failing(void);   /* the source stopped sending partway and no identical copy took over: what is in plays on */
-int  relay_buffer_source_failed(void);   /* the buffered source itself refused or kept failing (not the relay) */
+int  relay_buffer_source_failed(void);
+double relay_buffer_waiting_s(void);   /* seconds since the player first asked while not a byte has come, -1 otherwise */   /* the buffered source itself refused or kept failing (not the relay) */
 #endif

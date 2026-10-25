@@ -218,6 +218,9 @@ struct Player {
     /* stats for nerds (Red) */
     int stats;
     int stalls; float stall_s, stall_since; int was_buffering;
+    float pp_since; int pp_logged;          /* the pipeline paused by itself (LG reports a stall so): since when, 0 none */
+    int drain_relay;                        /* the buffer ahead counted in the last drain sample */
+    PlayCandidate tb_wait; int tb_waiting;  /* TorBox has the file again while P2P plays well: switched at the next seek or stall */
 
     /* skip markers (TheIntroDB / AniSkip) */
     SkipId skip_id;
@@ -2064,9 +2067,24 @@ static void find_more_sources(Player *p)
     streams_lookup(&p->meta, p->video_id, on_more_sources, p);
 }
 
-static void fallback_tick(Player *p, const VideoInfo *vi)
+/* LG reports some stalls as a pause nobody asked for: for the fallback logic that is
+ * buffering while playing, not a pause. (The viewer's pause, a break's and the TV's own
+ * Home all go through video_pause, which marks them on purpose.) */
+static int pipeline_paused(Player *p, const VideoInfo *vi)
+{
+    int pp = vi->state == VIDEO_PAUSED && p->started && !p->viewer_paused && !video_paused_on_purpose() && !p->pause_when_started;
+    if (pp && !p->pp_since) { p->pp_since = g_app.time; p->pp_logged = 0; }
+    if (!pp) p->pp_since = 0;
+    int stall = pp && g_app.time - p->pp_since > 2;   /* a moment of pause around a seek is not one */
+    if (stall && !p->pp_logged) { p->pp_logged = 1; LOGI("player: the pipeline paused by itself at %.0fs: a stall", vi->position); }
+    return stall;
+}
+
+static void fallback_tick(Player *p, const VideoInfo *vi_real)
 {
     if (p->trailer || p->finished) return;
+    VideoInfo fx = *vi_real; const VideoInfo *vi = &fx;
+    if (pipeline_paused(p, vi_real)) { fx.state = VIDEO_PLAYING; fx.buffering = 1; }
     float now = g_app.time;
     int playing = vi->state == VIDEO_PLAYING;
     if (playing && vi->position > 5) p->reask_pos = vi->position;
@@ -2120,6 +2138,8 @@ static void fallback_tick(Player *p, const VideoInfo *vi)
     /* 4. the buffer is draining: a lighter copy before playback stops */
     if (playing && !vi->buffering && vi->buffer_ahead >= 0 && now - p->jumped_at > 8 && now - p->drain_t >= env_s("SNTV_DRAIN_EVERY", 5)) {
         p->drain_t = now;
+        double more0 = p->relay_used ? relay_buffer_ahead() : -1;
+        if ((more0 > 0) != p->drain_relay) { p->drain_n = 0; p->drain_relay = more0 > 0; }   /* the buffer let go (or came): not a drain */
         if (p->drain_n == 6) { memmove(p->drain_at, p->drain_at + 1, 5 * sizeof(float)); memmove(p->drain_v, p->drain_v + 1, 5 * sizeof(float)); p->drain_n = 5; }
         double more = p->relay_used ? relay_buffer_ahead() : -1;   /* with the buffer ahead, the whole of what is ready */
         p->drain_at[p->drain_n] = now; p->drain_v[p->drain_n] = (float)(vi->buffer_ahead + (more > 0 ? more : 0)); p->drain_n++;
@@ -2386,10 +2406,8 @@ static void on_p2p_stats(HttpResponse *r, void *user)
 }
 
 /* Switch to `s` (a cached copy) where the P2P one is now; P2P stays next in line. */
-static void leave_p2p(Player *p, const Stream *s)
+static void leave_p2p_to(Player *p, PlayCandidate c)
 {
-    PlayCandidate c;
-    if (!streams_candidate(&p->meta, s, &c)) return;
     VideoInfo vi;
     video_info(&vi);
     char *old = strdup(p->cands[p->cur].url);
@@ -2417,7 +2435,16 @@ static void on_p2p_recheck(const Stream *items, int n, void *user)
         int tb = !s->url && torbox_hash_cached(s->info_hash);   /* your TorBox finished the torrent */
         if (!tb && (!s->url || strncmp(s->url, "http", 4) || s->tags.cached <= 0 || app_link_dead(s->url))) continue;
         if (want && s->tags.res && s->tags.res < want) continue;
-        leave_p2p(p, s);
+        PlayCandidate c;
+        if (!streams_candidate(&p->meta, s, &c)) continue;
+        VideoInfo vi; video_info(&vi);
+        if (p->started && p->stalls_here == 0 && vi.state == VIDEO_PLAYING && !vi.buffering && !getenv("SNTV_P2P_SWITCH_NOW")) {   /* playing well: no reload now */
+            if (p->tb_waiting) cand_drop(&p->tb_wait);
+            p->tb_wait = c; p->tb_waiting = 1;
+            LOGI("player: TorBox has it again; staying on P2P while it plays well, switching at the next seek or stall");
+            return;
+        }
+        leave_p2p_to(p, c);
         return;
     }
     LOGI("player: still no cached copy; staying on P2P");
@@ -2435,6 +2462,12 @@ static void p2p_tick(Player *p, const VideoInfo *vi, float dt)
         http_request_async_ex("http://127.0.0.1:11490/stats.json", &o, on_p2p_stats, q);
     }
     if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED) return;
+    if (p->tb_waiting && (g_app.time - p->jumped_at < 1 || (vi->buffering && p->stall_since > 0 && g_app.time - p->stall_since > 2) || vi->state == VIDEO_PAUSED)) {
+        PlayCandidate c = p->tb_wait; p->tb_waiting = 0;   /* a seek, a stall or a pause: the moment to go back to the cached copy */
+        leave_p2p_to(p, c);
+        return;
+    }
+    if (p->tb_waiting) return;   /* nothing to ask again for */
     if ((p->p2p_recheck_in -= dt) <= 0 && p->more_state != 1) {   /* not over the Sources panel's own lookup */
         const char *e = getenv("SNTV_P2P_RECHECK");
         p->p2p_recheck_in = e ? (float)atof(e) : 120;
@@ -2545,6 +2578,8 @@ static void update(Screen *s, float dt)
         float waited = g_app.time - p->load_started;
         float limit = env_s("SNTV_START_TIMEOUT", 45);
         if (p2p) limit = p->p2p_peers == 0 ? env_s("SNTV_P2P_NO_PEERS", 25) : p->p2p_info ? env_s("SNTV_P2P_START", 90) : env_s("SNTV_P2P_START", 90) * 2 / 3;
+        double silent = p->relay_used && !p2p ? relay_buffer_waiting_s() : -1;   /* asked for, and not a byte came */
+        if (silent > env_s("SNTV_FIRST_BYTE", 12)) { LOGI("player: source %d sent nothing in %.0fs; the next one", p->cur + 1, silent); waited = limit + 1; }
         if (waited > limit) {
             LOGI("player: source %d did not start in %.0fs%s", p->cur + 1, waited, p2p ? (p->p2p_peers == 0 ? " (P2P, no peers)" : " (P2P, too slow)") : "");
             p->error_handled = 1;
@@ -2632,13 +2667,14 @@ static void update(Screen *s, float dt)
         && (vi.buffer_ahead < 0 || vi.buffer_ahead > 30))   /* never at this video's expense */
         p->next_warmed = streams_prefetch_warm(p->next_video_id, p->cands[p->cur].binge_group);
     next_progress_update(p, dt);
-    if (fabs(vi.position - p->pos_seen) > 3 + dt * 4 || p->seek_commit > 0) { p->jumped_at = g_app.time; p->jump_pos = vi.position; }   /* seeking, or just sought */
+    if (fabs(vi.position - p->pos_seen) > 3 + dt * 4 || p->seek_commit > 0) { if (p->drain_n) LOGI("player: a jump to %.0fs; the drain samples start afresh", vi.position); p->jumped_at = g_app.time; p->jump_pos = vi.position; p->drain_n = 0; p->drain_t = g_app.time; }   /* seeking, or just sought: the drain samples start afresh */
     p->pos_seen = vi.position;
-    int settled = g_app.time - p->jumped_at > 8 && vi.state == VIDEO_PLAYING;
-    if (vi.buffering && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; if (settled) p->stalls_here++; p->stall_since = g_app.time; }
+    int pp = pipeline_paused(p, &vi), stalled = vi.buffering || pp;
+    int settled = g_app.time - p->jumped_at > 8 && (vi.state == VIDEO_PLAYING || pp);
+    if (stalled && !p->was_buffering && vi.state != VIDEO_LOADING) { p->stalls++; if (settled) p->stalls_here++; p->stall_since = g_app.time; }
     /* it keeps stopping to buffer: offer the best source below this one's resolution, once */
     if (!p->lighter_offered && !p->trailer && p->n_cands > 1 && vi.state != VIDEO_LOADING
-        && (p->stalls_here >= 3 || (settled && vi.buffering && p->stall_since > 0 && g_app.time - p->stall_since > 10))) {
+        && (p->stalls_here >= 3 || (settled && stalled && p->stall_since > 0 && g_app.time - p->stall_since > 10))) {
         int cur = p->cands[p->cur].res ? p->cands[p->cur].res : 1081, best = -1;
         for (int i = 0; i < p->n_cands; i++)
             if (i != p->cur && p->cands[i].res > 0 && p->cands[i].res < cur && (best < 0 || p->cands[i].res > p->cands[best].res)) best = i;
@@ -2648,8 +2684,8 @@ static void update(Screen *s, float dt)
         if (best >= 0) { LOGI("player: %d stalls; offering source %d (%dp)", p->stalls_here, best + 1, p->cands[best].res); app_redraw(); }
         else LOGI("player: %d stalls; no source below %dp to offer", p->stalls_here, p->cands[p->cur].res);
     }
-    if (!vi.buffering && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
-    p->was_buffering = vi.buffering;
+    if (!stalled && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
+    p->was_buffering = stalled;
     if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
     if (p->up_next_shown && p->next_video_id && ((g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at && !still_watching_due()) || p->next_wanted)
         && vi.state == VIDEO_PLAYING && !p->menu && next_ready(p)) {   /* never under an open menu, and not before it's ready: the credits play on meanwhile */
@@ -5851,6 +5887,7 @@ void player_save_progress_quiet(void)   /* an overlay over the app: saved, but T
 static void destroy(Screen *s)
 {
     Player *p = s->st;
+    if (p->tb_waiting) { cand_drop(&p->tb_wait); p->tb_waiting = 0; }
     if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */
     if (p->bright >= 0) video_set_brightness(-1);   /* the screen's brightness is the system's again */
     if (p->tch_fast) video_set_rate(1.0);   /* closed with a finger still holding it fast */

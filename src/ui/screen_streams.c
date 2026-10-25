@@ -549,6 +549,14 @@ static int cmp_rank(const void *x, const void *y)
     return a->at - b->at;
 }
 
+/* What a link carries: measured on its probe (one cold connection, so it under-reads),
+ * never less than most of what this home's line was seen to carry while films played. */
+static double link_mbps(const Stream *s)
+{
+    double home = app_home_mbps() * 0.8, link = s->measured_mbps;
+    return link > 0 && link >= home ? link : home > 0 ? home : link;
+}
+
 static void sort_items(Streams *st)
 {
     Uint32 t0 = SDL_GetTicks();
@@ -563,10 +571,15 @@ static void sort_items(Streams *st)
         if (s->headers) s->score -= 100;            /* needs headers: the relay sends them, the direct link does not */
         if (rule_broken(s)) s->score -= 2000;                            /* Settings > Sources > Rules */
         if (s->url) s->score -= srchealth_penalty(s->url, s->addon_name);   /* servers that keep failing here, at this hour */
+        if (s->probe_state != 2 && s->video_size && runtime > 0 && app_home_mbps() > 0) {   /* not checked: its size against what this home carries */
+            double fm = s->video_size * 8.0 / (runtime * 60) / 1e6, home = app_home_mbps();
+            if (fm > home * 0.85) s->score -= 400 + (long)((fm / home - 0.85) * 400);
+        }
         if (s->probe_state == 4) s->score -= 3000;                       /* the link does not answer */
         else if (s->probe_state == 2) {
             s->score += 60;                                              /* alive and understood */
-            if (s->measured_mbps > 0 && s->file_mbps > s->measured_mbps * 0.85) s->score -= 400 + (long)((s->file_mbps / s->measured_mbps - 0.85) * 400);
+            double link = link_mbps(s);
+            if (link > 0 && s->file_mbps > link * 0.85) s->score -= 400 + (long)((s->file_mbps / link - 0.85) * 400);
             if (s->probe && s->probe->bit_depth > 8 && s->probe->vcodec == CODEC_AVC) s->score -= 500;   /* 10-bit H.264: no TV decodes it */
         }
     }
@@ -596,6 +609,7 @@ static void sort_items(Streams *st)
 static void play_from(Streams *st, int index);
 static int race_runs_for(const Streams *st);
 static int race_resume(const Streams *st);
+static void race_tick(const Streams *st);
 
 /* Parse one addon's answer into `items`; returns how many were added. */
 static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
@@ -918,6 +932,7 @@ static void update(Screen *s, float dt)
     Streams *st = s->st;
     video_keep_awake(starting(st) || race_runs_for(st));   /* the TV's screensaver must not take the handoff */
     if (st->fetch_state == 2 && !st->fetch_inflight && g_app.time >= st->fetch_next) fetch_ask(st);   /* how far TorBox is */
+    race_tick(st);
     if (race_resume(st) && app_top() != s) return;   /* back on top: the source its race found starts */
     if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
     if (st->check_autoplay || (st->chaining && !st->autoplayed)) {   /* every frame too: the wait can run out with no answer arriving */
@@ -1147,7 +1162,7 @@ static void draw_aperture(Streams *st)
         if (!ok) { char *u = app_stream_playable_url(sm, why, sizeof why); free(u); }   /* the reason it cannot play here */
         const char *gate = ok ? ineligible(st, sm) : NULL;
         const char *note = !ok ? (why[0] ? why : "Cannot play on this TV") : gate && !strcmp(gate, "it is another episode") ? "Another episode" : rule_broken(sm) ? "Against your rules" : sm->probe_state == 4 ? "Link not responding"
-            : sm->probe_state == 2 && sm->measured_mbps > 0 && sm->file_mbps > sm->measured_mbps * 0.85 ? "Heavier than this connection"
+            : sm->probe_state == 2 && link_mbps(sm) > 0 && sm->file_mbps > link_mbps(sm) * 0.85 ? "Heavier than this connection"
             : quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 1) ? warn[0] : sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
         char p2p[48] = "P2P on this TV";
         if (is_p2p(sm) && sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders);
@@ -1413,6 +1428,7 @@ typedef struct {
     int busy, pending, done;
     const Streams *owner;     /* the screen it starts for: only it calls it off, only on top it starts */
     int deferred, deferred_first;   /* answered while something covered that screen: starts when it's back */
+    float first_ok_at; int best_ok; /* the first answer's moment, and the best-placed source that has answered (-1 none): a better one gets a moment to answer too */
     PlayCandidate *c; int n; double start;
     MetaPreview meta; char video_id[160], title[300], next_id[128], next_title[200]; int has_next;
 } Race;
@@ -1478,10 +1494,30 @@ static void on_race(HttpResponse *resp, void *user)
         int slow = !ok && timed_out(resp);   /* no answer in the race's time: a debrid link still resolving, not a dead one */
         if (slow) LOGI("streams: source %d is slow to answer the race (%s); it keeps its turn", q->idx + 1, resp->error);
         else if (!ok && r->c && q->idx < r->n) { app_link_failed(r->c[q->idx].url); LOGI("streams: source %d did not answer the race%s", q->idx + 1, resp->status == 200 || resp->status == 206 ? " with a video (an error page)" : ""); }   /* the player skips it */
-        if (ok) { r->done = 1; LOGI("streams: source %d answered first (%.2f s)", q->idx + 1, resp->seconds); final_note(r->c[q->idx].url, resp); race_launch(q->idx); }
+        if (ok) {
+            final_note(r->c[q->idx].url, resp);
+            if (r->best_ok < 0 || q->idx < r->best_ok) r->best_ok = q->idx;
+            if (!r->first_ok_at) r->first_ok_at = g_app.time;
+            LOGI("streams: source %d answered (%.2f s)", q->idx + 1, resp->seconds);
+        }
+        /* the best-placed source that answered plays: at once when it is the first in the list,
+         * else after a moment for a better one to answer too (a sharper copy on a slightly slower
+         * server is still the better start), or when no one else is still to answer */
+        if (r->best_ok == 0 || (r->pending == 0 && r->best_ok >= 0)) { r->done = 1; LOGI("streams: source %d starts", r->best_ok + 1); race_launch(r->best_ok); }
         else if (r->pending == 0) { r->done = 1; race_launch(-1); }
     }
     free(q);
+}
+
+static void race_tick(const Streams *st)   /* the moment given to a better-placed source is up */
+{
+    Race *r = &g_race;
+    if (!r->busy || r->done || r->owner != st || r->best_ok < 0) return;
+    const char *e = getenv("SNTV_RACE_GRACE");
+    if (g_app.time - r->first_ok_at < (e && *e ? (float)atof(e) : 0.4f)) return;
+    r->done = 1;
+    LOGI("streams: source %d starts (the better-placed ones did not answer in time)", r->best_ok + 1);
+    race_launch(r->best_ok);
 }
 
 static void play_raced(const Streams *st, PlayCandidate *c, int n, double start, const char *title, int has_next, const char *next_id, const char *next_title, int race)
@@ -1492,6 +1528,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
     if (r->busy) { play_candidates_free(c, n); app_toast("Finding the quickest source\xE2\x80\xA6"); return; }
     memset(r, 0, sizeof *r);
     r->owner = st;
+    r->best_ok = -1;
     r->c = c; r->n = n; r->start = start; r->has_next = has_next;
     meta_preview_copy(&r->meta, &st->meta);
     snprintf(r->video_id, sizeof r->video_id, "%s", st->video_id);
