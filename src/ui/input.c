@@ -48,7 +48,8 @@ KeyAction input_map(const SDL_Event *e)
     case SDLK_DOWN:  return KEY_DOWN;
     case SDLK_LEFT:  return KEY_LEFT;
     case SDLK_RIGHT: return KEY_RIGHT;
-    case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SELECT: case SDLK_SPACE: return KEY_OK;
+    case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SELECT: return KEY_OK;
+    case SDLK_SPACE: return SDL_IsTextInputActive() ? KEY_NONE : KEY_OK;   /* typing (a phone's keyboard sends the key too): a space, not OK */
     case SDLK_ESCAPE: case SDLK_AC_BACK: return KEY_BACK;    /* Tizen "Return" arrives as AC_BACK */
     case SDLK_BACKSPACE: return KEY_BACKSPACE;
     case SDLK_AUDIOPLAY: return KEY_PLAY;
@@ -63,7 +64,7 @@ KeyAction input_map(const SDL_Event *e)
     case SDLK_F2: return KEY_GREEN;
     case SDLK_F4: return KEY_BLUE;
     case SDLK_F5: return KEY_YELLOW;
-    case SDLK_p:  return KEY_PLAY_PAUSE;  /* desktop convenience */
+    case SDLK_p:  return SDL_IsTextInputActive() ? KEY_NONE : KEY_PLAY_PAUSE;  /* desktop convenience; typing: a letter */
     default: return KEY_NONE;
     }
 }

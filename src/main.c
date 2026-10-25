@@ -277,6 +277,13 @@ static void dev_hooks(SDL_Window *win, int frame)
                 drag.x = e.tfinger.x; drag.y = e.tfinger.y; drag.dx = (float)(qx - px) / dw; drag.dy = (float)(qy - py) / dh; drag.left = 8; drag.until = press ? SDL_GetTicks() + 1000 : 0;
                 continue;
             }
+            if (strcmp(tok, "space") == 0) {   /* a phone keyboard's space bar: the key, then the text */
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_SPACE; SDL_PushEvent(&e);
+                e.type = SDL_KEYUP; SDL_PushEvent(&e);
+                memset(&e, 0, sizeof e); e.type = SDL_TEXTINPUT; snprintf(e.text.text, sizeof e.text.text, " "); SDL_PushEvent(&e);
+                continue;
+            }
             if (strncmp(tok, "t:", 2) == 0) {   /* typed text */
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_TEXTINPUT;
@@ -470,6 +477,7 @@ static void touch_event(const SDL_Event *e)
     touch_to_ui(e->tfinger.x, e->tfinger.y, &ux, &uy);
     ui_pan_keys();   /* what it does may move the focus: the lists follow it again */
     Screen *top = app_top();
+    if (top && strcmp(top->name, "player") && island_tap(ux, uy)) { app_redraw(); return; }   /* the resume card, over the screen */
     if (top && ui_hit_find(ux, uy, top, &id)) {
         if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
         if (!top->tap || !top->tap(top, id)) dispatch_key(press);

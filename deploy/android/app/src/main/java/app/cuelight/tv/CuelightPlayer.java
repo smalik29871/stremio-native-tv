@@ -281,9 +281,13 @@ public final class CuelightPlayer {
         });
     }
 
+    private static volatile boolean sFull;   /* the player sideways: the whole screen, no insets */
+    static boolean fullScreen() { return sFull; }
+
     @SuppressWarnings("deprecation")
     static void systemBars(boolean shown) {
         if (sActivity.getResources().getConfiguration().smallestScreenWidthDp >= 600) return;   /* TVs and tablets: full screen throughout, as before */
+        sFull = !shown;
         View decor = sActivity.getWindow().getDecorView();
         if (shown) {
             decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_VISIBLE);
@@ -293,6 +297,7 @@ public final class CuelightPlayer {
                                         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
             sActivity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         }
+        if (Build.VERSION.SDK_INT >= 20) decor.requestApplyInsets();   /* the view's padding again: none in the player */
     }
 
     /* A link the app was opened with (a stremio:// addon, a manifest address), once. */

@@ -14,6 +14,8 @@ void island_progress(const char *text, float frac);
 void island_resume(const MetaPreview *meta, const char *line, int minutes_left);
 /* Blue on a browsing screen: opens the title being offered for resuming. 1 when it did. */
 int  island_key_blue(void);
+/* A finger on the resume card (UI coordinates): opens it, as Blue does. 1 when it did. */
+int  island_tap(float x, float y);
 /* The resume card as a focus stop (Up from the top of Home): 1 when it took the focus. */
 int  island_take_focus(void);
 int  island_has_focus(void);

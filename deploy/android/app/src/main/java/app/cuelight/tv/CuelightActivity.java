@@ -39,6 +39,12 @@ public class CuelightActivity extends SDLActivity {
         if (getResources().getConfiguration().smallestScreenWidthDp < 600 && Build.VERSION.SDK_INT >= 21) {   // a phone keeps its bars: dark, like the app
             getWindow().setStatusBarColor(Color.BLACK);
             getWindow().setNavigationBarColor(Color.BLACK);
+            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.BLACK));   // what shows past the app's view: black, not the theme's
+            if (Build.VERSION.SDK_INT >= 28) {   // the player may use the screen past a camera cutout, as video apps do
+                android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                getWindow().setAttributes(lp);
+            }
             keepBetweenBars();
         }
         CuelightPlayer.offerUrl(getIntent() != null ? getIntent().getDataString() : null);
@@ -46,7 +52,8 @@ public class CuelightActivity extends SDLActivity {
 
     /* Android 15 draws an app under its status and navigation bars (edge to edge): the app's
      * view keeps clear of them by their size, so nothing of it hides behind them. The player
-     * hides the bars, and the view then has the whole screen again. */
+     * hides the bars, and the view then has the whole screen again, a camera cutout included
+     * (it kept a strip clear for it, which showed beside the picture). */
     @SuppressWarnings("deprecation")
     private void keepBetweenBars() {
         if (mLayout == null || Build.VERSION.SDK_INT < 20) return;
@@ -59,6 +66,7 @@ public class CuelightActivity extends SDLActivity {
                 l = insets.getSystemWindowInsetLeft(); t = insets.getSystemWindowInsetTop();
                 r = insets.getSystemWindowInsetRight(); b = insets.getSystemWindowInsetBottom();
             }
+            if (CuelightPlayer.fullScreen()) l = t = r = b = 0;
             if (v.getPaddingLeft() != l || v.getPaddingTop() != t || v.getPaddingRight() != r || v.getPaddingBottom() != b) v.setPadding(l, t, r, b);
             return insets;
         });
