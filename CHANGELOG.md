@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.70
+
+- **TorBox down no longer stops playback**: at most three of the sources standing by come
+  from one service, and once two TorBox sources fail (or TorBox doesn't answer at all) the
+  rest of TorBox's are skipped for your other addons' sources (web scrapers, P2P).
+- **A recommended source that answers slowly keeps its turn**: it was struck off as dead in
+  the start race, so the one below it played instead.
+- **Subtitles fall back**: if the subtitle file picked doesn't load, another one in the same
+  language loads instead, just as a failed video moves to the next source.
+- **Seeking keeps the buffer**: a step back, or the player re-reading the start of the file,
+  no longer throws away minutes already loaded.
+- **Android closes cleanly**: no more "app was closed unexpectedly" on exit.
+- **Blue resumes from anywhere**: the island's resume card opens with Blue on any screen, not
+  only Home.
+- **Backups are Cuelight's**: the file is cuelight-settings.json and now carries your Stremio
+  sign-in too (keep it private). Older backups still restore.
+- **Sharper screensaver**: artwork at full size (up to 1920 px, TMDB's originals), not the
+  smaller copy Home uses.
+- **Living letterbox styles (experimental)**: Glow, One colour or Black. It is marked
+  experimental because it can make playback less smooth on some TVs.
+
 ## 0.10.69
 
 - **Sync with another device** (Settings > Accounts): the TV shows a code; scan it with your
