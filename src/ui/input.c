@@ -16,6 +16,8 @@
 #define WEBOS_SC_EXIT    505
 #define WEBOS_SC_PLAY    450   /* LG's Play arrives as this, with no key symbol (seen on webOS 10.3) */
 
+static int g_typing;   /* a text field is being typed in (input_text): keys that type are letters then */
+
 KeyAction input_map(const SDL_Event *e)
 {
     if (e->type != SDL_KEYDOWN) return KEY_NONE;
@@ -49,7 +51,7 @@ KeyAction input_map(const SDL_Event *e)
     case SDLK_LEFT:  return KEY_LEFT;
     case SDLK_RIGHT: return KEY_RIGHT;
     case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SELECT: return KEY_OK;
-    case SDLK_SPACE: return SDL_IsTextInputActive() ? KEY_NONE : KEY_OK;   /* typing (a phone's keyboard sends the key too): a space, not OK */
+    case SDLK_SPACE: return g_typing ? KEY_NONE : KEY_OK;   /* typing (a phone's keyboard sends the key too): a space, not OK */
     case SDLK_ESCAPE: case SDLK_AC_BACK: return KEY_BACK;    /* Tizen "Return" arrives as AC_BACK */
     case SDLK_BACKSPACE: return KEY_BACKSPACE;
     case SDLK_AUDIOPLAY: return KEY_PLAY;
@@ -64,19 +66,21 @@ KeyAction input_map(const SDL_Event *e)
     case SDLK_F2: return KEY_GREEN;
     case SDLK_F4: return KEY_BLUE;
     case SDLK_F5: return KEY_YELLOW;
-    case SDLK_p:  return SDL_IsTextInputActive() ? KEY_NONE : KEY_PLAY_PAUSE;  /* desktop convenience; typing: a letter */
+    case SDLK_p:  return g_typing ? KEY_NONE : KEY_PLAY_PAUSE;  /* desktop convenience; typing: a letter */
     default: return KEY_NONE;
     }
 }
 
 void input_text_system(int on)
 {
+    g_typing = on;
     SDL_StopTextInput();   /* off first: on again brings it back if it was put away */
     if (on) SDL_StartTextInput();
 }
 
 void input_text(int on)
 {
+    g_typing = on;
 #if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN)
     (void)on;
 #else
