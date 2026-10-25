@@ -134,6 +134,7 @@ struct Player {
     unsigned sub_req;
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
     SubTrack emb; int emb_app, emb_for, emb_num, emb_taken, emb_tried, emb_buffered;   /* the film's own text subtitles, drawn by the app from the buffer (emb_app) instead of the TV */
+    float emb_off_at; int emb_off_n;   /* the TV's drawing turned off again a few times after the takeover: its pipeline applies a selection late */
     int assign_second;        /* the subtitles menu picks for the second slot */
     int subs_col, subs_group, subs_row;   /* the subtitles sheet: column (0 languages, 1 options), language, option */
     char subs_group_name[48];            /* the language focused, so files arriving meanwhile cannot move it */
@@ -673,7 +674,7 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
             for (int i = 0; i < nt; i++)
                 if (lang_same(tr[i].lang, lang)) {
                     select_addon_sub(p, -1);
-                    video_select_track(TRACK_TEXT, tr[i].index);
+                    if (!(p->emb_app && p->emb_for == tr[i].index)) video_select_track(TRACK_TEXT, tr[i].index);   /* the app draws that one: the TV's stays off */
                     p->embedded_text_sel = tr[i].index;
                     return 1;
                 }
@@ -685,7 +686,7 @@ static int pick_subs(Player *p, const char *lang, SubsSource prefer)
             if (unl >= 0 && (strstr(tr[unl].label, "orced") || strstr(tr[unl].label, "ORCED"))) unlabelled = 0;   /* foreign parts only */
             if (unlabelled == 1 && !labelled && lang && (!strcmp(lang, "und") || lang_same(lang, "eng"))) {
                 select_addon_sub(p, -1);
-                video_select_track(TRACK_TEXT, tr[unl].index);
+                if (!(p->emb_app && p->emb_for == tr[unl].index)) video_select_track(TRACK_TEXT, tr[unl].index);
                 p->embedded_text_sel = tr[unl].index;
                 LOGI("player: subtitles: the file's own track (no language given)");
                 return 1;
@@ -1333,6 +1334,7 @@ static void emb_tick(Player *p)
         if (!t->text) { LOGI("player: the film's subtitle track %d is pictures (%s): the TV draws it", k + 1, t->codec); return; }
         if (tr[k].lang[0] && t->lang[0] && !lang_same(tr[k].lang, t->lang)) { LOGI("player: the film's subtitle track %d is %s here, %s in the file: the TV draws it", k + 1, tr[k].lang, t->lang); return; }
         p->emb_app = 1; p->emb_for = p->embedded_text_sel; p->emb_num = t->number; p->emb_taken = 0;
+        p->emb_off_at = g_app.time; p->emb_off_n = 0;
         subs_free(&p->emb);
         video_select_track(TRACK_TEXT, -1);
         LOGI("player: the film's own subtitles (%s, %s) are drawn by the app, read from the buffer", t->lang, t->codec);
@@ -1344,6 +1346,12 @@ static void emb_tick(Player *p)
         VideoTrack tr[MAX_TRACKS];
         int nt = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
         for (int i = 0; i < nt; i++) if (tr[i].selected) { video_select_track(TRACK_TEXT, -1); LOGI("player: the TV's drawing of the film's subtitles turned off again (the app draws them)"); break; }
+    }
+    /* and off again at 1, 3 and 6 s regardless: the TV's pipeline applies the track selection
+     * made at the start after its own time, and that turns its drawing back on (both showed) */
+    if (p->emb_off_n < 3 && g_app.time - p->emb_off_at > (p->emb_off_n == 0 ? 1 : p->emb_off_n == 1 ? 3 : 6)) {
+        p->emb_off_n++;
+        video_select_track(TRACK_TEXT, -1);
     }
     int have = mkvsubs_count(p->emb_num);
     if (have <= p->emb_taken) return;

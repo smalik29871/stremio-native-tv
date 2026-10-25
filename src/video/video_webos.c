@@ -169,6 +169,8 @@ static void media_call_id(const char *method, const char *extra);
  * position -3..4 (0 = default), sync in ms, colours by name, opacities 0..255. */
 static struct { int size, style, position, sync_ms, have, pending; char colour[16]; } g_sub;
 
+static volatile int g_text_off, g_text_off_again;   /* the app draws the film's subtitles: the TV's stay off, also after its pipeline selects the track late */
+
 static void subtitle_style_send(void)
 {
     if (!g_sub.have) return;
@@ -458,6 +460,7 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
             VideoTrack *arr = strcmp(type->valuestring, "audio") == 0 ? g_audio : g_text;
             int n = arr == g_audio ? g_n_audio : g_n_text;
             for (int i = 0; i < n; i++) arr[i].selected = arr[i].index == idx->valueint;
+            if (arr == g_text && g_text_off && idx->valueint >= 0) g_text_off_again = 1;   /* selected after the app turned it off: off again, from the main thread */
             g_info.tracks_version++;
         }
     }
@@ -739,6 +742,7 @@ void video_shutdown(void)
 int video_load(const char *url, const char *title, double start)
 {
     (void)title;
+    g_text_off = 0; g_text_off_again = 0;   /* a new file: the TV draws its subtitles until the app says otherwise */
     if (!g_ready || !g_bus) {
         if (!g_lock) g_lock = SDL_CreateMutex();
         SDL_LockMutex(g_lock);
@@ -1194,6 +1198,7 @@ void video_update(void)
     g_sub.pending = 0;
     SDL_UnlockMutex(g_lock);
     if (restyle) subtitle_style_send();
+    if (g_text_off_again) { g_text_off_again = 0; if (g_text_off) { media_call_id("setSubtitleEnable", "\"enable\":false"); LOGI("video(webos): the pipeline selected a subtitle track after the app turned its drawing off: off again"); } }
     if (loaded) {
         g_autoplayed = 1;
         if (g_muted || g_volume < 100) video_set_muted(g_muted);   /* before the first sound */
@@ -1232,6 +1237,7 @@ void video_select_track(TrackKind kind, int index)
 {
     char extra[96];
     if (kind == TRACK_TEXT) {
+        g_text_off = index < 0;
         snprintf(extra, sizeof extra, "\"enable\":%s", index >= 0 ? "true" : "false");
         media_call_id("setSubtitleEnable", extra);
         if (index < 0) return;

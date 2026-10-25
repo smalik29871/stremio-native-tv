@@ -69,7 +69,7 @@ typedef struct ProbeReq { Streams *owner; unsigned gen; char *url; } ProbeReq;
  * credits start). A Streams screen opened for that episode adopts them and the
  * requests still in flight, so Up Next starts without the usual wait. */
 static struct {
-    char *video_id;
+    char video_id[160];   /* inline, not a pointer: nothing to dangle or to be stepped on (a crash was seen in the compare below) */
     Stream *items; int n;
     int pending, total;
     unsigned generation;
@@ -725,7 +725,6 @@ static void prefetch_clear(void)
 {
     g_pre.generation++;   /* answers still in flight are dropped */
     streams_free(g_pre.items, g_pre.n);
-    free(g_pre.video_id);
     if (g_pre.has_meta) meta_preview_free(&g_pre.meta);
     memset(&g_pre, 0, sizeof g_pre);
     g_pre.generation = g_generation + 1000;
@@ -767,7 +766,7 @@ static void on_prefetch(HttpResponse *r, void *user)
     Pending *p = user;
     if (p->generation != g_pre.generation) { free(p); return; }
     g_pre.pending--;
-    Streams *st = g_live && g_live->from_prefetch && g_live->video_id && g_pre.video_id && strcmp(g_live->video_id, g_pre.video_id) == 0 ? g_live : NULL;
+    Streams *st = g_live && g_live->from_prefetch && g_live->video_id && g_pre.video_id[0] && strcmp(g_live->video_id, g_pre.video_id) == 0 ? g_live : NULL;
     if (st) {   /* the screen for this episode is already open: feed it directly */
         st->pending--;
         if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
@@ -783,9 +782,9 @@ static void on_prefetch(HttpResponse *r, void *user)
 void streams_prefetch(const MetaPreview *meta, const char *video_id)
 {
     if (!video_id || !meta->type) return;
-    if (g_pre.video_id && strcmp(g_pre.video_id, video_id) == 0 && g_app.time - g_pre.started < PREFETCH_FRESH_S && g_pre.addons_version == g_app.addons_version) return;
+    if (g_pre.video_id[0] && strcmp(g_pre.video_id, video_id) == 0 && g_app.time - g_pre.started < PREFETCH_FRESH_S && g_pre.addons_version == g_app.addons_version) return;
     prefetch_clear();
-    g_pre.video_id = strdup(video_id);
+    snprintf(g_pre.video_id, sizeof g_pre.video_id, "%s", video_id);
     meta_preview_copy(&g_pre.meta, meta); g_pre.has_meta = 1;
     g_pre.started = g_app.time;
     g_pre.addons_version = g_app.addons_version;
@@ -797,20 +796,20 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id)
 void streams_prefetch_again(const MetaPreview *meta, const char *video_id)
 {
     if (g_live && g_live->from_prefetch && g_live->video_id && video_id && !strcmp(g_live->video_id, video_id)) return;   /* already taken over */
-    LOGI("streams: asking again for %s, the answers are %.0f min old", video_id, g_pre.video_id ? (g_app.time - g_pre.started) / 60 : 0);
+    LOGI("streams: asking again for %s, the answers are %.0f min old", video_id, g_pre.video_id[0] ? (g_app.time - g_pre.started) / 60 : 0);
     prefetch_clear();
     streams_prefetch(meta, video_id);
 }
 
 float streams_prefetch_age(const char *video_id)
 {
-    if (!video_id || !g_pre.video_id || strcmp(g_pre.video_id, video_id) != 0) return -1;
+    if (!video_id || !g_pre.video_id[0] || strcmp(g_pre.video_id, video_id) != 0) return -1;
     return g_app.time - g_pre.started;
 }
 
 float streams_prefetch_progress(const char *video_id)
 {
-    if (!video_id || !g_pre.video_id || strcmp(g_pre.video_id, video_id) != 0 || g_pre.total <= 0) return -1;
+    if (!video_id || !g_pre.video_id[0] || strcmp(g_pre.video_id, video_id) != 0 || g_pre.total <= 0) return -1;
     if (g_app.time - g_pre.started > PREFETCH_FRESH_S) return -1;
     if (!g_pre.pending && g_pre.checking) return 0.95f;   /* every answer in, its best still being checked */
     return (float)(g_pre.total - g_pre.pending) / (float)g_pre.total;
@@ -847,7 +846,7 @@ int streams_prefetch_warm(const char *video_id, const char *binge_group)
 /* Take over a prefetch for this episode. 1 when there was one. */
 static int adopt_prefetch(Streams *st)
 {
-    if (!g_pre.video_id || strcmp(g_pre.video_id, st->video_id) != 0 || (!g_pre.n && !g_pre.pending)) return 0;   /* nobody was asked: the screen asks itself */
+    if (!g_pre.video_id[0] || strcmp(g_pre.video_id, st->video_id) != 0 || (!g_pre.n && !g_pre.pending)) return 0;   /* nobody was asked: the screen asks itself */
     if (g_pre.addons_version != g_app.addons_version) { prefetch_clear(); return 0; }   /* asked of other addons (or another profile's) */
     if (g_app.time - g_pre.started > PREFETCH_FRESH_S) { prefetch_clear(); return 0; }
     st->items = g_pre.items; st->n = g_pre.n;

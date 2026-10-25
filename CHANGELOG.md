@@ -29,6 +29,13 @@
   can go black with a faint clock, kinder to the panel; the TV may then sleep.
 - **The next prayer on every screensaver**, once breaks are on.
 - **Android keeps the screen on for the screensaver.**
+- **Built-in subtitles no longer show twice**: when the app draws a film's own subtitle track,
+  the TV's drawing of it is turned off again after its pipeline applies the track selection
+  (it did so late at the first start, so both showed until the track was switched by hand),
+  and a selection made for a language preference no longer turns it back on.
+- **A crash opening a title after a search**: the sources prefetched for a title page compared
+  their video id through a pointer that had been stepped on (seen on an LG as a crash in that
+  compare); the id is now kept inline, so nothing there can dangle.
 - **Memory in stages**: as memory gets low, poster prefetch, trailers and seek strips
   pause and the P2P cache halves; when it is tight the saver comes on, effects go light,
   the screensaver falls back to the plain clock and the script sandbox shrinks; each
