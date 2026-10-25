@@ -1828,6 +1828,7 @@ static int tap(Screen *s, int id)
 {
     Streams *st = s->st;
     if (id < -1 || id >= st->n) return 1;
+    if (g_touch_aim && st->focus != id) { st->focus = id; return 1; }   /* a pointer resting on it: the focus only, the recommendation's start goes on */
     if (st->focus != id) { st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; st->focus = id; }
     return 0;
 }

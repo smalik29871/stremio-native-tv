@@ -52,6 +52,25 @@ static void center_line(const char *t, float cx, float y, int size, Color c)
     g_extra += h - font_height(size);
 }
 
+/* What OK and Back do: by a remote, a line naming the keys; by a finger or a mouse, two buttons (1 OK, 2 Back). */
+static void choices(const char *ok, const char *back, float cx, float y)
+{
+    if (!ui_pointer()) {
+        char t[256];
+        if (back) snprintf(t, sizeof t, "OK: %s   \xC2\xB7   Back: %s", ok, back); else snprintf(t, sizeof t, "OK: %s", ok);
+        center_line(t, cx, y, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        return;
+    }
+    char a[64], c[64];
+    snprintf(a, sizeof a, "%c%s", ok[0] >= 'a' && ok[0] <= 'z' ? ok[0] - 32 : ok[0], ok + 1);
+    if (back) snprintf(c, sizeof c, "%c%s", back[0] >= 'a' && back[0] <= 'z' ? back[0] - 32 : back[0], back + 1);
+    float h = 60, w1 = ui_pill_width(a, 0, h), w2 = back ? ui_pill_width(c, 0, h) : 0, gap = back ? 20 : 0;
+    float x = cx - (w1 + gap + w2) / 2, py = y + g_extra - 10;
+    ui_pill(a, 0, ICON_PLAY, x, py, h, PILL_PRIMARY, 1);
+    ui_hit(x, py, w1, h, 1);
+    if (back) { ui_pill(c, 0, ICON_BACK, x + w1 + gap, py, h, PILL_SECONDARY, 0); ui_hit(x + w1 + gap, py, w2, h, 2); }
+}
+
 /* Where to go instead: the Homebrew Channel's own Update, a step to a line */
 static void draw_steps(const Upd *u, float cx, float y)
 {
@@ -105,15 +124,16 @@ static void draw(Screen *s)
     if (!u->started) {
         snprintf(line, sizeof line, "Starting in %d s. Cuelight downloads it, then Android asks you to confirm the install.", (int)u->countdown + 1);
         center_line(line, cx, y, FONT_S, THEME_TEXT_DIM);
-        center_line("OK: update now   \xC2\xB7   Back: not now", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        choices("update now", "not now", cx, y + 70);
     } else if (u->state == 2) {
         center_line(u->status, cx, y, FONT_S, THEME_TEXT_DIM);
-        center_line("Android reopens Cuelight with the new version. Cancelled it?  OK: ask again   \xC2\xB7   Back: close", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        center_line("Android reopens Cuelight with the new version. Cancelled it?", cx, y + 70, FONT_S, THEME_TEXT_DIM);
+        choices("ask again", "close", cx, y + 140);
     } else if (u->state == -1) {
         snprintf(line, sizeof line, "%.200s", u->status);
         center_line(line, cx, y, FONT_S, THEME_DANGER);
         center_line("The APK is also on the release page on GitHub.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
-        center_line("OK: try again   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        choices("try again", "close", cx, y + 130);
     } else {
         ui_spinner(cx, y + 10, 26);
         center_line(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
@@ -126,15 +146,15 @@ static void draw(Screen *s)
     else if (!u->started) {
         snprintf(line, sizeof line, "Starting in %d s. The app closes while it installs; open it again from the Home screen in about half a minute.", (int)u->countdown + 1);
         center_line(line, cx, y, FONT_S, THEME_TEXT_DIM);
-        center_line("OK: update now   \xC2\xB7   Back: not now (it asks again next time)", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        choices("update now", "not now (it asks again next time)", cx, y + 70);
     } else if (u->state == 2) {
         center_line("Installed. If the app is still open, close it and open it again.", cx, y, FONT_S, THEME_TEXT_DIM);
-        center_line("OK: close the app", cx, y + 70, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        choices("close the app", NULL, cx, y + 70);
     } else if (u->state == -1) {
         snprintf(line, sizeof line, "%.200s", u->status);
         center_line(line, cx, y, FONT_S, THEME_DANGER);
         center_line("By hand: the Homebrew Channel (Cuelight > Update), or the release's .ipk in webOS Dev Manager.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
-        center_line("OK: try again   \xC2\xB7   Back: close", cx, y + 130, FONT_S | FONT_B, THEME_TEXT_MUTED);
+        choices("try again", "close", cx, y + 130);
     } else {
         ui_spinner(cx, y + 10, 26);
         center_line(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
@@ -164,6 +184,13 @@ static int key(Screen *s, KeyAction a)
     return 1;   /* while it installs, the keys wait */
 }
 
+static int tap(Screen *s, int id)   /* its two buttons: OK and Back */
+{
+    if (g_touch_aim || (id != 1 && id != 2)) return 1;
+    key(s, id == 1 ? KEY_OK : KEY_BACK);
+    return 1;
+}
+
 static void destroy(Screen *s)
 {
     free(s->st);
@@ -178,6 +205,6 @@ Screen *screen_update_create(int countdown_s)
     u->countdown = e ? (float)atof(e) : (float)countdown_s;
     if (!app_update_installs_here()) { u->by_hand = 1; u->countdown = 1e9f; }   /* refused before: the steps, until OK asks */
     s->name = "update"; s->st = u;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
     return s;
 }

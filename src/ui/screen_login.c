@@ -429,7 +429,7 @@ static int tap(Screen *s, int id)
     Login *l = s->st;
     if (id == HIT_OPEN) { if (!g_touch_aim) { l->focus = F_SUBMIT; if (l->link[0]) SDL_OpenURL(l->link); } return 1; }
     if (l->mode == MODE_PASSWORD && keyboard_tap(&l->kb[l->editing], id)) { l->focus = F_KEYBOARD; return 0; }
-    if (id == F_EMAIL || id == F_PASSWORD) { if (l->mode != MODE_PASSWORD) return 1; l->editing = id; l->focus = F_KEYBOARD; return 1; }
+    if (id == F_EMAIL || id == F_PASSWORD) { if (l->mode != MODE_PASSWORD || g_touch_aim) return 1; l->editing = id; l->focus = F_KEYBOARD; return 1; }
     if (id != F_SUBMIT && id != F_SWITCH && id != F_SKIP) return 1;
     l->focus = id;
     return 0;

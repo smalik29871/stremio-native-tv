@@ -139,6 +139,7 @@ static void draw(Screen *s)
         float bx = SNTV_UI_W - THEME_MARGIN - w1 - w2 - 20;
         ui_pill("Continue now", 1, ICON_PLAY, bx, by0 + 60, 60, PILL_PRIMARY, b->focus == 0);
         ui_pill("Skip breaks today", 0, ICON_PLAY, bx + w1 + 20, by0 + 60, 60, PILL_SECONDARY, b->focus == 1);
+        ui_hit(bx, by0 + 60, w1, 60, 0); ui_hit(bx + w1 + 20, by0 + 60, w2, 60, 1);
         return;
     }
     ui_background(0);
@@ -166,11 +167,21 @@ static void draw(Screen *s)
     float bx = cx - (w1 + w2 + 20) / 2, by = SNTV_UI_H - 190;
     ui_pill("Continue now", 1, ICON_PLAY, bx, by, 64, PILL_PRIMARY, b->focus == 0);
     ui_pill("Skip breaks today", 0, ICON_PLAY, bx + w1 + 20, by, 64, PILL_SECONDARY, b->focus == 1);
+    ui_hit(bx, by, w1, 64, 0); ui_hit(bx + w1 + 20, by, w2, 64, 1);
     /* what comes later today */
     BreakEvent ev[16]; int n = breaks_today(ev, 16), now_m = breaks_minute_now();
     char next[200] = ""; size_t o = 0; int shown = 0;
     for (int i = 0; i < n && shown < 3; i++) if (ev[i].minute > now_m) { o += (size_t)snprintf(next + o, sizeof next - o, "%s%s %d:%02d", shown ? "  \xC2\xB7  " : "Later today:  ", ev[i].name, ev[i].minute / 60, ev[i].minute % 60); shown++; }
     if (next[0]) ui_center_wrapped(next, cx, SNTV_UI_H - (SNTV_PHONE ? 100 : 80), FONT_XS, THEME_TEXT_MUTED, SNTV_UI_W - 80);
+}
+
+static int tap(Screen *s, int id)   /* a button: the focus, and OK does it */
+{
+    Brk *b = s->st;
+    if (id != 0 && id != 1) return 1;
+    b->focus = id;
+    app_redraw();
+    return 0;
 }
 
 static int key(Screen *s, KeyAction a)
@@ -210,6 +221,6 @@ Screen *screen_break_create(const char *name, const char *detail, int kind)
     if (b->until_media && !b->took_media) { b->until_media = 0; b->len_s = 60; }   /* no recording to follow: a minute */
     LOGI("break: %s (%s), %d s", b->name, b->detail, b->len_s);
     s->name = "break"; s->st = b;
-    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
     return s;
 }

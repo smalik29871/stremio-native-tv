@@ -1292,13 +1292,13 @@ static int tap(Screen *sc, int id)
     if (id >= HIT_LIST && id < HIT_LIST + 32) {
         int i = id - HIT_LIST;
         if (s->typing && !s->tvkb) { if (i >= s->n_sugg) return 1; s->sugg_focus = i; return 0; }
+        if (i >= list_n(s) || (g_touch_aim && s->typing)) return 1;   /* a pointer resting on it while typing: the keyboard stays */
         if (s->typing) close_keyboard(s);
-        if (i >= list_n(s)) return 1;
         s->focus_grid = 2; s->recent_focus = i;
         return 0;
     }
     if (id < HIT_FIELD && id >= s->n) return 1;
-    if (g_touch_aim && id >= HIT_FIELD) return 1;
+    if (g_touch_aim && (id >= HIT_FIELD || s->typing)) return 1;
     if (s->typing) { close_keyboard(s); recent_add(s, s->kb.text); }
     s->focus_t = 0;
     if (id == HIT_HERO_CARD) { recent_add(s, s->last_query); app_push(screen_detail_create(&s->results[0])); return 1; }

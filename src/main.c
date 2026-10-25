@@ -485,7 +485,11 @@ static void touch_event(const SDL_Event *e)
     if (v > 14000) v = 14000;
     if (v < -14000) v = -14000;
     static int told;
+#ifdef SNTV_DESKTOP_PLAYER
+    if (!told) { told = 1; app_toast("Click anything to open it  \xC2\xB7  Wheel to scroll  \xC2\xB7  Right-click for options"); }
+#else
     if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
+#endif
     if (g_touch.mode == 1) { ui_pan_release(v); return; }
     if (g_touch.mode == 4) return;   /* a drag over nothing: not a tap either */
     if (g_touch.mode == 2) {   /* a quick flick goes a few steps further */
@@ -535,18 +539,20 @@ static void toggle_fullscreen(void)
 static void window_chrome(void)
 {
     float idle = g_app.time - g_mouse_t;
-    if (idle > 3.0f) return;
+    Screen *on = app_top();
+    if (idle > 3.0f) { if (on && !strcmp(on->name, "player") && SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE) SDL_ShowCursor(SDL_DISABLE); return; }   /* the pointer leaves the film alone */
     float a = idle < 2.5f ? 1.0f : (3.0f - idle) / 0.5f;
     gfx_set_alpha(a);
     ui_pan_bars(g_mouse_x, g_mouse_y);
     Screen *top = app_top();
     int over_back = g_mouse_x < 100 && g_mouse_y < 100, over_full = g_mouse_x > SNTV_UI_W - 96 && g_mouse_y < 96;
-    if (g_app.depth > 1 && top && strcmp(top->name, "intro") != 0) {
+    int in_player = top && !strcmp(top->name, "player");   /* it has its own Back, and a row of buttons at the top right */
+    if (g_app.depth > 1 && top && strcmp(top->name, "intro") != 0 && !in_player) {
         gfx_circle(60, 60, 30, RGBA(0, 0, 0, over_back ? 0xD0 : 0x90));
         ui_icon(ICON_CHEVRON_LEFT, 58, 60, 30, THEME_TEXT);
         ui_hit(28, 28, 64, 64, HIT_WIN_BACK);
     }
-    float fx = SNTV_UI_W - 48, fy = 48, k = 11, l = 8;   /* four corners: out to full screen, in to a window */
+    float fx = in_player ? SNTV_UI_W - 770 : SNTV_UI_W - 48, fy = in_player ? 84 : 48, k = 11, l = 8;   /* four corners: out to full screen, in to a window */
     int fs = (SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
     gfx_circle(fx, fy, 26, RGBA(0, 0, 0, over_full ? 0xD0 : 0x90));
     for (int sx = -1; sx <= 1; sx += 2)
@@ -569,12 +575,16 @@ static void mouse_hover(SDL_Window *win, int x, int y)
     int ww, wh, id;
     SDL_GetWindowSize(win, &ww, &wh);
     Screen *top = app_top();
-    if (ww <= 0 || wh <= 0 || !top || !top->tap || g_touch.down) return;
+    if (ww <= 0 || wh <= 0) return;
     float ux, uy;
     touch_to_ui((float)x / ww, (float)y / wh, &ux, &uy);
-    g_app.last_input = g_app.time;
+    g_app.last_input = g_app.time;   /* the mouse counts as someone there, as a key does */
     if (g_app.time - g_mouse_t > 3.0f) app_redraw();   /* the window's buttons come back */
     g_mouse_x = ux; g_mouse_y = uy; g_mouse_t = g_app.time;
+    if (top && !strcmp(top->name, "ambient") && top->key) { top->key(top, KEY_BACK); return; }   /* the screensaver: the mouse wakes the screen */
+    if (SDL_ShowCursor(SDL_QUERY) == SDL_DISABLE) SDL_ShowCursor(SDL_ENABLE);
+    if (top && !strcmp(top->name, "player")) player_pointer_moved();
+    if (!top || !top->tap || g_touch.down) return;
     int on_pip = ui_hit_find(ux, uy, top, &id) && id >= HIT_PIP && id <= HIT_PIP_CLOSE;
     if (g_app.pip && (on_pip || g_pip_focus)) {   /* the corner player: its buttons show under the pointer */
         int want = !on_pip ? 0 : id == HIT_PIP_CLOSE ? 2 : 1;
@@ -954,7 +964,9 @@ int main(int argc, char **argv)
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
 #ifdef SNTV_DESKTOP_PLAYER
             else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID && !e.motion.state) mouse_hover(win, e.motion.x, e.motion.y);
-            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.clicks == 2 && top && !strcmp(top->name, "player")) toggle_fullscreen();   /* a double click on the film */
+            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT && e.button.clicks == 2 && top && !strcmp(top->name, "player")) toggle_fullscreen();   /* a double click on the film */
+            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_RIGHT) { g_app.last_input = g_app.time; mouse_hover(win, e.button.x, e.button.y); Screen *t = app_top(); if (t && t->key) t->key(t, KEY_LONG_OK); app_redraw(); }   /* a right click: the options of what is under it (nothing where there are none) */
+            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_X1) { g_app.last_input = g_app.time; dispatch_key(KEY_BACK); }   /* the mouse's back button */
             else if (e.type == SDL_MOUSEWHEEL && (e.wheel.y || e.wheel.x) && ui_pan_wheel(g_mouse_x, g_mouse_y, (SDL_GetModState() & KMOD_SHIFT) ? 0 : (float)e.wheel.y, (SDL_GetModState() & KMOD_SHIFT) ? (float)e.wheel.y : (float)-e.wheel.x)) {
                 g_app.last_input = g_app.time; g_mouse_t = g_app.time; app_redraw();   /* the wheel scrolls what is under the pointer */
             }

@@ -49,6 +49,14 @@ enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_SOURCES, MENU_EPISODES };
 enum { SUB_CHOOSE, SUB_TIMING, SUB_SIZE, SUB_STYLE, SUB_POS, SUB_SYNC, SUB_OFF, SUB_TRACKS };
 enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_CAST, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
+/* The touch controls over the picture: a phone or tablet's, and a computer's by the mouse
+ * (it has no remote: play, seek, tracks and sources are buttons there too). */
+#ifdef SNTV_DESKTOP_PLAYER
+#define TOUCH_UI 1
+#else
+#define TOUCH_UI gfx_handheld()
+#endif
+
 static const char *const ASPECT_NAMES[ASPECT_COUNT] = { "Fit", "Fill the screen", "Zoom" };
 static const double RATES[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 };
 enum { N_RATES = 7, RATE_NORMAL = 2 };
@@ -2307,7 +2315,7 @@ static unsigned sub_signature(Player *p, double pos)
  * only takes the TV's time from the keys and the network. */
 static int bare_playback(Player *p, const VideoInfo *vi)
 {
-    return vi->state == VIDEO_PLAYING && !vi->buffering && p->started && p->veil <= 0 && !p->pip && !gfx_handheld()
+    return vi->state == VIDEO_PLAYING && !vi->buffering && p->started && p->veil <= 0 && !p->pip && !TOUCH_UI
         && g_app.time > p->overlay_until + 1 && !p->menu && !p->stats && !p->scenes_open && !p->cast_open && !p->still_asking
         && !p->up_next_shown && p->lighter_to < 0 && p->seek_commit <= 0 && p->seek_flash < g_app.time && p->play_flash < g_app.time
         && p->rest_t <= 0.001f && p->catchup_until <= g_app.time && !subs_tuning(p)
@@ -3204,7 +3212,7 @@ static void draw_menu(Player *p)
     }
     if (p->menu == MENU_AUDIO) {
         char sp[80];
-        const char *how = gfx_handheld() ? "" : "  \xC2\xB7  Left/Right to change";
+        const char *how = TOUCH_UI ? "" : "  \xC2\xB7  Left/Right to change";
         if (p->rate_idx == RATE_NORMAL) snprintf(sp, sizeof sp, "Normal%s", how);
         else snprintf(sp, sizeof sp, "%gx%s", RATES[p->rate_idx], how);
         SECTION("PLAYBACK");
@@ -3457,7 +3465,7 @@ static void draw_bar(Player *p, float x, float y)
         }
     }
     const char *hint = p->bar_focus ? "OK: open  \xC2\xB7  Up: back to the timeline" : "Down: options";
-    if (!gfx_handheld()) font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (d - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
+    if (!TOUCH_UI) font_draw(hint, SNTV_UI_W - THEME_MARGIN - font_measure(hint, FONT_XS), y + (d - font_height(FONT_XS)) / 2, FONT_XS, THEME_TEXT_MUTED);
 }
 
 /* The row of what is playing, so a menu opens on it (Off when no subtitles show). */
@@ -4258,7 +4266,7 @@ static void draw(Screen *s)
     VideoInfo vi;
     video_info(&vi);
     if (SNTV_PHONE && !p->pip) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 255)); app_redraw(); return; }   /* a phone still turning sideways */
-    if (gfx_handheld() && !p->pip) {   /* a phone sideways: its own touch controls over the picture */
+    if (TOUCH_UI && !p->pip) {   /* a phone sideways: its own touch controls over the picture */
         draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
         if (!video_in_pip()) draw_letterbox(p, &vi);
         if (p->veil > 0 && !video_in_pip()) {   /* opening: the loading card, as on a TV, and Back to leave */
@@ -5068,7 +5076,7 @@ static void draw_subs_tuner(Player *p, float e)
         font_draw(v, vr - vw, cy - font_height(FONT_S | FONT_B) / 2, FONT_S | FONT_B, vc);
         if (foc && adj) { ui_icon(ICON_CHEVRON_LEFT, vr - vw - 18, cy, 18, vc); ui_icon(ICON_CHEVRON_RIGHT, vr + 14, cy, 18, vc); }
     }
-    if (!gfx_handheld()) font_draw_fit("Up/Down  setting   \xC2\xB7   Left/Right  change   \xC2\xB7   Back", X + PAD, Y + H - 44, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
+    if (!TOUCH_UI) font_draw_fit("Up/Down  setting   \xC2\xB7   Left/Right  change   \xC2\xB7   Back", X + PAD, Y + H - 44, FONT_XS, THEME_TEXT_MUTED, W - 2 * PAD);
     gfx_set_alpha(1);
     gfx_set_translate(0, 0);
 }
@@ -5203,7 +5211,7 @@ static void draw_subs_panel(Player *p)
     const char *hint = p->subs_col == 0 ? "Up/Down  language   \xC2\xB7   OK  its first choice   \xC2\xB7   Right  all its choices   \xC2\xB7   Back  close"
                                         : p->subs_group == SG_LOOK ? "Left/Right  change   \xC2\xB7   OK  reset or switch   \xC2\xB7   Back  languages"
                                         : "OK  choose   \xC2\xB7   Left  languages   \xC2\xB7   Back  languages";
-    if (!gfx_handheld()) font_draw_fit(hint, cx, SY + SH - 44, FONT_XS, THEME_TEXT_MUTED, SW - 2 * PAD);
+    if (!TOUCH_UI) font_draw_fit(hint, cx, SY + SH - 44, FONT_XS, THEME_TEXT_MUTED, SW - 2 * PAD);
     gfx_set_alpha(1);
     gfx_set_translate(0, 0);
 }
@@ -5756,7 +5764,7 @@ static int key(Screen *s, KeyAction a);
 static int tap(Screen *s, int id)
 {
     Player *p = s->st;
-    if (!gfx_handheld() || p->pip) return 0;
+    if (!TOUCH_UI || p->pip) return 0;
     int r = phone_tap(p, id);
     if (r == -1) { key(s, KEY_BACK); return 1; }
     if (r == -3) { key(s, KEY_OK); return 1; }
@@ -5770,6 +5778,13 @@ static void picture_tap(Player *p, float x)
 {
     VideoInfo vi;
     video_info(&vi);
+#ifdef SNTV_DESKTOP_PLAYER
+    (void)x;   /* a computer: a click on the film plays or pauses (two are full screen); moving the mouse shows the controls */
+    toggle_play(p, &vi);
+    p->fs_until = g_app.time + 3.0f;
+    app_redraw();
+    return;
+#endif
     float l = p->ph_pic[0], w = p->ph_pic[2];
     int side = x < l + w * 0.38f ? -1 : x > l + w * 0.62f ? 1 : 0;
     int again = side && p->ripple_side == side && g_app.time - p->ripple_at < 0.7f;   /* still skipping that way */
@@ -5845,7 +5860,7 @@ static int in_rect(const float *r, float x, float y) { return r[2] > 0 && x >= r
 static int drag(Screen *s, int phase, float x, float y)
 {
     Player *p = s->st;
-    if (!gfx_handheld() || p->pip) return 0;
+    if (!TOUCH_UI || p->pip) return 0;
     VideoInfo vi;
     video_info(&vi);
     double dur = ph_dur(p, &vi);
@@ -5907,7 +5922,7 @@ static int key(Screen *s, KeyAction a)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
-    if (gfx_handheld() && !p->pip && p->ph_sheet) {   /* the open list takes Up, Down, OK and Back */
+    if (TOUCH_UI && !p->pip && p->ph_sheet) {   /* the open list takes Up, Down, OK and Back */
         PhRow r[PH_ROWS];
         int n = ph_rows(p, r);
         app_redraw();
@@ -6301,6 +6316,12 @@ void player_pip_draw(Screen *s, int focused)
     if (!gfx_handheld()) ui_chip(focused ? "Left/Right: choose  \xC2\xB7  OK: select  \xC2\xB7  Up: back" : "Down: select  \xC2\xB7  Play/Pause: full screen", x + 12, y + 12, RGBA(0, 0, 0, 0x90), focused ? THEME_TEXT : THEME_TEXT_DIM);
 #endif
     if (vi.state == VIDEO_PLAYING) app_redraw();
+}
+
+void player_pointer_moved(void)
+{
+    if (!g_live || g_live->pip) return;
+    if (g_live->fs_until < g_app.time + 2.9f) { g_live->fs_until = g_app.time + 3.0f; app_redraw(); }
 }
 
 int player_holds_screen(void)

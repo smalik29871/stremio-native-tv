@@ -76,7 +76,7 @@ static void build(Help *h)
     add(h, "Addons", ADDONS);
     static const char *const REMOTE[] = {
         "Arrows move, OK opens, Back goes back. Hold OK on a title for its options (Library, watched, trailer, sources).",
-        "In the player: OK pauses, Left and Right seek (faster while held). Up opens the sound tracks, Down the subtitles; Left and Right there shift their timing.",
+        "In the player: OK pauses, Left and Right seek (faster while held). Down reaches the row of buttons: subtitles (with their timing), sound tracks, speed, sources and episodes.",
         "Red shows the stream's details, Green plays the next episode now, Yellow tries the next source. Blue resumes what you watched last, from anywhere.",
         "Back stops and keeps your place; with picture-in-picture on, the video waits in a corner instead.",
         NULL };
@@ -87,9 +87,9 @@ static void build(Help *h)
         "Up and down on the left of the picture sets the brightness, on the right the volume. Picture-in-picture keeps the video playing over other apps.",
         NULL };
     static const char *const KEYS[] = {
-        "Arrow keys move, Enter opens, Esc goes back. A click opens what it lands on, a drag scrolls, the wheel moves up and down.",
-        "F11 or Alt+Enter: full screen. F3: search. P: play or pause. Hold Enter on a title for its options.",
-        "In the player: Space or Enter pauses, Left and Right seek (faster while held), Up the sound tracks, Down the subtitles.",
+        "The pointer picks what it rests on and a click opens it; a right-click (or holding Enter) shows a title's options. The wheel scrolls what is under the pointer (with Shift, a row).",
+        "The arrow at the top left, Esc or the mouse's back button go back; the corners at the top right (F11, Alt+Enter) switch full screen. Arrow keys and Enter work everywhere too. F3: search, P: play or pause.",
+        "In the player: move the mouse for the controls (subtitles, audio, speed, sources, episodes), click the film to pause, double-click for full screen, drag the bar to seek. Space or Enter pauses and Left and Right seek too.",
         "F1 shows the stream's details, F2 plays the next episode now, F5 tries the next source, F4 resumes what you watched last.",
         NULL };
     add(h, h->dev == DEV_COMPUTER ? "Keyboard and mouse" : h->dev == DEV_PHONE ? "Touch" : "Your remote",
