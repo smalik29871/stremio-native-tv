@@ -763,8 +763,14 @@ grep -q "player: the living letterbox steps aside while the TV draws the film's 
 env SNTV_KILL_SELF_AFTER=6 SNTV_KEYS="wait" SNTV_SCREENSHOT_FRAMES=100000 HOME="$(home_with killed '{"setupDone":1}')" \
   xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" > "$OUT/killed_first.log" 2>&1 || true
 run killed_next 160 "wait,wait" HOME="$OUT/home_killed"
-grep -q "the previous session ended with no crash report: the TV closed it" "$OUT/killed_next.log" && grep -q "previous session, last memory reading: .*memory: app" "$OUT/killed_next.log" \
+grep -q "the previous session ended with no crash report: the system closed it" "$OUT/killed_next.log" && grep -q "previous session, last memory reading: .*memory: app" "$OUT/killed_next.log" \
   && grep -q "previous session, near its end:" "$OUT/killed_next.log" || { echo "an app the TV ended was not reported at the next start"; grep -E "previous|memory" "$OUT/killed_next.log"; exit 1; }
+# ended while in the background (swiped off Android's recents, a TV short of memory): no crash, no notice
+env SNTV_BACKGROUND_AFTER=3 SNTV_KILL_SELF_AFTER=6 SNTV_KEYS="wait" SNTV_SCREENSHOT_FRAMES=100000 HOME="$(home_with killed_away '{"setupDone":1}')" \
+  xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" > "$OUT/killed_away_first.log" 2>&1 || true
+run killed_away_next 160 "wait,wait" HOME="$OUT/home_killed_away"
+grep -q "the previous session was closed by the system while in the background" "$OUT/killed_away_next.log" && ! grep -q "did not exit cleanly" "$OUT/killed_away_next.log" \
+  || { echo "an app ended in the background was taken for a crash"; grep -E "previous|window|background" "$OUT/killed_away_first.log" "$OUT/killed_away_next.log"; exit 1; }
 # ... unless the film plays through the buffer: the app reads its own text subtitle track from
 # the bytes as they come and draws it (the TV's drawing off), and the letterbox stays
 run player_own_subs 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/subsfilm/manifest.json HOME="$(home_with ownsubs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"

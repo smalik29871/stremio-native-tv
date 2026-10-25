@@ -487,6 +487,16 @@ static void touch_event(const SDL_Event *e)
     if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
 }
 static int g_backgrounded;   /* hidden or sent to the background (not just an overlay over us) */
+
+/* The marker a clean exit removes says whether the app was away: a system ends an app it
+ * has in the background without asking (swiped off Android's recents, a TV short of memory),
+ * which is no crash. */
+static char g_alive[1200];
+static void alive_mark(const char *state)
+{
+    FILE *f = g_alive[0] ? fopen(g_alive, "w") : NULL;
+    if (f) { fputs(state, f); fclose(f); }
+}
 static Uint32 g_ok_t0;
 
 /* One key to the top screen, with the corner player's keys first. */
@@ -596,10 +606,10 @@ static void crash_log_install(void)
 /* After an unclean exit: what the last session's log says about how it ended, in this one's
  * Problems (the crash handler's line, or with none, its last memory reading and last lines:
  * a TV ends an app on its own, for memory most often, and nothing can be written then). */
-static void last_session_report(const char *path)
+static int last_session_report(const char *path, int away)
 {
     FILE *f = path ? fopen(path, "rb") : NULL;
-    if (!f) return;
+    if (!f) return 1;
     static char buf[32768];
     fseek(f, 0, SEEK_END);
     long size = ftell(f), from = size > (long)sizeof buf - 1 ? size - (long)sizeof buf + 1 : 0;
@@ -615,11 +625,13 @@ static void last_session_report(const char *path)
         if (*l && (from == 0 || l != buf)) lines[nl++] = l;   /* not a line cut at the start */
     }
     for (int i = nl - 1; i >= 0; i--)
-        if (strstr(lines[i], " E crash: ")) { LOGW("the previous session crashed: %s", strstr(lines[i], "crash: ") + 7); return; }
-    LOGW("the previous session ended with no crash report: the TV closed it (it does when memory runs out or the app stops answering)");
+        if (strstr(lines[i], " E crash: ")) { LOGW("the previous session crashed: %s", strstr(lines[i], "crash: ") + 7); return 1; }
+    if (away) { LOGI("the previous session was closed by the system while in the background"); return 0; }
+    LOGW("the previous session ended with no crash report: the system closed it (it does when memory runs out or the app stops answering)");
     for (int i = nl - 1; i >= 0; i--)
         if (strstr(lines[i], " memory") || strstr(lines[i], "memory: ")) { LOGW("previous session, last memory reading: %s", lines[i]); break; }
     for (int i = nl > 4 ? nl - 4 : 0; i < nl; i++) LOGW("previous session, near its end: %s", lines[i]);
+    return 1;
 }
 
 #ifdef SNTV_PLATFORM_ANDROID
@@ -699,11 +711,21 @@ int main(int argc, char **argv)
     if (g_moved[0]) LOGI("store: %s", g_moved);
     if (in_ram(dir)) LOGW("store: %s is in RAM: sign-in and settings will not survive the TV powering off", dir);
     store_init(dir);
-    /* a marker that only a clean exit removes: present at start = the last session crashed */
-    char alive[1200]; snprintf(alive, sizeof alive, "%s/session.alive", dir);
+    /* a marker that only a clean exit removes: present at start = the last session crashed,
+     * unless it was in the background and its log has no crash */
+    snprintf(g_alive, sizeof g_alive, "%s/session.alive", dir);
     int crashed = 0;
-    { FILE *f = fopen(alive, "r"); if (f) { crashed = 1; fclose(f); } f = fopen(alive, "w"); if (f) fclose(f); }
-    if (crashed) { LOGW("the previous session did not exit cleanly"); last_session_report(log_previous_path()); }
+    {
+        char was[16] = "";
+        FILE *f = fopen(g_alive, "r");
+        if (f) { crashed = 1; if (!fgets(was, sizeof was, f)) was[0] = 0; fclose(f); }
+        alive_mark("");
+        if (crashed) {
+            int away = !strncmp(was, "background", 10);
+            if (!away) LOGW("the previous session did not exit cleanly");
+            crashed = last_session_report(log_previous_path(), away);
+        }
+    }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -866,8 +888,9 @@ int main(int argc, char **argv)
                 app_library_flush(1);
                 store_save();
                 store_flush();
+                alive_mark("background");
             } else if (e.type == SDL_WINDOWEVENT && (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED || e.window.event == SDL_WINDOWEVENT_SHOWN || e.window.event == SDL_WINDOWEVENT_RESTORED)) {
-                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; g_app.foregrounds++; app_library_foreground(); app_update_foreground(); mem_background(0); }
+                if (g_backgrounded) { LOGI("window: back on screen"); video_app_foreground(); g_backgrounded = 0; alive_mark(""); g_app.foregrounds++; app_library_foreground(); app_update_foreground(); mem_background(0); }
                 app_redraw();
             } else if (e.type == SDL_APP_LOWMEMORY) {
                 relay_buffer_close();   /* the first thing to give back: the source plays on directly */
@@ -881,10 +904,12 @@ int main(int argc, char **argv)
                 app_library_flush(1);
                 store_save();
                 store_flush();   /* on flash before webOS may end us */
+                alive_mark("background");
             } else if (e.type == SDL_APP_DIDENTERFOREGROUND) {
                 video_app_foreground();
                 if (g_backgrounded) { g_app.foregrounds++; app_update_foreground(); app_library_foreground(); }   /* whichever of these events comes first */
                 g_backgrounded = 0;
+                alive_mark("");
                 mem_background(0);
                 app_redraw();
             }
@@ -929,6 +954,8 @@ int main(int argc, char **argv)
         mem_tick(dt);
         { static float kill_at = -2; if (kill_at == -2) { const char *k = getenv("SNTV_KILL_SELF_AFTER"); kill_at = k ? (float)atof(k) : -1; }   /* tests: the TV ending the app */
           if (kill_at >= 0 && g_app.time > kill_at) kill(getpid(), SIGKILL); }
+        { static float away_at = -2; if (away_at == -2) { const char *k = getenv("SNTV_BACKGROUND_AFTER"); away_at = k ? (float)atof(k) : -1; }   /* tests: sent to the background (Home, recents) */
+          if (away_at >= 0 && g_app.time > away_at) { SDL_Event ev = { .type = SDL_APP_WILLENTERBACKGROUND }; SDL_PushEvent(&ev); away_at = -1; } }
         app_update_check(dt);
         app_open_links();
         { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }
@@ -987,7 +1014,7 @@ int main(int argc, char **argv)
     http_shutdown();   /* waits for the requests that must reach the server (watch progress) */
     store_save();
     store_shutdown();
-    remove(alive);
+    remove(g_alive);
     LOGI("main: closed in %u ms", SDL_GetTicks() - closing);
     log_shutdown();
     _exit(0);
@@ -1001,7 +1028,7 @@ int main(int argc, char **argv)
     gfx_shutdown();
     store_save();
     store_shutdown();
-    remove(alive);
+    remove(g_alive);
     SDL_GL_DeleteContext(ctx);
     SDL_DestroyWindow(win);
     LOGI("main: closed in %u ms", SDL_GetTicks() - closing);
