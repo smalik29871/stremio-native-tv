@@ -687,9 +687,20 @@ static void on_install_manifest(HttpResponse *r, void *user)
     int replace = in->replace, quiet = in->quiet, stale = in->gen != g_account_gen;
     free(in);
     if (stale) { LOGI("addons: an install for the previous account, dropped"); free(url); return; }
-    if (r->status != 200) { if (!quiet) app_toast("Could not fetch addon: %s", r->error[0] ? r->error : "HTTP error"); free(url); return; }
+    const char *h = strstr(url, "://");   /* only the host in the log: the rest can carry the addon's settings and keys */
+    h = h ? h + 3 : url;
+    int hl = (int)strcspn(h, "/?#");
+    if (r->status != 200) {
+        LOGW("addons: %.*s did not install: HTTP %ld%s%s", hl, h, r->status, r->error[0] ? ", " : "", r->error);
+        if (!quiet) { if (r->status > 0) app_toast("Could not add the addon: its server answered %ld", r->status); else app_toast("Could not add the addon: %s", r->error[0] ? r->error : "no answer"); }
+        free(url); return;
+    }
     Addon a;
-    if (addon_new(url, r->body, &a) != 0) { if (!quiet) app_toast("Invalid addon manifest"); free(url); return; }
+    if (addon_new(url, r->body, &a) != 0) {
+        LOGW("addons: %.*s did not install: what it sent is no addon manifest (%zu bytes)", hl, h, r->body ? strlen(r->body) : (size_t)0);
+        if (!quiet) app_toast("Could not add the addon: what its server sent is no addon");
+        free(url); return;
+    }
     for (int i = 0; i < g_app.n_addons; i++)
         if (strcmp(g_app.addons[i].transport_url, url) == 0) { if (!quiet) app_toast("Addon already installed"); addon_free(&a); free(url); return; }
     int at = -1;   /* the same addon set up again (its settings live in the link): it takes the old one's place */
