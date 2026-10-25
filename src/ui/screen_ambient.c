@@ -52,7 +52,6 @@ typedef struct {
     int fv_state;         /* 0 none, 1 asking YouTube, 2 playing, 3 gave up (the drawn fire), 4 ready under another screen */
     float fv_kick;        /* when it was last (re)started */
     int fv_restarts;      /* found stopped and started again; a few and it gives way to the drawn fire */
-    int fv_web; unsigned fv_web_fg;   /* handed to Cuelight YouTube (an LG): back on screen, the screensaver is over */
     int fv_free;          /* playing the free fireplace videos (none set, or the one set would not play) */
     char fv_urls[YT_PLAY_URLS][4608]; int fv_n, fv_i;
     int depth_logged;     /* Depth: the item last logged (+1) */
@@ -147,11 +146,6 @@ static void on_fv(const char *answer, const char *error, void *user)
     youtube_video_id(store_get_str("fireplaceVideo", ""), id);
     a->fv_n = answer ? youtube_player_urls(answer, id, a->fv_urls, YT_PLAY_URLS) : 0;
     if (!a->fv_n && video_youtube_embed_url(id, a->fv_urls[0], sizeof a->fv_urls[0])) { LOGW("ambient: YouTube refused the fireplace video (%s); its own player plays it", error ? error : "?"); a->fv_n = 1; }
-    if (!a->fv_n && video_youtube_web(id, 0, "loop", app_ytweb_flags())) {
-        a->fv_state = 3; a->fv_web = 1; a->fv_web_fg = g_app.foregrounds;
-        LOGI("ambient: YouTube refused the fireplace video (%s); Cuelight YouTube plays it", error ? error : "?");
-        return;
-    }
     if (!a->fv_n) {
         a->fv_state = 3; LOGW("ambient: fireplace video unavailable: %s", error ? error : "?");
         store_set_str("fireplaceRefused", store_get_str("fireplaceVideo", "")); store_save();   /* Settings says so on the row */
@@ -710,16 +704,6 @@ static unsigned art_get(const char *url, int *w, int *h);
 static void update(Screen *s, float dt)
 {
     Ambient *a = s->st;
-    if (a->fv_web && g_app.foregrounds != a->fv_web_fg) { LOGI("ambient: back from Cuelight YouTube"); app_pop(); return; }   /* a key there ended it */
-    if (a->fv_web) {   /* the TV would not open it: the fireplace without its video, and Settings says why */
-        char why[200];
-        if (video_youtube_web_result(why, sizeof why) < 0) {
-            LOGW("ambient: the TV would not open Cuelight YouTube for the fireplace (%s)", why);
-            store_set_str("fireplaceRefused", store_get_str("fireplaceVideo", "")); store_save();
-            a->fv_web = 0;
-            fv_free_start(a, "the TV would not open Cuelight YouTube");
-        }
-    }
     stage_tick(a);
     if (a->off) { if (g_app.time - a->drawn_at >= 1) app_redraw(); return; }
     if (g_app.time - a->drawn_at >= 1.0f / 30) app_redraw();

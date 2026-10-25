@@ -999,13 +999,6 @@ int main(int argc, char **argv)
           if (away_at >= 0 && g_app.time > away_at) { SDL_Event ev = { .type = SDL_APP_WILLENTERBACKGROUND }; SDL_PushEvent(&ev); away_at = -1; } }
         app_update_check(dt);
         app_open_links();
-        {   /* the TV answered a request to open Cuelight YouTube with a no: say so, and keep why for Settings */
-            static int told; char why[200];
-            int r = video_youtube_web_result(why, sizeof why);
-            if (r < 0 && !told) { told = 1; app_toast("The TV would not open Cuelight YouTube: %s", why); store_set_str("ytwebRefused", why); store_save(); }
-            else if (r > 0 && (told || *store_get_str("ytwebRefused", ""))) { told = 0; store_set_str("ytwebRefused", NULL); store_save(); }
-            else if (r == 0) told = 0;
-        }
         { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */

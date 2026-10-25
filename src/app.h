@@ -234,12 +234,9 @@ void app_link_failed(const char *url);
  * installs only on "Update now" (screen_update_create), or from Settings > About. */
 void app_update_check(float dt);
 void app_update_check_now(void);
-void app_releases_fetch(void);
-int  app_ytweb_flags(void);      /* Cuelight YouTube's: skip sponsor segments (on unless turned off), block adverts (off unless turned on) */   /* the releases list again, without a word (Cuelight YouTube's package is in it) */
 void app_update_foreground(void);   /* back on screen: an opening, so it checks again */
 extern char g_update_version[16];   /* "" or the newer version */
 extern char g_update_url[600], g_update_sha256[80];   /* the package and its checksum */
-extern char g_ytweb_url[600], g_ytweb_sha256[80];     /* Cuelight YouTube's, listed beside it (an LG installs it on first use) */
 Screen *screen_update_create(int countdown_s);
 /* 0 once this TV refused the app the Homebrew Channel installer: updates are done there by hand */
 int app_update_installs_here(void);
@@ -359,8 +356,7 @@ Screen *screen_ambient_create(void);   /* screensaver: drifting backdrops + cloc
 Screen *screen_rate_create(const char *id, const char *type, const char *title, const char *subtitle);
 struct MusicAlbum;
 Screen *screen_soundtrack_create(const struct MusicAlbum *album, const char *of);   /* one album, its tracks, a code to scan */
-Screen *screen_addon_setup_create(const Addon *a);
-Screen *screen_ytweb_install_create(const char *yt_id, const char *mode);   /* installs Cuelight YouTube (an LG), then opens the video */   /* an addon's own settings, set on a phone; its new link takes its place */
+Screen *screen_addon_setup_create(const Addon *a);   /* an addon's own settings, set on a phone; its new link takes its place */
 Screen *screen_profiles_create(void);  /* Who's watching: the saved accounts as profiles */
 int     profiles_at_start(void);       /* signed in, others saved and the picker wanted */
 

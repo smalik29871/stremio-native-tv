@@ -11,8 +11,7 @@
 #   https://github.com/<owner>/<repo>/releases/latest/download/repo.json
 #
 # Usage: bash tools/hb-repo.sh <package.ipk> <out-dir>
-# Writes <out-dir>/webosbrew.manifest.json and <out-dir>/repo.json. Cuelight's YouTube player
-# (tools/webos-youtube.sh, build-webos/youtube/) is listed second and copied beside them.
+# Writes <out-dir>/webosbrew.manifest.json and <out-dir>/repo.json.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,12 +19,11 @@ IPK="${1:?usage: hb-repo.sh <package.ipk> <out-dir>}"
 OUT="${2:?usage: hb-repo.sh <package.ipk> <out-dir>}"
 # The public repository that carries the releases (the source repository can be private).
 REPO="${RELEASES_REPO:-smalik29871/cuelight-releases}"
-YT_IPK="${YT_IPK:-$(ls build-webos/youtube/org.stremio.nativetv.yt_*.ipk 2>/dev/null | head -1)}"
 mkdir -p "$OUT"
 
-python3 - "$IPK" "$OUT" "$REPO" "$YT_IPK" <<'PY'
-import hashlib, json, os, shutil, sys
-ipk, out, repo, yt = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+python3 - "$IPK" "$OUT" "$REPO" <<'PY'
+import hashlib, json, os, sys
+ipk, out, repo = sys.argv[1], sys.argv[2], sys.argv[3]
 app = json.load(open("deploy/webos/appinfo.json"))
 version = app["version"]
 name = os.path.basename(ipk)
@@ -63,30 +61,6 @@ index = {
         "shortDescription": manifest["appDescription"],
     }],
 }
-if yt:   # Cuelight's YouTube player: Cuelight installs it from here the first time YouTube refuses its own
-    ytname = os.path.basename(yt)
-    shutil.copy(yt, os.path.join(out, ytname))
-    shutil.copy("deploy/webos-youtube/largeIcon.png", os.path.join(out, "youtubeIcon.png"))   # its own icon in the channel's list
-    yticon = f"{base}/youtubeIcon.png"
-    ytsha = hashlib.sha256(open(yt, "rb").read()).hexdigest()
-    ytm = {
-        "id": "org.stremio.nativetv.yt",
-        "version": version,
-        "type": "web",
-        "title": "Cuelight YouTube",
-        "appDescription": "Plays in YouTube's own TV client the trailers, fireplace and break videos YouTube refuses to Cuelight. Opened by Cuelight; Back returns to it.",
-        "iconUri": yticon,
-        "sourceUrl": f"https://github.com/{repo}",
-        "rootRequired": False,
-        "ipkUrl": f"{base}/{ytname}",
-        "ipkHash": {"sha256": ytsha},
-        "ipkSize": os.path.getsize(yt),
-    }
-    json.dump(ytm, open(os.path.join(out, "org.stremio.nativetv.yt.manifest.json"), "w"), indent=2)
-    index["packages"].append({"id": ytm["id"], "title": ytm["title"], "iconUri": yticon, "manifestUrl": f"{base}/org.stremio.nativetv.yt.manifest.json",
-                              "manifest": ytm, "pool": "main", "shortDescription": ytm["appDescription"]})
-    index["paging"]["count"] = index["paging"]["itemsTotal"] = len(index["packages"])
-    print(f"hb-repo.sh: and {ytname} sha256={ytsha[:12]}...")
 json.dump(manifest, open(os.path.join(out, "webosbrew.manifest.json"), "w"), indent=2)
 json.dump(index, open(os.path.join(out, "repo.json"), "w"), indent=2)
 print(f"hb-repo.sh: {version} sha256={sha[:12]}... -> {out}/repo.json")

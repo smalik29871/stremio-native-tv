@@ -105,25 +105,9 @@ grep -q "youtube: handed [A-Za-z0-9_-]* to the YouTube app" "$OUT/trailer_youtub
 run trailer_youtube_embed 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_emb "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_EMBED=1
 grep -q "YouTube's own player plays it" "$OUT/trailer_youtube_embed.log" && grep -q "video(null): load youtube-embed:" "$OUT/trailer_youtube_embed.log" \
   || { echo "a refused trailer did not play in YouTube's own player"; grep -E "detail|youtube|video" "$OUT/trailer_youtube_embed.log"; exit 1; }
-# an LG: Cuelight YouTube (YouTube's own TV client, a companion app) plays what YouTube refuses;
-# not installed, it is offered, installed from the releases list and opened on the video
-run ytweb_trailer 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw1 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1
-grep -q "video: Cuelight YouTube opened [A-Za-z0-9_-]* at 0s (play)" "$OUT/ytweb_trailer.log" || { echo "a refused trailer did not open in Cuelight YouTube"; grep -E "detail|youtube|video|ytweb" "$OUT/ytweb_trailer.log"; exit 1; }
 # an addon's trailer id that tries to close the TV's launch request and name another app: never launched
-run ytweb_bad_id 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytwbad "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1 SNTV_FAKE_BROWSER=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/badyt/manifest.json
-! grep -q "video: Cuelight YouTube opened\|video: the YouTube app opened" "$OUT/ytweb_bad_id.log" || { echo "an addon's made-up YouTube id was handed to a launch"; grep -E "youtube|YouTube|video:" "$OUT/ytweb_bad_id.log"; exit 1; }
-run ytweb_offer 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw2 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=0 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo-yt.json
-grep -q "UI check: screen=options" "$OUT/ytweb_offer.log" || { echo "Cuelight YouTube was not offered for a refused trailer"; exit 1; }
-run ytweb_install 700 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytw3 "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=0 SNTV_FAKE_INSTALL=1 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo-yt.json
-grep -q "ytweb: installing Cuelight YouTube" "$OUT/ytweb_install.log" && grep -q "ytweb: installed" "$OUT/ytweb_install.log" && grep -q "video: Cuelight YouTube opened" "$OUT/ytweb_install.log" \
-  || { echo "Cuelight YouTube was not installed and opened"; grep -E "ytweb|youtube|video|UI check" "$OUT/ytweb_install.log"; exit 1; }
-# it skips sponsor segments unless turned off, and leaves adverts out only when asked (Settings > Interface)
-grep -q "video: Cuelight YouTube opened [A-Za-z0-9_-]* at 0s (play), skipping sponsors$" "$OUT/ytweb_trailer.log" || { echo "Cuelight YouTube was not told to skip sponsor segments by default"; grep "Cuelight YouTube" "$OUT/ytweb_trailer.log"; exit 1; }
-run ytweb_flags 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytwfl '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ytSkipSponsors":0,"ytNoAdverts":1}')" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1
-grep -q "video: Cuelight YouTube opened [A-Za-z0-9_-]* at 0s (play), without adverts$" "$OUT/ytweb_flags.log" || { echo "Cuelight YouTube was not given the viewer's advert and sponsor settings"; grep "Cuelight YouTube" "$OUT/ytweb_flags.log"; exit 1; }
-run ytweb_adverts_setting 600 "left,down,down,down,down,down,ok,up,ok,t:block youtube adverts,down,down,down,down,left,ok,ok,wait,wait" HOME="$(home_with ytwad "$ABOUT_HOME")" SNTV_FAKE_YTWEB=1
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get('ytNoAdverts')==1 and d.get('ytSkipSponsors',1)==1 else 1)" "$OUT/home_ytwad/.local/share/stremio/nativetv/settings.json" \
-  || { echo "Block YouTube adverts did not switch on from Settings"; grep -E "settings" "$OUT/ytweb_adverts_setting.log"; exit 1; }
+run ytweb_bad_id 400 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait" HOME="$(home_with ytwbad "$ABOUT_HOME")" SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_BROWSER=1 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/badyt/manifest.json
+! grep -q "video: the YouTube app opened" "$OUT/ytweb_bad_id.log" || { echo "an addon's made-up YouTube id was handed to a launch"; grep -E "youtube|YouTube|video:" "$OUT/ytweb_bad_id.log"; exit 1; }
 run settings_find 420 "left,down,down,down,down,down,ok,up,ok,t:subtitle,down,down,down,down,left,ok"
 grep -q 'settings: "subtitle" matches [2-8]' "$OUT/settings_find.log" || { echo "Find a setting did not list the subtitle settings"; grep settings "$OUT/settings_find.log"; exit 1; }
 run settings_find_one 340 "left,down,down,down,down,down,ok,up,ok,t:oled,down,down,down,down,left,ok,right"
@@ -1231,16 +1215,8 @@ run ambient_fire_embed 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0
 grep -q "video(null): load youtube-embed:dQw4w9WgXcQ (Fireplace)" "$OUT/ambient_fire_embed.log" || { echo "a refused fireplace video did not play in YouTube's own player"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_embed.log"; exit 1; }
 FRH="$(home_with firer '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 run ambient_fire_refused 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 HOME="$FRH"
-run ytweb_fire 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1 HOME="$(home_with ytwf '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
-grep -q "video: Cuelight YouTube opened dQw4w9WgXcQ at 0s (loop)" "$OUT/ytweb_fire.log" || { echo "a refused fireplace video did not open in Cuelight YouTube"; grep -E "ambient|youtube|video" "$OUT/ytweb_fire.log"; exit 1; }
 python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("fireplaceRefused") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ" else 1)' "$FRH/.local/share/stremio/nativetv/settings.json" \
   || { echo "a refused fireplace video was not noted for Settings"; grep -E "ambient|youtube" "$OUT/ambient_fire_refused.log"; exit 1; }
-# a TV that will not let Cuelight open the companion (it answers the launch with a no): said on screen and in
-# Settings, and the fireplace stops waiting for it
-run ytweb_fire_refused 600 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_YTWEB=1 SNTV_FAKE_YTWEB_REFUSE="Permission denied" HOME="$(home_with ytwfr '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
-grep -q "ambient: the TV would not open Cuelight YouTube for the fireplace (Permission denied)" "$OUT/ytweb_fire_refused.log" && grep -q "toast: The TV would not open Cuelight YouTube: Permission denied" "$OUT/ytweb_fire_refused.log" \
-  && python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("ytwebRefused") == "Permission denied" else 1)' "$OUT/home_ytwfr/.local/share/stremio/nativetv/settings.json" \
-  || { echo "a TV refusing to open Cuelight YouTube was not said"; grep -E "ambient|Cuelight YouTube|toast" "$OUT/ytweb_fire_refused.log"; exit 1; }
 # the fireplace's YouTube video already saved on the TV (for a break) plays from there, YouTube refusing or not
 FSH="$(home_with firesv '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 mkdir -p "$FSH/.local/share/stremio/nativetv/sounds" && printf 'saved' > "$FSH/.local/share/stremio/nativetv/sounds/yt-dQw4w9WgXcQ-video.mp4"

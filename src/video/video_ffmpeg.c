@@ -1003,10 +1003,6 @@ int video_open_youtube(const char *id)
     return SDL_OpenURL(u) == 0;
 }
 int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }
-int video_youtube_web_state(void) { return -1; }
-void video_youtube_web_check(void) {}
-int video_youtube_web(const char *id, double start, const char *mode, int flags) { (void)id; (void)start; (void)mode; (void)flags; return 0; }
-int video_youtube_web_result(char *why, size_t n) { if (why && n) *why = 0; return 0; }
 void video_pip_allow(int on) { (void)on; }
 int video_pip_enter(void) { return 0; }
 int video_in_pip(void) { return 0; }

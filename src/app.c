@@ -1418,7 +1418,6 @@ void app_library_dismiss_continue(const MetaPreview *meta)
 
 /* ---- updates ---- */
 char g_update_version[16], g_update_url[600], g_update_sha256[80];
-char g_ytweb_url[600], g_ytweb_sha256[80];
 static int g_update_offered;   /* the question was asked this run (Later means: at the next start) */
 static int g_update_manual;    /* a check the viewer asked for: say the result */
 
@@ -1443,15 +1442,6 @@ static void on_repo(HttpResponse *r, void *user)
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(mf, "version");
     const cJSON *url = cJSON_GetObjectItemCaseSensitive(mf, "ipkUrl");
     const cJSON *sha = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(mf, "ipkHash"), "sha256");
-    const cJSON *pkg;
-    cJSON_ArrayForEach(pkg, pk) {
-        const cJSON *m = cJSON_GetObjectItemCaseSensitive(pkg, "manifest"), *id = cJSON_GetObjectItemCaseSensitive(m, "id");
-        const cJSON *u = cJSON_GetObjectItemCaseSensitive(m, "ipkUrl"), *h = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(m, "ipkHash"), "sha256");
-        if (cJSON_IsString(id) && !strcmp(id->valuestring, SNTV_YTWEB_ID) && cJSON_IsString(u) && cJSON_IsString(h)) {
-            snprintf(g_ytweb_url, sizeof g_ytweb_url, "%s", u->valuestring);
-            snprintf(g_ytweb_sha256, sizeof g_ytweb_sha256, "%s", h->valuestring);
-        }
-    }
     if (cJSON_GetObjectItemCaseSensitive(root, "apkUrl")) {   /* Android's: {"version", "apkUrl", "sha256"} */
         v = cJSON_GetObjectItemCaseSensitive(root, "version");
         url = cJSON_GetObjectItemCaseSensitive(root, "apkUrl");
@@ -1487,12 +1477,6 @@ void app_update_check_now(void)
     http_request_async(repo_url(), NULL, on_repo, NULL);
 }
 
-void app_releases_fetch(void) { http_request_async(repo_url(), NULL, on_repo, NULL); }
-
-int app_ytweb_flags(void)
-{
-    return (store_get_int("ytSkipSponsors", 1) ? YTWEB_SKIP_SPONSORS : 0) | (store_get_int("ytNoAdverts", 0) ? YTWEB_NO_ADVERTS : 0);
-}
 
 /* Somewhere it is fine for the app to close for a minute: nothing playing, no break. */
 static int quiet_moment(void)

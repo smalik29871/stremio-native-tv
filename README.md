@@ -47,11 +47,6 @@ a private repository's release files need a GitHub login that a TV does not have
 Or download the `.ipk` from the [latest release](https://github.com/smalik29871/cuelight-releases/releases/latest)
 and install it with Developer Mode (`ares-install`) or Dev Manager.
 
-**Cuelight YouTube** (optional, LG only) is a small companion listed beside Cuelight in the
-same repository. It opens YouTube's own TV client for the trailers, YouTube sources and
-fireplace video YouTube refuses to Cuelight; Cuelight offers to install it the first time it
-is needed, or install it from Settings > Interface. It does not replace LG's YouTube app.
-
 ## Install on Android
 
 Download the `.apk` from the [latest release](https://github.com/smalik29871/cuelight-releases/releases/latest)
@@ -190,16 +185,9 @@ video:
 - **On Android** the video plays in YouTube's own embedded player
   ([android-youtube-player](https://github.com/PierfrancescoSoffritti/android-youtube-player)),
   inside Cuelight's player screen with the same controls.
-- **On LG** Cuelight opens **Cuelight YouTube**, a small web app that runs YouTube's own TV
-  client (the one LG's YouTube app runs), where YouTube's checks pass and you can sign in.
-  Back returns to Cuelight; the fireplace loops under a clock. Two switches under it in
-  Settings > Interface: **Skip sponsor segments** (on: it jumps over the sponsor reads,
-  self-promotion and subscribe reminders viewers marked in
-  [SponsorBlock](https://sponsor.ajay.app), asking by the first characters of the video's
-  hash, never the video itself) and **Block YouTube adverts** (off: it takes the adverts
-  out of the player's data; YouTube may notice and refuse to play, so turn it off if it
-  does).
-- Where neither is available, Cuelight offers the device's YouTube app.
+- **Elsewhere** (an LG, a computer) Cuelight offers the device's YouTube app where there is one.
+  The fireplace plays the copy saved for breaks, then the free fireplace video, then the
+  drawn fire.
 
 ### Subtitles
 - Addon subtitles (SRT, VTT) drawn by the app with four **styles**, four sizes and three
@@ -304,7 +292,7 @@ plugin engine. See `docs/ROADMAP.md`.
 | Take breaks | Schedules, location, method, lead time, length, sound, stretch, bedtime, custom times |
 | Audio & subtitles | Preferred languages, when subtitles turn on, auto-sync, size, style |
 | Sources | Quality preference, resolution cap, pre-flight check, automatic recommendation |
-| Interface | Theme, Home style, hide watched, effects, page transitions, OLED background, screensaver and its preview, blur, Cuelight YouTube and its sponsor and advert switches (LG), memory use |
+| Interface | Theme, Home style, hide watched, effects, page transitions, OLED background, screensaver and its preview, blur, memory use |
 | Home rows | Order and visibility of rows |
 | Addons | Install from URL, remove, reorder (synced to the account) |
 | Parental | PIN, PIN for Settings, hide adult addons |
@@ -398,12 +386,6 @@ The desktop player (`src/video/video_ffmpeg.c`) also runs on Linux:
 `ar` + tar layout itself, and refuses to package anything that looks like a credential file.
 `TMDB_API_KEY` in the environment bakes a built-in TMDB key into the binary.
 
-### Cuelight YouTube (the LG companion)
-`tools/webos-youtube.sh <out-dir>` packages `deploy/webos-youtube` (a web app: an
-`index.html` that opens YouTube's TV client, and the script webOS loads into its pages)
-at Cuelight's version; `tools/webos.sh --ipk` runs it too. `node tests/webos_youtube_check.js`
-checks the page and the script in a browser engine with YouTube faked (needs Playwright).
-
 ### Android (.apk, Android 7+)
 Android SDK (platform 35, build-tools, NDK 27.2.12479018, CMake 3.22.1), JDK 17+ and
 Gradle 8.9+: `ANDROID_HOME=<sdk> tools/android.sh`. It builds SDL2, curl and Mbed TLS with
@@ -428,8 +410,7 @@ Bump the version in `deploy/webos/appinfo.json`, `deploy/webos/packageinfo.json`
 `CHANGELOG.md`, and push to `main`. CI builds and checks the packages and, because that
 version has no release yet, publishes them to
 [cuelight-releases](https://github.com/smalik29871/cuelight-releases): Cuelight's `.ipk`,
-Cuelight YouTube's `.ipk`, the Android `.apk`, and the Homebrew Channel files listing both
-LG apps. TVs pick it up from the channel; installed apps offer the update themselves.
+the Android `.apk`, the Windows zip, and the Homebrew Channel files. TVs pick it up from the channel; installed apps offer the update themselves.
 
 ## What is verified, and what is not
 
@@ -440,7 +421,6 @@ LG apps. TVs pick it up from the channel; installed apps offer the update themse
 | webOS build | Cross-compiled in CI with the openlgtv toolchain; package checked (ARM, dependencies, glibc 2.7, contents) |
 | webOS on a real TV | Confirmed on an LG QNED: install from the Homebrew Channel, sign-in, browsing, debrid HTTPS playback with the overlay, picture-in-picture |
 | Android | Built in CI with the NDK; in use on phones and Android TV. The embedded YouTube player is not yet confirmed on a device |
-| Cuelight YouTube | The page and its script checked in a browser engine with YouTube faked (`tests/webos_youtube_check.js`); not yet confirmed on a TV |
 | Live `api.strem.io`, Cinemeta, `link.stremio.com`, TMDB, AI providers | Not reachable from the build sandbox; shapes follow stremio-core and the public APIs, exercised against fakes |
 | Tizen native and WebAssembly | Written against the platform APIs; not compiled with Tizen Studio or run on a Samsung TV |
 | Windows | Cross-compiled with MinGW-w64; run under Wine (with Microsoft's shader compiler, as Windows has): Home, playback with the file's subtitles (H.264, and AV1 10-bit by dav1d), settings saved. Not yet run on a Windows PC |
@@ -479,8 +459,8 @@ src/
   ui/screen_*.c        home, explore, library, calendar, detail, streams, player, search,
                        settings, login, welcome, pin, break, ambient, diagnostics
   video/               backend interface; null (desktop), webOS (com.webos.media), Tizen, wasm
-deploy/                webOS appinfo + icons, webos-youtube/ (the companion), android/ (Gradle project), Tizen manifests
-tools/                 linux.sh, webos.sh, webos-youtube.sh, android.sh, check-ipk.sh, package-ipk.sh, hb-repo.sh, tizen-*.sh, thumbs/ (ffmpeg preview server)
+deploy/                webOS appinfo + icons, android/ (Gradle project), Tizen manifests
+tools/                 linux.sh, webos.sh, android.sh, check-ipk.sh, package-ipk.sh, hb-repo.sh, tizen-*.sh, thumbs/ (ffmpeg preview server)
 tests/                 unit tests, fake_addon.py, smoke.sh, fixtures
 docs/                  BREAKS.md (break schedules research), ROADMAP.md, PORTING-NOTES.md, screenshots/
 vendor/                cJSON, qrcodegen, stb_truetype, stb_image, libwebp decoder, QuickJS-ng
@@ -509,7 +489,7 @@ against a changed FFmpeg), QuickJS-ng, cJSON, QR Code generator, android-youtube
 (MIT), libwebp (BSD-3-Clause), stb (public domain), the P2P engine's Go modules (MPL 2.0,
 MIT, BSD), yt-dlp/ejs (Unlicense), the fonts (SIL OFL 1.1), and on Android SDL2 (zlib),
 curl, Mbed TLS and AndroidX Media3 (Apache 2.0). Data comes from TMDB (this product uses
-the TMDB API but is not endorsed or certified by TMDB), SponsorBlock (CC BY-NC-SA 4.0),
+the TMDB API but is not endorsed or certified by TMDB),
 Open-Meteo (CC BY 4.0) and others; the free fireplace video is "Holiday Fireplace" by
 Berkeley Community Media (CC BY-SA 3.0, Internet Archive). Versions, licences, licence texts and every service the
 app talks to are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Prayer times

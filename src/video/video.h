@@ -74,16 +74,6 @@ int  video_open_youtube(const char *id);
 /* YouTube's own player inside the app, where the device has one (Android: a web view): a link
  * video_load plays for this video id (written to out, 1), for when YouTube refuses ours. */
 int  video_youtube_embed_url(const char *id, char *out, size_t n);
-/* Cuelight YouTube (deploy/webos-youtube): YouTube's own TV client in the TV's browser engine, a
- * companion app this one opens for what YouTube refuses to its own player, where there is no web
- * view inside the app (an LG). state: 1 installed, 0 not, -1 not known yet or none here; check asks
- * again (after installing it); open: mode "play", "loop" (the fireplace) or "break", 1 when sent. */
-#define SNTV_YTWEB_ID "org.stremio.nativetv.yt"
-enum { YTWEB_SKIP_SPONSORS = 1, YTWEB_NO_ADVERTS = 2 };   /* flags: what its script does in YouTube's page */
-int  video_youtube_web_state(void);
-void video_youtube_web_check(void);
-int  video_youtube_web(const char *id, double start, const char *mode, int flags);
-int  video_youtube_web_result(char *why, size_t n);   /* the TV's answer to the last opening: 1 opened, -1 refused (why), 0 none yet */
 /* A phone: picture in picture, the video in a small window over other apps. allow: a video
  * is playing, so leaving the app (Home) takes it along; enter: now (1 if it went); in: it is
  * in that small window now (the app then draws no controls). 0 where there is none. */

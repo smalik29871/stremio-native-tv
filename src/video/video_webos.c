@@ -720,7 +720,6 @@ int video_init(SDL_Window *win)
     LOGI("video(webos): %s", video_backend_name());
     g_ready = 1;
     saver_register();
-    video_youtube_web_check();
     return 0;
 }
 
@@ -1254,99 +1253,22 @@ void video_select_track(TrackKind kind, int index)
 void video_landscape_only(int on) { (void)on; }
 int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }   /* only Android is opened with links */   /* TVs and the desktop do not turn */
 int video_open_browser(const char *url) { (void)url; return 0; }   /* no browser to hand a page to: the phone opens it */
-static volatile int g_ytweb_result;   /* the app manager's answer to opening Cuelight YouTube: 1 opened, -1 refused, 0 none yet */
-static char g_ytweb_why[200];
-
-/* The launch is accepted at once and answered later: a refusal (a TV that does not let a homebrew
- * app open another, say) is only known here. ctx set: it was Cuelight YouTube. */
+/* The launch is accepted at once and answered later: a refusal is only known here */
 static int on_launch_reply(LSHandle *sh, LSMessage *msg, void *ctx)
 {
-    (void)sh;
-    const char *what = ctx ? "Cuelight YouTube" : "the YouTube app", *p = L.MessageGetPayload(msg);
+    (void)sh; (void)ctx;
+    const char *what = "the YouTube app", *p = L.MessageGetPayload(msg);
     cJSON *r = cJSON_Parse(p);
     int ok = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "returnValue"));
     const char *why = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(r, "errorText"));
     if (ok) LOGI("video(webos): %s opened", what);
     else LOGW("video(webos): the TV would not open %s: %.150s", what, why ? why : p ? p : "no answer");
-    if (ctx) {
-        if (!ok) snprintf(g_ytweb_why, sizeof g_ytweb_why, "%.150s", why ? why : "no reason given");
-        g_ytweb_result = ok ? 1 : -1;
-    }
     cJSON_Delete(r);
     return 1;
 }
 
-int video_youtube_web_result(char *why, size_t n)
-{
-    int r = g_ytweb_result;
-    if (why && n) snprintf(why, n, "%s", r < 0 ? g_ytweb_why : "");
-    return r;
-}
 int video_has_youtube_app(void) { return g_bus != NULL; }
 
-static volatile int g_ytweb = -1;
-static int on_ytweb_info(LSHandle *sh, LSMessage *msg, void *ctx)
-{
-    (void)sh; (void)ctx;
-    cJSON *r = cJSON_Parse(L.MessageGetPayload(msg));
-    int there = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(r, "returnValue"));
-    cJSON_Delete(r);
-    if (there) g_ytweb = 1;   /* a "no" does not undo its folder being there: the answer may be a refusal */
-    LOGI("video(webos): the app manager says Cuelight YouTube is %sinstalled", there ? "" : "not ");
-    return 1;
-}
-
-/* Its folder beside Cuelight's (the Homebrew Channel installs both in one place): no need of the
- * app manager, which may not answer a homebrew app. 1 there, 0 not, -1 nowhere to look. */
-static int ytweb_on_disk(void)
-{
-    static const char *const ROOTS[] = { "/media/developer/apps/usr/palm/applications", "/media/cryptofs/apps/usr/palm/applications" };
-    char path[1024], *base = SDL_GetBasePath();
-    int looked = 0;
-    if (base) {   /* .../applications/<Cuelight's id>/ */
-        size_t n = strlen(base);
-        while (n && base[n - 1] == '/') base[--n] = 0;
-        char *slash = strrchr(base, '/');
-        if (slash) {
-            *slash = 0;
-            snprintf(path, sizeof path, "%s/" SNTV_YTWEB_ID "/appinfo.json", base);
-            looked = 1;
-            if (access(path, R_OK) == 0) { SDL_free(base); return 1; }
-        }
-        SDL_free(base);
-    }
-    for (size_t i = 0; i < sizeof ROOTS / sizeof *ROOTS; i++) {
-        snprintf(path, sizeof path, "%s/" SNTV_YTWEB_ID "/appinfo.json", ROOTS[i]);
-        if (access(path, R_OK) == 0) return 1;
-        if (access(ROOTS[i], X_OK) == 0) looked = 1;
-    }
-    return looked ? 0 : -1;
-}
-int video_youtube_web_state(void) { return g_ytweb; }
-void video_youtube_web_check(void)
-{
-    int disk = ytweb_on_disk();
-    g_ytweb = disk == 1 ? 1 : 0;   /* known from here on: Settings shows its rows, and an install is offered when it is not there */
-    LOGI("video(webos): Cuelight YouTube is %sinstalled%s", g_ytweb ? "" : "not ", disk < 0 ? " (no folder to look in; asking the app manager)" : "");
-    if (!g_bus) return;
-    LSError e; L.ErrorInit(&e);
-    if (!L.CallOneReply(g_bus, "luna://com.webos.applicationManager/getAppInfo", "{\"id\":\"" SNTV_YTWEB_ID "\"}", on_ytweb_info, NULL, NULL, &e)) ls_error_log("getAppInfo", &e);
-    L.ErrorFree(&e);
-}
-int video_youtube_web(const char *id, double start, const char *mode, int flags)
-{
-    if (!g_bus || g_ytweb != 1 || !youtube_id_valid(id)) return 0;   /* an addon's id goes into the launch: only a real one */
-    char payload[300];
-    snprintf(payload, sizeof payload, "{\"id\":\"" SNTV_YTWEB_ID "\",\"params\":{\"v\":\"%.20s\",\"t\":%d,\"mode\":\"%.8s\",\"skipSponsors\":%d,\"blockAds\":%d}}",
-             id, (int)start, mode ? mode : "play", !!(flags & YTWEB_SKIP_SPONSORS), !!(flags & YTWEB_NO_ADVERTS));
-    LSError e; L.ErrorInit(&e);
-    g_ytweb_result = 0;
-    int ok = L.CallOneReply(g_bus, "luna://com.webos.applicationManager/launch", payload, on_launch_reply, (void *)1, NULL, &e);
-    if (!ok) ls_error_log("launch Cuelight YouTube", &e);
-    L.ErrorFree(&e);
-    if (ok) LOGI("video(webos): asked the TV to open Cuelight YouTube on %s (%s)", id, mode ? mode : "play");
-    return ok;
-}
 int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }   /* a native app has no web view to give it */
 int video_open_youtube(const char *id)
 {

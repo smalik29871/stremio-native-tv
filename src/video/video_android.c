@@ -111,10 +111,6 @@ int video_take_open_url(char *out, size_t n)
 int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }   /* 0 where nothing opens web links (some TV boxes) */
 int video_has_youtube_app(void) { return 1; }
 int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!youtube_id_valid(id)) return 0; snprintf(out, n, "youtube-embed:%.20s", id); return 1; }
-int video_youtube_web_state(void) { return -1; }   /* the web view inside the app plays it instead */
-void video_youtube_web_check(void) {}
-int video_youtube_web(const char *id, double start, const char *mode, int flags) { (void)id; (void)start; (void)mode; (void)flags; return 0; }
-int video_youtube_web_result(char *why, size_t n) { if (why && n) *why = 0; return 0; }
 int video_open_youtube(const char *id)   /* the YouTube app's own link first; a browser takes the page where there is no app */
 {
     char u[96];

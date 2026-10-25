@@ -26,10 +26,6 @@ This repository holds the builds. The newest is **${TAG}**: see
 Or download the `.ipk` from the [latest release](https://github.com/${RELEASES_REPO}/releases/latest)
 and install it with Developer Mode (`ares-install`) or Dev Manager.
 
-**Cuelight YouTube** (optional) is listed beside it. It opens YouTube's own TV client for
-the trailers, YouTube sources and fireplace video YouTube refuses to Cuelight, and can skip
-sponsor segments (SponsorBlock). Cuelight offers to install it when it is first needed. It
-does not replace LG's YouTube app.
 
 ## Install on Android
 
@@ -62,8 +58,7 @@ needed to rebuild Cuelight against a changed FFmpeg), QuickJS-ng, cJSON, libwebp
 P2P engine's Go modules (MPL 2.0 and others), the fonts (SIL OFL 1.1), and on Android
 SDL2, curl, Mbed TLS, AndroidX Media3 and android-youtube-player, and on Windows SDL2,
 ANGLE, curl and zlib. This product uses the
-TMDB API but is not endorsed or certified by TMDB. Cuelight YouTube uses SponsorBlock data
-licensed under CC BY-NC-SA 4.0 from https://sponsor.ajay.app/. Weather data by
+TMDB API but is not endorsed or certified by TMDB. Weather data by
 Open-Meteo.com (CC BY 4.0). The free fireplace video is "Holiday Fireplace" by Berkeley
 Community Media (CC BY-SA 3.0, Internet Archive). Every component, its version and licence text, and every
 service the apps talk to are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

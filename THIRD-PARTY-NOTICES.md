@@ -60,7 +60,6 @@ use, and what they return stays under their terms:
 | Service | Used for | Terms |
 |---|---|---|
 | [The Movie Database (TMDB)](https://www.themoviedb.org) | The built-in catalog, cast photos, age ratings | This product uses the TMDB API but is not endorsed or certified by TMDB. [Terms](https://www.themoviedb.org/api-terms-of-use) |
-| [SponsorBlock](https://sponsor.ajay.app) | Cuelight YouTube skips the segments viewers marked | Uses SponsorBlock data licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) from https://sponsor.ajay.app/ |
 | [Open-Meteo](https://open-meteo.com) | The Weather clock face | Weather data by Open-Meteo.com, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | [Internet Archive](https://archive.org) | The free fireplace video, streamed when none is set: [Holiday Fireplace](https://archive.org/details/betv-16515bcm-fireplace-plain) by Berkeley Community Media, then [Fireplace](https://archive.org/details/FireplaceStockFootage) by Vincent Wolf | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) and [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), unchanged; credited on screen while they play |
 | [Art Institute of Chicago API](https://api.artic.edu) | The gallery screensaver (public-domain works) | Data [CC0](https://creativecommons.org/publicdomain/zero/1.0/); images of public-domain works |
@@ -70,7 +69,7 @@ use, and what they return stays under their terms:
 | TheIntroDB, AniSkip, Kitsu | Skip intro and credits markers | Each service's terms |
 | IMDb (public pages and graph API) | Ratings, parents' guide, trailers | IMDb's terms |
 | iTunes Search API | A title's soundtrack | Apple's terms |
-| YouTube | Trailers, break recordings, Cuelight YouTube | YouTube's terms |
+| YouTube | Trailers, break recordings | YouTube's terms |
 | Groq, OpenRouter, Google Gemini, or your own endpoint | The optional AI assistant, with your own key | Each provider's terms |
 
 Your addons are third-party services of your choosing; Cuelight plays only what they
