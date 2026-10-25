@@ -1219,6 +1219,12 @@ run ytweb_fire_refused 600 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0
 grep -q "ambient: the TV would not open Cuelight YouTube for the fireplace (Permission denied)" "$OUT/ytweb_fire_refused.log" && grep -q "toast: The TV would not open Cuelight YouTube: Permission denied" "$OUT/ytweb_fire_refused.log" \
   && python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("ytwebRefused") == "Permission denied" else 1)' "$OUT/home_ytwfr/.local/share/stremio/nativetv/settings.json" \
   || { echo "a TV refusing to open Cuelight YouTube was not said"; grep -E "ambient|Cuelight YouTube|toast" "$OUT/ytweb_fire_refused.log"; exit 1; }
+# the fireplace's YouTube video already saved on the TV (for a break) plays from there, YouTube refusing or not
+FSH="$(home_with firesv '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
+mkdir -p "$FSH/.local/share/stremio/nativetv/sounds" && printf 'saved' > "$FSH/.local/share/stremio/nativetv/sounds/yt-dQw4w9WgXcQ-video.mp4"
+run ambient_fire_saved 300 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 HOME="$FSH"
+grep -q "ambient: fireplace video from the copy saved on the TV" "$OUT/ambient_fire_saved.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-video.mp4 (Fireplace)" "$OUT/ambient_fire_saved.log" \
+  || { echo "the fireplace did not play its video saved on the TV"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_saved.log"; exit 1; }
 # Clock faces: every one draws (flip, analog, words ... aurora, planets, prayer orbit, horizon, orrery), and the island's styles
 for f in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f,\"breaksOn\":1,\"breakSched\":0,\"breakMethod\":1,\"breakLat\":\"43.676\",\"breakLon\":\"-79.485\",\"breakCity\":\"Toronto\"}")"

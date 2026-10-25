@@ -14,6 +14,7 @@
 #include "../../vendor/cJSON.h"
 #include "../torbox.h"
 #include "../newep.h"
+#include "../phone.h"
 #include "ambient_scenes.h"
 #include "clockface.h"
 #include "../depth.h"
@@ -43,9 +44,10 @@ typedef struct {
     int cur_ready;
     float wall_y;         /* Poster wall: how far the wall has drifted up */
     float lx, ly, lvx, lvy;   /* Floating logo: position and velocity */
-    /* Fireplace: heat per cell, spread up and cooled each step (the classic demo fire),
-     * drawn through a palette into a small texture the GPU stretches */
-    unsigned char *heat; uint8_t *px; unsigned fire_tex; float fire_acc, fire_t; unsigned seed;
+    /* Fireplace (drawn): the flames and coals rebuilt each step, the hearth and logs drawn once */
+    uint8_t *px, *glow_px, *coal_px, *coal_heat, *coal_alpha;
+    unsigned fire_tex, glow_tex, bg_tex, logs_tex, crack_tex, coal_tex;
+    float fire_acc, fire_t, fire_energy, fire_light; unsigned seed;
     /* a real fireplace video (Settings > Interface), played full screen and looped */
     int fv_state;         /* 0 none, 1 asking YouTube, 2 playing, 3 gave up (the drawn fire), 4 ready under another screen */
     float fv_kick;        /* when it was last (re)started */
@@ -133,6 +135,16 @@ static void on_fv(const char *answer, const char *error, void *user)
     fv_play(a);
 }
 
+/* A YouTube link already downloaded for Take breaks, with its picture: played from the TV, so
+ * YouTube refusing to stream it does not matter. Nothing is saved for the fireplace itself. */
+static int fv_saved_copy(const char *url, char *out, size_t n)
+{
+    char name[80], sound[120]; int is_video = 0;
+    if (!youtube_saved(url, 1, name, sizeof name, &is_video) || !is_video) return 0;
+    snprintf(sound, sizeof sound, "sntv-sound://%s", name);
+    return phone_resolve_sound(sound, out, n) != NULL;
+}
+
 static void fv_start(Ambient *a)
 {
     const char *url = store_get_str("fireplaceVideo", "");
@@ -146,6 +158,10 @@ static void fv_start(Ambient *a)
         fv_play(a);
     } else if (torbox_is_link(url)) {
         LOGW("ambient: the fireplace video is on TorBox, but no TorBox key is set");
+    } else if (youtube_video_id(url, id) && fv_saved_copy(url, a->fv_urls[0], sizeof a->fv_urls[0])) {   /* saved on the TV already (a break's): no YouTube */
+        LOGI("ambient: fireplace video from the copy saved on the TV");
+        a->fv_n = 1; a->fv_i = 0;
+        fv_play(a);
     } else if (youtube_video_id(url, id)) {
         a->fv_state = 1;
         youtube_set_quality(g_app.res_cap, quality_cap_ok(&g_app.tv, TVCAP_AV1), quality_cap_ok(&g_app.tv, TVCAP_4K));
@@ -157,60 +173,366 @@ static void fv_start(Ambient *a)
     }
 }
 
-enum { FIRE_W = 240, FIRE_H = 96, FIRE_MAX = 36 };
+/* ---- The drawn fireplace: flames from moving noise over a few tongues, rebuilt on the CPU
+ * twenty times a second into a small texture the GPU stretches, in a firebrick hearth whose
+ * light breathes with them. Logs, the brick and the coals are drawn once into textures. ---- */
 
-static unsigned fire_rand(Ambient *a) { a->seed = a->seed * 1103515245u + 12345u; return a->seed >> 16; }
+enum { FL_W = 128, FL_H = 104,   /* the flames */
+       GL_W = 40, GL_H = 34,     /* their glow: the flames shrunk, a clear edge round them */
+       BG_W = 480, BG_H = 270,   /* the brick and the hearth */
+       LG_W = 384, LG_H = 112,   /* the logs */
+       CO_W = 192, CO_H = 24 };  /* the coals */
 
-/* black, ember red, orange, yellow, near white */
-static void fire_colour(int h, uint8_t *o)
+static uint8_t g_perm[512]; static float g_val[256];
+
+static void noise_init(unsigned seed)
 {
-    float t = (float)h / FIRE_MAX;
-    float r = t < 0.5f ? t * 2 : 1, g = t < 0.35f ? 0 : t < 0.85f ? (t - 0.35f) * 1.6f : 0.8f + (t - 0.85f) * 1.3f, b = t < 0.8f ? 0 : (t - 0.8f) * 3.5f;
-    o[0] = (uint8_t)(255 * (r > 1 ? 1 : r)); o[1] = (uint8_t)(255 * (g > 1 ? 1 : g)); o[2] = (uint8_t)(255 * (b > 1 ? 1 : b));
-    o[3] = (uint8_t)(h <= 1 ? 0 : t < 0.25f ? 255 * t * 4 : 255);
+    for (int i = 0; i < 256; i++) g_perm[i] = (uint8_t)i;
+    for (int i = 255; i > 0; i--) {
+        seed = seed * 1103515245u + 12345u;
+        int j = (int)((seed >> 16) % (unsigned)(i + 1));
+        uint8_t t = g_perm[i]; g_perm[i] = g_perm[j]; g_perm[j] = t;
+    }
+    for (int i = 0; i < 256; i++) { g_perm[256 + i] = g_perm[i]; seed = seed * 1103515245u + 12345u; g_val[i] = (float)((seed >> 16) & 0xFFFF) / 65535.0f; }
 }
 
-static void fire_step(Ambient *a)
+static float vnoise(float x, float y)
 {
-    unsigned char *h = a->heat;
-    a->fire_t += 1.0f / 24;
-    float t = a->fire_t;
-    /* the embers: hottest in the middle, fading to the sides, with slow swells so the
-     * flames rise and fall in tongues instead of a flat wall */
-    for (int x = 0; x < FIRE_W; x++) {
-        float u = (float)x / FIRE_W;
-        float edge = u < 0.18f ? u / 0.18f : u > 0.82f ? (1 - u) / 0.18f : 1;
-        float swell = 0.62f + 0.22f * sinf(u * 17 + t * 1.3f) + 0.16f * sinf(u * 41 - t * 2.1f);
-        float v = edge * swell * FIRE_MAX + (float)(fire_rand(a) % 5) - 2;
-        h[(FIRE_H - 1) * FIRE_W + x] = (unsigned char)(v < 0 ? 0 : v > FIRE_MAX ? FIRE_MAX : v);
-    }
-    /* each cell rises into the one above, drifting a cell sideways and cooling a little */
-    for (int y = 1; y < FIRE_H; y++)
-        for (int x = 0; x < FIRE_W; x++) {
-            int src = y * FIRE_W + x;
-            unsigned r = fire_rand(a) & 3;
-            int dst = src - (int)r + 1 - FIRE_W;
-            if (dst < 0 || dst >= FIRE_W * FIRE_H) continue;
-            int v = h[src] - (int)(r & 1);
-            h[dst] = (unsigned char)(v < 0 ? 0 : v);
+    float fx = floorf(x), fy = floorf(y);
+    int xi = (int)fx & 255, yi = (int)fy & 255;
+    float u = x - fx, v = y - fy;
+    u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v);
+    float a = g_val[g_perm[g_perm[xi] + yi]], b = g_val[g_perm[g_perm[xi + 1] + yi]];
+    float c = g_val[g_perm[g_perm[xi] + yi + 1]], d = g_val[g_perm[g_perm[xi + 1] + yi + 1]];
+    float ab = a + (b - a) * u, cd = c + (d - c) * u;
+    return ab + (cd - ab) * v;
+}
+
+static float fbm(float x, float y, int oct)
+{
+    float s = 0, amp = 0.5f;
+    for (int i = 0; i < oct; i++) { s += amp * vnoise(x, y); amp *= 0.5f; x *= 2.03f; y *= 2.03f; }
+    return s;
+}
+
+/* cells round jittered points: the distance to the nearest and the next, and the nearest's
+ * own random value (charred blocks on a log, lumps of coal) */
+static void cells(float x, float y, float *f1, float *f2, float *id)
+{
+    int ix = (int)floorf(x), iy = (int)floorf(y);
+    float d1 = 9, d2 = 9, v1 = 0;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            int cx = ix + dx, cy = iy + dy;
+            int h = g_perm[(g_perm[cx & 255] + cy) & 255];
+            float px = cx + 0.15f + 0.7f * g_val[h], py = cy + 0.15f + 0.7f * g_val[(h + 101) & 255];
+            float d = (px - x) * (px - x) + (py - y) * (py - y);
+            if (d < d1) { d2 = d1; d1 = d; v1 = g_val[(h + 53) & 255]; } else if (d < d2) d2 = d;
         }
-    for (int i = 0; i < FIRE_W * FIRE_H; i++) fire_colour(h[i], a->px + i * 4);
+    *f1 = sqrtf(d1); *f2 = sqrtf(d2); *id = v1;
+}
+
+static float clamp01(float v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+static uint8_t u8(float v) { return (uint8_t)(clamp01(v) * 255.0f + 0.5f); }
+
+/* heat to colour: dark red at the edges, orange, yellow, near white in the core */
+static void flame_colour(float I, uint8_t *o)
+{
+    o[0] = u8(I * 2.4f);
+    float g = clamp01(I * 1.7f - 0.45f);
+    o[1] = u8(g * sqrtf(sqrtf(g)) * 0.92f + g * 0.08f);
+    o[2] = u8(I * 2.2f - 1.7f);
+    float al = clamp01(I * 2.2f);
+    o[3] = u8(al * (0.85f + 0.15f * al));
+}
+
+/* where each tongue rises: x, sway, phase, height */
+#define TONGUES 9
+static const float k_tongues[TONGUES][4] = {
+    { 0.20f, 0.05f, 0.4f, 0.38f }, { 0.28f, 0.07f, 0.0f, 0.58f }, { 0.35f, 0.06f, 2.1f, 0.74f },
+    { 0.43f, 0.06f, 1.0f, 0.95f }, { 0.51f, 0.07f, 3.3f, 1.00f }, { 0.58f, 0.06f, 4.4f, 0.82f },
+    { 0.65f, 0.06f, 5.2f, 0.66f }, { 0.72f, 0.05f, 6.1f, 0.52f }, { 0.80f, 0.05f, 2.7f, 0.36f },
+};
+
+static void flame_step(Ambient *a)
+{
+    float t = a->fire_t;
+    float hgt[TONGUES], amp[TONGUES], ph[TONGUES], tx[TONGUES];
+    for (int k = 0; k < TONGUES; k++) {   /* each tongue leaps and drifts on its own, never in step */
+        ph[k] = k_tongues[k][2];
+        hgt[k] = k_tongues[k][3] * (0.55f + 0.60f * vnoise(t * 1.3f, k * 7.3f) + 0.08f * sinf(t * 6.0f + ph[k] * 3.1f));
+        amp[k] = k_tongues[k][1];
+        tx[k] = k_tongues[k][0] + 0.03f * (vnoise(t * 0.5f, k * 3.1f + 40) - 0.5f);
+    }
+    double sum = 0;
+    for (int y = 0; y < FL_H; y++) {
+        float Y = (float)y / (FL_H - 1);   /* 0 at the bottom */
+        uint8_t *row = a->px + (size_t)(FL_H - 1 - y) * FL_W * 4;
+        for (int x = 0; x < FL_W; x++) {
+            float X0 = (float)x / (FL_W - 1);
+            float X = X0 + (fbm(X0 * 4, Y * 2.5f - t * 1.8f, 2) - 0.5f) * 0.24f * Y;   /* the flames lean and curl */
+            float base = 0;
+            for (int k = 0; k < TONGUES; k++) {
+                float h = hgt[k];
+                if (Y >= h) continue;
+                float sway = amp[k] * sinf(t * 1.7f + ph[k] + Y * 4.0f) * Y;
+                float w = 0.07f * (1 - 0.85f * Y / h) + 0.005f;
+                float d = (X - tx[k] - sway) / w;
+                float v = (1 - d * d) * powf(1 - Y / h, 0.7f);
+                if (v > base) base = v;
+            }
+            if (base <= 0.01f) { row[x * 4 + 3] = 0; row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = 0; continue; }
+            float warp = 0.3f * sinf(Y * 6 + t * 1.1f);
+            float n = fbm(X * 9 + warp, Y * 3.2f - t * 2.6f, 3);
+            float n2 = fbm(X * 20, Y * 7 - t * 4.8f, 2);
+            /* the noise eats into the tongues more the higher they go: their tips tear off */
+            float I = base * (0.35f + 1.3f * n) + (n2 - 0.5f) * 0.55f * base - 0.07f - Y * 0.30f * (1 - n);
+            I = clamp01(I * 1.3f);
+            if (Y < 0.08f) I *= Y / 0.08f;   /* the base melts into the coals */
+            flame_colour(I, row + x * 4);
+            sum += I;
+        }
+    }
+    a->fire_energy = (float)(sum / (FL_W * FL_H)) * 4;
+    /* the glow: the flames shrunk four times into the middle of a clear border, then
+     * softened, so its stretched edges fade instead of ending in a line */
+    static float acc[GL_H][GL_W][4];
+    memset(acc, 0, sizeof acc);
+    for (int gy = 0; gy < FL_H / 4; gy++)
+        for (int gx = 0; gx < FL_W / 4; gx++) {
+            float r = 0, g = 0, b = 0, al = 0;
+            for (int yy = 0; yy < 4; yy++) {
+                const uint8_t *p = a->px + ((size_t)(gy * 4 + yy) * FL_W + gx * 4) * 4;
+                for (int xx = 0; xx < 4; xx++, p += 4) { r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; al += p[3]; }
+            }
+            float *o = acc[gy + 4][gx + 4]; o[0] = r; o[1] = g; o[2] = b; o[3] = al;
+        }
+    for (int gy = 0; gy < GL_H; gy++)
+        for (int gx = 0; gx < GL_W; gx++) {
+            float r = 0, g = 0, b = 0, al = 0;
+            for (int dy = -2; dy <= 2; dy++)
+                for (int dx = -2; dx <= 2; dx++) {
+                    int yy = gy + dy, xx = gx + dx;
+                    if (yy < 0 || yy >= GL_H || xx < 0 || xx >= GL_W) continue;
+                    r += acc[yy][xx][0]; g += acc[yy][xx][1]; b += acc[yy][xx][2]; al += acc[yy][xx][3];
+                }
+            uint8_t *o = a->glow_px + ((size_t)gy * GL_W + gx) * 4;
+            o[0] = al > 0 ? (uint8_t)(r / al) : 0; o[1] = al > 0 ? (uint8_t)(g / al) : 0; o[2] = al > 0 ? (uint8_t)(b / al) : 0;
+            o[3] = u8(al / (16 * 25 * 255.0f) * 2.2f);
+        }
+    /* the coals breathe: brighter and dimmer in slow patches */
+    for (int y = 0; y < CO_H; y++)
+        for (int x = 0; x < CO_W; x++) {
+            size_t i = (size_t)y * CO_W + x;
+            float hot = a->coal_heat[i] / 255.0f;
+            float pulse = 0.55f + 0.45f * vnoise(x * 0.06f + t * 0.5f, y * 0.25f + t * 0.3f);
+            float I = hot * pulse;
+            uint8_t *o = a->coal_px + i * 4;
+            o[0] = u8(0.06f + I * 1.5f); o[1] = u8(0.03f + (I - 0.3f) * 1.0f); o[2] = u8(0.025f + (I - 0.75f) * 1.0f);
+            o[3] = a->coal_alpha[i];
+        }
+}
+
+/* the hearth: firebrick in rows, darker mortar, soot above the fire, a stone slab in front,
+ * all lit from the fire (drawn at full light; the frame dims it as the flames fall) */
+static void make_hearth(uint8_t *px)
+{
+    for (int y = 0; y < BG_H; y++) {
+        float v = (float)y / BG_H;
+        for (int x = 0; x < BG_W; x++) {
+            float u = (float)x / BG_W, al[3], lit;
+            if (v > 0.83f) {   /* the hearth slab, lit near the fire, its front edge catching it */
+                float s = 0.55f + 0.45f * fbm(x * 0.05f, y * 0.12f, 3);
+                al[0] = 0.30f * s; al[1] = 0.25f * s; al[2] = 0.22f * s;
+                float du = (u - 0.5f) / 0.28f, dv = (v - 0.83f) / 0.09f;
+                lit = 0.02f + 1.0f * expf(-du * du - dv * dv);
+                if (v < 0.835f) lit *= 1.8f;
+            } else {
+                int row = (int)(v * 18), off = row & 1;
+                float bu = u * 7.5f + off * 0.5f, bv = v * 18;
+                int col = (int)floorf(bu);
+                float fu = bu - col, fv = bv - row;
+                float mortar = (fu < 0.018f || fu > 0.982f || fv < 0.05f || fv > 0.95f) ? 1 : 0;
+                float h = g_val[(g_perm[(col + 17) & 255] + row * 31) & 255];
+                float grain = 0.75f + 0.25f * fbm(x * 0.09f, y * 0.09f, 3);
+                if (mortar) { al[0] = 0.24f; al[1] = 0.21f; al[2] = 0.19f; }
+                else { al[0] = (0.30f + 0.14f * h) * grain; al[1] = (0.14f + 0.05f * h) * grain; al[2] = (0.09f + 0.03f * h) * grain; }
+                float su = (u - 0.5f) / 0.2f, sv = clamp01((0.75f - v) / 0.75f);
+                float soot = expf(-su * su) * sv * 0.85f;
+                for (int c = 0; c < 3; c++) al[c] *= 1 - soot;
+                float du = (u - 0.5f) / 0.24f, dv = (v - 0.78f) / 0.36f;
+                lit = 0.015f + 1.05f * expf(-du * du - dv * dv);
+            }
+            uint8_t *o = px + ((size_t)y * BG_W + x) * 4;
+            o[0] = u8(al[0] * lit * 1.9f); o[1] = u8(al[1] * lit * 1.35f); o[2] = u8(al[2] * lit * 0.9f); o[3] = 255;
+        }
+    }
+}
+
+/* three charred logs, each a cylinder: black bark in alligator checks, its top lit orange by
+ * the flames, its underside warm from the coals, a cut end with its rings. The cracks that
+ * glow go into their own mask, drawn flickering over the logs. */
+static const float k_logs[][5] = {   /* x0, x1, y at x0, radius, tilt (texture pixels) */
+    { 50, 330, 44, 17, -0.03f }, { 26, 250, 64, 20, 0.07f }, { 150, 366, 88, 21, -0.055f },
+};
+
+static void make_logs(uint8_t *px, uint8_t *crack)
+{
+    memset(px, 0, (size_t)LG_W * LG_H * 4); memset(crack, 0, (size_t)LG_W * LG_H);
+    for (int l = 0; l < 3; l++) {
+        float x0 = k_logs[l][0], x1 = k_logs[l][1], y0 = k_logs[l][2], r = k_logs[l][3], tilt = k_logs[l][4];
+        for (int x = (int)(x0 - r); x <= (int)(x1 + r * 0.5f); x++) {
+            if (x < 0 || x >= LG_W) continue;
+            float yc = y0 + (x - x0) * tilt;
+            float half = r;
+            if (x < x0) { float e = (x0 - x) / r; half = e < 1 ? r * sqrtf(1 - e * e) : 0; }
+            if (half < 0.5f) continue;
+            for (int y = (int)(yc - half - 1); y <= (int)(yc + half + 1); y++) {
+                if (y < 0 || y >= LG_H) continue;
+                float vv = (y - yc) / half;   /* -1 top .. 1 bottom */
+                float cover = clamp01(half + 0.5f - fabsf(y - yc));
+                if (cover <= 0) continue;
+                float vc = vv < -1 ? -1 : vv > 1 ? 1 : vv;
+                float along = (x - x0) * sqrtf(1 + tilt * tilt), around = asinf(vc) * r;   /* on the bark, in pixels */
+                /* charred into blocks, longer than tall, split by deep cracks */
+                float f1, f2, id;
+                cells(along / (r * 0.80f) + l * 17, around / (r * 0.38f) + l * 5, &f1, &f2, &id);
+                float seam = clamp01(1 - (f2 - f1) / 0.13f);
+                float bark = 0.05f + 0.045f * id + 0.035f * fbm(along * 0.3f, around * 0.5f, 2);
+                float c[3] = { bark * 1.05f, bark * 0.92f, bark * 0.82f };
+                float nz = sqrtf(fmaxf(0, 1 - vc * vc));
+                float top = clamp01(-vc * 1.3f - 0.15f) * (0.6f + 0.4f * nz), under = clamp01(vc * 1.4f - 0.3f);
+                float rim = clamp01((-vc - 0.82f) * 6);   /* the top edge, catching the flames behind */
+                c[0] += 0.40f * top * top + 0.45f * under * under + 0.35f * rim;
+                c[1] += 0.15f * top * top + 0.12f * under * under + 0.12f * rim;
+                c[2] += 0.04f * top * top + 0.02f * under * under + 0.02f * rim;
+                for (int k = 0; k < 3; k++) c[k] *= (1 - 0.8f * seam) * (0.45f + 0.55f * nz);
+                uint8_t *o = px + ((size_t)y * LG_W + x) * 4;
+                float prev = o[3] / 255.0f, al = cover;
+                for (int k = 0; k < 3; k++) o[k] = u8((o[k] / 255.0f) * (1 - al) * prev + c[k] * al);
+                o[3] = u8(prev + al * (1 - prev));
+                /* the seams glow where the fire reaches: underneath and along the inner side */
+                float hot = seam * clamp01(vc * 1.5f - 0.05f) * clamp01(fbm(along * 0.04f + l * 5, 7, 2) * 2.4f - 0.6f);
+                uint8_t *cr = crack + (size_t)y * LG_W + x;
+                *cr = (uint8_t)(*cr * (1 - al) + 255 * clamp01(hot * 1.4f) * al);
+            }
+        }
+        /* the cut end, facing out: charred rim, the rings, a little glow at the heart */
+        float ex = x1, ey = y0 + (x1 - x0) * tilt, ax = r * 0.5f;
+        for (int y = (int)(ey - r - 1); y <= (int)(ey + r + 1); y++)
+            for (int x = (int)(ex - ax - 1); x <= (int)(ex + ax + 1); x++) {
+                if (x < 0 || x >= LG_W || y < 0 || y >= LG_H) continue;
+                float du = (x - ex) / ax, dv = (y - ey) / r, d = sqrtf(du * du + dv * dv);
+                float cover = clamp01((1 - d) * r + 0.5f);
+                if (cover <= 0) continue;
+                float ring = 0.75f + 0.25f * sinf(d * 26 + fbm(du * 3, dv * 3, 2) * 4);
+                float wood = d > 0.82f ? 0.08f : 0.30f * ring * (0.7f + 0.3f * (1 - d));
+                float c[3] = { wood * 1.0f, wood * 0.62f, wood * 0.36f };
+                float lit = 0.6f + 0.5f * clamp01(-dv);   /* lit from above */
+                uint8_t *o = px + ((size_t)y * LG_W + x) * 4;
+                for (int k = 0; k < 3; k++) o[k] = u8((o[k] / 255.0f) * (1 - cover) + c[k] * lit * cover);
+                o[3] = u8(o[3] / 255.0f + cover * (1 - o[3] / 255.0f));
+                uint8_t *cr = crack + (size_t)y * LG_W + x;
+                float heart = d > 0.8f && d < 0.92f && dv > 0.3f ? 0.5f : 0;
+                *cr = (uint8_t)(*cr * (1 - cover) + 255 * clamp01(heart) * cover);
+            }
+    }
+}
+
+/* the coal bed: lumps with glowing gaps between them, a ragged mound */
+static void make_coals(uint8_t *heat, uint8_t *alpha)
+{
+    for (int y = 0; y < CO_H; y++)
+        for (int x = 0; x < CO_W; x++) {
+            float u = (float)x / CO_W, v = (float)y / CO_H;
+            float mound = 0.85f * sqrtf(fmaxf(0, 1 - powf((u - 0.5f) / 0.5f, 2))) + 0.25f * (fbm(x * 0.15f, 3, 2) - 0.5f);
+            float top = 1 - mound;
+            float cover = clamp01((v - top) * CO_H * 0.7f);
+            float f1, f2, id;
+            float big = fbm(x * 0.08f, y * 0.2f, 2) > 0.5f ? 1 : 0;   /* lumps of two sizes */
+            cells(x / (big ? 9.0f : 5.0f) + big * 50, y / (big ? 5.0f : 3.2f), &f1, &f2, &id);
+            float gap = clamp01(1 - (f2 - f1) / 0.28f);   /* glowing between the lumps */
+            float whole = id > 0.82f ? (id - 0.82f) * 4 : 0;   /* now and then a lump glows right through */
+            float hot = gap * (0.45f + 0.55f * v) * (0.6f + 0.4f * id) + whole * (1 - f1) + 0.08f * v;
+            heat[y * CO_W + x] = u8(hot); alpha[y * CO_W + x] = u8(cover);
+        }
+}
+
+typedef struct { float x, y, sp; } Spark;
+static Spark g_sparks[24];
+
+static int fire_setup(Ambient *a)
+{
+    a->px = calloc((size_t)FL_W * FL_H, 4); a->glow_px = calloc((size_t)GL_W * GL_H, 4);
+    a->coal_px = calloc((size_t)CO_W * CO_H, 4); a->coal_heat = malloc((size_t)CO_W * CO_H); a->coal_alpha = malloc((size_t)CO_W * CO_H);
+    uint8_t *bg = malloc((size_t)BG_W * BG_H * 4), *logs = malloc((size_t)LG_W * LG_H * 4), *crack = malloc((size_t)LG_W * LG_H);
+    int ok = a->px && a->glow_px && a->coal_px && a->coal_heat && a->coal_alpha && bg && logs && crack;
+    if (ok) {
+        a->seed = (unsigned)time(NULL);
+        noise_init(0x5EED);   /* the brick and the logs are the same every time */
+        make_hearth(bg); make_logs(logs, crack); make_coals(a->coal_heat, a->coal_alpha);
+        a->bg_tex = gfx_texture_rgba(bg, BG_W, BG_H);
+        a->logs_tex = gfx_texture_rgba(logs, LG_W, LG_H);
+        a->crack_tex = gfx_texture_alpha(crack, LG_W, LG_H);
+        noise_init(a->seed);
+        a->fire_t = (float)(a->seed % 1000);
+        flame_step(a);
+        a->fire_tex = gfx_texture_rgba(a->px, FL_W, FL_H);
+        a->glow_tex = gfx_texture_rgba(a->glow_px, GL_W, GL_H);
+        a->coal_tex = gfx_texture_rgba(a->coal_px, CO_W, CO_H);
+        for (int i = 0; i < 24; i++) {
+            a->seed = a->seed * 1103515245u + 12345u; g_sparks[i].x = (a->seed >> 16) / 65535.0f;
+            a->seed = a->seed * 1103515245u + 12345u; g_sparks[i].y = (a->seed >> 16) / 65535.0f;
+            a->seed = a->seed * 1103515245u + 12345u; g_sparks[i].sp = (a->seed >> 16) / 65535.0f;
+        }
+    }
+    free(bg); free(logs); free(crack);
+    return ok;
+}
+
+static void fire_free(Ambient *a)
+{
+    unsigned *t[] = { &a->fire_tex, &a->glow_tex, &a->bg_tex, &a->logs_tex, &a->crack_tex, &a->coal_tex };
+    for (size_t i = 0; i < sizeof t / sizeof *t; i++) if (*t[i]) { gfx_texture_destroy(*t[i]); *t[i] = 0; }
+    free(a->px); free(a->glow_px); free(a->coal_px); free(a->coal_heat); free(a->coal_alpha);
+    a->px = a->glow_px = a->coal_px = a->coal_heat = a->coal_alpha = NULL;
 }
 
 static void draw_fire(Ambient *a, float sx, float sy, const char *clock, struct tm *tmv)
 {
-    /* the hearth: a warm glow on the back wall, the flames, then the logs in front */
-    gfx_gradient_v(0, SNTV_UI_H * 0.35f, SNTV_UI_W, SNTV_UI_H * 0.65f, RGBA(0, 0, 0, 0), RGBA(0x5A, 0x1C, 0x04, 0xB0));
-    if (a->fire_tex) gfx_rtex_uv(a->fire_tex, SNTV_UI_W * 0.12f, SNTV_UI_H * 0.28f, SNTV_UI_W * 0.76f, SNTV_UI_H * 0.62f, 0, 0, 0, 1, 1, RGBA(0xFF, 0xFF, 0xFF, 0xFF), 0);
-    float ly = SNTV_UI_H * 0.86f;
-    gfx_rrect(SNTV_UI_W * 0.20f, ly, SNTV_UI_W * 0.34f, 46, 23, RGBA(0x3A, 0x22, 0x14, 0xFF));
-    gfx_rrect(SNTV_UI_W * 0.46f, ly + 10, SNTV_UI_W * 0.34f, 46, 23, RGBA(0x2E, 0x1B, 0x10, 0xFF));
-    gfx_rrect(SNTV_UI_W * 0.32f, ly - 30, SNTV_UI_W * 0.36f, 40, 20, RGBA(0x45, 0x29, 0x18, 0xFF));
-    gfx_rect(0, SNTV_UI_H * 0.93f, SNTV_UI_W, SNTV_UI_H * 0.07f, RGBA(0x12, 0x0C, 0x09, 0xFF));   /* the hearth floor */
+    float W = SNTV_UI_W, H = SNTV_UI_H, t = a->fire_t;
+    float s = fminf(W, H * 16 / 9) / 1280 * 1.15f, cx = W / 2, base = H * 0.83f;   /* base: the hearth's edge */
+    /* the light on the brick rises and falls with the flames */
+    float e = a->fire_light, li = 0.80f + 0.20f * (e > 1 ? 1 : e);
+    uint8_t L = (uint8_t)(255 * li);
+    if (a->bg_tex) gfx_tex(a->bg_tex, 0, 0, W, H, RGBA(L, L, L, 0xFF));
+    float fw = 560 * s, fh = 470 * s, fx = cx - fw / 2, fy = base - 34 * s - fh;
+    float gw = fw * GL_W / (FL_W / 4) * 1.25f, gh = fh * GL_H / (FL_H / 4) * 1.15f;   /* the glow, a little larger than the flames */
+    if (a->glow_tex) gfx_tex(a->glow_tex, cx - gw / 2, fy + fh * 0.5f - gh * 0.5f, gw, gh, RGBA(0xFF, 0xFF, 0xFF, 0x90));
+    if (a->fire_tex) gfx_tex(a->fire_tex, fx, fy, fw, fh, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+    float lw = 560 * s, lh = lw * LG_H / LG_W, lx = cx - lw / 2 + 10 * s, ly = base + 6 * s - lh;
+    if (a->coal_tex) gfx_tex(a->coal_tex, cx - 270 * s, base - 46 * s, 540 * s, 52 * s, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+    if (a->logs_tex) gfx_tex(a->logs_tex, lx, ly, lw, lh, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+    float flick = 0.70f + 0.30f * vnoise(t * 3.1f, 0.5f);
+    if (a->crack_tex) {
+        gfx_glyph(a->crack_tex, lx, ly, lw, lh, 0, 0, 1, 1, RGBA(0xFF, 0x6A, 0x14, (uint8_t)(255 * flick)));
+        gfx_glyph(a->crack_tex, lx, ly, lw, lh, 0, 0, 1, 1, RGBA(0xFF, 0xC8, 0x60, (uint8_t)(110 * flick * flick)));
+    }
+    for (int i = 0; i < 24; i++) {   /* sparks rise, drift and fade */
+        const Spark *k = &g_sparks[i];
+        float life = fmodf(t * 0.32f * (0.6f + k->sp) + k->y, 1.0f);
+        float px = cx - 120 * s + 240 * s * k->x + 45 * s * sinf(t * 2 + k->sp * 9) * life;
+        float py = base - 110 * s - 380 * s * life;
+        float al = (1 - life) * (1 - life) * (0.6f + 0.4f * sinf(t * 17 + i));
+        if (al <= 0.02f) continue;
+        gfx_circle(px, py, (2.2f + 1.5f * (1 - life)) * s, RGBA(0xFF, 0x80, 0x20, (uint8_t)(50 * al)));
+        gfx_circle(px, py, (0.8f + 0.9f * (1 - life)) * s, RGBA(0xFF, 0xD0, 0x80, (uint8_t)(255 * al)));
+    }
+    gfx_gradient_v(0, 0, W, H * 0.40f, RGBA(0, 0, 0, 0xA0), RGBA(0, 0, 0, 0));   /* the clock reads over the dark */
     char date[64]; strftime(date, sizeof date, "%A, %B %-d", tmv);
-    float cx = SNTV_UI_W / 2 + sx * 6, cy = 70 + sy * 4;
-    font_draw_center(clock, cx, cy, FONT_HUGE | FONT_B, RGBA(0xF4, 0xE6, 0xD8, 0xF0));
-    font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 6, FONT_M, RGBA(0xC8, 0xA8, 0x90, 0xD0));
+    float tx = W / 2 + sx * 6, ty = 70 + sy * 4;
+    font_draw_center(clock, tx, ty, FONT_HUGE | FONT_B, RGBA(0xF4, 0xE6, 0xD8, 0xF0));
+    font_draw_center(date, tx, ty + font_height(FONT_HUGE | FONT_B) + 6, FONT_M, RGBA(0xC8, 0xA8, 0x90, 0xD0));
 }
 
 #define LOGO_S 150.0f
@@ -389,18 +711,18 @@ static void update(Screen *s, float dt)
         }
         return;
     }
-    if (g_style == AMBIENT_FIRE) {   /* 24 steps a second, whatever the frame rate */
-        if (!a->heat) {
-            a->heat = calloc(FIRE_W * FIRE_H, 1); a->px = calloc(FIRE_W * FIRE_H, 4); a->seed = (unsigned)time(NULL);
-            if (!a->heat || !a->px) return;
-            for (int i = 0; i < 60; i++) fire_step(a);   /* lit already */
-            a->fire_tex = gfx_texture_rgba(a->px, FIRE_W, FIRE_H);
-        }
+    if (g_style == AMBIENT_FIRE) {   /* twenty steps a second (twelve on a light TV), whatever the frame rate */
+        if (!a->px && !fire_setup(a)) { fire_free(a); return; }
+        float step = g_app.fx_light ? 1.0f / 12 : 1.0f / 20;
         a->fire_acc += dt;
-        if (a->fire_acc >= 1.0f / 24) {
-            a->fire_acc = a->fire_acc > 0.2f ? 0 : a->fire_acc - 1.0f / 24;
-            fire_step(a);
-            gfx_texture_update(a->fire_tex, a->px, FIRE_W, FIRE_H);
+        if (a->fire_acc >= step) {
+            a->fire_t += step;
+            a->fire_acc = a->fire_acc > 0.2f ? 0 : a->fire_acc - step;
+            flame_step(a);
+            a->fire_light += (a->fire_energy - a->fire_light) * 0.35f;
+            gfx_texture_update(a->fire_tex, a->px, FL_W, FL_H);
+            gfx_texture_update(a->glow_tex, a->glow_px, GL_W, GL_H);
+            gfx_texture_update(a->coal_tex, a->coal_px, CO_W, CO_H);
         }
         return;
     }
@@ -712,12 +1034,11 @@ static void destroy(Screen *s)
 {
     Ambient *a = s->st;
     free(a->items);
-    if (a->fire_tex) gfx_texture_destroy(a->fire_tex);
+    fire_free(a);
     font_digits_free();
     if (g_amb_live == a) g_amb_live = NULL;
     if (a->fv_state == 2) video_stop();
     video_hold_screensaver(0);
-    free(a->heat); free(a->px);
     free(a);
     free(s);
 }
