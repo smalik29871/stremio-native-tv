@@ -1053,7 +1053,7 @@ run home_compact 200 "right,right" HOME="$(home_with compact '{"prefSubs":"eng",
 run pip_focus_ok 440 "$P,back,back,down,down,down,down,down,down,down,ok"
 # screensaver after one quiet second (no keys at all)
 run ambient 200 "" SNTV_AMBIENT_SECONDS=1
-run ambient_fire 400 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with fire '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2}')"
+run ambient_fire 400 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with fire '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceFree":0}')"
 # the drawn scenes: Aurora, Rainy window, Now showing, Warp
 for st in 5:Aurora 6:Rainy 7:Now 8:Warp; do
   run ambient_scene${st%%:*} 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with scene${st%%:*} "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":${st%%:*},\"ambientMinutes\":2}")"
@@ -1225,6 +1225,20 @@ mkdir -p "$FSH/.local/share/stremio/nativetv/sounds" && printf 'saved' > "$FSH/.
 run ambient_fire_saved 300 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 HOME="$FSH"
 grep -q "ambient: fireplace video from the copy saved on the TV" "$OUT/ambient_fire_saved.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-video.mp4 (Fireplace)" "$OUT/ambient_fire_saved.log" \
   || { echo "the fireplace did not play its video saved on the TV"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_saved.log"; exit 1; }
+# no fireplace video set: the free one under an open licence plays, credited; one that will not load gives way to the next
+run ambient_fire_free 300 "" SNTV_AMBIENT_SECONDS=1 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firefree '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2}')"
+grep -q "ambient: the free fireplace video (none set)" "$OUT/ambient_fire_free.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/firelib/betv-16515bcm-fireplace-plain.mp4 (Fireplace)" "$OUT/ambient_fire_free.log" \
+  || { echo "the free fireplace video did not play"; grep -E "ambient|video" "$OUT/ambient_fire_free.log"; exit 1; }
+run ambient_fire_free_next 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_FETCH=1 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firefree2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2}')"
+grep -q "video(null): load http://127.0.0.1:[0-9]*/firelib/FireplaceStockFootage.mp4 (Fireplace)" "$OUT/ambient_fire_free_next.log" && grep -q "ambient: the fireplace video would not play; the drawn fire instead" "$OUT/ambient_fire_free_next.log" \
+  || { echo "free fireplace videos that would not load did not give way to the next, then the drawn fire"; grep -E "ambient|video" "$OUT/ambient_fire_free_next.log"; exit 1; }
+# YouTube refusing the one set, with nothing else to play it: the free one
+run ambient_fire_refused_free 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firerf '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
+grep -q "ambient: the free fireplace video (YouTube refused the one set)" "$OUT/ambient_fire_refused_free.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/firelib/betv-16515bcm-fireplace-plain.mp4 (Fireplace)" "$OUT/ambient_fire_refused_free.log" \
+  || { echo "a refused fireplace video did not give way to the free one"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_refused_free.log"; exit 1; }
+# switched off: the drawn fire
+run ambient_fire_drawn 300 "" SNTV_AMBIENT_SECONDS=1 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firedr '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceFree":0}')"
+! grep -q "video(null): load" "$OUT/ambient_fire_drawn.log" || { echo "the free fireplace video played though switched off"; exit 1; }
 # Clock faces: every one draws (flip, analog, words ... aurora, planets, prayer orbit, horizon, orrery), and the island's styles
 for f in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   run ambient_face$f 300 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with face$f "{\"prefSubs\":\"eng\",\"subsAlways\":1,\"setupDone\":1,\"ambientStyle\":2,\"ambientMinutes\":2,\"clockFace\":$f,\"breaksOn\":1,\"breakSched\":0,\"breakMethod\":1,\"breakLat\":\"43.676\",\"breakLon\":\"-79.485\",\"breakCity\":\"Toronto\"}")"

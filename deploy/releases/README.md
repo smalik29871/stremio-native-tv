@@ -52,5 +52,6 @@ P2P engine's Go modules (MPL 2.0 and others), the fonts (SIL OFL 1.1), and on An
 SDL2, curl, Mbed TLS, AndroidX Media3 and android-youtube-player. This product uses the
 TMDB API but is not endorsed or certified by TMDB. Cuelight YouTube uses SponsorBlock data
 licensed under CC BY-NC-SA 4.0 from https://sponsor.ajay.app/. Weather data by
-Open-Meteo.com (CC BY 4.0). Every component, its version and licence text, and every
+Open-Meteo.com (CC BY 4.0). The free fireplace video is "Holiday Fireplace" by Berkeley
+Community Media (CC BY-SA 3.0, Internet Archive). Every component, its version and licence text, and every
 service the apps talk to are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

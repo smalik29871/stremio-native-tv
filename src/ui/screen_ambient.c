@@ -53,6 +53,7 @@ typedef struct {
     float fv_kick;        /* when it was last (re)started */
     int fv_restarts;      /* found stopped and started again; a few and it gives way to the drawn fire */
     int fv_web; unsigned fv_web_fg;   /* handed to Cuelight YouTube (an LG): back on screen, the screensaver is over */
+    int fv_free;          /* playing the free fireplace videos (none set, or the one set would not play) */
     char fv_urls[YT_PLAY_URLS][4608]; int fv_n, fv_i;
     int depth_logged;     /* Depth: the item last logged (+1) */
     int depth_chosen;     /* Depth: the first backdrop was weighed against the list of maps */
@@ -100,8 +101,36 @@ static void stage_tick(Ambient *a)
     }
 }
 
+/* Fireplace videos under open licences, streamed (nothing is kept on the device), for when
+ * none is set or the one set will not play; credited on screen as their licences ask */
+static const struct { const char *url, *credit; } k_free_fire[] = {
+    { "https://archive.org/download/betv-16515bcm-fireplace-plain/betv-16515bcm-fireplace-plain.mp4",
+      "Holiday Fireplace  \xC2\xB7  Berkeley Community Media  \xC2\xB7  CC BY-SA 3.0  \xC2\xB7  Internet Archive" },
+    { "https://archive.org/download/FireplaceStockFootage/FireplaceStockFootage.mp4",
+      "Fireplace  \xC2\xB7  Vincent Wolf  \xC2\xB7  CC BY 3.0  \xC2\xB7  Internet Archive" },
+};
+
+static void fv_play(Ambient *a);
+
+static int fv_free_start(Ambient *a, const char *why)
+{
+    if (a->fv_free || !store_get_int("fireplaceFree", 1)) return 0;
+    const char *base = getenv("SNTV_FIRE_LIBRARY");   /* test hook: the same files from a local server */
+    a->fv_n = 0;
+    for (size_t i = 0; i < sizeof k_free_fire / sizeof *k_free_fire && a->fv_n < YT_PLAY_URLS; i++, a->fv_n++)
+        if (base) snprintf(a->fv_urls[a->fv_n], sizeof a->fv_urls[a->fv_n], "%s/%s", base, strrchr(k_free_fire[i].url, '/') + 1);
+        else snprintf(a->fv_urls[a->fv_n], sizeof a->fv_urls[a->fv_n], "%s", k_free_fire[i].url);
+    a->fv_free = 1; a->fv_i = 0; a->fv_restarts = 0;
+    LOGI("ambient: the free fireplace video (%s)", why);
+    Screen *top = app_top();
+    if (top && top->st != a) { a->fv_state = 4; return 1; }   /* a break is on top: its recording keeps the video plane */
+    fv_play(a);
+    return 1;
+}
+
 static void fv_play(Ambient *a)
 {
+    if (a->fv_i >= a->fv_n && fv_free_start(a, "the one set would not play")) return;
     if (a->fv_i >= a->fv_n) { a->fv_state = 3; LOGI("ambient: the fireplace video would not play; the drawn fire instead"); return; }
     LOGI("ambient: fireplace video %d/%d", a->fv_i + 1, a->fv_n);
     video_load(a->fv_urls[a->fv_i], "Fireplace", 0);
@@ -126,6 +155,7 @@ static void on_fv(const char *answer, const char *error, void *user)
     if (!a->fv_n) {
         a->fv_state = 3; LOGW("ambient: fireplace video unavailable: %s", error ? error : "?");
         store_set_str("fireplaceRefused", store_get_str("fireplaceVideo", "")); store_save();   /* Settings says so on the row */
+        fv_free_start(a, "YouTube refused the one set");
         return;
     }
     if (*store_get_str("fireplaceRefused", "")) { store_set_str("fireplaceRefused", NULL); store_save(); }
@@ -149,7 +179,8 @@ static void fv_start(Ambient *a)
 {
     const char *url = store_get_str("fireplaceVideo", "");
     VideoInfo vi; video_info(&vi);
-    if (!url || !*url || (vi.state != VIDEO_IDLE && vi.state != VIDEO_ENDED)) return;   /* a paused film keeps its picture */
+    if (vi.state != VIDEO_IDLE && vi.state != VIDEO_ENDED) return;   /* a paused film keeps its picture */
+    if (!url || !*url) { fv_free_start(a, "none set"); return; }
     char id[16], tb[700];
     if (torbox_resolve(url, tb, sizeof tb)) {   /* your own video on TorBox: its permanent link */
         LOGI("ambient: fireplace video from TorBox");
@@ -158,6 +189,7 @@ static void fv_start(Ambient *a)
         fv_play(a);
     } else if (torbox_is_link(url)) {
         LOGW("ambient: the fireplace video is on TorBox, but no TorBox key is set");
+        fv_free_start(a, "no TorBox key");
     } else if (youtube_video_id(url, id) && fv_saved_copy(url, a->fv_urls[0], sizeof a->fv_urls[0])) {   /* saved on the TV already (a break's): no YouTube */
         LOGI("ambient: fireplace video from the copy saved on the TV");
         a->fv_n = 1; a->fv_i = 0;
@@ -685,6 +717,7 @@ static void update(Screen *s, float dt)
             LOGW("ambient: the TV would not open Cuelight YouTube for the fireplace (%s)", why);
             store_set_str("fireplaceRefused", store_get_str("fireplaceVideo", "")); store_save();
             a->fv_web = 0;
+            fv_free_start(a, "the TV would not open Cuelight YouTube");
         }
     }
     stage_tick(a);
@@ -950,11 +983,13 @@ static void draw_scene(Screen *s)
         font_draw_center(big, cx, cy, FONT_HUGE | FONT_B, RGBA(0xF4, 0xEC, 0xE4, 0xF0));
         font_draw_center(date, cx, cy + font_height(FONT_HUGE | FONT_B) + 6, FONT_M, RGBA(0xE0, 0xD0, 0xC4, 0xD0));
         prayer_line(cx, cy + font_height(FONT_HUGE | FONT_B) + font_height(FONT_M) + 12, 1);
+        if (a->fv_free && a->fv_i < (int)(sizeof k_free_fire / sizeof *k_free_fire))   /* the credit its licence asks for */
+            font_draw_center(k_free_fire[a->fv_i].credit, SNTV_UI_W / 2, SNTV_UI_H - 34, FONT_XS, RGBA(0xB0, 0xA0, 0x96, 0xA0));
         return;
     }
     if (g_style == AMBIENT_FIRE) {
         draw_fire(a, sx, sy, big, &tmv);
-        const char *hint = a->fv_state == 1 ? "Getting the fireplace video\xE2\x80\xA6" : !*store_get_str("fireplaceVideo", "") ? "For a real fireplace, add a video in Settings > Interface > Fireplace video" : NULL;
+        const char *hint = a->fv_state == 1 ? "Getting the fireplace video\xE2\x80\xA6" : !*store_get_str("fireplaceVideo", "") && !store_get_int("fireplaceFree", 1) ? "For a real fireplace, add a video in Settings > Interface > Fireplace video" : NULL;
         if (hint) font_draw_center(hint, SNTV_UI_W / 2, SNTV_UI_H - 34, FONT_XS, RGBA(0x90, 0x80, 0x78, 0xC0));
         prayer_line(SNTV_UI_W / 2 + sx * 6, 70 + sy * 4 + font_height(FONT_HUGE | FONT_B) + font_height(FONT_M) + 12, 1);
         return;
