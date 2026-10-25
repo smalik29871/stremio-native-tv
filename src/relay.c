@@ -11,8 +11,10 @@
  * buffer can't go on (memory, a source that keeps failing), the connection carries on
  * straight from the source: the picture never depends on it. */
 #include "relay.h"
-#include "app.h"
 #include "mkvsubs.h"
+
+/* What this home's connection carries, learnt from the sources (app.c); absent when the library stands alone. */
+void app_home_mbps_note(double mbps) __attribute__((weak));
 #include "http.h"
 #include "log.h"
 #include "memwatch.h"
@@ -302,7 +304,7 @@ static void rate_note_locked(size_t took)
     if (!sample_bytes) { const char *e = getenv("SNTV_SPEED_SAMPLE_KB"); sample_bytes = e && *e ? (uint64_t)strtoull(e, NULL, 10) << 10 : 8u << 20; }   /* tests: small files */
     if (g_buf.hungry_bytes >= sample_bytes && now - g_buf.hungry_at >= (sample_bytes < (1u << 20) ? 0u : 2000u)) {   /* 8 MB that nothing held back: what the line carries */
         Uint32 ms = now - g_buf.hungry_at > 0 ? now - g_buf.hungry_at : 1;
-        app_home_mbps_note(g_buf.hungry_bytes * 8.0 / 1e6 / (ms / 1000.0));
+        if (app_home_mbps_note) app_home_mbps_note(g_buf.hungry_bytes * 8.0 / 1e6 / (ms / 1000.0));   /* the app's, absent in the unit tests */
         g_buf.hungry_at = now; g_buf.hungry_bytes = 0;
     }
 }

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.10.71
+
+- **Streaming stays seamless**: a stall that LG reports as a pause is rescued like any
+  other; no resolution switch right after a seek (the drain samples start afresh); P2P
+  stays while it plays well and switches back to TorBox at the next seek or stall; the
+  buffer keeps its connection while full and hands a slow source off to an identical
+  copy; a source that sends nothing in 12 s gives way; the home's speed is learnt from
+  what the relay sees and sources are weighed by it; a better-placed source that answers
+  within 0.4 s wins the start race; YouTube pieces are fetched ahead.
+- **YouTube again**: yt-dlp's October clients; the token-free clients are skipped after a
+  bot check and the TV app is asked again with a fresh visitor id; a refused file moves to
+  the next client; an unsolved challenge is logged.
+- **Search finds famous titles**: three plain words ("Final Destination Bloodlines") are a
+  title, not a question for the assistant, and the words are searched when the
+  assistant's picks find nothing.
+- **New clock faces**: Planets (a solar system that tells the time: the hour planet and
+  its moon, the minute planet, a comet for the seconds, an asteroid belt, every world lit
+  from the sun), Prayer orbit (the day as one turn round the sun, lit from sunrise to
+  sunset, the prayers of the day as stations and the next one a beacon), Horizon (the sky
+  of the hour over water, the sun on its real arc with the prayers along it, the moon as
+  it looks tonight, clouds, birds, a shooting star, a mosque on the shore) and Orrery
+  (the planets where they really stand today, and which are up tonight).
+- **Art gallery screensaver**: public-domain paintings from the Art Institute of Chicago,
+  framed on a wall with the artist's name.
+- **Shuffle**: a different screensaver each time.
+- **Dim and picture off** (Settings > System): the screensaver darkens after a while and
+  can go black with a faint clock, kinder to the panel; the TV may then sleep.
+- **The next prayer on every screensaver**, once breaks are on.
+- **Android keeps the screen on for the screensaver.**
+- **Memory in stages**: as memory gets low, poster prefetch, trailers and seek strips
+  pause and the P2P cache halves; when it is tight the saver comes on, effects go light,
+  the screensaver falls back to the plain clock and the script sandbox shrinks; each
+  comes back after a minute or two of room. Behind the TV's Home the artwork is let go.
+  Android's trim levels are answered and the player's buffers sized by the stage.
+  Diagnostics shows the stage.
+
 ## 0.10.70
 
 - **TorBox down no longer stops playback**: at most three of the sources standing by come
