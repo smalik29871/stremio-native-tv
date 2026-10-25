@@ -14,6 +14,7 @@
 #include "gfx.h"
 #include "theme.h"
 #include "widgets.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +37,8 @@ typedef struct {
     int skind[K_MAX - K_COUNT + 8];                   /* the chip each installed catalogue's list fills */
     int pending, failed;
     int kind, zone, focus;      /* zone 0 the kinds, 1 the list */
-    float scroll;
+    float scroll, want, max;    /* the list's scroll, where the focus wants it, how far it goes */
+    UiPan pan;                  /* a finger moves it too */
     int list[MAX_ENTRIES], nl;  /* this kind's entries */
 } Store;
 
@@ -279,9 +281,12 @@ static void draw_list(Store *st, float x, float y, float w, float h)
         return;
     }
     float rh = SNTV_PHONE ? 150 : 132, gap = 16;
-    float want = st->focus * (rh + gap);   /* keep the focus in view */
-    if (want - st->scroll > h - rh) st->scroll = want - (h - rh);
-    if (want < st->scroll) st->scroll = want;
+    float at = st->focus * (rh + gap);   /* keep the focus in view */
+    if (at - st->want > h - rh) st->want = at - (h - rh);
+    if (at < st->want) st->want = at;
+    st->max = st->nl * (rh + gap) - gap - h;
+    if (st->max < 0) st->max = 0;
+    ui_pan_area(&st->pan, x - 8, y - 8, w + 16, h + 16, 1);
     gfx_clip_push(x - 8, y - 8, w + 16, h + 16);
     for (int i = 0; i < st->nl; i++) {
         float ry = y + i * (rh + gap) - st->scroll;
@@ -335,7 +340,16 @@ static void draw(Screen *s)
     font_draw(st->zone ? "OK: install   \xC2\xB7   Left: kinds   \xC2\xB7   Back: close" : "Up / Down: kinds   \xC2\xB7   Right: the addons   \xC2\xB7   Back: close", lx, SNTV_UI_H - 80, FONT_XS, THEME_TEXT_MUTED);
 }
 
-static void pick_kind(Store *st, int k) { st->kind = k; st->focus = 0; st->scroll = 0; filter(st); }
+static void pick_kind(Store *st, int k) { st->kind = k; st->focus = 0; st->scroll = st->want = 0; st->pan.vel = 0; filter(st); }
+
+static void update(Screen *s, float dt)
+{
+    Store *st = s->st;
+    float was = st->scroll;
+    ui_pan(&st->pan, &st->scroll, st->want, st->max, dt, 16);
+    if (ui_pan_free(&st->pan)) st->want = st->scroll;   /* where the finger left it, until a key or a tap moves the focus */
+    if (fabsf(st->scroll - was) > 0.1f) app_redraw();
+}
 
 static int key(Screen *s, KeyAction a)
 {
@@ -387,6 +401,6 @@ Screen *screen_addon_store_create(void)
     g_live = st;
     load(st);
     s->name = "addon_store"; s->st = st;
-    s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
     return s;
 }

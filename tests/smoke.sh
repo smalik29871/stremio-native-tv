@@ -1325,6 +1325,10 @@ grep -q "touch: drag on library at .*: nothing scrolls across there" "$OUT/phone
 # the hero is swiped across to the next title; Home tapped again goes back to the top
 run phone_hero_swipe 240 "wait,wait,wait,drag:600:400:100:400,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with phsw '{"setupDone":1}')"
 grep -q "home: hero swiped to [0-9]* of [0-9]*" "$OUT/phone_hero_swipe.log" || { echo "a swipe across the hero did not turn its page"; exit 1; }
+# Browse addons on a phone: the list follows a finger, and a tap then installs the row under it
+run store_phone_scroll 600 "wait,tap:702:1660,wait,tap:360:1224,wait,tap:360:585,wait,wait,tap:520:210,wait,drag:400:1500:400:500,wait,wait,wait,wait,wait,wait,tap:360:450,wait,tap:360:450,wait,wait" $PH HOME="$(home_with phs3 '{"setupDone":1}')" SNTV_ADDON_COLLECTIONS="http://127.0.0.1:$PORT/collection/official.json,http://127.0.0.1:$PORT/collection/many.json" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/addoncat/manifest.json"
+grep -q "touch: drag on addon_store follows the finger up and down" "$OUT/store_phone_scroll.log" && grep -qE "addon store: installing Helper 1[0-9]" "$OUT/store_phone_scroll.log" \
+  || { echo "Browse addons did not scroll with a finger on a phone"; grep -E "touch|addon store" "$OUT/store_phone_scroll.log"; exit 1; }
 run phone_home_retap 280 "wait,wait,wait,drag:390:1400:390:400,wait,tap:90:1640,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with phrt '{"setupDone":1}')"
 grep -q "home: back to the top" "$OUT/phone_home_retap.log" || { echo "Home tapped again did not go back to the top"; exit 1; }
 # an empty Search on a phone: Discover; a genre opens Explore on it, a poster its title page

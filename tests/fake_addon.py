@@ -558,6 +558,8 @@ class H(BaseHTTPRequestHandler):
             def item(name, url, res, desc, **hints):
                 return {"transportUrl": url, "transportName": "http", "manifest": {"id": "org.fake." + name.lower().replace(" ", ""), "name": name, "version": "1.0.0",
                         "description": desc, "resources": res, "types": ["movie"], "behaviorHints": hints}}
+            if p.startswith("/collection/many.json"):   # a long list, to scroll with a finger
+                return self.send(200, json.dumps([item(f"Helper {n:02d}", f"http://127.0.0.1:{PORT}/store/helper{n}/manifest.json", ["stream"], "Adds something useful") for n in range(1, 21)]).encode())
             if p.startswith("/collection/official.json"):
                 return self.send(200, json.dumps([item("Fake Official", f"http://127.0.0.1:{PORT}/manifest.json", ["catalog", "meta"], "An official addon")]).encode())
             return self.send(200, json.dumps([
