@@ -292,10 +292,17 @@ static void draw_host(Sync *s, float k)
     dev_ref(app_device_name(), 1, me, sizeof me);
     static const char *const STEPS[3] = { "Scan the code with your phone's camera", "Tap Open in Cuelight", "Choose: sync both ways, or make one like the other" };
     if (SNTV_PHONE) {
-        float cx = W / 2, y = 150, qs = 440;
+        /* all of it on one screen, the button included: the code takes what room is left, down to a
+         * size still easy to scan, and the steps go before the button does on a very short screen */
+        float cx = W / 2, y = H < 1300 ? 110 : 150, step = 76, below = 130 + 3 * step + 34 + 30 + 72 + 50;
+        float qs = H - y - 200 - below;
+        if (qs < 300) { step = 64; below -= 3 * 12; qs += 3 * 12; }   /* the steps closer together first */
+        int steps = qs >= 240;
+        if (!steps) qs = H - y - 200 - (below - 3 * step - 34);
+        qs = qs > 440 ? 440 : qs < 240 ? 240 : qs;
         font_draw_center("Sync with another device", cx, y, FONT_L | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
         wrap_center("Sign-ins, addons, library, progress, lists and ratings. Nothing is removed on either side.", cx, y + 70, FONT_S, THEME_TEXT_DIM, W - 100);
-        float py = y + 220;
+        float py = y + 200;
         if (s->qr_ready) {
             ui_panel(cx - qs / 2 - 30, py - 30, qs + 60, qs + 60, R_PANEL, RGBA(255, 255, 255, 0xFF));
             ui_qr(s->qr, cx - qs / 2, py, qs);
@@ -307,15 +314,16 @@ static void draw_host(Sync *s, float k)
             font_draw_center(sp, cx, py + qs + 44, FONT_S | FONT_B, THEME_TEXT);
             ty += 50;
         }
-        if (s->done[0]) { ui_icon(ICON_CHECK, cx, ty, 40, THEME_OK); wrap_center(s->done, cx, ty + 40, FONT_S | FONT_B, THEME_TEXT, W - 100); }
-        else for (int i = 0; i < 3; i++) {
-            float yy = ty + i * 76;
+        float yy = ty;
+        if (s->done[0]) { ui_icon(ICON_CHECK, cx, ty, 40, THEME_OK); wrap_center(s->done, cx, ty + 40, FONT_S | FONT_B, THEME_TEXT, W - 100); yy = ty + 3 * step + 34; }
+        else if (steps) for (int i = 0; i < 3; i++) {
             char num[4]; snprintf(num, sizeof num, "%d", i + 1);
             gfx_circle(70, yy + 16, 22, COLOR_ALPHA(THEME_ACCENT, 0xD0));
             font_draw_center(num, 70, yy + 16 - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_ON_ACCENT);
-            font_draw_fit(STEPS[i], 110, yy, FONT_S, THEME_TEXT, W - 150);
+            int lines = font_draw_wrapped(STEPS[i], 110, yy, FONT_S, THEME_TEXT, W - 150, 2);
+            yy += step + (lines > 1 ? 34 : 0);
         }
-        float by = ty + 3 * 76 + 30, bw = ui_pill_width("Find a device on my network", 1, 72);
+        float by = yy + 30, bw = ui_pill_width("Find a device on my network", 1, 72);
         ui_pill("Find a device on my network", 1, ICON_SEARCH, cx - bw / 2, by, 72, PILL_SECONDARY, s->hfocus == 0 && s->keyed);
         ui_hit(cx - bw / 2, by, bw, 72, 10);
         return;
