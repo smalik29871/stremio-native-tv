@@ -386,6 +386,9 @@ class H(BaseHTTPRequestHandler):
         noisy = p.startswith("/noisy/")
         if noisy:
             p = p[6:]
+        manyhits = p.startswith("/manyhits/")   # an addon whose search answers with 200 films, none named like the words typed
+        if manyhits:
+            p = p[9:]
         slowsearch = p.startswith("/slowsearch/")   # an addon whose search answers after 2 s
         if slowsearch:
             p = p[11:]
@@ -720,6 +723,9 @@ class H(BaseHTTPRequestHandler):
         if p == "/manifest.json":
             return self.send(200, json.dumps(MANIFEST).encode())
         if p.startswith("/catalog/"):
+            if "search=" in p and manyhits:
+                return self.send(200, json.dumps({"metas": [{"id": f"tt{5000 + k}", "type": "movie", "name": f"Other Film {k}", "releaseInfo": "Oct 2024",
+                                                             "poster": f"{BASE}/poster/{k % 12 + 3}.png"} for k in range(200)]}).encode())
             if "search=" in p and noisy:   # an addon whose search answers with its whole catalog
                 return self.send(200, json.dumps(CATALOG).encode())
             if "search=" in p:

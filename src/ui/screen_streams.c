@@ -723,11 +723,11 @@ static void query(Streams *st) { query_addons(&st->meta, st->video_id, st, g_gen
 
 static void prefetch_clear(void)
 {
-    g_pre.generation++;   /* answers still in flight are dropped */
+    unsigned next = g_pre.generation + 1;   /* answers still in flight are dropped (it was reset to the same number, so the last episode's came in as this one's) */
     streams_free(g_pre.items, g_pre.n);
     if (g_pre.has_meta) meta_preview_free(&g_pre.meta);
     memset(&g_pre, 0, sizeof g_pre);
-    g_pre.generation = g_generation + 1000;
+    g_pre.generation = next > g_generation + 1000 ? next : g_generation + 1000;
 }
 
 typedef struct { char *url; unsigned generation; } AheadReq;

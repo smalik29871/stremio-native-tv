@@ -386,6 +386,10 @@ run search_keyboard 200 "search,ok" SNTV_PHONE_HOST=192.168.1.20
 run search_groups 320 "search,t:re,right,right,right,right,right,right,right,right,right,right,right,down"
 grep -q "search: grouped 2 movies, 1 series, 0 other" "$OUT/search_groups.log" || { echo "search results were not grouped by type"; grep search "$OUT/search_groups.log"; exit 1; }
 # an addon whose search answers with its whole catalog: the title typed still comes first
+# an addon answering with 200 films, none named like the words typed: the suggestions read past
+# the 96th result and wrote over other memory (a TV crashed on the title page opened next)
+run search_many_hits 300 "search,t:zebra,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manyhits/manifest.json
+grep -q 'search: "Other Film 0" first of 200' "$OUT/search_many_hits.log" || { echo "a search with 200 results did not come back"; grep "search" "$OUT/search_many_hits.log"; exit 1; }
 run search_exact_first 260 "search,t:breaking bad" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/noisy/manifest.json
 grep -q 'search: "Breaking Bad" first of [0-9]*' "$OUT/search_exact_first.log" \
   || { echo "the title typed was not the first result"; grep "search" "$OUT/search_exact_first.log"; exit 1; }
