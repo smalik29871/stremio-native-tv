@@ -233,6 +233,45 @@ jobs:
           name: android-apk
           path: dist-android/
           if-no-files-found: error
+  windows:
+    # Windows x64: Cuelight.exe with its DLLs in a zip, cross-compiled here with MinGW-w64
+    # (tools/windows.sh). Like the APK it never holds the TV release back: a failure here only
+    # leaves the zip out of the release.
+    if: >-
+      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
+    name: Windows zip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix nasm zstd zip
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/torrentd/go.mod
+          cache-dependency-path: tools/torrentd/go.sum
+      - name: Cache FFmpeg (Windows player)
+        uses: actions/cache@v4
+        with:
+          path: build-win/ffmpeg
+          key: ffmpeg-player-win64-${{ hashFiles('tools/ffmpeg-player.sh') }}
+      - name: Build
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+          MDBLIST_KEY: ${{ secrets.MDBLIST_KEY }}
+          OPENSUBTITLES_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
+        run: |
+          bash tools/windows.sh build-win
+          mkdir -p dist-windows && cp build-win/Cuelight-*-windows-x64.zip dist-windows/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist-windows/
+          if-no-files-found: error
 
   promote:
     # A push to a claude/ branch whose appinfo.json version has no release yet, every test
@@ -280,7 +319,7 @@ jobs:
       needs.webos.result == 'success' &&
       (needs.ui.result == 'success' || (needs.ui.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || needs.promote.outputs.promoted == 'true')
-    needs: [desktop, webos, ui, promote, android]
+    needs: [desktop, webos, ui, promote, android, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -297,6 +336,12 @@ jobs:
         continue-on-error: true
         with:
           name: android-apk
+          path: dist
+      - uses: actions/download-artifact@v4   # the Windows zip, when the Windows job made one
+        if: needs.windows.result == 'success'
+        continue-on-error: true
+        with:
+          name: windows-zip
           path: dist
       - name: Decide release version
         id: ver
