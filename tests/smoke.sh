@@ -1097,7 +1097,9 @@ grep -q "torbox: 1 of 2 torrents cached" "$OUT/torbox_torrent.log" && grep -q "t
 # hold OK on a torrent nobody has cached: your TorBox gets it, its row follows the download,
 # and once TorBox has it, OK plays it from there
 NAV="wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,down,down,down,down,down,down,down"
-run torbox_get 1700 "$NAV,up,hold,$HOLD,release,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait" "$TB" SNTV_TORBOX_POLL_S=1 HOME="$(home_with tbget '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbget/manifest.json"
+# P2P off, so the torrent ranks last with or without the engine in the build (CI's UI jobs have none):
+# the downs land on it whatever else is listed
+run torbox_get 1700 "$NAV,hold,$HOLD,release,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait" "$TB" SNTV_TORBOX_POLL_S=1 HOME="$(home_with tbget '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0,"p2pFallback":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbget/manifest.json"
 grep -q "torbox: F00DF00DF00DF00DF00DF00DF00DF00DF00DF00D added to your TorBox (42%)" "$OUT/torbox_get.log" && grep -q "on your TorBox: 87%" "$OUT/torbox_get.log" \
   && grep -q "is ready on your TorBox" "$OUT/torbox_get.log" && grep -q "torbox: f00df00df00df00df00df00df00df00df00df00d plays from TorBox" "$OUT/torbox_get.log" \
   && ! grep -q "tbkey" "$OUT/torbox_get.log" && ! grep -q "streams: #[0-9]* .*Netflix" "$OUT/torbox_get.log" \
