@@ -7,5 +7,4 @@
   A commit message starting `0.x` triggers the release workflow.
 
 ## Branches
-- Short kebab-case names for the work, no prefixes: `audit-fixes`, `depth-maps`, `qr-fix`.
-- Releases: `release-0.x.y`.
+- `type/short-kebab-name`, e.g. `feat/phone-player`, `fix/subtitle-overlap`.
