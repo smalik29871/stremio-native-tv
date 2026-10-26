@@ -486,6 +486,7 @@ static int scale_of(int id, int *step)
 /* what the focused row drew, for the preview panel */
 static char s_ftitle[200], s_fvalue[300]; static Icon s_ficon; static int s_fkind, s_fon;
 static int s_chevron;        /* actions end in an arrow, except addons (their arrows move them) */
+static int s_swatches;       /* the row draws colour swatches as its second line */
 
 static void draw_row_body(float y, Icon icon, const char *title, const char *value, int focused, RowKind kind, int on);
 
@@ -521,7 +522,7 @@ static void draw_row_body(float y, Icon icon, const char *title, const char *val
         float th2 = font_height(FONT_S | FONT_B), ty = y + (h - th2 - font_height(FONT_XS | FONT_B) - 6) / 2, rx = x + w - 30;
         float ctl = kind == KIND_CHOICE ? (s_steps > 1 ? 190 : 100) : s_chevron ? 50 : 10, tw2 = w - 92 - ctl - 10;
         font_draw_fit(title, x + 92, ty, FONT_S | FONT_B, fg, tw2);
-        font_draw_fit(value, x + 92, ty + th2 + 6, FONT_XS | FONT_B, focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xC8) : kind == KIND_CHOICE ? THEME_ACCENT : THEME_TEXT_DIM, tw2);
+        if (!s_swatches) font_draw_fit(value, x + 92, ty + th2 + 6, FONT_XS | FONT_B, focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xC8) : kind == KIND_CHOICE ? THEME_ACCENT : THEME_TEXT_DIM, tw2);   /* swatches: they are the second line */
         if (kind == KIND_CHOICE) {
             float lx = rx - ctl + 34;
             if (s_steps > 1) {   /* the scale between the arrows */
@@ -547,7 +548,10 @@ static void draw_row_body(float y, Icon icon, const char *title, const char *val
     float right = kind == KIND_TOGGLE ? 130 : kind == KIND_MOVABLE ? 300 : kind == KIND_CHOICE ? cvw + 110
                 : value ? (font_measure(value, FONT_XS) < w * 0.45f - 90 ? font_measure(value, FONT_XS) : w * 0.45f - 90) + 80 : 60;
     float text_w = w - 92 - right - 16;
-    if (sub) {
+    if (SNTV_PHONE && font_measure(title, FONT_S | FONT_B) > text_w) {   /* a phone: a long name takes two lines rather than an ellipsis (its help line gives way) */
+        float lh = font_height(FONT_S | FONT_B);
+        font_draw_wrapped(title, x + 92, y + (h - 2 * lh) / 2, FONT_S | FONT_B, fg, text_w, 2);
+    } else if (sub) {
         float ty = y + (h - th - dh - 4) / 2;
         font_draw_fit(title, x + 92, ty, FONT_S | FONT_B, fg, text_w);
         font_draw_fit(sub, x + 92, ty + th + 4, FONT_XS, focused ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB8) : THEME_TEXT_DIM, text_w);
@@ -928,7 +932,7 @@ static void draw(Screen *s)
     { float e = 1 - (1 - st->pane_t) * (1 - st->pane_t); gfx_set_translate(40 * (1 - e), 0); }
     float y = ROWS_TOP - st->scroll;
     for (int i = 0; i < n; y += row_h(ids[i]), i++) {
-        int foc = st->zone == 1 && st->focus == i;
+        int foc = st->zone == 1 && st->focus == i && (!gfx_handheld() || g_app.key_at > g_app.touch_at);   /* a finger needs no lit row; a key (a keyboard) does */
         if (!foc && (y + ROW_H < ROWS_TOP - 20 || y > SNTV_UI_H)) continue;   /* the focused row always draws (the clip hides it), so the panel describes it */
         int id = ids[i];
         char v[300];
@@ -1090,8 +1094,9 @@ static void draw(Screen *s)
             char name[80];
             if (cur >= 0) snprintf(name, sizeof name, "%s on %s", theme_accent_name(g_app.theme, THEME_PALETTE[cur][0]), THEME_BG_NAMES[g_app.theme][THEME_PALETTE[cur][1]]);
             else snprintf(name, sizeof name, "Your own mix");
-            s_desc = " ";
+            s_desc = " "; s_swatches = 1;
             draw_row(y, ICON_PALETTE, "Colour palette", name, foc, KIND_CHOICE, 0);
+            s_swatches = 0;
             float sw = 40, sh = 24, step = 52, sx = s_x + 92, sy = y + (ROW_H - 12) / 2 + 4;
             for (int i = 0; i < THEME_PALETTES; i++) {
                 float bx = sx + i * step;
@@ -1102,23 +1107,45 @@ static void draw(Screen *s)
             }
             break;
         }
-        case IT_ACCENT: case IT_BG: {
-            /* the swatches sit on the help line, the current one framed */
-            int bg = id == IT_BG, n = bg ? THEME_BGS : THEME_ACCENTS + 1, cur = bg ? g_app.theme_bg : g_app.theme_accent;
-            s_desc = " ";
-            draw_row(y, ICON_PALETTE, bg ? "Background" : "Accent colour", bg ? THEME_BG_NAMES[g_app.theme][cur] : theme_accent_name(g_app.theme, cur), foc, KIND_CHOICE, 0);
-            float sz = bg ? 26 : 18, step = bg ? 40 : 28, sx = s_x + 92, sy = y + (ROW_H - 12) / 2 + 6;
+        case IT_ACCENT: {   /* the swatches sit on the help line, the current one framed */
+            int n = THEME_ACCENTS + 1, cur = g_app.theme_accent;
+            s_desc = " "; s_swatches = 1;
+            draw_row(y, ICON_PALETTE, "Accent colour", theme_accent_name(g_app.theme, cur), foc, KIND_CHOICE, 0);
+            s_swatches = 0;
+            float sz = 18, step = 30, sx = s_x + 92, sy = y + (ROW_H - 12) / 2 + 6;
             for (int i = 0; i < n; i++) {
                 float bx = sx + i * step;
-                Color c = bg ? theme_bg_swatch(g_app.theme, i) : theme_accent_swatch(g_app.theme, i);
-                if (i == cur) gfx_rrect_ring(bx - 3, sy - 3, sz + 6, sz + 6, theme_pill_r(sz + 6), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
-                if (!bg && i == THEME_ACCENT_ART) {   /* the artwork's colour: a little spectrum */
+                if (i == cur) gfx_rrect_ring(bx - 4, sy - 4, sz + 8, sz + 8, theme_pill_r(sz + 8), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
+                if (i == THEME_ACCENT_ART) {   /* the artwork's colour: a little spectrum */
                     gfx_rrect_grad_h(bx, sy, sz / 2, sz, theme_pill_r(sz) * 0.5f, RGBA(0xFF, 0x5C, 0x7A, 0xFF), RGBA(0xFF, 0xD8, 0x3D, 0xFF));
                     gfx_rrect_grad_h(bx + sz / 2, sy, sz / 2, sz, theme_pill_r(sz) * 0.5f, RGBA(0x3D, 0xE0, 0xFF, 0xFF), RGBA(0x9D, 0x7B, 0xFF, 0xFF));
                     continue;
                 }
-                gfx_rrect(bx, sy, bg ? sz * 1.4f : sz, sz, theme_pill_r(sz), c);
-                gfx_rrect_ring(bx, sy, bg ? sz * 1.4f : sz, sz, theme_pill_r(sz), 1, COLOR_ALPHA(foc ? THEME_ON_FOCUS : THEME_TEXT, 0x50));   /* a white swatch on a white row */
+                gfx_rrect(bx, sy, sz, sz, theme_pill_r(sz), theme_accent_swatch(g_app.theme, i));
+                gfx_rrect_ring(bx, sy, sz, sz, theme_pill_r(sz), 1, COLOR_ALPHA(foc ? THEME_ON_FOCUS : THEME_TEXT, 0x50));   /* a white swatch on a white row */
+            }
+            break;
+        }
+        case IT_BG: {
+            /* the tints are all near black: each a chip with its name, from the colour itself into
+             * its hue brought up, so they tell apart; the current one framed */
+            int cur = g_app.theme_bg;
+            s_desc = " "; s_swatches = 1;
+            draw_row(y, ICON_ASPECT, "Background", THEME_BG_NAMES[g_app.theme][cur], foc, KIND_CHOICE, 0);
+            s_swatches = 0;
+            float ch = 30, x0 = s_x + 92, sy = y + (ROW_H - 12) / 2 + 2;
+            for (int i = 0; i < THEME_BGS; i++) {
+                const char *nm = THEME_BG_NAMES[g_app.theme][i];
+                float cw = font_measure(nm, FONT_XS) + 34;
+                Color c = theme_bg_swatch(g_app.theme, i);
+                int ch3[3] = { (int)(c >> 24 & 0xFF), (int)(c >> 16 & 0xFF), (int)(c >> 8 & 0xFF) }, avg = (ch3[0] + ch3[1] + ch3[2]) / 3;
+                for (int k = 0; k < 3; k++) { int v = 0x34 + (ch3[k] - avg) * 6; ch3[k] = v < 0 ? 0 : v > 255 ? 255 : v; }
+                Color hue = RGBA(ch3[0], ch3[1], ch3[2], 0xFF);
+                if (i == cur) gfx_rrect_ring(x0 - 4, sy - 4, cw + 8, ch + 8, theme_pill_r(ch + 8), 2.5f, foc ? THEME_ON_FOCUS : THEME_TEXT);
+                gfx_rrect_grad_h(x0, sy, cw, ch, theme_pill_r(ch), c, hue);
+                gfx_rrect_ring(x0, sy, cw, ch, theme_pill_r(ch), 1, COLOR_ALPHA(THEME_TEXT, 0x30));
+                font_draw(nm, x0 + 17, sy + (ch - font_height(FONT_XS)) / 2, FONT_XS, RGBA(0xF2, 0xF2, 0xF4, i == cur ? 0xFF : 0xC0));   /* light on every chip: they are all dark */
+                x0 += cw + 14;
             }
             break;
         }

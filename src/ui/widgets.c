@@ -175,9 +175,17 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         gfx_rrect_ring(cx - s * 0.44f, cy - s * 0.24f, s * 0.88f, s * 0.48f, s * 0.24f, t, c);
         gfx_circle(cx, cy, s * 0.13f, c);
         break;
-    case ICON_MOON:   /* a crescent: most of a thick ring */
-        ui_arc(cx + s * 0.02f, cy, s * 0.26f, s * 0.2f, 0.42f, 0.66f, c);
+    case ICON_MOON: {   /* a crescent, thick in the middle and pointed at the tips (a ring would read as a C) */
+        float r = s * 0.36f, ix = cx + r * 0.42f, iy = cy - r * 0.22f, ir = r * 0.86f;
+        for (int k = 0; k <= 40; k++) {
+            float a = 1.2f + 3.9f * k / 40;   /* the left side, top to bottom */
+            float ox = cx + r * cosf(a), oy = cy + r * sinf(a);
+            float qx = ix + ir * cosf(a), qy = iy + ir * sinf(a);
+            if ((qx - cx) * (qx - cx) + (qy - cy) * (qy - cy) > r * r) continue;   /* past the tips: the two circles have crossed */
+            gfx_line(ox, oy, qx, qy, s * 0.07f, c);
+        }
         break;
+    }
     case ICON_SPARK:   /* a four-point sparkle and a small one */
         gfx_line(cx - s * 0.06f, cy - s * 0.40f, cx - s * 0.06f, cy + s * 0.32f, t * 1.2f, c);
         gfx_line(cx - s * 0.40f, cy - s * 0.04f, cx + s * 0.28f, cy - s * 0.04f, t * 1.2f, c);
@@ -1676,8 +1684,18 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
     } else {   /* no picture: the name on the card */
         gfx_rrect_grad_v(cx, cy, cw, ch, R_CARD, COLOR_ALPHA(THEME_TEXT, 0x18), COLOR_ALPHA(THEME_TEXT, 0x08));
         if (title) {
-            gfx_clip_push(cx + 14, cy, cw - 28, ch);
-            font_draw_wrapped(title, cx + 18, cy + ch * 0.36f, FONT_S | FONT_B, THEME_TEXT_DIM, cw - 36, 3);
+            /* a narrow card (a preview's): less margin, and a smaller size when a word would break inside */
+            float pad = cw < 140 ? 10 : 18, avail = cw - 2 * pad;
+            int fs = FONT_S | FONT_B;
+            char word[64]; const char *p = title;
+            while (*p && fs != (FONT_XS | FONT_B)) {
+                size_t n = strcspn(p, " ");
+                snprintf(word, sizeof word, "%.*s", (int)(n < sizeof word ? n : sizeof word - 1), p);
+                if (font_measure(word, fs) > avail) fs = FONT_XS | FONT_B;
+                p += n; while (*p == ' ') p++;
+            }
+            gfx_clip_push(cx + pad - 4, cy, cw - 2 * pad + 8, ch);
+            font_draw_wrapped(title, cx + pad, cy + ch * 0.36f, fs, THEME_TEXT_DIM, avail, 3);
             gfx_clip_pop();
         }
     }

@@ -162,6 +162,7 @@ typedef struct App {
     int home_rows_version;     /* bumped when rows are reordered or hidden */
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
+    float key_at, touch_at;    /* the last remote/keyboard key, and the last finger lifted: a phone shows the focus only to a key */
     int key_repeat;            /* the key being handled is auto-repeat from a held key */
     int enter_key;             /* the OK being handled is a computer keyboard's Enter (desktop): it finishes typing */
 

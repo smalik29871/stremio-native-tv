@@ -519,7 +519,7 @@ static void touch_event(const SDL_Event *e)
     touch_motion(e->tfinger.x, e->tfinger.y);
     g_app.finger_on = 0;
     g_touch.down = 0;
-    g_app.last_input = g_app.time;
+    g_app.last_input = g_app.touch_at = g_app.time;
     if (g_touch.mode == 3) {
         float ux, uy;
         touch_to_ui(e->tfinger.x, e->tfinger.y, &ux, &uy);
@@ -1065,7 +1065,7 @@ int main(int argc, char **argv)
 #endif
                 perf_key();
                 KeyAction a = input_map(&e);
-                g_app.last_input = g_app.time;
+                g_app.last_input = g_app.key_at = g_app.time;
                 ui_pan_keys();   /* a key: the lists follow the focus again */
                 g_app.key_repeat = e.key.repeat != 0;
                 if (a == KEY_LEFT || a == KEY_RIGHT || a == KEY_UP || a == KEY_DOWN) {   /* held, or pressed fast (remotes that send no repeats): the focus is travelling */
