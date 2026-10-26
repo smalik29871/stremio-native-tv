@@ -551,20 +551,20 @@ run sync_start 700 "left,down,down,down,down,down,down,ok,wait,ok,t:sam@example.
 grep -q "account: 3 addons from this TV will join the account" "$OUT/sync_start.log" && grep -q "toast: Installed Fake Addon" "$OUT/sync_start.log" \
   || { echo "signing in did not bring this TV's addons into the account"; grep -E "account|addons|toast" "$OUT/sync_start.log"; exit 1; }
 run settings 280 "left,down,down,down,down,down,ok,down,down,down,right,down,down,down,down,down"
-run diagnostics 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok"
+run diagnostics 520 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok"
 # Diagnostics > YouTube: every way to get a video tried, the verdict shown, and Play opens it
-run diagnostics_youtube 1040 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,right,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,ok,wait,wait"
+run diagnostics_youtube 1060 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,right,right,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,ok,wait,wait"
 grep -q "youtube test: visionOS answered | its files 1080p video and audio open | TV not needed | its files not needed | playlist up to 1080p, plays | file available (360p at most) => 1080p, from the visionOS client" "$OUT/diagnostics_youtube.log" \
   && grep -q "player: candidate 1/4 YouTube test - best" "$OUT/diagnostics_youtube.log" \
   || { echo "the YouTube test did not report or play"; grep -E "youtube|player: candidate" "$OUT/diagnostics_youtube.log"; exit 1; }
 # Diagnostics > Speed: startup milestones, key-to-screen time and frame cost per screen
-run diagnostics_speed 740 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,wait,right,wait"
+run diagnostics_speed 760 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,wait,right,wait"
 grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms, .*slowest [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -qE "speed:   home .* ms   [0-9]+ \([0-9]+ late" "$OUT/diagnostics_speed.log" \
   || { echo "the Speed tab did not measure"; grep speed: "$OUT/diagnostics_speed.log"; exit 1; }
-run diagnostics_filter 540 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,left,left"
-run diagnostics_qr 520 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,ok"
+run diagnostics_filter 560 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,left,left"
+run diagnostics_qr 540 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,ok"
 grep -q "diagnostics: the log ([0-9]* lines) is at a link while the code shows" "$OUT/diagnostics_qr.log" || { echo "the log QR is not a link to the whole log"; grep diagnostics "$OUT/diagnostics_qr.log"; exit 1; }
-run diagnostics_prev_qr 540 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,blue,ok"
+run diagnostics_prev_qr 560 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,blue,ok"
 run settings_more 340 "left,down,down,down,down,down,ok,down,down,down,down,down,right,down"
 # first-run setup on a fresh profile: first step, then a later step after a few answers
 run welcome 90 "" HOME="$(home_with fresh '{}')"
@@ -772,7 +772,7 @@ grep -q "video: a browser opened the page" "$OUT/addon_configure_browser.log" &&
 run addon_options 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down,down,ok" HOME="$(home_with cfgo '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="$CONF_ADDONS"
 grep -q "UI check: screen=options" "$OUT/addon_options.log" || { echo "OK on an addon did not open its options"; exit 1; }
 run addon_setup_screen 500 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down,down,ok,ok,wait,wait,wait" SNTV_PHONE_HOST=192.168.1.20 HOME="$(home_with cfgs '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="$CONF_ADDONS"
-run diagnostics_copy_phone 520 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,ok,wait" SNTV_HANDHELD=1 SNTV_WINDOW=1280x600
+run diagnostics_copy_phone 540 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,ok,wait" SNTV_HANDHELD=1 SNTV_WINDOW=1280x600
 grep -q "diagnostics: the log ([0-9]* lines) copied" "$OUT/diagnostics_copy_phone.log" || { echo "a phone did not copy the log"; grep -E "diagnostics|UI check" "$OUT/diagnostics_copy_phone.log"; exit 1; }
 # the subtitles sheet: languages, then their choices; Look and timing at the end
 run player_subs_second 520 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,ok,right,back,down,down,down,ok" SNTV_FAKE_START=200 HOME="$(home_with subs2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -1371,7 +1371,7 @@ run phone_setup 160 "wait,wait" $PH SNTV_EXPECT_SCREEN=welcome HOME="$(home_with
 run phone_signin 260 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wait,wait" $PH SNTV_EXPECT_SCREEN=login HOME="$(home_with ph10 '{"setupDone":1}')"
 run phone_signin_pw 300 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wait,tap:390:791,wait,t:me@example.com,wait" $PH SNTV_EXPECT_SCREEN=login HOME="$(home_with ph11 '{"setupDone":1}')"
 run phone_about 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:364,wait,wait" $PH SNTV_EXPECT_SCREEN=whatsnew HOME="$(home_with ph12 '{"setupDone":1}')"
-run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:1003,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
+run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:1103,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
 run phone_calendar 220 "wait,tap:546:1660,wait,tap:370:76,wait,wait" $PH SNTV_EXPECT_SCREEN=calendar HOME="$(home_with ph14 '{"setupDone":1}')"
 # a phone's real size (600 units across, as 360-400 dp phones are): settings rows keep their titles with the
 # value below, the sync page fits a short screen with its button, the recommendation names the stream
@@ -1449,7 +1449,7 @@ run fs_player_edge 420 "$FSP,drag:400:1060:400:600" $LS SNTV_EXPECT_SCREEN=playe
 # a phone's sources, scrolled: no row under the recommendation, every chip right of the addon's name
 run phone_streams_scrolled 360 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,drag:390:1500:390:1000,wait" $PH SNTV_EXPECT_SCREEN=streams HOME="$(home_with ph22 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 # Settings > About > Storage: what the app keeps here, and OK clears the cache
-run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:1105,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
+run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:1205,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
 grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cache cleared" "$OUT/storage_clear.log" || { echo "Storage did not count or clear the cache"; grep -E "storage|tidy" "$OUT/storage_clear.log"; exit 1; }
 # a TV low on storage: the cache clears by itself and says so once
 run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 SNTV_AUTO_CLEAR_MIN_MB=0 HOME="$(home_with stlow '{"setupDone":1}')"
@@ -1461,7 +1461,7 @@ run storage_low_small 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DE
 grep -q "the cache (.* MB) is too small to make a difference, so it stays" "$OUT/storage_low_small.log" && ! grep -q "clearing the cache" "$OUT/storage_low_small.log" \
   && grep -q "E crash: SIGSEGV" "$STH/.local/share/stremio/nativetv/app.prev.log" \
   || { echo "a small cache was cleared on a TV low on storage"; grep -E "storage|tidy" "$OUT/storage_low_small.log"; exit 1; }
-run settings_storage 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down" SNTV_TIDY_DELAY=0
+run settings_storage 480 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,down" SNTV_TIDY_DELAY=0
 # an episode's guest stars lead the cast drawer
 run player_guests 480 "right,ok,down,down,right,play,wait,wait,wait,wait,wait,wait,info,wait" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg HOME="$(home_with pguest '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')"
 grep -q "tmdb: S[0-9]*E[0-9]* of [0-9]* has 2 guest stars" "$OUT/player_guests.log" && grep -q "player: cast drawer (6 people)" "$OUT/player_guests.log" || { echo "the episode's guest stars did not join the cast"; grep -E "tmdb|cast" "$OUT/player_guests.log"; exit 1; }
