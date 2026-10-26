@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.83
+
+- **A new player on Windows**, laid out like the streaming apps: one row along the bottom
+  (play, 10 s back and on, the volume, the title in the middle, then episodes, sources, audio
+  & subtitles, speed and full screen), each button named when the pointer rests on it. The
+  timeline grows under the pointer and shows the picture there with the time and the
+  chapter. Audio and subtitles open together, with the subtitle size and timing below.
+  Paused for a few seconds, a "You're watching" card tells you what this is; during the
+  credits the episode steps back to a corner and the next one counts down beside it, with
+  Watch credits and Next episode. Up and Down change the volume, M mutes, F is full screen.
+- **YouTube trailers have seek previews**, from the small pictures YouTube makes for its own
+  timeline.
+- **The living letterbox keeps up on slower TVs.** It learns how fast frames come on your TV
+  and only changes the light at cuts it can get ready in time, so it never trails the
+  picture; it reads frames from what is already loaded when it can. On Android phones and
+  tablets the light now comes from the picture itself, live.
+
 ## 0.10.82
 
 - **FFmpeg as libraries of its own.** On Windows the player's FFmpeg is now a set of DLLs beside
