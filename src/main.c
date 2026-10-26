@@ -346,6 +346,16 @@ static void dev_hooks(SDL_Window *win, int frame)
                 e.type = SDL_KEYUP; SDL_PushEvent(&e);
                 continue;
             }
+            char fk[16]; int fn;
+            if (sscanf(tok, "fast:%15[a-z]:%d", fk, &fn) == 2) {   /* a direction key held: fn presses at once, all but the first marked as repeats */
+                for (int k = 0; keys[k].n; k++) if (!strcmp(keys[k].n, fk))
+                    for (int r = 0; r < fn; r++) {
+                        SDL_Event e; memset(&e, 0, sizeof e);
+                        e.type = SDL_KEYDOWN; e.key.keysym.sym = keys[k].k; e.key.keysym.scancode = SDL_SCANCODE_UNKNOWN; e.key.repeat = r > 0;
+                        SDL_PushEvent(&e);
+                    }
+                continue;
+            }
             if (strncmp(tok, "t:", 2) == 0) {   /* typed text */
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_TEXTINPUT;
@@ -394,6 +404,7 @@ static void dev_hooks(SDL_Window *win, int frame)
 
 static int g_enter_down;   /* the OK pressed last came from a computer keyboard's Enter */
 static int g_seen_keyup, g_ok_down, g_ok_long;
+static float g_travel_until, g_last_dir;   /* the focus travelling under a held (or fast) direction key; when the last one came */
 
 /* Touch, for phones and tablets (the app is laid out for a remote): a tap is on what is under
  * the finger, a press held half a second is the hold-OK menu. A drag moves the page, list or
@@ -1057,6 +1068,12 @@ int main(int argc, char **argv)
                 g_app.last_input = g_app.time;
                 ui_pan_keys();   /* a key: the lists follow the focus again */
                 g_app.key_repeat = e.key.repeat != 0;
+                if (a == KEY_LEFT || a == KEY_RIGHT || a == KEY_UP || a == KEY_DOWN) {   /* held, or pressed fast (remotes that send no repeats): the focus is travelling */
+                    int was = g_app.time < g_travel_until;
+                    g_travel_until = e.key.repeat || g_app.time - g_last_dir < 0.2f ? g_app.time + 0.3f : 0;
+                    if (!was && g_travel_until > 0) LOGI("input: the focus is travelling (a held key): pictures ahead of it wait");
+                    g_last_dir = g_app.time;
+                }
                 if (a == KEY_EXIT) { g_app.quit = 1; continue; }
                 if (a == KEY_NONE) {   /* a remote key the app doesn't know yet: what it was, for Diagnostics */
                     if (!e.key.repeat) LOGI("input: unmapped key sym %d scancode %d", (int)e.key.keysym.sym, (int)e.key.keysym.scancode);
@@ -1148,6 +1165,7 @@ int main(int argc, char **argv)
         http_pump();
         tracking_tick();
         { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
+        image_hold_speculative(g_app.time < g_travel_until);
         image_pump();
         image_frame_tick();
         video_update();

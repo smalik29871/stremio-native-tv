@@ -341,7 +341,7 @@ static void draw(Screen *s)
             char one[300]; snprintf(one, sizeof one, "%.*s", (int)(e - p), p);
             font_draw_fit(one, x + 10, ly, (one[0] == ' ' ? FONT_S | FONT_ALT : FONT_S | FONT_B), one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20);
         }
-        font_draw("A whole frame over 17 ms is a dropped frame at 60 Hz. The figures are also in the log (Everything) for the QR code.", x, LIST_Y + list_h + 30, FONT_XS, THEME_TEXT_MUTED);
+        font_draw("A late frame missed a screen refresh (60 a second); slowest is the worst one so far. The figures are also in the log (Everything) for the QR code.", x, LIST_Y + list_h + 30, FONT_XS, THEME_TEXT_MUTED);
         app_redraw();   /* the numbers keep moving */
         if (d->show_qr) draw_qr_overlay(d);
         return;

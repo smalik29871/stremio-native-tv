@@ -8,11 +8,11 @@
 
 enum { BINS = 101, MAX_MARKS = 12, MAX_SCREENS = 16 };   /* bin 100 holds everything >= 100 ms */
 
-typedef struct { unsigned n, bins[BINS]; } Hist;
+typedef struct { unsigned n, bins[BINS]; float max; } Hist;   /* max: the slowest, exactly (the bins stop at 100) */
 
 static struct { char name[24]; Uint32 at; } g_marks[MAX_MARKS];
 static int g_n_marks;
-static struct { char name[16]; Hist h, total; double fill_sum; float fill_max; } g_screens[MAX_SCREENS];
+static struct { char name[16]; Hist h, total; unsigned late; double fill_sum; float fill_max; } g_screens[MAX_SCREENS];   /* late: frames that missed a refresh */
 static int g_n_screens;
 static Hist g_keys;
 static Uint32 g_key_at;   /* 0: no key waiting to be shown */
@@ -22,6 +22,7 @@ static void hist_add(Hist *h, float ms)
     int b = ms < 0 ? 0 : ms >= BINS - 1 ? BINS - 1 : (int)(ms + 0.5f);
     h->bins[b]++;
     h->n++;
+    if (ms > h->max) h->max = ms;
 }
 
 static int hist_pct(const Hist *h, float p)
@@ -52,6 +53,7 @@ void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
     }
     hist_add(&g_screens[i].h, work_ms);
     hist_add(&g_screens[i].total, total_ms);
+    if (total_ms > 25) g_screens[i].late++;   /* past a second refresh at 60 Hz (one is 16.7 ms; a frame that waited for it lands near 17) */
     g_screens[i].fill_sum += fill;
     if (fill > g_screens[i].fill_max) g_screens[i].fill_max = fill;
 }
@@ -123,17 +125,17 @@ void perf_report(char *out, size_t n)
     for (int i = 0; i < g_n_marks; i++) ADD("%s %s %.1f s", i ? "," : "", g_marks[i].name, g_marks[i].at / 1000.0);
     if (!g_n_marks) ADD(" not measured");
     ADD("\n");
-    if (g_keys.n) ADD("Key to screen: typical %d ms, slow (1 in 20) %d ms, %u keys\n", hist_pct(&g_keys, 0.5f), hist_pct(&g_keys, 0.95f), g_keys.n);
+    if (g_keys.n) ADD("Key to screen: typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms, %u keys\n", hist_pct(&g_keys, 0.5f), hist_pct(&g_keys, 0.95f), g_keys.max, g_keys.n);
     else ADD("Key to screen: no keys yet\n");
     if (g_n_starts) {
         ADD("Stream starts, newest first (press to first frame):\n");
         for (int i = 0; i < g_n_starts; i++) { char line[200]; start_line(&g_starts[i], line, sizeof line); ADD("  %s\n", line); }
     } else ADD("Stream starts: none yet\n");
-    ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20, frames, screens of pixels painted (average / most):\n");
+    ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20 / slowest, frames (late: missed a refresh), screens of pixels painted (average / most):\n");
     for (int i = 0; i < g_n_screens; i++) {
         const Hist *h = &g_screens[i].h, *t = &g_screens[i].total;
-        ADD("  %-12s %3d / %3d ms   %3d / %3d ms   %u   %.1f / %.1f\n", g_screens[i].name, hist_pct(h, 0.5f), hist_pct(h, 0.95f), hist_pct(t, 0.5f), hist_pct(t, 0.95f), h->n,
-            h->n ? g_screens[i].fill_sum / h->n : 0, g_screens[i].fill_max);
+        ADD("  %-12s %3d / %3d ms   %3d / %3d / %.0f ms   %u (%u late, %.1f%%)   %.1f / %.1f\n", g_screens[i].name, hist_pct(h, 0.5f), hist_pct(h, 0.95f), hist_pct(t, 0.5f), hist_pct(t, 0.95f), t->max,
+            h->n, g_screens[i].late, h->n ? 100.0 * g_screens[i].late / h->n : 0, h->n ? g_screens[i].fill_sum / h->n : 0, g_screens[i].fill_max);
     }
 #undef ADD
 }

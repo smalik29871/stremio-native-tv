@@ -558,7 +558,7 @@ grep -q "youtube test: visionOS answered | its files 1080p video and audio open 
   || { echo "the YouTube test did not report or play"; grep -E "youtube|player: candidate" "$OUT/diagnostics_youtube.log"; exit 1; }
 # Diagnostics > Speed: startup milestones, key-to-screen time and frame cost per screen
 run diagnostics_speed 740 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,wait,right,wait"
-grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -q "speed:   home " "$OUT/diagnostics_speed.log" \
+grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms, .*slowest [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -qE "speed:   home .* ms   [0-9]+ \([0-9]+ late" "$OUT/diagnostics_speed.log" \
   || { echo "the Speed tab did not measure"; grep speed: "$OUT/diagnostics_speed.log"; exit 1; }
 run diagnostics_filter 540 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,left,left"
 run diagnostics_qr 520 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,ok,ok"
@@ -914,6 +914,16 @@ run detail_mdblist 260 "wait,ok,down" HOME="$(home_with mdb '{"prefSubs":"eng","
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)
 run transition_zoom 34 "right,ok" SNTV_NO_TRANSITIONS= SNTV_FRAME_DT=0.016
+# Back to Home after a change on the title page (an episode marked): Home holds it until the
+# page has shrunk back into its card, then puts it in
+run return_path 620 "right,ok,down,down,right,hold,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,release,wait,wait,ok,wait,wait,back,back,wait,wait,wait" SNTV_NO_TRANSITIONS= SNTV_EXPECT_SCREEN=home HOME="$(home_with rp '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "home: changes wait for the way back to finish" "$OUT/return_path.log" && grep -q "home: the way back finished; the changes go in" "$OUT/return_path.log" || { echo "Home changed under the way back"; grep -E "home:|toast" "$OUT/return_path.log"; exit 1; }
+# a held direction key: the focus travels and the pictures ahead of it wait
+run home_travel 200 "wait,fast:right:8,wait,wait"
+grep -q "input: the focus is travelling" "$OUT/home_travel.log" || { echo "a held key was not seen as travelling"; exit 1; }
+# Automatic effects follow the frame times both ways: slow frames drop to light, quick ones bring full back
+run fx_adapt 700 "" SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="40x100,6" HOME="$(home_with fxa '{"setupDone":1,"fx":0}')"
+grep -q "perf: frames slow .* -> light effects" "$OUT/fx_adapt.log" && grep -q "perf: frames quick again .* -> full effects" "$OUT/fx_adapt.log" || { echo "automatic effects did not follow the frame times"; grep "perf:" "$OUT/fx_adapt.log"; exit 1; }
 run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000 SNTV_MEM_SAMPLE_S=0.5   # read twice a second: the step down comes whatever the frame rate
 grep -q "memory saver on (memory got tight)" "$OUT/home_mem_tight.log" && grep -q "memory: tight (87 MB free of 2929): the saver" "$OUT/home_mem_tight.log" || { echo "a tight TV did not step down"; grep -E "memory" "$OUT/home_mem_tight.log"; exit 1; }
 run home_mem_low 600 "right,right" SNTV_FAKE_MEM=3000000,400000 SNTV_MEM_SAMPLE_S=0.5

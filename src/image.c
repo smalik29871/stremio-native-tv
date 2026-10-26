@@ -57,6 +57,8 @@ static Img *g_buckets[BUCKETS];
 static size_t g_total_bytes, g_budget = SNTV_IMAGE_CACHE_BYTES;
 static volatile int g_max_dim = SNTV_IMAGE_MAX_DIM;   /* read by the decoders */
 static unsigned g_clock;
+static unsigned g_drawn_at;   /* g_clock when a picture was last asked for (a frame drew): idle time makes nothing stale */
+static int g_hold;            /* a held key is moving the focus: no pictures ahead of it */
 static char g_cache_dir[1024];
 static char g_old_cache_dir[1024];   /* where the cache was before: emptied once */
 static int g_pending_decodes;
@@ -420,7 +422,7 @@ unsigned image_get_ex(const char *url, ImageFlags flags, int *w, int *h, unsigne
 {
     if (!url || !*url) return 0;
     Img *i = get_or_create(url, flags);
-    i->last_used = g_clock;
+    i->last_used = g_drawn_at = g_clock;
     if (i->state != IMG_READY) return 0;
     if (w) *w = i->w;
     if (h) *h = i->h;
@@ -433,6 +435,7 @@ unsigned image_get(const char *url, int *w, int *h) { return image_get_ex(url, I
 void image_prefetch(const char *url)
 {
     if (!url || !*url) return;
+    if (g_hold) { Img *k = find_flags(url, IMAGE_PLAIN); if (!k || k->state == IMG_EVICTED) return; }   /* while a key is held: what is on screen first; the rest once it rests */
     Img *i = get_or_create(url, IMAGE_PLAIN);
     if (i->last_used + 30 < g_clock) i->last_used = g_clock - 30;   /* keep alive briefly, but evictable */
 }
@@ -536,7 +539,31 @@ void image_pump(void)
     evict_if_needed();
 }
 
-void image_frame_tick(void) { g_clock++; }
+void image_hold_speculative(int on) { g_hold = on; }
+
+/* Pictures still waiting for a download that nothing has drawn for a while (scrolled past,
+ * a screen left): their turn goes, so the lane serves what is on screen now. Asked for
+ * again, they queue again. */
+static void drop_stale_requests(void)
+{
+    int n = 0;
+    for (int b = 0; b < BUCKETS; b++)
+        for (Img *i = g_buckets[b]; i; i = i->next)
+            if (i->state == IMG_LOADING && i->req && i->last_used + 120 < g_drawn_at && http_cancel_queued(i->req)) {
+                i->req = 0;
+                i->state = IMG_EVICTED;
+                n++;
+            }
+    static Uint32 said; static int total;
+    total += n;
+    if (total && SDL_GetTicks() - said > 10000) { LOGI("image: %d waiting downloads no longer on screen dropped", total); said = SDL_GetTicks(); total = 0; }
+}
+
+void image_frame_tick(void)
+{
+    g_clock++;
+    if (g_clock % 30 == 0) drop_stale_requests();
+}
 size_t image_cache_bytes(void) { return g_total_bytes; }
 
 int image_busy(void)

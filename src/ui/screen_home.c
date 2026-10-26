@@ -55,6 +55,7 @@ typedef struct Row {
     UiPan pan;                    /* ...a finger dragging it */
     float arrived_at;             /* when titles first replaced the placeholders */
     float shown_at;               /* when the pictures in view were in and the cards rose in (0: not yet) */
+    ParsedMetas *held;            /* a newer list that came while Home was away: put in once the way back has finished */
     char url[1024];
 } Row;
 
@@ -67,6 +68,7 @@ typedef struct {
     float scroll_y, scroll_yv;
     float nudge_at; int nudge_dir;   /* pressed past the end: the row (dir ±1) or the list (±2) nudges and settles */
     int addons_seen, library_seen, rows_seen, watched_seen, lists_seen, trakt_seen;
+    int held_logged;          /* changes waiting for the way back (said once) */
     float focus_t;            /* 0..1 grow-in of the focused card */
     int prev_row, prev_col; float prev_t;
     char hero_id[256];
@@ -167,6 +169,7 @@ static void row_free(Row *r)
     if (!r) return;
     if (r->req) http_cancel(r->req);
     meta_previews_free(r->metas, r->n);
+    if (r->held) { meta_previews_free(r->held->m, r->held->n); free(r->held); }
     free(r);
 }
 
@@ -354,7 +357,15 @@ static void on_catalog(HttpResponse *r, void *user)
         return;
     }
     ParsedMetas *pm = r->parsed;   /* parsed and cached on the network thread */
-    if (pm) { r->parsed = NULL; apply_metas(row, pm->m, pm->n); free(pm); }
+    if (!pm) return;
+    r->parsed = NULL;
+    Screen *top = app_top();
+    if (row->n && (app_transition_active() || !top || top->st != g_home_live)) {   /* away, or on the way back: the card Back returns to stays where it was */
+        if (row->held) { meta_previews_free(row->held->m, row->held->n); free(row->held); }
+        row->held = pm;
+        return;
+    }
+    apply_metas(row, pm->m, pm->n); free(pm);
 }
 
 static void fetch_row(Row *r)
@@ -806,6 +817,17 @@ static void update(Screen *s, float dt)
     if (g_theme.id == THEME_APERTURE) ui_aperture_drift_tick();
     Home *h = s->st;
     if (g_app.time > 4) note_first_view(h);
+    /* on the way back from a title page: the rows stay as they were, so the page shrinks into
+     * its card where it still is; what changed meanwhile goes in when it has finished */
+    if (app_transition_active()) {
+        int changed = h->addons_seen != g_app.addons_version || h->rows_seen != g_app.home_rows_version || h->library_seen != g_app.library_version
+                      || h->trakt_seen != tracking_version() || h->lists_seen != lists_version();
+        for (int i = 0; i < h->n_rows && !changed; i++) changed = h->rows[i]->held != NULL;
+        if (changed && !h->held_logged) { h->held_logged = 1; LOGI("home: changes wait for the way back to finish"); }
+        return;
+    }
+    if (h->held_logged) { h->held_logged = 0; LOGI("home: the way back finished; the changes go in"); }
+    for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->held) { ParsedMetas *pm = h->rows[i]->held; h->rows[i]->held = NULL; apply_metas(h->rows[i], pm->m, pm->n); free(pm); }
     if (h->addons_seen != g_app.addons_version || h->rows_seen != g_app.home_rows_version) rebuild_rows(h);
     if (h->watched_seen != g_app.hide_watched) {   /* the toggle changed: catalogs reload from cache */
         h->watched_seen = g_app.hide_watched;

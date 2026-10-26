@@ -19,6 +19,7 @@ void image_shutdown(void);
 unsigned image_get(const char *url, int *w, int *h);
 unsigned image_get_ex(const char *url, ImageFlags flags, int *w, int *h, unsigned *age);
 void image_prefetch(const char *url);   /* start loading without needing it this frame */
+void image_hold_speculative(int on);    /* 1 while a held key moves the focus: prefetches wait */
 int  image_failed(const char *url);
 unsigned image_peek(const char *url, int *w, int *h);   /* the texture if already loaded; never starts a request */
 unsigned image_peek_ex(const char *url, ImageFlags flags, int *w, int *h);

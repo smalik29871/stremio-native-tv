@@ -381,7 +381,7 @@ static const char *row_desc(int id)
     case IT_AUTO_TRAILER: return "When you stay on a title, its trailer plays behind the artwork on Home and the title page, then the artwork comes back.";
     case IT_HIDE_WATCHED: return "Films and series you finished leave the catalog rows.";
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
-    case IT_FX: return "Light drops shadows and glows; Automatic decides from frame times.";
+    case IT_FX: return "Light drops shadows and glows; Automatic follows frame times, back and forth.";
     case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
     case IT_DEPTH: return depth_off() == 1 && mem_saver_lasting() ? "Off while the memory saver is on (Memory use, further down): Depth needs room for its maps."
                         : depth_off() == 1 ? "Off for now: the TV is short of memory. It comes back by itself when there is room again."
