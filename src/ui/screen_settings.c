@@ -286,7 +286,7 @@ static const char *row_title(int id)
     case IT_FX: return "Visual effects";
     case IT_OLED: return "Pure black (OLED)";
     case IT_ASK_PROFILE: return "Ask who's watching at start";
-    case IT_AMBIENT: return "Screensaver";
+    case IT_AMBIENT: return gfx_handheld() ? "Screensaver on the charger" : "Screensaver";
     case IT_AMBIENT_STYLE: return "Screensaver style";
     case IT_AMBIENT_DIM: return "Dim the screensaver";
     case IT_AMBIENT_OFF: return "Picture off";
@@ -387,7 +387,7 @@ static const char *row_desc(int id)
                         : depth_off() == 1 ? "Off for now: the TV is short of memory. It comes back by itself when there is room again."
                         : depth_off() == 2 ? "Off for now: the TV's storage is nearly full. It comes back by itself when there is room again."
                         : "Home's backdrop moves slowly into the picture: the people come towards you, the background slides behind. For popular titles.";
-    case IT_AMBIENT: return "When the remote has been quiet this long.";
+    case IT_AMBIENT: return gfx_handheld() ? "While the TV charges and has not been touched this long: a clock or artwork, like a bedside display. Off the charger the TV sleeps on its own timeout." : "When the remote has been quiet this long.";
     case IT_AMBIENT_STYLE: return "Artwork, posters, a clock, the logo, a fireplace, northern lights, a rainy window, a cinema marquee, a starfield, depth, a gallery of museum paintings, or a different one each time.";
     case IT_AMBIENT_PREVIEW: return "Shows the screensaver now, as it is set up. Any key ends it.";
     case IT_FIRE_FREE: return "When no fireplace video is set, or yours will not play: a real fireplace filmed by Berkeley Community Media (CC BY-SA, Internet Archive), streamed and never kept on the device. Off, or offline: the drawn fire.";
@@ -1132,7 +1132,7 @@ static void draw(Screen *s)
         case IT_ASK_PROFILE: draw_row(y, ICON_USER, "Ask who's watching at start", NULL, foc, KIND_TOGGLE, g_app.ask_profile); break;
         case IT_AMBIENT:
             if (g_app.ambient_minutes) snprintf(v, sizeof v, "After %d min", g_app.ambient_minutes); else snprintf(v, sizeof v, "Off");
-            draw_row(y, ICON_TV, "Screensaver", v, foc, KIND_CHOICE, 0);
+            draw_row(y, ICON_TV, gfx_handheld() ? "Screensaver on the charger" : "Screensaver", v, foc, KIND_CHOICE, 0);
             break;
         case IT_FIRE_VIDEO: {
             const char *fv = store_get_str("fireplaceVideo", "");

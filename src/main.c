@@ -190,12 +190,36 @@ static void toggle_fullscreen(void);
 #endif
 static int g_dev_hold;    /* SNTV_KEYS "hold": the next OK press counts as held already */
 
+/* A phone or tablet: the screensaver is a bedside clock on the charger and nothing off it
+ * (the device's own timeout turns the screen off there, as for any app). Asked every 10 s. */
+static int g_charging = -1;
+static void charging_tick(void)
+{
+    static float at = -100;
+    static int held = -1;
+    if (!gfx_handheld() || g_app.time - at < 10) return;
+    at = g_app.time;
+    const char *t = getenv("SNTV_CHARGING");   /* tests */
+    SDL_PowerState ps = SDL_GetPowerInfo(NULL, NULL);
+    int now = t ? *t == '1' : ps == SDL_POWERSTATE_CHARGING || ps == SDL_POWERSTATE_CHARGED;
+    if (now != g_charging) {
+        int was = g_charging;
+        g_charging = now;
+        LOGI("power: %s", now ? "charging: the screensaver can come" : "on battery: the screen sleeps on the device's own timeout");
+        Screen *top = app_top();
+        if (was == 1 && top && !strcmp(top->name, "ambient") && top->key) top->key(top, KEY_BACK);   /* unplugged: the screensaver goes and the screen may sleep */
+    }
+    int hold = g_charging == 1 && g_app.ambient_minutes > 0;
+    if (hold != held) { held = hold; video_keep_awake_charging(hold); }
+}
+
 static int ambient_due(const Screen *top)
 {
     static float idle_after = -1;
     if (idle_after < 0) { const char *s = getenv("SNTV_AMBIENT_SECONDS"); idle_after = s ? (float)atof(s) : 0; }   /* test hook */
     float limit = idle_after > 0 ? idle_after : g_app.ambient_minutes * 60.0f;
     if (!g_app.ambient_minutes && idle_after <= 0) return 0;
+    if (gfx_handheld() && g_charging != 1) return 0;   /* a phone or tablet: only on the charger */
     if (g_app.time - g_app.last_input < limit) return 0;
     /* nothing takes over a video but a break (which counts down and resumes it itself):
      * not while it plays, stalls or changes source, full screen or in the corner; only
@@ -898,15 +922,17 @@ int main(int argc, char **argv)
     if (gfx_init(win) != 0) return 1;
     {   /* a phone or a tablet: touch, and drawn larger where the screen is wider than 16:9;
          * SNTV_HANDHELD=1 tries it on the desktop */
-        const char *hh = getenv("SNTV_HANDHELD");
-        int handheld = hh && *hh == '1';
+        const char *hh = getenv("SNTV_HANDHELD");   /* 1 a phone, 2 a tablet */
+        int handheld = hh && (*hh == '1' || *hh == '2') ? *hh - '0' : 0;
 #ifdef SNTV_PLATFORM_ANDROID
         float ddpi = 0;
         if (SDL_GetDisplayDPI(0, &ddpi, NULL, NULL) == 0 && ddpi > 0 && SDL_sqrtf((float)w * w + (float)h * h) / ddpi < 9.0f) handheld = 1;   /* under 9 inches across */
         if (!SDL_IsAndroidTV() && SDL_GetNumTouchDevices() > 0) handheld = 1;   /* a tablet, however big: a touch screen and no TV */
+        if (handheld && !(hh && *hh == '1')) handheld = 2;   /* CuelightActivity says phone (under 600 dp across); otherwise a tablet */
+        if (handheld) SDL_EnableScreenSaver();   /* a phone or tablet sleeps on its own timeout; a video, or the screensaver on the charger, keeps it on */
 #endif
-        LOGI("screen: %dx%d%s", w, h, handheld ? ", handheld: drawn larger" : "");
-        if (handheld) gfx_set_handheld(1);
+        LOGI("screen: %dx%d%s", w, h, handheld == 2 ? ", handheld: drawn larger (a tablet)" : handheld ? ", handheld: drawn larger (a phone)" : "");
+        if (handheld) gfx_set_handheld(handheld);
     }
     perf_mark("window");
     /* the saved theme picks the typefaces; app_init applies its colours */
@@ -1140,6 +1166,7 @@ int main(int argc, char **argv)
         { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
+        charging_tick();
         if (top && !g_backgrounded && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }   /* never behind the TV's Home (the fireplace has sound) */
 
         /* Idle frame skipping: when nothing animates or arrives, don't redraw at all.

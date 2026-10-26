@@ -1120,6 +1120,7 @@ void video_app_background(void) {}
 void video_app_foreground(void) {}
 void video_keep_awake(int on) { if (on) SDL_DisableScreenSaver(); else if (!P) SDL_EnableScreenSaver(); }
 void video_hold_screensaver(int on) { if (on) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver(); }
+void video_keep_awake_charging(int on) { (void)on; }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 void video_memory_stage(int stage) { (void)stage; }
 

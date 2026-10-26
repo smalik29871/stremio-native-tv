@@ -1327,6 +1327,12 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/tap_typing.log" || { 
 run tap_settings_key 260 "wait,tap:52:760,wait,tap:800:714,wait,tap:600:560,tap:700:560,wait" SNTV_EXPECT_SCREEN=settings HOME="$(home_with tap6 '{"setupDone":1}')"
 run handheld_home 160 "wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 HOME="$(home_with hh '{"setupDone":1}')"
 grep -q "handheld: drawn larger" "$OUT/handheld_home.log" || { echo "handheld mode did not turn on"; exit 1; }
+# a phone's screensaver is a bedside clock on the charger: none on battery (the phone sleeps on its own timeout)
+run phone_saver_battery 260 "wait,wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 SNTV_CHARGING=0 SNTV_AMBIENT_SECONDS=1 HOME="$(home_with hhsb '{"setupDone":1}')"
+grep -q "power: on battery" "$OUT/phone_saver_battery.log" && ! grep -q "UI check: screen=ambient" "$OUT/phone_saver_battery.log" \
+  || { echo "a phone on battery got the screensaver"; grep -E "power:|UI check" "$OUT/phone_saver_battery.log"; exit 1; }
+run phone_saver_charging 260 "wait,wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 SNTV_CHARGING=1 SNTV_AMBIENT_SECONDS=1 SNTV_EXPECT_SCREEN=ambient HOME="$(home_with hhsc '{"setupDone":1}')"
+grep -q "power: charging" "$OUT/phone_saver_charging.log" || { echo "a phone on its charger was not seen charging"; exit 1; }
 # a phone held upright: its own layouts (780 units across, the tab bar along the bottom)
 PH="SNTV_WINDOW=450x1000 SNTV_HANDHELD=1"
 run phone_home 160 "wait,wait,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with ph1 '{"setupDone":1}')"

@@ -342,19 +342,26 @@ static float walk(const char *s, const char *end, float x, float y, int size, Co
     return (pen - (pen > 0 ? tr : 0)) * scale;
 }
 
-#ifdef SNTV_DESKTOP_PLAYER
-/* A computer: the app's words say "this TV" and "the TV" for the device it runs on, and OK
- * for the remote's button, so here they say PC, and click (Enter does the same). Words about
- * a real TV (an LG, webOS, Android TV, the Homebrew Channel) stay, and so does a button that
- * reads just "OK". */
-static const char *on_pc(const char *s)
+#if defined(SNTV_DESKTOP_PLAYER) || defined(SNTV_PLATFORM_ANDROID) || defined(SNTV_PLATFORM_LINUX)   /* Linux: the tests try a phone there (SNTV_HANDHELD) */
+/* A computer, a phone or a tablet: the app's words say "this TV" and "the TV" for the device
+ * it runs on, and OK for the remote's button, so there they say PC (phone, tablet), and click
+ * (tap). Words about a real TV (an LG, webOS, Android TV, the Homebrew Channel) stay, and so
+ * does a button that reads just "OK". An Android TV keeps the TV's words. */
+static const char *on_device(const char *s)
 {
     static char buf[4][2048];
     static int next;
+#ifdef SNTV_DESKTOP_PLAYER
+    static const char *const TO[] = { "this PC", "This PC", "the PC", "The PC", "Right-click", "right-click", "Click", "click", "Click" };
+#else
+    if (!gfx_handheld()) return s;
+    static const char *const PHONE[] = { "this phone", "This phone", "the phone", "The phone", "Press and hold", "press and hold", "Tap", "tap", "Tap" };
+    static const char *const TABLET[] = { "this tablet", "This tablet", "the tablet", "The tablet", "Press and hold", "press and hold", "Tap", "tap", "Tap" };
+    const char *const *TO = gfx_handheld() == 2 ? TABLET : PHONE;
+#endif
     if (!s || (!strstr(s, "TV") && !strstr(s, "OK")) || !strcmp(s, "OK") || strlen(s) >= sizeof buf[0] - 64
         || strstr(s, "LG") || strstr(s, "webOS") || strstr(s, "Android") || strstr(s, "Homebrew") || strstr(s, "HTTP")) return s;
     static const char *const FROM[] = { "this TV", "This TV", "the TV", "The TV", "Hold OK", "hold OK", "Press OK", "press OK", "OK" };
-    static const char *const TO[] = { "this PC", "This PC", "the PC", "The PC", "Right-click", "right-click", "Click", "click", "Click" };
     enum { N = sizeof FROM / sizeof FROM[0] };
     char *o = buf[next], *end = buf[next] + sizeof buf[0] - 1;
     next = (next + 1) % 4;
@@ -368,7 +375,7 @@ static const char *on_pc(const char *s)
         }
         if (hit >= 0) {
             const char *to = TO[hit];
-            if (hit == N - 1 && p > s && p[-1] == ' ' && !(p - 1 > s && (p[-2] == '.' || p[-2] == ':' || p[-2] == '\xB7' || p[-2] == ' '))) to = "click";   /* mid-sentence */
+            if (hit == N - 1 && p > s && p[-1] == ' ' && !(p - 1 > s && (p[-2] == '.' || p[-2] == ':' || p[-2] == '\xB7' || p[-2] == ' '))) to = TO[7];   /* mid-sentence */
             size_t tn = strlen(to);
             if (o + tn >= end) break;
             memcpy(o, to, tn); o += tn; p += strlen(FROM[hit]);
@@ -378,7 +385,7 @@ static const char *on_pc(const char *s)
     *o = 0;
     return start;
 }
-#define PC(s) ((s) = on_pc(s))
+#define PC(s) ((s) = on_device(s))
 #else
 #define PC(s) ((void)0)
 #endif

@@ -110,6 +110,9 @@ void video_keep_awake(int on);
 /* The app's own screensaver is up (the fireplace, a clock): the TV's must not take over
  * from it. Kept apart from video_keep_awake, which the sources list sets and clears. */
 void video_hold_screensaver(int on);
+/* A phone or tablet on its charger with the app's screensaver on: the screen stays on for it
+ * (off the charger it sleeps on the device's own timeout). Elsewhere nothing. */
+void video_keep_awake_charging(int on);
 /* Paused by a video_pause() call (the viewer, the app going to the background, a break),
  * not a stall that the TV reports as a pause (LG does). */
 int video_paused_on_purpose(void);

@@ -618,6 +618,8 @@ void video_memory_stage(int stage) { (void)stage; }
 unsigned video_frame_texture(int *w, int *h, float *aspect) { (void)w; (void)h; (void)aspect; return 0; }   /* the video is a plane of its own */
 int video_subtitle_text(char *out, size_t n) { if (n) *out = 0; return 0; }
 
+void video_keep_awake_charging(int on) { (void)on; }
+
 void video_hold_screensaver(int on)
 {
     if (on != g_saver_held) LOGI("video(webos): the app's screensaver %s", on ? "is up: the TV's held off" : "closed");
