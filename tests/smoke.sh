@@ -913,7 +913,8 @@ run break_banner 150 "right" HOME="$(home_with brk "$BR")" SNTV_NOW=12:01
 run break_screen 320 "left,down,down,down,down,down,ok,down,down,right,ok"
 run break_player 300 "right,ok,down,down,play,wait" HOME="$(home_with brk2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00
 # a recording over a paused film; when the break ends the film is back where it was, still paused
-run break_paused 1300 "right,ok,down,down,play,wait,ok,wait" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+8 SNTV_FAKE_START=200 SNTV_BREAK_LEN_S=4
+# (frames, not seconds: a fast runner spends 1300 before the 4 s break is over)
+run break_paused 2600 "right,ok,down,down,play,wait,ok,wait" HOME="$(home_with brkp '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakLen":-1,"breakVideo":0,"breakAudio":"http://127.0.0.1:8765/video/sample_h264_aac.mp4"}')" SNTV_NOW=12:00+8 SNTV_FAKE_START=200 SNTV_BREAK_LEN_S=4
 grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && grep -q "player: paused again at 20[0-9]s" "$OUT/break_paused.log" \
   || { echo "the paused film did not come back paused where it was"; grep -E "player|break" "$OUT/break_paused.log"; exit 1; }
 # the screensaver waits while a break counts down (it froze the break, so the film never came back)
