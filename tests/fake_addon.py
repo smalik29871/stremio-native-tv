@@ -1167,6 +1167,11 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"data": works}).encode(), "application/json")
         if p.startswith("/ipapi"):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
+        if p.startswith("/blocked/"):   # a network's block page, sent where an addon's manifest was asked
+            return self.send(200, b"<!DOCTYPE html><html><body>This site is blocked</body></html>", "text/html; charset=utf-8")
+        if p == "/bom/manifest.json":   # a manifest with a byte-order mark first
+            m = {"id": "org.fake.bom", "version": "1.0.0", "name": "Bom Addon", "resources": ["subtitles"], "types": ["movie"], "catalogs": []}
+            return self.send(200, b"\xef\xbb\xbf" + json.dumps(m).encode(), "application/json")
         if p.startswith("/thumbsslow/"):   # a TV too slow for the letterbox: every frame takes 1.8 s
             import time
             if "/frame" in p:

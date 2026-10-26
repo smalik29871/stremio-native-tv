@@ -123,6 +123,12 @@ grep -q "addon store: 1 official addons" "$OUT/store_install.log" && grep -q "ad
   && grep -q "addon store: 2 left out (adult, P2P, or a link that needs a streaming server)" "$OUT/store_install.log" \
   && grep -q "addon store: installing Fake Subs" "$OUT/store_install.log" && grep -q "toast: Installed Subs" "$OUT/store_install.log" \
   || { echo "Browse addons did not list Stremio's catalogue, or did not install from it"; grep -E "addon store|addons:|toast" "$OUT/store_install.log"; exit 1; }
+# an install link that gets a web page (a block page, a moved addon) says so; one with a query after
+# manifest.json, whose manifest starts with a byte-order mark, installs
+run link_blocked 200 "wait,wait" HOME="$(home_with linkb '{"setupDone":1}')" SNTV_OPEN_LINK="http://127.0.0.1:$PORT/blocked/manifest.json"
+grep -q "toast: Could not add the addon: its address shows a web page" "$OUT/link_blocked.log" || { echo "a block page did not say so"; grep -E "addons:|toast" "$OUT/link_blocked.log"; exit 1; }
+run link_bom 200 "wait,wait" HOME="$(home_with linkm '{"setupDone":1}')" SNTV_OPEN_LINK="http://127.0.0.1:$PORT/bom/manifest.json?ref=page"
+grep -q "toast: Installed Bom Addon" "$OUT/link_bom.log" || { echo "a manifest with a byte-order mark, or a link with a query, did not install"; grep -E "addons:|toast" "$OUT/link_bom.log"; exit 1; }
 run store_setup 600 "left,down,down,down,down,down,ok,up,ok,t:browse addons,down,down,down,down,left,ok,ok,wait,down,down,right,down,ok,wait" HOME="$(home_with store2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" "$STORE"
 grep -q "addon store: Needs Setup is set up first" "$OUT/store_setup.log" && grep -q "UI check: screen=addon_setup" "$OUT/store_setup.log" \
   || { echo "an addon that must be set up first did not open its settings"; grep -E "addon store|addons:|UI check" "$OUT/store_setup.log"; exit 1; }
@@ -733,6 +739,9 @@ grep -q "offering source" "$OUT/player_lighter_seek.log" && { echo "seeking coun
 run library_stats 280 "left,down,down,down,ok,up,right,right,right,right,ok"
 run calendar 300 "left,down,down,down,down,ok"
 run settings_rows 380 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,right" HOME="$(home_with rows '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+# with a pointer, a Home row's arrows move it (here My Library, one down)
+run settings_rows_click 420 "left,down,down,down,down,down,ok,down,down,down,down,down,down,right,ok,down,tap:1040:373,wait" HOME="$(home_with rowsclick '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q 'list:0\\t0\\nlibrary' "$OUT/home_rowsclick/.local/share/stremio/nativetv/settings.json" || { echo "a Home row's arrow did not move it"; grep homeRows "$OUT/home_rowsclick/.local/share/stremio/nativetv/settings.json"; exit 1; }
 run settings_addons 360 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,right,down"
 # an addon with a settings page: OK offers Configure; the TV shows a code to this TV's phone page,
 # which links to the addon's page and takes back the install link it ends with, and the addon

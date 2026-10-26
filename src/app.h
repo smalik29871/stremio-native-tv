@@ -162,6 +162,7 @@ typedef struct App {
     TvProfile tv;              /* what this TV can decode, learned over time */
     float last_input;          /* g_app.time of the last key press */
     int key_repeat;            /* the key being handled is auto-repeat from a held key */
+    int enter_key;             /* the OK being handled is a computer keyboard's Enter (desktop): it finishes typing */
 
     /* perf */
     int frames_measured; float frame_ms_sum, frame_ms_worst;

@@ -343,25 +343,36 @@ static float walk(const char *s, const char *end, float x, float y, int size, Co
 }
 
 #ifdef SNTV_DESKTOP_PLAYER
-/* A computer: the app's words say "this TV" and "the TV" for the device it runs on, so here
- * they say PC. Words about a real TV (an LG, webOS, Android TV, the Homebrew Channel) stay. */
+/* A computer: the app's words say "this TV" and "the TV" for the device it runs on, and OK
+ * for the remote's button, so here they say PC, and click (Enter does the same). Words about
+ * a real TV (an LG, webOS, Android TV, the Homebrew Channel) stay, and so does a button that
+ * reads just "OK". */
 static const char *on_pc(const char *s)
 {
     static char buf[4][2048];
     static int next;
-    if (!s || !strstr(s, "TV") || strlen(s) >= sizeof buf[0] - 8 || strstr(s, "LG") || strstr(s, "webOS") || strstr(s, "Android") || strstr(s, "Homebrew")) return s;
-    static const char *const FROM[] = { "this TV", "This TV", "the TV", "The TV" };
+    if (!s || (!strstr(s, "TV") && !strstr(s, "OK")) || !strcmp(s, "OK") || strlen(s) >= sizeof buf[0] - 64
+        || strstr(s, "LG") || strstr(s, "webOS") || strstr(s, "Android") || strstr(s, "Homebrew") || strstr(s, "HTTP")) return s;
+    static const char *const FROM[] = { "this TV", "This TV", "the TV", "The TV", "Hold OK", "hold OK", "Press OK", "press OK", "OK" };
+    static const char *const TO[] = { "this PC", "This PC", "the PC", "The PC", "Right-click", "right-click", "Click", "click", "Click" };
+    enum { N = sizeof FROM / sizeof FROM[0] };
     char *o = buf[next], *end = buf[next] + sizeof buf[0] - 1;
     next = (next + 1) % 4;
     const char *start = o;
     for (const char *p = s; *p && o < end; ) {
         int hit = -1;
-        for (int k = 0; k < 4 && hit < 0; k++) {
+        for (int k = 0; k < N && hit < 0; k++) {
             size_t n = strlen(FROM[k]);
             char after = p[n];
-            if (!strncmp(p, FROM[k], n) && (p == s || !((p[-1] | 32) >= 'a' && (p[-1] | 32) <= 'z')) && !(after >= 'A' && after <= 'Z')) hit = k;
+            if (!strncmp(p, FROM[k], n) && (p == s || !((p[-1] | 32) >= 'a' && (p[-1] | 32) <= 'z')) && !(k < 4 ? after >= 'A' && after <= 'Z' : (after | 32) >= 'a' && (after | 32) <= 'z')) hit = k;   /* "the TVs" too */
         }
-        if (hit >= 0) { size_t n = strlen(FROM[hit]); memcpy(o, FROM[hit], n - 2); o += n - 2; memcpy(o, "PC", 2); o += 2; p += n; }
+        if (hit >= 0) {
+            const char *to = TO[hit];
+            if (hit == N - 1 && p > s && p[-1] == ' ' && !(p - 1 > s && (p[-2] == '.' || p[-2] == ':' || p[-2] == '\xB7' || p[-2] == ' '))) to = "click";   /* mid-sentence */
+            size_t tn = strlen(to);
+            if (o + tn >= end) break;
+            memcpy(o, to, tn); o += tn; p += strlen(FROM[hit]);
+        }
         else *o++ = *p++;
     }
     *o = 0;

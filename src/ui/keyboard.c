@@ -70,7 +70,7 @@ KeyboardResult keyboard_key(Keyboard *kb, KeyAction a)
     case KEY_LEFT: kb->col = (kb->col + cols_of(kb) - 1) % cols_of(kb); return KB_IGNORED;
     case KEY_RIGHT: kb->col = (kb->col + 1) % cols_of(kb); return KB_IGNORED;
     case KEY_BACKSPACE: backspace(kb); return KB_CHANGED;
-    case KEY_OK: break;
+    case KEY_OK: if (g_app.enter_key) return KB_DONE; break;   /* Enter on a computer: done, as on a phone's keyboard */
     default: return KB_IGNORED;
     }
     if (kb->row < 4) {

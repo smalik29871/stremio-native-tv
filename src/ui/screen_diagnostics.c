@@ -23,7 +23,7 @@ enum { TAB_PLAYBACK, TAB_PROBLEMS, TAB_ALL, TAB_SPEED, TAB_YOUTUBE, TAB_COUNT };
 /* Big Buck Bunny (Blender Foundation), up to 4K: always there, never age- or region-locked */
 #define YT_TEST_ID "aqz-KE-bpKQ"
 #define LIST_Y 300.0f
-enum { HIT_TAB = 0x10000, HIT_SESSION = 0x20000 };   /* touch; a log line is its place in the list */
+enum { HIT_TAB = 0x10000, HIT_SESSION = 0x20000, HIT_YT = 0x30000 };   /* touch; a log line is its place in the list */
 #define ROW_H 36.0f
 #define LIST_ROWS (SNTV_PHONE ? (int)((SNTV_UI_H - LIST_Y - 330) / ROW_H) : 15)   /* a phone upright: as many as fit */
 #define QR_BUDGET 700    /* bytes of log text in the QR; denser codes are hard to scan off a TV */
@@ -294,6 +294,7 @@ static void draw(Screen *s)
     if (SNTV_PHONE) gfx_set_scale(1, 0, 0);
     const char *hint = d->tab == TAB_YOUTUBE ? "Left/Right tabs   \xC2\xB7   Up/Down buttons   \xC2\xB7   OK: run or play"
                                              : gfx_handheld() ? "Tap a line: copy the log to paste in a message"
+                                             : ui_pointer() ? "Left/Right filter   \xC2\xB7   Click a line: copy the log to paste in a message"
                                              : "Left/Right filter   \xC2\xB7   Blue: other session   \xC2\xB7   OK: QR for your phone";
     if (!SNTV_PHONE) font_draw(hint, x + w - font_measure(hint, FONT_XS), 240, FONT_XS, THEME_TEXT_MUTED);
 
@@ -305,8 +306,10 @@ static void draw(Screen *s)
         gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, R_PANEL, RGBA(0x00, 0x00, 0x00, 0x40));
         float by = LIST_Y + 8, bx = x + 10;
         const char *run = d->yt_state == 1 ? "Testing\xE2\x80\xA6" : d->yt_state == 2 ? "Run the test again" : "Run the test";
-        bx += ui_pill(run, 1, ICON_RELOAD, bx, by, 60, PILL_SECONDARY, d->yt_focus == 0) + 16;
-        if (d->yt_answer) ui_pill("Play the test video", 1, ICON_PLAY, bx, by, 60, PILL_SECONDARY, d->yt_focus == 1);
+        float pw = ui_pill(run, 1, ICON_RELOAD, bx, by, 60, PILL_SECONDARY, d->yt_focus == 0);
+        ui_hit(bx, by, pw, 60, HIT_YT);
+        bx += pw + 16;
+        if (d->yt_answer) { pw = ui_pill("Play the test video", 1, ICON_PLAY, bx, by, 60, PILL_SECONDARY, d->yt_focus == 1); ui_hit(bx, by, pw, 60, HIT_YT + 1); }
         if (d->yt_state == 1) { ui_spinner(x + w - 30, by + 30, 14); app_redraw(); }
         float ry = by + 90;
         for (int i = 0; i < YT_TEST_STEPS; i++, ry += 52) {
@@ -428,10 +431,11 @@ static int tap(Screen *s, int id)
 {
     Diag *d = s->st;
     if (d->show_qr) return 0;
+    if (id == HIT_YT || id == HIT_YT + 1) { d->yt_focus = id - HIT_YT; return g_touch_aim; }   /* then OK runs it */
     if (g_touch_aim && id >= HIT_TAB) return 1;
     if (id >= HIT_TAB && id < HIT_TAB + TAB_COUNT) { d->tab = id - HIT_TAB; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1; }
     if (id == HIT_SESSION) { d->previous = !d->previous; d->follow = 1; reload(d); return 1; }
-    if (d->tab == TAB_YOUTUBE || id < 0 || id >= d->n_vis) return d->tab == TAB_YOUTUBE ? 0 : 1;
+    if (d->tab == TAB_YOUTUBE || id < 0 || id >= d->n_vis) return 1;
     d->cursor = id; d->follow = 0;
     return 0;
 }
@@ -463,7 +467,7 @@ static int key(Screen *s, KeyAction a)
     case KEY_LEFT: d->tab = (d->tab + TAB_COUNT - 1) % TAB_COUNT; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1;
     case KEY_RIGHT: d->tab = (d->tab + 1) % TAB_COUNT; d->follow = 1; refilter(d); if (d->tab == TAB_SPEED) log_speed(d); return 1;
     case KEY_BLUE: case KEY_YELLOW: d->previous = !d->previous; d->follow = 1; reload(d); return 1;
-    case KEY_OK: if (d->n_vis) { if (gfx_handheld()) copy_log(d); else { build_qr(d); d->show_qr = 1; } } return 1;
+    case KEY_OK: if (d->n_vis) { if (gfx_handheld() || ui_pointer()) copy_log(d); else { build_qr(d); d->show_qr = 1; } } return 1;
     default: return 0;
     }
 }

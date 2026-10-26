@@ -166,6 +166,7 @@ static int parse_manifest_obj(const cJSON *m, AddonManifest *out)
 
 int addon_parse_manifest(const char *json, AddonManifest *out)
 {
+    if (json && !strncmp(json, "\xEF\xBB\xBF", 3)) json += 3;   /* a byte-order mark some servers put first */
     cJSON *root = cJSON_Parse(json);
     int rc = parse_manifest_obj(root, out);
     cJSON_Delete(root);

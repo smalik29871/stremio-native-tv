@@ -310,6 +310,12 @@ static void dev_hooks(SDL_Window *win, int frame)
                 memset(&e, 0, sizeof e); e.type = SDL_TEXTINPUT; snprintf(e.text.text, sizeof e.text.text, " "); SDL_PushEvent(&e);
                 continue;
             }
+            if (strcmp(tok, "enter") == 0) {   /* a computer keyboard's Enter (a script's "ok" is a remote's) */
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_RETURN; e.key.keysym.scancode = SDL_SCANCODE_RETURN; SDL_PushEvent(&e);
+                e.type = SDL_KEYUP; SDL_PushEvent(&e);
+                continue;
+            }
             if (strncmp(tok, "t:", 2) == 0) {   /* typed text */
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_TEXTINPUT;
@@ -356,6 +362,7 @@ static void dev_hooks(SDL_Window *win, int frame)
     g_app.quit = 1;
 }
 
+static int g_enter_down;   /* the OK pressed last came from a computer keyboard's Enter */
 static int g_seen_keyup, g_ok_down, g_ok_long;
 
 /* Touch, for phones and tablets (the app is laid out for a remote): a tap is on what is under
@@ -886,12 +893,14 @@ int main(int argc, char **argv)
     SDL_GL_SetSwapInterval(1);
 
     if (gfx_init(win) != 0) return 1;
-    {   /* a phone (under 9 inches across) draws larger; SNTV_HANDHELD=1 tries it on the desktop */
+    {   /* a phone or a tablet: touch, and drawn larger where the screen is wider than 16:9;
+         * SNTV_HANDHELD=1 tries it on the desktop */
         const char *hh = getenv("SNTV_HANDHELD");
         int handheld = hh && *hh == '1';
 #ifdef SNTV_PLATFORM_ANDROID
         float ddpi = 0;
-        if (SDL_GetDisplayDPI(0, &ddpi, NULL, NULL) == 0 && ddpi > 0 && SDL_sqrtf((float)w * w + (float)h * h) / ddpi < 9.0f) handheld = 1;
+        if (SDL_GetDisplayDPI(0, &ddpi, NULL, NULL) == 0 && ddpi > 0 && SDL_sqrtf((float)w * w + (float)h * h) / ddpi < 9.0f) handheld = 1;   /* under 9 inches across */
+        if (!SDL_IsAndroidTV() && SDL_GetNumTouchDevices() > 0) handheld = 1;   /* a tablet, however big: a touch screen and no TV */
 #endif
         LOGI("screen: %dx%d%s", w, h, handheld ? ", handheld: drawn larger" : "");
         if (handheld) gfx_set_handheld(1);
@@ -981,7 +990,9 @@ int main(int argc, char **argv)
                 if (input_map(&d) == KEY_OK && g_ok_down) {   /* released: OK, or the options once the hold filled */
                     g_ok_down = 0;
                     g_app.ok_hold = 0;
+                    g_app.enter_key = g_enter_down && !g_ok_long;
                     dispatch_key(g_ok_long ? KEY_LONG_OK : KEY_OK);
+                    g_app.enter_key = 0;
                 }
             }
             else if (e.type == SDL_KEYDOWN) {
@@ -1010,13 +1021,18 @@ int main(int argc, char **argv)
                 /* a held OK presses once (no double play, no OK landing on the next screen); remotes
                  * that never send releases look like a held key forever, so only those that do */
                 if (a == KEY_OK && e.key.repeat && g_seen_keyup) continue;
+#ifdef SNTV_DESKTOP_PLAYER
+                g_enter_down = a == KEY_OK && e.key.keysym.scancode != SDL_SCANCODE_UNKNOWN;   /* the keyboard's Enter, not a remote's OK or a script's */
+#endif
                 /* On screens that offer a long press, OK waits for the release (or the hold).
                  * Remotes that never send releases keep the old instant OK. */
                 if (a == KEY_OK && g_seen_keyup && top && top->long_ok && !(g_app.pip && g_pip_focus)) {
                     if (!e.key.repeat) { g_ok_down = 1; g_ok_long = 0; g_ok_t0 = SDL_GetTicks() - (g_dev_hold ? 500 : 0); g_dev_hold = 0; g_app.ok_hold = 0.001f; }
                     continue;
                 }
+                g_app.enter_key = g_enter_down;
                 dispatch_key(a);
+                g_app.enter_key = 0;
             }
             else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);

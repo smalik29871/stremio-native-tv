@@ -50,8 +50,8 @@ static const char *const CAT_DESC[CAT_COUNT] = {
     "Preferred languages and how subtitles look.",
     "How sources are ranked and checked for this TV. P2P fallback plays a torrent here when TorBox has no cached copy (peers see your IP while it plays) and goes back to TorBox once it has one.",
     "The look of the app.",
-    "Which rows Home shows, and in what order. OK shows or hides a row, Left/Right moves it.",
-    "Installed addons, in the order they answer. Left/Right moves an addon; the order is kept in your account.",
+    "Which rows Home shows, and in what order. OK shows or hides a row, Left/Right or its arrows move it.",
+    "Installed addons, in the order they answer. Left/Right or its arrows move an addon; the order is kept in your account.",
     "A PIN that keeps Settings closed and adult addons out of the catalogs.",
     "What " SNTV_APP_NAME " is, what is new, updates, logs and setup." };
 static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICON_SUBS, ICON_SWAP, ICON_PALETTE, ICON_LIST, ICON_LIBRARY, ICON_LOCK, ICON_INFO };
@@ -91,7 +91,7 @@ static int rec_installed(int i)
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
-enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001 };   /* touch targets besides the rows (their index) */
+enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001, HIT_RIGHT = 0x5000 };   /* touch targets besides the rows (their index) */
 static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define SEC_H 70.0f
 /* Choosing a category the rows start at COL_X0; inside one the category list shrinks
@@ -558,6 +558,8 @@ static void draw_row_body(float y, Icon icon, const char *title, const char *val
         ui_toggle(rx - 76, y + (h - 40) / 2, on, focused);
         ui_icon(ICON_CHEVRON_LEFT, rx - 130, y + h / 2, 22, dim);
         ui_icon(ICON_CHEVRON_RIGHT, rx - 100, y + h / 2, 22, dim);
+        ui_hit(rx - 146, y, 30, h, HIT_LEFT + s_hit_row);   /* a pointer: the arrows move it */
+        ui_hit(rx - 116, y, 30, h, HIT_RIGHT + s_hit_row);
         if (value) font_draw_fit(value, x + 92 + w * 0.5f + 10, y + (h - font_height(FONT_XS)) / 2, FONT_XS, dim, w * 0.5f - 260);
         return;
     }
@@ -1199,7 +1201,11 @@ static void draw(Screen *s)
                 if (a->flag_protected) strncat(v, "  \xC2\xB7  built-in", sizeof v - strlen(v) - 1);
                 if (a->manifest.bh_configurable) strncat(v, "  \xC2\xB7  OK to configure", sizeof v - strlen(v) - 1);
                 draw_row(y, ICON_LIBRARY, title, v, foc, KIND_ACTION, 0);
-                if (foc) { ui_icon(ICON_CHEVRON_LEFT, s_r - 90, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); ui_icon(ICON_CHEVRON_RIGHT, s_r - 56, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); }
+                if (foc) {   /* up and down the list; a pointer clicks them */
+                    ui_icon(ICON_CHEVRON_LEFT, s_r - 90, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8)); ui_icon(ICON_CHEVRON_RIGHT, s_r - 56, y + (ROW_H - 12) / 2, 22, COLOR_ALPHA(THEME_BG, 0xA8));
+                    ui_hit(s_r - 107, y, 34, ROW_H - 12, HIT_LEFT + i);
+                    ui_hit(s_r - 73, y, 34, ROW_H - 12, HIT_RIGHT + i);
+                }
             } else if (id >= IT_ROWS_BASE) {
                 const HomeRowDef *d = &st->rows[id - IT_ROWS_BASE];
                 char pos[32]; snprintf(pos, sizeof pos, "%d of %d", id - IT_ROWS_BASE + 1, st->n_rows);
@@ -1810,11 +1816,12 @@ static int tap(Screen *s, int id)
     }
     int ids[MAX_ROWS + 8];
     int n = rows_for(st, st->cat, ids, MAX_ROWS + 8);
-    int back = id >= HIT_LEFT && id < HIT_LEFT + n;   /* a choice's < */
+    int back = id >= HIT_LEFT && id < HIT_LEFT + n, fwd = id >= HIT_RIGHT && id < HIT_RIGHT + n;   /* a choice's <, a movable row's arrows */
     if (back) id -= HIT_LEFT;
+    if (fwd) id -= HIT_RIGHT;
     if (id < 0 || id >= n || IS_SEC(ids[id])) return 1;
     st->zone = 1; st->search_foc = 0; st->focus = id;
-    if (back) { if (!g_touch_aim) adjust(st, ids[id], -1); return 1; }
+    if (back || fwd) { if (!g_touch_aim) adjust(st, ids[id], back ? -1 : 1); return 1; }
     return 0;
 }
 

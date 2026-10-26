@@ -1747,17 +1747,11 @@ void ui_pan_bars(float px, float py)
         float x = g_pans[i].x, y = g_pans[i].y, w = g_pans[i].w, h = g_pans[i].h, at = *p->at;
         if (at < 0) at = 0; else if (at > p->max) at = p->max;
         int inside = px >= x && px < x + w && py >= y && py < y + h;
-        if (g_pans[i].vertical) {   /* always, thin, at the right edge; stronger under the pointer */
-            float len = h * h / (h + p->max); if (len < 48) len = 48;
-            float ty = y + (h - len) * at / p->max;
-            gfx_rrect(x + w - 10, y + 4, 6, h - 8, 3, COLOR_ALPHA(THEME_TEXT, 0x14));
-            gfx_rrect(x + w - 10, ty + 4, 6, len - 8, 3, COLOR_ALPHA(THEME_TEXT, inside ? 0x90 : 0x50));
-        } else if (inside) {   /* a row: only under the pointer, or every row would carry one */
-            float len = w * w / (w + p->max); if (len < 64) len = 64;
-            float tx = x + (w - len) * at / p->max;
-            gfx_rrect(x + 4, y + h - 8, w - 8, 5, 2.5f, COLOR_ALPHA(THEME_TEXT, 0x14));
-            gfx_rrect(tx + 4, y + h - 8, len - 8, 5, 2.5f, COLOR_ALPHA(THEME_TEXT, 0x80));
-        }
+        if (!g_pans[i].vertical) continue;   /* a row: Shift+wheel, a drag or the arrow keys move it; no bar under it */
+        float len = h * h / (h + p->max); if (len < 48) len = 48;   /* thin, at the right edge; stronger under the pointer */
+        float ty = y + (h - len) * at / p->max;
+        gfx_rrect(x + w - 10, y + 4, 6, h - 8, 3, COLOR_ALPHA(THEME_TEXT, 0x14));
+        gfx_rrect(x + w - 10, ty + 4, 6, len - 8, 3, COLOR_ALPHA(THEME_TEXT, inside ? 0x90 : 0x50));
     }
 }
 

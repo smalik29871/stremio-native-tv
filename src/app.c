@@ -703,8 +703,16 @@ static void on_install_manifest(HttpResponse *r, void *user)
     }
     Addon a;
     if (addon_new(url, r->body, &a) != 0) {
-        LOGW("addons: %.*s did not install: what it sent is no addon manifest (%zu bytes)", hl, h, r->body ? strlen(r->body) : (size_t)0);
-        if (!quiet) app_toast("Could not add the addon: what its server sent is no addon");
+        const char *b = r->body ? r->body : "";
+        while (*b == ' ' || *b == '\t' || *b == '\r' || *b == '\n') b++;
+        int page = *b == '<' || strstr(r->content_type, "html");   /* a web page: the addon's own, or one a network puts in its place */
+        LOGW("addons: %.*s did not install: what it sent is no addon manifest (%zu bytes, %s%s%s)", hl, h, r->len,
+             r->content_type[0] ? r->content_type : "no type", page ? ", a web page" : "", r->final_url[0] ? ", after a redirect" : "");
+        if (!quiet) {
+            if (!*b) app_toast("Could not add the addon: its server sent nothing");
+            else if (page) app_toast("Could not add the addon: its address shows a web page: it may have moved, or this network blocks it");
+            else app_toast("Could not add the addon: what its server sent is no addon");
+        }
         free(url); return;
     }
     for (int i = 0; i < g_app.n_addons; i++)
@@ -734,6 +742,14 @@ static void addon_link(const char *link, char *url, size_t n)
     while (*link == ' ') link++;
     if (!strncmp(link, "stremio://", 10)) snprintf(in, sizeof in, "https://%s", link + 10);
     else snprintf(in, sizeof in, "%s", link);
+    char *m = strstr(in, "/manifest.json");   /* anything after it (a query, a #) is no part of the address */
+    if (m) m[14] = 0;
+    else {   /* an addon's settings page: its address is the addon's, without /configure */
+        size_t l = strcspn(in, "?#");
+        in[l] = 0;
+        while (l && in[l - 1] == '/') in[--l] = 0;
+        if (l >= 10 && !strcmp(in + l - 10, "/configure")) in[l - 10] = 0;
+    }
     addon_url_manifest(in, url, n);
 }
 
