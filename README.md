@@ -19,7 +19,7 @@ account API**: the same account, addons, Library and Continue Watching as the of
 > Cuelight is an independent project. It is **not affiliated with, endorsed by or made by
 > Stremio**; "Stremio" is used only to say which accounts and addons it works with.
 
-> **v0.10.81.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
+> **v0.10.82.** Confirmed on an LG QNED: installs from the Homebrew Channel, signs in,
 > browses, plays debrid HTTPS streams with the control overlay, picture-in-picture resizes
 > the video plane. Every release is cross-compiled in CI with the openlgtv toolchain, its
 > package checked (ARM, dependencies, glibc 2.7), and the UI is run headlessly through
@@ -489,8 +489,9 @@ permission. The full terms, including your rights under FFmpeg's LGPL, are in
 ## Third-party code
 
 Cuelight bundles open-source components that keep their own licences: FFmpeg's decoders
-(LGPL 2.1, linked statically; this repository has everything needed to rebuild the app
-against a changed FFmpeg), QuickJS-ng, cJSON, QR Code generator, android-youtube-player
+(LGPL 2.1: unmodified shared libraries beside the app, which anyone can replace with their
+own build of the same version; `deploy/ffmpeg/` travels with each app and says where its
+source is and how it was built), QuickJS-ng, cJSON, QR Code generator, android-youtube-player
 (MIT), libwebp (BSD-3-Clause), stb (public domain), the P2P engine's Go modules (MPL 2.0,
 MIT, BSD), yt-dlp/ejs (Unlicense), the fonts (SIL OFL 1.1), and on Android SDL2 (zlib),
 curl, Mbed TLS and AndroidX Media3 (Apache 2.0). Data comes from TMDB (this product uses

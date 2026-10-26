@@ -3,6 +3,7 @@
 #   - the binary is ARM and only links what every webOS TV has (SDL2, GLESv2,
 #     libc family); LS2, glib, ACB and curl must stay dlopen'ed
 #   - it needs no glibc symbol newer than webOS 3's (2.12)
+#   - FFmpeg's two libraries are in lib/ (ARM, glibc 2.12 at most)
 #   - the package carries the binary, appinfo.json, icons and fonts, and no
 #     settings/credential files
 # Usage: bash tools/check-ipk.sh <package.ipk> <toolchain-dir>
@@ -43,6 +44,12 @@ ENGINE="$APPDIR/torrentd"   # the P2P engine: ARM, executable, and needing no li
 [ -x "$ENGINE" ] || fail "torrentd missing or not executable"
 "$TC/bin/arm-webos-linux-gnueabi-readelf" -h "$ENGINE" | grep -q "Machine:.*ARM" || fail "torrentd is not ARM"
 if "$TC/bin/arm-webos-linux-gnueabi-readelf" -d "$ENGINE" 2>/dev/null | grep -q NEEDED; then fail "torrentd must be static"; fi
+for l in "$APPDIR"/lib/libavcodec.so.* "$APPDIR"/lib/libavutil.so.*; do   # FFmpeg for the previews, loaded by the app (dlopen)
+  [ -f "$l" ] || fail "FFmpeg's libraries missing from lib/"
+  "$TC/bin/arm-webos-linux-gnueabi-readelf" -h "$l" | grep -q "Machine:.*ARM" || fail "$(basename "$l") is not ARM"
+  V=$("$TC/bin/arm-webos-linux-gnueabi-objdump" -T "$l" | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -V | tail -1)
+  [ "$(printf '%s\n2.12\n' "$V" | sort -V | tail -1)" = "2.12" ] || fail "$(basename "$l") needs glibc $V, newer than webOS 3"
+done
 NEWEST=$("$TC/bin/arm-webos-linux-gnueabi-objdump" -T "$BIN" | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -V | tail -1)
 echo "newest glibc symbol: $NEWEST"
 [ "$(printf '%s\n2.12\n' "$NEWEST" | sort -V | tail -1)" = "2.12" ] || fail "needs glibc $NEWEST, newer than webOS 3"

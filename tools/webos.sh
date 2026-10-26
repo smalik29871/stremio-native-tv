@@ -22,6 +22,12 @@ case "${1:-}" in
   --ipk|--install)
     STAGE="$B/ipk-stage"; rm -rf "$STAGE"; mkdir -p "$STAGE"
     cp "$B/stremio-tv" "$B/torrentd" "$STAGE/"
+    mkdir -p "$STAGE/lib/ffmpeg"   # FFmpeg (LGPL), loaded from here by the app: replaceable; its source, licence and build beside it
+    cp "$ROOT"/deploy/ffmpeg/* "$ROOT/tools/ffmpeg-player.sh" "$ROOT/tools/ffmpeg.sh" "$STAGE/lib/ffmpeg/"
+    for l in "$FF"/lib/libavcodec.so.[0-9]* "$FF"/lib/libavutil.so.[0-9]*; do
+      case "$l" in *.so.[0-9]*.*) continue ;; esac   # the name the app asks for (libavcodec.so.61), the file it points to
+      cp -L "$l" "$STAGE/lib/"; "${WEBOS_TOOLCHAIN}/bin/arm-webos-linux-gnueabi-strip" "$STAGE/lib/$(basename "$l")" || true
+    done
     cp "$ROOT/deploy/webos/appinfo.json" "$STAGE/"
     cp "$ROOT/deploy/webos/"*.png "$STAGE/" 2>/dev/null || true
     cp -r "$ROOT/assets" "$STAGE/"

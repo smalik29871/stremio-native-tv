@@ -10,7 +10,7 @@ repository, linked here.
 
 | Component | Version | Licence | Where it is used | Licence text |
 |---|---|---|---|---|
-| [FFmpeg](https://ffmpeg.org) (libavcodec, libavutil; on Windows also libavformat, libswscale, libswresample) | 7.1.1 | LGPL 2.1 or later | Seek previews: only the H.264 and HEVC decoders (webOS, Android). On Windows the whole player: demuxers, HTTP(S) and HLS, video, audio and text-subtitle decoders (`tools/ffmpeg-player.sh`). No GPL or nonfree parts; linked statically | [COPYING.LGPLv2.1](https://git.ffmpeg.org/gitweb/ffmpeg.git/blob/refs/heads/release/7.1:/COPYING.LGPLv2.1) |
+| [FFmpeg](https://ffmpeg.org) (libavcodec, libavutil; on Windows also libavformat, libswscale, libswresample) | 7.1.1 | LGPL 2.1 or later | Seek previews: only the H.264 and HEVC decoders (webOS: `lib/libavcodec.so.61`, `lib/libavutil.so.59`). On Windows the whole player: demuxers, HTTP(S) and HLS, video, audio and text-subtitle decoders (the `av*-*.dll` and `sw*-*.dll` beside `Cuelight.exe`). No GPL or nonfree parts; unmodified, shared libraries you may replace with your own build of the same version. Where to get its source, and the scripts it was built with, are in the `ffmpeg` folder beside them | [COPYING.LGPLv2.1](https://git.ffmpeg.org/gitweb/ffmpeg.git/blob/refs/heads/release/7.1:/COPYING.LGPLv2.1) |
 | [QuickJS-ng](https://github.com/quickjs-ng/quickjs) | 0.17 | MIT | Runs the YouTube solver in a sandbox | `vendor/quickjs/LICENSE` |
 | [cJSON](https://github.com/DaveGamble/cJSON) | | MIT | JSON | header of `vendor/cJSON.h` |
 | [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (Project Nayuki) | | MIT | QR codes on screen | header of `vendor/qrcodegen.c` |

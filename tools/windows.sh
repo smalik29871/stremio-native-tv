@@ -7,8 +7,8 @@
 #     winpthreads and zlib DLLs they load (zlib licence, BSD, GCC runtime exception, MIT),
 #     and Khronos's OpenGL ES 2 headers (MIT);
 #   - curl's source (built here with Windows' own TLS, Schannel, as libcurl.dll);
-#   - FFmpeg (tools/ffmpeg-player.sh win64: LGPL, linked statically; this repository has
-#     everything needed to rebuild against a changed FFmpeg).
+#   - FFmpeg (tools/ffmpeg-player.sh win64: LGPL, as DLLs beside the exe that anyone can
+#     replace with their own build of the same version).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$(mkdir -p "${1:-$ROOT/build-win}" && cd "${1:-$ROOT/build-win}" && pwd)"
@@ -47,6 +47,8 @@ APP="$OUT/Cuelight"; rm -rf "$APP"; mkdir -p "$APP"
 cp "$OUT/cmake/stremio-tv.exe" "$APP/Cuelight.exe"
 cp "$OUT/cmake/curl/lib/libcurl.dll" "$APP/" 2>/dev/null || cp "$OUT"/cmake/curl/lib/libcurl*.dll "$APP/"
 for d in SDL2.dll libEGL.dll libGLESv2.dll libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll zlib1.dll; do cp "$W/bin/$d" "$APP/"; done
+cp "$FF"/bin/av*.dll "$FF"/bin/sw*.dll "$APP/"   # FFmpeg (LGPL), replaceable; its source, licence and build beside it
+mkdir -p "$APP/ffmpeg" && cp "$ROOT"/deploy/ffmpeg/* "$ROOT/tools/ffmpeg-player.sh" "$ROOT/tools/ffmpeg.sh" "$APP/ffmpeg/"
 cp -r "$ROOT/assets" "$APP/assets"
 cp "$ROOT/LICENSE" "$ROOT/THIRD-PARTY-NOTICES.md" "$APP/"
 if command -v go >/dev/null; then bash "$ROOT/tools/torrentd.sh" win64 "$APP/torrentd.exe"; else echo "no Go: the P2P fallback is left out"; fi

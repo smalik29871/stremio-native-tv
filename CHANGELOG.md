@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.82
+
+- **FFmpeg as libraries of its own.** On Windows the player's FFmpeg is now a set of DLLs beside
+  Cuelight.exe, and on an LG TV the seek previews' FFmpeg is two libraries in the app's lib
+  folder, loaded when they are needed (without them the TV still runs, with previews from the
+  home helper). Anyone may replace them with their own build of the same FFmpeg version, as its
+  licence (LGPL 2.1) allows; the `ffmpeg` folder beside them says where its source is and has
+  the scripts it was built with.
+
 ## 0.10.81
 
 - **Depth** (the Home backdrop's push-in and the screensaver's Depth face) reads its maps from

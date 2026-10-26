@@ -73,9 +73,10 @@ add_library(sntv_core STATIC
   src/addon/stremio_api.c)
 target_include_directories(sntv_core PUBLIC src vendor)
 target_link_libraries(sntv_core PUBLIC quickjs)
-# Static FFmpeg (tools/ffmpeg.sh: H.264 and HEVC decoders only) for seek previews decoded
-# on the TV. Without it the app builds and previews need the home helper.
-set(SNTV_FFMPEG_PREFIX "" CACHE PATH "Prefix of the static FFmpeg built by tools/ffmpeg.sh")
+# FFmpeg (tools/ffmpeg.sh: H.264 and HEVC decoders only) for seek previews decoded on the
+# TV: shared libraries loaded at run time on the TV, static in the tests. Without it the app
+# builds and previews need the home helper.
+set(SNTV_FFMPEG_PREFIX "" CACHE PATH "Prefix of the FFmpeg built by tools/ffmpeg.sh")
 # The desktop player (src/video/video_ffmpeg.c) on Linux or Windows: the fuller FFmpeg of
 # tools/ffmpeg-player.sh, which also serves the seek previews. Without it the desktop build
 # simulates playback (video_null.c), as the tests want.
@@ -90,8 +91,13 @@ if(SNTV_FFMPEG_PREFIX)
     set(FF ${SNTV_PLAYER_FFMPEG}/lib)
     target_include_directories(sntv_core PUBLIC ${SNTV_PLAYER_FFMPEG}/include)
     target_compile_definitions(sntv_core PUBLIC SNTV_DESKTOP_PLAYER=1)
-    target_link_libraries(sntv_core PUBLIC ${FF}/libavformat.a ${FF}/libavcodec.a ${FF}/libswscale.a ${FF}/libswresample.a ${FF}/libavutil.a)
-    if(EXISTS ${FF}/libdav1d.a)   # AV1 in software (the Windows build has it; Linux when the system had it)
+    if(EXISTS ${FF}/libavformat.dll.a)   # Windows: FFmpeg's DLLs beside the exe (replaceable, as its LGPL asks); dav1d and zlib are inside them
+      target_link_libraries(sntv_core PUBLIC ${FF}/libavformat.dll.a ${FF}/libavcodec.dll.a ${FF}/libswscale.dll.a ${FF}/libswresample.dll.a ${FF}/libavutil.dll.a)
+    else()
+      target_link_libraries(sntv_core PUBLIC ${FF}/libavformat.a ${FF}/libavcodec.a ${FF}/libswscale.a ${FF}/libswresample.a ${FF}/libavutil.a)
+    endif()
+    if(EXISTS ${FF}/libavformat.dll.a)
+    elseif(EXISTS ${FF}/libdav1d.a)   # AV1 in software (the Windows build has it; Linux when the system had it)
       target_link_libraries(sntv_core PUBLIC ${FF}/libdav1d.a)
     elseif(NOT SNTV_PLATFORM STREQUAL "windows" AND EXISTS ${FF}/pkgconfig/libavcodec.pc)
       file(READ ${FF}/pkgconfig/libavcodec.pc SNTV_AVC_PC)
@@ -100,10 +106,16 @@ if(SNTV_FFMPEG_PREFIX)
       endif()
     endif()
     if(SNTV_PLATFORM STREQUAL "windows")
-      target_link_libraries(sntv_core PUBLIC ${FF}/libz.a ws2_32 secur32 bcrypt crypt32 ncrypt ole32 user32 d3d11 dxgi)
+      if(NOT EXISTS ${FF}/libavformat.dll.a)
+        target_link_libraries(sntv_core PUBLIC ${FF}/libz.a)
+      endif()
+      target_link_libraries(sntv_core PUBLIC ws2_32 secur32 bcrypt crypt32 ncrypt ole32 user32 d3d11 dxgi)
     else()
       target_link_libraries(sntv_core PUBLIC ssl crypto z m)
     endif()
+  elseif(EXISTS ${SNTV_FFMPEG_PREFIX}/lib/libavcodec.so)   # shared (the TV's): loaded at run time from lib/ beside the app
+    target_compile_definitions(sntv_core PUBLIC SNTV_FFMPEG_DLOPEN=1)
+    target_link_libraries(sntv_core PUBLIC dl m)
   else()
     target_link_libraries(sntv_core PUBLIC ${SNTV_FFMPEG_PREFIX}/lib/libavcodec.a ${SNTV_FFMPEG_PREFIX}/lib/libavutil.a m)
   endif()

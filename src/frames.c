@@ -11,6 +11,80 @@
 #include <libavutil/frame.h>
 #include <libavutil/mem.h>
 #endif
+#ifdef SNTV_FFMPEG_DLOPEN
+/* FFmpeg's own libraries in lib/ beside the app (LGPL: anyone can put their own build of the
+ * same version there), loaded when first needed. Without them the TV has no previews of its
+ * own, and the app runs on. */
+#include <dlfcn.h>
+#include <libavutil/version.h>
+#include <unistd.h>
+#define FF_STR2(x) #x
+#define FF_STR(x) FF_STR2(x)
+static struct {
+    int tried, ok;
+    const AVCodec *(*find_decoder)(enum AVCodecID);
+    AVCodecContext *(*alloc_context3)(const AVCodec *);
+    int (*open2)(AVCodecContext *, const AVCodec *, AVDictionary **);
+    int (*send_packet)(AVCodecContext *, const AVPacket *);
+    int (*receive_frame)(AVCodecContext *, AVFrame *);
+    void (*free_context)(AVCodecContext **);
+    AVPacket *(*packet_alloc)(void);
+    void (*packet_free)(AVPacket **);
+    int (*new_packet)(AVPacket *, int);
+    void *(*mallocz)(size_t);
+    AVFrame *(*frame_alloc)(void);
+    void (*frame_free)(AVFrame **);
+} FF;
+
+static int ff_load_once(void);
+static int ff_load(void)   /* the player's thread and the phone server's may both ask first */
+{
+    static SDL_SpinLock lock;
+    SDL_AtomicLock(&lock);
+    if (!FF.tried) { FF.tried = 1; FF.ok = ff_load_once(); }
+    SDL_AtomicUnlock(&lock);
+    return FF.ok;
+}
+
+static int ff_load_once(void)
+{
+    char dir[1024], path[1100];
+    ssize_t n = readlink("/proc/self/exe", dir, sizeof dir - 1);
+    if (n <= 0) return 0;
+    dir[n] = 0;
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0;
+    /* libavutil first and global: libavcodec needs it by name, and finds it loaded */
+    snprintf(path, sizeof path, "%s/lib/libavutil.so." FF_STR(LIBAVUTIL_VERSION_MAJOR), dir);
+    void *u = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+    snprintf(path, sizeof path, "%s/lib/libavcodec.so." FF_STR(LIBAVCODEC_VERSION_MAJOR), dir);
+    void *c = u ? dlopen(path, RTLD_NOW | RTLD_LOCAL) : NULL;
+    if (!c) { LOGW("frames: FFmpeg's libraries did not load (%s): no previews decoded here", dlerror()); return 0; }
+#define FF_SYM(lib, field, name) (*(void **)&FF.field = dlsym(lib, name))
+    int ok = FF_SYM(c, find_decoder, "avcodec_find_decoder") && FF_SYM(c, alloc_context3, "avcodec_alloc_context3")
+          && FF_SYM(c, open2, "avcodec_open2") && FF_SYM(c, send_packet, "avcodec_send_packet")
+          && FF_SYM(c, receive_frame, "avcodec_receive_frame") && FF_SYM(c, free_context, "avcodec_free_context")
+          && FF_SYM(c, packet_alloc, "av_packet_alloc") && FF_SYM(c, packet_free, "av_packet_free")
+          && FF_SYM(c, new_packet, "av_new_packet") && FF_SYM(u, mallocz, "av_mallocz")
+          && FF_SYM(u, frame_alloc, "av_frame_alloc") && FF_SYM(u, frame_free, "av_frame_free");
+#undef FF_SYM
+    if (!ok) { LOGW("frames: FFmpeg's libraries lack a function the previews use"); return 0; }
+    LOGI("frames: FFmpeg loaded from %s/lib", dir);
+    return 1;
+}
+#define avcodec_find_decoder FF.find_decoder
+#define avcodec_alloc_context3 FF.alloc_context3
+#define avcodec_open2 FF.open2
+#define avcodec_send_packet FF.send_packet
+#define avcodec_receive_frame FF.receive_frame
+#define avcodec_free_context FF.free_context
+#define av_packet_alloc FF.packet_alloc
+#define av_packet_free FF.packet_free
+#define av_new_packet FF.new_packet
+#define av_mallocz FF.mallocz
+#define av_frame_alloc FF.frame_alloc
+#define av_frame_free FF.frame_free
+#endif
 
 enum { C_NONE, C_MKV, C_MP4 };
 enum { V_NONE, V_H264, V_HEVC };
@@ -31,7 +105,9 @@ static int g_next;
 
 int frames_supported(void)
 {
-#ifdef SNTV_HAVE_FFMPEG
+#ifdef SNTV_FFMPEG_DLOPEN
+    return ff_load();
+#elif defined(SNTV_HAVE_FFMPEG)
     return 1;
 #else
     return 0;
@@ -521,6 +597,9 @@ static uint8_t *to_bmp(const AVFrame *f, int max_w, size_t *len, char *err, size
 
 static uint8_t *decode(const Index *ix, const uint8_t *data, size_t n, int max_w, size_t *len, char *err, size_t en)
 {
+#ifdef SNTV_FFMPEG_DLOPEN
+    if (!ff_load()) { fail(err, en, "FFmpeg is not there"); return NULL; }
+#endif
     const AVCodec *codec = avcodec_find_decoder(ix->codec == V_HEVC ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264);
     AVCodecContext *c = codec ? avcodec_alloc_context3(codec) : NULL;
     if (!c) { fail(err, en, "no decoder"); return NULL; }
