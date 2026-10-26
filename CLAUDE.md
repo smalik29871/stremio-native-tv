@@ -5,6 +5,8 @@
   (e.g. `Settings: labelled background chips, no text under the swatches on phones`).
 - A release commit starts with the version: `0.10.86: headline, headline, headline`.
   A commit message starting `0.x` triggers the release workflow.
+- A release commit ends with `[tested here]` once the full suite has passed here: CI then skips
+  its test jobs (about 80 of the ~120 Actions minutes) and only builds and publishes.
 
 ## Branches
 - `type/short-kebab-name`, e.g. `feat/phone-player`, `fix/subtitle-overlap`.
