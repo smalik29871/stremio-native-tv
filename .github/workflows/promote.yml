@@ -1,0 +1,52 @@
+# Makes a beta the release everyone gets: run it by hand (Actions > Promote > Run workflow)
+# with the version, once it has been used on the beta devices. The pre-release becomes the
+# latest release, so .../releases/latest/download/... (every device's update check and the
+# Homebrew Channel) moves to it, and the releases repository's README follows.
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The beta version to give everyone, e.g. 0.10.87"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  RELEASES_REPO: smalik29871/cuelight-releases
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Make it the latest release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          TAG="v${VERSION#v}"
+          if ! gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "::error::$TAG is not in $RELEASES_REPO"; exit 1
+          fi
+          gh release edit "$TAG" --repo "$RELEASES_REPO" --prerelease=false --latest --title "Cuelight $TAG"
+          echo "$TAG is the latest release"
+      - name: Refresh the README in the public repository
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          TAG="v${VERSION#v}"
+          git clone -q --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" pub
+          sed -e "s|\${TAG}|${TAG}|g" -e "s|\${RELEASES_REPO}|${RELEASES_REPO}|g" deploy/releases/README.md > pub/README.md
+          cp LICENSE THIRD-PARTY-NOTICES.md pub/
+          cd pub
+          git add README.md LICENSE THIRD-PARTY-NOTICES.md
+          if ! git diff --cached --quiet; then
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "README, licence and notices for ${TAG}"
+            git push -q origin HEAD
+          fi
