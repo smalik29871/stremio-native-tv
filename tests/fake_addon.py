@@ -1178,7 +1178,6 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
         if p.startswith("/yt/sb/"):   # a storyboard sheet: a 1600 x 900 grid of 160 x 90 tiles, each its own colour
             from PIL import Image
-            import io
             sheet = int(p.split("/M")[-1].split(".")[0]) if "/M" in p else 0
             im = Image.new("RGB", (1600, 900))
             for k in range(100):

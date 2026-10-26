@@ -108,6 +108,9 @@ struct Player {
     float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
     float fs_until;           /* sideways on a phone: the controls show until */
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
+    float dk_nk, dk_nkt, dk_nke;   /* a computer: the credits' Up Next screen, how far in (dk_nke eased) */
+    float dk_rk, dk_rkt;      /* a computer: the "You're watching" card a while after pausing, faded in this far */
+    float dk_volr[4], dk_unmuted, dk_hk, dk_hkt;   /* a computer: where the volume slider is; the volume before muting; how far the timeline has grown under the pointer */
     float lb_k, lb_kt, lb_bar, lb_drawn; int lb_side, lb_logged, lb_none, lb_aside_logged;   /* living letterbox: how far it has faded in, the bar it fills (1 above and below, 2 at the sides) */
     char lb_last[2048];       /* the last frame it had, shown while the next one comes */
     char lb_prev[2048]; float lb_swap_at, lb_fade;   /* the one before, fading out as the last fades in (since then, over this long) */
@@ -260,6 +263,10 @@ struct Player {
 };
 
 static Player *g_live;
+#ifdef SNTV_DESKTOP_PLAYER
+static float desk_next_k(Player *p);
+static void desk_next_rect(float k, float *r);
+#endif
 
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
 #define PAUSE_REST 6.0f   /* seconds paused and untouched before the controls step aside */
@@ -4401,8 +4408,18 @@ static void draw(Screen *s)
     video_info(&vi);
     if (SNTV_PHONE && !p->pip) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 255)); app_redraw(); return; }   /* a phone still turning sideways */
     if (TOUCH_UI && !p->pip) {   /* a phone sideways: its own touch controls over the picture */
+        float nk = 0;
+#ifdef SNTV_DESKTOP_PLAYER
+        nk = desk_next_k(p);
+        if (nk > 0) {   /* the credits: the film steps back to the top left */
+            float r[4];
+            desk_next_rect(nk, r);
+            gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xFF));
+            draw_video_area(p, r[0], r[1], r[2], r[3]);
+        } else
+#endif
         draw_video_area(p, 0, 0, SNTV_UI_W, SNTV_UI_H);
-        if (!video_in_pip()) draw_letterbox(p, &vi);
+        if (!video_in_pip() && nk <= 0) draw_letterbox(p, &vi);
         if (p->veil > 0 && !video_in_pip()) {   /* opening: the loading card, as on a TV, and Back to leave */
             if (p->bridge) draw_bridge(p, &vi, p->veil); else draw_veil(p, &vi, p->veil);
             if (p->veil > 0.5f && !p->ph_sheet) { full_draw_loading(p); return; }
@@ -5469,9 +5486,10 @@ static void offer_resume(Player *p, const VideoInfo *vi)
  * side of the picture skips 10 s (again: further), a drag across it or along the bar seeks
  * (the time and a preview follow the finger), and up or down a side sets the brightness
  * (left) or the volume (right). ---- */
-enum { PH_NONE, PH_AUDIO, PH_SUBS, PH_SOURCES, PH_EPISODES, PH_SPEED };
+enum { PH_NONE, PH_AUDIO, PH_SUBS, PH_SOURCES, PH_EPISODES, PH_SPEED, PH_TRACKS };
+#define TRACKS_SUB 0x10000   /* PH_TRACKS: a subtitles row (the audio rows come first) */
 enum { PHH_BACK = 0x7FFF0000, PHH_PLAY, PHH_BACK10, PHH_FWD10, PHH_SKIP, PHH_NEXT, PHH_STILL_ON, PHH_STILL_STOP, PHH_CLOSE,
-       PHH_PREV_EP, PHH_NEXT_EP, PHH_ASPECT, PHH_PANEL, PHH_SHEET = 0x7FFE0000, PHH_ROW = 0x7FFD0000 };
+       PHH_PREV_EP, PHH_NEXT_EP, PHH_ASPECT, PHH_PANEL, PHH_TRACKS, PHH_MUTE, PHH_SZ_DN, PHH_SZ_UP, PHH_TM_DN, PHH_TM_UP, PHH_CREDITS, PHH_SHEET = 0x7FFE0000, PHH_ROW = 0x7FFD0000 };
 enum { PHB_SUBS, PHB_AUDIO, PHB_SPEED, PHB_SOURCES, PHB_EPISODES, PHB_PIP, PHB_COUNT };
 #define PH_ROWS 72
 
@@ -5481,6 +5499,14 @@ static int ph_rows(Player *p, PhRow *r)
 {
     int n = 0;
     VideoTrack tr[MAX_TRACKS];
+    if (p->ph_sheet == PH_TRACKS) {   /* a computer's one panel: the audio tracks, then the subtitles */
+        PhRow sub[PH_ROWS];
+        p->ph_sheet = PH_AUDIO; n = ph_rows(p, r);
+        p->ph_sheet = PH_SUBS; int ns = ph_rows(p, sub);
+        p->ph_sheet = PH_TRACKS;
+        for (int i = 0; i < ns && n < PH_ROWS; i++, n++) { r[n] = sub[i]; r[n].act |= TRACKS_SUB; }
+        return n;
+    }
     if (p->ph_sheet == PH_SPEED) {
         for (int i = 0; i < N_RATES && n < PH_ROWS; i++, n++) { snprintf(r[n].label, sizeof r[n].label, i == RATE_NORMAL ? "Normal" : "%gx", RATES[i]); r[n].sub[0] = 0; r[n].on = p->rate_idx == i; r[n].act = i; }
         return n;
@@ -5534,6 +5560,14 @@ static int ph_rows(Player *p, PhRow *r)
 static void ph_pick(Player *p, const PhRow *r)
 {
     int sheet = p->ph_sheet;
+    if (sheet == PH_TRACKS) {
+        PhRow one = *r;
+        p->ph_sheet = one.act & TRACKS_SUB ? PH_SUBS : PH_AUDIO;
+        one.act &= ~TRACKS_SUB;
+        ph_pick(p, &one);
+        if (p->ph_sheet != PH_NONE) p->ph_sheet = PH_TRACKS;
+        return;
+    }
     if (sheet == PH_SPEED) { set_rate(p, r->act); return; }
     p->menu = sheet == PH_AUDIO ? MENU_AUDIO : sheet == PH_SUBS ? MENU_SUBS : sheet == PH_SOURCES ? MENU_SOURCES : MENU_EPISODES;
     if (sheet == PH_SOURCES) p->src_filter = 0;
@@ -5571,10 +5605,24 @@ static void ph_time(double t, char *out, size_t n)
 
 static double ph_dur(const Player *p, const VideoInfo *vi) { return vi->duration > 0 ? vi->duration : p->known_dur; }
 
+#ifdef SNTV_DESKTOP_PLAYER
+/* A computer: paused for a few seconds with the mouse still, the controls step aside for a
+ * card of what this is (as the streaming apps do); moving the mouse brings them back. */
+static int desk_resting(const Player *p, const VideoInfo *vi)
+{
+    return vi->state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time - p->paused_since > env_s("SNTV_REST_S", 5.0f) && g_app.time >= p->fs_until && g_app.time >= p->overlay_until
+        && !p->ph_sheet && !p->tch && !p->still_asking && !error_final(p, vi);
+}
+#endif
+
 /* Full screen on a phone: the controls show for a while after a tap; always while paused,
  * starting, a list is open or the source failed. */
 static int fs_shown(const Player *p, const VideoInfo *vi)
 {
+#ifdef SNTV_DESKTOP_PLAYER
+    if (g_app.time < p->overlay_until) return 1;   /* a key used: they show as they would for the mouse */
+    if (desk_resting(p, vi)) return 0;   /* paused a while and nobody moving: the card instead */
+#endif
     return p->ph_sheet || g_app.time < p->fs_until || vi->state != VIDEO_PLAYING || p->tch || error_final(p, vi);
 }
 
@@ -5763,6 +5811,516 @@ static void ph_transport(Player *p, const VideoInfo *vi, float cx, float cy, flo
     if (p->next_video_id) ph_round(ICON_NEXT, NULL, cx + 2 * gap - mid * 0.3f, cy, mid * 0.8f, 0, PHH_NEXT_EP);
 }
 
+#ifdef SNTV_DESKTOP_PLAYER
+/* A computer: the controls of the streaming apps people know. Along the bottom the timeline,
+ * which grows under the pointer and shows the frame there; under it one row: play, 10 s back
+ * and on, the volume, the title in the middle, the lists and full screen at the right, each
+ * named when the pointer rests on it. The lists open in a panel above the row. */
+static float g_ptr_x = -1, g_ptr_y = -1, g_ptr_t = -100;   /* the pointer (canvas units), when it last moved */
+static const char *g_dk_tip; static float g_dk_tip_x;      /* the button under the pointer: its name, where */
+static float g_dk_vol = 1;   /* the volume set here, kept from one video to the next as the player keeps it */
+static float ph_vol(Player *p);
+
+static int dk_over(float x, float y, float w, float h)
+{
+    return g_app.time - g_ptr_t < 3.0f && g_ptr_x >= x && g_ptr_x < x + w && g_ptr_y >= y && g_ptr_y < y + h;
+}
+
+static void desk_ep_code(char *code, size_t n)   /* S2E1 -> S2:E1 */
+{
+    char *e = strchr(code, 'E');
+    if (e && strlen(code) + 1 < n) { memmove(e + 1, e, strlen(e) + 1); *e = ':'; }
+}
+
+static void desk_volume(Player *p, float v)
+{
+    if (v < 0) v = 0;
+    if (v > 1) v = 1;
+    p->vol = g_dk_vol = v;
+    video_set_volume((int)(v * 100 + 0.5f));
+    if (p->fs_until < g_app.time + 3.0f) p->fs_until = g_app.time + 3.0f;
+    app_redraw();
+}
+
+/* 10 s back or on: a circling arrow, the 10 inside */
+static void desk_skip_icon(float cx, float cy, float r, int dir, Color c)
+{
+    const float a0 = -1.05f, a1 = 4.36f;   /* clockwise from upper right round to upper left: a gap at the top */
+    float px = 0, py = 0;
+    for (int k = 0; k <= 24; k++) {
+        float a = a0 + (a1 - a0) * k / 24, x = cx + dir * r * cosf(a), y = cy + r * sinf(a);
+        if (k) gfx_line(px, py, x, y, 3, c);
+        px = x; py = y;
+    }
+    float tx = dir * -sinf(a1), ty = cosf(a1), al = r * 0.5f;   /* the head, the way the arrow goes */
+    for (int s = -1; s <= 1; s += 2) {
+        float ca = cosf(2.6f * s), sa = sinf(2.6f * s);
+        gfx_line(px, py, px + al * (tx * ca - ty * sa), py + al * (tx * sa + ty * ca), 3, c);
+    }
+    font_draw_center("10", cx, cy - font_height(FONT_XS | FONT_B) / 2 + 1, FONT_XS | FONT_B, c);
+}
+
+static void desk_full_icon(float cx, float cy, int fs, Color c)
+{
+    const float k = 13, l = 9;
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2) {   /* an L at each corner: pointing out, or in when full screen already */
+            float d = fs ? k - l : k, x = cx + sx * d, y = cy + sy * d, ax = fs ? sx * l : -sx * l, ay = fs ? sy * l : -sy * l;
+            gfx_line(x, y, x + ax, y, 3, c);
+            gfx_line(x, y, x, y + ay, 3, c);
+        }
+}
+
+/* One button of the row: lit under the pointer, which names it */
+static int desk_btn(float cx, float cy, const char *tip, int hit)
+{
+    int over = dk_over(cx - 38, cy - 38, 76, 76);
+    if (over) { gfx_circle(cx, cy, 36, RGBA(255, 255, 255, 0x26)); g_dk_tip = tip; g_dk_tip_x = cx; }
+    ui_hit(cx - 38, cy - 38, 76, 76, hit);
+    return over;
+}
+
+static void desk_icon_btn(Icon icon, float cx, float cy, const char *tip, int hit, int on)
+{
+    desk_btn(cx, cy, tip, hit);
+    ui_icon(icon, cx + (icon == ICON_PLAY ? 3 : 0), cy, icon == ICON_PLAY || icon == ICON_PAUSE ? 44 : 36, on ? THEME_ACCENT : THEME_TEXT);
+}
+
+static void desk_row(const PhRow *r, float x, float y, float w, float rh, int foc, int hit)
+{
+    if (foc) gfx_rrect(x - 12, y, w + 24, rh - 8, 12, COLOR_ALPHA(THEME_TEXT, 0x16));
+    if (r->on) ui_icon(ICON_CHECK, x + 16, y + (rh - 8) / 2, 26, THEME_ACCENT);
+    float tx = x + 48, tw = w - 56;
+    int fs = FONT_S | (r->on ? FONT_B : 0);
+    font_draw_fit(r->label, tx, r->sub[0] ? y + 8 : y + (rh - 8 - font_height(fs)) / 2, fs, r->on ? THEME_TEXT : THEME_TEXT_DIM, tw);
+    if (r->sub[0]) font_draw_fit(r->sub, tx, y + 42, FONT_XS, THEME_TEXT_MUTED, tw);
+    ui_hit(x - 12, y, w + 24, rh - 8, hit);
+}
+
+/* A list's rows in a column; the focused one kept in view (rows first..last of r) */
+static void desk_rows(Player *p, const PhRow *r, int first, int last, float x, float top, float w, float bottom, int scrolls)
+{
+    const float rh = 80;
+    int n = last - first;
+    float view = bottom - top, scroll = 0;
+    if (scrolls) {
+        int f = p->ph_focus - first;
+        float want = p->ph_scroll;
+        if (f >= 0 && f < n) {
+            if (f * rh + rh > want + view) want = f * rh + rh - view;
+            if (f * rh < want) want = f * rh;
+        }
+        float dt = g_app.time - p->ph_t;
+        p->ph_t = g_app.time;
+        ui_pan(&p->ph_pan, &p->ph_scroll, want, n * rh - view, dt < 0 ? 0 : dt > 0.1f ? 0.1f : dt, 16);
+        ui_pan_area(&p->ph_pan, x - 12, top, w + 24, view, 1);
+        scroll = p->ph_scroll;
+    }
+    gfx_clip_push(x - 16, top, w + 32, view);
+    for (int i = 0; i < n; i++) {
+        float ry = top + i * rh - scroll;
+        if (ry + rh < top || ry > bottom) continue;
+        desk_row(&r[first + i], x, ry, w, rh, first + i == p->ph_focus, PHH_ROW + first + i);
+    }
+    gfx_clip_pop();
+}
+
+/* "Size  ‹ Medium ›": a setting with a step either way */
+static float desk_stepper(const char *label, const char *value, float x, float y, int dn, int up)
+{
+    font_draw(label, x, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT_DIM);
+    x += font_measure(label, FONT_XS | FONT_B) + 16;
+    float vw = font_measure(value, FONT_XS | FONT_B) + 24;
+    if (vw < 150) vw = 150;
+    for (int k = 0; k < 2; k++) {
+        float bx = k ? x + 48 + vw : x;
+        if (dk_over(bx, y, 48, 48)) gfx_circle(bx + 24, y + 24, 24, RGBA(255, 255, 255, 0x26));
+        ui_icon(k ? ICON_CHEVRON_RIGHT : ICON_CHEVRON_LEFT, bx + 24, y + 24, 24, THEME_TEXT);
+        ui_hit(bx, y, 48, 48, k ? up : dn);
+    }
+    font_draw_center(value, x + 48 + vw / 2, y + (48 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT);
+    return x + 96 + vw;
+}
+
+/* The open list, in a panel above the row at the right; audio and subtitles side by side */
+static void desk_sheet(Player *p, float right, float bottom)
+{
+    static const char *const NAMES[] = { "", "Audio", "Subtitles", "Sources", "Episodes", "Speed", "Audio" };
+    PhRow r[PH_ROWS];
+    int n = ph_rows(p, r), tracks = p->ph_sheet == PH_TRACKS, na = 0;
+    if (tracks) while (na < n && !(r[na].act & TRACKS_SUB)) na++;
+    if (p->ph_focus >= n) p->ph_focus = n ? n - 1 : 0;
+    const float rh = 80, head = 100, foot = tracks ? 100 : 28;
+    float w = tracks ? 1180 : p->ph_sheet == PH_SPEED ? 420 : p->ph_sheet == PH_SOURCES ? 980 : 760;
+    int tall = tracks ? (na > n - na ? na : n - na) : n;
+    if (tall < 1) tall = 1;
+    float h = head + tall * rh + foot, maxh = bottom - 110;
+    if (h > maxh) h = maxh;
+    float x = right - w, y = bottom - h;
+    if (!g_app.fx_light) gfx_shadow(x, y + 8, w, h, R_PANEL, 40, RGBA(0, 0, 0, 0xA0));
+    gfx_rrect(x, y, w, h, R_PANEL, RGBA(0x16, 0x18, 0x1C, 0xF4));
+    ui_hit(x, y, w, h, PHH_PANEL);   /* a click there is not a click on the film */
+    if (dk_over(x + w - 76, y + 20, 56, 56)) gfx_circle(x + w - 48, y + 48, 28, RGBA(255, 255, 255, 0x26));
+    ui_icon(ICON_CLOSE, x + w - 48, y + 48, 26, THEME_TEXT_DIM);
+    ui_hit(x + w - 80, y + 16, 64, 64, PHH_CLOSE);
+    float lt = y + head, lb = y + h - foot;
+    if (!tracks) {
+        font_draw(NAMES[p->ph_sheet], x + 40, y + 30, FONT_M | FONT_B, THEME_TEXT);
+        if (!n) font_draw(p->ph_sheet == PH_EPISODES ? "No other episodes" : "Nothing here", x + 40, lt + 10, FONT_S, THEME_TEXT_MUTED);
+        desk_rows(p, r, 0, n, x + 40, lt, w - 80, lb, 1);
+        return;
+    }
+    float cw = (w - 120) / 2, ax = x + 40, sx = x + 80 + cw;
+    font_draw("Audio", ax, y + 30, FONT_M | FONT_B, THEME_TEXT);
+    font_draw("Subtitles", sx, y + 30, FONT_M | FONT_B, THEME_TEXT);
+    gfx_rect(x + 60 + cw - 1, y + 36, 2, h - 72, COLOR_ALPHA(THEME_TEXT, 0x18));
+    if (!na) font_draw("One audio track", ax, lt + 10, FONT_S, THEME_TEXT_MUTED);
+    desk_rows(p, r, 0, na, ax, lt, cw, lb, 0);
+    desk_rows(p, r, na, n, sx, lt, cw, lb, 1);
+    /* how the subtitles look and when they come, under the lists */
+    gfx_rect(x + 40, lb + 6, w - 80, 2, COLOR_ALPHA(THEME_TEXT, 0x18));
+    char v[64];
+    subs_setting(p, SUB_SIZE, v, sizeof v);
+    float fx = desk_stepper("Subtitle size", v, x + 40, lb + 32, PHH_SZ_DN, PHH_SZ_UP);
+    subs_setting(p, SUB_TIMING, v, sizeof v);
+    desk_stepper("Timing", v, fx + 48, lb + 32, PHH_TM_DN, PHH_TM_UP);
+}
+
+/* Skip intro, the next episode or "Still watching?": a button at the right above the timeline */
+static int desk_offer(Player *p, const VideoInfo *vi, float right, float y)
+{
+    const SkipSeg *sk = g_app.skip_mode == 0 ? skippable(p, vi) : NULL;
+    if (!sk && !(p->up_next_shown && p->next_video_id) && !p->still_asking) return 0;
+    const char *t = p->still_asking ? "Still watching?  Click to go on" : sk ? (sk->kind == SKIP_RECAP ? "Skip recap" : "Skip intro") : next_ready(p) ? "Next episode" : "Next episode (getting it ready\xE2\x80\xA6)";
+    float h = 64, w = font_measure(t, FONT_S | FONT_B) + 64, x = right - w;
+    int over = dk_over(x, y, w, h), filled = over || p->still_asking;
+    gfx_rrect(x, y, w, h, 12, filled ? RGBA(255, 255, 255, 0xF0) : RGBA(0x14, 0x14, 0x18, 0xA0));
+    if (!filled) gfx_rrect_ring(x, y, w, h, 12, 2, COLOR_ALPHA(THEME_TEXT, 0xC0));
+    font_draw_center(t, x + w / 2, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, filled ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT);
+    ui_hit(x, y, w, h, p->still_asking ? PHH_STILL_ON : sk ? PHH_SKIP : PHH_NEXT);
+    return 1;
+}
+
+/* The timeline: what has loaded, the chapters as gaps, where it is; under the pointer it grows,
+ * and the frame at the pointer shows above it with the time and the chapter. */
+static void desk_timeline(Player *p, const VideoInfo *vi, float x, float y, float w)
+{
+    double dur = ph_dur(p, vi), pos = p->seek_commit > 0 ? p->seek_target : vi->position;
+    int held = p->tch == 1, hover = held || (dur > 0 && dk_over(x - 12, y - 30, w + 24, 60) && !p->ph_sheet);
+    float step = g_app.time - p->dk_hkt;
+    p->dk_hkt = g_app.time;
+    if (g_app.fx_light) p->dk_hk = hover;
+    else { p->dk_hk += ((float)hover - p->dk_hk) * (step * 18 > 1 ? 1 : step * 18); if (fabsf(hover - p->dk_hk) < 0.02f) p->dk_hk = (float)hover; else app_redraw(); }
+    float th = 6 + 6 * p->dk_hk, ty = y - th / 2, frac = dur > 0 ? (float)(pos / dur) : 0;
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    gfx_rrect(x, ty, w, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x38));
+    if (vi->buffer_ahead > 0 && dur > 0) { float b = (float)((vi->position + vi->buffer_ahead) / dur); if (b > 1) b = 1; gfx_rrect(x, ty, w * b, th, th / 2, COLOR_ALPHA(THEME_TEXT, 0x50)); }
+    gfx_rrect(x, ty, w * frac, th, th / 2, THEME_ACCENT);
+    float hx = held ? x + w * frac : g_ptr_x < x ? x : g_ptr_x > x + w ? x + w : g_ptr_x;
+    if (hover && !held) {   /* from where it is to the pointer, lighter */
+        float a = x + w * frac, b = hx;
+        if (b < a) { float t = a; a = b; b = t; }
+        gfx_rect(a, ty, b - a, th, COLOR_ALPHA(THEME_TEXT, 0x60));
+    }
+    if (p->probe && dur > 0)
+        for (int i = 1; i < p->probe->n_chapters; i++)   /* chapters: small gaps in the line */
+            gfx_rect(x + w * (float)(p->probe->chapters[i].start_s / dur) - 2, ty - 1, 4, th + 2, RGBA(0, 0, 0, 0xC0));
+    for (int i = 0; i < p->n_marks && dur > 0; i++) gfx_circle(x + w * (float)(p->marks[i] / dur), ty - 10, 4, THEME_ACCENT);
+    gfx_circle(x + w * frac, y, 9 + 5 * p->dk_hk, THEME_ACCENT);
+    p->fs_barr[0] = x - 30; p->fs_barr[1] = y - 30; p->fs_barr[2] = w + 60; p->fs_barr[3] = 60;
+    if (!hover || dur <= 0) return;
+    double t = held ? pos : dur * (hx - x) / w;
+    if (!held) gfx_rect(hx - 1.5f, ty - 6, 3, th + 12, THEME_TEXT);
+    char ts[24];
+    ph_time(t, ts, sizeof ts);
+    int ch = chapter_at(p, t);
+    const char *cname = ch >= 0 && p->probe->chapters[ch].name[0] ? p->probe->chapters[ch].name : NULL;
+    int iw = 0, ih = 0;
+    unsigned tex = seek_thumb(p, t, &iw, &ih, held);
+    float pw = tex && iw > 0 && ih > 0 ? 384 : 0, ph = pw ? pw * ih / iw : 0;
+    if (ph > 260) { ph = 260; pw = ph * iw / ih; }
+    float bw = pw > 260 ? pw : 260, bx = hx - bw / 2;
+    if (bx < 24) bx = 24;
+    if (bx + bw > SNTV_UI_W - 24) bx = SNTV_UI_W - 24 - bw;
+    float cy = y - 34 - (cname ? 30 : 0) - font_height(FONT_M | FONT_B);
+    if (pw) {
+        float py = cy - 14 - ph, px = bx + (bw - pw) / 2;
+        if (!g_app.fx_light) gfx_shadow(px, py + 8, pw, ph, 12, 30, RGBA(0, 0, 0, 0xA0));
+        gfx_rtex_uv(tex, px, py, pw, ph, 12, 0, 0, 1, 1, RGBA(255, 255, 255, 255), 0);
+        gfx_rrect_ring(px, py, pw, ph, 12, 3, RGBA(255, 255, 255, 0xE6));
+    }
+    font_draw_shadow(ts, bx + (bw - font_measure(ts, FONT_M | FONT_B)) / 2, cy, FONT_M | FONT_B, THEME_TEXT, RGBA(0, 0, 0, 0xC0));
+    if (cname) {
+        char c[160];
+        snprintf(c, sizeof c, "%s", cname);
+        float cw = font_measure(c, FONT_XS);
+        font_draw_shadow(c, bx + (bw - (cw < bw ? cw : bw)) / 2, cy + font_height(FONT_M | FONT_B) + 2, FONT_XS, THEME_TEXT_DIM, RGBA(0, 0, 0, 0xC0));
+    }
+}
+
+/* The credits: the film steps back to the top left and the next episode takes the screen,
+ * counting down to it; Watch credits puts it away, Next episode (or its picture) plays it. */
+static float desk_next_k(Player *p)
+{
+    int on = p->up_next_shown && p->next_video_id && !p->still_asking && !p->pip && !p->ph_sheet;
+    float step = g_app.time - p->dk_nkt;
+    p->dk_nkt = g_app.time;
+    if (g_app.fx_light) p->dk_nk = (float)on;
+    else {
+        p->dk_nk += ((float)on - p->dk_nk) * (step * 6 > 1 ? 1 : step * 6);
+        if (fabsf((float)on - p->dk_nk) < 0.01f) p->dk_nk = (float)on; else app_redraw();
+    }
+    p->dk_nke = p->dk_nk * p->dk_nk * (3 - 2 * p->dk_nk);
+    return p->dk_nke;
+}
+
+static void desk_next_rect(float k, float *r)
+{
+    const float to[4] = { 96, 108, 864, 486 };
+    float from[4] = { 0, 0, (float)SNTV_UI_W, (float)SNTV_UI_H };
+    for (int i = 0; i < 4; i++) r[i] = from[i] + (to[i] - from[i]) * k;
+}
+
+static void desk_arc(float cx, float cy, float r, float frac, float th, Color c)
+{
+    int n = (int)(48 * frac) + 1;
+    float px = cx, py = cy - r;
+    for (int i = 1; i <= n; i++) {
+        float a = -1.5707963f + 6.2831853f * frac * i / n, x = cx + r * cosf(a), y = cy + r * sinf(a);
+        gfx_line(px, py, x, y, th, c);
+        px = x; py = y;
+    }
+}
+
+static void desk_next_screen(Player *p, const VideoInfo *vi, float k)
+{
+    int a = (int)(255 * k);
+    float W = SNTV_UI_W, H = SNTV_UI_H, x = 1050, w = W - 96 - x, y = 108;
+    /* what is ending, under the small picture */
+    font_draw_fit(p->meta.name ? p->meta.name : "", 96, 640, FONT_XS, COLOR_ALPHA(THEME_TEXT_MUTED, a), 864);
+    char code[32]; const char *ename = NULL;
+    if (episode_parts(p, code, sizeof code, &ename)) {
+        desk_ep_code(code, sizeof code);
+        char line[240]; snprintf(line, sizeof line, "%s%s%s", code, ename && *ename ? "  \xC2\xB7  " : "", ename ? ename : "");
+        font_draw_fit(line, 96, 672, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), 864);
+    }
+    /* the next one: when it starts, its picture, its name, what happens */
+    double at = p->next_at > 0 ? p->next_at : vi->duration, left = at - vi->position, window = at < vi->duration ? 20.0 : 45.0;
+    int counting = g_app.autoplay_next && vi->duration > 0 && left > 0.5 && !p->next_wanted;
+    char when[64];
+    if (counting) snprintf(when, sizeof when, "Next episode in %d", (int)(left + 0.5));
+    else snprintf(when, sizeof when, p->next_wanted || !next_ready(p) ? "Next episode, getting it ready\xE2\x80\xA6" : "Next episode");
+    font_draw(when, x, y - 4, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
+    float ty = y + 48, th = w * 9 / 16;
+    const char *thumb = app_video_thumbnail(p->meta.id, p->next_video_id);
+    gfx_set_alpha(k);
+    ui_card(thumb, x, ty, w, th, 0, 0, NULL, CARD_MIP);
+    gfx_set_alpha(1);
+    p->card_thumb[0] = x; p->card_thumb[1] = ty; p->card_thumb[2] = w; p->card_thumb[3] = th; p->card_at = g_app.time;   /* the next one zooms from here */
+    int over = dk_over(x, ty, w, th);
+    gfx_rrect_ring(x, ty, w, th, R_CARD, over ? 4 : 3, COLOR_ALPHA(THEME_TEXT, over ? a : (int)(0xD0 * k)));
+    float cx = x + w / 2, cy = ty + th / 2;
+    gfx_circle(cx, cy, 52, RGBA(0, 0, 0, (int)(0x90 * k)));
+    ui_icon(ICON_PLAY, cx + 4, cy, 44, COLOR_ALPHA(THEME_TEXT, a));
+    if (counting) {   /* the ring empties as it comes */
+        desk_arc(cx, cy, 62, 1, 6, RGBA(255, 255, 255, (int)(0x40 * k)));
+        float f = (float)(left / window);
+        desk_arc(cx, cy, 62, f < 0 ? 0 : f > 1 ? 1 : f, 6, COLOR_ALPHA(THEME_TEXT, a));
+        app_redraw();
+    }
+    ui_hit(x, ty, w, th, PHH_NEXT);
+    float ny = ty + th + 28;
+    int nv;
+    const MetaVideo *vids = app_videos(p->meta.id, &nv);
+    const char *about = NULL;
+    char title[240];
+    snprintf(title, sizeof title, "%s", p->next_title ? p->next_title : "Next episode");
+    for (int i = 0; i < nv; i++)
+        if (!strcmp(vids[i].id, p->next_video_id)) {
+            if (vids[i].season >= 0 && vids[i].episode >= 0) snprintf(title, sizeof title, "S%d:E%d%s%s", vids[i].season, vids[i].episode, vids[i].title ? "  \xC2\xB7  " : "", vids[i].title ? vids[i].title : "");
+            about = vids[i].overview;
+            break;
+        }
+    font_draw_fit(title, x, ny, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, a), w);
+    if (about && *about) font_draw_wrapped(about, x, ny + font_height(FONT_M | FONT_B) + 10, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), w, 3);
+    /* the two choices, at the bottom right */
+    const char *go = "Next episode", *stay = "Watch credits";
+    float bh = 72, gw = font_measure(go, FONT_S | FONT_B) + 104, sw = font_measure(stay, FONT_S | FONT_B) + 64, by = H - 96 - bh, gx = W - 96 - gw, sx = gx - 20 - sw;
+    int og = dk_over(gx, by, gw, bh), os = dk_over(sx, by, sw, bh);
+    gfx_rrect(gx, by, gw, bh, 12, og ? RGBA(255, 255, 255, a) : RGBA(0xEE, 0xEE, 0xEE, (int)(0xF0 * k)));
+    ui_icon(ICON_NEXT, gx + 44, by + bh / 2, 30, RGBA(0x11, 0x11, 0x11, a));
+    font_draw(go, gx + 76, by + (bh - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, RGBA(0x11, 0x11, 0x11, a));
+    ui_hit(gx, by, gw, bh, PHH_NEXT);
+    if (os) gfx_rrect(sx, by, sw, bh, 12, RGBA(255, 255, 255, (int)(0x24 * k)));
+    gfx_rrect_ring(sx, by, sw, bh, 12, 2, COLOR_ALPHA(THEME_TEXT, (int)(0xC0 * k)));
+    font_draw_center(stay, sx + sw / 2, by + (bh - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
+    ui_hit(sx, by, sw, bh, PHH_CREDITS);
+    /* and Back, as everywhere */
+    gfx_circle(72, 80, 36, RGBA(255, 255, 255, (int)((dk_over(36, 44, 72, 72) ? 0x30 : 0x1C) * k)));
+    ui_icon(ICON_CHEVRON_LEFT, 70, 80, 30, COLOR_ALPHA(THEME_TEXT, a));
+    ui_hit(32, 40, 80, 80, PHH_BACK);
+}
+
+/* "You're watching": the picture dimmed from the left, the title, the episode, what happens in it */
+static void desk_rest_card(Player *p, const VideoInfo *vi, float k)
+{
+    int a = (int)(255 * k);
+    float W = SNTV_UI_W, H = SNTV_UI_H, x = 144, maxw = 860;
+    gfx_gradient_h(0, 0, W, H, RGBA(0, 0, 0, (int)(0xE0 * k)), RGBA(0, 0, 0, (int)(0x40 * k)));
+    const char *about = p->meta.description, *ename = NULL;
+    int nv, season = -1, episode = -1;
+    const MetaVideo *vids = app_videos(p->meta.id, &nv);
+    for (int i = 0; i < nv && p->video_id; i++)
+        if (!strcmp(vids[i].id, p->video_id)) {   /* this episode, not the show */
+            if (vids[i].overview && *vids[i].overview) about = vids[i].overview;
+            season = vids[i].season; episode = vids[i].episode; ename = vids[i].title;
+            break;
+        }
+    char ep[200] = "", facts[160] = "", left[24];
+    if (season >= 0 && episode >= 0) snprintf(ep, sizeof ep, "Season %d  \xC2\xB7  Episode %d%s%s", season, episode, ename && *ename ? "  \xC2\xB7  " : "", ename && *ename ? ename : "");
+    double dur = ph_dur(p, vi);
+    ph_time(dur - vi->position, left, sizeof left);
+    const char *bits[3] = { p->meta.release_info, p->meta.runtime, dur > 0 ? left : NULL };   /* "2009  ·  47 min  ·  22:31 left" */
+    for (int i = 0; i < 3; i++) {
+        if (!bits[i] || !*bits[i]) continue;
+        size_t l = strlen(facts);
+        snprintf(facts + l, sizeof facts - l, "%s%s%s", l ? "  \xC2\xB7  " : "", bits[i], i == 2 ? " left" : "");
+    }
+    const char *name = p->meta.name && *p->meta.name ? p->meta.name : p->title ? p->title : "";
+    int tfs = font_measure(name, FONT_TITLE | FONT_B) > maxw ? FONT_XL | FONT_B : FONT_TITLE | FONT_B;
+    float need = font_height(FONT_S) + 16 + font_draw_wrapped(name, x, 0, tfs, 0, maxw, 2) * font_height(tfs) + 12
+               + (ep[0] ? font_height(FONT_M | FONT_B) + 18 : 0) + (about ? font_draw_wrapped(about, x, 0, FONT_S, 0, maxw, 4) * font_height(FONT_S) * 1.15f + 20 : 0)
+               + font_height(FONT_XS);
+    float y = (H - need) / 2 - 30 + (1 - k) * 18;
+    font_draw("You're watching", x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a));
+    y += font_height(FONT_S) + 16;
+    y += font_draw_wrapped(name, x, y, tfs, COLOR_ALPHA(THEME_TEXT, a), maxw, 2) * font_height(tfs) + 12;
+    if (ep[0]) { font_draw_fit(ep, x, y, FONT_M | FONT_B, COLOR_ALPHA(THEME_TEXT, (int)(0xE6 * k)), maxw); y += font_height(FONT_M | FONT_B) + 18; }
+    if (about) y += font_draw_wrapped(about, x, y, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), maxw, 4) * font_height(FONT_S) * 1.15f + 20;
+    if (facts[0]) font_draw(facts, x, y, FONT_XS, COLOR_ALPHA(THEME_TEXT_MUTED, a));
+    float px = W - 96 - font_measure("Paused", FONT_S | FONT_B), py = H - 96;
+    ui_icon(ICON_PAUSE, px - 30, py + font_height(FONT_S | FONT_B) / 2, 30, COLOR_ALPHA(THEME_TEXT_DIM, a));
+    font_draw("Paused", px, py, FONT_S | FONT_B, COLOR_ALPHA(THEME_TEXT_DIM, a));
+}
+
+/* The controls, when they show (or only the skip button when they don't) */
+static void desk_controls(Player *p, const VideoInfo *vi, int shown, int failed)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H, lx = 72, by = H - 168, cy = H - 82;
+    p->dk_volr[2] = 0;
+    {   /* the card comes in slowly as the controls go, and goes at once when they come back */
+        int rest = desk_resting(p, vi);
+        float step = g_app.time - p->dk_rkt;
+        p->dk_rkt = g_app.time;
+        if (!rest || g_app.fx_light) p->dk_rk = rest;
+        else if (p->dk_rk < 1) { p->dk_rk += step / 0.8f; if (p->dk_rk > 1) p->dk_rk = 1; app_redraw(); }
+        if (rest && p->dk_rk < 1 && g_app.fx_light == 0) app_redraw();
+        if (p->dk_rk > 0) desk_rest_card(p, vi, p->dk_rk * p->dk_rk * (3 - 2 * p->dk_rk));
+        if (!rest && vi->state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time < p->paused_since + env_s("SNTV_REST_S", 5.0f) + 0.2f) app_redraw();   /* to come in on time */
+    }
+    if (p->dk_nke > 0) { desk_next_screen(p, vi, p->dk_nke); if (p->ph_sheet) desk_sheet(p, W - lx, cy - 52); return; }
+    if (!shown && p->fs_k <= 0) { if (!p->dk_rk) desk_offer(p, vi, W - lx, H - 150); return; }
+    float fe = 1 - (1 - p->fs_k) * (1 - p->fs_k);
+    gfx_set_alpha(fe);
+    if (g_app.time < p->fs_until) app_redraw();   /* to hide them on time */
+    g_dk_tip = NULL;
+    if (!failed) {
+        gfx_gradient_v(0, 0, W, 200, RGBA(0, 0, 0, 0xA0), RGBA(0, 0, 0, 0));
+        gfx_gradient_v(0, H - 380, W, 380, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0xD8));
+    }
+    /* the top: back at the left, what is playing at the right */
+    if (dk_over(lx - 36, 44, 72, 72)) gfx_circle(lx, 80, 36, RGBA(255, 255, 255, 0x30));
+    else gfx_circle(lx, 80, 36, RGBA(255, 255, 255, 0x1C));
+    ui_icon(ICON_CHEVRON_LEFT, lx - 2, 80, 30, THEME_TEXT);
+    ui_hit(lx - 40, 40, 80, 80, PHH_BACK);
+    char res[32], aud[48];
+    media_badges(p, vi, res, sizeof res, aud, sizeof aud);
+    float chx = W - lx;
+    if (aud[0]) { chx -= font_measure(aud, FONT_XS | FONT_B) + 24; ui_chip(aud, chx, 60, COLOR_ALPHA(THEME_TEXT, 0x24), THEME_TEXT); chx -= 12; }
+    if (res[0]) { chx -= font_measure(res, FONT_XS | FONT_B) + 24; ui_chip(res, chx, 60, COLOR_ALPHA(THEME_TEXT, 0x24), THEME_TEXT); }
+    if (failed) { gfx_set_alpha(1); return; }
+    gfx_set_translate(0, 20 * (1 - fe));
+    desk_offer(p, vi, W - lx, by - 120);
+    double pos = p->seek_commit > 0 ? p->seek_target : vi->position, dur = ph_dur(p, vi);
+    char a[24], b[24];
+    ph_time(pos, a, sizeof a);
+    if (dur > 0) { char t[24]; ph_time(dur - pos, t, sizeof t); snprintf(b, sizeof b, "\xE2\x88\x92%.20s", t); } else b[0] = 0;
+    font_draw(a, lx, by + 20, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0xD0));
+    font_draw(b, W - lx - font_measure(b, FONT_XS | FONT_B), by + 20, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0xD0));
+    /* the row, from the left */
+    float x = lx + 10;
+    desk_icon_btn(vi->state == VIDEO_PLAYING ? ICON_PAUSE : ICON_PLAY, x, cy, vi->state == VIDEO_PLAYING ? "Pause (Space)" : "Play (Space)", PHH_PLAY, 0);
+    x += 88;
+    desk_btn(x, cy, "Back 10 s (Left)", PHH_BACK10);
+    desk_skip_icon(x, cy, 20, -1, THEME_TEXT);
+    x += 88;
+    desk_btn(x, cy, "On 10 s (Right)", PHH_FWD10);
+    desk_skip_icon(x, cy, 20, 1, THEME_TEXT);
+    x += 88;
+    float vol = ph_vol(p);
+    desk_btn(x, cy, vol > 0.001f ? "Mute" : "Sound on", PHH_MUTE);
+    ui_icon(ICON_AUDIO, x, cy, 34, THEME_TEXT);
+    if (vol <= 0.001f) gfx_line(x - 18, cy - 18, x + 18, cy + 18, 4, THEME_TEXT);
+    float sx = x + 50, sw = 150;
+    int vh = dk_over(sx - 12, cy - 24, sw + 24, 48) || p->tch == 3;
+    gfx_rrect(sx, cy - 3, sw, 6, 3, COLOR_ALPHA(THEME_TEXT, 0x40));
+    gfx_rrect(sx, cy - 3, sw * vol, 6, 3, THEME_TEXT);
+    if (vh) gfx_circle(sx + sw * vol, cy, 10, THEME_TEXT);
+    p->dk_volr[0] = sx - 12; p->dk_volr[1] = cy - 24; p->dk_volr[2] = sw + 24; p->dk_volr[3] = 48;
+    float left_end = sx + sw + 40;
+    /* from the right: full screen, speed, aspect, audio and subtitles, sources, episodes, the next episode */
+    float rx = W - lx - 10;
+    int fs = window_fullscreen();
+    desk_btn(rx, cy, fs ? "Leave full screen (F)" : "Full screen (F)", HIT_WIN_FULL);
+    desk_full_icon(rx, cy, fs, THEME_TEXT);
+    rx -= 88;
+    desk_btn(rx, cy, "Speed", PHH_SHEET + PHB_SPEED);
+    if (p->rate_idx != RATE_NORMAL) { char sp[16]; snprintf(sp, sizeof sp, "%gx", RATES[p->rate_idx]); font_draw_center(sp, rx, cy - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_ACCENT); }
+    else ui_icon(ICON_SPEED, rx, cy, 36, p->ph_sheet == PH_SPEED ? THEME_ACCENT : THEME_TEXT);
+    rx -= 88;
+    char asp[48];
+    snprintf(asp, sizeof asp, "Picture: %s", ASPECT_NAMES[p->aspect]);
+    desk_icon_btn(ICON_ASPECT, rx, cy, asp, PHH_ASPECT, 0);
+    rx -= 88;
+    desk_icon_btn(ICON_SUBS, rx, cy, "Audio & subtitles", PHH_TRACKS, p->ph_sheet == PH_TRACKS);
+    rx -= 88;
+    if (!p->trailer) { desk_icon_btn(ICON_SWAP, rx, cy, "Sources", PHH_SHEET + PHB_SOURCES, p->ph_sheet == PH_SOURCES); rx -= 88; }
+    if (ph_has_eps(p) && !p->trailer) { desk_icon_btn(ICON_LIST, rx, cy, "Episodes", PHH_SHEET + PHB_EPISODES, p->ph_sheet == PH_EPISODES); rx -= 88; }
+    if (p->next_video_id) {
+        desk_icon_btn(ICON_NEXT, rx, cy, "Next episode", PHH_NEXT_EP, 0);
+        float k = next_progress(p);
+        if (k >= 0 && k < 1) ui_progress(rx - 18, cy + 26, 36, 3, k, THEME_TEXT_DIM);   /* still getting it ready */
+        rx -= 88;
+    }
+    /* what is playing, in the middle of what is left */
+    float room = rx + 40 - left_end, mid = (left_end + rx + 40) / 2;
+    char code[32], line[300];
+    const char *ename = NULL, *name = p->meta.name && *p->meta.name ? p->meta.name : p->title ? p->title : "";
+    if (episode_parts(p, code, sizeof code, &ename)) {
+        desk_ep_code(code, sizeof code);
+        snprintf(line, sizeof line, "%s%s%s", code, ename && *ename ? "  \xC2\xB7  " : "", ename ? ename : "");
+    } else line[0] = 0;
+    float nw = font_measure(name, FONT_S | FONT_B), ew = line[0] ? font_measure(line, FONT_S) + 20 : 0;
+    if (nw + ew > room) { if (nw > room * 0.5f && ew) nw = room * 0.5f; if (nw + ew > room) ew = room - nw; if (ew < 0) ew = 0; }
+    if (nw > room) nw = room;
+    float tx = mid - (nw + ew) / 2, tyy = cy - font_height(FONT_S | FONT_B) / 2;
+    font_draw_fit(name, tx, tyy, FONT_S | FONT_B, THEME_TEXT, nw);
+    if (ew > 20) font_draw_fit(line, tx + nw + 20, tyy, FONT_S, THEME_TEXT_DIM, ew - 20);
+    gfx_set_translate(0, 0);
+    if (g_dk_tip && !p->ph_sheet) {   /* the name of the button under the pointer, above it */
+        float tw = font_measure(g_dk_tip, FONT_XS | FONT_B) + 28, tx2 = g_dk_tip_x - tw / 2;
+        if (tx2 < 12) tx2 = 12;
+        if (tx2 + tw > W - 12) tx2 = W - 12 - tw;
+        gfx_rrect(tx2, cy - 96, tw, 42, 10, RGBA(0x10, 0x10, 0x12, 0xF0));
+        font_draw(g_dk_tip, tx2 + 14, cy - 96 + (42 - font_height(FONT_XS | FONT_B)) / 2, FONT_XS | FONT_B, THEME_TEXT);
+    }
+    desk_timeline(p, vi, lx, by, W - 2 * lx);
+    gfx_set_alpha(1);
+    if (p->ph_sheet) desk_sheet(p, W - lx, cy - 52);
+}
+#endif
+
 /* Sideways on a phone: the picture is the whole screen; the controls over it. */
 /* Under the loading card on a phone: no controls yet (nothing to pause or seek), only Back */
 static void full_draw_loading(Player *p)
@@ -5795,6 +6353,10 @@ static void full_draw(Player *p, const VideoInfo *vi)
         if (g_app.fx_light) p->fs_k = want;
         else { p->fs_k += (want - p->fs_k) * (step * 16 > 1 ? 1 : step * 16); if (fabsf(want - p->fs_k) < 0.01f) p->fs_k = want; else app_redraw(); }
     }
+#ifdef SNTV_DESKTOP_PLAYER
+    desk_controls(p, vi, shown, failed);
+    return;
+#endif
     if (!shown && p->fs_k <= 0) {   /* only the skip button stays, at the bottom right */
         ph_offer(p, vi, W - 80 - 520, H - 150, 520, 96);
         return;
@@ -5885,6 +6447,13 @@ static int phone_tap(Player *p, int id)
     case PHH_NEXT_EP: ph_neighbour(p, 1); return 1;
     case PHH_ASPECT: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Aspect: %s", ASPECT_NAMES[p->aspect]); return 1;
     case PHH_CLOSE: p->ph_sheet = PH_NONE; return 1;
+#ifdef SNTV_DESKTOP_PLAYER
+    case PHH_TRACKS: ph_open(p, PH_TRACKS); return 1;
+    case PHH_MUTE: player_toggle_mute(); return 1;
+    case PHH_SZ_DN: case PHH_SZ_UP: adjust_subs(p, SUB_SIZE, id == PHH_SZ_UP ? 1 : -1); return 1;
+    case PHH_TM_DN: case PHH_TM_UP: shift_subs(p, id == PHH_TM_UP ? 0.1 : -0.1); return 1;
+    case PHH_CREDITS: p->up_next_shown = 0; p->up_next_dismissed = 1; LOGI("player: watching the credits"); return 1;
+#endif
     case PHH_SKIP: { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); return 1; }
     case PHH_NEXT: if (next_ready(p)) go_up_next(p); else p->next_wanted = 1; return 1;
     case PHH_STILL_ON: return -3;   /* as OK on "Still watching?" */
@@ -5955,6 +6524,9 @@ static float ph_bright(Player *p)
 static float ph_vol(Player *p)
 {
     float v = video_device_volume();
+#ifdef SNTV_DESKTOP_PLAYER
+    if (v < 0 && p->vol < 0) return g_dk_vol;   /* what was set in an episode before (the player keeps it) */
+#endif
     return v >= 0 ? v : p->vol >= 0 ? p->vol : 1;
 }
 static void ph_adjust(Player *p, int what, float v)
@@ -6002,6 +6574,9 @@ static int drag(Screen *s, int phase, float x, float y)
     if (phase == 0) {
         p->tch = 0; p->tch_seeking = 0; p->tch_moved = 0;
         if (error_final(p, &vi)) return 0;
+#ifdef SNTV_DESKTOP_PLAYER
+        if (in_rect(p->dk_volr, x, y)) { p->tch = 3; desk_volume(p, (x - p->dk_volr[0] - 12) / (p->dk_volr[2] - 24)); return 1; }
+#endif
         int id;
         if (dur > 0 && in_rect(bar, x, y)) p->tch = 1;   /* the bar: the knob jumps to the finger */
         else if (ui_hit_find(x, y, s, &id)) return 0;   /* a button or the open list */
@@ -6015,6 +6590,13 @@ static int drag(Screen *s, int phase, float x, float y)
     if (!p->tch) return 0;
     float dx = x - p->tch_x0, dy = y - p->tch_y0;
     if (fabsf(dx) > 24 || fabsf(dy) > 24) p->tch_moved = 1;
+#ifdef SNTV_DESKTOP_PLAYER
+    if (p->tch == 3) {   /* the volume slider */
+        desk_volume(p, (x - p->dk_volr[0] - 12) / (p->dk_volr[2] - 24));
+        if (phase == 2) { p->tch = 0; LOGI("player: volume %d%%", (int)(ph_vol(p) * 100 + 0.5f)); }
+        return 1;
+    }
+#endif
     if (p->tch == 1) {
         float bl = bar[0] + 30, bw = bar[2] - 60;
         double t = dur * (x - bl) / bw;
@@ -6123,6 +6705,9 @@ keys:
         }
     }
     if (error_final(p, &vi) && a == KEY_OK) { app_push(screen_diagnostics_create(1)); return 1; }
+#ifdef SNTV_DESKTOP_PLAYER
+    if (!p->pip && (a == KEY_UP || a == KEY_DOWN)) { desk_volume(p, ph_vol(p) + (a == KEY_UP ? 0.1f : -0.1f)); return 1; }   /* the arrows up and down: louder, quieter */
+#endif
     int overlay_on = g_app.time < p->overlay_until || vi.state == VIDEO_PAUSED;
     if (p->bar_focus && overlay_on) {   /* the button row has the focus */
         int ids[BTN_COUNT]; const char *labels[BTN_COUNT]; Icon icons[BTN_COUNT]; char src[32];
@@ -6452,10 +7037,27 @@ void player_pip_draw(Screen *s, int focused)
     if (vi.state == VIDEO_PLAYING) app_redraw();
 }
 
-void player_pointer_moved(void)
+void player_pointer_moved(float x, float y)
 {
+#ifdef SNTV_DESKTOP_PLAYER
+    g_ptr_x = x; g_ptr_y = y; g_ptr_t = g_app.time;
+    app_redraw();   /* what is under it lights, the timeline grows */
+#else
+    (void)x; (void)y;
+#endif
     if (!g_live || g_live->pip) return;
     if (g_live->fs_until < g_app.time + 2.9f) { g_live->fs_until = g_app.time + 3.0f; app_redraw(); }
+}
+
+void player_toggle_mute(void)
+{
+#ifdef SNTV_DESKTOP_PLAYER
+    if (!g_live || g_live->pip) return;
+    float v = ph_vol(g_live);
+    if (v > 0.001f) { g_live->dk_unmuted = v; desk_volume(g_live, 0); }
+    else desk_volume(g_live, g_live->dk_unmuted > 0.01f ? g_live->dk_unmuted : 1);
+    LOGI("player: %s", v > 0.001f ? "muted" : "sound on");
+#endif
 }
 
 int player_holds_screen(void)

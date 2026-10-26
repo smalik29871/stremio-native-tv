@@ -533,6 +533,8 @@ static void touch_event(const SDL_Event *e)
 static SDL_Window *g_win;
 static float g_mouse_x = -1, g_mouse_y = -1, g_mouse_t = -100;   /* the pointer (canvas units) and when it last moved */
 
+int window_fullscreen(void) { return g_win && (SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
+
 static void toggle_fullscreen(void)
 {
     Uint32 fs = SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -559,7 +561,8 @@ static void window_chrome(void)
         ui_icon(ICON_CHEVRON_LEFT, 58, 60, 30, THEME_TEXT);
         ui_hit(28, 28, 64, 64, HIT_WIN_BACK);
     }
-    float fx = in_player ? SNTV_UI_W - 770 : SNTV_UI_W - 48, fy = in_player ? 84 : 48, k = 11, l = 8;   /* four corners: out to full screen, in to a window */
+    if (in_player) { gfx_set_alpha(1); app_redraw(); return; }   /* its row has full screen */
+    float fx = SNTV_UI_W - 48, fy = 48, k = 11, l = 8;   /* four corners: out to full screen, in to a window */
     int fs = (SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
     gfx_circle(fx, fy, 26, RGBA(0, 0, 0, over_full ? 0xD0 : 0x90));
     for (int sx = -1; sx <= 1; sx += 2)
@@ -590,7 +593,7 @@ static void mouse_hover(SDL_Window *win, int x, int y)
     g_mouse_x = ux; g_mouse_y = uy; g_mouse_t = g_app.time;
     if (top && !strcmp(top->name, "ambient") && top->key) { top->key(top, KEY_BACK); return; }   /* the screensaver: the mouse wakes the screen */
     if (SDL_ShowCursor(SDL_QUERY) == SDL_DISABLE) SDL_ShowCursor(SDL_ENABLE);
-    if (top && !strcmp(top->name, "player")) player_pointer_moved();
+    if (top && !strcmp(top->name, "player")) player_pointer_moved(ux, uy);
     if (!top || !top->tap || g_touch.down) return;
     int on_pip = ui_hit_find(ux, uy, top, &id) && id >= HIT_PIP && id <= HIT_PIP_CLOSE;
     if (g_app.pip && (on_pip || g_pip_focus)) {   /* the corner player: its buttons show under the pointer */
@@ -1005,6 +1008,13 @@ int main(int argc, char **argv)
                     SDL_SetWindowFullscreen(win, fs ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                     app_redraw();
 #endif
+                    continue;
+                }
+#endif
+#ifdef SNTV_DESKTOP_PLAYER
+                if (!e.key.repeat && top && !strcmp(top->name, "player") && !g_app.pip && (e.key.keysym.sym == SDLK_f || e.key.keysym.sym == SDLK_m)) {   /* F: full screen, M: mute, as in the streaming apps */
+                    g_app.last_input = g_app.time;
+                    if (e.key.keysym.sym == SDLK_f) toggle_fullscreen(); else player_toggle_mute();
                     continue;
                 }
 #endif

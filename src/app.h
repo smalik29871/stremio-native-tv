@@ -376,7 +376,9 @@ int  app_pip_claim(const char *video_id);
 void player_set_pip(Screen *s, int on);
 void player_pip_update(Screen *s, float dt);
 void player_pip_draw(Screen *s, int focused);
-void player_pointer_moved(void);   /* a computer: the mouse moved over the player (its controls show) */
+void player_pointer_moved(float x, float y);   /* a computer: the mouse moved over the player, to x:y (canvas units): its controls show */
+void player_toggle_mute(void);   /* a computer: M in the player */
+int window_fullscreen(void);     /* a computer: the window fills the screen */
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);
 void player_save_progress(void);
