@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.85
+
+- **A new player on phones and tablets (sideways).** Back and the title at the top, with
+  the lock and the picture's shape at the right; 10 s back and on either side of a large
+  play; the timeline with its times; and a labelled row: Speed, Audio & subtitles, Sources,
+  Episodes, Next episode, More. Lock the screen so touches do nothing until you unlock it.
+  Pinch to fill the screen, pinch in to see the whole picture.
+- **More, on phones, tablets and computers:** the previous episode, mark this moment,
+  scenes (tap one to go there), cast, subtitle settings (main or second subtitles, size,
+  style, position, timing, auto-sync), reload and stats, as on the TV. Sources end with
+  Find more sources. A click or tap away from an open list closes it.
+- **Windows fixes:** the subtitle size and timing buttons work (a click on them moved the
+  video); an episode no longer starts over two or three times at the beginning; the screen
+  no longer goes to sleep while a video plays.
+
 ## 0.10.84
 
 - **Phones and tablets speak for themselves.** Where the app talked about "this TV" it now
