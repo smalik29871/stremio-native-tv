@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.86
+
+- **Windows: an episode no longer starts over.** The audio and subtitles are chosen before
+  the first picture, so the video reads once from where it starts; changing a track later
+  carries on from where the picture is.
+- **The player on phones is easier to use.** Bigger play, skip and top buttons, larger
+  title and times, and a bottom row with bigger icons and labels (icons only when a list is
+  open beside it). Subtitles move up above the controls while they show.
+- **Subtitle styles on Android.** Subtitles from inside the video now follow your size,
+  colour, style (outline, box, shadow, yellow, cyan) and position, instead of the file's own.
+- **Smoother under load.** Automatic effects follow how fast the TV draws all along: light
+  when it struggles, full again when it keeps up, never mid-scroll. Holding a direction
+  key moves the focus first and loads the pictures ahead once you rest; pictures never
+  take every connection. Back to Home lands on the card you left, and Home's updates come in
+  after it has. Diagnostics > Speed shows the slowest key response and late frames.
+- **Interface settings, clearer.** The background tints are labelled chips you can tell
+  apart; on phones the colour rows no longer show text behind the swatches, a tapped row is
+  not lit up like a remote's, and long setting names wrap instead of being cut off. New
+  crescent and sparkle icons; the theme preview no longer splits a title in two.
+
 ## 0.10.85
 
 - **A new player on phones and tablets (sideways).** Back and the title at the top, with
