@@ -2323,8 +2323,10 @@ void app_save_prefs(void)
 }
 
 /* Auto effects, all along: drawn frames averaged in windows of 120. Two slow windows in a
- * row (over 25 ms: the TV can't hold ~40 fps) drop to light effects; light ones well under
- * that (12 ms), for longer, bring full effects back. The gap between the two, and a longer
+ * row (over 25 ms: the TV can't hold ~40 fps) drop to light effects; light ones that keep up
+ * with the screen, for longer, bring full effects back (a frame includes the wait for the
+ * display, so one that keeps up is ~17 ms at 60 Hz, never less: "keeps up" is hardly any
+ * frame missing a refresh). The gap between the two, and a longer
  * wait after a return that failed, keep it from flipping back and forth; a change waits
  * for a pause in the keys so it never lands mid-scroll. The player and the screensaver
  * draw video and are not counted. */
@@ -2349,11 +2351,11 @@ static float fake_frame_ms(float ms)   /* tests: SNTV_FAKE_FRAME_MS="40x200,6" (
 
 void app_note_frame(float ms)
 {
-    static int n, slow_runs, fast_runs, need_fast = 4, want = -1;
-    static float sum, restored_at = -1000, last_avg;
+    static int n, late, slow_runs, fast_runs, need_fast = 4, want = -1, restored;
+    static float sum, last_avg;
     static int adapt = -1;
     if (adapt < 0) { const char *e = getenv("SNTV_FX_ADAPT"); adapt = !(e && *e == '0'); }   /* tests: off, so a busy test machine does not change what a run sees */
-    if (g_app.fx_setting != FX_AUTO || !adapt) { n = 0; sum = 0; slow_runs = fast_runs = 0; want = -1; return; }
+    if (g_app.fx_setting != FX_AUTO || !adapt) { n = late = 0; sum = 0; slow_runs = fast_runs = 0; want = -1; return; }
     if (g_app.time < 3.0f) return;   /* skip startup */
     Screen *top = app_top();
     if (top && (!strcmp(top->name, "player") || !strcmp(top->name, "ambient"))) return;
@@ -2362,26 +2364,28 @@ void app_note_frame(float ms)
     g_app.frame_ms_sum += ms;
     if (ms > g_app.frame_ms_worst) g_app.frame_ms_worst = ms;
     sum += ms;
+    late += ms > 25.0f;   /* past a second refresh at 60 Hz */
     if (++n >= fx_measure_window()) {
         last_avg = sum / n;
-        n = 0; sum = 0;
+        int keeps_up = late * 20 <= n && last_avg < 20.0f;   /* 1 in 20 at most missed a refresh */
+        n = 0; sum = 0; late = 0;
         if (!g_app.fx_light) {
             fast_runs = 0;
             slow_runs = last_avg > 25.0f ? slow_runs + 1 : 0;
             if (slow_runs >= 2) want = 1;
         } else {
             slow_runs = 0;
-            fast_runs = last_avg < 12.0f ? fast_runs + 1 : 0;
+            fast_runs = keeps_up ? fast_runs + 1 : 0;
             if (fast_runs >= need_fast && mem_stage() < 2) want = 0;   /* not while memory holds it light */
         }
     }
     if (want < 0 || want == g_app.fx_light || g_app.time - g_app.last_input < 1.5f) return;
     if (want) {
-        if (g_app.time - restored_at < 60 && need_fast < 64) need_fast *= 2;   /* full effects did not last: longer before the next try */
+        if (restored && need_fast < 64) need_fast *= 2;   /* full effects did not last: longer before the next try */
         LOGI("perf: frames slow (%.1f ms average, twice in a row) -> light effects", last_avg);
     } else {
-        restored_at = g_app.time;
-        LOGI("perf: frames quick again (%.1f ms average, %d times) -> full effects", last_avg, fast_runs);
+        restored = 1;
+        LOGI("perf: light effects keep up with the screen (%.1f ms average, %d times) -> full effects", last_avg, fast_runs);
     }
     g_app.fx_light = want;
     want = -1; slow_runs = fast_runs = 0;

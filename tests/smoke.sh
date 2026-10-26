@@ -923,8 +923,11 @@ grep -q "home: changes wait for the way back to finish" "$OUT/return_path.log" &
 run home_travel 200 "wait,fast:right:8,wait,wait"
 grep -q "input: the focus is travelling" "$OUT/home_travel.log" || { echo "a held key was not seen as travelling"; exit 1; }
 # Automatic effects follow the frame times both ways: slow frames drop to light, quick ones bring full back
-run fx_adapt 700 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="40x100,6" HOME="$(home_with fxa '{"setupDone":1,"fx":0}')"
-grep -q "perf: frames slow .* -> light effects" "$OUT/fx_adapt.log" && grep -q "perf: frames quick again .* -> full effects" "$OUT/fx_adapt.log" || { echo "automatic effects did not follow the frame times"; grep "perf:" "$OUT/fx_adapt.log"; exit 1; }
+run fx_adapt 1200 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="40x100,17"   # 17 ms: a frame that waited for a 60 Hz screen HOME="$(home_with fxa '{"setupDone":1,"fx":0}')"
+grep -q "perf: frames slow .* -> light effects" "$OUT/fx_adapt.log" && grep -q "perf: light effects keep up with the screen .* -> full effects" "$OUT/fx_adapt.log" || { echo "automatic effects did not follow the frame times"; grep "perf:" "$OUT/fx_adapt.log"; exit 1; }
+# a TV saved on light effects whose frames keep up with a 60 Hz screen (17 ms with the wait for it) goes back to full
+run fx_stuck 700 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="17" HOME="$(home_with fxs '{"setupDone":1,"fx":0,"fxAutoLight":1}')"
+grep -q "perf: light effects keep up with the screen .* -> full effects" "$OUT/fx_stuck.log" || { echo "a TV kept on light effects never went back to full"; grep "perf:" "$OUT/fx_stuck.log"; exit 1; }
 run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000 SNTV_MEM_SAMPLE_S=0.5   # read twice a second: the step down comes whatever the frame rate
 grep -q "memory saver on (memory got tight)" "$OUT/home_mem_tight.log" && grep -q "memory: tight (87 MB free of 2929): the saver" "$OUT/home_mem_tight.log" || { echo "a tight TV did not step down"; grep -E "memory" "$OUT/home_mem_tight.log"; exit 1; }
 run home_mem_low 600 "right,right" SNTV_FAKE_MEM=3000000,400000 SNTV_MEM_SAMPLE_S=0.5
