@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.80
+
+- **Windows: an installer, and updates from inside the app.** The release has a setup .exe:
+  it installs for your user with no administrator needed, with a Start menu entry, a desktop
+  shortcut and an entry in Settings > Apps to remove it. From then on Settings > About >
+  Update downloads the next installer, checks it against its release, closes, installs it and
+  opens Cuelight again. Your sign-in, settings and progress stay. (0.10.79 and older open the
+  download page once.)
+- **Windows with a mouse:** no line under a row while the pointer is over it; Enter on the
+  keyboard finishes typing (search, sign-in, settings) instead of typing the on-screen key;
+  hints say Click and Right-click instead of the remote's OK; the move arrows of Home rows
+  and addons in Settings, and Diagnostics' YouTube test buttons, can be clicked, and a click
+  on a log line copies the log.
+- **Android tablets of any size** get the touch layout.
+- **Installing an addon:** when its address answers with a web page (an addon that moved, or
+  a page a network shows instead), it says so; a manifest that starts with a byte-order mark
+  installs, and a link with anything after manifest.json, or an addon's settings page
+  address, installs the addon.
+
 ## 0.10.79
 
 - **Living letterbox, rebuilt** (off by default now, and switched off once for everyone; Settings
