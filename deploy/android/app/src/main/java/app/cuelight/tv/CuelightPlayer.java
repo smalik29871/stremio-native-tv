@@ -232,16 +232,37 @@ public final class CuelightPlayer {
         });
     }
 
-    /* size 0..3, position 0 bottom / 1 raised / 2 top, the colour as #RRGGBB or null */
-    public static void subtitleStyle(final int size, final String colour, final int position) {
+    /* size 0..3, position 0 bottom / 1 raised / 2 top, the colour as #RRGGBB or null (the style's own),
+     * style as the app's SUBS_STYLE_* (src/ui/widgets.h). The viewer's look wins over the file's own. */
+    private static float sSubPad = 0.08f, sSubLift = 0;
+    public static void subtitleStyle(final int size, final String colour, final int position, final int style) {
         run(() -> {
             float[] sizes = { 0.045f, 0.055f, 0.068f, 0.082f };
+            sSubs.setApplyEmbeddedStyles(false);
+            sSubs.setApplyEmbeddedFontSizes(false);
             sSubs.setFractionalTextSize(sizes[Math.max(0, Math.min(3, size))]);
-            int fg = Color.WHITE;
+            int fg = Color.WHITE, bg = Color.TRANSPARENT, edge = CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW;
+            switch (style) {
+                case 1: edge = CaptionStyleCompat.EDGE_TYPE_OUTLINE; break;                   // bold outline
+                case 2: fg = 0xFFFFE14D; edge = CaptionStyleCompat.EDGE_TYPE_OUTLINE; break;  // classic yellow
+                case 3: bg = 0xFF000000; edge = CaptionStyleCompat.EDGE_TYPE_NONE; break;     // black box
+                case 4: edge = CaptionStyleCompat.EDGE_TYPE_OUTLINE; break;                   // bright
+                case 5: edge = CaptionStyleCompat.EDGE_TYPE_RAISED; break;                    // raised
+                case 6: bg = 0x99000000; edge = CaptionStyleCompat.EDGE_TYPE_NONE; break;     // soft box
+                case 7: fg = 0xFF4DD9FF; edge = CaptionStyleCompat.EDGE_TYPE_OUTLINE; break;  // cyan
+                default: break;                                                               // soft shadow
+            }
             try { if (colour != null && colour.startsWith("#")) fg = Color.parseColor(colour); } catch (IllegalArgumentException ignored) { }
-            sSubs.setStyle(new CaptionStyleCompat(fg, Color.TRANSPARENT, Color.TRANSPARENT, CaptionStyleCompat.EDGE_TYPE_OUTLINE, Color.BLACK, null));
-            sSubs.setBottomPaddingFraction(position == 1 ? 0.2f : 0.08f);
+            sSubs.setStyle(new CaptionStyleCompat(fg, bg, Color.TRANSPARENT, edge, Color.BLACK, null));
+            sSubPad = position == 2 ? 0.78f : position == 1 ? 0.2f : 0.08f;
+            sSubs.setBottomPaddingFraction(Math.max(sSubPad, sSubLift));
         });
+    }
+
+    /* While the app's controls show, the file's subtitles go up above them (a fraction of the
+     * height from the bottom; 0 back to where the viewer put them). */
+    public static void subtitleLift(final float fraction) {
+        run(() -> { sSubLift = fraction; sSubs.setBottomPaddingFraction(Math.max(sSubPad, sSubLift)); });
     }
 
     /* Picture in picture (Android 8+): a playing video goes along into a small window when

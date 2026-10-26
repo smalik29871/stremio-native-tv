@@ -16,17 +16,17 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
-    { "selectTrack", "(II)V" }, { "subtitleStyle", "(ILjava/lang/String;I)V" },
+    { "selectTrack", "(II)V" }, { "subtitleStyle", "(ILjava/lang/String;II)V" },
     { "status", "()[D" }, { "error", "()Ljava/lang/String;" }, { "codec", "()Ljava/lang/String;" }, { "warning", "()Ljava/lang/String;" },
     { "tracks", "(I)[Ljava/lang/String;" }, { "landscapeOnly", "(Z)V" },
     { "deviceVolume", "()F" }, { "setDeviceVolume", "(F)V" }, { "brightness", "()F" }, { "setBrightness", "(F)V" },
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
-    { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" },
+    { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" }, { "subtitleLift", "(F)V" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -263,16 +263,27 @@ int video_tracks(TrackKind kind, VideoTrack *out, int max)
 
 void video_select_track(TrackKind kind, int index) { CALL(M_SELECT, (jint)kind, (jint)index); }
 
+void video_subtitle_lift(float fraction)
+{
+    static float last = -1;
+    if (fraction == last) return;
+    last = fraction;
+    JNIEnv *e = env();
+    if (!e) return;
+    (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_SUB_LIFT], (jfloat)fraction);
+    clear(e);
+}
+
 void video_subtitle_style(int size, int style, const char *colour, int position, int sync_ms)
 {
-    (void)style; (void)sync_ms;
+    (void)sync_ms;
     static const struct { const char *name, *hex; } C[] = { { "white", "#FFFFFF" }, { "yellow", "#FFE14D" }, { "green", "#5BE37D" }, { "cyan", "#4DD9FF" }, { "blue", "#5B8CFF" }, { "magenta", "#FF66D9" }, { "red", "#FF5B5B" }, { "black", "#000000" } };
     const char *hex = NULL;
     for (size_t i = 0; colour && i < sizeof C / sizeof C[0]; i++) if (!SDL_strcasecmp(colour, C[i].name)) hex = C[i].hex;
     JNIEnv *e = env();
     if (!e) return;
     jstring c = hex ? (*e)->NewStringUTF(e, hex) : NULL;
-    (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_STYLE], (jint)size, c, (jint)position);
+    (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_STYLE], (jint)size, c, (jint)position, (jint)style);
     if (c) (*e)->DeleteLocalRef(e, c);
     clear(e);
 }

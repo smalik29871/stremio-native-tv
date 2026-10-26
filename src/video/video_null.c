@@ -110,6 +110,7 @@ void video_app_foreground(void) {}
 void video_keep_awake(int on) { (void)on; }
 void video_hold_screensaver(int on) { (void)on; }
 void video_keep_awake_charging(int on) { (void)on; }
+void video_subtitle_lift(float fraction) { (void)fraction; }
 void video_memory_stage(int stage) { (void)stage; }
 unsigned video_frame_texture(int *w, int *h, float *aspect) { (void)w; (void)h; (void)aspect; return 0; }   /* the video is a plane of its own */
 int video_subtitle_text(char *out, size_t n) { if (n) *out = 0; return 0; }

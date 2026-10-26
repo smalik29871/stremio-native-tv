@@ -619,6 +619,7 @@ unsigned video_frame_texture(int *w, int *h, float *aspect) { (void)w; (void)h; 
 int video_subtitle_text(char *out, size_t n) { if (n) *out = 0; return 0; }
 
 void video_keep_awake_charging(int on) { (void)on; }
+void video_subtitle_lift(float fraction) { (void)fraction; }
 
 void video_hold_screensaver(int on)
 {

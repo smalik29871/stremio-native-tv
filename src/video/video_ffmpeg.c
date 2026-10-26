@@ -70,6 +70,7 @@ typedef struct {
     volatile int eof;
     volatile int switch_audio; /* a different sound track chosen (stream + 1): the reader moves to it */
     volatile int reopen_audio; /* ... and the sound's thread opens its decoder */
+    volatile int shown;        /* a picture (or sound) of it has been out: no going back to the start */
     volatile int text_req;     /* a text track chosen (stream + 2, 1 for none): the reader opens it */
     /* pictures */
     SDL_mutex *fm; SDL_cond *fc;
@@ -575,9 +576,9 @@ static int reader_thread(void *arg)
     AVPacket *pk = av_packet_alloc();
     while (!pl->abort) {
         /* another sound track, or subtitles from the file: one seek for both, and none of its
-         * own while one is coming anyway; before anything has played, from where it starts
-         * (no jump back, no second start) */
-        int early = clock_now() < pl->start + 2.0;
+         * own while one is coming anyway; before anything is out, from where it starts; once
+         * it is, from where the picture is (never back to the start: that replays it) */
+        int early = !pl->shown && !(pl->vi < 0 && pl->clock_pts >= 0);
         if (pl->switch_audio) {   /* from where the picture is */
             int want = pl->switch_audio - 1;
             pl->fmt->streams[pl->ai]->discard = AVDISCARD_ALL;
@@ -589,8 +590,7 @@ static int reader_thread(void *arg)
         }
         if (pl->text_req) {
             open_text(pl, pl->text_req - 2);
-            double back = clock_now() > 2 ? clock_now() - 2 : 0;   /* the cues before now, read again */
-            if (pl->si >= 0 && !pl->seek_req) { pl->seek_to = early ? pl->start : back; pl->seek_req = 1; }   /* a seek coming anyway reads its cues from there */
+            if (pl->si >= 0 && !pl->seek_req) { pl->seek_to = early ? pl->start : clock_now(); pl->seek_req = 1; }   /* read from the keyframe before: the cue on now with it */
             pl->text_req = 0;
         }
         if (pl->seek_req) {
@@ -845,6 +845,7 @@ static void picture_upload(Player *pl)
         if (f->yuv && f->yuv->data[0]) yuv_draw(f->yuv);
         else if (f->rgba) { glActiveTexture(GL_TEXTURE0); pic_texture(f->w, f->h, f->rgba); }
         g_tex_pts = f->pts; g_tex_serial = f->serial; g_shown_pts = f->pts;
+        pl->shown = 1;
         app_redraw();   /* the app draws the picture here: a new one needs a frame, mouse or not */
     }
     SDL_UnlockMutex(pl->fm);
@@ -1147,6 +1148,7 @@ void video_app_foreground(void) {}
 void video_keep_awake(int on) { g_keep = on; awake_apply(); }
 void video_hold_screensaver(int on) { g_hold = on; awake_apply(); }
 void video_keep_awake_charging(int on) { (void)on; }
+void video_subtitle_lift(float fraction) { (void)fraction; }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 void video_memory_stage(int stage) { (void)stage; }
 

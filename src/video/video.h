@@ -113,6 +113,9 @@ void video_hold_screensaver(int on);
 /* A phone or tablet on its charger with the app's screensaver on: the screen stays on for it
  * (off the charger it sleeps on the device's own timeout). Elsewhere nothing. */
 void video_keep_awake_charging(int on);
+/* The player's own drawing of the file's subtitles (Android) goes up by this fraction of the
+ * height while the app's controls show over the bottom; 0 back. Elsewhere the app draws them. */
+void video_subtitle_lift(float fraction);
 /* Paused by a video_pause() call (the viewer, the app going to the background, a break),
  * not a stall that the TV reports as a pause (LG does). */
 int video_paused_on_purpose(void);
