@@ -903,6 +903,9 @@ class H(BaseHTTPRequestHandler):
                                               "sha256": ("ef" * 32) if "bad" in p else hashlib.sha256(setup).hexdigest()}).encode())
         if p == "/Cuelight-9.9.9-windows-setup.exe":
             return self.send(200, b"MZ fake Cuelight installer " * 4096, "application/octet-stream")
+        if p in ("/rel/download/beta/repo.json", "/rel/latest/download/repo.json"):   # the beta channel and the public release
+            ver = "9.9.9" if "/beta/" in p else "0.0.1"
+            return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {"version": ver, "ipkUrl": f"{BASE}/fake.ipk", "ipkHash": {"sha256": "00"}}}]}).encode(), "application/json")
         if p == "/repo.json":   # an update notice
             return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {
                 "version": "9.9.9", "ipkUrl": f"{BASE}/org.stremio.nativetv_9.9.9_arm.ipk", "ipkHash": {"sha256": "ab" * 32}}}]}).encode())

@@ -60,7 +60,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
-       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS, IT_BROWSE, IT_SUBS_BARS,
+       IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS, IT_BROWSE, IT_SUBS_BARS, IT_BETA,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
@@ -183,7 +183,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_RECOMMENDED); ids[n++] = IT_BROWSE; for (int i = 0; i < N_REC && n < max; i++) ids[n++] = IT_REC_BASE + i;
         break;
     case CAT_ABOUT: SEC(SEC_CUELIGHT); ids[n++] = IT_ABOUT_APP; ids[n++] = IT_WHATSNEW;
-        SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; SEC(SEC_HELP); ids[n++] = IT_HELP; ids[n++] = IT_GET_APPS; ids[n++] = IT_DIAG; ids[n++] = IT_STORAGE; ids[n++] = IT_SETUP; break;
+        SEC(SEC_UPDATES); ids[n++] = IT_UPDATE; ids[n++] = IT_AUTO_UPDATE; ids[n++] = IT_BETA; SEC(SEC_HELP); ids[n++] = IT_HELP; ids[n++] = IT_GET_APPS; ids[n++] = IT_DIAG; ids[n++] = IT_STORAGE; ids[n++] = IT_SETUP; break;
     }
 #undef SEC
     return n;
@@ -298,6 +298,7 @@ static const char *row_title(int id)
     case IT_ABOUT_APP: return "About " SNTV_APP_NAME;
     case IT_UPDATE: return "Update";
     case IT_AUTO_UPDATE: return "Ask me when an update is out";
+    case IT_BETA: return "Beta updates";
     case IT_SETUP: return "Run quick setup again";
     case IT_INSTALL: return "Install addon from URL";
     case IT_HELP: return "Help: how Cuelight works";
@@ -397,6 +398,7 @@ static const char *row_desc(int id)
     case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
     case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";
     case IT_AUTO_UPDATE: return "A popup at a quiet moment: Update now or Later. Never while something plays.";
+    case IT_BETA: return "New versions here first, before everyone else; they can still have bugs.";
     case IT_BR_ON: return "Playback pauses at the times below.";
     case IT_BR_SCHED: return "Where break times come from.";
     case IT_BR_METHOD: return "Auto follows your country's own authority.";
@@ -733,7 +735,7 @@ static PreviewKind preview_for(int id)
     case IT_SRC_AUDIO: return PV_SRC_AUDIO;
     case IT_ADDON_WAIT: return PV_ADDON_WAIT;
     case IT_P2P: return PV_P2P;
-    case IT_UPDATE: case IT_AUTO_UPDATE: return PV_UPDATE;
+    case IT_UPDATE: case IT_AUTO_UPDATE: case IT_BETA: return PV_UPDATE;
     case IT_PIN: case IT_PIN_SETTINGS: case IT_HIDE_ADULT: return PV_PARENTAL;
     default: return PV_NONE;
     }
@@ -1207,6 +1209,7 @@ static void draw(Screen *s)
             break;
         }
         case IT_AUTO_UPDATE: draw_row(y, ICON_RELOAD, "Ask me when an update is out", NULL, foc, KIND_TOGGLE, g_app.auto_update); break;
+        case IT_BETA: draw_row(y, ICON_SPARK, "Beta updates", NULL, foc, KIND_TOGGLE, store_get_int("betaUpdates", 0)); break;
         case IT_SETUP: draw_row(y, ICON_CHECK, "Run quick setup again", "Languages, skipping, account", foc, KIND_ACTION, 0); break;
         case IT_INSTALL: draw_row(y, ICON_PLUS, "Install addon from URL", "manifest.json", foc, KIND_ACTION, 0); break;
         case IT_HELP: draw_row(y, ICON_INFO, "Help: how Cuelight works", "Getting started, addons, controls, problems", foc, KIND_ACTION, 0); break;
@@ -1726,6 +1729,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_SRC_AUDIO: g_app.src_audio_lang = !g_app.src_audio_lang; break;
     case IT_P2P: g_app.p2p_fallback = !g_app.p2p_fallback; if (!g_app.p2p_fallback) torrent_engine_stop(); break;
     case IT_AUTO_UPDATE: g_app.auto_update = !g_app.auto_update; break;
+    case IT_BETA: store_set_int("betaUpdates", !store_get_int("betaUpdates", 0)); store_save(); LOGI("update: beta updates %s", store_get_int("betaUpdates", 0) ? "on" : "off"); app_update_check_now(); break;
     case IT_ADDON_WAIT: g_app.addon_wait = step_move(ADDON_WAITS, N_OF(ADDON_WAITS), g_app.addon_wait, 2, dir); break;
     case IT_AI_PROVIDER: g_app.ai_provider = (g_app.ai_provider + dir + AI_PROVIDER_COUNT) % AI_PROVIDER_COUNT; break;
     case IT_MEMORY: {

@@ -1506,15 +1506,26 @@ static void on_repo(HttpResponse *r, void *user)
     if (root) cJSON_Delete(root);
 }
 
+/* Beta updates: the newest build, before it is promoted to everyone, from the releases
+ * repository's fixed "beta" release (the same manifests, pointing at that version's files). */
+static const char *releases_dl(const char *file)
+{
+    static char u[512];
+    const char *base = getenv("SNTV_RELEASES_BASE");   /* tests: a local stand-in for the releases repository */
+    snprintf(u, sizeof u, "%s/%s/%s", base && *base ? base : "https://github.com/smalik29871/cuelight-releases/releases",
+             store_get_int("betaUpdates", 0) ? "download/beta" : "latest/download", file);
+    return u;
+}
+#define RELEASES_DL(file) releases_dl(file)
 static const char *repo_url(void)
 {
     const char *url = getenv("SNTV_UPDATE_URL");
 #ifdef SNTV_PLATFORM_ANDROID
-    return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/android.json";   /* the APK of the same release */
+    return url ? url : RELEASES_DL("android.json");   /* the APK of the same release */
 #elif defined(SNTV_PLATFORM_WINDOWS)
-    return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/windows.json";   /* the installer of the same release */
+    return url ? url : RELEASES_DL("windows.json");   /* the installer of the same release */
 #else
-    return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/repo.json";   /* the public releases repository (renamed; the old address still forwards here) */
+    return url ? url : RELEASES_DL("repo.json");   /* the public releases repository (renamed; the old address still forwards here) */
 #endif
 }
 
@@ -1647,7 +1658,7 @@ void app_update_check(float dt)
     if (t < next) return;
     g_update_next = t + 6 * 3600;   /* then every six hours while it runs */
     g_update_checked_at = t;
-    if (getenv("SNTV_SCREENSHOT") && !getenv("SNTV_UPDATE_URL")) return;   /* headless test runs stay offline */
+    if (getenv("SNTV_SCREENSHOT") && !getenv("SNTV_UPDATE_URL") && !getenv("SNTV_RELEASES_BASE")) return;   /* headless test runs stay offline */
     http_request_async(repo_url(), NULL, on_repo, NULL);
 }
 

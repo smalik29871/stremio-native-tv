@@ -1037,6 +1037,11 @@ run options_yellow 200 "right,right,right,yellow"
 run search_recent 200 "search,down,down" HOME="$(home_with recent '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"recentSearches":["breaking bad","midnight harbor","something about prison and hope"]}')"
 run offline_update 220 "right" SNTV_FAKE_OFFLINE=1 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
 # a new release: at a quiet moment the app asks; Update now hands it to the Homebrew Channel
+# beta updates on: the update check reads the beta channel, not the release everyone has
+run update_beta 600 "" SNTV_RELEASES_BASE=http://127.0.0.1:$PORT/rel HOME="$(home_with updbeta '{"setupDone":1,"betaUpdates":1}')"
+grep -q "update: 9.9.9 available" "$OUT/update_beta.log" || { echo "beta updates did not read the beta channel"; grep "update:" "$OUT/update_beta.log"; exit 1; }
+run update_stable 600 "" SNTV_RELEASES_BASE=http://127.0.0.1:$PORT/rel HOME="$(home_with updstable '{"setupDone":1}')"
+! grep -q "update: 9.9.9 available" "$OUT/update_stable.log" || { echo "a device without beta updates was offered the beta"; exit 1; }
 run update_prompt 600 "" HOME="$(home_with upd1 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
 W=$(printf 'wait,%.0s' $(seq 1 40))
 run update_install 1600 "${W}down,ok" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json SNTV_FAKE_INSTALL=1
