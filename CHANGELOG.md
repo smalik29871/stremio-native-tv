@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.87
+
+- **Automatic visual effects come back to Full.** A TV set to Automatic could stay on Light
+  for good: the check for going back to Full asked for frames quicker than any screen can
+  show them. Now Light that keeps up with the screen brings Full back after a few seconds of
+  use, and Full that turns out too slow drops back to Light and waits longer before the next try.
+- **Beta updates.** Settings > About > Beta updates gets new versions on this device first,
+  before everyone else; they can still have bugs. Off by default.
+
 ## 0.10.86
 
 - **Windows: an episode no longer starts over.** The audio and subtitles are chosen before
