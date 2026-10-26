@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.84
+
+- **Phones and tablets speak for themselves.** Where the app talked about "this TV" it now
+  says this phone or this tablet, and the remote's OK reads Tap (Hold OK: press and hold).
+- **The screensaver on a phone or tablet is for the charger.** Off the charger the app no
+  longer keeps the screen on: it sleeps on the device's own timeout like any app (a playing
+  video still keeps it on). On the charger the screensaver comes as before, like a bedside
+  clock, and goes when you unplug. Settings calls it "Screensaver on the charger".
+- **Android TV is always a TV.** Some Android TVs (most 1080p ones) were taken for a phone
+  because of how big their screen reads; now a TV always gets the remote's layout and words.
+
 ## 0.10.83
 
 - **A new player on Windows**, laid out like the streaming apps: one row along the bottom
