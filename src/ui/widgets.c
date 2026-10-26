@@ -186,12 +186,17 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
         }
         break;
     }
-    case ICON_SPARK:   /* a four-point sparkle and a small one */
-        gfx_line(cx - s * 0.06f, cy - s * 0.40f, cx - s * 0.06f, cy + s * 0.32f, t * 1.2f, c);
-        gfx_line(cx - s * 0.40f, cy - s * 0.04f, cx + s * 0.28f, cy - s * 0.04f, t * 1.2f, c);
-        gfx_circle(cx - s * 0.06f, cy - s * 0.04f, s * 0.12f, c);
-        gfx_line(cx + s * 0.30f, cy + s * 0.16f, cx + s * 0.30f, cy + s * 0.40f, t * 0.8f, c);
-        gfx_line(cx + s * 0.18f, cy + s * 0.28f, cx + s * 0.42f, cy + s * 0.28f, t * 0.8f, c);
+    case ICON_SPARK:   /* a four-point sparkle and a small one: arms that taper from a full middle to fine points (straight bars read as a +) */
+        for (int k = 0; k < 2; k++) {
+            float x0 = k ? cx + s * 0.28f : cx - s * 0.08f, y0 = k ? cy - s * 0.26f : cy + s * 0.06f, len = k ? s * 0.16f : s * 0.38f, wd = k ? s * 0.11f : s * 0.22f;
+            for (int a = 0; a < 4; a++) {
+                float dx = a == 0 ? 1 : a == 1 ? -1 : 0, dy = a == 2 ? 1 : a == 3 ? -1 : 0;
+                for (int j = 0; j < 6; j++) {   /* each step thinner, the sides curving in */
+                    float f0 = j / 6.0f, f1 = (j + 1) / 6.0f, th = wd * (1 - f0) * (1 - f0) + s * 0.025f;
+                    gfx_line(x0 + dx * len * f0, y0 + dy * len * f0, x0 + dx * len * f1, y0 + dy * len * f1, th, c);
+                }
+            }
+        }
         break;
     case ICON_GLOBE:
         gfx_rrect_ring(cx - s * 0.40f, cy - s * 0.40f, s * 0.80f, s * 0.80f, s * 0.40f, t, c);
