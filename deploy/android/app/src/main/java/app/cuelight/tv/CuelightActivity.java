@@ -1,6 +1,8 @@
 package app.cuelight.tv;
 
+import android.app.UiModeManager;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Build;
@@ -27,16 +29,28 @@ public class CuelightActivity extends SDLActivity {
     }
     private static native void nativeTrimMemory(int level);
 
+    private boolean tv() {
+        UiModeManager ui = (UiModeManager) getSystemService(UI_MODE_SERVICE);
+        PackageManager pm = getPackageManager();
+        return (ui != null && ui.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION)
+            || pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature("amazon.hardware.fire_tv");
+    }
+
+    static boolean sPhone;   /* a phone, not a TV or a tablet: CuelightPlayer's system bars ask */
+    private boolean phone() { return !tv() && getResources().getConfiguration().smallestScreenWidthDp < 600; }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // a phone (its short side under 600 dp): the app draws larger (src/ui/gfx.c)
+        // a phone (its short side under 600 dp): the app draws larger (src/ui/gfx.c). Never a TV:
+        // a 1080p Android TV is 540 dp across too
+        sPhone = phone();
         try {
-            if (getResources().getConfiguration().smallestScreenWidthDp < 600) Os.setenv("SNTV_HANDHELD", "1", true);
+            if (sPhone) Os.setenv("SNTV_HANDHELD", "1", true);
             Os.setenv("SNTV_DENSITY", Float.toString(getResources().getDisplayMetrics().density), true);   // how big a dp is: the upright layouts size their text by it
         } catch (ErrnoException ignored) { }
         super.onCreate(savedInstanceState);
         if (mLayout != null && mSurface != null) CuelightPlayer.attach(this, mLayout, mSurface);
-        if (getResources().getConfiguration().smallestScreenWidthDp < 600 && Build.VERSION.SDK_INT >= 21) {   // a phone keeps its bars: dark, like the app
+        if (phone() && Build.VERSION.SDK_INT >= 21) {   // a phone keeps its bars: dark, like the app
             getWindow().setStatusBarColor(Color.BLACK);
             getWindow().setNavigationBarColor(Color.BLACK);
             getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.BLACK));   // what shows past the app's view: black, not the theme's

@@ -297,7 +297,7 @@ public final class CuelightPlayer {
 
     @SuppressWarnings("deprecation")
     static void systemBars(boolean shown) {
-        if (sActivity.getResources().getConfiguration().smallestScreenWidthDp >= 600) return;   /* TVs and tablets: full screen throughout, as before */
+        if (!CuelightActivity.sPhone) return;   /* TVs and tablets: full screen throughout, as before */
         sFull = !shown;
         View decor = sActivity.getWindow().getDecorView();
         if (shown) {

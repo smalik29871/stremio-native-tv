@@ -929,6 +929,7 @@ int main(int argc, char **argv)
         if (SDL_GetDisplayDPI(0, &ddpi, NULL, NULL) == 0 && ddpi > 0 && SDL_sqrtf((float)w * w + (float)h * h) / ddpi < 9.0f) handheld = 1;   /* under 9 inches across */
         if (!SDL_IsAndroidTV() && SDL_GetNumTouchDevices() > 0) handheld = 1;   /* a tablet, however big: a touch screen and no TV */
         if (handheld && !(hh && *hh == '1')) handheld = 2;   /* CuelightActivity says phone (under 600 dp across); otherwise a tablet */
+        if (SDL_IsAndroidTV()) handheld = 0;   /* a TV is never one, whatever its size reads as: its remote, its words, its screensaver */
         if (handheld) SDL_EnableScreenSaver();   /* a phone or tablet sleeps on its own timeout; a video, or the screensaver on the charger, keeps it on */
 #endif
         LOGI("screen: %dx%d%s", w, h, handheld == 2 ? ", handheld: drawn larger (a tablet)" : handheld ? ", handheld: drawn larger (a phone)" : "");
