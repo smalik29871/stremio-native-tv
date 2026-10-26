@@ -137,6 +137,7 @@ static void trailer_play_link(const char *u, const MetaPreview *meta)
     PlayCandidate *c = calloc(1, sizeof *c);
     c->url = strdup(u);
     c->label = strdup("Trailer");
+    if (g_trailer.yt[0]) c->youtube_id = strdup(g_trailer.yt);
     snprintf(vid, sizeof vid, "trailer:%s", meta->id);
     char title[200]; snprintf(title, sizeof title, "%s  -  Trailer", meta->name ? meta->name : "");
     app_push(screen_player_create(meta, vid, title, c, 1, 0, 0, NULL, NULL));
@@ -199,6 +200,7 @@ static void on_trailer_stream(const char *url, const char *error, void *user)
         c[i].url = strdup(urls[i]);
         char lbl[48]; snprintf(lbl, sizeof lbl, "Trailer - %s", i == 0 ? "best" : i == nu - 1 ? "last" : "next");
         c[i].label = strdup(lbl);
+        if (g_trailer.yt[0]) c[i].youtube_id = strdup(g_trailer.yt);
     }
     char vid[160], title[200];
     snprintf(vid, sizeof vid, "trailer:%s", meta->id);

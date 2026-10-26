@@ -34,6 +34,10 @@ void youtube_set_quality(int res_cap, int av1_ok, int uhd_ok);
 int  youtube_quality_cap(void);   /* the tallest picture this TV takes (1080 without 4K) */
 /* The User-Agent of the YouTube app a googlevideo link was issued to. */
 const char *youtube_ua_for(const char *url);
+/* Seek previews for a YouTube video already resolved: its storyboard (the sheets of small
+ * frames YouTube publishes for every video), the tile for second t as an image address with
+ * "#crop=x,y,w,h" (image.c fetches the sheet once). 0 when none is known for it. */
+int youtube_storyboard_tile(const char *video_id, double t, char *url, size_t n);
 
 /* What the player opens for a youtube_stream() URL: a playlist as it is, a whole file
  * through the TV's own server in YouTube's 10 MB range pieces (as Nuvio reads it). */

@@ -151,6 +151,10 @@ grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not f
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
 grep -q "youtube: dQw4w9WgXcQ as a byte-range playlist at 1080p (10 pieces)" "$OUT/detail_trailer.log" && grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality, pieces listed)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/4 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
+# a YouTube trailer's seek previews come from YouTube's storyboard (a tile of its sheet of frames)
+run trailer_seek_storyboard 420 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,right,right,right" HOME="$(home_with trailer_sb "$ABOUT_HOME")"
+grep -q "youtube: dQw4w9WgXcQ has a storyboard" "$OUT/trailer_seek_storyboard.log" && ! grep -q "image: .*storyboard.* -> HTTP" "$OUT/trailer_seek_storyboard.log" && grep -q "player: seek previews from YouTube's storyboard (http://127.0.0.1:[0-9]*/yt/sb/dQw4w9WgXcQ/storyboard3_L1/M[0-9].jpg)" "$OUT/trailer_seek_storyboard.log" \
+  || { echo "a YouTube trailer's seek previews did not come from its storyboard"; grep -E "storyboard|image:|youtube" "$OUT/trailer_seek_storyboard.log" | head; exit 1; }
 # IMDb has the trailer: its 1080p MP4 plays first, its playlist and 480p behind it, no YouTube asked
 run detail_trailer_imdb 400 "wait,ok,right,ok,wait,wait,wait,wait" HOME="$(home_with trailer_imdb "$ABOUT_HOME")" SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql/with"
 grep -q "detail: trailer for tt0111161 from IMDb (3 qualities, best 1080p)" "$OUT/detail_trailer_imdb.log" && grep -q "player: candidate 1/3 IMDb - 1080p" "$OUT/detail_trailer_imdb.log" \

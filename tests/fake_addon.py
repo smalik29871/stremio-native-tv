@@ -350,6 +350,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({
                 "playabilityStatus": {"status": "OK"},
                 "videoDetails": {"videoId": req["videoId"], "title": "Adhan (fixture)", "lengthSeconds": "185"},
+                # YouTube's storyboard: sheets of 10 x 10 frames, 160 x 90 each, one every 2 s (level 1)
+                "storyboards": {"playerStoryboardSpecRenderer": {"spec": f"{BASE}/yt/sb/{req['videoId']}/storyboard3_L$L/$N.jpg?sqp=fixture|48#27#100#10#10#0#default#rs$A|160#90#93#10#10#2000#M$M#rs$B"}},
                 "streamingData": {
                     "formats": [{"itag": 18, "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", "url": f"{BASE}/yt/media/video.mp4?id=1&n=abc123{fneed}"}],
                     "adaptiveFormats": [
@@ -1174,6 +1176,16 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, json.dumps({"data": works}).encode(), "application/json")
         if p.startswith("/ipapi"):
             return self.send(200, json.dumps({"status": "success", "city": "Makkah", "countryCode": "SA", "lat": 21.4225, "lon": 39.8262}).encode(), "application/json")
+        if p.startswith("/yt/sb/"):   # a storyboard sheet: a 1600 x 900 grid of 160 x 90 tiles, each its own colour
+            from PIL import Image
+            import io
+            sheet = int(p.split("/M")[-1].split(".")[0]) if "/M" in p else 0
+            im = Image.new("RGB", (1600, 900))
+            for k in range(100):
+                x, y = (k % 10) * 160, (k // 10) * 90
+                im.paste(((k * 37 + sheet * 50) % 256, (k * 91) % 256, 200), (x, y, x + 160, y + 90))
+            b = io.BytesIO(); im.save(b, "JPEG", quality=90)
+            return self.send(200, b.getvalue(), "image/jpeg")
         if p.startswith("/blocked/"):   # a network's block page, sent where an addon's manifest was asked
             return self.send(200, b"<!DOCTYPE html><html><body>This site is blocked</body></html>", "text/html; charset=utf-8")
         if p == "/bom/manifest.json":   # a manifest with a byte-order mark first

@@ -1155,8 +1155,18 @@ static void probe_current(Player *p)
  * Returns the texture when it has arrived, 0 meanwhile. */
 static unsigned seek_thumb(const Player *p, double t, int *w, int *h, int prefetch_neighbours)
 {
-    if (p->cur >= p->n_cands || strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
+    if (p->cur >= p->n_cands) return 0;
     char enc[1600], url[2048];
+    if (p->cands[p->cur].youtube_id && youtube_storyboard_tile(p->cands[p->cur].youtube_id, t, url, sizeof url)) {   /* a YouTube video: YouTube's own sheets of frames */
+        if (prefetch_neighbours) {
+            char nb[2048];
+            for (int d = -2; d <= 2; d++) if (d && t + d * 10 >= 0 && youtube_storyboard_tile(p->cands[p->cur].youtube_id, t + d * 10, nb, sizeof nb)) image_prefetch(nb);
+        }
+        static char logged[16];
+        if (strcmp(logged, p->cands[p->cur].youtube_id) != 0) { snprintf(logged, sizeof logged, "%s", p->cands[p->cur].youtube_id); LOGI("player: seek previews from YouTube's storyboard (%.*s)", (int)strcspn(url, "?"), url); }
+        return image_get(url, w, h);
+    }
+    if (strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
     http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
     long sec = (long)(t / 10) * 10;
     if (!g_app.thumb_server || !*g_app.thumb_server) {
@@ -2269,7 +2279,7 @@ static void on_reask(const Stream *items, int n, void *user)
 
 static void cand_drop(PlayCandidate *c)
 {
-    free(c->url); free(c->label); free(c->binge_group); free(c->filename); free(c->detail); free(c->release);
+    free(c->url); free(c->label); free(c->binge_group); free(c->filename); free(c->detail); free(c->release); free(c->youtube_id);
     free(c->headers); free(c->video_hash); free(c->subs);
 }
 

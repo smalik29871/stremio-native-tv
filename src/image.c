@@ -43,6 +43,7 @@ typedef struct Img {
     int from_disk;
     int need_net;          /* the decoder found no disk copy: fetch it */
     unsigned char *encoded; size_t encoded_len;
+    int crop[4];           /* "...#crop=x,y,w,h": that part of the picture (a tile of a sheet), w 0 none */
     unsigned char *pixels;
     int up_row;            /* rows already on the GPU, while a big picture goes up in bands */
     struct Img *unext;     /* the band-upload queue */
@@ -236,6 +237,16 @@ static int decoder_main(void *arg)
         } else {
             px = stbi_load_from_memory(i->encoded, (int)i->encoded_len, &w, &h, &n, 4);
         }
+        if (px && i->crop[2] > 0) {   /* the tile, if it lies inside the sheet */
+            int cx = i->crop[0], cy = i->crop[1], cw = i->crop[2], ch = i->crop[3];
+            if (cx >= 0 && cy >= 0 && cx + cw <= w && cy + ch <= h) {
+                unsigned char *t = malloc((size_t)cw * ch * 4);
+                if (t) {
+                    for (int y = 0; y < ch; y++) memcpy(t + (size_t)y * cw * 4, px + ((size_t)(cy + y) * w + cx) * 4, (size_t)cw * 4);
+                    free(px); px = t; w = cw; h = ch;   /* (the encoded sheet still goes to the disk cache below) */
+                }
+            }
+        }
         if (px) {
             if (!i->from_disk && g_cache_dir[0] && i->encoded_len <= DISK_FILE_MAX && !is_local(i->url)) {
                 char path[1200], tmp[1210];
@@ -373,7 +384,12 @@ static Img *get_or_create(const char *url, ImageFlags flags)
     if (!i) {
         i = calloc(1, sizeof *i);
         i->url = strdup(url);
-        i->key = fnv64(url);
+        const char *frag = strstr(url, "#crop=");   /* a tile of a sheet: the sheet is fetched and kept once, for all its tiles */
+        if (frag && sscanf(frag + 6, "%d,%d,%d,%d", &i->crop[0], &i->crop[1], &i->crop[2], &i->crop[3]) == 4 && i->crop[2] > 0 && i->crop[3] > 0) {
+            char *base = strndup(url, (size_t)(frag - url));
+            i->key = fnv64(base ? base : url);
+            free(base);
+        } else { i->crop[2] = 0; i->key = fnv64(url); }
         i->flags = flags;
         unsigned b = bucket_of(url, flags);
         i->next = g_buckets[b];

@@ -63,6 +63,72 @@ static int id_at(const char *p, char id[16])
     return 1;
 }
 
+/* ---- storyboards: "https://i.ytimg.com/sb/<id>/storyboard3_L$L/$N.jpg?sqp=...|w#h#count#cols#rows#ms#name#sigh|..."
+ * (one level after another, smallest first), noted as videos resolve ---- */
+enum { SB_KEEP = 8 };
+static struct { char id[16]; char *spec; double seconds; } g_sb[SB_KEEP];
+static int g_sb_next;
+static SDL_SpinLock g_sb_lock;
+
+static void note_storyboard(const char *id, const cJSON *resp)
+{
+    const cJSON *sp = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "storyboards"), "playerStoryboardSpecRenderer"), "spec");
+    const cJSON *len = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
+    if (!id || !cJSON_IsString(sp) || strncmp(sp->valuestring, "http", 4)) return;
+    SDL_AtomicLock(&g_sb_lock);
+    int at = -1;
+    for (int i = 0; i < SB_KEEP && at < 0; i++) if (!strcmp(g_sb[i].id, id)) at = i;
+    if (at < 0) { at = g_sb_next; g_sb_next = (g_sb_next + 1) % SB_KEEP; }
+    free(g_sb[at].spec);
+    snprintf(g_sb[at].id, sizeof g_sb[at].id, "%s", id);
+    g_sb[at].spec = strdup(sp->valuestring);
+    g_sb[at].seconds = cJSON_IsString(len) ? atof(len->valuestring) : 0;
+    SDL_AtomicUnlock(&g_sb_lock);
+    LOGI("youtube: %s has a storyboard (seek previews)", id);
+}
+
+int youtube_storyboard_tile(const char *video_id, double t, char *url, size_t n)
+{
+    char spec[4096] = "";
+    double seconds = 0;
+    SDL_AtomicLock(&g_sb_lock);
+    for (int i = 0; i < SB_KEEP; i++) if (video_id && g_sb[i].spec && !strcmp(g_sb[i].id, video_id)) { snprintf(spec, sizeof spec, "%s", g_sb[i].spec); seconds = g_sb[i].seconds; }
+    SDL_AtomicUnlock(&g_sb_lock);
+    if (!spec[0]) return 0;
+    /* the levels: the largest no wider than 320 px (the preview's size), else the smallest */
+    char *parts[12]; int np = 0;
+    for (char *p = spec; p && np < 12; ) { parts[np++] = p; p = strchr(p, '|'); if (p) *p++ = 0; }
+    if (np < 2) return 0;
+    int best = -1, bw = 0, bh = 0, count = 0, cols = 0, rows = 0, ms = 0;
+    char name[64] = "", sigh[256] = "";
+    for (int L = 1; L < np; L++) {
+        int w, h, c, co, ro, m; char nm[64], sg[256];
+        if (sscanf(parts[L], "%d#%d#%d#%d#%d#%d#%63[^#]#%255s", &w, &h, &c, &co, &ro, &m, nm, sg) != 8 || w <= 0 || co <= 0 || ro <= 0 || c <= 0) continue;
+        if (best < 0 || (w <= 320 && w > bw) || (bw > 320 && w < bw)) { best = L - 1; bw = w; bh = h; count = c; cols = co; rows = ro; ms = m; snprintf(name, sizeof name, "%s", nm); snprintf(sigh, sizeof sigh, "%s", sg); }
+    }
+    if (best < 0) return 0;
+    if (ms <= 0) ms = seconds > 0 ? (int)(seconds * 1000 / count) : 0;   /* the smallest level spreads its frames over the whole video */
+    if (ms <= 0) return 0;
+    int idx = (int)(t * 1000 / ms);
+    if (idx >= count) idx = count - 1;
+    if (idx < 0) idx = 0;
+    int per = cols * rows, sheet = idx / per, cell = idx % per;
+    /* the sheet's address: $L the level, $N its name, where "M$M" in the name is the sheet's number */
+    char nm[96] = "";
+    const char *mm = strstr(name, "$M");
+    if (mm) snprintf(nm, sizeof nm, "%.*s%d%s", (int)(mm - name), name, sheet, mm + 2);
+    else snprintf(nm, sizeof nm, "%s", name);
+    char out[2048] = ""; size_t o = 0;
+    for (const char *p = parts[0]; *p && o + 16 < sizeof out; p++) {
+        if (p[0] == '$' && p[1] == 'L') { o += (size_t)snprintf(out + o, sizeof out - o, "%d", best); p++; }
+        else if (p[0] == '$' && p[1] == 'N') { o += (size_t)snprintf(out + o, sizeof out - o, "%s", nm); p++; }
+        else out[o++] = *p;
+    }
+    out[o] = 0;
+    snprintf(url, n, "%s%ssigh=%s#crop=%d,%d,%d,%d", out, strchr(out, '?') ? "&" : "?", sigh, (cell % cols) * bw, (cell / cols) * bh, bw, bh);
+    return 1;
+}
+
 int youtube_id_valid(const char *id)
 {
     if (!id) return 0;
@@ -992,6 +1058,7 @@ static cJSON *dash_from_tv(const char *id)
         resp = player_request(tv, id, visitor[0] ? visitor : NULL, sts, NULL, why, sizeof why);
     }
     tset(id, 2, resp != NULL, "%s", resp ? "answered" : why);
+    if (resp) note_storyboard(id, resp);
     const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
     if (resp && !cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(sd, "adaptiveFormats")))
     {
@@ -1078,6 +1145,7 @@ static void stream_task(HttpResponse *r, void *arg)
             if (!strcmp(c->name, "VISIONOS")) tset(s->id, 0, 0, "%s", this_why);
             break;
         }
+        note_storyboard(s->id, resp);
         const cJSON *sd = cJSON_GetObjectItemCaseSensitive(resp, "streamingData");
         const cJSON *m = cJSON_GetObjectItemCaseSensitive(sd, "hlsManifestUrl"), *f;
         if (!hls && cJSON_IsString(m) && m->valuestring[0]) { hls = strdup(m->valuestring); LOGI("youtube: %s playlist from the %s client", s->id, c->name); }
@@ -1209,6 +1277,7 @@ static void save_task(HttpResponse *r, void *arg)
             resp = player_request(c, s->id, visitor[0] ? visitor : NULL, sts, NULL, this_why, sizeof this_why);
         }
         if (!resp) continue;
+        note_storyboard(s->id, resp);
         const cJSON *len = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(resp, "videoDetails"), "lengthSeconds");
         if (cJSON_IsString(len) && atoi(len->valuestring) > MAX_SECONDS) { fail(r, "it is longer than an hour%s", ""); cJSON_Delete(resp); free(player_js); return; }
         const cJSON *details = cJSON_GetObjectItemCaseSensitive(resp, "videoDetails");
