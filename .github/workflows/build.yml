@@ -6,7 +6,10 @@
 # stay private. Releases are made only there: every update check and download link
 # in the app points at it.
 # To ship a new version: bump the version in appinfo.json and push to main, or push it to a
-# claude/ branch: once every job is green, main is fast-forwarded to it and it is published.
+# feat/, fix/ or claude/ branch: once every job is green, main is fast-forwarded to it and it is published
+# as a beta: a pre-release (which .../releases/latest/... skips, so nobody else gets it) whose
+# update files are also put on the fixed "beta" release, where devices with Settings > About >
+# Beta updates on look. The Promote workflow then makes it the release everyone gets.
 name: Build
 
 on:
@@ -276,13 +279,14 @@ jobs:
           if-no-files-found: error
 
   promote:
-    # A push to a claude/ branch whose appinfo.json version has no release yet, every test
+    # A push to a feat/, fix/ or claude/ branch whose appinfo.json version has no release yet, every test
     # green: main is moved up to it (fast-forward only) and the release below is made from
     # this run. A push made with this run's token starts no other run, so it is published once.
     # (The token cannot push commits that change workflow files: such a release goes to main by hand.)
     name: Move main to a tested release
     if: >-
-      always() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/claude/') &&
+      always() && github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/heads/feat/') || startsWith(github.ref, 'refs/heads/fix/') || startsWith(github.ref, 'refs/heads/claude/')) &&
       (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
       needs.webos.result == 'success' &&
       (needs.ui.result == 'success' || (needs.ui.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]')))
@@ -425,10 +429,23 @@ jobs:
           fi
           gh release create "$TAG" dist/* \
             --repo "$RELEASES_REPO" \
-            --title "Cuelight $TAG" \
-            --notes-file notes.md
-      - name: Refresh the README in the public repository
+            --title "Cuelight $TAG (beta)" \
+            --notes-file notes.md \
+            --prerelease
+      - name: The beta channel
         if: steps.ver.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          # the same update files at a fixed address (.../releases/download/beta/repo.json and
+          # the others), for devices with beta updates on; they point at this version's files
+          if ! gh release view beta --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            gh release create beta --repo "$RELEASES_REPO" --prerelease --title "Beta channel" \
+              --notes "The newest build, before it goes to everyone. Settings > About > Beta updates gets it."
+          fi
+          gh release upload beta dist/*.json --repo "$RELEASES_REPO" --clobber
+      - name: Refresh the README in the public repository
+        if: false   # the Promote workflow does it, when a version goes to everyone
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
