@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.81
+
+- **Depth** (the Home backdrop's push-in and the screensaver's Depth face) reads its maps from
+  the public releases repository, so it keeps working whatever happens to the source
+  repository. The release page no longer links to the source.
+
 ## 0.10.80
 
 - **Windows: an installer, and updates from inside the app.** The release has a setup .exe:

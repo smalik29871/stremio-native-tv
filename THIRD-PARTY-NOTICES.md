@@ -2,9 +2,9 @@
 
 Cuelight's own code is under the terms in [LICENSE](LICENSE) (all rights reserved). The
 components below are not: each stays under its own licence, and nothing in Cuelight's
-licence limits what that licence lets you do with it. Licence texts that ship in the source repository
-([smalik29871/stremio-native-tv](https://github.com/smalik29871/stremio-native-tv), where the
-paths below are) sit next to the component; the others are linked.
+licence limits what that licence lets you do with it. The paths below are in Cuelight's source,
+where each licence text sits next to its component; the same text is in each component's own
+repository, linked here.
 
 ## Bundled in the apps
 

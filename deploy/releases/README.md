@@ -12,8 +12,7 @@ and Fire TV (Android 7 and newer), and as a preview on Windows 10 and 11.
 > Stremio, LG, Google or YouTube. It plays only what your own addons and accounts provide.
 
 This repository holds the builds. The newest is **${TAG}**: see
-[Releases](https://github.com/${RELEASES_REPO}/releases) for what changed. The source is at
-[smalik29871/stremio-native-tv](https://github.com/smalik29871/stremio-native-tv).
+[Releases](https://github.com/${RELEASES_REPO}/releases) for what changed.
 
 ## Install on an LG TV
 

@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DEPTH_BASE "https://raw.githubusercontent.com/smalik29871/stremio-native-tv/depth-maps"   /* this repository's depth-maps branch */
+#define DEPTH_BASE "https://raw.githubusercontent.com/smalik29871/cuelight-releases/depth-maps"   /* the public releases repository's depth-maps branch */
 #define RETRY_S 600
 
 typedef struct { unsigned long long h; DepthInfo info; } Entry;

@@ -1,5 +1,5 @@
-# Depth maps for the week's popular backdrops, onto the depth-maps branch (the app reads
-# them from there). Copy into .github/workflows/ to turn it on; Actions > Depth maps > Run
+# Depth maps for the week's popular backdrops, onto the depth-maps branch of the public
+# releases repository (the app reads them from there; RELEASES_TOKEN writes it). Copy into .github/workflows/ to turn it on; Actions > Depth maps > Run
 # workflow makes them at once. Maps already made are kept.
 name: Depth maps
 
@@ -20,7 +20,9 @@ jobs:
           path: src
       - uses: actions/checkout@v4
         with:
+          repository: smalik29871/cuelight-releases
           ref: depth-maps
+          token: ${{ secrets.RELEASES_TOKEN }}
           path: maps
       - uses: actions/setup-python@v5
         with:
