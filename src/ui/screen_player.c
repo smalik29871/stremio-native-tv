@@ -113,7 +113,9 @@ struct Player {
     char lb_prev[2048]; float lb_swap_at, lb_fade;   /* the one before, fading out as the last fades in (since then, over this long) */
     char lb_ahead[2048]; float lb_ahead_at;   /* the frame of a cut ahead being got ready now (asked then): one at a time */
     char lb_asked[2048]; float lb_ask_at;     /* the frame the bars wanted and did not have yet (asked then) */
-    int lb_slow_n, lb_slow, lb_ready_n;       /* frames that came too late; 1: too slow here, the artwork's colour instead; cuts made ready */
+    int lb_slow_n, lb_slow, lb_ready_n;       /* frames that did not come; 1: none come here, the artwork's colour instead; cuts made ready */
+    float lb_took;                            /* how long a frame takes to come here (smoothed; 0 none yet) */
+    int lb_late_n;                            /* frames that came after their cut (not shown) */
     double lb_next_t;                         /* where the bars change next (a redraw then) */
     float lb_ar; int lb_ar_cur;               /* the picture's shape the frames showed (bars baked in), for source lb_ar_cur - 1 */
     double lb_keys[64]; int lb_nkeys, lb_keys_state; double lb_keys_from;   /* the film's cuts ahead (keyframes): 0 not asked, 1 asking, 2 known, 3 none */
@@ -1278,8 +1280,10 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
 #define LB_FADE_CUT 0.5f    /* at a cut the new light comes quickly, as the picture changed */
 #define LB_FADE_DRIFT 1.5f  /* every few seconds (no list of cuts): it drifts rather than flicks */
 #define LB_AHEAD_S 45.0     /* the frames of the cuts this far ahead are got ready while it plays */
-#define LB_SLOW_S 1.5f      /* a frame that takes longer than this to come... */
-#define LB_SLOW_N 3         /* ...this many times more than fast ones: this TV is too slow for it */
+#define LB_LAZY_S 1.0f      /* frames slower than this: only the cuts made ready ahead change the light */
+#define LB_LATE_S 0.6f      /* a cut's frame that comes later than this after it is not shown */
+#define LB_SLOW_S 12.0f     /* frames slower than this (or LB_SLOW_N that never come): the artwork's colour */
+#define LB_SLOW_N 3
 #define LB_BLUR 5.6f     /* mip levels of blur: its colours, none of its shapes */
 #define LB_LIGHT 235     /* the light's brightness (of 255): nearly the picture's own, as a lamp's */
 #define LB_FALLOFF 0.75f /* how dark it gets at the screen's edge */
@@ -1390,15 +1394,20 @@ static void emb_tick(Player *p)
     p->emb_taken += n;
 }
 
-/* A frame wanted came: how long it took. Slow ones, again and again, and the bars stop
- * asking for frames: they take the film's artwork's colour instead. */
+/* A frame came (took: how long), or did not (took < 0). A TV slow to get them still has the
+ * light, from fewer cuts (lb_work_ahead looks further ahead); only where frames do not come
+ * at all, or take ages, the bars take the film's artwork's colour instead. */
 static void lb_timed(Player *p, float took)
 {
-    if (took > LB_SLOW_S) p->lb_slow_n++;
-    else if (p->lb_slow_n > 0) p->lb_slow_n--;
-    if (!p->lb_slow && p->lb_slow_n >= LB_SLOW_N) {
+    if (took >= 0) {
+        float was = p->lb_took;
+        p->lb_took = was > 0 ? was * 0.7f + took * 0.3f : took;
+        if (p->lb_slow_n > 0) p->lb_slow_n--;
+        if (was <= LB_LAZY_S && p->lb_took > LB_LAZY_S) LOGI("player: the bars' frames take %.1f s here: the light follows the cuts it can get ready", p->lb_took);
+    } else p->lb_slow_n++;
+    if (!p->lb_slow && (p->lb_slow_n >= LB_SLOW_N || p->lb_took > LB_SLOW_S)) {
         p->lb_slow = 1;
-        LOGI("player: the living letterbox is too slow on this TV (a frame took %.1f s): the bars take the colour of the film's artwork", took);
+        LOGI("player: the living letterbox is too slow on this TV (frames take %.1f s, or do not come): the bars take the colour of the film's artwork", p->lb_took);
     }
 }
 
@@ -1409,17 +1418,24 @@ static void lb_work_ahead(Player *p, const VideoInfo *vi)
     if (!p->lb_side || p->lb_slow || p->lb_keys_state != 2 || !p->lb_nkeys || p->seek_commit > 0 || vi->state != VIDEO_PLAYING) return;
     int w, h;
     if (p->lb_ahead[0]) {   /* one on its way: wait for it */
-        if (image_peek_ex(p->lb_ahead, IMAGE_MIPMAP, &w, &h)) { lb_timed(p, g_app.time - p->lb_ahead_at); if (p->lb_ready_n++ < 3) LOGI("player: the bars' frame at %.2f s is ready ahead", strtod(strstr(p->lb_ahead, "t=") + 2, NULL)); }
+        if (image_peek_ex(p->lb_ahead, IMAGE_MIPMAP, &w, &h)) {
+            double k = strtod(strstr(p->lb_ahead, "t=") + 2, NULL);
+            lb_timed(p, g_app.time - p->lb_ahead_at);
+            if (p->lb_ready_n++ < 3) LOGI("player: the bars' frame at %.2f s is ready ahead%s", k, vi->position > k ? " (late)" : "");
+        }
         else if (!image_failed(p->lb_ahead) && g_app.time - p->lb_ahead_at < 20) { image_get_ex(p->lb_ahead, IMAGE_MIPMAP, &w, &h, NULL); return; }
+        else lb_timed(p, -1);   /* it did not come */
         p->lb_ahead[0] = 0;
     }
-    if (p->lb_asked[0] && (image_failed(p->lb_asked) || g_app.time - p->lb_ask_at > 20)) p->lb_asked[0] = 0;   /* it will not come */
-    if (p->lb_asked[0]) return;   /* the frame wanted now comes first */
+    if (p->lb_asked[0]) return;   /* the frame wanted now comes first (draw_letterbox gives up on it) */
     double gap = vi->width >= 3000 ? 4.0 : 2.0, last = p->lb_shown >= 0 ? p->lb_shown : vi->position;
+    /* frames slow to come here: no cut nearer than it takes to get one ready, nor closer to the
+     * last asked than that, so each is ready when its cut comes (the light changes less often) */
+    double lead = p->lb_took > LB_LAZY_S ? 1.5 * p->lb_took + 0.5 : 0, space = p->lb_took > gap ? p->lb_took : gap;
     char url[2048];
     for (int i = 0; i < p->lb_nkeys; i++) {
         double k = p->lb_keys[i];
-        if (k <= last + 0.05 || k - last < gap) continue;
+        if (k <= last + 0.05 || k - last < space || k < vi->position + lead) continue;
         if (k > vi->position + LB_AHEAD_S) break;
         last = k;
         if (!lb_frame_url(p, k, url, sizeof url) || image_peek_ex(url, IMAGE_MIPMAP, &w, &h) || image_failed(url)) continue;
@@ -1477,8 +1493,8 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     double pos = p->seek_commit > 0 ? p->seek_target : vi->position;
     char u0[2048], u1[2048];
     /* no frames while the film starts, nor for a source already seen to fill the screen, nor where it is too slow */
-#ifdef SNTV_DESKTOP_PLAYER
-    unsigned glow = paint && !g_app.fx_light ? video_glow_texture() : 0;   /* a computer draws the picture: its own colours, live */
+#if defined(SNTV_DESKTOP_PLAYER) || defined(SNTV_PLATFORM_ANDROID)
+    unsigned glow = paint && !g_app.fx_light ? video_glow_texture() : 0;   /* the picture's own colours, live: a computer draws it, an Android copies it */
 #else
     unsigned glow = 0;
 #endif
@@ -1494,10 +1510,20 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
         int seeking = p->seek_commit > 0;   /* the seek previews have the TV's decoder then */
         /* mipmapped, so the GPU blurs them for free; only the frame of now is shown (the ones
          * ahead are got ready by lb_work_ahead), so the bars never show what has not happened yet */
-        unsigned now_t = seeking ? image_peek_ex(u0, IMAGE_MIPMAP, &w0, &h0) : image_get_ex(u0, IMAGE_MIPMAP, &w0, &h0, NULL);
-        if (!now_t && !seeking && strcmp(u0, p->lb_asked) != 0) { snprintf(p->lb_asked, sizeof p->lb_asked, "%s", u0); p->lb_ask_at = g_app.time; }   /* not ready: wanted from now */
+        /* where frames are slow, a cut not made ready keeps the light it has (asking now would
+         * hold up the ones ahead); the first after starting or a seek is asked all the same */
+        int lazy = seeking || (p->lb_took > LB_LAZY_S && p->lb_last[0] && fabs(p->lb_shown - pos) < LB_AHEAD_S);
+        unsigned now_t = lazy ? image_peek_ex(u0, IMAGE_MIPMAP, &w0, &h0) : image_get_ex(u0, IMAGE_MIPMAP, &w0, &h0, NULL);
+        if (p->lb_asked[0] && (image_failed(p->lb_asked) || g_app.time - p->lb_ask_at > 20)) { p->lb_asked[0] = 0; lb_timed(p, -1); }   /* it will not come */
+        if (!now_t && !lazy && !image_failed(u0) && strcmp(u0, p->lb_asked) != 0) { snprintf(p->lb_asked, sizeof p->lb_asked, "%s", u0); p->lb_ask_at = g_app.time; }   /* not ready: wanted from now */
         if (now_t && p->lb_asked[0] && !strcmp(u0, p->lb_asked)) { lb_timed(p, g_app.time - p->lb_ask_at); p->lb_asked[0] = 0; }
-        if (now_t && strcmp(u0, p->lb_last) != 0) {   /* a new frame: it fades in over the last */
+        if (now_t && strcmp(u0, p->lb_last) != 0 && p->lb_last[0] && p->lb_keys_state == 2 && pos - s0 > LB_LATE_S && !seeking) {
+            /* it came after its cut: shown now it would trail the picture, so the light stays
+             * as it is until the next cut that is ready in time */
+            if (p->lb_late_n++ < 3) LOGI("player: the bars' frame for the cut at %.2f s came %.1f s late: not shown", s0, pos - s0);
+            p->lb_shown = s0;
+        }
+        else if (now_t && strcmp(u0, p->lb_last) != 0) {   /* a new frame: it fades in over the last */
             snprintf(p->lb_prev, sizeof p->lb_prev, "%s", p->lb_last);
             snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
             p->lb_swap_at = g_app.time;

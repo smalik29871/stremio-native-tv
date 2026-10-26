@@ -902,6 +902,16 @@ int relay_buffer_copy(uint64_t at, void *out, size_t n)
     return ok;
 }
 
+int relay_buffer_read(const char *url, uint64_t at, void *out, size_t n, uint64_t *total)
+{
+    if (!g_lock || !url) return 0;
+    SDL_LockMutex(g_lock);
+    int ok = g_buf.token[0] && !g_buf.stopped && g_buf.url && !strcmp(g_buf.url, url) && at >= g_buf.lo && at + n <= g_buf.hi && get_locked(at, out, n);
+    if (ok && total) *total = g_buf.size;
+    SDL_UnlockMutex(g_lock);
+    return ok;
+}
+
 void relay_buffer_close(void)
 {
     if (!g_lock) return;

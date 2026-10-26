@@ -2,9 +2,11 @@
  * deploy/android/app/src/main/java/app/cuelight/tv/CuelightPlayer.java. Every call goes to
  * its static methods over JNI; video_update reads the snapshot it keeps. */
 #include "video.h"
+#include "../app.h"
 #include "../log.h"
 #include "../youtube.h"
 #include "../memwatch.h"
+#include "../ui/gfx.h"
 #include <SDL.h>
 #include <SDL_system.h>
 #include <jni.h>
@@ -14,7 +16,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -24,7 +26,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "deviceVolume", "()F" }, { "setDeviceVolume", "(F)V" }, { "brightness", "()F" }, { "setBrightness", "(F)V" },
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
-    { "setMemoryStage", "(I)V" },
+    { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -194,10 +196,12 @@ static void copy_string(JNIEnv *e, int m, char *out, size_t n)
     (*e)->DeleteLocalRef(e, s);
 }
 
+void video_glow_idle(void);
 void video_update(void)
 {
     JNIEnv *e = env();
     if (!e) return;
+    video_glow_idle();
     jdoubleArray a = (jdoubleArray)(*e)->CallStaticObjectMethod(e, g_cls, g_m[M_STATUS]);
     clear(e);
     if (!a) return;
@@ -270,4 +274,56 @@ void video_subtitle_style(int size, int style, const char *colour, int position,
     (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_STYLE], (jint)size, c, (jint)position);
     if (c) (*e)->DeleteLocalRef(e, c);
     clear(e);
+}
+
+/* The living letterbox's light from the picture as it plays: CuelightPlayer copies the video
+ * surface, small, about 8 times a second while this is asked for; eased here a little, so a
+ * cut turns the light in about half a second. Asked for no more, the copying stops. */
+enum { GLOW_W = 32, GLOW_H = 18 };
+static unsigned g_glow_tex;
+static int g_glow_seq, g_glow_on;
+static Uint32 g_glow_asked;
+static float g_glow_acc[GLOW_W * GLOW_H * 3];
+static jintArray g_glow_arr;
+
+unsigned video_glow_texture(void)
+{
+    JNIEnv *e = env();
+    if (!e) return 0;
+    g_glow_asked = SDL_GetTicks();
+    if (!g_glow_on) { g_glow_on = 1; CALL(M_GLOW_ON, (jboolean)1); }
+    if (!g_glow_arr) {
+        jintArray a = (*e)->NewIntArray(e, GLOW_W * GLOW_H);
+        if (!a) { clear(e); return 0; }
+        g_glow_arr = (jintArray)(*e)->NewGlobalRef(e, a);
+        (*e)->DeleteLocalRef(e, a);
+    }
+    int seq = (int)(*e)->CallStaticIntMethod(e, g_cls, g_m[M_GLOW_FRAME], g_glow_arr);
+    clear(e);
+    if (seq && seq != g_glow_seq) {
+        jint px[GLOW_W * GLOW_H];
+        uint8_t rgba[GLOW_W * GLOW_H * 4];
+        (*e)->GetIntArrayRegion(e, g_glow_arr, 0, GLOW_W * GLOW_H, px);
+        float k = g_glow_seq ? 0.5f : 1.0f;
+        for (int i = 0; i < GLOW_W * GLOW_H; i++) {
+            float c[3] = { (float)((px[i] >> 16) & 255), (float)((px[i] >> 8) & 255), (float)(px[i] & 255) };
+            for (int j = 0; j < 3; j++) { g_glow_acc[i * 3 + j] += (c[j] - g_glow_acc[i * 3 + j]) * k; rgba[i * 4 + j] = (uint8_t)(g_glow_acc[i * 3 + j] + 0.5f); }
+            rgba[i * 4 + 3] = 255;
+        }
+        if (!g_glow_tex) { g_glow_tex = gfx_texture_rgba(rgba, GLOW_W, GLOW_H); LOGI("video: the living letterbox's light comes from the picture itself"); }
+        else gfx_texture_update(g_glow_tex, rgba, GLOW_W, GLOW_H);
+        g_glow_seq = seq;
+    }
+    return g_glow_seq ? g_glow_tex : 0;
+}
+
+void video_glow_idle(void)   /* from video_update: a new copy is drawn; not asked for a second, the copying stops */
+{
+    if (!g_glow_on) return;
+    if (SDL_GetTicks() - g_glow_asked > 1000) { g_glow_on = 0; CALL(M_GLOW_ON, (jboolean)0); return; }
+    JNIEnv *e = env();
+    if (!e) return;
+    int seq = (int)(*e)->CallStaticIntMethod(e, g_cls, g_m[M_GLOW_FRAME], (jintArray)NULL);
+    clear(e);
+    if (seq != g_glow_seq) app_redraw();
 }

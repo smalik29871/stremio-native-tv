@@ -24,6 +24,9 @@ void relay_buffer_close(void);     /* playback over: the buffer's memory goes */
 /* What the buffer holds now, [lo, hi) of the file; and a copy of part of it (0: not in). */
 int  relay_buffer_span(uint64_t *lo, uint64_t *hi);
 int  relay_buffer_copy(uint64_t at, void *out, size_t n);
+/* The same, only when url is the file the buffer holds (the bytes then need no network);
+ * total: the file's size, 0 unknown. */
+int  relay_buffer_read(const char *url, uint64_t at, void *out, size_t n, uint64_t *total);
 void relay_buffer_alternates(const char *const *urls, const char *const *headers, int n);   /* links that may lead to the same file: if the source stops partway, the buffer carries on from one that proves identical */
 int  relay_buffer_failing(void);   /* the source stopped sending partway and no identical copy took over: what is in plays on */
 int  relay_buffer_source_failed(void);

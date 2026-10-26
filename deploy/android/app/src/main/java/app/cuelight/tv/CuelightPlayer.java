@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.media.AudioManager;
@@ -13,6 +14,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.PixelCopy;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -482,6 +484,48 @@ public final class CuelightPlayer {
     }
 
     public static double[] status() { return sStatus; }
+
+    /* The living letterbox's light from the picture itself, as it plays: the video surface
+     * copied, shrunk to GLOW_W x GLOW_H, about 8 times a second while the app asks for it. */
+    static final int GLOW_W = 32, GLOW_H = 18;
+    private static Bitmap sGlowBmp;
+    private static final int[] sGlowPx = new int[GLOW_W * GLOW_H];
+    private static int sGlowSeq;
+    private static boolean sGlowOn, sGlowBusy;
+    private static final Runnable sGlowTick = new Runnable() {
+        @Override public void run() {
+            if (!sGlowOn) return;
+            glowCapture();
+            if (sMain != null) sMain.postDelayed(this, 125);
+        }
+    };
+    public static void glowOn(final boolean on) {
+        run(() -> {
+            if (on == sGlowOn) return;
+            sGlowOn = on;
+            if (on && sMain != null) sMain.post(sGlowTick);
+        });
+    }
+    private static void glowCapture() {
+        if (sGlowBusy || sEmbed || sPlayer == null || sView == null || sView.getHolder() == null) return;
+        if (!sView.getHolder().getSurface().isValid() || sView.getWidth() <= 0) return;
+        if (sGlowBmp == null) sGlowBmp = Bitmap.createBitmap(GLOW_W, GLOW_H, Bitmap.Config.ARGB_8888);
+        sGlowBusy = true;
+        try {
+            PixelCopy.request(sView, sGlowBmp, result -> {
+                sGlowBusy = false;
+                if (result != PixelCopy.SUCCESS) return;
+                synchronized (sGlowPx) { sGlowBmp.getPixels(sGlowPx, 0, GLOW_W, 0, 0, GLOW_W, GLOW_H); sGlowSeq++; }
+            }, sMain);
+        } catch (IllegalArgumentException e) { sGlowBusy = false; }
+    }
+    /* The latest copy (ARGB) into out; its number, which changes with each new one (0: none yet). */
+    public static int glowFrame(int[] out) {
+        synchronized (sGlowPx) {
+            if (out != null && out.length >= sGlowPx.length) System.arraycopy(sGlowPx, 0, out, 0, sGlowPx.length);
+            return sGlowSeq;
+        }
+    }
     public static String error() { return sError; }
     public static String codec() { return sCodec; }
     public static String warning() { return sWarning; }

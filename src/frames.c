@@ -1,6 +1,7 @@
 #include "frames.h"
 #include "http.h"
 #include "log.h"
+#include "relay.h"
 #include <SDL.h>
 #include <math.h>
 #include <stdio.h>
@@ -692,9 +693,21 @@ static volatile int g_stop;
 void frames_stop(void) { g_stop = 1; }
 
 static void *g_conn;   /* one connection kept open for the reads (they all come from the frames thread) */
+static unsigned g_from_buffer;   /* reads the player's buffer answered */
 
 static int http_read(void *ctx, uint64_t off, uint64_t len, uint8_t **buf, size_t *got, uint64_t *total)
 {
+    if (len && len <= MAX_ELEMENT) {   /* the playing file, already in the player's buffer: no network */
+        uint8_t *b = malloc((size_t)len + 1);
+        uint64_t size = 0;
+        if (b && relay_buffer_read((const char *)ctx, off, b, (size_t)len, &size) && size) {   /* (the file's size too: the index needs it) */
+            b[len] = 0;
+            if (!g_from_buffer++) LOGI("frames: read from the player's buffer");
+            *buf = b; *got = (size_t)len; *total = size;
+            return 1;
+        }
+        free(b);
+    }
     HttpResponse r;
     HttpOptions o = { .range_start = off, .range_bytes = len, .timeout_s = 20, .no_json_accept = 1, .stop = &g_stop, .keep = &g_conn };
     http_request_ex((const char *)ctx, &o, &r);

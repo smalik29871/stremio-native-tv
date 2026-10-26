@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+
+/* no player here, so no buffer: every read comes from the file */
+int relay_buffer_read(const char *url, uint64_t at, void *out, size_t n, uint64_t *total) { (void)url; (void)at; (void)out; (void)n; (void)total; return 0; }
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { failures++; fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); } } while (0)

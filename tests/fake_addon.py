@@ -1179,7 +1179,11 @@ class H(BaseHTTPRequestHandler):
         if p == "/bom/manifest.json":   # a manifest with a byte-order mark first
             m = {"id": "org.fake.bom", "version": "1.0.0", "name": "Bom Addon", "resources": ["subtitles"], "types": ["movie"], "catalogs": []}
             return self.send(200, b"\xef\xbb\xbf" + json.dumps(m).encode(), "application/json")
-        if p.startswith("/thumbsslow/"):   # a TV too slow for the letterbox: every frame takes 1.8 s
+        if p.startswith("/thumbsdead/"):   # frames that never come (the keyframe list does)
+            if "/frame" in p:
+                return self.send(404, b"no frames", "text/plain")
+            p = "/thumbs/" + p[len("/thumbsdead/"):]
+        if p.startswith("/thumbsslow/"):   # a TV slow to get frames: every frame takes 1.8 s
             import time
             if "/frame" in p:
                 time.sleep(1.8)

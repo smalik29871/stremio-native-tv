@@ -784,8 +784,14 @@ run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,w
 ! grep -q "player: living letterbox" "$OUT/player_letterbox_off.log" || { echo "the living letterbox drew while turned off"; exit 1; }
 # a TV too slow for it (each frame takes 1.8 s): the bars take the artwork's colour instead of lagging
 run player_letterbox_slow 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxslow '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsslow"}')"
-grep -q "player: the living letterbox is too slow on this TV" "$OUT/player_letterbox_slow.log" \
-  || { echo "a TV too slow for the letterbox did not fall back to the artwork's colour"; grep -E "letterbox|bars" "$OUT/player_letterbox_slow.log"; exit 1; }
+# a TV slow to get frames (1.8 s each) keeps the light: it follows the cuts it can get ready
+grep -q "player: the bars' frames take [0-9.]* s here" "$OUT/player_letterbox_slow.log" && [ "$(grep -c "player: the bars follow the cut at" "$OUT/player_letterbox_slow.log")" -ge 2 ] \
+  && ! grep -q "too slow on this TV" "$OUT/player_letterbox_slow.log" && ! grep -q "ready ahead (late)" "$OUT/player_letterbox_slow.log" \
+  || { echo "a TV slow to get frames lost the living letterbox, or got its frames late"; grep -E "letterbox|bars" "$OUT/player_letterbox_slow.log"; exit 1; }
+# where frames never come, the bars take the artwork's colour
+run player_letterbox_dead 4000 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxdead '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsdead"}')"
+grep -q "player: the living letterbox is too slow on this TV" "$OUT/player_letterbox_dead.log" \
+  || { echo "frames that never come did not turn the bars to the artwork's colour"; grep -E "letterbox|bars" "$OUT/player_letterbox_dead.log"; exit 1; }
 # subtitles in the black bars is its own setting: with it off the glow stays and the subtitles stay over the picture
 run player_subs_in_bars 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with subsbars '{"letterboxOffOnce":1,"livingLetterbox":1,"subsInBars":0,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -qE "player: living letterbox, bars of 1[34][0-9] above and below \(picture 2\.[34][0-9]:1\), Glow$" "$OUT/player_subs_in_bars.log" && grep -qE "player: living letterbox, bars of .*, Glow, subtitles in them" "$OUT/player_letterbox.log" \
