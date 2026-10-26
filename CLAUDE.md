@@ -1,6 +1,8 @@
 # Working in this repo
 
 ## Commits
+- Author: `smalik29871 <18282747+smalik29871@users.noreply.github.com>`. Set it first in a new
+  session: `git config user.name smalik29871` and `git config user.email` with that address.
 - One line, no body and no trailers: `Area: what changed, what else changed`
   (e.g. `Settings: labelled background chips, no text under the swatches on phones`).
 - A release commit starts with the version: `0.10.86: headline, headline, headline`.
