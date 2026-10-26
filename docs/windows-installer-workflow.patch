@@ -1,0 +1,34 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 04bdc78..8c09a77 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -246,7 +246,7 @@ jobs:
+     steps:
+       - uses: actions/checkout@v4
+       - name: Install dependencies
+-        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix nasm zstd zip
++        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix nasm zstd zip nsis
+       - uses: actions/setup-go@v5
+         with:
+           go-version-file: tools/torrentd/go.mod
+@@ -267,6 +267,8 @@ jobs:
+         run: |
+           bash tools/windows.sh build-win
+           mkdir -p dist-windows && cp build-win/Cuelight-*-windows-x64.zip dist-windows/
++          # the installer, and windows.json: what the Windows app reads to update itself
++          cp build-win/Cuelight-*-windows-setup.exe build-win/windows.json dist-windows/
+       - uses: actions/upload-artifact@v4
+         with:
+           name: windows-zip
+@@ -399,6 +401,11 @@ jobs:
+               echo "### Install on Android (phones, tablets, Android TV, Fire TV)"
+               echo "Download **$(basename dist/*.apk)** below on the device and open it (allow installs from your browser or file app when asked). From 0.10.62 it updates itself: Settings > About > Update, Android asks you to confirm."
+             fi
++            if ls dist/*-windows-setup.exe >/dev/null 2>&1; then
++              echo
++              echo "### Install on Windows (64-bit)"
++              echo "Download **$(basename dist/*-windows-setup.exe)** below and open it: it installs for your user (no administrator needed), with a Start menu entry and a desktop shortcut. From then on it updates itself (Settings > About > Update). The zip is the same app to run without installing."
++            fi
+           } >> notes.md
+           cat notes.md
+       - name: Create the release in the public repository

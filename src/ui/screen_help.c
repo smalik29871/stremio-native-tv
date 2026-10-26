@@ -28,7 +28,7 @@ typedef struct { const char *title; const char *paras[MAX_PARAS]; } Topic;
 static const struct { const char *name, *what, *how, *url; } GET[N_GET] = {
     { "LG TV", "webOS 3 and newer", "Homebrew Channel > Settings > Add repository, then install Cuelight", LG_REPO },
     { "Android", "Phones, tablets, Android TV, Fire TV", "Download the .apk on the device and open it", LATEST },
-    { "Windows", "Windows 10 and 11 (preview)", "Download the zip, unpack it, run Cuelight.exe", LATEST },
+    { "Windows", "Windows 10 and 11 (preview)", "Download the setup .exe and open it: it installs and updates itself", LATEST },
     { "The guide", "Install steps and answers", "Install steps for each device, on the releases page", RELEASES "#readme" },
 };
 

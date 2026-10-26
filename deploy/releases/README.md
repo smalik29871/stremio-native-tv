@@ -34,17 +34,19 @@ on the device and open it (allow installs from your browser or file app when ask
 
 ## Install on Windows (preview)
 
-Download `Cuelight-<version>-windows-x64.zip` from the
-[latest release](https://github.com/${RELEASES_REPO}/releases/latest), unpack it anywhere and
-run `Cuelight.exe` (Windows 10 or 11, 64-bit). The app is not signed, so Windows may say it
-"protected your PC": *More info > Run anyway*. Your sign-in and settings are kept in your user
-folder, so a newer version unpacked anywhere keeps them.
+Download `Cuelight-<version>-windows-setup.exe` from the
+[latest release](https://github.com/${RELEASES_REPO}/releases/latest) and open it (Windows 10
+or 11, 64-bit). It installs for your user, with no administrator needed, and adds a Start
+menu entry and a desktop shortcut; Settings > Apps removes it. The app is not signed, so
+Windows may say it "protected your PC": *More info > Run anyway*. The
+`Cuelight-<version>-windows-x64.zip` is the same app to unpack and run without installing.
+Your sign-in and settings are kept in your user folder either way.
 
 ## Updates
 
 Cuelight checks for new versions itself and asks before it installs one (Settings > About >
 Update). On an LG TV the Homebrew Channel installs it; on Android, Android asks you to
-confirm.
+confirm; on Windows it downloads the installer, closes, installs it and opens again.
 
 ## Licence
 

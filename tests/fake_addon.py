@@ -894,6 +894,13 @@ class H(BaseHTTPRequestHandler):
             return
         if p == "/android.json":   # the Android app's update notice
             return self.send(200, json.dumps({"version": "9.9.9", "apkUrl": f"{BASE}/cuelight-android-9.9.9.apk", "sha256": "cd" * 32}).encode())
+        if p in ("/windows.json", "/windows_bad.json"):   # the Windows app's: its installer and the installer's hash (bad: another's)
+            import hashlib
+            setup = b"MZ fake Cuelight installer " * 4096
+            return self.send(200, json.dumps({"version": "9.9.9", "setupUrl": f"{BASE}/Cuelight-9.9.9-windows-setup.exe",
+                                              "sha256": ("ef" * 32) if "bad" in p else hashlib.sha256(setup).hexdigest()}).encode())
+        if p == "/Cuelight-9.9.9-windows-setup.exe":
+            return self.send(200, b"MZ fake Cuelight installer " * 4096, "application/octet-stream")
         if p == "/repo.json":   # an update notice
             return self.send(200, json.dumps({"packages": [{"id": "org.stremio.nativetv", "manifest": {
                 "version": "9.9.9", "ipkUrl": f"{BASE}/org.stremio.nativetv_9.9.9_arm.ipk", "ipkHash": {"sha256": "ab" * 32}}}]}).encode())

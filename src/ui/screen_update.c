@@ -31,7 +31,7 @@ static void start(Upd *u)
     store_save();
     store_flush();
     LOGI("update: installing %s from %s", g_update_version, g_update_url);
-#ifdef SNTV_PLATFORM_ANDROID
+#if defined(SNTV_PLATFORM_ANDROID) || defined(SNTV_DESKTOP_PLAYER)
     if (video_install_update(g_update_url, g_update_sha256, SNTV_APP_ID) != 0) { u->state = -1; snprintf(u->status, sizeof u->status, "The update could not start here"); }
     return;
 #endif
@@ -102,6 +102,9 @@ static void update(Screen *s, float dt)
     }
     if (u->state != -1) u->state = video_install_status(u->status, sizeof u->status);
     if (u->state == 2 && !u->done_at) { u->done_at = g_app.time; LOGI("update: %s installed", g_update_version); }
+#ifdef SNTV_DESKTOP_PLAYER
+    if (u->state == 2 && g_app.time - u->done_at > 1.5f && !g_app.quit) { LOGI("update: closing for the installer"); g_app.quit = 1; }   /* it waits for this app to close */
+#endif
     if (u->state == -1 && u->status[0]) { static int logged; if (!logged) { logged = 1; LOGW("update: %s", u->status); } }
 }
 
@@ -113,6 +116,27 @@ static void draw(Screen *s)
     float cx = SNTV_UI_W / 2.0f, y = 330;
     char title[96], line[300];
     int steps = u->by_hand && u->state != 1 && u->state != 2;
+#ifdef SNTV_DESKTOP_PLAYER
+    snprintf(title, sizeof title, u->state == -1 ? "The update to %s did not install" : "Updating to %s", g_update_version);
+    center_line(title, cx, y, FONT_XL | FONT_B, THEME_TEXT);
+    y += 110;
+    if (!u->started) {
+        snprintf(line, sizeof line, "Starting in %d s. Cuelight downloads it, closes, installs it and opens again by itself.", (int)u->countdown + 1);
+        center_line(line, cx, y, FONT_S, THEME_TEXT_DIM);
+        choices("update now", "not now", cx, y + 70);
+    } else if (u->state == -1) {
+        snprintf(line, sizeof line, "%.200s", u->status);
+        center_line(line, cx, y, FONT_S, THEME_DANGER);
+        center_line("The installer is also on the release page on GitHub.", cx, y + 70, FONT_S, THEME_TEXT_DIM);
+        choices("try again", "close", cx, y + 130);
+    } else {
+        ui_spinner(cx, y + 10, 26);
+        center_line(u->status[0] ? u->status : "Starting\xE2\x80\xA6", cx, y + 70, FONT_M | FONT_B, THEME_TEXT);
+        center_line("Keep Cuelight open: it closes by itself to install.", cx, y + 130, FONT_S, THEME_TEXT_DIM);
+    }
+    (void)steps;
+    return;
+#endif
 #ifdef SNTV_PLATFORM_ANDROID
     snprintf(title, sizeof title, u->state == 2 ? "Version %s is downloaded" : u->state == -1 ? "The update to %s did not install" : "Updating to %s", g_update_version);
 #else
@@ -166,6 +190,10 @@ static int key(Screen *s, KeyAction a)
 {
     Upd *u = s->st;
     if (a == KEY_OK) {
+#ifdef SNTV_DESKTOP_PLAYER
+        if (!u->started || u->state == -1) { u->state = 0; u->status[0] = 0; start(u); }
+        return 1;
+#endif
 #ifdef SNTV_PLATFORM_ANDROID
         if (!u->started || u->state == 2 || u->state == -1) { u->state = 0; start(u); }   /* again: Android asks once more */
         return 1;
@@ -176,6 +204,9 @@ static int key(Screen *s, KeyAction a)
         else if (u->state == -1) { u->state = 0; u->status[0] = 0; start(u); }   /* again: the Homebrew Channel, else the TV's own installer */
         return 1;
     }
+#ifdef SNTV_DESKTOP_PLAYER
+    if (a == KEY_BACK && u->state == 2) return 1;   /* closing for the installer */
+#endif
     if (a == KEY_BACK && (!u->started || u->state == 2 || u->state == -1)) {
         if (!u->started) LOGI("update: postponed by the viewer");
         app_pop();

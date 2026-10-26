@@ -1464,7 +1464,13 @@ static int version_newer(const char *a, const char *b)   /* a > b, dotted number
 
 static void on_repo(HttpResponse *r, void *user)
 {
-    (void)user;
+    int version_only = user != NULL;   /* the TV's list, asked by a computer: the version, nothing to install */
+#ifdef SNTV_PLATFORM_WINDOWS
+    if (r->status == 404 && !version_only && !getenv("SNTV_UPDATE_URL")) {   /* a release from before the installer */
+        http_request_async("https://github.com/smalik29871/cuelight-releases/releases/latest/download/repo.json", NULL, on_repo, (void *)1);
+        return;
+    }
+#endif
     int manual = g_update_manual;
     g_update_manual = 0;
     if (r->status != 200) { if (manual) app_toast("Could not check for updates (%ld)", r->status); return; }
@@ -1480,6 +1486,12 @@ static void on_repo(HttpResponse *r, void *user)
         url = cJSON_GetObjectItemCaseSensitive(root, "apkUrl");
         sha = cJSON_GetObjectItemCaseSensitive(root, "sha256");
     }
+    if (cJSON_GetObjectItemCaseSensitive(root, "setupUrl")) {   /* Windows': {"version", "setupUrl", "sha256"} */
+        v = cJSON_GetObjectItemCaseSensitive(root, "version");
+        url = cJSON_GetObjectItemCaseSensitive(root, "setupUrl");
+        sha = cJSON_GetObjectItemCaseSensitive(root, "sha256");
+    }
+    if (version_only) url = sha = NULL;
     if (cJSON_IsString(v) && version_newer(v->valuestring, SNTV_APP_VERSION)) {
         snprintf(g_update_version, sizeof g_update_version, "%s", v->valuestring);
         snprintf(g_update_url, sizeof g_update_url, "%s", cJSON_IsString(url) ? url->valuestring : "");
@@ -1499,6 +1511,8 @@ static const char *repo_url(void)
     const char *url = getenv("SNTV_UPDATE_URL");
 #ifdef SNTV_PLATFORM_ANDROID
     return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/android.json";   /* the APK of the same release */
+#elif defined(SNTV_PLATFORM_WINDOWS)
+    return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/windows.json";   /* the installer of the same release */
 #else
     return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/latest/download/repo.json";   /* the public releases repository (renamed; the old address still forwards here) */
 #endif
@@ -1523,8 +1537,8 @@ static int quiet_moment(void)
     return g_app.time - g_app.last_input > 2;   /* not in the middle of pressing keys */
 }
 
-#ifdef SNTV_PLATFORM_ANDROID
-int app_update_installs_here(void) { return 1; }   /* Android's own installer is always there */
+#if defined(SNTV_PLATFORM_ANDROID) || defined(SNTV_DESKTOP_PLAYER)
+int app_update_installs_here(void) { return 1; }   /* Android's own installer, or the app's own on a computer */
 #else
 int app_update_installs_here(void) { return !store_get_int("updateNoInstaller", 0); }
 #endif
@@ -1536,11 +1550,21 @@ static void on_update_answer(int choice, void *user)
     else LOGI("update: the viewer said later");
 }
 
+/* Where this version can't install the update itself (a computer's update from before the
+ * installer): the release page. 0 where there is no such way. */
+int app_update_by_hand(void)
+{
 #ifdef SNTV_PLATFORM_WINDOWS
+    if (video_open_browser("https://github.com/smalik29871/cuelight-releases/releases/latest")) { LOGI("update: the download page opened"); return 1; }
+#endif
+    return 0;
+}
+
+#ifdef SNTV_DESKTOP_PLAYER
 static void on_update_download(int choice, void *user)
 {
     (void)user;
-    if (choice == 1 && video_open_browser("https://github.com/smalik29871/cuelight-releases/releases/latest")) LOGI("update: the download page opened");
+    if (choice == 1) app_update_by_hand();
 }
 #endif
 
@@ -1551,13 +1575,17 @@ static void ask_to_update(void)
     static const int ICONS[] = { ICON_CLOCK, ICON_RELOAD };
     char sub[80], body[300];
     snprintf(sub, sizeof sub, "Version %s  \xC2\xB7  you have %s", g_update_version, SNTV_APP_VERSION);
-#ifdef SNTV_PLATFORM_WINDOWS   /* no installer: the new folder replaces this one; settings are kept in your user folder */
-    {
+#ifdef SNTV_DESKTOP_PLAYER
+    if (!g_update_url[0] || !g_update_sha256[0]) {   /* a release without the installer: its page */
         static const char *const GET[] = { "Later", "Open the download page" };
-        snprintf(body, sizeof body, "Download the Windows zip and unpack it over this folder (or anywhere: your sign-in, settings and progress are kept in your user folder, not here).");
+        snprintf(body, sizeof body, "Download the installer (or the zip) from the release page. Your sign-in, settings and progress are kept in your user folder, not with the app.");
         app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, GET, ICONS, 2, on_update_download, NULL)));
         return;
     }
+    snprintf(body, sizeof body, "It downloads here, then Cuelight closes, installs it and opens again by itself, in about half a minute. "
+             "Your sign-in, settings and progress stay. Later asks again next time (Settings > About > Update any time).");
+    app_push(screen_options_unasked(screen_options_create_ex("An update is ready", sub, body, ITEMS, ICONS, 2, on_update_answer, NULL)));
+    return;
 #endif
     if (!app_update_installs_here()) {   /* this TV won't let the app install: say once per version where it's done */
         if (!strcmp(store_get_str("updateHowToldFor", ""), g_update_version)) return;
@@ -1606,7 +1634,12 @@ void app_update_check(float dt)
     if (g_update_next < 0) g_update_next = getenv("SNTV_UPDATE_URL") ? 1 : 3;   /* soon after opening: Home is up by then */
     g_update_t += dt;
     float t = g_update_t, next = g_update_next;
-    if (g_update_version[0] && g_update_url[0] && g_update_sha256[0] && g_app.auto_update && !g_update_offered && quiet_moment()) {
+#ifdef SNTV_DESKTOP_PLAYER
+    int ready = g_update_version[0] != 0;   /* without an installer, its page */
+#else
+    int ready = g_update_version[0] && g_update_url[0] && g_update_sha256[0];
+#endif
+    if (ready && g_app.auto_update && !g_update_offered && quiet_moment()) {
         g_update_offered = 1;
         ask_to_update();
         return;

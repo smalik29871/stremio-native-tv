@@ -1884,6 +1884,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_WHATSNEW || id == IT_ABOUT_APP) app_push(screen_whatsnew_create(id == IT_ABOUT_APP));
         else if (id == IT_UPDATE) {
             if (g_update_version[0] && g_update_url[0] && g_update_sha256[0]) app_push(screen_update_create(0));
+            else if (g_update_version[0] && app_update_by_hand()) {}
             else { app_toast("Checking for updates\xE2\x80\xA6"); app_update_check_now(); }
         }
         else if (id == IT_THUMBS) begin_edit(st, EDIT_THUMBS);

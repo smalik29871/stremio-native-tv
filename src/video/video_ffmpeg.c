@@ -14,6 +14,8 @@
 #include "../youtube.h"
 #include "../audio.h"
 #include "../platform/platform.h"
+#include "../http.h"
+#include "../sha256.h"
 void app_redraw(void);
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -28,9 +30,14 @@ void app_redraw(void);
 #include <GLES2/gl2.h>
 #include <math.h>
 #include <SDL.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #define MAX_TRACKS 32
 #define QUEUE_BYTES (48 * 1024 * 1024)   /* read ahead at most this much ... */
@@ -1115,5 +1122,113 @@ void video_keep_awake(int on) { if (on) SDL_DisableScreenSaver(); else if (!P) S
 void video_hold_screensaver(int on) { if (on) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver(); }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 void video_memory_stage(int stage) { (void)stage; }
-int video_install_update(const char *url, const char *sha256, const char *app_id) { (void)url; (void)sha256; (void)app_id; return -1; }
-int video_install_status(char *out, size_t n) { if (n) *out = 0; return 0; }
+
+/* ---- updating itself: the release's installer, downloaded and checked against the hash the
+ * release lists, then started with /S /RELAUNCH (it waits for this app to close, installs over
+ * it for this user and opens the new version). The update screen closes the app once it runs. */
+enum { INST_MAX = 256 << 20 };
+static struct {
+    SDL_mutex *mu;
+    int state;   /* video_install_status: 0 idle, 1 working, 2 handed to the installer, -1 failed */
+    char status[160], url[600], sha[80];
+    char *buf; size_t len, cap; uint64_t total;
+} g_inst;
+
+static void inst_say(int state, const char *fmt, ...)
+{
+    va_list ap; va_start(ap, fmt);
+    SDL_LockMutex(g_inst.mu);
+    g_inst.state = state;
+    vsnprintf(g_inst.status, sizeof g_inst.status, fmt, ap);
+    SDL_UnlockMutex(g_inst.mu);
+    va_end(ap);
+}
+
+static int inst_head(void *u, long status, const char *type, uint64_t length, const char *range)
+{
+    (void)u; (void)type; (void)range;
+    if (status != 200) { inst_say(-1, "The download failed (HTTP %ld)", status); return 0; }
+    g_inst.total = length != (uint64_t)-1 ? length : 0;
+    return 1;
+}
+
+static int inst_data(void *u, const char *data, size_t n)
+{
+    (void)u;
+    if (g_inst.len + n > INST_MAX) { inst_say(-1, "The download is larger than an installer can be"); return 0; }
+    if (g_inst.len + n > g_inst.cap) {
+        size_t cap = g_inst.cap ? g_inst.cap * 2 : (8u << 20);
+        while (cap < g_inst.len + n) cap *= 2;
+        char *nb = realloc(g_inst.buf, cap);
+        if (!nb) { inst_say(-1, "Not enough memory for the download"); return 0; }
+        g_inst.buf = nb; g_inst.cap = cap;
+    }
+    memcpy(g_inst.buf + g_inst.len, data, n);
+    g_inst.len += n;
+    if (g_inst.total) inst_say(1, "Downloading\xE2\x80\xA6  %d%%", (int)(g_inst.len * 100 / g_inst.total));
+    else inst_say(1, "Downloading\xE2\x80\xA6  %.1f MB", g_inst.len / 1048576.0);
+    return 1;
+}
+
+static int inst_run(void *arg)
+{
+    (void)arg;
+    HttpStream cb = { inst_head, inst_data, NULL };
+    int rc = http_stream(g_inst.url, NULL, NULL, &cb);
+    if (g_inst.state == -1) goto done;
+    if (rc != 0 || !g_inst.len) { inst_say(-1, "The download failed: no answer from GitHub"); goto done; }
+    char hex[65];
+    sha256_hex(g_inst.buf, g_inst.len, hex);
+    if (strcasecmp(hex, g_inst.sha)) { LOGW("update: the installer's SHA-256 is %s, the release lists %s", hex, g_inst.sha); inst_say(-1, "The download did not match the release (its checksum): nothing was installed"); goto done; }
+    char path[1024];
+#ifdef _WIN32
+    char tmp[MAX_PATH];
+    DWORD tl = GetTempPathA(sizeof tmp, tmp);
+    snprintf(path, sizeof path, "%sCuelight-setup.exe", tl && tl < sizeof tmp ? tmp : ".\\");
+#else
+    snprintf(path, sizeof path, "%s/Cuelight-setup.exe", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp");
+#endif
+    FILE *f = fopen(path, "wb");
+    if (!f || fwrite(g_inst.buf, 1, g_inst.len, f) != g_inst.len) { if (f) fclose(f); inst_say(-1, "The installer could not be saved (%s)", path); goto done; }
+    fclose(f);
+    LOGI("update: the installer checked (%zu bytes), starting it", g_inst.len);
+#ifdef _WIN32
+    char cmd[1200];
+    snprintf(cmd, sizeof cmd, "\"%s\" /S /RELAUNCH", path);
+    STARTUPINFOA si; PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof si); si.cb = sizeof si; memset(&pi, 0, sizeof pi);
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) { inst_say(-1, "The installer did not start (error %lu)", (unsigned long)GetLastError()); goto done; }
+    CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+#endif
+    LOGI("update: the installer started");
+    inst_say(2, "Installing\xE2\x80\xA6 Cuelight closes now and opens again by itself");
+done:
+    free(g_inst.buf); g_inst.buf = NULL; g_inst.len = g_inst.cap = 0;
+    return 0;
+}
+
+int video_install_update(const char *url, const char *sha256, const char *app_id)
+{
+    (void)app_id;
+    if (!url || (strncmp(url, "https://", 8) && !getenv("SNTV_UPDATE_URL"))) return -1;   /* tests serve it over plain http */
+    if (!sha256 || strlen(sha256) != 64) return -1;
+    if (!g_inst.mu) g_inst.mu = SDL_CreateMutex();
+    if (g_inst.state == 1) return 0;   /* already on its way */
+    snprintf(g_inst.url, sizeof g_inst.url, "%s", url);
+    snprintf(g_inst.sha, sizeof g_inst.sha, "%s", sha256);
+    inst_say(1, "Downloading\xE2\x80\xA6");
+    SDL_Thread *t = SDL_CreateThread(inst_run, "update", NULL);
+    if (!t) { inst_say(-1, "The download could not start"); return -1; }
+    SDL_DetachThread(t);
+    return 0;
+}
+
+int video_install_status(char *out, size_t n)
+{
+    if (!g_inst.mu) { if (n) *out = 0; return 0; }
+    SDL_LockMutex(g_inst.mu);
+    snprintf(out, n, "%s", g_inst.status);
+    int st = g_inst.state;
+    SDL_UnlockMutex(g_inst.mu);
+    return st;
+}
