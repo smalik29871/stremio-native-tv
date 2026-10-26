@@ -377,6 +377,7 @@ void player_set_pip(Screen *s, int on);
 void player_pip_update(Screen *s, float dt);
 void player_pip_draw(Screen *s, int focused);
 void player_pointer_moved(float x, float y);   /* a computer: the mouse moved over the player, to x:y (canvas units): its controls show */
+void player_pinch(float d);      /* a phone or tablet: two fingers apart (d > 0) or together, in the player */
 void player_toggle_mute(void);   /* a computer: M in the player */
 int window_fullscreen(void);     /* a computer: the window fills the screen */
 int  player_pip_done(Screen *s);

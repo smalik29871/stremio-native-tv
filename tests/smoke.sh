@@ -779,27 +779,28 @@ grep -q "player: subtitles sheet: Choose for Second subtitles" "$OUT/player_subs
   || { echo "a second subtitle language was not chosen in the sheet"; grep -E "subtitles" "$OUT/player_subs_second.log"; exit 1; }
 run player_seek_thumb 238 "right,ok,down,down,play,wait,right,right,right,right,right,right" HOME="$(home_with thumbs '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 # a scope film framed in 16:9 (bars baked into the picture): its colours glow in the bars, the subtitles sit in the one below
-run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+run player_letterbox 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lbox '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1)" "$OUT/player_letterbox.log" || { echo "a scope film's bars did not take its colours"; grep -E "letterbox|player: (aspect|candidate)" "$OUT/player_letterbox.log"; exit 1; }
+grep -qE "player: living letterbox, bars of .*, Glow, subtitles in them" "$OUT/player_letterbox.log" || { echo "by default the subtitles did not move into the black bars"; grep -E "living letterbox" "$OUT/player_letterbox.log"; exit 1; }
 grep -q "player: living letterbox changes with the film's cuts" "$OUT/player_letterbox.log" && grep -qE "player: the bars follow the cut at (2\.50|6\.25|11\.00|17\.50|24\.00) s" "$OUT/player_letterbox.log" \
   && grep -qE "player: the bars' frame at [0-9.]+ s is ready ahead" "$OUT/player_letterbox.log" && ! grep -q "too slow on this TV" "$OUT/player_letterbox.log" \
   || { echo "the bars did not follow the film's cuts"; grep -E "letterbox|thumbs" "$OUT/player_letterbox.log"; exit 1; }
 run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":0,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 ! grep -q "player: living letterbox" "$OUT/player_letterbox_off.log" || { echo "the living letterbox drew while turned off"; exit 1; }
 # a TV too slow for it (each frame takes 1.8 s): the bars take the artwork's colour instead of lagging
-run player_letterbox_slow 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxslow '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsslow"}')"
+run player_letterbox_slow 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxslow '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsslow"}')"
 # a TV slow to get frames (1.8 s each) keeps the light: it follows the cuts it can get ready
 grep -q "player: the bars' frames take [0-9.]* s here" "$OUT/player_letterbox_slow.log" && [ "$(grep -c "player: the bars follow the cut at" "$OUT/player_letterbox_slow.log")" -ge 2 ] \
   && ! grep -q "too slow on this TV" "$OUT/player_letterbox_slow.log" && ! grep -q "ready ahead (late)" "$OUT/player_letterbox_slow.log" \
   || { echo "a TV slow to get frames lost the living letterbox, or got its frames late"; grep -E "letterbox|bars" "$OUT/player_letterbox_slow.log"; exit 1; }
 # where frames never come, the bars take the artwork's colour
-run player_letterbox_dead 4000 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxdead '{"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsdead"}')"
+run player_letterbox_dead 4000 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxdead '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsdead"}')"
 grep -q "player: the living letterbox is too slow on this TV" "$OUT/player_letterbox_dead.log" \
   || { echo "frames that never come did not turn the bars to the artwork's colour"; grep -E "letterbox|bars" "$OUT/player_letterbox_dead.log"; exit 1; }
 # subtitles in the black bars is its own setting: with it off the glow stays and the subtitles stay over the picture
 run player_subs_in_bars 700 "right,ok,down,down,play,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with subsbars '{"letterboxOffOnce":1,"livingLetterbox":1,"subsInBars":0,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
-grep -qE "player: living letterbox, bars of 1[34][0-9] above and below \(picture 2\.[34][0-9]:1\), Glow$" "$OUT/player_subs_in_bars.log" && grep -qE "player: living letterbox, bars of .*, Glow, subtitles in them" "$OUT/player_letterbox.log" \
-  || { echo "Subtitles in the black bars did not follow its own setting"; grep -E "living letterbox" "$OUT/player_subs_in_bars.log" "$OUT/player_letterbox.log"; exit 1; }
+grep -qE "player: living letterbox, bars of 1[34][0-9] above and below \(picture 2\.[34][0-9]:1\), Glow$" "$OUT/player_subs_in_bars.log" \
+  || { echo "Subtitles in the black bars did not follow its own setting"; grep -E "living letterbox" "$OUT/player_subs_in_bars.log"; exit 1; }
 # one colour: the scene's main colour in the bars, the subtitles still in the lower one
 run player_letterbox_colour 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxcol '{"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"livingLetterbox":2,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 grep -q "player: living letterbox, bars of 1[34][0-9] above and below (picture 2\.[34][0-9]:1), One colour" "$OUT/player_letterbox_colour.log" || { echo "the one-colour bars did not draw"; grep letterbox "$OUT/player_letterbox_colour.log"; exit 1; }
@@ -1126,7 +1127,7 @@ done
 # Depth: Home's backdrop pushes into its depth map (none when turned off); the Depth
 # screensaver stands the clock behind the people
 DEP="SNTV_DEPTH_URL=http://127.0.0.1:$PORT/depth SNTV_FAKE_MEM=8000000,6000000 SNTV_FAKE_DISK_FREE_MB=20000"   # a roomy TV: the runner's own memory and drive must not turn Depth off
-run home_depth 260 "right,right,wait,wait,wait" $DEP
+run home_depth 260 "right,right,wait,wait,wait" $DEP HOME="$(home_with depthon '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"   # its own profile: the shared one has the empty list the other runs were given
 grep -q "depth: 43 backdrops have depth maps" "$OUT/home_depth.log" && grep -q "home: the backdrop moves in depth ([hm][0-9a-z]*)" "$OUT/home_depth.log" \
   || { echo "Home's backdrop did not move in depth"; grep -E "depth" "$OUT/home_depth.log"; exit 1; }
 run home_depth_off 260 "right,right,wait,wait,wait" $DEP HOME="$(home_with depthoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"depthMotion":0}')"
@@ -1396,7 +1397,8 @@ run fs_loading 300 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait" $LS
 run fs_loading_back 340 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,tap:96:84,wait,wait" $LS SNTV_FAKE_STUCK=1 SNTV_EXPECT_SCREEN=streams HOME="$(home_with fsl2 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 run fs_player 460 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs1 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 run fs_player_hidden 460 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs2 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
-run fs_player_subs 620 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait,wait,wait,wait,wait,tap:1488:84,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs3 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+run fs_player_subs 1500 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:960:797,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs3 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+grep -q "player: the audio & subtitles list" "$OUT/fs_player_subs.log" || { echo "sideways, Audio & subtitles did not open its list"; grep "player:" "$OUT/fs_player_subs.log" | tail -5; exit 1; }
 run fs_player_volume 420 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,drag:1500:300:1500:600" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs4 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "player: volume [0-9]*%" "$OUT/fs_player_volume.log" || { echo "sideways, a drag down the right did not change the volume"; exit 1; }
 FSP="right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait"
@@ -1406,6 +1408,17 @@ run fs_player_seek 420 "$FSP,drag:600:540:1200:540" $LS SNTV_EXPECT_SCREEN=playe
 grep -q "player: dragged to [0-9]* s" "$OUT/fs_player_seek.log" || { echo "a drag across the picture did not seek"; exit 1; }
 run fs_player_bright 420 "$FSP,drag:400:300:400:700" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs7 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "player: brightness [0-9]*%" "$OUT/fs_player_bright.log" || { echo "a drag down the left of the picture did not change the brightness"; exit 1; }
+# More: what the TV's row has beyond the rest (scenes, cast, subtitle settings, reload, stats); a tap on the picture closes a list
+run fs_player_more 1500 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:1300:797,wait,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs12 '{"setupDone":1,"prefSubs":"eng","subsAlways":1,"pinchHint":1}')"
+grep -q "player: the more list" "$OUT/fs_player_more.log" || { echo "sideways, More did not open its list"; grep "player:" "$OUT/fs_player_more.log" | tail -5; exit 1; }
+run fs_player_tap_away 1560 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:960:797,wait,wait,tap:150:560,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs13 '{"setupDone":1,"prefSubs":"eng","subsAlways":1,"pinchHint":1}')"
+grep -q "player: the audio & subtitles list" "$OUT/fs_player_tap_away.log" && grep -q "player: a tap away closed the list" "$OUT/fs_player_tap_away.log" || { echo "a tap on the picture did not close the open list"; grep "player:" "$OUT/fs_player_tap_away.log" | tail -5; exit 1; }
+# the lock: touches do nothing (a double tap does not skip) until the unlock is tapped
+run fs_player_lock 1560 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:960:600,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:1711:83,wait,wait,dtap:1500:540,wait,tap:960:600,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs10 '{"setupDone":1,"prefSubs":"eng","subsAlways":1,"pinchHint":1}')"
+grep -q "player: touches locked" "$OUT/fs_player_lock.log" && ! grep -q "player: double tap" "$OUT/fs_player_lock.log" || { echo "the lock did not hold the touches back"; grep "player:" "$OUT/fs_player_lock.log" | tail -5; exit 1; }
+# two fingers apart: the picture fills the screen
+run fs_player_pinch 460 "$FSP,pinch:out,wait,wait" $LS SNTV_EXPECT_SCREEN=player HOME="$(home_with fs11 '{"setupDone":1,"prefSubs":"eng","subsAlways":1,"pinchHint":1}')"
+grep -q "player: pinch: Fill the screen" "$OUT/fs_player_pinch.log" || { echo "a pinch out did not fill the screen"; exit 1; }
 # A phone on its side (2025x820): a series' title page shows its whole episode row, so a tap there opens the episode
 run ls_series_episodes 300 "right,ok,wait,wait,tap:400:640,wait,wait" SNTV_WINDOW=1250x506 SNTV_HANDHELD=1 SNTV_EXPECT_SCREEN=streams HOME="$(home_with lse '{"setupDone":1}')"
 # a finger held still on the picture plays at double speed until it lifts (and is not a tap)

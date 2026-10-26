@@ -569,9 +569,30 @@ static int reader_thread(void *arg)
     if (pl->ai >= 0) pl->athread = SDL_CreateThread(audio_thread, "ff-audio", pl);
     if (pl->start > 0) { pl->seek_to = pl->start; pl->seek_req = 1; }
     LOGI("video(ffmpeg): opened %s (%s)", pl->fmt->iformat ? pl->fmt->iformat->name : "?", g_info.codec);
+    if (pl == P && (g_na > 1 || g_nt > 0))   /* the player picks its audio and subtitles from the list just given: a moment for that, so the */
+        for (int w = 0; w < 30 && !pl->abort && !pl->switch_audio && !pl->text_req; w++) SDL_Delay(5);   /* first read is already the right one */
 
     AVPacket *pk = av_packet_alloc();
     while (!pl->abort) {
+        /* another sound track, or subtitles from the file: one seek for both, and none of its
+         * own while one is coming anyway; before anything has played, from where it starts
+         * (no jump back, no second start) */
+        int early = clock_now() < pl->start + 2.0;
+        if (pl->switch_audio) {   /* from where the picture is */
+            int want = pl->switch_audio - 1;
+            pl->fmt->streams[pl->ai]->discard = AVDISCARD_ALL;
+            pl->ai = want;
+            pl->fmt->streams[want]->discard = AVDISCARD_DEFAULT;
+            pl->reopen_audio = 1;
+            if (!pl->seek_req) { pl->seek_to = early ? pl->start : clock_now(); pl->seek_req = 1; }
+            pl->switch_audio = 0;
+        }
+        if (pl->text_req) {
+            open_text(pl, pl->text_req - 2);
+            double back = clock_now() > 2 ? clock_now() - 2 : 0;   /* the cues before now, read again */
+            if (pl->si >= 0 && !pl->seek_req) { pl->seek_to = early ? pl->start : back; pl->seek_req = 1; }   /* a seek coming anyway reads its cues from there */
+            pl->text_req = 0;
+        }
         if (pl->seek_req) {
             int64_t t = (int64_t)(pl->seek_to * AV_TIME_BASE);
             if (pl->fmt->start_time != AV_NOPTS_VALUE) t += pl->fmt->start_time;
@@ -586,22 +607,7 @@ static int reader_thread(void *arg)
             pl->eof = 0; pl->vdone = pl->adone = 0;
             pl->seek_req = 0;
             if (r < 0) LOGW("video(ffmpeg): seek to %.0fs failed", pl->seek_to);
-        }
-        if (pl->switch_audio) {   /* another sound track, from where the picture is */
-            int want = pl->switch_audio - 1;
-            pl->fmt->streams[pl->ai]->discard = AVDISCARD_ALL;
-            pl->ai = want;
-            pl->fmt->streams[want]->discard = AVDISCARD_DEFAULT;
-            pl->reopen_audio = 1;
-            pl->seek_to = clock_now(); pl->seek_req = 1;
-            pl->switch_audio = 0;
-            continue;
-        }
-        if (pl->text_req) {
-            open_text(pl, pl->text_req - 2);
-            if (pl->si >= 0) { pl->seek_to = clock_now() > 2 ? clock_now() - 2 : 0; pl->seek_req = 1; }   /* the cues before now, read again */
-            pl->text_req = 0;
-            continue;
+            else if (pl == P) LOGI("video(ffmpeg): reading from %.1f s", pl->seek_to);
         }
         double ahead = 0;
         if (pl->vi >= 0 && pl->vq.last_pts >= 0) ahead = pl->vq.last_pts - clock_now();
@@ -954,6 +960,20 @@ void video_shutdown(void) { Player *pl = P; P = NULL; player_free(pl); while (g_
     av_buffer_unref(&g_hw_dev); avformat_network_deinit(); }
 const char *video_backend_name(void) { return "ffmpeg (desktop)"; }
 
+/* The screen stays on while a video plays (not paused), while the sources list starts one,
+ * and under the app's own screensaver; otherwise the computer sleeps on its own timer. One
+ * place decides, from all three: one of them alone used to let the screen sleep mid-film. */
+static int g_keep, g_hold;
+static void awake_apply(void)
+{
+    static int cur = -1;
+    int want = g_keep || g_hold || (P && !g_paused);
+    if (want == cur) return;
+    cur = want;
+    if (want) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver();
+    LOGI("video(ffmpeg): the screen %s", want ? "stays on" : "may sleep on the computer's own timer");
+}
+
 int video_load(const char *url, const char *title, double start)
 {
     g_glow_pts = -3;   /* a new picture: its glow from its first frame */
@@ -974,6 +994,7 @@ int video_load(const char *url, const char *title, double start)
     P = pl;
     LOGI("video(ffmpeg): load %s (%s) from %.0fs", url, title ? title : "", start);
     pl->reader = SDL_CreateThread(reader_thread, "ff-read", pl);
+    awake_apply();
     return pl->reader ? 0 : -1;
 }
 
@@ -984,6 +1005,7 @@ void video_play(void)
     if (g_paused && P->ai >= 0) { SDL_LockMutex(P->am); P->clock_at = SDL_GetPerformanceCounter(); SDL_UnlockMutex(P->am); }
     g_paused = 0; g_paused_on_purpose = 0;
     if (g_info.state == VIDEO_PAUSED) g_info.state = VIDEO_PLAYING;
+    awake_apply();
 }
 void video_pause(void)
 {
@@ -993,6 +1015,7 @@ void video_pause(void)
     else if (g_wall_base >= 0) { g_wall_base = now; g_wall_at = SDL_GetPerformanceCounter(); }
     g_paused = 1; g_paused_on_purpose = 1;
     if (g_info.state == VIDEO_PLAYING) g_info.state = VIDEO_PAUSED;
+    awake_apply();
 }
 void video_seek(double s)
 {
@@ -1003,7 +1026,7 @@ void video_seek(double s)
     g_info.position = s; g_shown_pts = s; g_wall_base = -1;
     if (g_info.state == VIDEO_ENDED) g_info.state = g_paused ? VIDEO_PAUSED : VIDEO_PLAYING;
 }
-void video_stop(void) { player_drop(); g_info.state = VIDEO_IDLE; g_tex_serial = -1; }
+void video_stop(void) { player_drop(); g_info.state = VIDEO_IDLE; g_tex_serial = -1; awake_apply(); }
 void video_set_rate(double r) { if (r > 0) g_rate = r; if (r != 1.0) LOGI("video(ffmpeg): speed %.2fx is not supported here; normal speed", r); g_rate = 1.0; }
 void video_set_muted(int m) { g_muted = m; }
 void video_set_volume(int v) { g_volume = v < 0 ? 0 : v > 100 ? 100 : v; }
@@ -1084,7 +1107,10 @@ void video_select_track(TrackKind kind, int index)
     if (kind == TRACK_AUDIO) {
         if (index < 0 || index >= (int)pl->fmt->nb_streams || index == pl->ai || pl->ai < 0) return;
         pl->switch_audio = index + 1;
-    } else pl->text_req = (index < 0 ? -1 : index) + 2;
+    } else {
+        if (index == pl->si || (index < 0 && pl->si < 0)) return;   /* already so: no seek */
+        pl->text_req = (index < 0 ? -1 : index) + 2;
+    }
     g_info.tracks_version++;
 }
 
@@ -1118,8 +1144,8 @@ int video_set_brightness(float v) { (void)v; return 0; }
 void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
 void video_app_background(void) {}
 void video_app_foreground(void) {}
-void video_keep_awake(int on) { if (on) SDL_DisableScreenSaver(); else if (!P) SDL_EnableScreenSaver(); }
-void video_hold_screensaver(int on) { if (on) SDL_DisableScreenSaver(); else SDL_EnableScreenSaver(); }
+void video_keep_awake(int on) { g_keep = on; awake_apply(); }
+void video_hold_screensaver(int on) { g_hold = on; awake_apply(); }
 void video_keep_awake_charging(int on) { (void)on; }
 int video_paused_on_purpose(void) { return g_paused_on_purpose; }
 void video_memory_stage(int stage) { (void)stage; }

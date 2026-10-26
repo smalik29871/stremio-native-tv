@@ -327,6 +327,12 @@ static void dev_hooks(SDL_Window *win, int frame)
                 drag.x = e.tfinger.x; drag.y = e.tfinger.y; drag.dx = (float)(qx - px) / dw; drag.dy = (float)(qy - py) / dh; drag.left = 8; drag.until = press ? SDL_GetTicks() + 1000 : 0;
                 continue;
             }
+            if (!strcmp(tok, "pinch:out") || !strcmp(tok, "pinch:in")) {   /* two fingers apart or together */
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_MULTIGESTURE; e.mgesture.numFingers = 2; e.mgesture.dDist = tok[6] == 'o' ? 0.08f : -0.08f;
+                SDL_PushEvent(&e);
+                continue;
+            }
             if (strcmp(tok, "space") == 0) {   /* a phone keyboard's space bar: the key, then the text */
                 SDL_Event e; memset(&e, 0, sizeof e);
                 e.type = SDL_KEYDOWN; e.key.keysym.sym = SDLK_SPACE; SDL_PushEvent(&e);
@@ -1001,6 +1007,7 @@ int main(int argc, char **argv)
             if (e.type == SDL_QUIT) g_app.quit = 1;
             else if (e.type == SDL_TEXTINPUT && top && top->text) { ui_pan_keys(); top->text(top, e.text.text); }
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
+            else if (e.type == SDL_MULTIGESTURE && e.mgesture.numFingers == 2 && SDL_fabsf(e.mgesture.dDist) > 0.002f && top && !strcmp(top->name, "player")) player_pinch(e.mgesture.dDist);   /* two fingers in the player: the picture's fill */
 #ifdef SNTV_DESKTOP_PLAYER
             else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID && !e.motion.state) mouse_hover(win, e.motion.x, e.motion.y);
             else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT && e.button.clicks == 2 && top && !strcmp(top->name, "player")) toggle_fullscreen();   /* a double click on the film */
