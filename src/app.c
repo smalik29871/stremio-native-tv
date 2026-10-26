@@ -2351,7 +2351,9 @@ void app_note_frame(float ms)
 {
     static int n, slow_runs, fast_runs, need_fast = 4, want = -1;
     static float sum, restored_at = -1000, last_avg;
-    if (g_app.fx_setting != FX_AUTO) { n = 0; sum = 0; slow_runs = fast_runs = 0; want = -1; return; }
+    static int adapt = -1;
+    if (adapt < 0) { const char *e = getenv("SNTV_FX_ADAPT"); adapt = !(e && *e == '0'); }   /* tests: off, so a busy test machine does not change what a run sees */
+    if (g_app.fx_setting != FX_AUTO || !adapt) { n = 0; sum = 0; slow_runs = fast_runs = 0; want = -1; return; }
     if (g_app.time < 3.0f) return;   /* skip startup */
     Screen *top = app_top();
     if (top && (!strcmp(top->name, "player") || !strcmp(top->name, "ambient"))) return;
