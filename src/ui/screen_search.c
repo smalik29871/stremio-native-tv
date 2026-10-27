@@ -56,6 +56,8 @@ struct Search {
     float focus_t, grid_scroll;
     Peek peek;                /* details beside the focused result */
     int pending;
+    struct { unsigned id; Pending *p; } asked[96]; int n_asked;   /* this query's requests: a new query takes back the ones not started */
+    Uint32 asked_at; int timed;   /* when the addons were asked, and whether the first results were logged */
     char last_query[256];
     unsigned ai_req; int ai_state;   /* 0 off, 1 asking, 2 answered, 3 failed */
     int n_picks;                     /* results at the front that the assistant suggested (and TMDB found for its filters) */
@@ -282,12 +284,25 @@ static Search *still_open(Search *s, unsigned generation)
 
 static void search_addons(Search *s, const char *q, int pick, int rank, int year, int kind);
 
+/* A new query (or leaving): the last one's requests still waiting for a network thread are
+ * dropped, so typing a title letter by letter doesn't queue a search per pause ahead of
+ * the one wanted. Those already running finish and are ignored. */
+static void drop_asked(Search *s)
+{
+    int dropped = 0;
+    for (int i = 0; i < s->n_asked; i++)
+        if (http_cancel_queued(s->asked[i].id)) { free(s->asked[i].p); dropped++; }
+    if (dropped) LOGI("search: %d request%s of the last search dropped before they went out", dropped, dropped == 1 ? "" : "s");
+    s->n_asked = 0;
+}
+
 static void on_result(HttpResponse *r, void *user)
 {
     Pending *p = user;
     Search *s = still_open(p->owner, p->generation);
     if (!s) { free(p); return; }
     s->pending--;
+    if (!p->pick && !s->pending) LOGI("search: every addon answered \"%s\" in %u ms", p->want, SDL_GetTicks() - s->asked_at);
     MetaPreview *metas; int n;
     if (p->pick) {   /* a title the assistant suggested: keep the one result that is that title, at the front, in the assistant's order */
         if (r->parsed) { ParsedMetas *pm = r->parsed; r->parsed = NULL; metas = pm->m; n = pm->n; free(pm);
@@ -323,6 +338,7 @@ static void on_result(HttpResponse *r, void *user)
     if (!r->parsed) LOGW("search: no usable answer (HTTP %ld %s)", r->status, r->error);
     if (r->parsed) { ParsedMetas *pm = r->parsed; r->parsed = NULL; metas = pm->m; n = pm->n; free(pm);
         LOGI("search: %d result%s for \"%s\"", n, n == 1 ? "" : "s", p->want);
+        if (n && !s->timed) { s->timed = 1; LOGI("search: first results for \"%s\" in %u ms", p->want, SDL_GetTicks() - s->asked_at); }
         s->results = realloc(s->results, sizeof(MetaPreview) * (size_t)(s->n + n));
         for (int i = 0; i < n; i++) {
             int dup = 0;
@@ -344,7 +360,7 @@ static void search_addons(Search *s, const char *q, int pick, int rank, int year
     char extra[600];
     const char *kv[] = { "search", q, NULL };
     addon_extra_query(extra, sizeof extra, kv);
-    if (!pick) LOGI("search: asking the addons for \"%s\"", q);
+    if (!pick) { LOGI("search: asking the addons for \"%s\"", q); s->asked_at = SDL_GetTicks(); s->timed = 0; }
     int typed = 0;
     for (int a = 0; a < g_app.n_addons && kind >= 0 && !typed; a++)
         for (int c = 0; c < g_app.addons[a].manifest.n_catalogs; c++) {
@@ -369,7 +385,8 @@ static void search_addons(Search *s, const char *q, int pick, int rank, int year
             p->owner = s; p->generation = s->generation; p->pick = pick; p->rank = rank; p->year = year; p->kind = kind;
             snprintf(p->want, sizeof p->want, "%s", q);
             s->pending++;
-            app_fetch_metas(url, 0, on_result, p);
+            unsigned id = app_fetch_metas(url, 0, on_result, p);
+            if (s->n_asked < (int)(sizeof s->asked / sizeof s->asked[0])) { s->asked[s->n_asked].id = id; s->asked[s->n_asked].p = p; s->n_asked++; }
         }
     }
 }
@@ -486,6 +503,7 @@ static void run_query(Search *s)
     const char *q = s->kb.text;
     s->want_results = 0; s->keep_recent = 0;   /* the caller asks again when this search should take the focus */
     if (strcmp(q, s->last_query) == 0) return;
+    drop_asked(s);
     snprintf(s->last_query, sizeof s->last_query, "%s", q);
     s->generation = ++g_search_gen;
     s->pending = 0;
@@ -1330,6 +1348,7 @@ static void destroy(Screen *sc)
     for (int i = 0; i < OPEN_MAX; i++) if (g_open[i] == s) g_open[i] = NULL;   /* its replies still on their way are dropped */
     if (g_person_live == s) g_person_live = NULL;
     if (s->ai_req) ai_cancel(s->ai_req);
+    drop_asked(s);
     clear_results(s);
     close_keyboard(s);
     phone_prompt(NULL, NULL, NULL);

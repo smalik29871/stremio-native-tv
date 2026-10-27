@@ -514,6 +514,14 @@ grep -q "search: typing with the TV's keyboard" "$OUT/search_tv_keyboard.log" &&
   || { echo "typing with the TV's keyboard did not search and open the title"; grep -E "search|detail|screen" "$OUT/search_tv_keyboard.log"; exit 1; }
 # a search whose results come late still goes into the recent searches (they arrive after Enter,
 # take the focus themselves, and the search is left without opening anything)
+# Typing a title on a TV remote, a letter every 0.8 s (frames of an LG at 50 Hz), with three addons
+# whose search takes 2 s: each pause asks them, but a new letter drops the last search's requests
+# that haven't gone out, so the whole title's answers come about 2 s after it is typed, not
+# behind every earlier search
+run search_typing 1400 "search,ok,t:s,wait,t:k,wait,t:y,wait,t: ,wait,t:c,wait,t:a,wait,t:s,wait,t:t,wait,t:l,wait,t:e,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FRAME_DT=0.02 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/slowsearch/manifest.json,http://127.0.0.1:$PORT/bestfit/slowsearch/manifest.json,http://127.0.0.1:$PORT/latesubs/slowsearch/manifest.json HOME="$(home_with stype '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "search: [0-9]* requests\? of the last search dropped before they went out" "$OUT/search_typing.log" \
+  && grep -E "search: every addon answered \"sky castle\" in [0-9]+ ms" "$OUT/search_typing.log" | grep -qE " in ([0-9]{1,3}|[1-3][0-9]{3}|4[0-4][0-9]{2}) ms" \
+  || { echo "the search typed letter by letter waited behind the earlier ones"; grep -E "search: (asking|every|first|.*dropped)" "$OUT/search_typing.log"; exit 1; }
 run search_recent_late 2800 "search,ok,t:shawshank,ok,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,back,back,wait,wait,search,wait,wait,down,wait" HOME="$(home_with recentlate '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/slowsearch/manifest.json
 grep -qE '"recentSearches":[[:space:]]*\["shawshank"\]' "$OUT/home_recentlate/.local/share/stremio/nativetv/settings.json" \
   || { echo "a search with late results was not kept in the recent searches"; grep -o '"recentSearches":[^]]*]' "$OUT/home_recentlate/.local/share/stremio/nativetv/settings.json"; exit 1; }

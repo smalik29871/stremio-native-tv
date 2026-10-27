@@ -40,6 +40,12 @@ const TmdbCast *tmdb_episode_guests(const char *imdb_id, int season, int episode
 /* The IMDb id of a TMDB film, by callback ("" when unknown). */
 typedef void (*TmdbImdbCb)(const char *imdb_id, void *user);
 void tmdb_imdb_for(int tmdb_id, TmdbImdbCb cb, void *user);
+/* IMDb ids for n TMDB titles (tv[i] 1 for a series), on a network thread: ids found this
+ * session at once, the rest in one request through the key relay, or several at a time from
+ * TMDB without it; out[i] "" when a title has none or none could be found. `what` names the
+ * list in the log line with the time it took. */
+enum { TMDB_IMDB_LEN = 16 };
+void tmdb_imdb_ids(const int *ids, const int *tv, int n, char (*out)[TMDB_IMDB_LEN], const char *what);
 /* A person's films and series, most popular first, with IMDb ids so they open like any
  * title (person_id 0: looked up by name). `cb` gets them on the main thread (n -1: no key
  * or not found). The array is the callee's; copy what is kept. */

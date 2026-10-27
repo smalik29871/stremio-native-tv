@@ -416,7 +416,7 @@ static cJSON *get_json(const char *url)
    session are remembered; the rest come in one request through the key relay (which keeps
    them for every device), or, without it, a few at a time straight from TMDB. On a network
    thread; out[i] is "" when a title has no IMDb id (or none could be found). */
-enum { MEMO = 512, ID_LEN = 16, ID_THREADS = 6 };
+enum { MEMO = 512, ID_LEN = TMDB_IMDB_LEN, ID_THREADS = 6 };
 static struct { int id, tv; char imdb[ID_LEN]; } g_memo[MEMO];
 static int g_memo_next;
 static SDL_SpinLock g_memo_lock;
@@ -491,7 +491,7 @@ static int id_worker(void *arg)
     return 0;
 }
 
-static void imdb_ids(const int *ids, const int *tv, int n, char (*out)[ID_LEN], const char *what)
+void tmdb_imdb_ids(const int *ids, const int *tv, int n, char (*out)[ID_LEN], const char *what)
 {
     Uint32 t0 = SDL_GetTicks();
     int *todo = calloc((size_t)n + 1, sizeof *todo), left = 0, known;
@@ -558,7 +558,7 @@ static void person_task(HttpResponse *r, void *arg)
         pids[i] = cJSON_IsNumber(tid) ? tid->valueint : 0;
         ptv[i] = !strcmp(cJSON_GetObjectItemCaseSensitive(pick[i], "media_type")->valuestring, "tv");
     }
-    imdb_ids(pids, ptv, np, pimdb, "a person's titles");
+    tmdb_imdb_ids(pids, ptv, np, pimdb, "a person's titles");
     for (int i = 0; i < np; i++) {
         const cJSON *e = pick[i];
         int tv = ptv[i];
@@ -640,7 +640,7 @@ static void discover_task(HttpResponse *r, void *arg)
         if (na == ASK || !cJSON_IsNumber(tid)) continue;
         dres[na] = e; dids[na] = tid->valueint; dtv[na] = f->tv; na++;
     }
-    if (na) imdb_ids(dids, dtv, na, dimdb, "a filtered list");
+    if (na) tmdb_imdb_ids(dids, dtv, na, dimdb, "a filtered list");
     for (int i = 0; i < na && dj->n < MAXD; i++) {
         e = dres[i];
         if (dimdb[i][0]) {

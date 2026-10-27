@@ -12,7 +12,7 @@
 #include <string.h>
 
 #define SCHEME "cuelight://catalog"
-enum { PAGE = 20, LOOKUP_THREADS = 8, SEASONS_PER_ASK = 6 };
+enum { PAGE = 20, SEASONS_PER_ASK = 6 };
 
 int catalog_handles(const char *url) { return url && !strncmp(url, SCHEME, strlen(SCHEME)); }
 
@@ -75,27 +75,35 @@ static cJSON *tmdb_json(const char *path_q, long max_age)
 
 typedef struct { int tv, id; char imdb[24]; } Lookup;
 
-static int lookup_main(void *arg)
+/* The ones looked up before come from the cache; the rest all in one request through the
+ * key relay (tmdb_imdb_ids), or several at once without it: twenty in a row would be
+ * seconds on a TV's network. */
+static void lookup_all(Lookup *l, int n, const char *what)
 {
-    Lookup *l = arg;
-    char path[96];
-    snprintf(path, sizeof path, "/%s/%d/external_ids", l->tv ? "tv" : "movie", l->id);
-    cJSON *j = tmdb_json(path, 0);   /* an id's IMDb id never changes */
-    const cJSON *im = cJSON_GetObjectItemCaseSensitive(j, "imdb_id");
-    if (cJSON_IsString(im) && !strncmp(im->valuestring, "tt", 2)) snprintf(l->imdb, sizeof l->imdb, "%s", im->valuestring);
-    cJSON_Delete(j);
-    return 0;
-}
-
-/* Several at once: twenty in a row would be two seconds on a TV's network. */
-static void lookup_all(Lookup *l, int n)
-{
-    for (int at = 0; at < n; at += LOOKUP_THREADS) {
-        SDL_Thread *t[LOOKUP_THREADS] = { 0 };
-        int k = n - at < LOOKUP_THREADS ? n - at : LOOKUP_THREADS;
-        for (int i = 0; i < k; i++) if (!(t[i] = SDL_CreateThread(lookup_main, "catalog", &l[at + i]))) lookup_main(&l[at + i]);
-        for (int i = 0; i < k; i++) if (t[i]) SDL_WaitThread(t[i], NULL);
+    int *ids = calloc((size_t)n + 1, sizeof *ids), *tv = calloc((size_t)n + 1, sizeof *tv), *at = calloc((size_t)n + 1, sizeof *at), m = 0;
+    char (*found)[TMDB_IMDB_LEN] = calloc((size_t)n + 1, sizeof *found);
+    for (int i = 0; i < n; i++) {
+        if (!l[i].id) continue;
+        char key[200];
+        snprintf(key, sizeof key, "%s/%s/%d/external_ids", tmdb_api_base(), l[i].tv ? "tv" : "movie", l[i].id);
+        char *hit = app_cache_get(key, 0);   /* an id's IMDb id never changes */
+        cJSON *j = hit ? cJSON_Parse(hit) : NULL;
+        const cJSON *im = cJSON_GetObjectItemCaseSensitive(j, "imdb_id");
+        if (cJSON_IsString(im) && !strncmp(im->valuestring, "tt", 2)) snprintf(l[i].imdb, sizeof l[i].imdb, "%s", im->valuestring);
+        else { ids[m] = l[i].id; tv[m] = l[i].tv; at[m] = i; m++; }
+        cJSON_Delete(j); free(hit);
     }
+    if (m) tmdb_imdb_ids(ids, tv, m, found, what);
+    for (int k = 0; k < m; k++) {
+        if (!found[k][0]) continue;
+        Lookup *x = &l[at[k]];
+        snprintf(x->imdb, sizeof x->imdb, "%s", found[k]);
+        char key[200], body[64];
+        snprintf(key, sizeof key, "%s/%s/%d/external_ids", tmdb_api_base(), x->tv ? "tv" : "movie", x->id);
+        int len = snprintf(body, sizeof body, "{\"imdb_id\":\"%s\"}", x->imdb);
+        app_cache_put(key, body, (size_t)len);
+    }
+    free(ids); free(tv); free(at); free(found);
 }
 
 /* ---- answers ----------------------------------------------------------------------- */
@@ -208,7 +216,7 @@ static char *metas(const char *type, const char *id, const char *extra)
         const cJSON *rid = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(results, i), "id");
         l[i].tv = tv; l[i].id = cJSON_IsNumber(rid) ? rid->valueint : 0;
     }
-    lookup_all(l, n);
+    lookup_all(l, n, search[0] ? "a search" : "a catalog page");
     cJSON *root = cJSON_CreateObject();
     cJSON *arr = cJSON_AddArrayToObject(root, "metas");
     for (int i = 0; i < n; i++) {
