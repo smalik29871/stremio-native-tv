@@ -150,6 +150,28 @@ static int kind_of(const MetaPreview *m)
     return 2;
 }
 
+/* The same title from two addons under different ids (Cinemeta's tt0903747, another's
+ * tmdb:1396): the same name (case and punctuation aside), the same kind, the same year or
+ * one without a year. */
+static void name_key(const char *in, char *out, size_t n)
+{
+    size_t l = 0;
+    for (const unsigned char *c = (const unsigned char *)in; *c && l + 1 < n; c++)
+        if ((*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'z') || *c >= 0x80) out[l++] = (char)*c;
+        else if (*c >= 'A' && *c <= 'Z') out[l++] = (char)(*c + 32);
+    out[l] = 0;
+}
+
+static int same_result(const MetaPreview *a, const MetaPreview *b)
+{
+    if (!a->name || !b->name || kind_of(a) != kind_of(b)) return 0;
+    char ka[160], kb[160];
+    name_key(a->name, ka, sizeof ka); name_key(b->name, kb, sizeof kb);
+    if (!ka[0] || strcmp(ka, kb)) return 0;
+    int ya = a->release_info ? atoi(a->release_info) : 0, yb = b->release_info ? atoi(b->release_info) : 0;
+    return !ya || !yb || ya == yb;
+}
+
 /* Puts the results after the AI picks in groups by type. A group's place is where its best
  * result was, so the closest match still leads; the order inside a group is kept. */
 /* Lower-case words, one space between them: "Undercover Angel (1999)" -> "undercover angel 1999". */
@@ -340,11 +362,18 @@ static void on_result(HttpResponse *r, void *user)
         LOGI("search: %d result%s for \"%s\"", n, n == 1 ? "" : "s", p->want);
         if (n && !s->timed) { s->timed = 1; LOGI("search: first results for \"%s\" in %u ms", p->want, SDL_GetTicks() - s->asked_at); }
         s->results = realloc(s->results, sizeof(MetaPreview) * (size_t)(s->n + n));
+        int merged = 0;
         for (int i = 0; i < n; i++) {
-            int dup = 0;
-            for (int j = 0; j < s->n; j++) if (strcmp(s->results[j].id, metas[i].id) == 0) { dup = 1; break; }
-            if (dup) meta_preview_free(&metas[i]); else s->results[s->n++] = metas[i];
+            int dup = -1;
+            for (int j = 0; j < s->n && dup < 0; j++) if (strcmp(s->results[j].id, metas[i].id) == 0) dup = j;
+            if (dup < 0) for (int j = 0; j < s->n && dup < 0; j++) if (same_result(&s->results[j], &metas[i])) { dup = j; merged++; }
+            if (dup < 0) { s->results[s->n++] = metas[i]; continue; }
+            if (strncmp(s->results[dup].id, "tt", 2) && !strncmp(metas[i].id, "tt", 2)) {   /* the one stream addons know (an IMDb id), in the first one's place */
+                meta_preview_free(&s->results[dup]);
+                s->results[dup] = metas[i];
+            } else meta_preview_free(&metas[i]);
         }
+        if (merged) LOGI("search: %d of them already shown under another addon's id", merged);
         free(metas);
         regroup(s);
         if (s->want_results && s->n && !s->typing && s->focus_grid == 0) { focus_results(s); s->want_results = 0; }

@@ -437,6 +437,9 @@ class H(BaseHTTPRequestHandler):
         shiftsearch = p.startswith("/shiftsearch/")   # ...with a title of its own (Bravo Two Zero), which suggestions put first
         if shiftsearch:
             p = p[12:]
+        otherids = p.startswith("/otherids/")   # an addon whose search finds the same titles under ids of its own (tmdb:...)
+        if otherids:
+            p = p[9:]
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
@@ -846,6 +849,9 @@ class H(BaseHTTPRequestHandler):
                                                              "poster": f"{BASE}/poster/{k % 12 + 3}.png"} for k in range(200)]}).encode())
             if "search=" in p and noisy:   # an addon whose search answers with its whole catalog
                 return self.send(200, json.dumps(CATALOG).encode())
+            if "search=" in p and otherids:
+                q = p.split("search=")[1].split("&")[0].split(".json")[0].lower().replace("%20", " ")
+                return self.send(200, json.dumps({"metas": [dict(m, id=f"tmdb:{900 + k}") for k, m in enumerate(CATALOG["metas"]) if q in m.get("name", "").lower()]}).encode())
             if "search=" in p and shiftsearch:
                 sleep(2)
                 return self.send(200, json.dumps({"metas": [{"id": "tt0108358", "type": "movie", "name": "Bravo Two Zero", "releaseInfo": "1999"}]}).encode())

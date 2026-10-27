@@ -466,6 +466,10 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest.log" &
   || { echo "no suggestions above the keyboard, or one could not be taken"; grep "search" "$OUT/search_suggest.log"; exit 1; }
 # On a suggestion while an addon's results come in (Bravo Two Zero, put above it): the list stays as
 # it is under the cursor, and OK takes the one focused, not the keyboard's letter
+# the same title from two addons under different ids (Cinemeta's tt..., another's tmdb:...): shown once, the IMDb one kept
+run search_same_title 300 "search,t:breaking,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/otherids/manifest.json
+grep -q "search: 1 of them already shown under another addon's id" "$OUT/search_same_title.log" \
+  || { echo "the same title from two addons was shown twice"; grep search "$OUT/search_same_title.log"; exit 1; }
 run search_suggest_late 1500 "search,t:br,wait,up,up,up,up,up,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/shiftsearch/manifest.json
 grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest_late.log" && ! grep -q 'search: asking the addons for "bra"' "$OUT/search_suggest_late.log" \
   || { echo "results coming in moved the suggestions from under the cursor"; grep "search" "$OUT/search_suggest_late.log"; exit 1; }
