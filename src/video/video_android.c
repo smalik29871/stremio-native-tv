@@ -18,7 +18,7 @@ enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWA
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
        M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
-    { "load", "(Ljava/lang/String;D)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
+    { "load", "(Ljava/lang/String;DJ)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
     { "selectTrack", "(II)V" }, { "subtitleStyle", "(ILjava/lang/String;II)V" },
     { "status", "()[D" }, { "error", "()Ljava/lang/String;" }, { "codec", "()Ljava/lang/String;" }, { "warning", "()Ljava/lang/String;" },
@@ -32,6 +32,7 @@ static jclass g_cls;
 static jmethodID g_m[M_COUNT];
 static VideoInfo g;
 static unsigned g_loads;
+static int g_stopped = 1;
 static int g_paused_on_purpose, g_warn_seen, g_tracks_seen = -1;
 
 static JNIEnv *env(void) { return g_cls ? (JNIEnv *)SDL_AndroidGetJNIEnv() : NULL; }
@@ -62,13 +63,20 @@ int video_init(SDL_Window *win)
     return 0;
 }
 
-void video_shutdown(void) { video_stop(); }
+void video_shutdown(void)
+{
+    video_stop();
+    JNIEnv *e = env();
+    if (e && g_cls) (*e)->DeleteGlobalRef(e, g_cls);
+    g_cls = NULL;
+}
 const char *video_backend_name(void) { return g_cls ? "ExoPlayer (Media3)" : "none (the player did not start)"; }
 
 int video_load(const char *url, const char *title, double start)
 {
     JNIEnv *e = env();
     g_loads++;
+    g_stopped = 0;
     LOGI("video: load (%s) from %.0fs", title ? title : "", start);
     memset(&g, 0, sizeof g);
     g.buffer_ahead = -1;
@@ -77,7 +85,7 @@ int video_load(const char *url, const char *title, double start)
     if (!e) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The video player did not start on this device"); return -1; }
     g.state = VIDEO_LOADING;
     jstring u = (*e)->NewStringUTF(e, url);
-    (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_LOAD], u, (jdouble)(start > 0 ? start : 0));
+    (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_LOAD], u, (jdouble)(start > 0 ? start : 0), (jlong)g_loads);
     (*e)->DeleteLocalRef(e, u);
     clear(e);
     return 0;
@@ -86,7 +94,7 @@ int video_load(const char *url, const char *title, double start)
 void video_play(void) { g_paused_on_purpose = 0; CALL(M_PLAY); if (g.state == VIDEO_PAUSED) g.state = VIDEO_PLAYING; }
 void video_pause(void) { g_paused_on_purpose = 1; CALL(M_PAUSE); if (g.state == VIDEO_PLAYING) g.state = VIDEO_PAUSED; }
 void video_seek(double s) { if (s < 0) s = 0; CALL(M_SEEK, (jdouble)s); g.position = s; }
-void video_stop(void) { CALL(M_STOP); g.state = VIDEO_IDLE; }
+void video_stop(void) { CALL(M_STOP); g_stopped = 1; g.state = VIDEO_IDLE; }
 void video_set_rate(double r) { CALL(M_RATE, (jdouble)r); }
 void video_set_volume(int v) { CALL(M_VOLUME, (jint)v); }
 void video_set_muted(int m) { CALL(M_MUTED, (jboolean)(m != 0)); }
@@ -203,13 +211,15 @@ void video_update(void)
     JNIEnv *e = env();
     if (!e) return;
     video_glow_idle();
+    if (g_stopped) return;
     jdoubleArray a = (jdoubleArray)(*e)->CallStaticObjectMethod(e, g_cls, g_m[M_STATUS]);
     clear(e);
     if (!a) return;
-    double s[14] = { 0 };
+    double s[16] = { 0 };
     jsize n = (*e)->GetArrayLength(e, a);
-    (*e)->GetDoubleArrayRegion(e, a, 0, n < 14 ? n : 14, s);
+    (*e)->GetDoubleArrayRegion(e, a, 0, n < 16 ? n : 16, s);
     (*e)->DeleteLocalRef(e, a);
+    if ((unsigned)s[15] != g_loads) return;
     VideoState was = g.state;
     if (!(g.state == VIDEO_LOADING && s[0] == VIDEO_IDLE))   /* the load not yet seen on the other side */
         g.state = (VideoState)(int)s[0];
@@ -218,6 +228,7 @@ void video_update(void)
         g.width = (int)s[6]; g.height = (int)s[7]; g.fps = (int)s[8]; g.bitrate = (long)s[9];
     }
     g.tracks_version = (int)s[10];
+    g.failure = (VideoFailure)(int)s[12]; g.first_frame = s[13] != 0; g.dropped_frames = (unsigned)s[14];
     if (g.state == VIDEO_ERROR && was != VIDEO_ERROR) { copy_string(e, M_ERROR, g.error, sizeof g.error); LOGW("video: %s", g.error); }
     if ((int)s[11] != g_warn_seen) {
         g_warn_seen = (int)s[11];

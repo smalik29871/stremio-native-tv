@@ -19,11 +19,12 @@ SETUP = re.compile(r"^(mkdir|echo|cp|sed|rm|for |touch|cat|printf|\(|\s|[A-Z][A-
 
 def main():
     path, k, n = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-    lines = open(path).read().split("\n")
+    lines = open(path, encoding="utf-8").read().split("\n")
     first = next(i for i, l in enumerate(lines) if l.startswith("run "))
     last = max(i for i, l in enumerate(lines) if l.startswith('python3 -I - "$OUT" <<'))   # the screenshots
     head, body, tail = lines[:first], lines[first:last], lines[last:]
-    head = [re.sub(r'^ROOT=.*', 'ROOT="%s"' % os.path.dirname(os.path.dirname(os.path.abspath(path))), l) for l in head]
+    root = os.path.dirname(os.path.dirname(os.path.abspath(path))).replace("\\", "/")
+    head = [re.sub(r'^ROOT=.*', lambda _: 'ROOT="%s"' % root, l) for l in head]
 
     cuts, weight, inside, depth, heredoc, prev = [], [], [], 0, None, ""
     for i, l in enumerate(body):

@@ -1163,9 +1163,10 @@ int main(int argc, char **argv)
             app_redraw();
         }
         http_pump();
+        http_hold_background(player_needs_bandwidth());
         tracking_tick();
         { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
-        image_hold_speculative(g_app.time < g_travel_until);
+        image_hold_speculative(g_app.time < g_travel_until || player_needs_bandwidth());
         image_pump();
         image_frame_tick();
         video_update();

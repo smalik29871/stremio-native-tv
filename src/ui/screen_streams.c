@@ -1,6 +1,7 @@
 #include "../app.h"
 #include "../lang.h"
 #include "../http.h"
+#include "../relay.h"
 #include "../log.h"
 #include "../youtube.h"
 #include "../srchealth.h"
@@ -511,7 +512,7 @@ static void probe_next(Streams *st)
     st->probe_inflight = 1;
     ProbeReq *q = malloc(sizeof *q);
     q->owner = st; q->gen = st->probe_gen; q->url = strdup(s->url);
-    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1 };   /* no headers: the TV's player can't send them either */
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = s->headers };
     http_request_async_ex(s->url, &opt, on_probe, q);
 }
 
@@ -768,7 +769,7 @@ static void check_ahead(void)
     const Stream *s = &tmp.items[r];
     if (!s->url || strncmp(s->url, "http", 4) || torrent_engine_url_is(s->url) || check_find(s->url, CHECK_FRESH_S)) return;
     LOGI("streams: checking the best of %d prefetched sources ahead", g_pre.n);
-    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1 };   /* as the screen checks it */
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = s->headers };
     AheadReq *q = malloc(sizeof *q);
     q->url = strdup(s->url); q->generation = g_pre.generation;
     g_pre.checking = 1;
@@ -797,6 +798,7 @@ void streams_prefetch(const MetaPreview *meta, const char *video_id)
 {
     if (!video_id || !meta->type) return;
     if (g_pre.video_id[0] && strcmp(g_pre.video_id, video_id) == 0 && g_app.time - g_pre.started < PREFETCH_FRESH_S && g_pre.addons_version == g_app.addons_version) return;
+    relay_prime(NULL, NULL, NULL, 0, 0, NULL);
     prefetch_clear();
     snprintf(g_pre.video_id, sizeof g_pre.video_id, "%s", video_id);
     meta_preview_copy(&g_pre.meta, meta); g_pre.has_meta = 1;
@@ -829,10 +831,16 @@ float streams_prefetch_progress(const char *video_id)
     return (float)(g_pre.total - g_pre.pending) / (float)g_pre.total;
 }
 
+typedef struct { char *url, *headers; unsigned generation; } WarmNextReq;
 static void on_warm_next(HttpResponse *r, void *user)
 {
-    (void)user;
+    WarmNextReq *q = user;
+    if (q->generation == g_pre.generation && http_looks_like_media(r) && http_has_bytes(r, 0, r->len)) {
+        final_note(q->url, r);
+        relay_prime(r->final_url[0] ? r->final_url : q->url, q->headers, r->body, r->len, r->total_size, r->content_type);
+    }
     LOGI("streams: next episode's file warmed (%ld, %zu KB)", r->status, r->len / 1024);
+    free(q->url); free(q->headers); free(q);
 }
 
 int streams_prefetch_warm(const char *video_id, const char *binge_group)
@@ -852,8 +860,10 @@ int streams_prefetch_warm(const char *video_id, const char *binge_group)
         }
     if (pick < 0) return 0;
     LOGI("streams: warming the next episode's file (%s)", g_pre.items[pick].addon_name ? g_pre.items[pick].addon_name : "addon");
-    HttpOptions o = { .range_bytes = 2u << 20, .timeout_s = 20, .no_json_accept = 1 };
-    http_request_async_ex(g_pre.items[pick].url, &o, on_warm_next, NULL);
+    HttpOptions o = { .range_bytes = 2u << 20, .timeout_s = 20, .no_json_accept = 1, .headers = g_pre.items[pick].headers };
+    WarmNextReq *q = malloc(sizeof *q);
+    q->url = strdup(g_pre.items[pick].url); q->headers = g_pre.items[pick].headers ? strdup(g_pre.items[pick].headers) : NULL; q->generation = g_pre.generation;
+    http_request_async_ex(g_pre.items[pick].url, &o, on_warm_next, q);
     return 1;
 }
 
@@ -1582,7 +1592,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
         RaceReq *q = malloc(sizeof *q);
         q->idx = i; q->round = g_race_round;
         r->pending++;
-        HttpOptions o = { .range_bytes = 4096, .timeout_s = 3, .no_json_accept = 1 };   /* enough to tell a page from a file; none answering costs 3 s at most, then they play in order */
+        HttpOptions o = { .range_bytes = 4096, .timeout_s = 3, .no_json_accept = 1, .headers = c[i].headers };
         http_request_async_ex(c[i].url, &o, on_race, q);
     }
     LOGI("streams: racing %d sources", r->pending);

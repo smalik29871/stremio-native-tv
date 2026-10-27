@@ -64,6 +64,12 @@ public class CuelightActivity extends SDLActivity {
         CuelightPlayer.offerUrl(getIntent() != null ? getIntent().getDataString() : null);
     }
 
+    @Override
+    protected void onDestroy() {
+        try { super.onDestroy(); }
+        finally { CuelightPlayer.detach(this); }
+    }
+
     /* Android 15 draws an app under its status and navigation bars (edge to edge): the app's
      * view keeps clear of them by their size, so nothing of it hides behind them. The player
      * hides the bars, and the view then has the whole screen again, a camera cutout included

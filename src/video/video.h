@@ -5,6 +5,7 @@
 #include <SDL.h>
 
 typedef enum { VIDEO_IDLE, VIDEO_LOADING, VIDEO_PLAYING, VIDEO_PAUSED, VIDEO_ENDED, VIDEO_ERROR } VideoState;
+typedef enum { VIDEO_FAILURE_UNKNOWN, VIDEO_FAILURE_NETWORK, VIDEO_FAILURE_SOURCE, VIDEO_FAILURE_DECODE, VIDEO_FAILURE_MEMORY } VideoFailure;
 
 typedef struct VideoInfo {
     VideoState state;
@@ -20,6 +21,11 @@ typedef struct VideoInfo {
     int tracks_version; /* bumps when the track lists change */
     char warning[160];  /* non-fatal problem worth telling the viewer (e.g. unsupported audio) */
     int warning_version;
+    VideoFailure failure;
+    int first_frame;
+    unsigned dropped_frames;
+    unsigned seek_version;
+    int seek_supported;
 } VideoInfo;
 
 typedef enum { TRACK_AUDIO = 0, TRACK_TEXT = 1 } TrackKind;

@@ -39,6 +39,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.SubtitleView;
@@ -82,15 +83,19 @@ public final class CuelightPlayer {
     private static int sRectX, sRectY, sRectW = -1, sRectH = -1;
 
     // the snapshot C reads (written on the main thread)
-    private static volatile double[] sStatus = new double[14];
+    private static volatile double[] sStatus = new double[16];
     private static volatile String sError = "", sCodec = "", sWarning = "";
     private static volatile String[] sAudio = new String[0], sText = new String[0];
     private static int sState = IDLE, sTracksVersion, sWarningVersion;
     private static float sRate = 1, sVolume = 1;
     private static boolean sMuted;
+    private static boolean sFirstFrame;
+    private static int sFailure, sDroppedFrames;
+    private static long sLoadGeneration;
 
     /* From CuelightActivity.onCreate, after SDL has made its layout. */
     static void attach(Activity a, ViewGroup layout, SurfaceView sdl) {
+        if (sActivity != null) detach(sActivity);
         sActivity = a;
         sMain = new Handler(Looper.getMainLooper());
         sBox = new FrameLayout(a);
@@ -107,10 +112,30 @@ public final class CuelightPlayer {
         // SDL's surface over the video, see-through where the app draws alpha 0
         sdl.setZOrderMediaOverlay(true);
         sdl.getHolder().setFormat(PixelFormat.TRANSLUCENT);
-        sMain.postDelayed(CuelightPlayer::tick, 100);
+        sMain.postDelayed(sTick, 100);
     }
 
-    private static void run(Runnable r) { if (sMain != null) sMain.post(r); }
+    static void detach(Activity a) {
+        if (sActivity != a) return;
+        if (sMain != null) sMain.removeCallbacksAndMessages(null);
+        sGlowOn = false; sGlowBusy = false; sGlowBmp = null;
+        if (sPlayer != null) { sPlayer.release(); sPlayer = null; }
+        if (sYtView != null) { sYtView.release(); sYtView = null; }
+        sYt = null; sYtPending = null; sEmbed = false;
+        sPipAllowed = false; sInPip = false; sKeepAwake = false;
+        a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        sActivity = null; sMain = null; sBox = null; sView = null; sSubs = null;
+        sReady = false; sState = IDLE;
+        sAudio = new String[0]; sText = new String[0];
+        sFirstFrame = false; sFailure = 0; sDroppedFrames = 0;
+        sError = ""; sCodec = ""; sWarning = "";
+        sStatus = new double[16];
+    }
+
+    private static void run(Runnable r) {
+        Handler h = sMain;
+        if (h != null) h.post(() -> { if (h == sMain && sActivity != null) r.run(); });
+    }
 
     private static ExoPlayer player() {
         if (sPlayer != null) return sPlayer;
@@ -132,7 +157,6 @@ public final class CuelightPlayer {
             @Override public void onPlaybackStateChanged(int s) {
                 if (s == Player.STATE_READY && !sReady) {
                     sReady = true;
-                    if (sStart > 0) sPlayer.seekTo((long) (sStart * 1000));
                 }
                 if (s == Player.STATE_ENDED) sState = ENDED;
                 snapshot();
@@ -140,26 +164,38 @@ public final class CuelightPlayer {
             @Override public void onIsPlayingChanged(boolean playing) { keepAwake(); snapshot(); }
             @Override public void onPlayerError(PlaybackException e) {
                 sState = ERROR;
-                String m = e.getMessage();
-                sError = e.getErrorCodeName() + (m != null ? ": " + m : "");
+                int code = e.errorCode;
+                sFailure = code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+                    || code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+                    || code == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ? 1
+                    : code >= 3000 && code < 6000 ? 3 : 2;
+                sError = "Playback failed (" + e.getErrorCodeName() + ")";
                 Log.w(TAG, "video: " + sError);
                 snapshot();
             }
             @Override public void onTracksChanged(Tracks t) { tracks(t); }
             @Override public void onVideoSizeChanged(VideoSize v) { layout(); snapshot(); }
+            @Override public void onRenderedFirstFrame() { sFirstFrame = true; snapshot(); }
             @Override public void onCues(CueGroup cues) { sSubs.setCues(cues.cues); }
+        });
+        sPlayer.addAnalyticsListener(new AnalyticsListener() {
+            @Override public void onDroppedVideoFrames(EventTime time, int count, long elapsedMs) {
+                sDroppedFrames += count;
+            }
         });
         return sPlayer;
     }
 
     // ---- from C ----
 
-    public static void load(final String url, final double start) {
-        if (url.startsWith(EMBED)) { run(() -> embedLoad(url.substring(EMBED.length()), start)); return; }
+    public static void load(final String url, final double start, final long generation) {
+        if (url.startsWith(EMBED)) { run(() -> { sLoadGeneration = generation; embedLoad(url.substring(EMBED.length()), start); }); return; }
         run(() -> {
+            sLoadGeneration = generation;
             embedStop();
             ExoPlayer p = player();
             sReady = false; sStart = start; sError = ""; sCodec = ""; sState = LOADING;
+            sFirstFrame = false; sFailure = 0; sDroppedFrames = 0;
             sAudio = new String[0]; sText = new String[0]; sTracksVersion++;
             sSubs.setCues(new ArrayList<>());
             MediaItem.Builder b = new MediaItem.Builder().setUri(Uri.parse(url));
@@ -167,7 +203,7 @@ public final class CuelightPlayer {
             String low = path != null ? path.toLowerCase(Locale.ROOT) : "";
             if (low.contains(".m3u8") || low.endsWith("/playlist") || low.endsWith("/master")) b.setMimeType(MimeTypes.APPLICATION_M3U8);
             else if (low.endsWith(".mpd")) b.setMimeType(MimeTypes.APPLICATION_MPD);
-            p.setMediaItem(b.build());
+            p.setMediaItem(b.build(), (long) (Math.max(0, start) * 1000));
             p.setPlaybackParameters(new PlaybackParameters(sRate = 1));
             sMuted = false; sVolume = 1; p.setVolume(1);
             p.setPlayWhenReady(true);
@@ -180,7 +216,7 @@ public final class CuelightPlayer {
 
     public static void play() { run(() -> { if (sEmbed) { if (sYt != null) { if (sState == ENDED) sYt.seekTo(0); sYt.play(); } return; } if (sPlayer != null) { if (sState == ENDED) sPlayer.seekTo(0); sPlayer.play(); snapshot(); } }); }
     public static void pause() { run(() -> { if (sEmbed) { if (sYt != null) sYt.pause(); return; } if (sPlayer != null) { sPlayer.pause(); snapshot(); } }); }
-    public static void seek(final double s) { run(() -> { if (sEmbed) { if (sYt != null) sYt.seekTo((float) s); else sStart = s; return; } if (sPlayer != null) { if (sReady) sPlayer.seekTo((long) (s * 1000)); else sStart = s; snapshot(); } }); }
+    public static void seek(final double s) { run(() -> { if (sEmbed) { if (sYt != null) sYt.seekTo((float) s); else sStart = s; return; } if (sPlayer != null) { sStart = s; sPlayer.seekTo((long) (s * 1000)); snapshot(); } }); }
     public static void stop() {
         run(() -> {
             embedStop();
@@ -531,12 +567,14 @@ public final class CuelightPlayer {
         if (sGlowBusy || sEmbed || sPlayer == null || sView == null || sView.getHolder() == null) return;
         if (!sView.getHolder().getSurface().isValid() || sView.getWidth() <= 0) return;
         if (sGlowBmp == null) sGlowBmp = Bitmap.createBitmap(GLOW_W, GLOW_H, Bitmap.Config.ARGB_8888);
+        Bitmap bitmap = sGlowBmp;
         sGlowBusy = true;
         try {
-            PixelCopy.request(sView, sGlowBmp, result -> {
+            PixelCopy.request(sView, bitmap, result -> {
+                if (bitmap != sGlowBmp) return;
                 sGlowBusy = false;
                 if (result != PixelCopy.SUCCESS) return;
-                synchronized (sGlowPx) { sGlowBmp.getPixels(sGlowPx, 0, GLOW_W, 0, 0, GLOW_W, GLOW_H); sGlowSeq++; }
+                synchronized (sGlowPx) { bitmap.getPixels(sGlowPx, 0, GLOW_W, 0, 0, GLOW_W, GLOW_H); sGlowSeq++; }
             }, sMain);
         } catch (IllegalArgumentException e) { sGlowBusy = false; }
     }
@@ -555,9 +593,11 @@ public final class CuelightPlayer {
 
     // ---- on the main thread ----
 
+    private static final Runnable sTick = CuelightPlayer::tick;
     private static void tick() {
+        if (sMain == null || sActivity == null) return;
         snapshot();
-        sMain.postDelayed(CuelightPlayer::tick, 100);
+        sMain.postDelayed(sTick, 100);
     }
 
     private static void keepAwake() {
@@ -573,14 +613,16 @@ public final class CuelightPlayer {
 
     private static void snapshot() {
         if (sEmbed) {
-            double[] s = new double[14];
+            double[] s = new double[16];
             s[0] = sState; s[1] = sYtPos; s[2] = sYtDur; s[3] = sYtBuffering ? 1 : 0; s[5] = -1;
             s[10] = sTracksVersion; s[11] = sWarningVersion;
+            s[12] = sState == ERROR ? 2 : 0; s[13] = sState == PLAYING ? 1 : 0;
+            s[15] = sLoadGeneration;
             sStatus = s;
             return;
         }
         ExoPlayer p = sPlayer;
-        double[] s = new double[14];
+        double[] s = new double[16];
         int state = sState;
         if (p != null && state != ERROR && state != IDLE) {
             int ps = p.getPlaybackState();
@@ -606,6 +648,8 @@ public final class CuelightPlayer {
         }
         s[10] = sTracksVersion;
         s[11] = sWarningVersion;
+        s[12] = sFailure; s[13] = sFirstFrame ? 1 : 0; s[14] = sDroppedFrames;
+        s[15] = sLoadGeneration;
         sStatus = s;
     }
 

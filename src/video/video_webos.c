@@ -437,7 +437,7 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
     if (cJSON_GetObjectItem(root, "bufferingStart")) g_info.buffering = 1;
     if (cJSON_GetObjectItem(root, "bufferingEnd")) g_info.buffering = 0;
     if (cJSON_GetObjectItem(root, "endOfStream")) g_info.state = VIDEO_ENDED;
-    if (cJSON_GetObjectItem(root, "playing")) { g_info.state = VIDEO_PLAYING; g_info.buffering = 0; }
+    if (cJSON_GetObjectItem(root, "playing")) { g_info.state = VIDEO_PLAYING; g_info.buffering = 0; g_info.first_frame = 1; }
     if (cJSON_GetObjectItem(root, "paused") && g_info.state == VIDEO_PLAYING) g_info.state = VIDEO_PAUSED;
     {
         const cJSON *err = cJSON_GetObjectItem(root, "error");
@@ -451,6 +451,7 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
             } else {
                 snprintf(g_info.error, sizeof g_info.error, "%s (code %d)", tx[0] ? tx : "Playback error", c);
                 g_info.state = VIDEO_ERROR;
+                g_info.failure = c == 300 || (c >= 40000 && c < 50000) ? VIDEO_FAILURE_NETWORK : VIDEO_FAILURE_DECODE;
             }
         }
     }
@@ -481,7 +482,18 @@ static int on_load_reply(LSHandle *sh, LSMessage *msg, void *ctx)
     cJSON *root = cJSON_Parse(payload);
     const cJSON *ok = cJSON_GetObjectItem(root, "returnValue"), *mid = cJSON_GetObjectItem(root, "mediaId");
     SDL_LockMutex(g_lock);
-    if (session != g_session) { SDL_UnlockMutex(g_lock); cJSON_Delete(root); return 1; }
+    if (session != g_session) {
+        SDL_UnlockMutex(g_lock);
+        if (cJSON_IsTrue(ok) && cJSON_IsString(mid) && mid->valuestring[0] && strcmp(mid->valuestring, "<invalid mediaId>")) {
+            cJSON *p = cJSON_CreateObject();
+            cJSON_AddStringToObject(p, "mediaId", mid->valuestring);
+            char *body = cJSON_PrintUnformatted(p);
+            if (body) { media_call("unload", body); free(body); }
+            cJSON_Delete(p);
+        }
+        cJSON_Delete(root);
+        return 1;
+    }
     if (cJSON_IsTrue(ok) && cJSON_IsString(mid) && mid->valuestring[0] && strcmp(mid->valuestring, "<invalid mediaId>") != 0) {
         snprintf(g_media_id, sizeof g_media_id, "%s", mid->valuestring);
         char sub[200];
@@ -495,6 +507,7 @@ static int on_load_reply(LSHandle *sh, LSMessage *msg, void *ctx)
         snprintf(g_info.error, sizeof g_info.error, "The TV refused this stream: %s (code %d)",
                  cJSON_IsString(et) ? et->valuestring : "load failed", cJSON_IsNumber(ec) ? ec->valueint : 0);
         g_info.state = VIDEO_ERROR;
+        g_info.failure = VIDEO_FAILURE_SOURCE;
         SDL_UnlockMutex(g_lock);
     }
     cJSON_Delete(root);

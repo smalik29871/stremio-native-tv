@@ -385,6 +385,7 @@ int window_fullscreen(void);     /* a computer: the window fills the screen */
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);
 void player_save_progress(void);
+int player_needs_bandwidth(void);
 void player_save_progress_quiet(void);   /* an overlay over the app: saved locally, Trakt not told it stopped */
 /* Clear old caches and unused recordings from the data folder, on a thread (tidy.h). */
 void app_tidy(int delay_ms);   /* now, e.g. as the app goes to the background */

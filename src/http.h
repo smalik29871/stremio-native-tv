@@ -86,6 +86,7 @@ typedef void (*HttpCallback)(HttpResponse *resp, void *user);
 unsigned http_request_async(const char *url, const char *post_json, HttpCallback cb, void *user);
 unsigned http_request_async_ex(const char *url, const HttpOptions *opt, HttpCallback cb, void *user);
 void http_cancel(unsigned id);   /* the callback will not fire */
+void http_hold_background(int hold);   /* protect playback while its buffer is low */
 /* Cancels it only while it waits for a worker (nothing downloaded yet): 1 if it did. */
 int http_cancel_queued(unsigned id);
 /* Long work on a network worker (several blocking requests, a file download): `task`

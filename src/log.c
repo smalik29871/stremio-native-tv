@@ -32,15 +32,34 @@ void log_init(const char *dir)
     g_file = fopen(path, "w");
 }
 
-/* Keys in links (TorBox's "token=") never reach the log, which can be shared from Diagnostics */
+/* Diagnostics are shareable: keep a link's host, never its credentials or path. */
 static void redact(char *line)
 {
+    for (char *p = strstr(line, "://"); p; p = strstr(p, "://")) {
+        char *host = p + 3;
+        char *end = host + strcspn(host, " \t\r\n\"'<>\\)");
+        char *authority = host;
+        while (authority < end && *authority != '/' && *authority != '?' && *authority != '#') authority++;
+        char *at = NULL;
+        for (char *c = host; c < authority; c++) if (*c == '@') at = c;
+        if (at) {
+            size_t removed = (size_t)(at + 1 - host);
+            memmove(host, at + 1, strlen(at + 1) + 1);
+            authority -= removed; end -= removed;
+        }
+        if (authority < end) {
+            *authority = '*';
+            memmove(authority + 1, end, strlen(end) + 1);
+            end = authority + 1;
+        }
+        p = end;
+    }
     for (char *p = strstr(line, "token="); p; p = strstr(p, "token=")) {
         p += 6;
-        size_t n = strcspn(p, "&\" \t)");
-        if (n <= 3) continue;
-        memmove(p + 3, p + n, strlen(p + n) + 1);
-        memcpy(p, "***", 3);
+        size_t n = strcspn(p, "&\" \t\r\n)");
+        if (!n) continue;
+        memmove(p + 1, p + n, strlen(p + n) + 1);
+        *p = '*';
     }
 }
 

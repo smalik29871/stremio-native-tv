@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Fix Android player cleanup when closing and reopening the app, and hide embedded-subtitle
+  timing controls when the platform cannot apply them.
+- Keep desktop playback time from advancing through audio starvation, normalize nonzero
+  stream timestamps, and preserve working audio when a replacement track cannot open.
+- Reject stale replies from earlier players and unload cancelled webOS media sessions.
+- Send addon headers during source checks and warm-up, preserve pause intent during source
+  changes, and prefer another link to the same file when recovering.
+- Count actual playback toward watched status and preserve completed progress at episode handoff.
+- Reuse the next episode's warmed bytes, defer background work when the playback buffer drains,
+  and stop cancelled HTTP transfers.
+- Add playback, buffering, dropped-frame and seek-recovery measurements to Diagnostics > Speed;
+  remove credentials, paths and query strings from logged URLs.
+
 ## 0.10.91
 
 - **Episodes in order.** A season's episodes are shown by number, whatever order the addon

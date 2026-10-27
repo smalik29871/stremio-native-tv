@@ -59,7 +59,8 @@ typedef struct {
     char *url; double start; unsigned gen;
     AVFormatContext *fmt;
     int vi, ai, si;            /* stream indexes (-1 none) */
-    AVCodecContext *vdec, *adec, *sdec;
+    AVCodecContext *vdec, *adec, *sdec, *next_adec;
+    int next_audio_serial;
     enum AVPixelFormat hw_fmt; /* the decoder's frames on the graphics card (AV_PIX_FMT_NONE: none) */
     SDL_Thread *reader, *vthread, *athread;
     volatile int abort;
@@ -69,7 +70,6 @@ typedef struct {
     volatile int seek_req; double seek_to;
     volatile int eof;
     volatile int switch_audio; /* a different sound track chosen (stream + 1): the reader moves to it */
-    volatile int reopen_audio; /* ... and the sound's thread opens its decoder */
     volatile int shown;        /* a picture (or sound) of it has been out: no going back to the start */
     volatile int text_req;     /* a text track chosen (stream + 2, 1 for none): the reader opens it */
     /* pictures */
@@ -82,7 +82,7 @@ typedef struct {
     uint8_t *fifo; int f_cap, f_len, f_off;
     double fifo_pts;            /* the time of the first byte in the FIFO */
     int a_serial;               /* the serial the FIFO's sound belongs to */
-    double clock_pts; Uint64 clock_at;   /* the sound's time when the callback last ran, and when */
+    double clock_pts, clock_end; Uint64 clock_at;   /* bounded by the audio handed to the device */
     int vdone, adone;           /* the decoders drained after the end */
     /* text */
     SDL_mutex *sm;
@@ -143,7 +143,12 @@ static int q_get(Player *pl, Queue *q, AVPacket **p, int *serial)
     return 1;
 }
 
-static double ts(AVStream *st, int64_t t) { return t == AV_NOPTS_VALUE ? -1 : t * av_q2d(st->time_base); }
+static double ts(Player *pl, AVStream *st, int64_t t)
+{
+    if (t == AV_NOPTS_VALUE) return -1;
+    double origin = pl->fmt->start_time == AV_NOPTS_VALUE ? 0 : pl->fmt->start_time / (double)AV_TIME_BASE;
+    return t * av_q2d(st->time_base) - origin;
+}
 
 /* ---- the clock ----------------------------------------------------------------------- */
 
@@ -154,10 +159,12 @@ static double clock_now(void)
     if (pl->ai >= 0 && pl->dev) {
         SDL_LockMutex(pl->am);
         double c = pl->clock_pts;
+        double end = pl->clock_end;
         Uint64 at = pl->clock_at;
         SDL_UnlockMutex(pl->am);
         if (c < 0) return g_shown_pts >= 0 ? g_shown_pts : pl->start;
         if (!g_paused) c += (double)(SDL_GetPerformanceCounter() - at) / SDL_GetPerformanceFrequency();
+        if (c > end) c = end;
         return c;
     }
     if (g_wall_base < 0) return g_shown_pts >= 0 ? g_shown_pts : pl->start;
@@ -183,6 +190,7 @@ static void audio_cb(void *user, Uint8 *out, int len)
         pl->fifo_pts += (double)got / bps;
         if (got) {   /* the sound leaving now started at `first`; the device plays it a buffer later */
             pl->clock_pts = first - (double)pl->spec.samples / pl->spec.freq;
+            pl->clock_end = first + (double)got / bps;
             pl->clock_at = SDL_GetPerformanceCounter();
         }
     }
@@ -225,14 +233,13 @@ static int audio_thread(void *arg)
     while (!pl->abort) {
         AVPacket *p; int ps;
         if (!q_get(pl, &pl->aq, &p, &ps)) break;
-        if (pl->reopen_audio) {   /* another sound track: its own decoder, before its first packet */
-            avcodec_free_context(&pl->adec);
-            if (open_decoder(pl, pl->fmt->streams[pl->ai], &pl->adec, 1) < 0) LOGW("video(ffmpeg): no decoder for that sound track");
-            pl->reopen_audio = 0; serial = -1;
-        }
-        if (!pl->adec) { av_packet_free(&p); continue; }
-        if (ps != serial) { avcodec_flush_buffers(pl->adec); serial = ps; }
         if (ps != pl->serial) { av_packet_free(&p); continue; }
+        SDL_LockMutex(pl->am);
+        AVCodecContext *next = ps >= pl->next_audio_serial ? pl->next_adec : NULL;
+        if (next) pl->next_adec = NULL;
+        SDL_UnlockMutex(pl->am);
+        if (next) { avcodec_free_context(&pl->adec); pl->adec = next; serial = -1; swr_free(&swr); }
+        if (ps != serial) { avcodec_flush_buffers(pl->adec); serial = ps; }
         int r = avcodec_send_packet(pl->adec, p);   /* p NULL drains it */
         av_packet_free(&p);
         if (r < 0 && r != AVERROR(EAGAIN) && r != AVERROR_EOF) continue;
@@ -248,7 +255,7 @@ static int audio_thread(void *arg)
             if (outn * 4 > buf_cap) { buf_cap = outn * 4; free(buf); buf = malloc((size_t)buf_cap); if (!buf) { buf_cap = 0; break; } }
             uint8_t *o[1] = { buf };
             int n = swr_convert(swr, o, outn, (const uint8_t **)f->extended_data, f->nb_samples);
-            double pts = ts(pl->fmt->streams[pl->ai], f->best_effort_timestamp);
+            double pts = ts(pl, pl->fmt->streams[pl->ai], f->best_effort_timestamp);
             av_frame_unref(f);
             if (n <= 0) continue;
             if (pts >= 0 && pl->seek_to > 0 && pts + (double)n / pl->spec.freq < pl->seek_to) continue;   /* before the seek point */
@@ -353,7 +360,7 @@ static int video_thread(void *arg)
         av_packet_free(&p);
         if (r < 0 && r != AVERROR(EAGAIN) && r != AVERROR_EOF) continue;
         while (!pl->abort && (f = dec, avcodec_receive_frame(pl->vdec, f) == 0)) {
-            double pts = ts(pl->fmt->streams[pl->vi], f->best_effort_timestamp);
+            double pts = ts(pl, pl->fmt->streams[pl->vi], f->best_effort_timestamp);
             if (pl->serial != serial) { av_frame_unref(f); break; }
             if (pts >= 0 && pts < pl->seek_to - 0.05 && pl->seek_to > 0) { av_frame_unref(f); continue; }   /* decoded up to the seek point, not shown */
             AVFrame *pic = f;
@@ -443,8 +450,8 @@ static void subtitle_packet(Player *pl, AVPacket *pk)
     AVSubtitle s; int got = 0;
     if (avcodec_decode_subtitle2(pl->sdec, &s, &got, pk) < 0 || !got) return;
     AVStream *st = pl->fmt->streams[pl->si];
-    double start = ts(st, pk->pts) + s.start_display_time / 1000.0;
-    double end = pk->duration > 0 ? ts(st, pk->pts + pk->duration) : start + (s.end_display_time ? (s.end_display_time - s.start_display_time) / 1000.0 : 4);
+    double start = ts(pl, st, pk->pts) + s.start_display_time / 1000.0;
+    double end = pk->duration > 0 ? ts(pl, st, pk->pts + pk->duration) : start + (s.end_display_time ? (s.end_display_time - s.start_display_time) / 1000.0 : 4);
     char text[512] = "";
     for (unsigned i = 0; i < s.num_rects; i++) {
         const AVSubtitleRect *r = s.rects[i];
@@ -495,6 +502,9 @@ static void set_error(Player *pl, const char *what, int err)
     if (pl != P) return;
     snprintf(g_info.error, sizeof g_info.error, "%s: %s", what, e);
     g_info.state = VIDEO_ERROR;
+    g_info.failure = err == AVERROR(ENOMEM) ? VIDEO_FAILURE_MEMORY
+        : err == AVERROR_DECODER_NOT_FOUND ? VIDEO_FAILURE_DECODE
+        : err == AVERROR(ETIMEDOUT) || err == AVERROR(EIO) || err == AVERROR(ECONNRESET) ? VIDEO_FAILURE_NETWORK : VIDEO_FAILURE_SOURCE;
     LOGW("video(ffmpeg): %s", g_info.error);
 }
 
@@ -562,6 +572,7 @@ static int reader_thread(void *arg)
         for (char *c = g_info.codec; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32;
         g_info.duration = pl->fmt->duration > 0 ? pl->fmt->duration / (double)AV_TIME_BASE : 0;
         g_info.bitrate = pl->fmt->bit_rate;
+        g_info.seek_supported = pl->vi >= 0;
         list_tracks(pl);
     }
     for (unsigned i = 0; i < pl->fmt->nb_streams; i++)   /* only what is played is read */
@@ -581,12 +592,21 @@ static int reader_thread(void *arg)
         int early = !pl->shown && !(pl->vi < 0 && pl->clock_pts >= 0);
         if (pl->switch_audio) {   /* from where the picture is */
             int want = pl->switch_audio - 1;
-            pl->fmt->streams[pl->ai]->discard = AVDISCARD_ALL;
-            pl->ai = want;
-            pl->fmt->streams[want]->discard = AVDISCARD_DEFAULT;
-            pl->reopen_audio = 1;
-            if (!pl->seek_req) { pl->seek_to = early ? pl->start : clock_now(); pl->seek_req = 1; }
             pl->switch_audio = 0;
+            AVCodecContext *next = NULL;
+            if (open_decoder(pl, pl->fmt->streams[want], &next, 1) == 0) {
+                SDL_LockMutex(pl->am);
+                avcodec_free_context(&pl->next_adec);
+                pl->next_adec = next; pl->next_audio_serial = pl->serial + 1;
+                SDL_UnlockMutex(pl->am);
+                pl->fmt->streams[pl->ai]->discard = AVDISCARD_ALL;
+                pl->ai = want;
+                pl->fmt->streams[want]->discard = AVDISCARD_DEFAULT;
+                if (!pl->seek_req) { pl->seek_to = early ? pl->start : clock_now(); pl->seek_req = 1; }
+            } else if (pl == P) {
+                snprintf(g_info.warning, sizeof g_info.warning, "That track could not be opened. The previous sound track is still playing.");
+                g_info.warning_version++; g_info.tracks_version++;
+            }
         }
         if (pl->text_req) {
             open_text(pl, pl->text_req - 2);
@@ -627,7 +647,7 @@ static int reader_thread(void *arg)
             break;
         }
         AVStream *st = pl->fmt->streams[pk->stream_index];
-        double pts = ts(st, pk->pts != AV_NOPTS_VALUE ? pk->pts : pk->dts);
+        double pts = ts(pl, st, pk->pts != AV_NOPTS_VALUE ? pk->pts : pk->dts);
         if (pk->stream_index == pl->vi || pk->stream_index == pl->ai) {
             Queue *q = pk->stream_index == pl->vi ? &pl->vq : &pl->aq;   /* before the move resets it */
             AVPacket *c = av_packet_alloc();
@@ -652,7 +672,7 @@ static void player_free(Player *pl)
     if (pl->athread) SDL_WaitThread(pl->athread, NULL);
     if (pl->dev) SDL_CloseAudioDevice(pl->dev);
     q_free(&pl->vq); q_free(&pl->aq);
-    avcodec_free_context(&pl->vdec); avcodec_free_context(&pl->adec); avcodec_free_context(&pl->sdec);
+    avcodec_free_context(&pl->vdec); avcodec_free_context(&pl->adec); avcodec_free_context(&pl->sdec); avcodec_free_context(&pl->next_adec);
     if (pl->fmt) avformat_close_input(&pl->fmt);
     sws_freeContext(pl->sws);
     for (int i = 0; i < FRAMES; i++) { free(pl->fr[i].rgba); av_frame_free(&pl->fr[i].yuv); }
@@ -844,6 +864,7 @@ static void picture_upload(Player *pl)
     if (f && f->serial == pl->serial && (f->pts != g_tex_pts || g_tex_serial != f->serial)) {
         if (f->yuv && f->yuv->data[0]) yuv_draw(f->yuv);
         else if (f->rgba) { glActiveTexture(GL_TEXTURE0); pic_texture(f->w, f->h, f->rgba); }
+        if (g_tex_serial != f->serial) g_info.seek_version++;
         g_tex_pts = f->pts; g_tex_serial = f->serial; g_shown_pts = f->pts;
         pl->shown = 1;
         app_redraw();   /* the app draws the picture here: a new one needs a frame, mouse or not */
@@ -1041,7 +1062,11 @@ void video_update(void)
     /* the picture due now: drop the late ones while a newer is waiting */
     if (pl->vi >= 0) {
         SDL_LockMutex(pl->fm);
-        while (pl->f_n > 1 && pl->fr[(pl->f_r + 1) % FRAMES].pts <= now) { pl->f_r = (pl->f_r + 1) % FRAMES; pl->f_n--; SDL_CondSignal(pl->fc); }
+        while (pl->f_n > 1 && pl->fr[(pl->f_r + 1) % FRAMES].pts <= now) {
+            Frame *old = &pl->fr[pl->f_r];
+            if (old->serial != g_tex_serial || old->pts != g_tex_pts) g_info.dropped_frames++;
+            pl->f_r = (pl->f_r + 1) % FRAMES; pl->f_n--; SDL_CondSignal(pl->fc);
+        }
         int have = pl->f_n > 0;
         SDL_UnlockMutex(pl->fm);
         picture_upload(pl);
@@ -1049,6 +1074,7 @@ void video_update(void)
         if (have && pl->ai < 0 && g_wall_base < 0 && !g_paused) { g_wall_base = pl->fr[pl->f_r].pts >= 0 ? pl->fr[pl->f_r].pts : 0; g_wall_at = SDL_GetPerformanceCounter(); }
     }
     int started = pl->vi >= 0 ? (g_tex_serial == pl->serial || pl->f_n > 0) : pl->clock_pts >= 0;
+    if (pl->vi >= 0 ? g_tex_serial == pl->serial : pl->clock_pts >= 0) g_info.first_frame = 1;
     if (g_info.state == VIDEO_LOADING && started) { g_info.state = g_paused ? VIDEO_PAUSED : VIDEO_PLAYING; LOGI("video(ffmpeg): playing"); }
     if (g_info.state == VIDEO_PLAYING || g_info.state == VIDEO_PAUSED) {
         if (!pl->seek_req) g_info.position = now < 0 ? 0 : now;

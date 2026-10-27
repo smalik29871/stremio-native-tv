@@ -37,6 +37,7 @@ add_library(sntv_core STATIC
   vendor/cJSON.c
   vendor/qrcodegen.c
   src/log.c
+  src/playback.c
   src/builtin_keys.c src/keyrelay.c
   src/http.c
   src/relay.c
@@ -324,6 +325,25 @@ install(DIRECTORY assets DESTINATION .)
 # ---- tests -------------------------------------------------------------------
 if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   enable_testing()
+  add_executable(test_playback tests/test_playback.c)
+  target_link_libraries(test_playback PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME playback_progress COMMAND test_playback)
+  add_executable(test_log tests/test_log.c)
+  target_link_libraries(test_log PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME diagnostic_redaction COMMAND test_log)
+  add_executable(test_perfstat tests/test_perfstat.c src/perfstat.c)
+  target_link_libraries(test_perfstat PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME playback_diagnostics COMMAND test_perfstat)
+  if(SNTV_PLATFORM STREQUAL "linux")
+    add_executable(test_webos_load tests/test_webos_load.c)
+    target_link_libraries(test_webos_load PRIVATE sntv_core ${SNTV_LINK_LIBS})
+    add_test(NAME webos_cancelled_load COMMAND test_webos_load)
+  endif()
+  if(SNTV_PLAYER_FFMPEG)
+    add_executable(test_player_ffmpeg tests/test_player_ffmpeg.c src/audio.c)
+    target_link_libraries(test_player_ffmpeg PRIVATE sntv_core ${SNTV_LINK_LIBS})
+    add_test(NAME desktop_clock_and_timestamps COMMAND test_player_ffmpeg)
+  endif()
   add_executable(test_theme tests/test_theme.c src/ui/theme.c src/ui/gfx.c)
   target_link_libraries(test_theme PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME theme_contracts COMMAND test_theme)

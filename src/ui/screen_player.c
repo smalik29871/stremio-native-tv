@@ -6,6 +6,7 @@
 #include "../mkvsubs.h"
 #include "../quality.h"
 #include "../perfstat.h"
+#include "../playback.h"
 #include "../app.h"
 #include "../memwatch.h"
 #include "../http.h"
@@ -36,6 +37,7 @@
 #include "island.h"
 #include "../advisory.h"
 #include <math.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -196,6 +198,7 @@ struct Player {
     double pos_seen; float jumped_at;       /* the playhead jumped (a seek): the buffering after it is not the connection's fault */
     double known_dur;                       /* the duration last reported (0 while a source loads) */
     double jump_pos;                        /* where the last jump landed */
+    PlaybackWatch watch;
     float menu_t; int menu_seen;           /* the side menu slides in */
     float tune_t; int tune_on;             /* subtitles drawer (0) to the Look and timing panel (1) */
     int embedded_text_sel;    /* -1 off */
@@ -264,6 +267,7 @@ struct Player {
 };
 
 static Player *g_live;
+static unsigned g_player_generation;
 static void desk_skip_icon(float cx, float cy, float r, int dir, Color c, int fs);
 #ifdef SNTV_DESKTOP_PLAYER
 static float desk_next_k(Player *p);
@@ -271,6 +275,13 @@ static void desk_next_rect(float k, float *r);
 #endif
 
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
+static void player_seek(double position)
+{
+    if (g_live) g_live->watch.valid = 0;
+    VideoInfo vi; video_info(&vi);
+    perf_playback_seek(vi.seek_version, vi.seek_supported && vi.first_frame);
+    video_seek(position);
+}
 #define PAUSE_REST 6.0f   /* seconds paused and untouched before the controls step aside */
 #define ADVISORY_S 7.0f   /* seconds the content advisory stays when a video starts */
 static void url_host(const char *url, char *out, size_t n);
@@ -321,6 +332,18 @@ static void describe_track(const Player *p, int kind, const VideoTrack *tr, int 
 static int xl_available(Player *p);
 static void draw_subs_panel(Player *p);
 static int subs_tuning(const Player *p);
+static int subs_timing_supported(const Player *p);
+static int playback_needs_bandwidth(const VideoInfo *vi)
+{
+    if (vi->state == VIDEO_LOADING) return 1;
+    if (vi->state != VIDEO_PLAYING) return 0;
+    if (vi->buffering) return 1;
+    if (!g_live || g_live->drain_n < 2) return 0;
+    int last = g_live->drain_n - 1;
+    double span = g_live->drain_at[last] - g_live->drain_at[0];
+    return span > 0 && g_live->drain_v[last] < 15
+        && (g_live->drain_v[last] - g_live->drain_v[0]) / span < -0.2;
+}
 static int cast_n(const Player *p, const TmdbInfo **tm);
 static int open_cast(Player *p);
 static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n);
@@ -355,8 +378,7 @@ static void report_ex(Player *p, int force, int scrobble)
     }
     if (!force && vi.position == p->last_reported) return;
     p->last_reported = vi.position;
-    double left = vi.duration - p->jump_pos, need = left * 0.8 < 120 ? left * 0.8 : 120;   /* played since the last jump: 2 min, or most of what was left */
-    int through = g_app.time - p->jumped_at >= need;
+    int through = playback_watch_through(&p->watch, vi.duration);
     app_library_progress(&p->meta, p->video_id, vi.position, vi.duration, through);
     tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, (force && scrobble) || vi.state == VIDEO_PAUSED, through);
 }
@@ -927,15 +949,15 @@ static void xl_stop(Player *p)
     free(p->xl_done); p->xl_done = NULL; p->xl_n_done = 0; p->xl_fails = 0;
 }
 
-typedef struct { Player *owner; unsigned gen; int from, count; } XlReq;
+typedef struct { Player *owner; unsigned gen, lifetime; int from, count; } XlReq;
 
 static void on_xl_batch(const char *text, const char *error, void *user)
 {
     XlReq *q = user;
     Player *p = q->owner;
-    int from = q->from, count = q->count; unsigned gen = q->gen;
+    int from = q->from, count = q->count; unsigned gen = q->gen, lifetime = q->lifetime;
     free(q);
-    if (p != g_live || p->xl_on != 1 || gen != p->xl_gen) return;
+    if (p != g_live || lifetime != p->gen || p->xl_on != 1 || gen != p->xl_gen) return;
     if (!p->xl_done || from + count > p->track.n) return;
     p->xl_req = 0;
     cJSON *root = text ? cJSON_Parse(text) : NULL;
@@ -984,7 +1006,7 @@ static void xl_tick(Player *p, float dt, double position)
     snprintf(sys, sizeof sys, "You translate subtitle lines into %s for a TV viewer. Reply with JSON only, no markdown: {\"lines\": [...]} with exactly the same number of strings in the same order. "
              "Keep line breaks as \\n, keep names, numbers and songs, use a natural spoken register, and never merge or drop lines.", lang_display(g_app.pref_subs));
     XlReq *q = malloc(sizeof *q);
-    q->owner = p; q->gen = p->xl_gen; q->from = from; q->count = count;
+    q->owner = p; q->gen = p->xl_gen; q->lifetime = p->gen; q->from = from; q->count = count;
     p->xl_req = ai_ask(sys, msg, 2400, 1, on_xl_batch, q);
     free(msg);
     if (!p->xl_req) { free(q); p->xl_on = 0; }
@@ -1767,7 +1789,7 @@ static void do_skip(Player *p, const SkipSeg *s)
 {
     p->skip_used |= 1u << (int)(s - p->skip);
     LOGI("player: skipping %s %.0f-%.0fs", s->kind == SKIP_RECAP ? "recap" : "intro", s->start, s->end);
-    video_seek(s->end);
+    player_seek(s->end);
     p->viewer_paused = 0;
     video_play();   /* paused when Skip was pressed: the episode goes on from there all the same */
     if (g_app.skip_mode == 1) app_toast(s->kind == SKIP_RECAP ? "Skipped the recap" : "Skipped the intro");
@@ -1798,13 +1820,13 @@ static void buffer_alternates(const Player *p, int idx);
 static void fail_over(Player *p, const char *why);
 
 /* A torrent TorBox has cached: its link comes from TorBox when the source's turn comes */
-typedef struct { Player *owner; int idx; double start; char *link; unsigned attempt; } TbReq;
+typedef struct { Player *owner; int idx; double start; char *link; unsigned gen, attempt; } TbReq;
 
 static void on_torbox_open(const char *url, const char *error, void *user)
 {
     TbReq *q = user;
     Player *p = q->owner;
-    int current = p == g_live && !p->finished && q->attempt == p->attempt && q->idx == p->cur && !strcmp(p->cands[q->idx].url, q->link);
+    int current = p == g_live && q->gen == p->gen && !p->finished && q->attempt == p->attempt && q->idx == p->cur && !strcmp(p->cands[q->idx].url, q->link);
     if (current) p->tb_pending = 0;
     const Screen *top = app_top();
     int on_top = (top && top->st == p) || (g_app.pip && g_app.pip->st == p);
@@ -1850,9 +1872,25 @@ static void add_stream_subs(Player *p, const PlayCandidate *c)
     if (added) { LOGI("subs: %d subtitle(s) came with the source", added); if (!p->subs_user) p->subs_auto_done = 0; }
 }
 
+static int same_file(const PlayCandidate *a, const PlayCandidate *b)
+{
+    return !strcmp(a->url, b->url) || (a->video_size && a->video_size == b->video_size
+        && a->video_hash && b->video_hash && *a->video_hash && !strcasecmp(a->video_hash, b->video_hash));
+}
+
 static void start_candidate(Player *p, int idx, double start)
 {
+    int paused = p->viewer_paused || (p->own_load && video_load_count() == p->own_load && video_paused_on_purpose());
     if (idx != p->cur) {   /* another source: its own count, and its own file */
+        if (!same_file(&p->cands[p->cur], &p->cands[idx])) {
+            p->embedded_offset = 0;
+            p->forced_checked = 0;
+            if (p->keep_sub_kind == 1 && p->keep_sub_idx >= 0 && p->keep_sub_idx < p->n_addon_subs) {
+                snprintf(p->keep_sub_lang, sizeof p->keep_sub_lang, "%s", p->addon_subs[p->keep_sub_idx].lang);
+                p->keep_sub_kind = 2;
+                p->subs_user = 0;
+            }
+        }
         p->net_retries = 0; p->net_played = 0;
         p->os_asked = 0;
         for (int k = 0; k < p->n_addon_subs; k++) p->addon_subs[k].matched = 0;   /* matched to the old file; this one's hash re-marks them */
@@ -1873,6 +1911,7 @@ static void start_candidate(Player *p, int idx, double start)
         }
     p->cur = idx;
     p->start_at = start;
+    p->net_retry_pos = start;
     p->error_handled = 0;
     p->learned = 0;
     p->probe_asked = 0;
@@ -1885,6 +1924,7 @@ static void start_candidate(Player *p, int idx, double start)
     p->subs_auto_done = 0;
     p->bm_state = 0;
     p->load_started = g_app.time;
+    memset(&p->watch, 0, sizeof p->watch);
     if (idx < 64) p->tried |= 1ull << idx;
     p->started = 0; p->p2p_peers = -1; p->p2p_info = 0; p->thumbs_warm = 0; p->length_checked = 0;
     p->stalls_here = 0; p->lighter_to = -1;
@@ -1923,7 +1963,7 @@ static void start_candidate(Player *p, int idx, double start)
         p->error_handled = 1;   /* nothing to watch over until TorBox answers */
         p->tb_pending = 1;
         TbReq *q = malloc(sizeof *q);
-        q->owner = p; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url); q->attempt = p->attempt;
+        q->owner = p; q->gen = p->gen; q->idx = idx; q->start = start; q->link = strdup(p->cands[idx].url); q->attempt = p->attempt;
         EpisodeHint ep;
         app_episode_hint(p->meta.id, p->meta.name, p->video_id, &ep);
         torbox_open_hash(p->cands[idx].url, &ep, on_torbox_open, q);
@@ -1954,6 +1994,7 @@ static void start_candidate(Player *p, int idx, double start)
         load = final;
     }
     if (video_load(load, p->title, start) != 0) app_toast("Could not start playback");
+    if (paused) { video_pause(); p->viewer_paused = 1; }
     free(relayed);
     p->own_load = video_load_count();
     push_sub_style(p);   /* re-sent by the backend once the new pipeline has loaded */
@@ -2021,6 +2062,8 @@ static void svc_failed(Player *p, int idx, const char *why)
 
 static int next_candidate(const Player *p)
 {
+    for (int i = 0; p->tries < 3 && i < p->n_cands && i < 64; i++)
+        if (i != p->cur && !(p->tried >> i & 1) && !(i < 16 && p->dead[i]) && same_file(&p->cands[p->cur], &p->cands[i])) return i;
     /* two failed: first a source from a service that has not failed (another addon's),
      * then P2P on this TV */
     for (int i = p->cur + 1; p->tries >= 2 && p->tries < 6 && i < p->n_cands; i++)
@@ -2047,6 +2090,12 @@ static int standby(const Player *p, int slot)
     for (int i = a + 1; i < p->n_cands; i++)
         if (i != p->cur && !(i < 16 && p->dead[i]) && !torrent_engine_url_is(p->cands[i].url)) return i;
     return -1;
+}
+
+static double candidate_mbps(const Player *p, int idx)
+{
+    double seconds = p->known_dur > 0 ? p->known_dur : quality_runtime_minutes(p->meta.runtime) * 60;
+    return seconds > 0 && p->cands[idx].video_size ? p->cands[idx].video_size * 8.0 / seconds / 1e6 : 0;
 }
 
 /* What is on now, so the next source opens the same way. */
@@ -2081,7 +2130,7 @@ static void rescue(Player *p, const char *why, double at)
     char addon[96];
     cand_addon(&p->cands[next], addon, sizeof addon);
     LOGI("player: rescue (%s) -> source %d at %.0fs", why, next + 1, at);
-    app_toast("Carrying on with %s from the same moment", addon[0] ? addon : "another source");
+    app_toast(same_file(&p->cands[p->cur], &p->cands[next]) ? "Carrying on with %s from the same moment" : "Trying %s near where you left off", addon[0] ? addon : "another source");
     start_candidate(p, next, at);
 }
 
@@ -2094,7 +2143,7 @@ static int net_retry(Player *p, const VideoInfo *vi)
 {
     const char *c = strstr(vi->error, "(code ");
     int code = c ? atoi(c + 6) : 0;
-    if (p->net_retries >= 3 || !(code == 300 || (code >= 40000 && code < 50000))) return 0;
+    if (p->net_retries >= 3 || !(vi->failure == VIDEO_FAILURE_NETWORK || code == 300 || (code >= 40000 && code < 50000))) return 0;
     if (!p->net_played && p->net_retries >= 1) return 0;   /* never played: one more try, then it is the source */
     static const float WAIT[] = { 3, 10, 25 };
     float scale = env_s("SNTV_NET_RETRY_SCALE", 1);
@@ -2144,6 +2193,7 @@ static void audio_repair(Player *p, const VideoInfo *vi)
 static int decoder_failure(const Player *p, const VideoInfo *vi)
 {
     if (vi->state != VIDEO_ERROR || p->tb_error[0]) return 0;
+    if (vi->failure != VIDEO_FAILURE_UNKNOWN) return vi->failure == VIDEO_FAILURE_DECODE;
     if (strstr(vi->error, "player error")) return 1;   /* Tizen's player: the file */
     if (strstr(vi->error, "refused this stream")) return 0;   /* webOS would not even load it: the link, not the decoders */
     const char *c = strstr(vi->error, "(code ");
@@ -2392,7 +2442,7 @@ static void fallback_tick(Player *p, const VideoInfo *vi_real)
             p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
             q->owner = p; q->gen = p->gen; q->attempt = p->attempt; q->idx = idx; q->slot = w;
-            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1 };   /* as the TV's player will ask: no headers */
+            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1, .headers = p->cands[idx].headers };
             http_request_async_ex(p->cands[idx].url, &o, on_warm, q);
         } else p->warm[w].at = now + 60;
     }
@@ -2414,6 +2464,8 @@ static void fallback_tick(Player *p, const VideoInfo *vi_real)
                 for (int pass = 0; pass < 2 && best < 0; pass++)   /* the same release first */
                     for (int i = 0; i < p->n_cands; i++) {
                         if (i == p->cur || (i < 16 && p->dead[i]) || p->cands[i].res <= 0 || p->cands[i].res >= cur) continue;
+                        double rate = candidate_mbps(p, i), current_rate = candidate_mbps(p, p->cur);
+                        if ((rate > 0 && current_rate > 0 && rate >= current_rate * 0.8) || (i < 64 && (p->tried >> i & 1))) continue;
                         if (pass == 0 && !(grp && p->cands[i].binge_group && !strcmp(grp, p->cands[i].binge_group))) continue;
                         if (best < 0 || p->cands[i].res > p->cands[best].res) best = i;
                     }
@@ -2638,15 +2690,15 @@ static void set_rate(Player *p, int idx)
 
 /* ---- P2P fallback: how it goes, and back to TorBox when it can ---------------------- */
 
-typedef struct { Player *owner; unsigned gen; } P2pReq;
+typedef struct { Player *owner; unsigned gen, lifetime; } P2pReq;
 
 static void on_p2p_stats(HttpResponse *r, void *user)
 {
     P2pReq *q = user;
     Player *p = q->owner;
-    unsigned gen = q->gen;
+    unsigned gen = q->gen, lifetime = q->lifetime;
     free(q);
-    if (p != g_live || gen != p->p2p_stats_gen || p->cur >= p->n_cands || !torrent_engine_url_is(p->cands[p->cur].url)) return;
+    if (p != g_live || lifetime != p->gen || gen != p->p2p_stats_gen || p->cur >= p->n_cands || !torrent_engine_url_is(p->cands[p->cur].url)) return;
     cJSON *root = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const char *hash = p->cands[p->cur].url + strlen("http://127.0.0.1:11490/");
     const cJSON *t;
@@ -2688,12 +2740,12 @@ static void leave_p2p_to(Player *p, PlayCandidate c)
 
 /* TorBox found down earlier and its copy listed again (its cache list can answer while the
  * rest is down): opened quietly first, and only once it answers is P2P left for it */
-typedef struct { Player *owner; unsigned attempt; PlayCandidate c; } TbBack;
+typedef struct { Player *owner; unsigned gen, attempt; PlayCandidate c; } TbBack;
 static void on_tb_back(const char *url, const char *error, void *user)
 {
     TbBack *b = user;
     Player *p = b->owner;
-    int current = p == g_live && !p->finished && b->attempt == p->attempt && p->cur < p->n_cands && torrent_engine_url_is(p->cands[p->cur].url);
+    int current = p == g_live && b->gen == p->gen && !p->finished && b->attempt == p->attempt && p->cur < p->n_cands && torrent_engine_url_is(p->cands[p->cur].url);
     if (current && url) {
         char name[40];
         streams_service(b->c.url, b->c.label, name, sizeof name);
@@ -2731,7 +2783,7 @@ static void on_p2p_recheck(const Stream *items, int n, void *user)
         if (!streams_candidate(&p->meta, s, &c)) continue;
         if (torbox_is_hash_link(c.url) && svc_down(p, c.url, c.label)) {
             TbBack *b = malloc(sizeof *b);
-            b->owner = p; b->attempt = p->attempt; b->c = c;
+            b->owner = p; b->gen = p->gen; b->attempt = p->attempt; b->c = c;
             EpisodeHint ep;
             app_episode_hint(p->meta.id, p->meta.name, p->video_id, &ep);
             torbox_open_hash(c.url, &ep, on_tb_back, b);
@@ -2757,7 +2809,7 @@ static void p2p_tick(Player *p, const VideoInfo *vi, float dt)
     if ((p->p2p_stats_in -= dt) <= 0) {
         p->p2p_stats_in = 3;
         P2pReq *q = malloc(sizeof *q);
-        q->owner = p; q->gen = ++p->p2p_stats_gen;
+        q->owner = p; q->gen = ++p->p2p_stats_gen; q->lifetime = p->gen;
         HttpOptions o = { .timeout_s = 3 };
         http_request_async_ex("http://127.0.0.1:11490/stats.json", &o, on_p2p_stats, q);
     }
@@ -2782,9 +2834,12 @@ static void update(Screen *s, float dt)
     if (p->tb_held) { p->tb_held = 0; start_candidate(p, p->cur, p->tb_held_start); }   /* back on top: TorBox's answer starts now */
     VideoInfo vi;
     video_info(&vi);
+    playback_watch_update(&p->watch, vi.position, dt, RATES[p->rate_idx],
+                          vi.state == VIDEO_PLAYING && !vi.buffering && !video_paused_on_purpose(), p->seek_commit > 0);
+    if (!p->trailer) perf_playback_sample(vi.position, dt, vi.state == VIDEO_PLAYING, vi.buffering, vi.dropped_frames, p->own_load, vi.seek_version);
     if (p->lb_side && g_app.living_letterbox != LB_OFF && vi.state == VIDEO_PLAYING) {   /* the bars change at the next cut: a frame then, none in between */
         if (p->lb_next_t > 0 && vi.position >= p->lb_next_t - 0.02) { p->lb_next_t = 0; app_redraw(); }
-        lb_work_ahead(p, &vi);
+        if (!playback_needs_bandwidth(&vi)) lb_work_ahead(p, &vi);
     }
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
@@ -2795,7 +2850,11 @@ static void update(Screen *s, float dt)
         if (!bare_playback(p, &vi)) app_redraw();
         else if (sub_signature(p, vi.position) != p->sub_sig || g_app.time - p->drawn_at >= 0.25f) app_redraw();   /* a new line now; anything else four times a second */
     }
-    if (vi.state == VIDEO_PLAYING && !p->start_timed) { p->start_timed = 1; perf_start_done(1); }   /* the first frame: the start is over */
+    int first_frame = vi.first_frame;
+#ifndef SNTV_PLATFORM_ANDROID
+    first_frame |= vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > p->start_at + 0.05;
+#endif
+    if (first_frame && !p->start_timed) { p->start_timed = 1; perf_start_done(1); }
     if (vi.state == VIDEO_PAUSED && p->paused_since == 0) { p->paused_since = g_app.time; app_redraw(); }
     if (vi.state != VIDEO_PAUSED && p->paused_since != 0) p->paused_since = 0;
     if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) p->viewer_paused = 0;
@@ -2816,7 +2875,7 @@ static void update(Screen *s, float dt)
     if (p->since_report > 30.0f && vi.state == VIDEO_PLAYING) { p->since_report = 0; report(p, 0); }
     if (vi.state == VIDEO_PLAYING && vi.position > 2 && !p->yt_noted) { p->yt_noted = 1; youtube_note_result(p->cands[p->cur].url, 1); }
     if (!p->tracked && !p->trailer && vi.state == VIDEO_PLAYING && vi.duration > 0) { p->tracked = 1; tracking_progress(&p->meta, p->video_id, vi.position, vi.duration, 0, 0); }
-    if (p->seek_commit > 0) { p->seek_commit -= dt; if (p->seek_commit <= 0) video_seek(p->seek_target); }
+    if (p->seek_commit > 0) { p->seek_commit -= dt; if (p->seek_commit <= 0) player_seek(p->seek_target); }
 
     if (vi.tracks_version != p->last_tracks_version) { p->last_tracks_version = vi.tracks_version; app_redraw(); }
     if (vi.warning_version != p->last_warning_version) {
@@ -2886,7 +2945,7 @@ static void update(Screen *s, float dt)
     /* the first seek would wait seconds for the keyframe index: read it now, once playback
      * has settled, with one preview a minute ahead (not for P2P: the index sits at the end
      * of the file, which a torrent would then fetch first) */
-    if (!p->thumbs_warm && p->started && vi.state == VIDEO_PLAYING && !vi.buffering && !p->trailer && vi.duration > 120
+    if (!p->thumbs_warm && p->started && vi.state == VIDEO_PLAYING && !playback_needs_bandwidth(&vi) && !p->trailer && vi.duration > 120
         && g_app.time - p->load_started > env_s("SNTV_THUMBS_WARM_AFTER", 15) && p->cur < p->n_cands && !torrent_engine_url_is(p->cands[p->cur].url)) {
         p->thumbs_warm = 1;
         int tw, th;
@@ -2911,13 +2970,15 @@ static void update(Screen *s, float dt)
         app_tv_learn(p->cands[p->cur].needs, 1);
         p->learned = 1;
     }
-    if (!p->probe_asked && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) probe_current(p);
-    if (!p->hash_state && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) hash_start(p);
-    opensubs_tick(p);
-    bestmatch_tick(p, &vi);
+    if (!playback_needs_bandwidth(&vi)) {
+        if (!p->probe_asked && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) probe_current(p);
+        if (!p->hash_state && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED)) hash_start(p);
+        opensubs_tick(p);
+        bestmatch_tick(p, &vi);
+        autosync_tick(p);
+        xl_tick(p, dt, vi.position);
+    }
     fallback_tick(p, &vi);
-    autosync_tick(p);
-    xl_tick(p, dt, vi.position);
     skip_fetch(p, &vi);
     if (g_app.skip_mode == 1 && vi.state == VIDEO_PLAYING && !p->menu) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
 
@@ -2976,7 +3037,7 @@ static void update(Screen *s, float dt)
         p->next_warmed = 0;   /* the warm goes to the new answers */
         streams_prefetch_again(&p->meta, p->next_video_id);
     }
-    if (p->next_video_id && want_next && vi.state != VIDEO_LOADING && streams_prefetch_progress(p->next_video_id) < 0
+    if (p->next_video_id && want_next && !playback_needs_bandwidth(&vi) && streams_prefetch_progress(p->next_video_id) < 0
         && (!p->prefetched || g_app.time - p->prefetch_tried > 30)) {
         p->prefetched = 1;
         p->prefetch_tried = g_app.time;
@@ -3061,6 +3122,7 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     if (g_app.subs_pos == 0 && g_app.subs_in_bars && p->lb_side == 1 && p->lb_bar >= 90) bottom = SNTV_UI_H - p->lb_bar * 0.2f;   /* in the bar under a scope picture */
     if (g_app.subs_pos != 2 && ctl && bottom > clear) bottom = clear;   /* above the controls */
     int r = subs_tuning(p) ? p->subs_row : -1;
+    if (r >= SUB_TIMING && !subs_timing_supported(p)) r++;
     if (!text && !text2 && p->embedded_text_sel < 0 && (r == SUB_SIZE || r == SUB_STYLE || r == SUB_POS))
         text = "Subtitles will look like this";   /* nothing said right now: a sample to judge by (not over the TV's own subtitles) */
     float k = p->menu == MENU_SUBS ? 1 - (1 - p->tune_t) * (1 - p->tune_t) : 0;
@@ -3903,7 +3965,7 @@ static int scenes_key(Player *p, KeyAction a, const VideoInfo *vi)
         if (p->scenes_focus == 0) { mark_moment(p, vi->position); break; }
         p->scenes_open = 0;
         LOGI("player: scene at %.0f s", t[p->scenes_focus - 1]);
-        video_seek(t[p->scenes_focus - 1]);
+        player_seek(t[p->scenes_focus - 1]);
         show_overlay(p);
         break;
     case KEY_YELLOW:   /* a marked moment goes */
@@ -4886,8 +4948,19 @@ static void sub_fix_set(const char *url, double fix)
 }
 
 /* Timing moves whichever subtitles are showing: addon cues here, file tracks on the TV. */
+static int subs_timing_supported(const Player *p)
+{
+#ifdef SNTV_PLATFORM_ANDROID
+    return p->track_loaded || p->emb_app;
+#else
+    (void)p;
+    return 1;
+#endif
+}
+
 static void shift_subs(Player *p, double by)
 {
+    if (!subs_timing_supported(p)) { app_toast("Choose a subtitle file to adjust its timing"); return; }
     if (p->track_loaded) {
         p->track.offset = by ? p->track.offset + by : (p->sync_state == 2 ? p->sync_offset : 0);
         if (p->active_addon_sub >= 0) sub_fix_set(p->addon_subs[p->active_addon_sub].url, p->track.offset - (p->sync_state == 2 ? p->sync_offset : 0));
@@ -5067,7 +5140,10 @@ static int subs_groups(Player *p, SubGroup *g, const VideoTrack *tr, int n)
     int ng = SG_FIRST_LANG;
     memset(&g[SG_LOOK], 0, sizeof g[SG_LOOK]);
     snprintf(g[SG_LOOK].name, sizeof g[SG_LOOK].name, "Look and timing");
-    for (int r = SUB_CHOOSE; r <= SUB_SYNC; r++) g[SG_LOOK].it[g[SG_LOOK].n++] = (SubItem){ SI_SET, r, r };
+    for (int r = SUB_CHOOSE; r <= SUB_SYNC; r++) {
+        if (r == SUB_TIMING && !subs_timing_supported(p)) continue;
+        g[SG_LOOK].it[g[SG_LOOK].n++] = (SubItem){ SI_SET, r, r };
+    }
     memset(&g[SG_OFF], 0, sizeof g[SG_OFF]);
     snprintf(g[SG_OFF].name, sizeof g[SG_OFF].name, "Off");
     g[SG_OFF].it[g[SG_OFF].n++] = (SubItem){ SI_OFF, SUB_OFF, -1 };
@@ -5127,6 +5203,7 @@ static SubGroup *subs_view(Player *p, VideoTrack *tr, int *nt, int *ng)
     #define MIX(v) (key = (key ^ (unsigned)(v)) * 16777619u)
     MIX(*nt); MIX(vi.tracks_version); MIX(p->n_addon_subs); MIX(xl_available(p)); MIX(p->assign_second);
     MIX(p->probe != NULL);
+    MIX(subs_timing_supported(p));
     for (int i = 0; i < p->n_addon_subs; i++) { MIX(p->addon_subs[i].matched); for (const char *c = p->addon_subs[i].lang ? p->addon_subs[i].lang : ""; *c; c++) MIX(*c); }
     for (const char *c = g_app.pref_subs; *c; c++) MIX(*c);
     for (int i = 0; i < *nt; i++) { MIX(tr[i].index); for (const char *c = tr[i].lang; *c; c++) MIX(*c); }
@@ -5172,7 +5249,8 @@ static void subs_setting(const Player *p, int row, char *v, size_t n)
     switch (row) {
     case SUB_CHOOSE: snprintf(v, n, "%s", p->assign_second ? "Second subtitles" : "Main subtitles"); break;
     case SUB_TIMING:
-        if (p->track_loaded) snprintf(v, n, "%+.1f s", p->track.offset);
+        if (!subs_timing_supported(p)) snprintf(v, n, "Choose a subtitle file");
+        else if (p->track_loaded) snprintf(v, n, "%+.1f s", p->track.offset);
         else if (p->embedded_text_sel >= 0) snprintf(v, n, "%+.1f s", p->embedded_offset);
         else snprintf(v, n, "Turn subtitles on first");
         break;
@@ -5225,15 +5303,17 @@ static int subs_tuning(const Player *p)
  * its subtitles (moved a little left meanwhile) show each change as it is made. */
 static void draw_subs_tuner(Player *p, float e)
 {
-    const float W = 460, RH = 84, H = 110 + (SUB_SYNC + 1) * RH + 56, X = SNTV_UI_W - 48 - W, Y = (SNTV_UI_H - H) / 2, PAD = 28;
+    int timing = subs_timing_supported(p);
+    const float W = 460, RH = 84, H = 110 + (SUB_SYNC + timing) * RH + 56, X = SNTV_UI_W - 48 - W, Y = (SNTV_UI_H - H) / 2, PAD = 28;
     gfx_set_alpha(e);
     gfx_set_translate(60 * (1 - e), 0);
     gfx_rrect(X, Y, W, H, 32, RGBA(0x15, 0x16, 0x1A, 0xE8));
     font_draw_tracked("LOOK AND TIMING", X + PAD, Y + 30, FONT_XS | FONT_B, COLOR_ALPHA(THEME_TEXT, 0x73), 1.5f);
     font_draw("Subtitles", X + PAD, Y + 56, FONT_M | FONT_B, THEME_TEXT);
-    for (int r = 0; r <= SUB_SYNC; r++) {
-        float y = Y + 110 + r * RH, cy = y + (RH - 8) / 2;
-        int foc = r == p->subs_row, adj = r != SUB_SYNC;
+    for (int r = 0, shown = 0; r <= SUB_SYNC; r++) {
+        if (r == SUB_TIMING && !timing) continue;
+        float y = Y + 110 + shown * RH, cy = y + (RH - 8) / 2;
+        int foc = shown++ == p->subs_row, adj = r != SUB_SYNC;
         if (foc) gfx_rrect(X + 14, y, W - 28, RH - 8, R_KEY, THEME_FOCUS);
         Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, vc = foc ? THEME_ON_FOCUS : THEME_ACCENT;
         char v[160];
@@ -5479,7 +5559,7 @@ static void seek_by(Player *p, double base)
     p->seek_flash = g_app.time + 0.35f; p->seek_flash_dir = base < 0 ? -1 : 1;
     if (g_app.live_scrub && g_app.time - p->last_live_seek > 0.33f) {   /* the picture follows while the key is held */
         p->last_live_seek = g_app.time;
-        video_seek(target);
+        player_seek(target);
     }
     app_redraw();
 }
@@ -5539,11 +5619,13 @@ static int ph_rows(Player *p, PhRow *r)
     if (p->ph_sheet == PH_SUBSET) {   /* as the TV's subtitles menu has them */
         static const char *const NAME[] = { "Subtitles for", "Size", "Style", "Position", "Earlier by 0.1 s", "Later by 0.1 s", "Reset the timing", "Auto-sync" };
         static const int ROW[] = { SUB_CHOOSE, SUB_SIZE, SUB_STYLE, SUB_POS, SUB_TIMING, SUB_TIMING, SUB_TIMING, SUB_SYNC };
-        for (int i = 0; i <= SS_SYNC; i++, n++) {
+        for (int i = 0; i <= SS_SYNC; i++) {
+            if ((i == SS_EARLIER || i == SS_LATER || i == SS_RESET) && !subs_timing_supported(p)) continue;
             snprintf(r[n].label, sizeof r[n].label, "%s", NAME[i]);
             subs_setting(p, ROW[i], r[n].sub, sizeof r[n].sub);
             if (i == SS_EARLIER || i == SS_LATER || i == SS_RESET) { char v[64]; snprintf(v, sizeof v, "%s", r[n].sub); snprintf(r[n].sub, sizeof r[n].sub, "Timing now %s", v); }
             r[n].on = i == SS_SYNC && g_app.subs_autosync; r[n].act = i;
+            n++;
         }
         return n;
     }
@@ -5773,7 +5855,7 @@ static void touch_seek(Player *p, double t, float after)
     if (p->seek_commit <= 0) p->seek_origin = vi.position;
     p->seek_target = t;
     p->seek_commit = after;
-    if (g_app.live_scrub && g_app.time - p->last_live_seek > 0.33f) { p->last_live_seek = g_app.time; video_seek(t); }
+    if (g_app.live_scrub && g_app.time - p->last_live_seek > 0.33f) { p->last_live_seek = g_app.time; player_seek(t); }
     app_redraw();
 }
 
@@ -6942,8 +7024,8 @@ keys:
     }
     /* a seek waiting to land comes first: OK lands it now, Back puts the playhead back
      * (live scrub may already have moved the picture) */
-    if (p->seek_commit > 0 && a == KEY_OK) { p->seek_commit = 0; video_seek(p->seek_target); show_overlay(p); return 1; }
-    if (p->seek_commit > 0 && a == KEY_BACK) { p->seek_commit = 0; if (g_app.live_scrub) video_seek(p->seek_origin); app_toast("Seek cancelled"); show_overlay(p); return 1; }
+    if (p->seek_commit > 0 && a == KEY_OK) { p->seek_commit = 0; player_seek(p->seek_target); show_overlay(p); return 1; }
+    if (p->seek_commit > 0 && a == KEY_BACK) { p->seek_commit = 0; if (g_app.live_scrub) player_seek(p->seek_origin); app_toast("Seek cancelled"); show_overlay(p); return 1; }
     if (a == KEY_OK && p->up_next_shown && p->next_video_id) {   /* the card's Play now; still preparing: it starts once ready */
         if (next_ready(p)) go_up_next(p);
         else if (!p->next_wanted) { p->next_wanted = 1; LOGI("player: next episode asked for while it's prepared"); app_redraw(); }
@@ -6975,7 +7057,7 @@ keys:
         if (p->probe && p->probe->n_chapters >= 2) {   /* chapter to chapter */
             int k = chapter_at(p, vi.position - 3), next = a == KEY_FORWARD ? k + 1 : k;
             if (a == KEY_REWIND && k >= 0 && p->probe->chapters[k].start_s > vi.position - 3) next = k - 1;
-            if (next < 0) { video_seek(0); } else if (next < p->probe->n_chapters) video_seek(p->probe->chapters[next].start_s);
+            if (next < 0) { player_seek(0); } else if (next < p->probe->n_chapters) player_seek(p->probe->chapters[next].start_s);
             else return 1;
             show_overlay(p);
             if (next >= 0 && next < p->probe->n_chapters && p->probe->chapters[next].name[0]) app_toast("%s", p->probe->chapters[next].name);
@@ -7012,6 +7094,13 @@ void player_save_progress(void)
     if (g_live) report(g_live, 1);
 }
 
+int player_needs_bandwidth(void)
+{
+    if (!g_live || g_live->finished) return 0;
+    VideoInfo vi; video_info(&vi);
+    return playback_needs_bandwidth(&vi);
+}
+
 void player_save_progress_quiet(void)   /* an overlay over the app: saved, but Trakt is not told it stopped */
 {
     if (g_live) report_ex(g_live, 1, 0);
@@ -7026,10 +7115,11 @@ static void destroy(Screen *s)
     if (p->tch_fast) video_set_rate(1.0);   /* closed with a finger still holding it fast */
     video_pip_allow(0);
     relay_buffer_close();   /* its memory goes with it */
-    report(p, 1);   /* the app closing with the film on: the last position still counts */
+    if (!p->finished) report(p, 1);
     streams_lookup_cancel();
     if (p->cur < p->n_cands) torrent_engine_drop(p->cands[p->cur].url);
     if (g_live == p) g_live = NULL;
+    if (!p->trailer) perf_playback_end();
     p->gen++;
     video_stop();
     subs_free(&p->track);
@@ -7062,7 +7152,7 @@ static void instant_replay(Player *p, double pos)
         p->replay_subs = pick_subs(p, lang, SUBS_SRC_ANY) || (p->audio_lang_known && pick_subs(p, p->audio_lang, SUBS_SRC_ANY));
     }
     if (pos > p->replay_until) p->replay_until = pos;   /* pressed again: back to where the first press was */
-    video_seek(pos > 10 ? pos - 10 : 0);
+    player_seek(pos > 10 ? pos - 10 : 0);
     LOGI("player: replay from %.0f s%s", pos, p->replay_subs ? " with subtitles" : "");
     app_toast(p->replay_subs ? "Replaying with subtitles" : "Replaying the last 10 seconds");
     show_overlay(p);
@@ -7161,7 +7251,8 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     p->active_addon_sub2 = -1;
     p->embedded_text_sel = -1;
     p->sync_for = -1; p->ref_idx = -1; p->sync_first = -1;
-    p->gen = 1;
+    p->gen = ++g_player_generation;
+    if (!p->trailer) perf_playback_begin();
     g_live = p;
     s->name = "player"; s->st = p;
     s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 0;   /* a phone turns sideways to play */

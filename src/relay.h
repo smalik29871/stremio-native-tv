@@ -17,6 +17,7 @@ int  relay_enabled(void);   /* on unless "relay" is 0 in the store (or SNTV_NO_R
  * spare from moment to moment; none when there is too little. One at a time: a new one
  * replaces it. */
 char *relay_url_buffered(const char *url, const char *headers, double est_rate);
+void relay_prime(const char *url, const char *headers, const void *data, size_t len, uint64_t total, const char *type);
 int  relay_buffer_enabled(void);   /* relay on, and "bufferAhead" not 0 (nor SNTV_NO_BUFFER set) */
 void relay_set_duration(double seconds);   /* the video's length: the buffer's minutes from its size */
 double relay_buffer_ahead(void);   /* seconds of video loaded past what the player read, -1 none */

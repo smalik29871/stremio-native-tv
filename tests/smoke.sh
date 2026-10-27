@@ -158,11 +158,11 @@ grep -q "settings: previewing the screensaver" "$OUT/ambient_preview.log" && gre
 run intro 70 "" SNTV_INTRO=1 SNTV_FRAME_DT=0.03 SNTV_NO_TRANSITIONS=
 grep -q "intro: done" "$OUT/intro.log" || { echo "the launch animation did not finish"; exit 1; }
 run detail_trailer 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer "$ABOUT_HOME")"
-grep -q "youtube: dQw4w9WgXcQ as a byte-range playlist at 1080p (10 pieces)" "$OUT/detail_trailer.log" && grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality, pieces listed)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/4 Trailer - best @0s -> http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8" "$OUT/detail_trailer.log" \
+grep -q "youtube: dQw4w9WgXcQ as a byte-range playlist at 1080p (10 pieces)" "$OUT/detail_trailer.log" && grep -q "youtube: dQw4w9WgXcQ as DASH at 1080p (1 video quality, pieces listed)" "$OUT/detail_trailer.log" && grep -q "detail: trailer for tt0111161 streaming" "$OUT/detail_trailer.log" && grep -q "player: candidate 1/4 Trailer - best @0s -> http://127.0.0.1:[0-9]*\*" "$OUT/detail_trailer.log" \
   || { echo "the trailer did not play"; grep -E "detail|youtube|player" "$OUT/detail_trailer.log"; exit 1; }
 # a YouTube trailer's seek previews come from YouTube's storyboard (a tile of its sheet of frames)
 run trailer_seek_storyboard 420 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,right,right,right" HOME="$(home_with trailer_sb "$ABOUT_HOME")"
-grep -q "youtube: dQw4w9WgXcQ has a storyboard" "$OUT/trailer_seek_storyboard.log" && ! grep -q "image: .*storyboard.* -> HTTP" "$OUT/trailer_seek_storyboard.log" && grep -q "player: seek previews from YouTube's storyboard (http://127.0.0.1:[0-9]*/yt/sb/dQw4w9WgXcQ/storyboard3_L1/M[0-9].jpg)" "$OUT/trailer_seek_storyboard.log" \
+grep -q "youtube: dQw4w9WgXcQ has a storyboard" "$OUT/trailer_seek_storyboard.log" && ! grep -q "image: .*storyboard.* -> HTTP" "$OUT/trailer_seek_storyboard.log" && grep -q "player: seek previews from YouTube's storyboard (http://127.0.0.1:[0-9]*\*" "$OUT/trailer_seek_storyboard.log" \
   || { echo "a YouTube trailer's seek previews did not come from its storyboard"; grep -E "storyboard|image:|youtube" "$OUT/trailer_seek_storyboard.log" | head; exit 1; }
 # IMDb has the trailer: its 1080p MP4 plays first, its playlist and 480p behind it, no YouTube asked
 run detail_trailer_imdb 400 "wait,ok,right,ok,wait,wait,wait,wait" HOME="$(home_with trailer_imdb "$ABOUT_HOME")" SNTV_IMDB_API="http://127.0.0.1:$PORT/imdbgql/with"
@@ -186,11 +186,11 @@ grep -q "youtube: potPOT00001 refused the VISIONOS client's separate video and a
   || { echo "refused visionOS files were not replaced by the TV app's"; grep -E "youtube|player: candidate" "$OUT/detail_trailer_tv.log"; exit 1; }
 # both sharp ways failed on this TV: YouTube's own playlist goes first (the others every tenth time)
 run detail_trailer_hls_first 320 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,back" HOME="$(home_with trailer_hls '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ytFailLocalHls":1,"ytFailDash":1}')"
-grep -q "youtube: dQw4w9WgXcQ 2 way(s) failed here before" "$OUT/detail_trailer_hls_first.log" && grep -q "player: candidate 1/4 .* -> http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_hls_first.log" \
+grep -q "youtube: dQw4w9WgXcQ 2 way(s) failed here before" "$OUT/detail_trailer_hls_first.log" && grep -q "player: candidate 1/4 .* -> http://127.0.0.1:[0-9]*\*" "$OUT/detail_trailer_hls_first.log" \
   || { echo "a TV where DASH fails did not start with the playlist"; grep -E "youtube|player: candidate" "$OUT/detail_trailer_hls_first.log"; exit 1; }
 # no trailer from the addon: TMDB's, a file with no playlist, fetched in YouTube's &range= pieces
 run detail_trailer_file 360 "wait,ok,right,ok,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with trailer_file '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/notrailer/manifest.json SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
-grep -q "youtube: fileOnly001 streams as a file" "$OUT/detail_trailer_file.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/yt?u=" "$OUT/detail_trailer_file.log" \
+grep -q "youtube: fileOnly001 streams as a file" "$OUT/detail_trailer_file.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*\*" "$OUT/detail_trailer_file.log" \
   || { echo "the TMDB trailer did not stream through the chunked proxy"; grep -E "detail|youtube|video" "$OUT/detail_trailer_file.log"; exit 1; }
 LIBF="$OUT/home_trailer/.local/share/stremio/nativetv/library.json"
 [ ! -f "$LIBF" ] || ! grep -q tt0111161 "$LIBF" || { echo "watching the trailer saved progress for the film"; exit 1; }
@@ -309,7 +309,7 @@ run next_renewed 600 "right,ok,down,down,play,wait,wait,wait" HOME="$(home_with 
 grep -q "streams: asking again for tt0903747:1:2" "$OUT/next_renewed.log" || { echo "the next episode's sources were not renewed near the end"; grep -E "streams:" "$OUT/next_renewed.log"; exit 1; }
 # a source named for another episode never plays by itself, however good it looks
 run wrong_episode_skipped 500 "right,ok,down,down,play,wait,wait" HOME="$(home_with wrongep '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/wrongep/manifest.json" SNTV_NO_RACE=1
-grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep "player: candidate" "$OUT/wrong_episode_skipped.log" | grep -q "?ep=4" \
+grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.log" && grep -q "player: candidate 1/" "$OUT/wrong_episode_skipped.log" && ! grep -q "player: candidate.*Wrong Episode" "$OUT/wrong_episode_skipped.log" \
   || { echo "a source named for another episode was played or queued"; grep -E "player: candidate|streams: #" "$OUT/wrong_episode_skipped.log"; exit 1; }
 # Sources that ask for request headers play through the local relay (the test player
 # fetches what it opens: /hdrvideo/ refuses anyone without its Referer); with the relay off
@@ -317,6 +317,9 @@ grep -q "streams: #1 score [0-9]*  Wrong Episode" "$OUT/wrong_episode_skipped.lo
 # playing is opened directly, then the next source as usual
 HDR="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/hdr/manifest.json"
 HDRP='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'
+run relay_preflight 900 "right,ok,down,down,play,wait,wait" "$HDR" SNTV_FAKE_FETCH=1 HOME="$(home_with relaycheck '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":1}')"
+grep -q "probe: 127.0.0.1 -> H.264" "$OUT/relay_preflight.log" && grep -q "video(null): fetched 65536 bytes, status 206" "$OUT/relay_preflight.log" \
+  || { echo "a source requiring a Referer did not pass preflight and play"; grep -E "probe:|relay:|video\(null\)" "$OUT/relay_preflight.log"; exit 1; }
 run relay_plays 600 "right,ok,down,down,play,wait,wait" "$HDR" SNTV_FAKE_FETCH=1 HOME="$(home_with relay1 "$HDRP")"
 grep -q "player: source 1 asks for request headers; it plays through the local relay" "$OUT/relay_plays.log" && grep -q "video(null): fetched 65536 bytes, status 206" "$OUT/relay_plays.log" \
   && grep -q "start: [0-9.]* s Play:" "$OUT/relay_plays.log" && ! grep -q "start: .*(failed)" "$OUT/relay_plays.log" && ! grep -qE "relay: .*(Referer|hdr\.example)" "$OUT/relay_plays.log" \
@@ -731,7 +734,7 @@ grep -q "player: no audio track of source 1 plays here; another source" "$OUT/au
 # Play races the top sources; when all fail the addons are asked again
 FB="SNTV_FAKE_NO_TEXT_TRACKS=1"
 run fallback_rescue 4000 "right,ok,down,down,play,wait" "$LIGHTER" "$FB" HOME="$(home_with fb1 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
-grep -q "player: next source 2 does not answer" "$OUT/fallback_rescue.log" && grep -q "player: rescue (The source stopped sending video) -> source 3 at 6[01][0-9]s" "$OUT/fallback_rescue.log" && grep -q "player: subtitles kept across the switch" "$OUT/fallback_rescue.log" \
+grep -q "player: next source 2 does not answer" "$OUT/fallback_rescue.log" && grep -q "player: rescue (The source stopped sending video) -> source 3 at 6[01][0-9]s" "$OUT/fallback_rescue.log" && grep -q "player: subtitles.*kept across the switch" "$OUT/fallback_rescue.log" \
   || { echo "a dead source was not replaced at the same moment"; grep -E "player|video" "$OUT/fallback_rescue.log"; exit 1; }
 run fallback_drain 4000 "right,ok,down,down,play,wait" "$LIGHTER" "$FB" HOME="$(home_with fb2 "$NO_PREFLIGHT")" SNTV_FAKE_START=600 SNTV_FAKE_DRAIN=1 SNTV_DRAIN_EVERY=1 SNTV_WARM_AFTER=1
 grep -q "player: buffer draining .* switching to source [23] ([0-9]*p) before it stops" "$OUT/fallback_drain.log" \
@@ -1005,13 +1008,13 @@ grep -q "still no cached copy; staying on P2P" "$OUT/p2p_playing.log" || { echo 
 run settings_p2p 400 "left,down,down,down,down,down,ok,down,down,down,down,right,down,down,down,down,down,down" HOME="$(home_with p2pset '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 # P2P plays well when TorBox has it again: it stays, and goes back to the cached copy at the next seek
 run p2p_switch 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,right" HOME="$(home_with p2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2p/manifest.json" SNTV_P2P_RECHECK=2
-grep -q "candidate 1/.* -> http://127.0.0.1:${SNTV_ENGINE_PORT:-11490}/$FAKE_TORRENT_HASH/0" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
+grep -q "candidate 1/.* -> http://127.0.0.1:${SNTV_ENGINE_PORT:-11490}\*" "$OUT/p2p_switch.log" && grep -q "player: file is H.264 180p, 0 chapters" "$OUT/p2p_switch.log" \
   && grep -q "staying on P2P while it plays well" "$OUT/p2p_switch.log" && grep -q "TorBox has it again, leaving P2P" "$OUT/p2p_switch.log" || { echo "P2P fallback, the wait or the switch back failed"; grep -E "player|p2p|torrent|probe" "$OUT/p2p_switch.log"; exit 1; }
 # TorBox said it had the torrent, then went down: the same torrent from peers plays (it only
 # came as TorBox's link), and the player stays on it until TorBox opens it again
 run torbox_down_p2p 1100 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with tbdp2p '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_TORBOX_API=http://127.0.0.1:$PORT/torboxdown SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/p2ponly/manifest.json" SNTV_P2P_RECHECK=2
 grep -q "streams: P2P of the same torrent rides along, for when TorBox is down" "$OUT/torbox_down_p2p.log" \
-  && grep -q "video(null): load http://127.0.0.1:${SNTV_ENGINE_PORT:-11490}/$FAKE_TORRENT_HASH/0" "$OUT/torbox_down_p2p.log" \
+  && grep -q "video(null): load http://127.0.0.1:${SNTV_ENGINE_PORT:-11490}\*" "$OUT/torbox_down_p2p.log" \
   && grep -q "toast: TorBox is not answering: playing P2P on this TV" "$OUT/torbox_down_p2p.log" \
   && grep -q "player: TorBox still not answering (.*); staying on P2P" "$OUT/torbox_down_p2p.log" && ! grep -q "TorBox has it again, leaving P2P" "$OUT/torbox_down_p2p.log" \
   || { echo "TorBox being down did not end in P2P of the same torrent, or the player left P2P for it"; grep -E "torbox|player: (candidate|TorBox|source)|video\(null\): load|toast" "$OUT/torbox_down_p2p.log"; exit 1; }
@@ -1020,7 +1023,7 @@ fi
 # an account whose addons an old version saved with partial manifests: refetched and saved back whole
 run addons_repair 300 "wait" HOME="$(home_with repair '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"authKey":"brokenkey"}')" SNTV_API_URL="http://127.0.0.1:$PORT"
 grep -q "addons: 2 of the account's addons were saved without their manifest" "$OUT/addons_repair.log" && grep -q "addons: 1 addon had no answer last time; asking again" "$OUT/addons_repair.log" \
-  && grep -q "addons: no manifest from http://127.0.0.1:1/gone/manifest.json (0); keeping it with empty lists" "$OUT/addons_repair.log" \
+  && grep -q "addons: no manifest from http://127.0.0.1:1\* (0); keeping it with empty lists" "$OUT/addons_repair.log" \
   && grep -q "addons: saving the repaired collection (3 addons, 2 fixed, 1 still not answering)" "$OUT/addons_repair.log" && grep -q "addons: the account's collection is repaired" "$OUT/addons_repair.log" \
   && grep -q "addons: 3 loaded" "$OUT/addons_repair.log" && ! grep -q "opensubtitles.strem.io" "$OUT/addons_repair.log" \
   || { echo "the account's addons were not repaired"; grep -E "addons|home" "$OUT/addons_repair.log"; exit 1; }
@@ -1051,7 +1054,7 @@ grep -q "break: playing youtube-embed:dQw4w9WgXcQ (video)" "$OUT/break_video_emb
 run break_yt_save 900 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,ok,t:youtu.be/dQw4w9WgXcQ,down,down,down,down,left,ok" HOME="$(home_with brkyt '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0}')" SNTV_NOW=03:00
 grep -q "itag 140 from the VISIONOS client" "$OUT/break_yt_save.log" && grep -q "youtube: dQw4w9WgXcQ ready as yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_save.log" || { echo "youtube save failed"; grep youtube "$OUT/break_yt_save.log"; exit 1; }
 run break_yt_play 300 "right,ok,down,down,play,wait" HOME="$OUT/home_brkyt" SNTV_NOW=12:00
-grep -q "break: playing http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-audio.m4a" "$OUT/break_yt_play.log" || { echo "saved YouTube recording not played"; grep break "$OUT/break_yt_play.log"; exit 1; }
+grep -q "break: playing http://127.0.0.1:[0-9]*\*" "$OUT/break_yt_play.log" || { echo "saved YouTube recording not played"; grep break "$OUT/break_yt_play.log"; exit 1; }
 # YouTube's bot check on the visionOS client: the TV client, with the solver, takes over
 : > "$OUT/fake_track.log"   # only this run's asks count below
 run break_yt_tv 400 "right,ok,down,down,play,wait" HOME="$(home_with brkyt2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720,"breakSound":1,"breakVideo":0,"breakAudio":"https://youtu.be/tvOnlyVid01"}')" SNTV_NOW=12:00
@@ -1093,7 +1096,7 @@ run update_prompt 600 "" HOME="$(home_with upd1 '{"prefSubs":"eng","subsAlways":
 W=$(printf 'wait,%.0s' $(seq 1 40))
 run update_install 1600 "${W}down,ok" HOME="$(home_with upd2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json SNTV_FAKE_INSTALL=1
 grep -q "update: installing" "$OUT/update_prompt.log" && { echo "it installed without being asked"; exit 1; }
-[ "$(grep -c "update: 9.9.9 available" "$OUT/update_install.log")" = 1 ] && grep -q "update: the viewer said update now" "$OUT/update_install.log" && grep -q "update: installing 9.9.9 from http://127.0.0.1:$PORT/org.stremio.nativetv_9.9.9_arm.ipk" "$OUT/update_install.log" && grep -q "update: 9.9.9 installed" "$OUT/update_install.log" || { echo "the update did not install"; grep update "$OUT/update_install.log"; exit 1; }
+[ "$(grep -c "update: 9.9.9 available" "$OUT/update_install.log")" = 1 ] && grep -q "update: the viewer said update now" "$OUT/update_install.log" && grep -q "update: installing 9.9.9 from http://127.0.0.1:$PORT\*" "$OUT/update_install.log" && grep -q "update: 9.9.9 installed" "$OUT/update_install.log" || { echo "the update did not install"; grep update "$OUT/update_install.log"; exit 1; }
 # Later is the prompt's first choice: an OK that lands as it opens never installs
 run update_ok_is_later 1600 "${W}ok" HOME="$(home_with upd4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json SNTV_FAKE_INSTALL=1
 grep -q "update: the viewer said later" "$OUT/update_ok_is_later.log" && ! grep -q "update: installing" "$OUT/update_ok_is_later.log" \
@@ -1226,15 +1229,16 @@ grep -q "settings: found Depth on backdrops" "$OUT/settings_depth.log" || { echo
 # your own video on TorBox: the picker lists the videos, the pick is kept, the fireplace plays it through TorBox's permanent link
 TB="SNTV_TORBOX_API=http://127.0.0.1:$PORT/torbox"
 run torbox_pick 600 "left,down,down,down,down,down,ok,down,down,right,down,down,down,down,down,down,down,down,down,down,down,ok,wait,down,ok" "$TB" HOME="$(home_with tbpick '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakSound":1,"torboxKey":"tbkey"}')"
-grep -q "torbox: 4 video files" "$OUT/torbox_pick.log" && grep -q "torbox: break recording set to torbox://torrents/42/3/adhan.mkv" "$OUT/torbox_pick.log" \
+grep -q "torbox: 4 video files" "$OUT/torbox_pick.log" && grep -q "torbox: break recording set to torbox://torrents\*" "$OUT/torbox_pick.log" \
+  && grep -q 'torbox://torrents/42/3/adhan.mkv' "$OUT/home_tbpick/.local/share/stremio/nativetv/settings.json" \
   || { echo "the TorBox picker did not set the break recording"; grep -E "torbox" "$OUT/torbox_pick.log"; exit 1; }
 run torbox_fireplace 500 "" SNTV_AMBIENT_SECONDS=1 "$TB" HOME="$(home_with tbfire '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"torbox://torrents/41/0/fireplace.mp4","torboxKey":"tbkey"}')"
-grep -q "video(null): load http://127.0.0.1:[0-9]*/torbox/torrents/requestdl?token=\*\*\*&torrent_id=41&file_id=0&redirect=true (Fireplace)" "$OUT/torbox_fireplace.log" \
+grep -q "video(null): load http://127.0.0.1:[0-9]*\* (Fireplace)" "$OUT/torbox_fireplace.log" \
   || { echo "the TorBox fireplace video did not play"; grep -E "ambient|video" "$OUT/torbox_fireplace.log"; exit 1; }
 # a torrent-only source TorBox has cached plays from TorBox (not peers); the one it lacks stays a torrent
 run torbox_torrent 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,down,ok,wait,wait" "$TB" HOME="$(home_with tbsrc '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
 grep -q "torbox: 1 of 2 torrents cached" "$OUT/torbox_torrent.log" && grep -q "torbox: cafecafecafecafecafecafecafecafecafecafe plays from TorBox" "$OUT/torbox_torrent.log" \
-  && grep -q "video(null): load http://127.0.0.1:[0-9]*/video/sample_h264_aac.mkv?torbox=77" "$OUT/torbox_torrent.log" \
+  && grep -q "video(null): load http://127.0.0.1:[0-9]*\*" "$OUT/torbox_torrent.log" \
   && ! grep -q "tbkey" "$OUT/torbox_torrent.log" \
   || { echo "a TorBox-cached torrent did not play from TorBox"; grep -E "torbox|candidate|video" "$OUT/torbox_torrent.log"; exit 1; }
 # hold OK on a torrent nobody has cached: your TorBox gets it, its row follows the download,
@@ -1250,7 +1254,7 @@ grep -q "torbox: F00DF00DF00DF00DF00DF00DF00DF00DF00DF00D added to your TorBox (
 # your own TorBox copy of the title heads the sources and plays first, through its direct link (a remake with another year does not match)
 run torbox_library 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,up,ok,wait" "$TB" HOME="$(home_with tblib '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
 grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" && grep -q "streams: #1 score [0-9]*  My TorBox Your copy" "$OUT/torbox_library.log" \
-  && grep -q "player: candidate 1/[0-9]* My TorBox - Your copy @0s -> http://127.0.0.1:[0-9]*/video/sample_h264_aac.mkv?torbox=43" "$OUT/torbox_library.log" \
+  && grep -q "player: candidate 1/[0-9]* My TorBox - Your copy @0s -> http://127.0.0.1:[0-9]*\*" "$OUT/torbox_library.log" \
   || { echo "your TorBox copy did not come first"; grep -E "torbox|streams: #|candidate" "$OUT/torbox_library.log"; exit 1; }
 # Your TorBox for an episode: only files that are this show (not "Breaking Bad Insider"), named
 # for this episode by their own name (not the item's), and not titled as another episode
@@ -1342,7 +1346,7 @@ grep -q "memory saver on (small TV)" "$OUT/memory_playback.log" && grep -q "memo
   && grep -q "memory: artwork budget back after the video" "$OUT/memory_playback.log" \
   || { echo "the memory saver did not trim during playback"; grep -E "memory" "$OUT/memory_playback.log"; exit 1; }
 run ambient_fire_video 500 "" SNTV_AMBIENT_SECONDS=1 HOME="$(home_with firev '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
-grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ.m3u8 (Fireplace)" "$OUT/ambient_fire_video.log" \
+grep -q "ambient: fireplace video 1/4" "$OUT/ambient_fire_video.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*\* (Fireplace)" "$OUT/ambient_fire_video.log" \
   || { echo "the fireplace video did not play"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_video.log"; exit 1; }
 # refused: YouTube's own player where the device has one; elsewhere Settings says so on the row
 run ambient_fire_embed 500 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FAKE_EMBED=1 HOME="$(home_with firee '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
@@ -1355,18 +1359,18 @@ python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("
 FSH="$(home_with firesv '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
 mkdir -p "$FSH/.local/share/stremio/nativetv/sounds" && printf 'saved' > "$FSH/.local/share/stremio/nativetv/sounds/yt-dQw4w9WgXcQ-video.mp4"
 run ambient_fire_saved 300 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 HOME="$FSH"
-grep -q "ambient: fireplace video from the copy saved on the TV" "$OUT/ambient_fire_saved.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/sounds/yt-dQw4w9WgXcQ-video.mp4 (Fireplace)" "$OUT/ambient_fire_saved.log" \
+grep -q "ambient: fireplace video from the copy saved on the TV" "$OUT/ambient_fire_saved.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*\* (Fireplace)" "$OUT/ambient_fire_saved.log" \
   || { echo "the fireplace did not play its video saved on the TV"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_saved.log"; exit 1; }
 # no fireplace video set: the free one under an open licence plays, credited; one that will not load gives way to the next
 run ambient_fire_free 300 "" SNTV_AMBIENT_SECONDS=1 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firefree '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2}')"
-grep -q "ambient: the free fireplace video (none set)" "$OUT/ambient_fire_free.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/firelib/betv-16515bcm-fireplace-plain.mp4 (Fireplace)" "$OUT/ambient_fire_free.log" \
+grep -q "ambient: the free fireplace video (none set)" "$OUT/ambient_fire_free.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*\* (Fireplace)" "$OUT/ambient_fire_free.log" \
   || { echo "the free fireplace video did not play"; grep -E "ambient|video" "$OUT/ambient_fire_free.log"; exit 1; }
 run ambient_fire_free_next 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_FAKE_FETCH=1 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firefree2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2}')"
-grep -q "video(null): load http://127.0.0.1:[0-9]*/firelib/FireplaceStockFootage.mp4 (Fireplace)" "$OUT/ambient_fire_free_next.log" && grep -q "ambient: the fireplace video would not play; the drawn fire instead" "$OUT/ambient_fire_free_next.log" \
+grep -q "video(null): load http://127.0.0.1:[0-9]*\* (Fireplace)" "$OUT/ambient_fire_free_next.log" && grep -q "ambient: the fireplace video would not play; the drawn fire instead" "$OUT/ambient_fire_free_next.log" \
   || { echo "free fireplace videos that would not load did not give way to the next, then the drawn fire"; grep -E "ambient|video" "$OUT/ambient_fire_free_next.log"; exit 1; }
 # YouTube refusing the one set, with nothing else to play it: the free one
 run ambient_fire_refused_free 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_YT_BASE=http://127.0.0.1:9 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firerf '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceVideo":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}')"
-grep -q "ambient: the free fireplace video (YouTube refused the one set)" "$OUT/ambient_fire_refused_free.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*/firelib/betv-16515bcm-fireplace-plain.mp4 (Fireplace)" "$OUT/ambient_fire_refused_free.log" \
+grep -q "ambient: the free fireplace video (YouTube refused the one set)" "$OUT/ambient_fire_refused_free.log" && grep -q "video(null): load http://127.0.0.1:[0-9]*\* (Fireplace)" "$OUT/ambient_fire_refused_free.log" \
   || { echo "a refused fireplace video did not give way to the free one"; grep -E "ambient|youtube|video" "$OUT/ambient_fire_refused_free.log"; exit 1; }
 # switched off: the drawn fire
 run ambient_fire_drawn 300 "" SNTV_AMBIENT_SECONDS=1 SNTV_FIRE_LIBRARY="http://127.0.0.1:$PORT/firelib" HOME="$(home_with firedr '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":4,"ambientMinutes":2,"fireplaceFree":0}')"

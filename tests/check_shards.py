@@ -10,7 +10,7 @@ shard = script.replace("smoke.sh", "shard.py")
 bad = []
 for n in (4, 8, 12, 16):
     for k in range(1, n + 1):
-        part = subprocess.run([sys.executable, "-I", shard, script, str(k), str(n)], capture_output=True, text=True, check=True).stdout
+        part = subprocess.run([sys.executable, "-X", "utf8", "-I", shard, script, str(k), str(n)], capture_output=True, text=True, encoding="utf-8", check=True).stdout
         made = set(re.findall(r"^\s*\(?\s*run (\S+) ", part, re.M)) | set(re.findall(r"idle_rate (\S+) ", part)) | set(re.findall(r'>\s*"\$OUT/(\w+)\.log"', part)) | {"datastore_put", "fake_track"}
         loops = set(re.findall(r"run (\w+)\$\w+ ", part))   # run name$f inside a for loop
         for pid in set(re.findall(r"^wait \$(\w+)", part, re.M)):   # a helper started in the background for a run

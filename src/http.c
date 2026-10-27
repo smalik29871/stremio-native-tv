@@ -460,13 +460,14 @@ typedef struct Job {
     HttpResponse resp;
     HttpOptions opt;
     HttpTaskFn task; void *task_arg;   /* http_task_async: run this instead of a transfer */
-    int cancelled;
+    volatile int cancelled;
     int art;               /* taken from the artwork lane */
     struct Job *next;
 } Job;
 
 enum { WORKERS = 6, ART_MAX = 4 };   /* artwork never holds more than four: two stay for the addons, the account and playback */
 static int g_art_busy;   /* artwork transfers running (under g_qlock) */
+static int g_hold_artwork;
 static SDL_Thread *g_workers[WORKERS];
 static SDL_mutex *g_qlock;
 static SDL_cond *g_qcond;
@@ -484,10 +485,10 @@ static int worker_main(void *arg)
     CURL *h = C.easy_init();
     for (;;) {
         SDL_LockMutex(g_qlock);
-        while (!g_pending && !(g_artwork && g_art_busy < ART_MAX) && !g_quit) SDL_CondWait(g_qcond, g_qlock);
+        while (!g_pending && !(g_artwork && g_art_busy < ART_MAX && !g_hold_artwork) && !g_quit) SDL_CondWait(g_qcond, g_qlock);
         if (g_quit) { SDL_UnlockMutex(g_qlock); if (h) C.easy_cleanup(h); return 0; }
         Job *j;
-        int art_ok = g_artwork && g_art_busy < ART_MAX;
+        int art_ok = g_artwork && g_art_busy < ART_MAX && !g_hold_artwork;
         if (g_pending && !(art_first && art_ok)) {
             j = g_pending;
             g_pending = j->next;
@@ -527,6 +528,7 @@ static unsigned enqueue(const char *url, const char *post_json, const HttpOption
     if (!post_json && opt && opt->post_json) post_json = opt->post_json;
     j->post = post_json ? strdup(post_json) : NULL;
     if (opt) j->opt = *opt;
+    if (!j->opt.stop) j->opt.stop = &j->cancelled;
     j->opt.post_json = NULL;
     j->opt.bearer = opt && opt->bearer ? strdup(opt->bearer) : NULL;
     j->opt.headers = opt && opt->headers ? strdup(opt->headers) : NULL;
@@ -586,6 +588,13 @@ void http_cancel(unsigned id)
     for (Job *j = g_done; j; j = j->next) if (j->id == id) j->cancelled = 1;
     SDL_UnlockMutex(g_qlock);
     for (Job *j = g_carry; j; j = j->next) if (j->id == id) j->cancelled = 1;   /* main thread only, as is the pump */
+}
+
+void http_hold_background(int hold)
+{
+    SDL_LockMutex(g_qlock);
+    if (g_hold_artwork != hold) { g_hold_artwork = hold; SDL_CondBroadcast(g_qcond); }
+    SDL_UnlockMutex(g_qlock);
 }
 
 int http_cancel_queued(unsigned id)

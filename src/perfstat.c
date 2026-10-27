@@ -85,6 +85,48 @@ typedef struct { char how[16]; int n, ok; struct { char name[12]; Uint32 ms; } p
 static Start g_starts[STARTS], g_run;
 static int g_n_starts, g_running;
 static Uint32 g_run_t0, g_run_last;
+static struct {
+    double played, buffered, position;
+    unsigned stalls, dropped, last_dropped, load, seeks, seek_version;
+    Uint32 seek_at, seek_total, seek_max;
+    int active, started, buffering, seeking;
+} g_playback;
+
+void perf_playback_begin(void) { memset(&g_playback, 0, sizeof g_playback); g_playback.active = 1; }
+void perf_playback_seek(unsigned presented, int supported)
+{
+    if (!g_playback.active) return;
+    g_playback.seeking = supported;
+    g_playback.seek_version = presented; g_playback.seek_at = SDL_GetTicks();
+}
+
+void perf_playback_sample(double position, float dt, int playing, int buffering, unsigned dropped, unsigned load, unsigned presented)
+{
+    if (!g_playback.active) return;
+    if (load != g_playback.load) { g_playback.load = load; g_playback.last_dropped = 0; g_playback.seeking = 0; }
+    if (dropped >= g_playback.last_dropped) g_playback.dropped += dropped - g_playback.last_dropped;
+    g_playback.last_dropped = dropped;
+    if ((!playing && !buffering) || SDL_GetTicks() - g_playback.seek_at > 15000) g_playback.seeking = 0;
+    if (g_playback.seeking && presented != g_playback.seek_version) {
+        Uint32 took = SDL_GetTicks() - g_playback.seek_at;
+        g_playback.seek_total += took; g_playback.seeks++;
+        if (took > g_playback.seek_max) g_playback.seek_max = took;
+        g_playback.seeking = 0;
+    }
+    if (playing && !buffering && position > g_playback.position) g_playback.started = 1;
+    if (g_playback.started && playing && !buffering) g_playback.played += dt;
+    int stalled = g_playback.started && playing && buffering && !g_playback.seeking;
+    if (stalled) { g_playback.buffered += dt; if (!g_playback.buffering) g_playback.stalls++; }
+    g_playback.buffering = stalled;
+    g_playback.position = position;
+}
+
+void perf_playback_end(void)
+{
+    if (!g_playback.active) return;
+    g_playback.active = 0;
+    LOGI("playback: %.1f s playing, %.1f s buffering, %u stalls, %u dropped frames, %u seeks", g_playback.played, g_playback.buffered, g_playback.stalls, g_playback.dropped, g_playback.seeks);
+}
 
 void perf_start_begin(const char *how)
 {
@@ -144,6 +186,12 @@ void perf_report(char *out, size_t n)
         ADD("Stream starts, newest first (press to first frame):\n");
         for (int i = 0; i < g_n_starts; i++) { char line[200]; start_line(&g_starts[i], line, sizeof line); ADD("  %s\n", line); }
     } else ADD("Stream starts: none yet\n");
+    if (g_playback.started) {
+        double total = g_playback.played + g_playback.buffered;
+        ADD("Playback%s: %.0f s playing, %.1f s buffering (%.2f%%), %u stalls, %u dropped frames\n", g_playback.active ? " now" : " last session",
+            g_playback.played, g_playback.buffered, total > 0 ? g_playback.buffered * 100 / total : 0, g_playback.stalls, g_playback.dropped);
+        if (g_playback.seeks) ADD("Seek recovery: average %u ms, slowest %u ms (%u seeks)\n", g_playback.seek_total / g_playback.seeks, g_playback.seek_max, g_playback.seeks);
+    }
     ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20 / slowest, frames (late: missed a refresh), screens of pixels painted (average / most):\n");
     for (int i = 0; i < g_n_screens; i++) {
         const Hist *h = &g_screens[i].h, *t = &g_screens[i].total;

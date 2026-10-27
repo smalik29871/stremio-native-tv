@@ -88,6 +88,25 @@ typedef struct {
     SDL_cond *cond;
 } Buf;
 static Buf g_buf;
+static struct { char *url, *headers, *data; size_t len; uint64_t total; char type[96]; Uint32 at; } g_prime;
+
+void relay_prime(const char *url, const char *headers, const void *data, size_t len, uint64_t total, const char *type)
+{
+    if (!g_lock) return;
+    SDL_LockMutex(g_lock);
+    free(g_prime.url); free(g_prime.headers); free(g_prime.data);
+    memset(&g_prime, 0, sizeof g_prime);
+    if (url && data && len && len <= (2u << 20) && total >= len) {
+        g_prime.url = strdup(url); g_prime.headers = strdup(headers ? headers : ""); g_prime.data = malloc(len);
+        if (g_prime.url && g_prime.headers && g_prime.data) {
+            memcpy(g_prime.data, data, len); g_prime.len = len; g_prime.total = total; g_prime.at = SDL_GetTicks();
+            snprintf(g_prime.type, sizeof g_prime.type, "%s", type && *type ? type : "application/octet-stream");
+        } else {
+            free(g_prime.url); free(g_prime.headers); free(g_prime.data); memset(&g_prime, 0, sizeof g_prime);
+        }
+    }
+    SDL_UnlockMutex(g_lock);
+}
 
 static uint64_t free_memory(void)
 {
@@ -821,6 +840,13 @@ char *relay_url_buffered(const char *url, const char *headers, double est_rate)
     g_buf.blk_size = bs; g_buf.max_budget = max; g_buf.budget = budget;
     g_buf.rate = est_rate > 0 ? est_rate : 0;
     g_buf.mem_at = SDL_GetTicks();
+    if (g_prime.url && !strcmp(g_prime.url, url) && !strcmp(g_prime.headers, headers ? headers : "")
+        && SDL_GetTicks() - g_prime.at < 900000 && g_prime.len <= budget && put_locked(0, g_prime.data, g_prime.len)) {
+        g_buf.hi = g_prime.len; g_buf.size = g_prime.total; g_buf.got_any = 1;
+        snprintf(g_buf.type, sizeof g_buf.type, "%s", g_prime.type);
+        LOGI("relay: next episode starts with %zu KB already loaded", g_prime.len / 1024);
+        free(g_prime.url); free(g_prime.headers); free(g_prime.data); memset(&g_prime, 0, sizeof g_prime);
+    }
     SDL_UnlockMutex(g_lock);
     LOGI("relay: a buffer in memory, up to %.0f MB for now (%.0f MB free on the TV), for up to %d minutes ahead", budget / 1048576.0, mem / 1048576.0, AHEAD_S / 60);
     return out;
