@@ -59,6 +59,7 @@ export SNTV_YT_SOLVER_URL="http://127.0.0.1:$PORT/yt/ejs"   # the "newest solver
 export SNTV_DEPTH_URL="http://127.0.0.1:$PORT/nodepth"   # no depth maps but in the runs about them: the real list (on GitHub) would move Home in every run
 export SNTV_NO_TRANSITIONS=1   # screenshots land mid-animation otherwise; transition_push turns them back on
 export SNTV_FX_ADAPT=0   # automatic effects stay as they start: four lanes at once make any machine slow (fx_adapt turns it on)
+export SNTV_KEY_RELAY=   # no key relay (relay/url.txt is built in): tests reach no real service; the relay runs set it
 export SNTV_WEATHER_API=http://127.0.0.1:$PORT/weather SNTV_IPAPI=http://127.0.0.1:$PORT/ipapi   # the weather clock asks these, never the real ones
 export SNTV_ITUNES_API=http://127.0.0.1:$PORT/noitunes   # no soundtracks, and nothing asked of the real store; the music runs set /itunes
 export SNTV_NO_WHATSNEW=1   # every profile here is "set up", which reads as just updated; the whatsnew run turns it on
