@@ -103,6 +103,31 @@ static unsigned g_session;            /* bumps on every load/stop; guards late r
 static char g_window_id[96];
 static long g_acb;
 static VideoInfo g_info;
+/* The TV says where it is only every so often; between its reports the position counts on
+ * with the clock while it plays, so what follows the picture (subtitles, the letterbox's light
+ * at a cut) is not a report late. */
+static Uint32 (*g_now)(void) = SDL_GetTicks;
+static Uint32 g_pos_at;               /* when the last report came (0: none since a load or seek) */
+static Uint32 g_pos_gap;              /* the usual time between reports, ms (0: not known yet) */
+static int g_pos_reports;
+static double g_pos_rate = 1, g_pos_shown;
+
+static double position_now(void)   /* with g_lock held */
+{
+    double pos = g_info.position;
+    if (g_info.state == VIDEO_PLAYING && !g_info.buffering && g_pos_at) {
+        /* on with the clock since the last report, for at most two of the TV's gaps between
+         * them (it may have stalled without saying so) */
+        double cap = g_pos_gap ? 2.0 * g_pos_gap / 1000.0 : 1.0;
+        if (cap < 0.5) cap = 0.5;
+        if (cap > 2.5) cap = 2.5;
+        double ahead = (g_now() - g_pos_at) / 1000.0 * g_pos_rate;
+        pos += ahead < cap ? ahead : cap;
+        if (g_info.duration > 0 && pos > g_info.duration) pos = g_info.duration;
+        if (g_pos_shown > pos && g_pos_shown - pos < 0.5) pos = g_pos_shown;   /* a report a little behind: held, not stepped back */
+    }
+    return pos;
+}
 static double g_pending_seek = -1;
 static int g_autoplayed, g_paused_by_user;
 static int g_muted;
@@ -402,7 +427,16 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
     }
     if (cJSON_GetObjectItem(root, "currentTime")) {
         double t = find_number(root, "currentTime", -1);
-        if (t >= 0) g_info.position = t / 1000.0;
+        Uint32 now = g_now();
+        if (t >= 0) {
+            if (g_pos_at && now - g_pos_at < 5000) {
+                Uint32 gap = now - g_pos_at;
+                g_pos_gap = g_pos_gap ? (g_pos_gap * 3 + gap) / 4 : gap;
+                if (++g_pos_reports == 20) LOGI("video: the TV reports where it is every %u ms", (unsigned)g_pos_gap);
+            }
+            g_info.position = t / 1000.0;
+            g_pos_at = now;
+        }
     }
     if (cJSON_GetObjectItem(root, "sourceInfo")) {
         double d = find_number(root, "duration", -1);
@@ -435,9 +469,9 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
         else if (end >= 0 && g_info.duration > 0) g_info.buffer_percent = (int)(100.0 * end / g_info.duration);
     }
     if (cJSON_GetObjectItem(root, "bufferingStart")) g_info.buffering = 1;
-    if (cJSON_GetObjectItem(root, "bufferingEnd")) g_info.buffering = 0;
+    if (cJSON_GetObjectItem(root, "bufferingEnd")) { g_info.buffering = 0; if (g_pos_at) g_pos_at = g_now(); }   /* it goes on from where it stood */
     if (cJSON_GetObjectItem(root, "endOfStream")) g_info.state = VIDEO_ENDED;
-    if (cJSON_GetObjectItem(root, "playing")) { g_info.state = VIDEO_PLAYING; g_info.buffering = 0; g_info.first_frame = 1; }
+    if (cJSON_GetObjectItem(root, "playing")) { g_info.state = VIDEO_PLAYING; g_info.buffering = 0; g_info.first_frame = 1; if (g_pos_at) g_pos_at = g_now(); }
     if (cJSON_GetObjectItem(root, "paused") && g_info.state == VIDEO_PLAYING) g_info.state = VIDEO_PAUSED;
     {
         const cJSON *err = cJSON_GetObjectItem(root, "error");
@@ -781,6 +815,7 @@ int video_load(const char *url, const char *title, double start)
     g_info.tracks_version = tv + 1;
     g_info.warning_version = wv;
     g_info.state = VIDEO_LOADING;
+    g_pos_at = 0; g_pos_shown = 0; g_pos_rate = 1;
     g_pending_seek = start > 0 ? start : -1;
     g_autoplayed = 0;
     g_paused_by_user = 0;
@@ -804,7 +839,8 @@ void video_seek(double seconds)
     snprintf(extra, sizeof extra, "\"position\":%lld", (long long)(seconds * 1000));
     media_call_id("seek", extra);
     SDL_LockMutex(g_lock);
-    g_info.position = seconds;
+    g_info.position = g_pos_shown = seconds;
+    g_pos_at = 0;   /* from the next report on */
     SDL_UnlockMutex(g_lock);
 }
 
@@ -813,6 +849,10 @@ void video_set_rate(double rate)
     char extra[64];
     snprintf(extra, sizeof extra, "\"playRate\":%.2f,\"audioOutput\":true", rate);
     media_call_id("setPlayRate", extra);
+    SDL_LockMutex(g_lock);
+    if (g_pos_at) { g_info.position = position_now(); g_pos_at = g_now(); }   /* the new speed from here on */
+    g_pos_rate = rate > 0 ? rate : 1;
+    SDL_UnlockMutex(g_lock);
 }
 
 void video_set_muted(int muted)
@@ -1237,6 +1277,7 @@ void video_info(VideoInfo *out)
     if (!g_lock) { memset(out, 0, sizeof *out); return; }
     SDL_LockMutex(g_lock);
     *out = g_info;
+    out->position = g_pos_shown = position_now();
     SDL_UnlockMutex(g_lock);
 }
 

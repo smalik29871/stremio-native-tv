@@ -9,6 +9,11 @@ static char unloaded[96];
 #define CHECK(c) do { if (!(c)) { failures++; fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); } } while (0)
 
 static const char *payload(LSMessage *m) { (void)m; return reply; }
+static Uint32 clock_ms;
+static Uint32 fake_now(void) { return clock_ms; }
+static void event(const char *json) { reply = json; on_event(NULL, NULL, (void *)(uintptr_t)g_session); }
+static void report(double s) { char j[96]; snprintf(j, sizeof j, "{\"currentTime\":{\"currentTime\":%.0f}}", s * 1000); event(j); }
+static double position(void) { VideoInfo vi; video_info(&vi); return vi.position; }
 static void error_init(LSError *e) { memset(e, 0, sizeof *e); }
 static void error_free(LSError *e) { (void)e; }
 static int call(LSHandle *sh, const char *uri, const char *body, LSFilterFunc fn, void *ctx, LSMessageToken *token, LSError *error)
@@ -38,8 +43,29 @@ int main(void)
     reply = "{\"returnValue\":false,\"errorCode\":300}";
     on_load_reply(NULL, NULL, (void *)(uintptr_t)1);
     CHECK(unloads == 1 && !strcmp(g_media_id, "current-pipeline"));
+
+    /* Between the TV's reports the position goes on with the clock: the app draws at 50 Hz
+       (21 ms a frame) and reads it every frame. */
+    g_now = fake_now; clock_ms = 100000; g_session = 2;
+    g_info.state = VIDEO_PLAYING; g_info.duration = 2700;
+    report(600.0);
+    for (int f = 1; f <= 12; f++) { clock_ms += 21; CHECK(fabs(position() - (600.0 + f * 0.021)) < 0.001); }
+    clock_ms += 748; report(601.0);   /* the next report, a second after the first */
+    CHECK(fabs(position() - 601.0) < 0.001);
+    clock_ms += 21; report(600.95);   /* one a little behind what was shown: held there, not stepped back */
+    CHECK(position() >= 601.0);
+    clock_ms += 30000;   /* no report for a long while (stalled, unsaid): no further than two gaps on */
+    CHECK(position() < 600.95 + 2.5 && position() > 600.95);
+    event("{\"paused\":{}}");
+    CHECK(fabs(position() - 600.95) < 0.001);   /* paused: where the TV says */
+    clock_ms += 5000; event("{\"playing\":{}}");   /* resumed: on from there, not from the time paused */
+    clock_ms += 21; CHECK(fabs(position() - 600.971) < 0.001);
+    video_set_rate(2.0);
+    clock_ms += 21; CHECK(fabs(position() - (600.95 + 0.021 + 0.042)) < 0.001);
+    video_seek(1200);
+    clock_ms += 21; CHECK(fabs(position() - 1200) < 0.001);   /* after a seek: the target, until the TV reports */
     SDL_DestroyMutex(g_lock);
     if (failures) return 1;
-    puts("webOS cancelled load checks passed");
+    puts("webOS cancelled load and position checks passed");
     return 0;
 }

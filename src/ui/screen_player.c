@@ -1319,7 +1319,7 @@ static double lb_pick(Player *p, double pos, double gap, double *next)
     return s0;
 }
 
-#define LB_FADE_CUT 0.5f    /* at a cut the new light comes quickly, as the picture changed */
+#define LB_FADE_CUT 0.2f    /* at a cut the new light comes at once, as the picture changed (any slower and it trails the cut) */
 #define LB_FADE_DRIFT 1.5f  /* every few seconds (no list of cuts): it drifts rather than flicks */
 #define LB_AHEAD_S 45.0     /* the frames of the cuts this far ahead are got ready while it plays */
 #define LB_LAZY_S 1.0f      /* frames slower than this: only the cuts made ready ahead change the light */
