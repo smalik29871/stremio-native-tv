@@ -15,6 +15,7 @@
 #include "screen_options.h"
 #include "theme.h"
 #include "widgets.h"
+#include "../verdict.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +46,7 @@ struct Streams {
     int pending, n_reqs;
     int focus;
     int moved;                /* the viewer has moved the focus: from then on it follows its source */
+    unsigned verdict_gen;     /* the shared play verdicts it was sorted with */
     float scroll, scroll_target;
     float ring, ring_vel; int ring_on;   /* the focus highlight, from the list's top: it glides to where its row is going */
     float list_h; UiPan pan;   /* how tall the list's window is; a finger on it */
@@ -578,9 +580,15 @@ static void sort_items(Streams *st)
     Uint32 t0 = SDL_GetTicks();
     QualityPrefs qp = { g_app.quality_mode, g_app.res_cap };
     double runtime = quality_runtime_minutes(st->meta.runtime);
+    char (*want)[VERDICT_KEY] = verdict_device()[0] && st->n ? malloc(sizeof *want * (size_t)st->n) : NULL;
+    int n_want = 0;
+    st->verdict_gen = verdict_generation();
     for (int i = 0; i < st->n; i++) {
         Stream *s = &st->items[i];
+        if (!s->vkey_done) { s->vkey_done = 1; verdict_key(s->video_hash, s->info_hash, s->file_idx, s->filename, s->video_size, s->vkey); }
+        if (want && s->vkey[0]) memcpy(want[n_want++], s->vkey, VERDICT_KEY);
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
+        s->score += verdict_adjust(s->vkey);       /* how this file played on other TVs of this kind */
         { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; else if (al < 0) s->score -= 300; }   /* only another language: a dub */
         if (is_mine(s)) s->score += 1500;           /* your TorBox first: it is what you chose to keep */
         else if (from_torbox(s) && s->tags.cached <= 0) s->score += 150;   /* cached on TorBox: as any cached copy, not above a better one */
@@ -615,6 +623,7 @@ static void sort_items(Streams *st)
         memcpy(st->items, sorted, sizeof *sorted * (size_t)st->n);
     }
     free(keys); free(sorted);
+    if (want) { verdict_want((const char (*)[VERDICT_KEY])want, n_want); free(want); }   /* those not asked yet */
     if (keep_url || keep_hash)
         for (int i = 0; i < st->n; i++) if (st->items[i].url == keep_url && st->items[i].info_hash == keep_hash) { st->focus = i; break; }
     if (st->focus == -1 && st->n && recommended(st) < 0) st->focus = 0;   /* the recommendation card went (its link died): the top row instead */
@@ -668,6 +677,7 @@ static void autoplay_check(Streams *st)
     for (int i = 0; i < st->n && best < 0; i++) if (!ineligible(st, &st->items[i])) best = i;
     if (best < 0) { if (!st->pending || waited) give_up(st); return; }
     int match = same_release(st, &st->items[best]) > 0;
+    if ((match || st->pending == 0 || waited) && verdict_waiting()) return;   /* how these files played elsewhere: a moment more (then every frame asks again) */
     if (match || st->pending == 0 || waited) {
         LOGI("streams: next episode from %s%s", match ? "the same release" : "the closest source (no same release)",
              st->pending && !match ? ", done waiting for the other addons" : "");
@@ -957,6 +967,7 @@ static void update(Screen *s, float dt)
     video_keep_awake(starting(st) || race_runs_for(st));   /* the TV's screensaver must not take the handoff */
     if (st->fetch_state == 2 && !st->fetch_inflight && g_app.time >= st->fetch_next) fetch_ask(st);   /* how far TorBox is */
     race_tick(st);
+    if (st->n && st->verdict_gen != verdict_generation()) { sort_items(st); app_redraw(); }   /* what other TVs saw came in */
     if (race_resume(st) && app_top() != s) return;   /* back on top: the source its race found starts */
     if (!st->ranks_logged && st->n && st->pending == 0) { st->ranks_logged = 1; log_ranking(st); }
     if (st->check_autoplay || (st->chaining && !st->autoplayed)) {   /* every frame too: the wait can run out with no answer arriving */
@@ -968,7 +979,7 @@ static void update(Screen *s, float dt)
     if (st->play_now)   /* asked to play: the best-ranked link's check is enough */
         checks_done = !g_app.preflight || (!st->probe_inflight && st->probes_started >= 1) || g_app.time - st->started > 5;
     int waited = st->pending == 0 || g_app.time - st->started > (g_app.addon_wait < 6 ? g_app.addon_wait : 6);
-    if ((g_app.auto_recommended || st->play_now) && !st->chaining && !st->auto_rec_done && st->n && checks_done && (waited || good_enough(st))) {
+    if ((g_app.auto_recommended || st->play_now) && !st->chaining && !st->auto_rec_done && st->n && checks_done && (waited || good_enough(st)) && !verdict_waiting()) {
         int r = recommended(st);
         if (!waited) LOGI("streams: the best so far is ready at %dp; not waiting for %d slower addon%s", st->items[r].tags.res, st->pending, st->pending == 1 ? "" : "s");
         for (int i = 0; r < 0 && st->play_now && i < st->n; i++) {   /* asked to play: the top source that can, the player falls back from there; */
@@ -1446,6 +1457,7 @@ static int fill_candidate(const MetaPreview *meta, const Stream *s, PlayCandidat
     c->headers = s->headers ? strdup(s->headers) : NULL;
     c->video_hash = s->video_hash ? strdup(s->video_hash) : NULL;
     c->subs = s->subs ? strdup(s->subs) : NULL;
+    if (!verdict_key(s->video_hash, s->info_hash, s->file_idx, s->filename, s->video_size, c->vkey)) c->vkey[0] = 0;
     c->needs = quality_needs(&s->tags);
     c->res = s->tags.res;
     char b[8][24];

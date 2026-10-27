@@ -161,6 +161,19 @@ class H(BaseHTTPRequestHandler):
         if shared:
             p = "/keyrelay/" + p[len("/keyrelayglow/"):]
         svc, _, rest = p[len("/keyrelay/"):].partition("/")
+        if "?" in svc:   # the service itself asked, with only a query after it
+            svc, _, q = svc.partition("?")
+            rest = "?" + q
+        if svc == "verdicts":   # which files play on which kind of TV: the /verdict/ addon's 2160p file fails on a webos9
+            import hashlib
+            q = dict(kv.split("=", 1) for kv in rest.partition("?")[2].split("&") if "=" in kv)
+            with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                f.write(f"keyrelay verdicts {self.command} {rest.partition('?')[0]} {q.get('d', '')} {body.decode(errors='replace')}{len(q.get('k', '').split(',')) if q.get('k') else ''}\n".encode())
+            if self.command == "POST":
+                return self.send(200, b'{"plays":1,"fails":0}') or None
+            bad = hashlib.sha256(b"f:movie.2024.2160p.web.h265-bad.mkv:9000000000").hexdigest()[:16]
+            out = {k: [0, 3] for k in q.get("k", "").split(",") if k == bad and q.get("d") == "webos9"}
+            return self.send(200, json.dumps(out).encode()) or None
         if svc == "glow":   # the letterbox's colours of a film's cuts, by the file's hash
             with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
                 f.write(f"keyrelay glow {self.command} {rest}{' ' + str(body.count(chr(10).encode())) + ' cuts' if body else ''}\n".encode())
@@ -568,6 +581,20 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [
                     {"name": "ErrPage\n2160p", "title": "Movie.2024.2160p.WEB.h265\n\U0001F4BE 9.0 GB", "url": f"{BASE}/expiredpage/movie.mkv"},
                     {"name": "ErrPage\n1080p", "title": "Movie.2024.1080p.WEB.h264\n\U0001F4BE 2.0 GB", "url": url + "?real=1"}]}).encode())
+            return self.send(404, b"{}")
+        # /verdict/...: a 2160p copy that ranks first and a 1080p one; the fake relay says the 2160p
+        # file keeps failing on a "webos9" (see keyrelay, verdicts)
+        if p.startswith("/verdict/"):
+            p = p[8:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.verdict", name="Verdict", resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                url = STREAMS["streams"][0]["url"]
+                return self.send(200, json.dumps({"streams": [
+                    {"name": "Verdict\n2160p", "title": "Movie.2024.2160p.WEB.h265-BAD\n\U0001F4BE 9.0 GB", "url": url + "?copy=4k",
+                     "behaviorHints": {"filename": "Movie.2024.2160p.WEB.h265-BAD.mkv", "videoSize": 9000000000}},
+                    {"name": "Verdict\n1080p", "title": "Movie.2024.1080p.WEB.h264-GOOD\n\U0001F4BE 2.0 GB", "url": url + "?copy=hd",
+                     "behaviorHints": {"filename": "Movie.2024.1080p.WEB.h264-GOOD.mkv", "videoSize": 2000000000}}]}).encode())
             return self.send(404, b"{}")
         # /slowlink/...: its best-looking source answers only after 4.5 s (a debrid link resolving on first use), then plays
         if p.startswith("/slowlink/"):

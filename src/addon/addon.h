@@ -102,6 +102,7 @@ typedef struct Stream {
     char *subs;                 /* the stream's own subtitles as "lang\turl" lines, NULL none */
     uint64_t video_size;
     char *addon_name;           /* filled by the aggregator, not the parser */
+    char vkey[17]; int vkey_done;   /* the file's fingerprint for shared play verdicts (verdict.h), "" none; worked out once */
     int addon_order;            /* position of that addon in the user's list */
     StreamTags tags;            /* parsed from name/title (quality.h) */
     long score;                 /* quality_score for the current prefs */

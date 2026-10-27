@@ -12,6 +12,7 @@
 #include "../http.h"
 #include "../image.h"
 #include "../keyrelay.h"
+#include "../verdict.h"
 #include "../frames.h"
 #include "../phone.h"
 #include "../torrent.h"
@@ -2358,6 +2359,7 @@ static void fail_over(Player *p, const char *why)
     if (clip) vi.position = 0;
     double resume = vi.position > 5 ? vi.position : 0;
     if (clip || decoder_failure(p, &vi)) p->file_bad = 1;   /* the file, not the link: no other link to it */
+    if (!clip && decoder_failure(p, &vi) && !p->trailer) verdict_note(p->cands[p->cur].vkey, 0);   /* this file, on this kind of TV */
     if (!p->learned && decoder_failure(p, &vi)) {   /* the error never names the decoder: only a source needing one feature says which failed */
         unsigned needs = p->cands[p->cur].needs;
         for (int c = 0; c < TVCAP_COUNT; c++) if (g_app.tv.ok[c] > g_app.tv.fail[c]) needs &= ~(1u << c);   /* played fine here before: not the cause */
@@ -3018,6 +3020,7 @@ static void update(Screen *s, float dt)
         p->last_warning_version = vi.warning_version;
         int audio = vi.warning[0] && strstr(vi.warning, "audio");
         if (vi.warning[0] && !audio) app_toast("%s", vi.warning);
+        if (audio && !p->trailer) verdict_note(p->cands[p->cur].vkey, 0);   /* its sound, on this kind of TV */
         if (audio && !p->learned) {   /* "can't play this audio": remember the audio codec */
             app_tv_learn(p->cands[p->cur].needs & ((1u << TVCAP_DTS) | (1u << TVCAP_TRUEHD)), 0);
             p->learned = 1;
@@ -3104,6 +3107,7 @@ static void update(Screen *s, float dt)
 
     if (!p->learned && vi.state == VIDEO_PLAYING && vi.position > 0 && g_app.time - p->load_started > 90 && p->stalls == 0) {
         app_tv_learn(p->cands[p->cur].needs, 1);
+        if (!p->trailer) verdict_note(p->cands[p->cur].vkey, 1);
         p->learned = 1;
     }
     if (!playback_needs_bandwidth(&vi)) {

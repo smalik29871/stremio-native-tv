@@ -837,6 +837,21 @@ run letterbox_shared 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait
 grep -q "player: the bars' colours for this file came from the relay (10 cuts, to 64 s)" "$OUT/letterbox_shared.log" && grep -qE "player: the bars follow the shared cut at (6\.25|11\.00|17\.50|24\.00) s" "$OUT/letterbox_shared.log" \
   && ! grep -q "too slow on this TV" "$OUT/letterbox_shared.log" && ! grep -q "go to the relay" "$OUT/letterbox_shared.log" \
   || { echo "a film's shared colours did not light the bars"; grep -E "letterbox|bars|colours" "$OUT/letterbox_shared.log"; exit 1; }
+# Shared play verdicts: other TVs of this kind found the 2160p file fails to decode, so a 1080p
+# one starts; on another kind of TV nothing is known and the 2160p starts; a file that fails to
+# decode here is told (a fingerprint and the kind of TV, nothing else)
+VERDICT="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay SNTV_NO_RACE=1"
+run verdict_demotes 900 "right,ok,down,down,play,wait,wait" $VERDICT SNTV_DEVICE_CLASS=webos9 HOME="$(home_with verdict1 '{"prefSubs":"","setupDone":1,"preflight":0}')"
+grep -q "verdicts: this is a webos9" "$OUT/verdict_demotes.log" && grep -q "verdicts: 1 of these files were played on a webos9 before" "$OUT/verdict_demotes.log" \
+  && grep "player: candidate 1/" "$OUT/verdict_demotes.log" | grep -q "(1080p)$" \
+  || { echo "a file that keeps failing on this kind of TV still started first"; grep -E "verdicts|streams: #|player: candidate" "$OUT/verdict_demotes.log"; exit 1; }
+run verdict_other_tv 900 "right,ok,down,down,play,wait,wait" $VERDICT SNTV_DEVICE_CLASS=android-shield HOME="$(home_with verdict2 '{"prefSubs":"","setupDone":1,"preflight":0}')"
+grep -q "player: candidate 1/[0-9]* Verdict - Verdict @0s -> .*(2160p)$" "$OUT/verdict_other_tv.log" && ! grep -q "were played on" "$OUT/verdict_other_tv.log" \
+  || { echo "another kind of TV's verdicts moved this TV's sources"; grep -E "verdicts|player: candidate" "$OUT/verdict_other_tv.log"; exit 1; }
+run verdict_told 900 "right,ok,down,down,play,wait,wait" $VERDICT SNTV_DEVICE_CLASS=android-shield SNTV_FAKE_FAIL_LOADS=1 SNTV_FAKE_FAIL_CODE=1007 HOME="$(home_with verdict3 '{"prefSubs":"","setupDone":1,"preflight":0}')"
+grep -q "verdicts: told the relay this file failed on a android-shield" "$OUT/verdict_told.log" && grep -qE "^keyrelay verdicts POST [0-9a-f]{16} android-shield fail$" "$FAKE_TRACK_LOG" \
+  && ! grep -E "^keyrelay verdicts" "$FAKE_TRACK_LOG" | grep -qiE "mkv|http|movie" \
+  || { echo "a file that failed to decode was not told (or more than its fingerprint went)"; grep -E "verdicts|player: (candidate|source)" "$OUT/verdict_told.log"; grep verdicts "$FAKE_TRACK_LOG"; exit 1; }
 run player_letterbox_slow 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxslow '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsslow"}')"
 # a TV slow to get frames (1.8 s each) keeps the light: it follows the cuts it can get ready
 grep -q "player: the bars' frames take [0-9.]* s here" "$OUT/player_letterbox_slow.log" && [ "$(grep -c "player: the bars follow the cut at" "$OUT/player_letterbox_slow.log")" -ge 2 ] \

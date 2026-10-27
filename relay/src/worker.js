@@ -102,6 +102,35 @@ async function glow(request, env, hash) {
   return json(200, { cuts: cuts.size });
 }
 
+// Which files play on which kind of TV ("webos9", "android-shield-android-tv"): a TV that
+// played a file through, or could not decode it, says so under a fingerprint of the file (16
+// hex digits; never a link or a name); a TV about to choose asks for the files it lists and
+// ranks one that keeps failing on its kind lower. Kept as "plays fails" counts.
+const VERDICT_KEY = /^[0-9a-f]{16}$/, DEVICE = /^[a-z0-9-]{2,40}$/, VERDICTS_MAX = 60;
+async function verdicts(request, env, url, key) {
+  const device = url.searchParams.get('d') || '';
+  if (!DEVICE.test(device)) return json(400, { error: 'a kind of TV is needed' });
+  if (!env.IDS) return json(503, { error: 'this relay keeps nothing' });
+  if (request.method === 'GET') {
+    const keys = (url.searchParams.get('k') || '').split(',').filter(Boolean);
+    if (!keys.length || keys.length > VERDICTS_MAX || !keys.every(k => VERDICT_KEY.test(k))) return json(400, { error: 'between 1 and ' + VERDICTS_MAX + ' file fingerprints' });
+    const out = {};
+    await Promise.all(keys.map(async k => {
+      const v = await env.IDS.get('v:' + device + ':' + k).catch(() => null);
+      const m = v && v.match(/^(\d+) (\d+)$/);
+      if (m) out[k] = [Number(m[1]), Number(m[2])];
+    }));
+    return json(200, out);
+  }
+  if (!VERDICT_KEY.test(key)) return json(400, { error: 'a file fingerprint is 16 hex digits' });
+  const said = (await request.text()).trim();
+  if (said !== 'ok' && said !== 'fail') return json(400, { error: 'ok or fail' });
+  const k = 'v:' + device + ':' + key, m = ((await env.IDS.get(k).catch(() => null)) || '0 0').match(/^(\d+) (\d+)$/) || [0, '0', '0'];
+  const ok = Math.min(999, Number(m[1]) + (said === 'ok')), fail = Math.min(999, Number(m[2]) + (said === 'fail'));
+  await env.IDS.put(k, ok + ' ' + fail, { expirationTtl: 365 * 86400 }).catch(() => {});
+  return json(200, { plays: ok, fails: fail });
+}
+
 const json = (status, obj) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 
 export default {
@@ -113,6 +142,11 @@ export default {
       const who = request.headers.get('CF-Connecting-IP') || 'unknown';
       if (!(await allowed(env, 'glow:' + who))) return json(429, { error: 'too many requests' });
       return glow(request, env, path.slice(1));
+    }
+    if (svc === 'verdicts' && (request.method === 'GET' || request.method === 'POST')) {
+      const who = request.headers.get('CF-Connecting-IP') || 'unknown';
+      if (!(await allowed(env, 'verdicts:' + who))) return json(429, { error: 'too many requests' });
+      return verdicts(request, env, url, path.slice(1));
     }
     const route = ROUTES.find(r => r.svc === svc && r.path === path && r.method === request.method);
     if (!route) return json(404, { error: 'not a relayed request' });

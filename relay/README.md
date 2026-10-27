@@ -24,6 +24,12 @@ here, without the key; the relay adds it and passes the answer back.
   that file gets them at the start, so its bars change on time with no frames to fetch or
   decode. Colours and times only, never a link; a cut already kept is never replaced. Without
   KV storage nothing is kept and each TV works its colours out itself, as before.
+- Which files play on which kind of TV (`/verdicts`, in the same KV storage): a TV that played
+  a file through, or could not decode its picture or sound, says so under a fingerprint of the
+  file (16 hex digits, a hash of what names it; never a link or a file name) and its kind
+  ("webos9", "android-shield-android-tv"). The sources list asks about the files it shows, up
+  to 60 in one request, and ranks a file that keeps failing on this kind of TV lower before
+  anyone here has to try it. Network trouble never counts against a file.
 - Trakt is not relayed either: its apps sign in with PKCE, which needs only the client ID, and
   that ID is public by design (every Trakt request names it).
 
@@ -81,4 +87,4 @@ curl -s https://cuelight-keys.<your-subdomain>.workers.dev/mdblist/?i=tt0111161 
 The free plan allows 100,000 requests a day, far more than the app's ratings and subtitle
 searches need, and KV 100,000 reads and 1,000 new ids a day (past that, ids just aren't kept
 that day). Each film whose letterbox colours are shared costs one write when a TV sends new
-cuts for it. The Worker's Metrics tab shows the counts.
+cuts for it; each play verdict is one write, and a sources list one read per file it asks about. The Worker's Metrics tab shows the counts.

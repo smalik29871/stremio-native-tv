@@ -118,3 +118,17 @@ test('Glow: kept by file hash, added to, never replaced, and checked', async () 
   assert.equal((await call('/glow/4b67d1bb41215387', {}, env)).status, 503);   // no storage: nothing kept
   assert.equal(sent.length, 0);   // nothing went anywhere else
 });
+
+test('Verdicts: counted by kind of TV and file, asked for many at once, checked', async () => {
+  const IDS = kv(), e = { ...env, IDS }, a = '0123456789abcdef', b = 'fedcba9876543210';
+  for (const said of ['fail', 'fail', 'ok']) assert.equal((await call(`/verdicts/${a}?d=webos9`, { method: 'POST', body: said }, e)).status, 200);
+  await call(`/verdicts/${b}?d=android-shield`, { method: 'POST', body: 'ok' }, e);
+  assert.deepEqual(await (await call(`/verdicts?d=webos9&k=${a},${b}`, {}, e)).json(), { [a]: [1, 2] });   // b was seen on another kind only
+  assert.deepEqual(await (await call(`/verdicts?d=android-shield&k=${b}`, {}, e)).json(), { [b]: [1, 0] });
+  assert.equal((await call(`/verdicts/${a}?d=webos9`, { method: 'POST', body: 'http://example.com/film.mkv' }, e)).status, 400);
+  assert.equal((await call(`/verdicts/not-a-key?d=webos9`, { method: 'POST', body: 'ok' }, e)).status, 400);
+  assert.equal((await call(`/verdicts?d=Web%20OS&k=${a}`, {}, e)).status, 400);
+  assert.equal((await call(`/verdicts?d=webos9&k=${Array(61).fill(a).join(',')}`, {}, e)).status, 400);
+  assert.equal((await call(`/verdicts?d=webos9&k=${a}`, {}, env)).status, 503);   // no storage: nothing kept
+  assert.equal(sent.length, 0);
+});

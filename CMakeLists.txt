@@ -52,6 +52,7 @@ add_library(sntv_core STATIC
   src/tracking.c
   src/opensubs.c
   src/srchealth.c
+  src/verdict.c
   src/ai.c
   src/memlevel.c
   src/sysinfo.c

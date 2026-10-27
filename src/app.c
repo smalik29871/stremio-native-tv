@@ -24,6 +24,10 @@
 #include "suntimes.h"
 #include "ui/screen_options.h"
 #include "video/video.h"
+#include "verdict.h"
+#ifdef SNTV_PLATFORM_ANDROID
+#include <sys/system_properties.h>
+#endif
 #include "cJSON.h"
 #include <stdarg.h>
 #include <stdint.h>
@@ -2097,6 +2101,17 @@ static void tv_profile_load(void)
         const cJSON *ok = cJSON_GetArrayItem(e, 0), *fail = cJSON_GetArrayItem(e, 1);
         if (cJSON_IsNumber(ok)) g_app.tv.ok[c] = ok->valueint;
         if (cJSON_IsNumber(fail)) g_app.tv.fail[c] = fail->valueint;
+    }
+    {   /* the kind of TV, for the shared play verdicts: its decoders are those of its model's family */
+        char dev[64] = "";
+        const char *e = getenv("SNTV_DEVICE_CLASS");
+        if (e) snprintf(dev, sizeof dev, "%s", e);
+#if defined(SNTV_PLATFORM_WEBOS)
+        else if (g_app.tv.webos_major > 0) snprintf(dev, sizeof dev, "webos%d", g_app.tv.webos_major);
+#elif defined(SNTV_PLATFORM_ANDROID)
+        else { char model[PROP_VALUE_MAX] = ""; if (__system_property_get("ro.product.model", model) > 0) snprintf(dev, sizeof dev, "android-%s", model); }
+#endif
+        verdict_set_device(dev);   /* a computer: none (it decodes in software, as no TV does) */
     }
     LOGI("tv profile: webOS %d; dts %s, truehd %s, av1 %s, dv %s", g_app.tv.webos_major,
          quality_cap_ok(&g_app.tv, TVCAP_DTS) ? "ok" : "avoid", quality_cap_ok(&g_app.tv, TVCAP_TRUEHD) ? "ok" : "avoid",

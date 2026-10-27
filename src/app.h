@@ -47,6 +47,7 @@ typedef struct PlayCandidate {
     int recommended;            /* the Sources page's pick */
     int p2p;                    /* P2P on this TV (no cached copy) */
     char *headers, *video_hash, *subs;   /* from the stream (Stream.headers, .video_hash, .subs), NULL none */
+    char vkey[17];              /* the file's fingerprint for shared play verdicts (verdict.h), "" none */
 } PlayCandidate;
 
 /* The source an episode played from, so the next one can match it (Up Next) */

@@ -10,7 +10,7 @@
 #ifndef SNTV_KEYRELAY_H
 #define SNTV_KEYRELAY_H
 
-typedef enum { KR_MDBLIST, KR_OPENSUBS, KR_TMDB, KR_GLOW, KR_COUNT } KeyRelaySvc;   /* GLOW: the letterbox's colours of a film's cuts, shared by its file */
+typedef enum { KR_MDBLIST, KR_OPENSUBS, KR_TMDB, KR_GLOW, KR_VERDICT, KR_COUNT } KeyRelaySvc;   /* GLOW: the letterbox's colours of a film's cuts, shared by its file; VERDICT: which files play on which kind of TV (verdict.h) */
 
 /* The relay's address for the service ("https://…/mdblist"), the service's own address layout
  * under it; NULL when there is no relay or it failed lately. */
