@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.94
+
+- **Sources that play on your kind of TV come first.** When a TV plays a file through, or
+  can't decode its picture or sound, it tells Cuelight's relay so, under a fingerprint of the
+  file and the kind of TV (an LG with webOS 9, a Shield). The sources list asks about the
+  files it shows, and one that keeps failing on your kind of TV goes down the list before
+  anyone here has to try it; one that played fine moves up a little. Only the fingerprint and
+  the kind of TV are sent: no link, file name or account. Network trouble never counts
+  against a file, and what this TV learned itself still comes first.
+
 ## 0.10.93
 
 - **The letterbox keeps up on LG TVs.** The TV says where the film is only every so often;
