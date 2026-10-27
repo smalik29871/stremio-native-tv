@@ -6,7 +6,8 @@
 // Secrets (set with `npx wrangler secret put NAME`, never in this file):
 //   MDBLIST_KEY, OPENSUBTITLES_KEY, TMDB_API_KEY
 // (Trakt isn't here: its apps sign in with PKCE, which needs no secret.)
-// Storage: a KV namespace bound as IDS keeps the IMDb ids it has looked up (optional).
+// Storage: a KV namespace bound as IDS keeps the IMDb ids it has looked up and the letterbox's
+// colours of films' cuts (optional; without it neither is kept).
 
 const UPSTREAM = {
   mdblist: 'https://mdblist.com/api',
@@ -67,6 +68,40 @@ async function tmdbIds(url, env, key) {
   return json(200, out);
 }
 
+// The letterbox's colours of a film's cuts, by the file's hash (the 16 hex digits
+// OpenSubtitles uses): "seconds" and 4 x 2 colours in hex, a line a cut. A TV that played the
+// file sends what it saw, added to what is kept (a cut already kept stays as it is); the next
+// TV to play the file gets them all at the start. Colours and times only, never a link. An
+// "ar" line first may give the picture's shape (bars baked into the frame show only there).
+const GLOW_LINE = /^\d{1,5}(\.\d{1,2})? [0-9a-f]{48}$/, GLOW_AR = /^ar [0-3]\.\d{2}$/;
+const GLOW_MAX = 6000, GLOW_BODY = 400 * 1024;
+async function glow(request, env, hash) {
+  if (!/^[0-9a-f]{16}$/.test(hash)) return json(400, { error: 'a file hash is 16 hex digits' });
+  if (!env.IDS) return json(503, { error: 'this relay keeps nothing' });
+  const k = 'g:' + hash;
+  if (request.method === 'GET') {
+    const v = await env.IDS.get(k).catch(() => null);
+    return v === null ? json(404, { error: 'none for this file yet' }) : new Response(v, { status: 200, headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
+  }
+  const body = await request.text();
+  if (body.length > GLOW_BODY) return json(413, { error: 'too large' });
+  const lines = body.split('\n').filter(Boolean);
+  const ar = GLOW_AR.test(lines[0]) ? lines.shift() : null;
+  if (!lines.length || lines.length > GLOW_MAX || !lines.every(l => GLOW_LINE.test(l))) return json(400, { error: 'lines of seconds and 48 hex digits' });
+  const cuts = new Map();
+  let keptAr = null;
+  for (const l of ((await env.IDS.get(k).catch(() => null)) || '').split('\n').filter(Boolean)) {
+    if (GLOW_AR.test(l)) keptAr = l; else cuts.set(l.slice(0, l.indexOf(' ')), l);
+  }
+  const before = cuts.size;
+  for (const l of lines) { const t = l.slice(0, l.indexOf(' ')); if (!cuts.has(t)) cuts.set(t, l); }
+  if (cuts.size === before && (keptAr || !ar)) return json(200, { cuts: before });   // nothing new: no write
+  const kept = [...cuts.values()].sort((a, b) => parseFloat(a) - parseFloat(b)).slice(0, GLOW_MAX);
+  if (keptAr || ar) kept.unshift(keptAr || ar);
+  await env.IDS.put(k, kept.join('\n') + '\n', { expirationTtl: 365 * 86400 }).catch(() => {});   // past the free writes a day: not kept
+  return json(200, { cuts: cuts.size });
+}
+
 const json = (status, obj) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 
 export default {
@@ -74,6 +109,11 @@ export default {
     const url = new URL(request.url);
     const m = url.pathname.match(/^\/([a-z]+)(\/.*)?$/);
     const svc = m && m[1], path = (m && m[2]) || '/';
+    if (svc === 'glow' && (request.method === 'GET' || request.method === 'POST')) {   // no key: the relay's own storage
+      const who = request.headers.get('CF-Connecting-IP') || 'unknown';
+      if (!(await allowed(env, 'glow:' + who))) return json(429, { error: 'too many requests' });
+      return glow(request, env, path.slice(1));
+    }
     const route = ROUTES.find(r => r.svc === svc && r.path === path && r.method === request.method);
     if (!route) return json(404, { error: 'not a relayed request' });
     const key = env[route.secret];

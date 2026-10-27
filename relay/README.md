@@ -18,6 +18,12 @@ here, without the key; the relay adds it and passes the answer back.
   for all of them in one request (`/tmdb/ids`); the relay looks them up at once and keeps the
   answers in KV storage, so each title is looked up once for every device. Without the relay
   the app looks them up itself, several at a time.
+- The living letterbox's colours are kept here too (`/glow/<file hash>`, in the same KV
+  storage): a TV that played a film sends the colours its bars took at each cut, a few dozen
+  bytes a cut, under the file's 16-digit hash (the one OpenSubtitles uses). The next TV to play
+  that file gets them at the start, so its bars change on time with no frames to fetch or
+  decode. Colours and times only, never a link; a cut already kept is never replaced. Without
+  KV storage nothing is kept and each TV works its colours out itself, as before.
 - Trakt is not relayed either: its apps sign in with PKCE, which needs only the client ID, and
   that ID is public by design (every Trakt request names it).
 
@@ -33,7 +39,7 @@ In the browser, with a free Cloudflare account (dash.cloudflare.com):
 2. Edit code: replace everything with `src/worker.js`, then Deploy.
 3. The Worker's Settings > Variables and Secrets > Add, type Secret: `MDBLIST_KEY`,
    `OPENSUBTITLES_KEY` and `TMDB_API_KEY`. Deploy.
-4. Storage for the IMDb ids (optional, faster): Storage & Databases > KV > Create a namespace
+4. Storage for the IMDb ids and the letterbox's colours (optional, faster): Storage & Databases > KV > Create a namespace
    (any name, e.g. `cuelight-ids`). Then the Worker's Settings > Bindings > Add > KV namespace:
    variable name `IDS`, that namespace. Deploy.
 
@@ -74,4 +80,5 @@ curl -s https://cuelight-keys.<your-subdomain>.workers.dev/mdblist/?i=tt0111161 
 
 The free plan allows 100,000 requests a day, far more than the app's ratings and subtitle
 searches need, and KV 100,000 reads and 1,000 new ids a day (past that, ids just aren't kept
-that day). The Worker's Metrics tab shows the counts.
+that day). Each film whose letterbox colours are shared costs one write when a TV sends new
+cuts for it. The Worker's Metrics tab shows the counts.

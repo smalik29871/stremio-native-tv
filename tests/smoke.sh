@@ -822,6 +822,17 @@ grep -q "player: living letterbox changes with the film's cuts" "$OUT/player_let
 run player_letterbox_off 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"livingLetterbox":0,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
 ! grep -q "player: living letterbox" "$OUT/player_letterbox_off.log" || { echo "the living letterbox drew while turned off"; exit 1; }
 # a TV too slow for it (each frame takes 1.8 s): the bars take the artwork's colour instead of lagging
+# The bars' colours shared by the file: a TV that played it sends the colours of the cuts it saw to
+# the relay (colours and times under the file's hash, no link); the next one to play it takes the
+# bars' light from them, with no frames fetched or decoded
+run letterbox_shares 3500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay HOME="$(home_with lbshare '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbs"}')"
+grep -q "player: no shared colours for this file yet (404)" "$OUT/letterbox_shares.log" && grep -q "player: the bars' colours of [0-9]* cuts go to the relay for this file" "$OUT/letterbox_shares.log" \
+  && grep -qE "^keyrelay glow POST [0-9a-f]{16} [0-9]+ cuts$" "$FAKE_TRACK_LOG" && ! grep -q "^keyrelay glow .*http" "$FAKE_TRACK_LOG" \
+  || { echo "the bars' colours of a film were not shared"; grep -E "letterbox|bars|colours" "$OUT/letterbox_shares.log"; grep glow "$FAKE_TRACK_LOG"; exit 1; }
+run letterbox_shared 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelayglow HOME="$(home_with lbshared '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsdead"}')"
+grep -q "player: the bars' colours for this file came from the relay (10 cuts, to 64 s)" "$OUT/letterbox_shared.log" && grep -qE "player: the bars follow the shared cut at (6\.25|11\.00|17\.50|24\.00) s" "$OUT/letterbox_shared.log" \
+  && ! grep -q "too slow on this TV" "$OUT/letterbox_shared.log" && ! grep -q "go to the relay" "$OUT/letterbox_shared.log" \
+  || { echo "a film's shared colours did not light the bars"; grep -E "letterbox|bars|colours" "$OUT/letterbox_shared.log"; exit 1; }
 run player_letterbox_slow 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxslow '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsslow"}')"
 # a TV slow to get frames (1.8 s each) keeps the light: it follows the cuts it can get ready
 grep -q "player: the bars' frames take [0-9.]* s here" "$OUT/player_letterbox_slow.log" && [ "$(grep -c "player: the bars follow the cut at" "$OUT/player_letterbox_slow.log")" -ge 2 ] \

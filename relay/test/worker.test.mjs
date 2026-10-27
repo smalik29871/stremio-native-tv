@@ -102,3 +102,19 @@ test('answers are never cached', async () => {
   const r = await call('/mdblist/?i=tt1');
   assert.equal(r.headers.get('Cache-Control'), 'no-store');
 });
+
+const line = (t, c) => `${t} ${c.repeat(48)}`;
+test('Glow: kept by file hash, added to, never replaced, and checked', async () => {
+  const IDS = kv(), e = { ...env, IDS };
+  assert.equal((await call('/glow/4b67d1bb41215387', {}, e)).status, 404);
+  const up = await call('/glow/4b67d1bb41215387', { method: 'POST', body: ['ar 2.39', line('2.50', 'a'), line('6.25', 'b')].join('\n') + '\n' }, e);
+  assert.deepEqual(await up.json(), { cuts: 2 });
+  await call('/glow/4b67d1bb41215387', { method: 'POST', body: ['ar 1.78', line('6.25', 'f'), line('11.00', 'c')].join('\n') }, e);
+  const got = await (await call('/glow/4b67d1bb41215387', {}, e)).text();
+  assert.equal(got, ['ar 2.39', line('2.50', 'a'), line('6.25', 'b'), line('11.00', 'c')].join('\n') + '\n');   // what was kept first stays
+  assert.equal((await call('/glow/not-a-hash', {}, e)).status, 400);
+  assert.equal((await call('/glow/4b67d1bb41215387', { method: 'POST', body: 'http://example.com/film.mkv' }, e)).status, 400);
+  assert.equal((await call('/glow/4b67d1bb41215387', { method: 'POST', body: line('1', 'a') + ' extra' }, e)).status, 400);
+  assert.equal((await call('/glow/4b67d1bb41215387', {}, env)).status, 503);   // no storage: nothing kept
+  assert.equal(sent.length, 0);   // nothing went anywhere else
+});

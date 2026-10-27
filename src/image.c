@@ -39,6 +39,7 @@ typedef struct Img {
     unsigned last_used, ready_at;
     unsigned tint;
     float box[4];          /* the picture inside black bars baked into it (x0, y0, x1, y1, 0..1) */
+    unsigned char grid[IMAGE_GRID_BYTES];   /* its colours in 4 x 2 cells, inside the box */
     unsigned req;
     int from_disk;
     int need_net;          /* the decoder found no disk copy: fetch it */
@@ -126,6 +127,45 @@ static void content_box(const unsigned char *px, int w, int h, float box[4])
     int even_v = top > h / 25 && bot > h / 25 && abs(top - bot) <= h / 30 + 1, even_h = left > w / 25 && right > w / 25 && abs(left - right) <= w / 30 + 1;
     if (even_v) { box[1] = (float)(top + 1) / h; box[3] = 1 - (float)(bot + 1) / h; }   /* a row in: the edge is smeared toward black */
     if (even_h) { box[0] = (float)(left + 1) / w; box[2] = 1 - (float)(right + 1) / w; }
+}
+
+/* The picture's colours in 4 columns and 2 rows (RGB, left to right, top row first), inside
+ * the box: enough for the light beside it, and small enough to share. */
+static void colour_grid(const unsigned char *px, int w, int h, const float box[4], unsigned char out[IMAGE_GRID_BYTES])
+{
+    int x0 = (int)(box[0] * w), x1 = (int)(box[2] * w), y0 = (int)(box[1] * h), y1 = (int)(box[3] * h);
+    if (x1 <= x0) { x0 = 0; x1 = w; }
+    if (y1 <= y0) { y0 = 0; y1 = h; }
+    for (int r = 0; r < 2; r++)
+        for (int c = 0; c < 4; c++) {
+            int ax = x0 + (x1 - x0) * c / 4, bx = x0 + (x1 - x0) * (c + 1) / 4, ay = y0 + (y1 - y0) * r / 2, by = y0 + (y1 - y0) * (r + 1) / 2;
+            int sx = (bx - ax) / 16 + 1, sy = (by - ay) / 16 + 1;
+            unsigned long acc[3] = { 0, 0, 0 }, n = 0;
+            for (int y = ay; y < by; y += sy)
+                for (int x = ax; x < bx; x += sx, n++)
+                    for (int k = 0; k < 3; k++) acc[k] += px[((size_t)y * w + x) * 4 + k];
+            for (int k = 0; k < 3; k++) out[(r * 4 + c) * 3 + k] = n ? (unsigned char)(acc[k] / n) : 0;
+        }
+}
+
+/* "rgb:WxH:" and the pixels in hex (RGB, row by row): a picture made of the colours in its
+ * address, nothing to fetch (the shared colours of a film's cuts, see image_grid). */
+static int is_rgb(const char *url) { return !strncmp(url, "rgb:", 4); }
+static unsigned char *rgb_pixels(const char *url, int *w, int *h)
+{
+    int pw = 0, ph = 0, at = 0;
+    if (sscanf(url, "rgb:%dx%d:%n", &pw, &ph, &at) != 2 || !at || pw < 1 || ph < 1 || pw > 16 || ph > 16) return NULL;
+    const char *hex = url + at;
+    if (strspn(hex, "0123456789abcdefABCDEF") < (size_t)pw * ph * 6) return NULL;
+    unsigned char *px = malloc((size_t)pw * ph * 4);
+    if (!px) return NULL;
+    for (int i = 0; i < pw * ph; i++) {
+        unsigned v = 0;
+        sscanf(hex + i * 6, "%6x", &v);
+        px[i * 4] = v >> 16; px[i * 4 + 1] = (v >> 8) & 0xFF; px[i * 4 + 2] = v & 0xFF; px[i * 4 + 3] = 255;
+    }
+    *w = pw; *h = ph;
+    return px;
 }
 
 static void disk_path(const Img *i, char *out, size_t n)
@@ -222,7 +262,7 @@ static int decoder_main(void *arg)
         g_decode_q = i->qnext;
         SDL_UnlockMutex(g_lock);
 
-        if (!i->encoded && !read_disk(i)) {   /* no disk copy: hand back for a download */
+        if (!is_rgb(i->url) && !i->encoded && !read_disk(i)) {   /* no disk copy: hand back for a download */
             i->need_net = 1;
             SDL_LockMutex(g_lock);
             i->qnext = g_done_q;
@@ -232,7 +272,9 @@ static int decoder_main(void *arg)
         }
         int w = 0, h = 0, n = 0;
         unsigned char *px = NULL;
-        if (i->encoded_len > 12 && !memcmp(i->encoded, "RIFF", 4) && !memcmp(i->encoded + 8, "WEBP", 4)) {
+        if (is_rgb(i->url)) {
+            px = rgb_pixels(i->url, &w, &h);
+        } else if (i->encoded_len > 12 && !memcmp(i->encoded, "RIFF", 4) && !memcmp(i->encoded + 8, "WEBP", 4)) {
             /* libwebp hands back its own buffer; copy so the rest of the pipeline can free() it */
             uint8_t *wp = WebPDecodeRGBA(i->encoded, i->encoded_len, &w, &h);
             if (wp) { px = malloc((size_t)w * h * 4); if (px) memcpy(px, wp, (size_t)w * h * 4); WebPFree(wp); }
@@ -250,7 +292,7 @@ static int decoder_main(void *arg)
             }
         }
         if (px) {
-            if (!i->from_disk && g_cache_dir[0] && i->encoded_len <= DISK_FILE_MAX && !is_local(i->url)) {
+            if (!i->from_disk && g_cache_dir[0] && i->encoded && i->encoded_len <= DISK_FILE_MAX && !is_local(i->url)) {
                 char path[1200], tmp[1210];
                 disk_path(i, path, sizeof path);
                 snprintf(tmp, sizeof tmp, "%s.tmp", path);
@@ -266,6 +308,7 @@ static int decoder_main(void *arg)
             px = shrink(px, &w, &h, i->flags & IMAGE_MIPMAP ? 512 : i->flags & IMAGE_FULL && g_max_dim >= SNTV_IMAGE_MAX_DIM ? 1920 : g_max_dim);
             i->tint = average_tint(px, w, h);
             content_box(px, w, h, i->box);
+            colour_grid(px, w, h, i->box, i->grid);
             if (i->flags & IMAGE_MIPMAP) px = to_pot(px, &w, &h);
             i->pixels = px; i->w = w; i->h = h;
         } else {
@@ -344,7 +387,7 @@ static int read_disk(Img *i)
 static void request(Img *i)
 {
     i->state = IMG_LOADING;
-    if (!g_cache_dir[0] || is_local(i->url)) { i->req = http_request_async_ex(i->url, &ARTWORK, on_http, i); return; }
+    if (!is_rgb(i->url) && (!g_cache_dir[0] || is_local(i->url))) { i->req = http_request_async_ex(i->url, &ARTWORK, on_http, i); return; }
     enqueue_decode(i);
 }
 
@@ -415,6 +458,14 @@ int image_content_box(const char *url, float box[4])
     Img *i = url && *url ? find(url) : NULL;
     if (!i || i->state != IMG_READY) return 0;
     memcpy(box, i->box, sizeof i->box);
+    return 1;
+}
+
+int image_grid(const char *url, unsigned char rgb[IMAGE_GRID_BYTES])
+{
+    Img *i = url && *url ? find(url) : NULL;
+    if (!i || i->state != IMG_READY) return 0;
+    memcpy(rgb, i->grid, IMAGE_GRID_BYTES);
     return 1;
 }
 
