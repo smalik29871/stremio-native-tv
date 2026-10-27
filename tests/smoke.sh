@@ -263,7 +263,7 @@ run upnext_screensaver 1400 "right,ok,down,down,play,wait" "$SLOW" SNTV_STILL_WA
   || { echo "the screensaver took the handoff to the next episode"; grep -E "ambient|streams: next|player: candidate" "$OUT/upnext_screensaver.log"; exit 1; }
 # OK on the Up Next card while the next episode is still being fetched (the slow addon holds it
 # 6 s): the card waits ("Starts once ready"), then the episode starts at once, no source list between
-run upnext_wait_ready 2200 "right,ok,down,down,play,wait,wait,ok" "$SLOW" SNTV_FAKE_START=3002 HOME="$(home_with upwait '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_wait_ready 2200 "right,ok,down,down,play,wait,wait,ok" "$SLOW" SNTV_FAKE_DURATION=3120 SNTV_FAKE_START=3002 HOME="$(home_with upwait '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: next episode asked for while it's prepared" "$OUT/upnext_wait_ready.log" && grep -q "player: the next episode is ready (asked for on the card)" "$OUT/upnext_wait_ready.log" \
   && grep -q "player: on to tt0903747:1:2, 100% of its addons answered ahead" "$OUT/upnext_wait_ready.log" && [ "$(grep -c "player: candidate" "$OUT/upnext_wait_ready.log")" -ge 2 ] \
   || { echo "the Up Next card did not wait for the next episode to be ready"; grep -E "player: (next|the next|on to|candidate)|streams: prefetch" "$OUT/upnext_wait_ready.log"; exit 1; }
@@ -445,7 +445,7 @@ run player_skipped 300 "right,ok,down,down,play,wait,ok"
 # the controls up (Play brings them) and Skip intro showing: OK skips, it does not pause
 run player_skip_controls_up 320 "right,ok,down,down,play,wait,play,ok" HOME="$(home_with skipup '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: skipping intro" "$OUT/player_skip_controls_up.log" || { echo "OK with the controls up paused instead of skipping"; grep -E "player:" "$OUT/player_skip_controls_up.log" | tail -5; exit 1; }
-run upnext_credits 300 "right,ok,down,down,play,wait" SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+run upnext_credits 300 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=3120 SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"
 run search_keyboard 200 "search,ok" SNTV_PHONE_HOST=192.168.1.20

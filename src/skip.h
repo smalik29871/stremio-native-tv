@@ -48,7 +48,9 @@ long skip_parse_kitsu_mal(const char *json);
 
 /* Segment that `pos` is inside, or NULL. */
 const SkipSeg *skip_find(const SkipSeg *segs, int n, SkipKind kind, double pos, double duration);
-/* Where the credits (or the next-episode preview) begin, or 0 if unknown. */
-double skip_credits_start(const SkipSeg *segs, int n);
+/* Where the end credits (or the next-episode preview) begin, or 0 if unknown. Only a marker
+ * in the last quarter of a `duration`-long video counts: one earlier is an opening title
+ * sequence marked as credits, not the end. */
+double skip_credits_start(const SkipSeg *segs, int n, double duration);
 
 #endif

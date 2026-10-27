@@ -56,7 +56,14 @@ int main(void)
     CHECK(skip_find(s, n, SKIP_INTRO, 131.5, 2820) == NULL);
     CHECK(skip_find(s, n, SKIP_CREDITS, 2800, 2820) == &s[2]);
     CHECK(skip_find(s, n, SKIP_CREDITS, 2800, 0) == NULL);   /* open end, unknown duration */
-    CHECK(NEAR(skip_credits_start(s, n), 2780));
+    CHECK(NEAR(skip_credits_start(s, n, 2820), 2780));
+    CHECK(NEAR(skip_credits_start(s, n, 0), 2780));   /* length not known yet */
+    {   /* The Agency S1E1 on an LG: Up Next came at 7:30 of 60:26, so a credits marker at about
+           7:23 (the opening titles); with a real one near the end too, that one counts */
+        SkipSeg t[2] = { { 443, 0, SKIP_CREDITS }, { 3540, 0, SKIP_CREDITS } };
+        CHECK(NEAR(skip_credits_start(t, 1, 3626), 0));
+        CHECK(NEAR(skip_credits_start(t, 2, 3626), 3540));
+    }
 
     j = fixture("introdb_movie.json");
     n = skip_parse_introdb(j, -1, -1, s, SKIP_MAX);
