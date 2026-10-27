@@ -1,5 +1,6 @@
 # Makes a beta the release everyone gets: run it by hand (Actions > Promote > Run workflow)
-# with the version, once it has been used on the beta devices. The pre-release becomes the
+# once it has been used on the beta devices. Left empty, the version is the newest beta (the
+# run's summary lists the recent ones); or name an earlier one. The pre-release becomes the
 # latest release, so .../releases/latest/download/... (every device's update check and the
 # Homebrew Channel) moves to it, and the releases repository's README follows.
 name: Promote
@@ -8,8 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The beta version to give everyone, e.g. 0.10.87"
-        required: true
+        description: "The beta to give everyone, e.g. 0.10.87 (empty: the newest beta)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -24,12 +26,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Make it the latest release
+      - name: Which beta
+        id: pick
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           VERSION: ${{ inputs.version }}
         run: |
-          TAG="v${VERSION#v}"
+          # the versioned pre-releases, newest first (not the rolling "beta" one the update check reads)
+          gh release list --repo "$RELEASES_REPO" --limit 40 --json tagName,isPrerelease,isLatest,publishedAt \
+            --jq '.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | [.tagName, (if .isPrerelease then "beta" elif .isLatest then "everyone (latest)" else "released" end), .publishedAt[0:16]] | @tsv' > releases.tsv
+          if [ -n "$VERSION" ]; then
+            TAG="v${VERSION#v}"
+          else
+            TAG="$(awk -F'\t' '$2 == "beta" { print $1; exit }' releases.tsv)"
+            [ -n "$TAG" ] || { echo "::error::no beta waiting to be promoted in $RELEASES_REPO"; exit 1; }
+          fi
+          {
+            echo "### Promoting $TAG"
+            echo
+            echo "| Version | Now | Published (UTC) |"
+            echo "|---|---|---|"
+            head -10 releases.tsv | awk -F'\t' '{ printf "| %s | %s | %s |\n", $1, $2, $3 }'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Make it the latest release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
           if ! gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
             echo "::error::$TAG is not in $RELEASES_REPO"; exit 1
           fi
@@ -38,9 +62,8 @@ jobs:
       - name: Refresh the README in the public repository
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          VERSION: ${{ inputs.version }}
+          TAG: ${{ steps.pick.outputs.tag }}
         run: |
-          TAG="v${VERSION#v}"
           git clone -q --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" pub
           sed -e "s|\${TAG}|${TAG}|g" -e "s|\${RELEASES_REPO}|${RELEASES_REPO}|g" deploy/releases/README.md > pub/README.md
           cp LICENSE THIRD-PARTY-NOTICES.md pub/
