@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.93
+
+- **The letterbox keeps up on LG TVs.** The TV says where the film is only every so often;
+  between its reports the app now counts on with the clock, so the light in the bars changes
+  at the cut instead of a moment after it (app-drawn subtitles keep time better too). At a cut
+  the new light comes in at once rather than fading in over half a second.
+- **Shared letterbox colours.** A TV that plays a film sends the colours its bars took at each
+  cut, a few dozen bytes a cut, to Cuelight's relay under the file's fingerprint (no link, no
+  account). The next TV to play that same file gets them at the start, so its bars light up
+  on time from the first cut without working anything out itself, even where frames are too
+  slow to fetch.
+
 ## 0.10.92
 
 - **Steadier recovery when a source fails.** A link that has expired or been refused is no
