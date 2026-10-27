@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.88
+
+- **Automatic visual effects on 50 Hz TVs.** Automatic judged frames against a 60 Hz screen,
+  so a TV showing 50 frames a second never got Full back. It now measures the screen's own
+  refresh rate (Diagnostics > Speed shows it), and a Full that proved too slow is remembered,
+  so the next try waits longer.
+- **Faster actor pages and filtered lists.** A person's titles and the lists the assistant's
+  filters bring now look up every title at once, through Cuelight's own service, which
+  remembers them for every device; without it they're still looked up several at a time
+  instead of one by one.
+- **Service keys kept off the device.** MDBList ratings and OpenSubtitles go through
+  Cuelight's own service, which holds their keys; the keys still built in are stored
+  scrambled. A key you entered in Settings still goes straight to the service.
+
 ## 0.10.87
 
 - **Automatic visual effects come back to Full.** A TV set to Automatic could stay on Light
