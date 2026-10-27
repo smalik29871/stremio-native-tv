@@ -235,7 +235,7 @@ echo "ok: idle rates"
 # OK on the card is its Play now (autoplay off, so only the key can start the next episode)
 # Up Next with no bingeGroup: the next episode plays from the same release group (NTb) by itself
 run upnext_chain 520 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=128.5 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/chain/manifest.json HOME="$(home_with upnext_chain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-grep -q "streams: next episode like group NTb" "$OUT/upnext_chain.log" && grep -q "streams: next episode from the same release" "$OUT/upnext_chain.log" && grep "player: candidate 1/" "$OUT/upnext_chain.log" | sed -n 2p | grep -q "rel=ntb" \
+grep -q "streams: next episode like group NTb" "$OUT/upnext_chain.log" && grep -q "streams: next episode from the same release" "$OUT/upnext_chain.log" && grep "player: candidate 1/" "$OUT/upnext_chain.log" | sed -n 2p | grep -q "(1080p)$" \
   || { echo "the next episode did not stay on the same release"; grep -E "streams:|player: candidate" "$OUT/upnext_chain.log"; exit 1; }
 run upnext_ok 520 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_DURATION=130 SNTV_FAKE_START=100 HOME="$(home_with fresh_upnext_ok '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"autoplayNext":0}')"
 [ "$(grep -c 'player: candidate' "$OUT/upnext_ok.log")" -ge 2 ] || { echo "OK on the Up Next card did not start the next episode"; grep player "$OUT/upnext_ok.log"; exit 1; }
@@ -752,7 +752,7 @@ run first_byte 1500 "right,ok,down,down,play,wait" SNTV_FAKE_FETCH=1 HOME="$(hom
 grep -q "player: source 1 sent nothing in [0-9]*s; the next one" "$OUT/first_byte.log" && grep -q "player: candidate 2/" "$OUT/first_byte.log" \
   || { echo "a silent source was not given up on quickly"; grep -E "player|relay" "$OUT/first_byte.log"; exit 1; }
 run fallback_race 2000 "right,ok,down,down,play,wait,wait,wait" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/slowstart/manifest.json,http://127.0.0.1:$PORT/manifest.json" HOME="$(home_with fb3 "$NO_PREFLIGHT")"
-grep -q "player: candidate 1/[0-9]* Slow Start Addon - Slow @0s -> .*q=1080" "$OUT/fallback_race.log" \
+grep -q "player: candidate 1/[0-9]* Slow Start Addon - Slow @0s -> .*(1080p)$" "$OUT/fallback_race.log" \
   || { echo "Play did not start the source that answered"; grep -E "streams|player" "$OUT/fallback_race.log"; exit 1; }
 # (P2P off: with the engine built, its copy would play and nothing would be asked again)
 run fallback_reask 5000 "right,ok,down,down,play,wait,wait,wait" "$LIGHTER" HOME="$(home_with fb4 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0,"p2pFallback":0}')" SNTV_FAKE_FAIL_LOADS=3 SNTV_REASK_AFTER=1 SNTV_NO_RACE=1
@@ -1162,7 +1162,7 @@ run caps_one_feature 700 "right,ok,down,down,play,wait,wait" SNTV_DEFAULT_ADDONS
 grep -q "tv profile: dts failed here" "$OUT/caps_one_feature.log" || { echo "a DTS source failing in the decoder did not teach the TV profile"; grep -E "tv profile|player: (candidate|source)" "$OUT/caps_one_feature.log"; exit 1; }
 run caps_several 700 "right,ok,down,down,play,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/caps/dvtruehd/manifest.json,http://127.0.0.1:$PORT/manifest.json $CAPS HOME="$(home_with caps2 "$NO_PREFLIGHT")"
 grep -q "tv profile: a source needing several features failed; none is blamed" "$OUT/caps_several.log" && ! grep -q "tv profile: .* failed here" "$OUT/caps_several.log" \
-  && sed -n '/caps=dvtruehd/,$p' "$OUT/caps_several.log" | grep -q "health: .* failed" \
+  && sed -n '/player: candidate [0-9]*\/[0-9]* Caps Addon/,$p' "$OUT/caps_several.log" | grep -q "health: .* failed" \
   || { echo "a source needing several features taught the TV profile (or did not count against the source)"; grep -E "tv profile|health|player: (candidate|source)" "$OUT/caps_several.log"; exit 1; }
 run detail_ai 340 "right,right,ok,hold,down,down,ok" HOME="$(home_with ai "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 run detail_ai_model 400 "right,right,ok,hold,down,down,ok" HOME="$(home_with aim '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","aiModel":"missing-model"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1

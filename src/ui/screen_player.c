@@ -1887,10 +1887,9 @@ static void start_candidate(Player *p, int idx, double start)
             p->file_bad = 0;
             p->embedded_offset = 0;
             p->forced_checked = 0;
-            if (p->keep_sub_kind == 1 && p->keep_sub_idx >= 0 && p->keep_sub_idx < p->n_addon_subs) {
+            if (p->keep_sub_kind == 1 && !p->subs_user && p->keep_sub_idx >= 0 && p->keep_sub_idx < p->n_addon_subs) {   /* the app's pick was for the old file: the language, chosen again for this one; the viewer's own pick stays (and is synced to it) */
                 snprintf(p->keep_sub_lang, sizeof p->keep_sub_lang, "%s", p->addon_subs[p->keep_sub_idx].lang);
                 p->keep_sub_kind = 2;
-                p->subs_user = 0;
             }
         }
         p->net_retries = 0; p->net_played = 0;
@@ -1933,7 +1932,9 @@ static void start_candidate(Player *p, int idx, double start)
     for (int w = 0; w < 2; w++) { p->warm[w].state = 0; p->warm[w].idx = -1; p->warm[w].at = g_app.time; }
     p->drain_n = 0; p->drain_t = 0;
     p->good_since = 0; p->good_recorded = 0; p->lighter_offered = 0;
-    LOGI("player: candidate %d/%d %s @%.0fs -> %s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url);
+    char res[16] = "";
+    if (cand_res(&p->cands[idx])) snprintf(res, sizeof res, " (%dp)", cand_res(&p->cands[idx]));   /* the log keeps only the link's host: which copy, by its picture */
+    LOGI("player: candidate %d/%d %s @%.0fs -> %s%s", idx + 1, p->n_cands, p->cands[idx].label ? p->cands[idx].label : "", start, p->cands[idx].url, res);
     add_stream_subs(p, &p->cands[idx]);
     /* a file over HTTP plays through the local relay, with a few minutes loaded ahead (its
      * addon's headers too, when it asks for them); not P2P, a playlist or a trailer */
