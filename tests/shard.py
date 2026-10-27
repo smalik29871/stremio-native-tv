@@ -75,9 +75,10 @@ def main():
     carried = [l for i, l in enumerate(body) if ASSIGN.match(l) and not inside[i] and i not in keep and (i < first or only)]
     lines = [l for a, b in mine for l in body[a:b]]
     if os.environ.get("SMOKE_KEEP_GOING"):   # a failed check counts, and the next run goes on
-        head = [l.replace("; shift 3", '; shift 3; LAST_RUN="$name"').replace("exit 1; }", "failed_check; }") if l.startswith(("run() {", "  local name=", "    xvfb-run")) else l for l in head]
-        head += ['SMOKE_FAILED=""',
-                 'failed_check() { SMOKE_FAILED="$SMOKE_FAILED ${LAST_RUN:-?}"; echo "FAILED: ${LAST_RUN:-?} (going on)"; }']
+        head = [l.replace("; shift 3", '; shift 3; LAST_RUN="$name"').replace("exit 1; }", "failed_check; return 0; }") if l.startswith(("run() {", "  local name=", "    xvfb-run")) else l for l in head]
+        head += ['set +e   # failures are counted, not fatal (a failed check\'s own grep finding nothing included)',
+                 'SMOKE_FAILED=""',
+                 'failed_check() { case " $SMOKE_FAILED " in *" ${LAST_RUN:-?} "*) ;; *) SMOKE_FAILED="$SMOKE_FAILED ${LAST_RUN:-?}";; esac; echo "FAILED: ${LAST_RUN:-?} (going on)"; }']
         lines = [l.replace("exit 1; }", "failed_check; }") for l in lines]
         tail = tail + ['[ -z "$SMOKE_FAILED" ] || { echo "checks failed after:$SMOKE_FAILED"; exit 1; }']
     out = head + ["# part %d of %d%s: variables from the runs before it" % (k, n, " (runs matching %s)" % only if only else "")] + carried + lines + tail

@@ -4,6 +4,8 @@
 # Usage: bash tests/smoke.sh [build-dir]   (SMOKE_PART=K/N runs part K of N: tests/shard.py;
 # SMOKE_LANES=L runs that part as L smaller ones side by side, each with its own ports and folder: about 1.5x
 # faster on a 4-core machine, but runs that wait on timing (breaks, the screensaver's handoff) can fail there)
+# SMOKE_ONLY=regex runs only the runs whose names match (with the setup and runs they need), and
+# SMOKE_KEEP_GOING=1 goes on past a failed check and lists every one at the end (see tests/shard.py)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${1:-$ROOT/build}"
@@ -23,11 +25,13 @@ if [ "$LANES" -gt 1 ] && [ -z "${SMOKE_PART_OF:-}" ]; then
   for i in "${!pids[@]}"; do
     l=$(( i + 1 ))
     if wait "${pids[$i]}"; then grep -c "^ok:" "$OUT/lane$l.txt" | sed "s/^/lane $l: /; s/$/ runs ok/"
+    elif grep -q "^checks failed after:" "$OUT/lane$l.txt"; then failed=1; echo "lane $l failed:"; grep -E "^(FAILED: |checks failed after:)" "$OUT/lane$l.txt"; echo "  (what each printed: $OUT/lane$l.txt)"
     else failed=1; echo "lane $l failed:"; tail -25 "$OUT/lane$l.txt"; fi
   done
   for l in $(seq 1 "$LANES"); do cp -f "$OUT/lane$l"/*.log "$OUT/lane$l"/*.png "$OUT/" 2>/dev/null || true; done   # where CI collects them
   exit $failed
 fi
+if [ -n "${SMOKE_ONLY:-}${SMOKE_KEEP_GOING:-}" ] && [ -z "${SMOKE_PART:-}" ]; then SMOKE_PART=1/1; fi   # filtered or kept going: through tests/shard.py
 if [ -n "${SMOKE_PART:-}" ] && [ -z "${SMOKE_PART_OF:-}" ]; then   # SMOKE_PART=2/4: one part of the runs (CI spreads them over machines)
   python3 -I "$ROOT/tests/shard.py" "$ROOT/tests/smoke.sh" "${SMOKE_PART%/*}" "${SMOKE_PART#*/}" > "$OUT/part.sh"
   SMOKE_PART_OF=1 exec bash "$OUT/part.sh" "$BUILD"
