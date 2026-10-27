@@ -1,4 +1,5 @@
 #include "builtin_keys.h"
+#include "keyrelay.h"
 #include "opensubs.h"
 #include "app.h"
 #include "http.h"
@@ -25,14 +26,24 @@ static const char *api_key(void)
 #endif
 }
 
-int opensubs_enabled(void) { return api_key()[0] != 0; }
+/* Where a request goes: without a key of the viewer's own, through the key relay, which adds
+   the app's (via set); otherwise to OpenSubtitles with the key. */
+static const char *base(int *via)
+{
+    const char *k = store_get_str("osApiKey", "");
+    const char *r = k && *k ? NULL : keyrelay_base(KR_OPENSUBS);
+    *via = r != NULL;
+    return r ? r : api();
+}
+int opensubs_enabled(void) { int via; base(&via); return via || api_key()[0] != 0; }
 static const char *token(void) { const char *t = store_get_str("osToken", ""); return t ? t : ""; }
 int opensubs_signed_in(void) { return token()[0] != 0; }
 const char *opensubs_user(void) { const char *u = store_get_str("osUser", ""); return u ? u : ""; }
 
-static void headers(char *out, size_t n)
+static void headers(char *out, size_t n, int via)
 {
-    snprintf(out, n, "Api-Key: %s\nUser-Agent: StremioNativeTV v%s\nAccept: application/json", api_key(), SNTV_APP_VERSION);
+    if (via) snprintf(out, n, "User-Agent: StremioNativeTV v%s\nAccept: application/json", SNTV_APP_VERSION);
+    else snprintf(out, n, "Api-Key: %s\nUser-Agent: StremioNativeTV v%s\nAccept: application/json", api_key(), SNTV_APP_VERSION);
 }
 
 int opensubs_login(const char *user, const char *password, char *err, size_t en)
@@ -43,12 +54,17 @@ int opensubs_login(const char *user, const char *password, char *err, size_t en)
     cJSON_AddStringToObject(b, "password", password ? password : "");
     char *body = cJSON_PrintUnformatted(b);
     cJSON_Delete(b);
-    char url[300], hdr[400];
-    snprintf(url, sizeof url, "%s/login", api());
-    headers(hdr, sizeof hdr);
     HttpResponse r;
-    HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 15 };
-    http_request_ex(url, &o, &r);
+    for (int again = 1; ; again = 0) {
+        int via;
+        char url[300], hdr[400];
+        snprintf(url, sizeof url, "%s/login", base(&via));
+        headers(hdr, sizeof hdr, via);
+        HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 15 };
+        http_request_ex(url, &o, &r);
+        if (!(again && via && keyrelay_failed(KR_OPENSUBS, r.status) && api_key()[0])) break;
+        http_response_free(&r);   /* the relay can't: once more, direct */
+    }
     free(body);
     cJSON *j = r.status == 200 ? cJSON_Parse(r.body) : NULL;
     const cJSON *t = cJSON_GetObjectItemCaseSensitive(j, "token");
@@ -62,11 +78,22 @@ int opensubs_login(const char *user, const char *password, char *err, size_t en)
 }
 
 /* ---- search ---- */
-typedef struct { OsSearchCb cb; void *user; } SearchReq;
+typedef struct { OsSearchCb cb; void *user; int via; char path[500]; } SearchReq;
+
+static void on_search(HttpResponse *r, void *user);
+static void search_send(SearchReq *q)
+{
+    char url[800], hdr[400];
+    snprintf(url, sizeof url, "%s%s", base(&q->via), q->path);
+    headers(hdr, sizeof hdr, q->via);
+    HttpOptions o = { .headers = hdr, .timeout_s = 15, .bearer = opensubs_signed_in() ? token() : NULL };
+    http_request_async_ex(url, &o, on_search, q);
+}
 
 static void on_search(HttpResponse *r, void *user)
 {
     SearchReq *q = user;
+    if (q->via && keyrelay_failed(KR_OPENSUBS, r->status) && api_key()[0]) { search_send(q); return; }   /* again, direct */
     OsSub *subs = NULL; int n = 0;
     cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const cJSON *data = cJSON_GetObjectItemCaseSensitive(j, "data"), *it;
@@ -101,28 +128,37 @@ void opensubs_search(const char *imdb, int season, int episode, const char *hash
 {
     if (!opensubs_enabled() || !imdb || strncmp(imdb, "tt", 2)) { cb(NULL, 0, user); return; }
     long id = atol(imdb + 2);
-    char url[600], hdr[400];
-    /* the API wants its parameters in alphabetical order (otherwise it redirects) */
-    if (season >= 0)
-        snprintf(url, sizeof url, "%s/subtitles?episode_number=%d&languages=%s%s%s&parent_imdb_id=%ld&season_number=%d",
-                 api(), episode, langs, hash && *hash ? "&moviehash=" : "", hash && *hash ? hash : "", id, season);
-    else
-        snprintf(url, sizeof url, "%s/subtitles?imdb_id=%ld&languages=%s%s%s", api(), id, langs, hash && *hash ? "&moviehash=" : "", hash && *hash ? hash : "");
-    headers(hdr, sizeof hdr);
     SearchReq *q = malloc(sizeof *q);
     q->cb = cb; q->user = user;
-    HttpOptions o = { .headers = hdr, .timeout_s = 15, .bearer = opensubs_signed_in() ? token() : NULL };
-    http_request_async_ex(url, &o, on_search, q);
+    /* the API wants its parameters in alphabetical order (otherwise it redirects) */
+    if (season >= 0)
+        snprintf(q->path, sizeof q->path, "/subtitles?episode_number=%d&languages=%s%s%s&parent_imdb_id=%ld&season_number=%d",
+                 episode, langs, hash && *hash ? "&moviehash=" : "", hash && *hash ? hash : "", id, season);
+    else
+        snprintf(q->path, sizeof q->path, "/subtitles?imdb_id=%ld&languages=%s%s%s", id, langs, hash && *hash ? "&moviehash=" : "", hash && *hash ? hash : "");
+    search_send(q);
 }
 
 /* ---- download links ---- */
-typedef struct { OsLinkCb cb; void *user; long id; } LinkReq;
+typedef struct { OsLinkCb cb; void *user; long id; int via; } LinkReq;
 static struct { long id; char url[600]; } g_links[16];
 static int g_link_next;
+
+static void on_link(HttpResponse *r, void *user);
+static void link_send(LinkReq *q)
+{
+    char url[300], hdr[400], body[64];
+    snprintf(url, sizeof url, "%s/download", base(&q->via));
+    snprintf(body, sizeof body, "{\"file_id\":%ld}", q->id);
+    headers(hdr, sizeof hdr, q->via);
+    HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 15, .bearer = opensubs_signed_in() ? token() : NULL };
+    http_request_async_ex(url, &o, on_link, q);
+}
 
 static void on_link(HttpResponse *r, void *user)
 {
     LinkReq *q = user;
+    if (q->via && keyrelay_failed(KR_OPENSUBS, r->status) && api_key()[0]) { link_send(q); return; }   /* again, direct */
     cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const cJSON *l = cJSON_GetObjectItemCaseSensitive(j, "link"), *rem = cJSON_GetObjectItemCaseSensitive(j, "remaining");
     if (cJSON_IsString(l)) {
@@ -145,14 +181,9 @@ static void on_link(HttpResponse *r, void *user)
 void opensubs_link(long file_id, OsLinkCb cb, void *user)
 {
     for (int i = 0; i < 16; i++) if (g_links[i].id == file_id) { cb(g_links[i].url, NULL, user); return; }   /* already counted today */
-    char url[300], hdr[400], body[64];
-    snprintf(url, sizeof url, "%s/download", api());
-    snprintf(body, sizeof body, "{\"file_id\":%ld}", file_id);
-    headers(hdr, sizeof hdr);
     LinkReq *q = malloc(sizeof *q);
     q->cb = cb; q->user = user; q->id = file_id;
-    HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 15, .bearer = opensubs_signed_in() ? token() : NULL };
-    http_request_async_ex(url, &o, on_link, q);
+    link_send(q);
 }
 
 /* ---- release names ---- */

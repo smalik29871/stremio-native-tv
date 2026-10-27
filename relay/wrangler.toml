@@ -1,0 +1,13 @@
+# Cuelight's key relay. The keys are secrets set with `npx wrangler secret put NAME` (README.md);
+# none of them belongs in this file.
+name = "cuelight-keys"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# Cloudflare's own per-address limit, shared by every copy of the relay (free on all plans).
+# Without it each copy keeps its own count, which still stops a single runaway device.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }

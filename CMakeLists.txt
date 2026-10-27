@@ -37,7 +37,7 @@ add_library(sntv_core STATIC
   vendor/cJSON.c
   vendor/qrcodegen.c
   src/log.c
-  src/builtin_keys.c
+  src/builtin_keys.c src/keyrelay.c
   src/http.c
   src/relay.c
   src/mkvsubs.c
@@ -152,6 +152,18 @@ foreach(k TMDB_BUILTIN_KEY TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID M
   endif()
   math(EXPR salt "${salt} + 53")
 endforeach()
+# The key relay's address (relay/README.md): not a secret, so in plain text; relay/url.txt holds
+# it once the relay is deployed, and SNTV_KEY_RELAY set here wins over the file.
+set(SNTV_KEY_RELAY "" CACHE STRING "Key relay address, e.g. https://cuelight-keys.example.workers.dev")
+set(sntv_relay "${SNTV_KEY_RELAY}")
+if(sntv_relay STREQUAL "" AND EXISTS "${CMAKE_SOURCE_DIR}/relay/url.txt")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/relay/url.txt")
+  file(STRINGS "${CMAKE_SOURCE_DIR}/relay/url.txt" sntv_relay REGEX "^https://[^ \"]+$" LIMIT_COUNT 1)
+endif()
+string(REGEX REPLACE "/+$" "" sntv_relay "${sntv_relay}")
+if(NOT sntv_relay STREQUAL "")
+  string(APPEND SNTV_KEYS_H "#define SNTV_KEY_RELAY_URL \"${sntv_relay}\"\n")
+endif()
 file(WRITE "${CMAKE_BINARY_DIR}/generated/builtin_keys_data.h.new" "${SNTV_KEYS_H}")
 execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_BINARY_DIR}/generated/builtin_keys_data.h.new" "${CMAKE_BINARY_DIR}/generated/builtin_keys_data.h")
 target_include_directories(sntv_core PUBLIC "${CMAKE_BINARY_DIR}/generated")

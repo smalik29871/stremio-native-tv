@@ -912,6 +912,14 @@ grep -q "tracking: SimKL sign-in code SIM12" "$OUT/simkl_connect_v1.log" && grep
 run simkl_refresh 150 "" HOME="$(home_with simkl_ref '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"simklClientId":"scid","simklToken":"stok2","simklRefresh":"sref","simklExpires":1}')" SNTV_SIMKL_API=http://127.0.0.1:$PORT/simkl
 grep -q "tracking: SimKL token renewed" "$OUT/simkl_refresh.log" || { echo "the SimKL token was not renewed"; grep tracking "$OUT/simkl_refresh.log"; exit 1; }
 run detail_mdblist 260 "wait,ok,down" HOME="$(home_with mdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"mdblistKey":"k"}')" SNTV_MDBLIST_API=http://127.0.0.1:$PORT/mdblist
+# Without a key of the viewer's own, ratings come through Cuelight's key relay, the app sending no key
+run detail_mdblist_relay 260 "wait,ok,down" HOME="$(home_with mdbr '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay
+grep -q "^keyrelay mdblist /$" "$FAKE_TRACK_LOG" && ! grep -q "^keyrelay.*with a key" "$FAKE_TRACK_LOG" \
+  || { echo "MDBList ratings did not come through the key relay without a key"; grep keyrelay "$FAKE_TRACK_LOG"; exit 1; }
+# A relay with no key (or down) and none built in: ratings quietly stay away, asked for once
+run detail_mdblist_relay_down 260 "wait,ok,down" HOME="$(home_with mdbrd '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelaydown
+[ "$(grep -c "keyrelay: MDBList through the relay failed (503)" "$OUT/detail_mdblist_relay_down.log")" = 1 ] \
+  || { echo "a relay without a key was not left alone after one try"; grep keyrelay "$OUT/detail_mdblist_relay_down.log"; exit 1; }
 run transition_push 32 "right,ok" SNTV_NO_TRANSITIONS=
 # OK on a card: the title page grows out of it (fixed frame time so the capture lands mid-way)
 run transition_zoom 34 "right,ok" SNTV_NO_TRANSITIONS= SNTV_FRAME_DT=0.016
@@ -1087,6 +1095,11 @@ grep -q "subs: switching to file 1, it fits better" "$OUT/player_subs_bestfit.lo
 run player_subs_opensubs 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/bestfit/manifest.json HOME="$(home_with os '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"osApiKey":"oskey"}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_OPENSUBS_API=http://127.0.0.1:$PORT/os
 grep -q "subs: 2 from OpenSubtitles.com, one made for this file" "$OUT/player_subs_opensubs.log" && grep -q "opensubs: file 222, 4 downloads left today" "$OUT/player_subs_opensubs.log" \
   && ! grep -q "opensubs: file 111" "$OUT/player_subs_opensubs.log" || { echo "OpenSubtitles.com did not pick the file made for this video"; grep -E "subs|opensubs" "$OUT/player_subs_opensubs.log"; exit 1; }
+# The same through the key relay: no key of the viewer's own, the app sends none
+run player_subs_opensubs_relay 420 "right,ok,down,down,play,wait,wait,wait,wait,wait,down,down,ok" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/bestfit/manifest.json HOME="$(home_with osr '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_FAKE_START=200 SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay
+grep -q "subs: 2 from OpenSubtitles.com, one made for this file" "$OUT/player_subs_opensubs_relay.log" && grep -q "opensubs: file 222, 4 downloads left today" "$OUT/player_subs_opensubs_relay.log" \
+  && grep -q "^keyrelay opensubtitles /subtitles$" "$FAKE_TRACK_LOG" && grep -q "^keyrelay opensubtitles /download$" "$FAKE_TRACK_LOG" && ! grep -q "^keyrelay.*with a key" "$FAKE_TRACK_LOG" \
+  || { echo "OpenSubtitles.com did not work through the key relay without a key"; grep -E "subs|opensubs|keyrelay" "$OUT/player_subs_opensubs_relay.log"; grep keyrelay "$FAKE_TRACK_LOG"; exit 1; }
 AI='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}'
 # subtitle downloads that come late (the /latesubs addon's first English file takes 12 s): a
 # file chosen meanwhile, or Off, is not replaced by it; a choice made in the sheet stays across

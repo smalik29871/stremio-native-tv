@@ -1,4 +1,5 @@
 #include "builtin_keys.h"
+#include "keyrelay.h"
 #include "tracking.h"
 #include "app.h"
 #include "http.h"
@@ -54,6 +55,13 @@ static const char *trakt_secret(void)
     return v && *v ? v : built_in(TRACK_TRAKT, 1);
 }
 static const char *token(int svc) { const char *t = store_get_str(K_TOKEN[svc], ""); return t ? t : ""; }
+/* sign-ins and renewals go through the key relay, which adds the app's secret; a viewer's own
+   Trakt app keeps its own secret and goes direct */
+static const char *trakt_relay(void)
+{
+    const char *v = store_get_str("traktClientId", "");
+    return v && *v ? NULL : keyrelay_base(KR_TRAKT);
+}
 
 int tracking_configured(int svc) { return tracking_app_id(svc)[0] != 0; }   /* Trakt apps made today have no secret (PKCE) */
 int tracking_connected(int svc) { return tracking_configured(svc) && token(svc)[0]; }
@@ -85,7 +93,7 @@ static void request(int svc, const char *url, const char *post, HttpCallback cb,
 }
 
 /* ---- signing in ---- */
-typedef struct { int active, v2; char device[128], user_code[32]; double next, until; int interval; unsigned inflight; } SignIn;   /* v2: SimKL's OAuth 2.0 device flow */
+typedef struct { int active, v2, via; char device[128], user_code[32]; double next, until; int interval; unsigned inflight; } SignIn;   /* v2: SimKL's OAuth 2.0 device flow */
 static SignIn g_sign[TRACK_SERVICES];
 
 int tracking_pending(int svc) { return g_sign[svc].active; }
@@ -98,6 +106,7 @@ static void on_token(HttpResponse *r, void *user)
     SignIn *si = &g_sign[svc];
     si->inflight = 0;
     if (!si->active) return;
+    if (si->via) keyrelay_failed(KR_TRAKT, r->status);   /* the next poll goes direct then */
     cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const cJSON *at = cJSON_GetObjectItemCaseSensitive(j, "access_token");
     if (cJSON_IsString(at) && at->valuestring[0]) {
@@ -140,11 +149,13 @@ static void poll(int svc)
     SignIn *si = &g_sign[svc];
     char url[400];
     if (svc == TRACK_TRAKT) {
-        snprintf(url, sizeof url, "%s/oauth/device/token", trakt_api());
+        const char *via = trakt_relay();
+        snprintf(url, sizeof url, "%s/oauth/device/token", via ? via : trakt_api());
+        si->via = via != NULL;
         cJSON *b = cJSON_CreateObject();
         cJSON_AddStringToObject(b, "code", si->device);
         cJSON_AddStringToObject(b, "client_id", tracking_app_id(svc));
-        if (trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
+        if (!via && trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
         char *body = cJSON_PrintUnformatted(b);
         cJSON_Delete(b);
         char hdr[300]; headers_for(svc, hdr, sizeof hdr);
@@ -268,7 +279,7 @@ static int renew_due(int svc, double t)
 
 static void on_refresh(HttpResponse *r, void *user)
 {
-    (void)user;
+    if (user) keyrelay_failed(KR_TRAKT, r->status);   /* through the relay: the next try goes direct */
     g_refreshing = 0;
     cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const cJSON *at = cJSON_GetObjectItemCaseSensitive(j, "access_token"), *rt = cJSON_GetObjectItemCaseSensitive(j, "refresh_token");
@@ -294,14 +305,19 @@ static void refresh_trakt(void)
     cJSON *b = cJSON_CreateObject();
     cJSON_AddStringToObject(b, "refresh_token", rt);
     cJSON_AddStringToObject(b, "client_id", tracking_app_id(TRACK_TRAKT));
-    if (trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
+    const char *via = trakt_relay();
+    if (!via && trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
     cJSON_AddStringToObject(b, "redirect_uri", "http://localhost");   /* what the app registers; the device sign-in itself needs none */
     cJSON_AddStringToObject(b, "grant_type", "refresh_token");
     char *body = cJSON_PrintUnformatted(b);
     cJSON_Delete(b);
-    char url[300]; snprintf(url, sizeof url, "%s/oauth/token", trakt_api());
+    char url[300]; snprintf(url, sizeof url, "%s/oauth/token", via ? via : trakt_api());
     g_refreshing = 1;
-    request(TRACK_TRAKT, url, body, on_refresh, NULL);
+    if (via) {   /* the relay gets no sign-in token: a renewal needs none */
+        char hdr[300]; headers_for(TRACK_TRAKT, hdr, sizeof hdr);
+        HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 20, .deliver = 1 };
+        http_request_async_ex(url, &o, on_refresh, (void *)1);
+    } else request(TRACK_TRAKT, url, body, on_refresh, NULL);
     free(body);
 }
 
@@ -573,9 +589,15 @@ static const char *mdb_key(void)
     return "";
 #endif
 }
-int mdblist_enabled(void) { return mdb_key()[0] != 0; }
+/* without a key of the viewer's own, ratings come through the key relay, which adds the app's */
+static const char *mdb_relay(void)
+{
+    const char *v = store_get_str("mdblistKey", "");
+    return v && *v ? NULL : keyrelay_base(KR_MDBLIST);
+}
+int mdblist_enabled(void) { return mdb_key()[0] != 0 || mdb_relay(); }
 
-static struct { char imdb[24]; int state; char line[200]; double score[MDB_SOURCES]; } g_mdb[8];
+static struct { char imdb[24]; int state, via; char line[200]; double score[MDB_SOURCES]; } g_mdb[8];
 static int g_mdb_next;
 
 static void mdb_parse(int slot, const char *json)
@@ -608,9 +630,11 @@ static void mdb_parse(int slot, const char *json)
     cJSON_Delete(j);
 }
 
+static void mdb_ask(int slot);
 static void on_mdb(HttpResponse *r, void *user)
 {
     int slot = (int)(intptr_t)user;
+    if (g_mdb[slot].via && keyrelay_failed(KR_MDBLIST, r->status) && mdb_key()[0]) { mdb_ask(slot); return; }   /* again, direct */
     if (r->status == 200 && r->body) {
         char key[200]; snprintf(key, sizeof key, "mdblist://%s", g_mdb[slot].imdb);
         app_cache_put(key, r->body, r->len);
@@ -638,9 +662,18 @@ const char *mdblist_line(const char *imdb_id, const char *type)
     char key[200]; snprintf(key, sizeof key, "mdblist://%s", imdb_id);
     char *cached = app_cache_get(key, 3 * 24 * 3600);
     if (cached) { mdb_parse(slot, cached); free(cached); return g_mdb[slot].state == 2 ? g_mdb[slot].line : NULL; }
-    char url[300]; snprintf(url, sizeof url, "%s/?apikey=%s&i=%s", mdb_api(), mdb_key(), imdb_id);
-    http_request_async(url, NULL, on_mdb, (void *)(intptr_t)slot);
+    mdb_ask(slot);
     return NULL;
+}
+
+static void mdb_ask(int slot)
+{
+    const char *via = mdb_relay();
+    char url[300];
+    if (via) snprintf(url, sizeof url, "%s/?i=%s", via, g_mdb[slot].imdb);
+    else snprintf(url, sizeof url, "%s/?apikey=%s&i=%s", mdb_api(), mdb_key(), g_mdb[slot].imdb);
+    g_mdb[slot].via = via != NULL;
+    http_request_async(url, NULL, on_mdb, (void *)(intptr_t)slot);
 }
 
 /* ---- Trakt: how many watch a title, and how many right now ---- */

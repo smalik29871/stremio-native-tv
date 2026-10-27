@@ -149,10 +149,40 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # Cuelight's key relay (relay/src/worker.js) in front of the stand-ins below: it refuses a
+    # request that carries a key (the app must leave them to it), logs what it relayed and adds
+    # the key the way the worker does. /keyrelaydown/... has no key for anything (503).
+    def keyrelay(self, body):
+        p = self.path
+        if p.startswith("/keyrelaydown/"):
+            self.send(503, b'{"error":"this relay has no key"}')
+            return None
+        svc, _, rest = p[len("/keyrelay/"):].partition("/")
+        rest = "/" + rest
+        carried = (self.headers.get("Api-Key") or "apikey=" in rest or b"client_secret" in body)
+        with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+            f.write(f"keyrelay {svc} {rest.split('?')[0]}{' with a key' if carried else ''}\n".encode())
+        if carried:
+            self.send(400, b'{"error":"the app sent a key"}')
+            return None
+        if svc == "trakt":
+            return "/trakt" + rest
+        if svc == "mdblist":
+            return "/mdblist/?apikey=relayed&" + rest.partition("?")[2]
+        if svc == "opensubtitles":
+            self.headers["Api-Key"] = "oskey"
+            return "/os" + rest
+        self.send(404, b'{"error":"not a relayed request"}')
+        return None
+
     def do_POST(self):
         p = self.path
         n = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(n) if n else b""
+        if p.startswith("/keyrelay"):
+            p = self.keyrelay(body)
+            if p is None:
+                return
         if p.startswith("/torboxdown/"):   # TorBox down (see do_GET)
             return self.send(503, b'{"success":false,"error":"DOWN"}')
         # TorBox adding a torrent (a multipart form): hashes starting "cafe" are cached (id 77), others start downloading (78)
@@ -367,6 +397,10 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path
+        if p.startswith("/keyrelay"):
+            p = self.keyrelay(b"")
+            if p is None:
+                return
         # /notrailer/...: the same addon with no trailers in its metas (TMDB then has one)
         bestfit = p.startswith("/bestfit/")
         if bestfit:
