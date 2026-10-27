@@ -286,7 +286,7 @@ static void player_seek(double position)
 {
     if (g_live) g_live->watch.valid = 0;
     VideoInfo vi; video_info(&vi);
-    perf_playback_seek(vi.seek_version, vi.seek_supported && vi.first_frame);
+    perf_playback_seek(vi.seek_version, vi.seek_supported && vi.first_frame, position);
     video_seek(position);
 }
 #define PAUSE_REST 6.0f   /* seconds paused and untouched before the controls step aside */

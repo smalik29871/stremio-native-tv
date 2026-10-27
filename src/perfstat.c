@@ -89,15 +89,16 @@ static struct {
     double played, buffered, position;
     unsigned stalls, dropped, last_dropped, load, seeks, seek_version;
     Uint32 seek_at, seek_total, seek_max;
+    double seek_target;   /* a player that doesn't say when a seek is done: done when it plays on past here */
     int active, started, buffering, seeking;
 } g_playback;
 
 void perf_playback_begin(void) { memset(&g_playback, 0, sizeof g_playback); g_playback.active = 1; }
-void perf_playback_seek(unsigned presented, int supported)
+void perf_playback_seek(unsigned presented, int supported, double target)
 {
     if (!g_playback.active) return;
-    g_playback.seeking = supported;
-    g_playback.seek_version = presented; g_playback.seek_at = SDL_GetTicks();
+    g_playback.seeking = supported ? 1 : 2;   /* 2: told by the position playing on from the target */
+    g_playback.seek_version = presented; g_playback.seek_at = SDL_GetTicks(); g_playback.seek_target = target;
 }
 
 void perf_playback_sample(double position, float dt, int playing, int buffering, unsigned dropped, unsigned load, unsigned presented)
@@ -107,8 +108,10 @@ void perf_playback_sample(double position, float dt, int playing, int buffering,
     if (dropped >= g_playback.last_dropped) g_playback.dropped += dropped - g_playback.last_dropped;
     g_playback.last_dropped = dropped;
     if ((!playing && !buffering) || SDL_GetTicks() - g_playback.seek_at > 15000) g_playback.seeking = 0;
-    if (g_playback.seeking && presented != g_playback.seek_version) {
+    if ((g_playback.seeking == 1 && presented != g_playback.seek_version)
+        || (g_playback.seeking == 2 && playing && !buffering && position > g_playback.seek_target + 0.2 && position < g_playback.seek_target + 5)) {
         Uint32 took = SDL_GetTicks() - g_playback.seek_at;
+        if (g_playback.seeking == 2 && g_playback.seeks < 5) LOGI("playback: the seek to %.0f s plays on after %u ms", g_playback.seek_target, (unsigned)took);
         g_playback.seek_total += took; g_playback.seeks++;
         if (took > g_playback.seek_max) g_playback.seek_max = took;
         g_playback.seeking = 0;

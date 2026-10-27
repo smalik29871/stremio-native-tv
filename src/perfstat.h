@@ -24,7 +24,7 @@ void perf_start_phase(const char *phase);
 void perf_start_done(int ok);
 void perf_start_cancel(void);                       /* left before it played: not a start */
 void perf_playback_begin(void);
-void perf_playback_seek(unsigned presented, int supported);
+void perf_playback_seek(unsigned presented, int supported, double target);   /* target: where it goes (timed by it playing on from there where the player can't say) */
 void perf_playback_sample(double position, float dt, int playing, int buffering, unsigned dropped, unsigned load, unsigned presented);
 void perf_playback_end(void);
 void perf_report(char *out, size_t n);              /* lines for the screen and the log */
