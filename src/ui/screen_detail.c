@@ -61,6 +61,7 @@ typedef struct {
     MetaPreview preview;
     MetaItem meta; int has_meta;
     int loading; unsigned req; char error[400];
+    unsigned eps_req; int eps_tried;   /* Cinemeta's episodes asked for, when the addon's have no names of their own */
     int *seasons; int n_seasons; int season_idx;
     int *ep_index; int n_eps; int ep_focus;
     int range_focus;          /* on the season strip: -1 the season tabs, else a "1-10" chip of a long season */
@@ -357,6 +358,12 @@ static void select_season(Detail *d, int idx)
     int season = d->n_seasons ? d->seasons[idx] : -1;
     for (int i = 0; i < d->meta.n_videos; i++)
         if (d->n_seasons == 0 || d->meta.videos[i].season == season) d->ep_index[d->n_eps++] = i;
+    for (int i = 1; i < d->n_eps; i++)   /* by number, whatever order the addon listed them in (some put the newest first) */
+        for (int j = i; j > 0; j--) {
+            int a = d->meta.videos[d->ep_index[j - 1]].episode, b = d->meta.videos[d->ep_index[j]].episode;
+            if (a < 0 || b < 0 || a <= b) break;
+            int t = d->ep_index[j - 1]; d->ep_index[j - 1] = d->ep_index[j]; d->ep_index[j] = t;
+        }
     d->ep_focus = 0;
     d->focus_t = 0;
     d->range_focus = -1;
@@ -434,6 +441,41 @@ static void load_resume(Detail *d)
     else snprintf(d->resume_label, sizeof d->resume_label, "Resume from %s", t);
 }
 
+/* Episodes with no titles of their own (each named after the show, or nothing), as some
+ * catalog addons send them: a sign their episode list was made up, dates and all. */
+static int weak_episodes(const MetaItem *m)
+{
+    int n = 0, weak = 0;
+    for (int i = 0; i < m->n_videos; i++) {
+        const MetaVideo *v = &m->videos[i];
+        if (v->season == 0) continue;   /* specials aside */
+        n++;
+        if (!v->title || !v->title[0] || (m->p.name && !strcasecmp(v->title, m->p.name))) weak++;
+    }
+    return n >= 2 && weak == n;
+}
+
+static const char *cinemeta_base(void) { const char *e = getenv("SNTV_CINEMETA"); return e && *e ? e : "https://v3-cinemeta.strem.io"; }
+
+static void on_better_episodes(HttpResponse *r, void *user)
+{
+    Detail *d = user;
+    d->eps_req = 0;
+    MetaItem m = { 0 };
+    if (r->status != 200 || addon_parse_meta(r->body, &m) != 0) { LOGW("detail: Cinemeta's episodes for %s did not come (%ld)", d->preview.id, r->status); return; }
+    if (m.n_videos && !weak_episodes(&m)) {
+        LOGI("detail: %s's episodes had no names of their own; Cinemeta's %d used instead", d->preview.id, m.n_videos);
+        MetaVideo *old = d->meta.videos; int on = d->meta.n_videos;
+        d->meta.videos = m.videos; d->meta.n_videos = m.n_videos;
+        m.videos = old; m.n_videos = on;
+        app_remember_videos(d->preview.id, d->meta.videos, d->meta.n_videos);
+        compute_seasons(d);
+        load_resume(d);
+        app_redraw();
+    }
+    meta_item_free(&m);
+}
+
 static void on_meta(HttpResponse *r, void *user)
 {
     Detail *d = user;
@@ -457,6 +499,12 @@ static void on_meta(HttpResponse *r, void *user)
     compute_seasons(d);
     load_resume(d);
     for (int i = 0; i < n_buttons_d(d); i++) if (btn_at(d, i) == was) { d->btn = i; break; }
+    if (!d->eps_tried && !strncmp(d->preview.id, "tt", 2) && weak_episodes(&d->meta)) {
+        char url[300];
+        d->eps_tried = 1;
+        snprintf(url, sizeof url, "%s/meta/series/%s.json", cinemeta_base(), d->preview.id);
+        d->eps_req = http_request_async(url, NULL, on_better_episodes, d);
+    }
     app_redraw();
 }
 
@@ -1760,7 +1808,7 @@ static int key(Screen *s, KeyAction a)
             else if (d->season_idx > 0) select_season(d, d->season_idx - 1);
             return 1;
         case KEY_RIGHT:
-            if (d->range_focus >= 0) { if (d->range_focus < n_ranges(d) - 1) { d->range_focus++; focus_ep(d, d->range_focus * EP_RANGE); LOGI("detail: episodes from %d", d->ep_focus + 1); } }
+            if (d->range_focus >= 0) { if (d->range_focus < n_ranges(d) - 1) { d->range_focus++; focus_ep(d, d->range_focus * EP_RANGE); LOGI("detail: episodes from E%d", d->meta.videos[d->ep_index[d->ep_focus]].episode); } }
             else if (d->season_idx < d->n_seasons - 1) select_season(d, d->season_idx + 1);
             else if (n_ranges(d)) { d->range_focus = d->ep_focus / EP_RANGE; focus_ep(d, d->range_focus * EP_RANGE); }   /* on to the chips */
             return 1;
@@ -1945,6 +1993,7 @@ static void destroy(Screen *s)
 {
     Detail *d = s->st;
     if (d->req) http_cancel(d->req);
+    if (d->eps_req) http_cancel(d->eps_req);
     if (d->ask_req) ai_cancel(d->ask_req);
     if (d->sim_req) http_cancel(d->sim_req);
     meta_previews_free(d->similar, d->n_similar);

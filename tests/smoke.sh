@@ -1517,7 +1517,14 @@ SEEALL="$(home_with seeall '{"prefSubs":"eng","setupDone":1}')"; cp "$ROOT/tests
 run home_see_all 300 "wait,down,right,right,right,right,right,right,right,right,right,right,ok,wait" HOME="$SEEALL" SNTV_EXPECT_SCREEN=library
 # a long season: chips of ten beside the season tabs jump the episodes there
 run detail_ep_ranges 300 "right,ok,down,right,right" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/longseason/manifest.json HOME="$(home_with eprange '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
-grep -q "detail: episodes from 21" "$OUT/detail_ep_ranges.log" || { echo "the episode range chips did not jump"; grep detail "$OUT/detail_ep_ranges.log"; exit 1; }
+grep -q "detail: episodes from E21" "$OUT/detail_ep_ranges.log" || { echo "the episode range chips did not jump"; grep detail "$OUT/detail_ep_ranges.log"; exit 1; }
+# an addon listing a season newest first (16 episodes): shown by number, so the second chip starts at E11
+run detail_eps_order 300 "right,ok,down,right" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/neweps/manifest.json HOME="$(home_with epsorder '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "detail: episodes from E11" "$OUT/detail_eps_order.log" || { echo "a season listed newest first was not put in order"; grep detail "$OUT/detail_eps_order.log"; exit 1; }
+# an addon whose episodes are only the show's name (one date, no pictures): Cinemeta's episodes instead
+run detail_eps_weak 300 "right,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/weakeps/manifest.json SNTV_CINEMETA=http://127.0.0.1:$PORT HOME="$(home_with epsweak '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "detail: tt[0-9]*'s episodes had no names of their own; Cinemeta's [0-9]* used instead" "$OUT/detail_eps_weak.log" \
+  || { echo "an addon's nameless episodes were not replaced by Cinemeta's"; grep detail "$OUT/detail_eps_weak.log"; exit 1; }
 # your own rating: Rate on the title page opens the stars at 4; Right adds half a star, a tag, Save
 run rate_sheet 500 "right,right,ok,wait,right,right,right,right,right,right,ok,wait,right,down,right,ok" HOME="$(home_with rate_sheet '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run rate_title 600 "right,right,ok,wait,right,right,right,right,right,right,ok,wait,right,down,right,ok,down,ok,wait" HOME="$(home_with rate_title '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"

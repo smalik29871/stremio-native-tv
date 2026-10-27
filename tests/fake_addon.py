@@ -446,6 +446,12 @@ class H(BaseHTTPRequestHandler):
         longseason = p.startswith("/longseason/")   # one season of 26 episodes: its range chips
         if longseason:
             p = p[11:]
+        neweps = p.startswith("/neweps/")   # one season of 16 episodes, listed newest first
+        if neweps:
+            p = p[7:]
+        weakeps = p.startswith("/weakeps/")   # ...each named after the show, all on one date, no pictures (a catalog addon's made-up list)
+        if weakeps:
+            p = p[8:]
         scope = p.startswith("/scope/")   # its sources are scope films framed in 16:9 (black bars in the picture): the living letterbox
         if scope:
             p = p[6:]
@@ -855,6 +861,12 @@ class H(BaseHTTPRequestHandler):
             if p.startswith("/meta/series/") and longseason:
                 v0 = META["meta"]["videos"][0]
                 vids = [dict(v0, id=f"{mid}:1:{e}", season=1, episode=e, title=f"Chapter {e}", thumbnail=f"{BASE}/thumb/{e % 8}.png") for e in range(1, 27)]
+                return self.send(200, json.dumps({"meta": dict(META["meta"], videos=vids)}).encode())
+            if p.startswith("/meta/series/") and (neweps or weakeps):
+                v0 = META["meta"]["videos"][0]
+                show = META["meta"]["name"]
+                vids = [dict(v0, id=f"{mid}:1:{e}", season=1, episode=e, title=show if weakeps else f"Chapter {e}", released="2025-10-27T00:00:00.000Z",
+                             thumbnail=None if weakeps else f"{BASE}/thumb/{e % 8}.png") for e in range(16, 0, -1)]
                 return self.send(200, json.dumps({"meta": dict(META["meta"], videos=vids)}).encode())
             if p.startswith("/meta/series/"):
                 return self.send(200, json.dumps(META).encode())
