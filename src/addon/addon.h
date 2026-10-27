@@ -69,6 +69,7 @@ typedef struct MetaPreview {
     StrList genres;
     StrList cast;               /* names, when the meta addon lists them */
     StrList cast_photos, cast_roles;   /* parallel to cast when app_extras.cast had them ("" when not) */
+    int from_cinemeta;          /* a search result Cinemeta found: it leads its match tier and wins over the same title from others */
 } MetaPreview;
 
 typedef struct MetaVideo {

@@ -431,15 +431,26 @@ class H(BaseHTTPRequestHandler):
         manyhits = p.startswith("/manyhits/")   # an addon whose search answers with 200 films, none named like the words typed
         if manyhits:
             p = p[9:]
+        as_cinemeta = p.startswith("/cinemeta/")   # the same addon under Cinemeta's own id (com.linvo.cinemeta)
+        if as_cinemeta:
+            p = p[9:]
         slowsearch = p.startswith("/slowsearch/")   # an addon whose search answers after 2 s
         if slowsearch:
             p = p[11:]
         shiftsearch = p.startswith("/shiftsearch/")   # ...with a title of its own (Bravo Two Zero), which suggestions put first
         if shiftsearch:
             p = p[12:]
+        rival = p.startswith("/rival/")   # an addon whose search answers at once with a title of its own that matches as well as Cinemeta's
+        if rival:
+            p = p[6:]
         otherids = p.startswith("/otherids/")   # an addon whose search finds the same titles under ids of its own (tmdb:...), without their year
         if otherids:
             p = p[9:]
+        if as_cinemeta and p == "/manifest.json":
+            return self.send(200, json.dumps(dict(MANIFEST, id="com.linvo.cinemeta", name="Cinemeta")).encode())
+        if (rival or otherids) and p == "/manifest.json":   # addons of their own, not Cinemeta
+            name = "rival" if rival else "otherids"
+            return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv." + name, name=name.title())).encode())
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
@@ -849,6 +860,8 @@ class H(BaseHTTPRequestHandler):
                                                              "poster": f"{BASE}/poster/{k % 12 + 3}.png"} for k in range(200)]}).encode())
             if "search=" in p and noisy:   # an addon whose search answers with its whole catalog
                 return self.send(200, json.dumps(CATALOG).encode())
+            if "search=" in p and rival:
+                return self.send(200, json.dumps({"metas": [{"id": "tt7777777", "type": "series", "name": "Breaking Badly", "releaseInfo": "2019"}]}).encode())
             if "search=" in p and otherids:
                 q = p.split("search=")[1].split("&")[0].split(".json")[0].lower().replace("%20", " ")
                 return self.send(200, json.dumps({"metas": [{kk: vv for kk, vv in dict(m, id=f"tmdb:{900 + k}").items() if kk != "releaseInfo"}   # no year, as such addons send them

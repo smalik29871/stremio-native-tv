@@ -470,6 +470,11 @@ grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest.log" &
 run search_same_title 300 "search,t:breaking,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/otherids/manifest.json
 grep -q "search: 1 of them already shown under another addon's id" "$OUT/search_same_title.log" \
   || { echo "the same title from two addons was shown twice"; grep search "$OUT/search_same_title.log"; exit 1; }
+# Cinemeta answering last (2 s): its title still leads others that match as well, and its card
+# replaces the same title another addon found first under its own id
+run search_cinemeta_first 3000 "search,t:breaking$(printf ',wait%.0s' $(seq 1 24))" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/cinemeta/slowsearch/manifest.json,http://127.0.0.1:$PORT/rival/manifest.json,http://127.0.0.1:$PORT/otherids/manifest.json
+grep -q "search: Cinemeta's \"Breaking Bad\" in place of another addon's" "$OUT/search_cinemeta_first.log" && grep 'search: "' "$OUT/search_cinemeta_first.log" | tail -1 | grep -q '"Breaking Bad" first of 2' \
+  || { echo "Cinemeta's result did not lead"; grep search "$OUT/search_cinemeta_first.log"; exit 1; }
 run search_suggest_late 1500 "search,t:br,wait,up,up,up,up,up,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/shiftsearch/manifest.json
 grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest_late.log" && ! grep -q 'search: asking the addons for "bra"' "$OUT/search_suggest_late.log" \
   || { echo "results coming in moved the suggestions from under the cursor"; grep "search" "$OUT/search_suggest_late.log"; exit 1; }

@@ -30,7 +30,7 @@ typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
 enum { PICKS_MAX = 32, AI_TITLES = 16 };
-typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; int year, kind; } Pending;   /* kind: -1 any, 0 movie, 1 series */
+typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; int year, kind, cinemeta; } Pending;   /* kind: -1 any, 0 movie, 1 series */
 /* Every query of every Search gets its own number, never reused; a reply counts only when
  * its Search is still open and still on that query. A Search under another one (a cast
  * member's films opened from its results) keeps receiving its own answers, and one closed
@@ -226,8 +226,9 @@ static void regroup(Search *s)
     MetaPreview *tmp = malloc(sizeof *tmp * (size_t)s->n);
     unsigned char *tier = malloc((size_t)s->n);
     if (!tmp || !tier) { free(tmp); free(tier); return; }
-    /* the best matches first, whichever addon answered first; the group (movies, series)
-     * with the best match leads */
+    /* the best matches first, and among equal matches Cinemeta's (in its own order) before the
+     * other addons' (in the order they answered); the group (movies, series) with the best
+     * match leads */
     int order[3], n_order = 0, k = 0, count[3] = {0}, best[3] = {9, 9, 9};
     for (int i = s->n_picks; i < s->n; i++) {
         int g = kind_of(&s->results[i]), seen = 0;
@@ -241,7 +242,9 @@ static void regroup(Search *s)
         for (int i = j; i > 0 && best[order[i]] < best[order[i - 1]]; i--) { int t = order[i]; order[i] = order[i - 1]; order[i - 1] = t; }
     for (int j = 0; j < n_order; j++)
         for (int t = 0; t <= 4; t++)
-            for (int i = s->n_picks; i < s->n; i++) if (kind_of(&s->results[i]) == order[j] && tier[i] == t) tmp[k++] = s->results[i];
+            for (int c = 1; c >= 0; c--)
+                for (int i = s->n_picks; i < s->n; i++)
+                    if (kind_of(&s->results[i]) == order[j] && tier[i] == t && !!s->results[i].from_cinemeta == c) tmp[k++] = s->results[i];
     free(tier);
     memcpy(&s->results[s->n_picks], tmp, sizeof *tmp * (size_t)k);
     free(tmp);
@@ -364,11 +367,16 @@ static void on_result(HttpResponse *r, void *user)
         s->results = realloc(s->results, sizeof(MetaPreview) * (size_t)(s->n + n));
         int merged = 0;
         for (int i = 0; i < n; i++) {
+            metas[i].from_cinemeta = p->cinemeta;
             int dup = -1;
             for (int j = 0; j < s->n && dup < 0; j++) if (strcmp(s->results[j].id, metas[i].id) == 0) dup = j;
             if (dup < 0) for (int j = 0; j < s->n && dup < 0; j++) if (same_result(&s->results[j], &metas[i])) { dup = j; merged++; }
             if (dup < 0) { s->results[s->n++] = metas[i]; continue; }
-            if (strncmp(s->results[dup].id, "tt", 2) && !strncmp(metas[i].id, "tt", 2)) {   /* the one stream addons know (an IMDb id), in the first one's place */
+            const MetaPreview *was = &s->results[dup];
+            int better = metas[i].from_cinemeta ? !was->from_cinemeta   /* Cinemeta's card (it is the most accurate), else the one stream addons know (an IMDb id) */
+                                                : !was->from_cinemeta && strncmp(was->id, "tt", 2) && !strncmp(metas[i].id, "tt", 2);
+            if (better) {   /* in the first one's place */
+                if (metas[i].from_cinemeta) LOGI("search: Cinemeta's \"%s\" in place of another addon's", metas[i].name ? metas[i].name : "");
                 meta_preview_free(&s->results[dup]);
                 s->results[dup] = metas[i];
             } else meta_preview_free(&metas[i]);
@@ -412,6 +420,7 @@ static void search_addons(Search *s, const char *q, int pick, int rank, int year
             addon_url_catalog(ad, cat->type, cat->id, extra, url, sizeof url);
             Pending *p = calloc(1, sizeof *p);
             p->owner = s; p->generation = s->generation; p->pick = pick; p->rank = rank; p->year = year; p->kind = kind;
+            p->cinemeta = ad->manifest.id && !strcmp(ad->manifest.id, "com.linvo.cinemeta");
             snprintf(p->want, sizeof p->want, "%s", q);
             s->pending++;
             unsigned id = app_fetch_metas(url, 0, on_result, p);
