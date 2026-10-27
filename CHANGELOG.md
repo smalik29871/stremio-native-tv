@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.95
+
+- **Seek recovery on every TV.** Diagnostics > Speed now shows how long a seek takes to play on
+  again on the LG and Android TVs too (their players don't say when a seek is done; it counts
+  once the picture moves on past where it went). These numbers will set how Cue Party, watching
+  together, keeps TVs in step.
+
 ## 0.10.94
 
 - **Sources that play on your kind of TV come first.** When a TV plays a file through, or
