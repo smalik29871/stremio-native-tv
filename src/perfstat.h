@@ -11,6 +11,9 @@ void perf_mark(const char *name);                   /* a startup milestone; only
  * pixels it painted (the GPU's work: 1 is every pixel once). */
 void perf_frame(const char *screen, float work_ms, float total_ms, float fill);
 void perf_key(void);                                /* a key arrived */
+/* The screen's refresh period in ms, from the frames: the most common whole-frame time between
+ * 12 and 34 ms (a frame that kept up waited for the display that long); 16.7 until it is known. */
+float perf_frame_period_ms(void);
 void perf_shown(void);                              /* a frame reached the display */
 /* A stream start, from the press to the first frame: begin names how it was asked for
  * ("Play", "chosen", "next episode"); each phase closes the time since the last one

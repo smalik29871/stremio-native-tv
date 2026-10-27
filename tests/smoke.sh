@@ -559,7 +559,7 @@ grep -q "youtube test: visionOS answered | its files 1080p video and audio open 
   || { echo "the YouTube test did not report or play"; grep -E "youtube|player: candidate" "$OUT/diagnostics_youtube.log"; exit 1; }
 # Diagnostics > Speed: startup milestones, key-to-screen time and frame cost per screen
 run diagnostics_speed 760 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,wait,right,wait"
-grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms, .*slowest [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -qE "speed:   home .* ms   [0-9]+ \([0-9]+ late" "$OUT/diagnostics_speed.log" \
+grep -q "speed: Startup: window .*first frame" "$OUT/diagnostics_speed.log" && grep -q "speed: Startup: .*first row" "$OUT/diagnostics_speed.log" && grep -q "speed: Screen: about [0-9]* refreshes a second" "$OUT/diagnostics_speed.log" && grep -q "speed: Key to screen: typical [0-9]* ms, .*slowest [0-9]* ms" "$OUT/diagnostics_speed.log" && grep -qE "speed:   home .* ms   [0-9]+ \([0-9]+ late" "$OUT/diagnostics_speed.log" \
   || { echo "the Speed tab did not measure"; grep speed: "$OUT/diagnostics_speed.log"; exit 1; }
 run diagnostics_filter 560 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,left,left"
 run diagnostics_qr 540 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,down,down,down,down,down,down,down,ok,ok"
@@ -925,6 +925,15 @@ grep -q "input: the focus is travelling" "$OUT/home_travel.log" || { echo "a hel
 # Automatic effects follow the frame times both ways: slow frames drop to light, quick ones bring full back
 run fx_adapt 1200 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="40x100,17"   # 17 ms: a frame that waited for a 60 Hz screen HOME="$(home_with fxa '{"setupDone":1,"fx":0}')"
 grep -q "perf: frames slow .* -> light effects" "$OUT/fx_adapt.log" && grep -q "perf: light effects keep up with the screen .* -> full effects" "$OUT/fx_adapt.log" || { echo "automatic effects did not follow the frame times"; grep "perf:" "$OUT/fx_adapt.log"; exit 1; }
+# a 50 Hz TV (the LG measured: a frame that keeps up is ~21 ms) on light effects with Home's mix of
+# kept-up frames and one late in ten: it tries full effects; the refresh is measured, not assumed
+run fx_50hz_home 900 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="21,21,21,21,21,21,21,21,21,41" HOME="$(home_with fx50 '{"setupDone":1,"fx":0,"fxAutoLight":1}')"
+grep -q "perf: light effects keep up with the screen (.* a refresh is 21 ms) -> full effects" "$OUT/fx_50hz_home.log" || { echo "a 50 Hz TV keeping up on light effects did not try full"; grep "perf:" "$OUT/fx_50hz_home.log"; exit 1; }
+# full effects that miss two refreshes in three on that TV: back to light, and the failed try is kept
+FXS="$(home_with fx50slow '{"setupDone":1,"fx":0,"fxAutoLight":0,"fxFullTried":1}')"
+run fx_50hz_slow 700 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="21,41,41" HOME="$FXS"
+grep -q "perf: frames slow (.* a refresh is 21 ms; twice in a row) -> light effects" "$OUT/fx_50hz_slow.log" && grep -rqE '"fxFullTries":[[:space:]]*1' "$FXS/.local/share/stremio/nativetv/" \
+  || { echo "too-slow full effects on a 50 Hz TV did not go back to light, or the failed try was not kept"; grep "perf:" "$OUT/fx_50hz_slow.log"; exit 1; }
 # a TV saved on light effects whose frames keep up with a 60 Hz screen (17 ms with the wait for it) goes back to full
 run fx_stuck 700 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="17" HOME="$(home_with fxs '{"setupDone":1,"fx":0,"fxAutoLight":1}')"
 grep -q "perf: light effects keep up with the screen .* -> full effects" "$OUT/fx_stuck.log" || { echo "a TV kept on light effects never went back to full"; grep "perf:" "$OUT/fx_stuck.log"; exit 1; }

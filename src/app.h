@@ -307,6 +307,7 @@ int  app_restore_settings(const char *json);
 void app_play_link(const char *url);
 void app_play_named(const char *url, const char *name);   /* a link with a name to show */
 void app_note_frame(float ms);          /* feeds the Auto effects level */
+float app_test_frame_ms(float ms);      /* tests: SNTV_FAKE_FRAME_MS in place of the measured time */
 void app_redraw(void);                  /* request a frame even when idle */
 void app_library_flush(int force);
 /* Raw meta JSON for a title, shared by Home (synopsis) and Detail; get returns a copy or NULL. */

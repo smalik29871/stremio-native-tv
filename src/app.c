@@ -2333,14 +2333,14 @@ void app_save_prefs(void)
     g_app.fx_light = g_app.fx_setting == FX_LIGHT || (g_app.fx_setting == FX_AUTO && store_get_int("fxAutoLight", 0));
 }
 
-/* Auto effects, all along: drawn frames averaged in windows of 120. Two slow windows in a
- * row (over 25 ms: the TV can't hold ~40 fps) drop to light effects; light ones that keep up
- * with the screen, for longer, bring full effects back (a frame includes the wait for the
- * display, so one that keeps up is ~17 ms at 60 Hz, never less: "keeps up" is hardly any
- * frame missing a refresh). The gap between the two, and a longer
- * wait after a return that failed, keep it from flipping back and forth; a change waits
- * for a pause in the keys so it never lands mid-scroll. The player and the screensaver
- * draw video and are not counted. */
+/* Auto effects, all along: drawn frames averaged in windows of 120, judged against the screen's
+ * own refresh (measured from the frames: 60 Hz is ~17 ms, 50 Hz ~20 ms; a frame includes the wait
+ * for the display, so one that keeps up takes about that). Two windows averaging over 1.5
+ * refreshes (most frames missing one) drop to light effects; light averaging under 1.25 (mostly
+ * keeping up) for a while tries full again. A try that fails makes the next wait longer, and that
+ * is kept between launches, so a TV that can't hold full effects is not flipped every start. A
+ * change waits for a pause in the keys; the player and the screensaver draw video and are not
+ * counted. */
 static int fx_measure_window(void)
 {
     static int w;
@@ -2348,59 +2348,64 @@ static int fx_measure_window(void)
     return w;
 }
 
-static float fake_frame_ms(float ms)   /* tests: SNTV_FAKE_FRAME_MS="40x200,6" (40 ms for 200 frames, then 6) */
+/* tests: SNTV_FAKE_FRAME_MS stands in for the measured frame times. "40x200,6": 40 ms for 200
+ * frames, then 6; "21,21,41": those, over and over (a TV's mix of kept-up and late frames). */
+float app_test_frame_ms(float ms)
 {
-    static int parsed, first_n; static float first = -1, then = -1; static int seen;
+    static int parsed, n_list, first_n, seen; static float list[32], first = -1, then = -1;
     if (!parsed) {
         parsed = 1;
         const char *e = getenv("SNTV_FAKE_FRAME_MS");
-        if (e && *e) { first = (float)atof(e); const char *x = strchr(e, 'x'); first_n = x ? atoi(x + 1) : 1 << 30; const char *c = strchr(e, ','); then = c ? (float)atof(c + 1) : first; }
+        if (e && *e && strchr(e, 'x')) { first = (float)atof(e); first_n = atoi(strchr(e, 'x') + 1); const char *c = strchr(e, ','); then = c ? (float)atof(c + 1) : first; }
+        else if (e && *e) for (const char *p = e; *p && n_list < 32; p = strchr(p, ',') ? strchr(p, ',') + 1 : p + strlen(p)) list[n_list++] = (float)atof(p);
     }
+    if (n_list) return list[seen++ % n_list];
     if (first < 0) return ms;
     return seen++ < first_n ? first : then;
 }
 
 void app_note_frame(float ms)
 {
-    static int n, late, slow_runs, fast_runs, need_fast = 4, want = -1, restored;
+    static int n, slow_runs, fast_runs, want = -1;
     static float sum, last_avg;
     static int adapt = -1;
     if (adapt < 0) { const char *e = getenv("SNTV_FX_ADAPT"); adapt = !(e && *e == '0'); }   /* tests: off, so a busy test machine does not change what a run sees */
-    if (g_app.fx_setting != FX_AUTO || !adapt) { n = late = 0; sum = 0; slow_runs = fast_runs = 0; want = -1; return; }
+    if (g_app.fx_setting != FX_AUTO || !adapt) { n = 0; sum = 0; slow_runs = fast_runs = 0; want = -1; return; }
     if (g_app.time < 3.0f) return;   /* skip startup */
     Screen *top = app_top();
     if (top && (!strcmp(top->name, "player") || !strcmp(top->name, "ambient"))) return;
-    ms = fake_frame_ms(ms);
     g_app.frames_measured++;
     g_app.frame_ms_sum += ms;
     if (ms > g_app.frame_ms_worst) g_app.frame_ms_worst = ms;
     sum += ms;
-    late += ms > 25.0f;   /* past a second refresh at 60 Hz */
     if (++n >= fx_measure_window()) {
+        float period = perf_frame_period_ms();
         last_avg = sum / n;
-        int keeps_up = late * 20 <= n && last_avg < 20.0f;   /* 1 in 20 at most missed a refresh */
-        n = 0; sum = 0; late = 0;
+        n = 0; sum = 0;
         if (!g_app.fx_light) {
             fast_runs = 0;
-            slow_runs = last_avg > 25.0f ? slow_runs + 1 : 0;
+            slow_runs = last_avg > 1.5f * period ? slow_runs + 1 : 0;
             if (slow_runs >= 2) want = 1;
         } else {
+            int tries = store_get_int("fxFullTries", 0), need = 4 << (tries < 4 ? tries : 4);   /* 4 windows, 8 after a failed try ... 64 */
             slow_runs = 0;
-            fast_runs = keeps_up ? fast_runs + 1 : 0;
-            if (fast_runs >= need_fast && mem_stage() < 2) want = 0;   /* not while memory holds it light */
+            fast_runs = last_avg < 1.25f * period ? fast_runs + 1 : 0;
+            if (fast_runs >= need && mem_stage() < 2) want = 0;   /* not while memory holds it light */
         }
     }
     if (want < 0 || want == g_app.fx_light || g_app.time - g_app.last_input < 1.5f) return;
+    float period = perf_frame_period_ms();
     if (want) {
-        if (restored && need_fast < 64) need_fast *= 2;   /* full effects did not last: longer before the next try */
-        LOGI("perf: frames slow (%.1f ms average, twice in a row) -> light effects", last_avg);
+        if (store_get_int("fxFullTried", 0)) { store_set_int("fxFullTries", store_get_int("fxFullTries", 0) + 1); store_set_int("fxFullTried", 0); }   /* full did not last: longer before the next try */
+        LOGI("perf: frames slow (%.1f ms average, a refresh is %.0f ms; twice in a row) -> light effects", last_avg, period);
     } else {
-        restored = 1;
-        LOGI("perf: light effects keep up with the screen (%.1f ms average, %d times) -> full effects", last_avg, fast_runs);
+        store_set_int("fxFullTried", 1);
+        LOGI("perf: light effects keep up with the screen (%.1f ms average, a refresh is %.0f ms) -> full effects", last_avg, period);
     }
     g_app.fx_light = want;
     want = -1; slow_runs = fast_runs = 0;
-    if (g_app.fx_light != store_get_int("fxAutoLight", 0)) { store_set_int("fxAutoLight", g_app.fx_light); store_save(); }
+    store_set_int("fxAutoLight", g_app.fx_light);
+    store_save();
     app_redraw();
 }
 
@@ -2767,7 +2772,7 @@ int app_restore_settings(const char *json)
  * With `with_look` its look and choices come too, and its sign-ins win where both have one. */
 
 static const char *const SYNC_DEVICE[] = { "tvCaps", "setupDone", "seenVersion", "updateHowToldFor", "updateNoInstaller", "updateToldFor",
-    "memoryMode", "fx", "fxAutoLight", "resCap", "ytPlays", "srcHealth", "deadLinks", "newEpSeen", "trackMemory", "homeFirstView",
+    "memoryMode", "fx", "fxAutoLight", "fxFullTries", "fxFullTried", "resCap", "ytPlays", "srcHealth", "deadLinks", "newEpSeen", "trackMemory", "homeFirstView",
     "localAddons", "local_addons", "user", "signinsShared",
     "streamingServer",   /* often 127.0.0.1: this device itself */
     /* Trakt and SimKL: each renewal replaces the refresh token, so two devices sharing one

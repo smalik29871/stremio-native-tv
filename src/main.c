@@ -1219,13 +1219,13 @@ int main(int argc, char **argv)
             Uint32 swap_at = SDL_GetTicks();
             gfx_end_frame();
             Uint32 end = SDL_GetTicks(), spent = end - now;
-            float fill, heavy;
+            float fill, heavy, whole = app_test_frame_ms((float)spent);
             gfx_frame_fill(&fill, &heavy);
-            perf_frame(top ? top->name : "none", (float)(swap_at - now), (float)spent, fill);
+            perf_frame(top ? top->name : "none", (float)(swap_at - now), whole, fill);
             if (g_perf_fill && frame % 30 == 0) LOGI("perf: %s fills %.2f screens (%.2f blurs, depth, shadows), %d calls, %u ms", top ? top->name : "none", fill, heavy, gfx_draw_calls(), swap_at - now);
             perf_mark("first frame");
             perf_shown();
-            app_note_frame((float)spent);
+            app_note_frame(whole);
             if (frame == 120) LOGI("perf: %d draw calls, %u ms frame", gfx_draw_calls(), spent);
             /* A swap that waited for the display already paced the frame; sleeping on top of
              * it only delays the next key. Cap the rate only when the swap returned at once. */

@@ -60,6 +60,18 @@ void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
 
 void perf_key(void) { if (!g_key_at) g_key_at = SDL_GetTicks(); }
 
+float perf_frame_period_ms(void)
+{
+    unsigned best = 0, n = 0; int at = 0;
+    for (int b = 12; b <= 34; b++) {
+        unsigned c = 0;
+        for (int i = 0; i < g_n_screens; i++) c += g_screens[i].total.bins[b];
+        n += c;
+        if (c > best) { best = c; at = b; }
+    }
+    return n >= 60 && at ? (float)at : 16.7f;
+}
+
 void perf_shown(void)
 {
     if (!g_key_at) return;
@@ -125,6 +137,7 @@ void perf_report(char *out, size_t n)
     for (int i = 0; i < g_n_marks; i++) ADD("%s %s %.1f s", i ? "," : "", g_marks[i].name, g_marks[i].at / 1000.0);
     if (!g_n_marks) ADD(" not measured");
     ADD("\n");
+    { float p = perf_frame_period_ms(); ADD("Screen: about %.0f refreshes a second (%.0f ms a frame, from the frame times)\n", 1000.0f / p, p); }
     if (g_keys.n) ADD("Key to screen: typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms, %u keys\n", hist_pct(&g_keys, 0.5f), hist_pct(&g_keys, 0.95f), g_keys.max, g_keys.n);
     else ADD("Key to screen: no keys yet\n");
     if (g_n_starts) {
