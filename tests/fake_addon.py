@@ -157,7 +157,21 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/keyrelaydown/"):
             self.send(503, b'{"error":"this relay has no key"}')
             return None
+        shared = p.startswith("/keyrelayglow/")   # a relay that has the letterbox's colours of every file
+        if shared:
+            p = "/keyrelay/" + p[len("/keyrelayglow/"):]
         svc, _, rest = p[len("/keyrelay/"):].partition("/")
+        if svc == "glow":   # the letterbox's colours of a film's cuts, by the file's hash
+            with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                f.write(f"keyrelay glow {self.command} {rest}{' ' + str(body.count(chr(10).encode())) + ' cuts' if body else ''}\n".encode())
+            if self.command == "POST":
+                self.send(200, b'{"cuts":1}')
+            elif shared:   # the scope film's cuts (see /thumbs/keyframes), each its own colour
+                cuts = [2.5, 6.25, 11.0, 17.5, 24.0, 33.0, 41.5, 47.0, 58.0, 64.5]
+                self.send(200, ("ar 2.41\n" + "".join(f"{c:.2f} {(f'{40 + 20 * i:02x}3020' * 8)}\n" for i, c in enumerate(cuts))).encode(), "text/plain")
+            else:
+                self.send(404, b'{"error":"none for this file yet"}')
+            return None
         rest = "/" + rest
         carried = (self.headers.get("Api-Key") or "apikey=" in rest or "api_key=" in rest or b"client_secret" in body)
         with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:

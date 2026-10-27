@@ -11,6 +11,7 @@
 #include "../memwatch.h"
 #include "../http.h"
 #include "../image.h"
+#include "../keyrelay.h"
 #include "../frames.h"
 #include "../phone.h"
 #include "../torrent.h"
@@ -127,6 +128,10 @@ struct Player {
     double lb_keys[64]; int lb_nkeys, lb_keys_state; double lb_keys_from;   /* the film's cuts ahead (keyframes): 0 not asked, 1 asking, 2 known, 3 none */
     double lb_shown;                       /* the time of the frame in the bars (-1 none) */
     int lb_cuts_logged;
+    /* the bars' colours at each cut, shared through the relay by the file (see glow_tick):
+       those that came (times in order, "rgb:" pictures' colours in hex), and those seen here */
+    int glow_asked, glow_n; double *glow_t; char (*glow_hex)[IMAGE_GRID_BYTES * 2 + 1]; float glow_ar;   /* (and the picture's shape, bars baked in or not) */
+    int rec_n; double *rec_t; unsigned char (*rec_rgb)[IMAGE_GRID_BYTES];
     float ov_k, ov_kt;        /* the TV overlay the same way: it fades in, the bar rising into place */
     int tch, tch_seeking, tch_moved;   /* a finger: 1 on the bar, 2 on the picture; seeking with it; it moved */
     int tch_fast; float tch_at;        /* held still on the picture: playing at double speed until it lifts; when it went down */
@@ -1249,8 +1254,117 @@ static unsigned seek_thumb(const Player *p, double t, int *w, int *h, int prefet
  * fading from one frame to the next. A few redraws a second, never every frame. ---- */
 #define LB_STEP 5        /* a frame of the film every 5 s, where the file lists no keyframes */
 
+/* ---- the bars' colours, shared: a TV that played a file sends the colours its bars took at
+ * each cut (4 x 2 of them, a few dozen bytes a cut) to the relay under the file's hash; the
+ * next to play that file gets them at the start, and the bars change at its cuts with no frame
+ * fetched or decoded here (the slow part on a TV). Only colours and times go, and the hash,
+ * never a link. ---- */
+#define GLOW_MAX 6000   /* cuts kept for a file: a long film's, a cut every two seconds or more */
+
+static int glow_find(const Player *p, double t)   /* the last shared cut at or before t, -1 none */
+{
+    int lo = 0, hi = p->glow_n - 1, at = -1;
+    while (lo <= hi) { int mid = (lo + hi) / 2; if (p->glow_t[mid] <= t) { at = mid; lo = mid + 1; } else hi = mid - 1; }
+    return at;
+}
+
+static int glow_covers(const Player *p, double pos) { return p->glow_n > 0 && pos <= p->glow_t[p->glow_n - 1] + 10; }
+
+typedef struct { Player *owner; unsigned gen; int cur; } GlowReq;
+static void on_glow(HttpResponse *r, void *user)
+{
+    GlowReq *q = user;
+    Player *p = q->owner;
+    int current = p == g_live && q->gen == p->gen && q->cur == p->cur;
+    free(q);
+    if (keyrelay_failed(KR_GLOW, r->status) || !current) return;
+    if (r->status != 200 || !r->body) { LOGI("player: no shared colours for this file yet (%ld)", r->status); return; }
+    int n = 0;
+    for (const char *c = r->body; *c; c++) if (*c == '\n') n++;
+    if (n > GLOW_MAX) n = GLOW_MAX;
+    p->glow_t = malloc(sizeof *p->glow_t * (size_t)(n + 1));
+    p->glow_hex = malloc(sizeof *p->glow_hex * (size_t)(n + 1));
+    if (!p->glow_t || !p->glow_hex) { free(p->glow_t); free(p->glow_hex); p->glow_t = NULL; p->glow_hex = NULL; return; }
+    int got = 0;
+    float ar = 0;
+    if (sscanf(r->body, "ar %f", &ar) == 1 && ar > 0.5f && ar < 4) p->glow_ar = ar;
+    for (const char *c = r->body; *c && got < n; ) {
+        double t; char hex[IMAGE_GRID_BYTES * 2 + 1]; int used = 0;
+        if (sscanf(c, "%lf %48[0-9a-f]%n", &t, hex, &used) == 2 && strlen(hex) == IMAGE_GRID_BYTES * 2 && t >= 0 && (!got || t > p->glow_t[got - 1])) {
+            p->glow_t[got] = t; memcpy(p->glow_hex[got], hex, sizeof hex); got++;
+        }
+        const char *e = strchr(c, '\n');
+        if (!e) break;
+        c = e + 1;
+    }
+    p->glow_n = got;
+    LOGI("player: the bars' colours for this file came from the relay (%d cuts, to %.0f s)", got, got ? p->glow_t[got - 1] : 0);
+    app_redraw();
+}
+
+/* Once the file's hash is known: its shared colours, if any (asked before the bars are known:
+ * a film framed with them baked in shows them only in its frames, or in what was shared). */
+static void glow_tick(Player *p)
+{
+    if (p->glow_asked || p->trailer || g_app.living_letterbox == LB_OFF || p->hash_state != 3) return;
+    p->glow_asked = 1;
+    const char *base = keyrelay_base(KR_GLOW);
+    if (!base) return;
+    char url[400];
+    snprintf(url, sizeof url, "%s/%s", base, p->os_hash);
+    GlowReq *q = malloc(sizeof *q);
+    q->owner = p; q->gen = p->gen; q->cur = p->cur;
+    http_request_async(url, NULL, on_glow, q);
+}
+
+/* A cut's colours as the bars took them from its frame here, to share. */
+static void glow_record(Player *p, double t, const char *frame_url)
+{
+    unsigned char rgb[IMAGE_GRID_BYTES];
+    if (p->trailer || !strncmp(frame_url, "rgb:", 4) || !image_grid(frame_url, rgb)) return;
+    for (int i = p->rec_n - 1; i >= 0 && i >= p->rec_n - 8; i--) if (fabs(p->rec_t[i] - t) < 0.005) return;   /* back over the same cut */
+    if (!p->rec_t) {
+        p->rec_t = malloc(sizeof *p->rec_t * GLOW_MAX); p->rec_rgb = malloc(sizeof *p->rec_rgb * GLOW_MAX);
+        if (!p->rec_t || !p->rec_rgb) { free(p->rec_t); free(p->rec_rgb); p->rec_t = NULL; p->rec_rgb = NULL; return; }
+    }
+    if (p->rec_n >= GLOW_MAX) return;
+    p->rec_t[p->rec_n] = t; memcpy(p->rec_rgb[p->rec_n], rgb, sizeof rgb); p->rec_n++;
+}
+
+static void on_glow_sent(HttpResponse *r, void *user) { (void)user; keyrelay_failed(KR_GLOW, r->status); }
+
+/* What was seen of this file goes to the relay (it adds it to what it has): when the file
+ * changes, and when the player closes. A handful of cuts is not worth sending. */
+static void glow_send(Player *p)
+{
+    int n = p->rec_n;
+    p->rec_n = 0;
+    const char *base = n >= 5 && p->hash_state == 3 ? keyrelay_base(KR_GLOW) : NULL;
+    if (!base) return;
+    char *body = malloc((size_t)n * (12 + IMAGE_GRID_BYTES * 2 + 2) + 16), *w = body;
+    if (!body) return;
+    if (p->lb_ar > 0 && p->lb_ar_cur == p->cur + 1) w += sprintf(w, "ar %.2f\n", p->lb_ar);   /* the picture's shape the frames showed */
+    for (int i = 0; i < n; i++) {
+        w += sprintf(w, "%.2f ", p->rec_t[i]);
+        for (int k = 0; k < IMAGE_GRID_BYTES; k++) w += sprintf(w, "%02x", p->rec_rgb[i][k]);
+        *w++ = '\n';
+    }
+    *w = 0;
+    char url[400];
+    snprintf(url, sizeof url, "%s/%s", base, p->os_hash);
+    HttpOptions o = { .post_json = body, .headers = "Content-Type: text/plain", .timeout_s = 10, .deliver = 1 };
+    http_request_async_ex(url, &o, on_glow_sent, NULL);
+    LOGI("player: the bars' colours of %d cuts go to the relay for this file", n);
+    free(body);
+}
+
 static int lb_frame_url(const Player *p, double sec, char *url, size_t n)
 {
+    if (sec < 0) return 0;   /* before the first shared cut: nothing yet */
+    if (glow_covers(p, sec)) {   /* a shared cut: its colours are the picture */
+        int k = glow_find(p, sec + 0.005);
+        if (k >= 0 && fabs(p->glow_t[k] - sec) < 0.01) { snprintf(url, n, "rgb:4x2:%s", p->glow_hex[k]); return 1; }
+    }
     if (p->cur >= p->n_cands || !p->cands[p->cur].url || strncmp(p->cands[p->cur].url, "http", 4) != 0) return 0;
     char enc[1600], rel[1800];
     http_url_encode(p->cands[p->cur].url, enc, sizeof enc);
@@ -1300,6 +1414,11 @@ static void lb_ask_keys(Player *p, double from)
  * grid when the file has no keyframe list. */
 static double lb_pick(Player *p, double pos, double gap, double *next)
 {
+    if (glow_covers(p, pos)) {   /* the shared cuts: the last reached, and the next */
+        int k = glow_find(p, pos + 0.05);
+        *next = k + 1 < p->glow_n ? p->glow_t[k + 1] : (k >= 0 ? p->glow_t[k] : pos) + LB_STEP;
+        return k >= 0 ? p->glow_t[k] : -1;   /* before the first: none yet */
+    }
     if (p->lb_keys_state == 2 && p->lb_nkeys && pos > p->lb_keys[p->lb_nkeys - 1] - 2 * gap && p->lb_nkeys == 64)
         lb_ask_keys(p, pos);   /* nearly through the list: the next stretch */
     if (p->lb_keys_state == 2 && p->lb_nkeys && pos >= p->lb_keys_from) {
@@ -1540,8 +1659,9 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
 #else
     unsigned glow = 0;
 #endif
-    int starting = p->lb_none == p->cur + 1 || g_app.time - p->load_started <= 3, frames = paint && !glow && !p->lb_slow && !g_app.fx_light;
-    if (frames && !starting && !p->lb_keys_state) lb_ask_keys(p, pos > 1 ? pos - 1 : 0);
+    int shared = glow_covers(p, pos), slow = p->lb_slow && !shared;   /* too slow for frames here: the shared colours need none */
+    int starting = p->lb_none == p->cur + 1 || g_app.time - p->load_started <= 3, frames = paint && !glow && !slow && !g_app.fx_light;
+    if (frames && !starting && !p->lb_keys_state && !shared) lb_ask_keys(p, pos > 1 ? pos - 1 : 0);
     double gap = vi->width >= 3000 ? 4.0 : 2.0;   /* a 4K film's keyframes are big: not so often */
     double s1, s0 = lb_pick(p, pos, gap, &s1);
     p->lb_next_t = s1;
@@ -1559,7 +1679,8 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
         if (p->lb_asked[0] && (image_failed(p->lb_asked) || g_app.time - p->lb_ask_at > 20)) { p->lb_asked[0] = 0; lb_timed(p, -1); }   /* it will not come */
         if (!now_t && !lazy && !image_failed(u0) && strcmp(u0, p->lb_asked) != 0) { snprintf(p->lb_asked, sizeof p->lb_asked, "%s", u0); p->lb_ask_at = g_app.time; }   /* not ready: wanted from now */
         if (now_t && p->lb_asked[0] && !strcmp(u0, p->lb_asked)) { lb_timed(p, g_app.time - p->lb_ask_at); p->lb_asked[0] = 0; }
-        if (now_t && strcmp(u0, p->lb_last) != 0 && p->lb_last[0] && p->lb_keys_state == 2 && pos - s0 > LB_LATE_S && !seeking) {
+        shared = !strncmp(u0, "rgb:", 4);
+        if (now_t && strcmp(u0, p->lb_last) != 0 && p->lb_last[0] && p->lb_keys_state == 2 && !shared && pos - s0 > LB_LATE_S && !seeking) {
             /* it came after its cut: shown now it would trail the picture, so the light stays
              * as it is until the next cut that is ready in time */
             if (p->lb_late_n++ < 3) LOGI("player: the bars' frame for the cut at %.2f s came %.1f s late: not shown", s0, pos - s0);
@@ -1569,9 +1690,10 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
             snprintf(p->lb_prev, sizeof p->lb_prev, "%s", p->lb_last);
             snprintf(p->lb_last, sizeof p->lb_last, "%s", u0);
             p->lb_swap_at = g_app.time;
-            p->lb_fade = p->lb_keys_state == 2 ? LB_FADE_CUT : LB_FADE_DRIFT;
+            p->lb_fade = p->lb_keys_state == 2 || shared ? LB_FADE_CUT : LB_FADE_DRIFT;
             p->lb_shown = s0;
-            if (p->lb_keys_state == 2 && p->lb_cuts_logged < 3) { p->lb_cuts_logged++; LOGI("player: the bars follow the cut at %.2f s", s0); }
+            if ((p->lb_keys_state == 2 || shared) && p->lb_cuts_logged < 3) { p->lb_cuts_logged++; LOGI("player: the bars follow the %scut at %.2f s", shared ? "shared " : "", s0); }
+            if (p->lb_keys_state == 2 && !shared) glow_record(p, s0, u0);
         }
         if (p->lb_last[0]) t0 = image_peek_ex(p->lb_last, IMAGE_MIPMAP, &w0, &h0);
     }
@@ -1582,7 +1704,9 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     else if (t0 && image_peek_ex(p->lb_last, IMAGE_PLAIN, &w0, &h0) && h0 > 0) ar = (float)w0 / h0;   /* the mipmapped copy is padded square-ish */
     if (t0) image_content_box(p->lb_last, box);
     if (ar > 0 && box[3] - box[1] > 0.2f && box[2] - box[0] > 0.2f) ar *= (box[2] - box[0]) / (box[3] - box[1]);
-    if (t0 && ar > 0) { p->lb_ar = ar; p->lb_ar_cur = p->cur + 1; }   /* kept: the bars stay their size when the frames stop (too slow) */
+    int from_shared = t0 && !strncmp(p->lb_last, "rgb:", 4);   /* colours only: the picture's shape came with them */
+    if ((from_shared || (!t0 && shared)) && p->glow_ar > 0) ar = p->glow_ar;
+    else if (t0 && ar > 0) { p->lb_ar = ar; p->lb_ar_cur = p->cur + 1; }   /* kept: the bars stay their size when the frames stop (too slow) */
     else if (p->lb_ar_cur == p->cur + 1 && p->lb_ar > 0) ar = p->lb_ar;
     float W = SNTV_UI_W, H = SNTV_UI_H, A = W / H, bar;
     int side;
@@ -1592,17 +1716,17 @@ static void draw_letterbox(Player *p, const VideoInfo *vi)
     if (bar < 36) return;
     p->lb_bar = bar; p->lb_side = side;
     if (!p->lb_logged) { p->lb_logged = 1; LOGI("player: living letterbox, bars of %.0f %s (picture %.2f:1), %s%s", bar, side == 1 ? "above and below" : "at the sides", ar, LB_STYLE_NAMES[g_app.living_letterbox], g_app.subs_in_bars ? ", subtitles in them" : ""); }
-    if (!paint || g_app.fx_light || (!have_url && !p->lb_slow && !glow)) return;   /* the bars stay black; subtitles still move into them */
+    if (!paint || g_app.fx_light || (!have_url && !slow && !glow)) return;   /* the bars stay black; subtitles still move into them */
     /* fade in once a frame is here, out when there is none */
     float step = g_app.time - p->lb_kt;
     p->lb_kt = g_app.time;
     if (step > 0.5f) step = 0.5f;
-    float target = t0 || p->lb_slow || glow ? 1.0f : 0.0f;
+    float target = t0 || slow || glow ? 1.0f : 0.0f;
     p->lb_k += (target - p->lb_k) * (step * 2.5f > 1 ? 1 : step * 2.5f);
     if (p->lb_k < 0.01f) return;
     float x = 1;
     if (glow) lb_paint_glow(glow, side, bar, p->lb_k);
-    else if (p->lb_slow) lb_paint_art(p, side, bar, p->lb_k);
+    else if (slow) lb_paint_art(p, side, bar, p->lb_k);
     else {
         x = (g_app.time - p->lb_swap_at) / (p->lb_fade > 0 ? p->lb_fade : LB_FADE_DRIFT);   /* the new frame over the last one */
         x = x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
@@ -1884,6 +2008,9 @@ static void start_candidate(Player *p, int idx, double start)
     int paused = p->viewer_paused || (p->own_load && video_load_count() == p->own_load && video_paused_on_purpose());
     if (idx != p->cur) {   /* another source: its own count, and its own file */
         if (p->cur < 0 || !same_file(&p->cands[p->cur], &p->cands[idx])) {   /* (no current one: a new list after asking the addons again) */
+            if (p->cur >= 0) glow_send(p);   /* what was seen of the last file, under its hash */
+            p->rec_n = 0; p->glow_n = 0; p->glow_asked = 0; p->glow_ar = 0;
+            free(p->glow_t); free(p->glow_hex); p->glow_t = NULL; p->glow_hex = NULL;
             p->file_bad = 0;
             p->embedded_offset = 0;
             p->forced_checked = 0;
@@ -2849,6 +2976,7 @@ static void update(Screen *s, float dt)
         if (p->lb_next_t > 0 && vi.position >= p->lb_next_t - 0.02) { p->lb_next_t = 0; app_redraw(); }
         if (!playback_needs_bandwidth(&vi)) lb_work_ahead(p, &vi);
     }
+    glow_tick(p);
     if (gfx_handheld()) video_pip_allow(app_top() == s && !p->pip && vi.state == VIDEO_PLAYING);   /* Home takes a playing video along */
     picture_tap_settle(p);
     ph_hold_fast(p, &vi);
@@ -7128,6 +7256,8 @@ static void destroy(Screen *s)
     video_pip_allow(0);
     relay_buffer_close();   /* its memory goes with it */
     if (!p->finished) report(p, 1);
+    glow_send(p);
+    free(p->glow_t); free(p->glow_hex); free(p->rec_t); free(p->rec_rgb);
     streams_lookup_cancel();
     if (p->cur < p->n_cands) torrent_engine_drop(p->cands[p->cur].url);
     if (g_live == p) g_live = NULL;
