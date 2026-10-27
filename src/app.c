@@ -2361,6 +2361,7 @@ float app_test_frame_ms(float ms)
     }
     if (n_list) return list[seen++ % n_list];
     if (first < 0) return ms;
+    if (g_app.time < 3.0f) return then;   /* the first N count from where Auto effects starts measuring */
     return seen++ < first_n ? first : then;
 }
 
