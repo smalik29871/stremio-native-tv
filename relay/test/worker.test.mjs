@@ -51,6 +51,12 @@ test('anything else is refused without reaching a service', async () => {
   assert.equal(sent.length, 0);
 });
 
+test('Trakt without a secret signs in with its ID alone', async () => {
+  const r = await call('/trakt/oauth/device/token', { method: 'POST', body: JSON.stringify({ code: 'dev1', client_id: 'cid' }) }, { ...env, TRAKT_CLIENT_SECRET: undefined });
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(sent[0].body), { code: 'dev1', client_id: 'cid' });
+});
+
 test('a service without a key answers 503, so the app falls back', async () => {
   const r = await call('/mdblist/?i=tt1', {}, { ...env, MDBLIST_KEY: undefined });
   assert.equal(r.status, 503);

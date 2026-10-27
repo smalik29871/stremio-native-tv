@@ -14,8 +14,9 @@ const UPSTREAM = {
 
 // what the app asks for, and nothing else
 const ROUTES = [
-  { svc: 'trakt', method: 'POST', path: '/oauth/device/token', secret: 'TRAKT_CLIENT_SECRET' },
-  { svc: 'trakt', method: 'POST', path: '/oauth/token', secret: 'TRAKT_CLIENT_SECRET' },
+  // a Trakt app without a secret (none shown on its page) signs in with its ID alone
+  { svc: 'trakt', method: 'POST', path: '/oauth/device/token', secret: 'TRAKT_CLIENT_SECRET', optional: true },
+  { svc: 'trakt', method: 'POST', path: '/oauth/token', secret: 'TRAKT_CLIENT_SECRET', optional: true },
   { svc: 'mdblist', method: 'GET', path: '/', secret: 'MDBLIST_KEY' },
   { svc: 'opensubtitles', method: 'POST', path: '/login', secret: 'OPENSUBTITLES_KEY' },
   { svc: 'opensubtitles', method: 'GET', path: '/subtitles', secret: 'OPENSUBTITLES_KEY' },
@@ -45,7 +46,7 @@ export default {
     const route = ROUTES.find(r => r.svc === svc && r.path === path && r.method === request.method);
     if (!route) return json(404, { error: 'not a relayed request' });
     const key = env[route.secret];
-    if (!key) return json(503, { error: 'this relay has no key for ' + svc });   // the app falls back
+    if (!key && !route.optional) return json(503, { error: 'this relay has no key for ' + svc });   // the app falls back
     const who = request.headers.get('CF-Connecting-IP') || 'unknown';
     if (!(await allowed(env, svc + ':' + who))) return json(429, { error: 'too many requests' });
 
@@ -66,7 +67,7 @@ export default {
       const out = {};   // only what a device sign-in or a renewal sends
       for (const f of ['code', 'refresh_token', 'grant_type', 'redirect_uri']) if (typeof b[f] === 'string') out[f] = b[f];
       out.client_id = env.TRAKT_CLIENT_ID || (typeof b.client_id === 'string' ? b.client_id : '');
-      out.client_secret = key;
+      if (key) out.client_secret = key;
       body = JSON.stringify(out);
       headers['Content-Type'] = 'application/json';
       headers['trakt-api-version'] = '2';

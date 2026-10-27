@@ -16,7 +16,8 @@ need one of these keys here, without the key; the relay adds it and passes the a
   built in, scrambled.
 
 The Trakt **client ID** stays in the app as well (as it must: every Trakt request names it);
-only the secret moves here. Use the same Trakt app and OpenSubtitles key here as in the
+only the secret moves here. A Trakt app whose page shows no secret needs none: leave
+TRAKT_CLIENT_SECRET out and sign-ins go through with the ID alone. Use the same Trakt app and OpenSubtitles key here as in the
 GitHub secrets, or sign-ins made one way won't renew the other.
 
 ## Deploying it (once)
