@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.89
+
+- **Up Next waits for the end credits.** Some episodes have their opening titles marked as
+  credits, so the Up Next card could come a few minutes into an episode. Only a credits mark
+  in the last quarter of an episode counts now; Skip still works on the earlier one.
+
 ## 0.10.88
 
 - **Automatic visual effects on 50 Hz TVs.** Automatic judged frames against a 60 Hz screen,
