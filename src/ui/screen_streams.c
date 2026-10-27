@@ -1715,6 +1715,7 @@ static void play_from(Streams *st, int index)
     if (torrent_engine_url_is(c[0].url)) torrent_engine_start(0);   /* warm up while the player opens */
     LibraryItem *li = app_library_find(st->meta.id);
     double start = !st->from_start && li && li->video_id && strcmp(li->video_id, st->video_id) == 0 ? li->time_offset / 1000.0 : 0;   /* Restart: 0:00 */
+    if (start < 1) start = 0;   /* the 1 ms an episode is marked with once the one before is finished: its beginning */
     remember_resume(st, url);
     free(url);
     char title[300];
