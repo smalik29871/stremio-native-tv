@@ -563,6 +563,7 @@ static void suggest(Search *s)
 {
     const char *t = s->kb.text;
     if (!strcmp(t, s->sugg_for) && s->n == s->sugg_n_res && g_app.library_version == s->sugg_lib && s->generation == s->sugg_gen) return;   /* nothing new to suggest from */
+    if (s->sugg_focus >= 0 && s->n_sugg && !strcmp(t, s->sugg_for)) return;   /* on the list: results coming in don't move it under the cursor (it catches up once the keys have the focus) */
     snprintf(s->sugg_for, sizeof s->sugg_for, "%s", t);
     s->sugg_n_res = s->n; s->sugg_lib = g_app.library_version; s->sugg_gen = s->generation;
     char tw[256];
