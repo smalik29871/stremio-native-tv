@@ -417,24 +417,24 @@ run ep_list_untouched 1000 "right,ok,down,down,right,play" "$SLOW" HOME="$(home_
 grep -q "player: candidate" "$OUT/ep_list_untouched.log" || { echo "left alone, the best source did not start"; grep -E "streams|player" "$OUT/ep_list_untouched.log" | tail -5; exit 1; }
 # a link answering 200 with an HTML error page is not a video: it loses the start race
 run race_error_page 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait" HOME="$(home_with errpage '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/errpage/manifest.json"
-grep -q "streams: racing" "$OUT/race_error_page.log" && grep -q "player: candidate 1/" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q expiredpage \
+grep -q "streams: racing" "$OUT/race_error_page.log" && grep -q "player: candidate 1/" "$OUT/race_error_page.log" && ! grep "player: candidate 1/" "$OUT/race_error_page.log" | grep -q "(2160p)$" \
   || { echo "an HTML error page won the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_error_page.log"; exit 1; }
 # a link that answers late (a debrid link resolving on first use) is slow, not dead: it is not struck off in the start race
 run race_slow_link 700 "wait,ok,ok,wait,wait,wait,wait,wait,up,ok,wait,wait,wait,wait" HOME="$(home_with slowlink '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/slowlink/manifest.json,http://127.0.0.1:$PORT/manifest.json"
 grep -q "streams: racing" "$OUT/race_slow_link.log" && grep -q "is slow to answer the race" "$OUT/race_slow_link.log" && ! grep -q "did not answer the race" "$OUT/race_slow_link.log" \
-  && grep "player: candidate 1/" "$OUT/race_slow_link.log" | grep -q slowvideo \
+  && grep "player: candidate 1/" "$OUT/race_slow_link.log" | grep -q "Slow Link - " \
   || { echo "a slow link was struck off as dead in the start race"; grep -E "streams: (source|racing|#)|player: candidate" "$OUT/race_slow_link.log"; exit 1; }
 # TorBox down: six TorBox sources rank on top; at most three stand by, and once two fail
 # the rest of TorBox's are skipped for another addon's (a web scraper)
 run torbox_down_failover 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FAKE_FAIL_LOADS=2 HOME="$(home_with tbdown '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/tbdown/manifest.json,http://127.0.0.1:$PORT/manifest.json"
-grep -q "player: TorBox looks down" "$OUT/torbox_down_failover.log" && grep "player: candidate" "$OUT/torbox_down_failover.log" | sed -n 3p | grep -qv "tb=" \
+grep -q "player: TorBox looks down" "$OUT/torbox_down_failover.log" && grep "player: candidate" "$OUT/torbox_down_failover.log" | sed -n 3p | grep -q "Many Sources - WebScraper" \
   || { echo "TorBox being down did not move playback to another addon"; grep -E "player: (candidate|source|TorBox)|streams: .*stand by" "$OUT/torbox_down_failover.log"; exit 1; }
 # AIOStreams while TorBox is down: its "[TB]" links play a 30-second "Debrid provider is currently
 # unavailable" video. That clip is no film: TorBox counts as down and a plain link, which always
 # has a place behind the debrid ones, plays instead
 run aio_tb_down 900 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FAKE_CLIP=errclip HOME="$(home_with aiotb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/aiotb/manifest.json,http://127.0.0.1:$PORT/manifest.json"
 grep -q "player: source 1 is a 30-second clip, not the 49-minute video (the addon's error video)" "$OUT/aio_tb_down.log" && grep -q "player: TorBox looks down" "$OUT/aio_tb_down.log" \
-  && grep "video(null): load" "$OUT/aio_tb_down.log" | sed -n 2p | grep -q "web=" \
+  && grep "player: candidate" "$OUT/aio_tb_down.log" | sed -n 2p | grep -q "AIOStreams - WebStreamr" \
   || { echo "an addon's error clip played as the film, or no plain link was behind the TorBox ones"; grep -E "player: (candidate|source|TorBox)|video\(null\): load" "$OUT/aio_tb_down.log"; exit 1; }
 # what an addon says about its stream is kept: the headers it needs (the TV's player can't send
 # them, so the checks don't either and the source ranks after others), the file's hash
@@ -885,7 +885,7 @@ if grep -q "^SNTV_FFMPEG_PREFIX:PATH=." "$BUILD/CMakeCache.txt" 2>/dev/null; the
     || { echo "seek previews were not warmed up before the first seek"; grep -E "frames|warming" "$OUT/player_thumbs_warm.log"; exit 1; }
   # a long fast seek: one decode at a time, none turned away, and pictures keep coming
   run player_seek_fast 420 "right,ok,down,down,play,wait,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,right,wait,wait,wait"
-  [ "$(grep -c "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_fast.log")" -ge 2 ] && ! grep -q "frame?t=.* -> HTTP 503" "$OUT/player_seek_fast.log" \
+  [ "$(grep -c "frames: [0-9]* s of 127.0.0.1 in" "$OUT/player_seek_fast.log")" -ge 2 ] && ! grep -q "image: .* -> HTTP 503" "$OUT/player_seek_fast.log" \
     || { echo "fast seeking starved the previews"; grep -E "frames|frame\?t" "$OUT/player_seek_fast.log" | head; exit 1; }
 else echo "skip: seek previews decoded on the TV (build FFmpeg: tools/ffmpeg.sh)"; fi
 run settings_parental 400 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,right"
@@ -1271,7 +1271,7 @@ grep -q "torbox: the AI picked the episode's file: BREAKING_BAD_D1/title_t01.mkv
   || { echo "the AI did not pick the disc rip's episode"; grep -E "torbox|ai:" "$OUT/torbox_disc.log"; exit 1; }
 # A pack that names its episodes but not this one: no extra or other episode plays; the next source does
 run torbox_pack_missing 700 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait" "$TB" HOME="$(home_with tbmiss '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbmiss/manifest.json"
-grep -q "torbox: no file in this torrent is S1E1 (it names other episodes)" "$OUT/torbox_pack_missing.log" && grep -q "player: candidate 2/" "$OUT/torbox_pack_missing.log" && ! grep -q "torbox=81" "$OUT/torbox_pack_missing.log" \
+grep -q "torbox: no file in this torrent is S1E1 (it names other episodes)" "$OUT/torbox_pack_missing.log" && grep -q "player: candidate 2/" "$OUT/torbox_pack_missing.log" && [ "$(grep -c "video(null): load" "$OUT/torbox_pack_missing.log")" = 1 ] \
   || { echo "a pack without the episode played something else"; grep -E "torbox|player: (candidate|source)" "$OUT/torbox_pack_missing.log"; exit 1; }
 # The next source a TorBox torrent: made ready on TorBox while the first plays, so when the first dies it takes over at once
 run torbox_standby 4000 "right,ok,down,down,play,wait" "$TB" HOME="$(home_with tbstand '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","preflight":0,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbdisc/manifest.json" SNTV_FAKE_NO_TEXT_TRACKS=1 SNTV_FAKE_DEAD_AFTER=7 SNTV_RESCUE_AFTER=2 SNTV_WARM_AFTER=1
