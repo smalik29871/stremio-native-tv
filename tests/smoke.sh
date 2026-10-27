@@ -464,6 +464,11 @@ grep -q 'search: "Breaking Bad" first of [0-9]*' "$OUT/search_exact_first.log" \
 run search_suggest 420 "search,t:br,wait,wait,wait,wait,up,up,up,up,up,ok,wait,wait"
 grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest.log" && grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest.log" \
   || { echo "no suggestions above the keyboard, or one could not be taken"; grep "search" "$OUT/search_suggest.log"; exit 1; }
+# On a suggestion while an addon's results come in (Bravo Two Zero, put above it): the list stays as
+# it is under the cursor, and OK takes the one focused, not the keyboard's letter
+run search_suggest_late 1500 "search,t:br,wait,up,up,up,up,up,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/shiftsearch/manifest.json
+grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest_late.log" && ! grep -q 'search: asking the addons for "bra"' "$OUT/search_suggest_late.log" \
+  || { echo "results coming in moved the suggestions from under the cursor"; grep "search" "$OUT/search_suggest_late.log"; exit 1; }
 # suggestions at once from what this TV knows (the library here), before any addon answers:
 # with no addon that searches at all, the title in the library is still suggested
 SL_HOME="$(home_with suglib '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"; cp "$ROOT/tests/fixtures/library.json" "$SL_HOME/.local/share/stremio/nativetv/library.json"

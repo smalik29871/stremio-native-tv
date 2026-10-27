@@ -434,6 +434,9 @@ class H(BaseHTTPRequestHandler):
         slowsearch = p.startswith("/slowsearch/")   # an addon whose search answers after 2 s
         if slowsearch:
             p = p[11:]
+        shiftsearch = p.startswith("/shiftsearch/")   # ...with a title of its own (Bravo Two Zero), which suggestions put first
+        if shiftsearch:
+            p = p[12:]
         notrailer = p.startswith("/notrailer/")
         if notrailer:
             p = p[10:]
@@ -837,6 +840,9 @@ class H(BaseHTTPRequestHandler):
                                                              "poster": f"{BASE}/poster/{k % 12 + 3}.png"} for k in range(200)]}).encode())
             if "search=" in p and noisy:   # an addon whose search answers with its whole catalog
                 return self.send(200, json.dumps(CATALOG).encode())
+            if "search=" in p and shiftsearch:
+                sleep(2)
+                return self.send(200, json.dumps({"metas": [{"id": "tt0108358", "type": "movie", "name": "Bravo Two Zero", "releaseInfo": "1999"}]}).encode())
             if "search=" in p:
                 if slowsearch:
                     sleep(2)
