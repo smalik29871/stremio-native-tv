@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.90
+
+- **Search answers quickly while you type.** Every pause while typing started a new search,
+  and the earlier ones queued ahead of it, so a title typed on the remote could take a long
+  time to show anything. Now a new letter drops the last search's requests that haven't gone
+  out, and the built-in catalog looks up its titles in one request instead of twenty.
+- **Suggestions can be picked while results come in.** The list no longer changes under the
+  cursor, so OK takes the suggestion you're on instead of a letter on the keyboard.
+
 ## 0.10.89
 
 - **Up Next waits for the end credits.** Some episodes have their opening titles marked as
