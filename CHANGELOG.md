@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.91
+
+- **Episodes in order.** A season's episodes are shown by number, whatever order the addon
+  lists them in, so E1 comes first and Play starts at the beginning.
+- **Real episode names.** When an addon's episodes have no titles of their own (each just
+  named after the show), the title page uses Cinemeta's episodes instead: titles, dates and
+  pictures.
+- **No duplicate search results.** The same title found by two addons under different ids is
+  shown once.
+- **Cinemeta first.** Among equally good matches, Cinemeta's results come first, and its card
+  is the one kept when another addon finds the same title.
+
 ## 0.10.90
 
 - **Search answers quickly while you type.** Every pause while typing started a new search,
