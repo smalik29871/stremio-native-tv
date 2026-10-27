@@ -1,0 +1,67 @@
+# Deletes old releases from the public releases repository: run it by hand (Actions > Prune
+# releases > Run workflow) with the oldest version to keep. Every release older than that goes,
+# with its tag, so its packages can no longer be downloaded. The beta release (the beta
+# channel's manifests) and anything that isn't a version are never touched. Leave "Only list"
+# ticked to see what would go first.
+name: Prune releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: "Oldest version to keep, e.g. 0.10.88; everything older is deleted"
+        required: true
+      dry_run:
+        description: "Only list what would be deleted"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  RELEASES_REPO: smalik29871/cuelight-releases
+
+jobs:
+  prune:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete releases older than the one to keep
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          KEEP: ${{ inputs.keep }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          KEEP="${KEEP#v}"
+          if ! [[ "$KEEP" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$KEEP' is not a version like 0.10.88"; exit 1
+          fi
+          if ! gh release view "v$KEEP" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "::error::v$KEEP is not in $RELEASES_REPO, so nothing is deleted"; exit 1
+          fi
+          # the release everyone gets has to survive, or stable devices lose their updates
+          LATEST="$(gh release view --repo "$RELEASES_REPO" --json tagName --jq .tagName)"
+          LATEST="${LATEST#v}"
+          if [ "$LATEST" != "$KEEP" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$KEEP" | sort -V | head -1)" = "$LATEST" ]; then
+            echo "::error::v$LATEST is the latest release and older than v$KEEP; promote v$KEEP first"; exit 1
+          fi
+          gh release list --repo "$RELEASES_REPO" --limit 1000 --json tagName --jq '.[].tagName' > tags.txt
+          gone=0
+          while read -r tag; do
+            v="${tag#v}"
+            [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue          # beta and anything else stays
+            [ "$v" = "$KEEP" ] && continue
+            [ "$(printf '%s\n%s\n' "$v" "$KEEP" | sort -V | head -1)" = "$v" ] || continue   # newer: stays
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "would delete $tag"
+            else
+              gh release delete "$tag" --repo "$RELEASES_REPO" --cleanup-tag --yes
+              echo "deleted $tag"
+            fi
+            gone=$((gone + 1))
+          done < tags.txt
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "$gone release(s) would be deleted; run again with 'Only list' unticked to delete them"
+          else
+            echo "$gone release(s) deleted"
+          fi
