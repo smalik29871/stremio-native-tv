@@ -1,19 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.10.92
 
-- Fix Android player cleanup when closing and reopening the app, and hide embedded-subtitle
-  timing controls when the platform cannot apply them.
-- Keep desktop playback time from advancing through audio starvation, normalize nonzero
-  stream timestamps, and preserve working audio when a replacement track cannot open.
-- Reject stale replies from earlier players and unload cancelled webOS media sessions.
-- Send addon headers during source checks and warm-up, preserve pause intent during source
-  changes, and prefer another link to the same file when recovering.
-- Count actual playback toward watched status and preserve completed progress at episode handoff.
-- Reuse the next episode's warmed bytes, defer background work when the playback buffer drains,
-  and stop cancelled HTTP transfers.
-- Add playback, buffering, dropped-frame and seek-recovery measurements to Diagnostics > Speed;
-  remove credentials, paths and query strings from logged URLs.
+- **Steadier recovery when a source fails.** A link that has expired or been refused is no
+  longer mistaken for a file the TV can't decode, so the player tries another copy of the same
+  file instead of giving up on it; a file that really won't play here (its picture or its
+  sound) goes straight to a different file. Asking the addons for fresh links no longer reads
+  the old, finished list.
+- **The next episode starts sooner.** The bytes loaded ahead for it are used when it starts,
+  and a link that expired in the meantime is noticed at once and replaced.
+- **Checks match how a source plays.** A source that needs request headers is checked with
+  them when the app's relay plays it, and without them when the TV opens it directly, so a
+  check passes only what will really play.
+- **Playback first, without starving the rest.** Background downloads wait while the video is
+  short of data, for a few seconds at most, and never while it plays in the corner.
+- **Watched marks count every second.** At the TV's real frame rate a little play time was
+  lost between position updates; an episode now counts as watched after exactly the time it
+  should.
+- **Continue Watching moves on.** When an episode plays on into the next, Continue Watching
+  now shows the next one from its start, instead of the last one at its very end.
+- **LG:** a cancelled start is unloaded from the TV's player instead of left behind.
+- **Windows and Linux:** the clock no longer runs on while the sound is starved, and a sound
+  track that won't open leaves the working one playing.
+- **Android:** the player stops cleanly when the app closes and reopens, live streams start at
+  the live edge, and a playback error says what failed.
+- **Diagnostics > Speed** shows buffering, dropped frames and seek recovery during playback;
+  logged links no longer carry passwords, paths or query strings.
 
 ## 0.10.91
 
