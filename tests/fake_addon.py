@@ -868,7 +868,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [dict(st, url=st["url"] + ("&" if "?" in st["url"] else "?") + "scope=1") if st.get("url") else st for st in STREAMS["streams"]]}).encode())
             return self.send(200, json.dumps(STREAMS).encode())
         if p.startswith("/introdb/media"):
-            # TheIntroDB v4 shape: intro from the start to 60 s, credits at 50 min
+            # TheIntroDB v4 shape: intro from the start to 60 s, credits at 50 min (the end of a 52 min episode)
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(p).query)
             body = {"type": "tv" if "season" in q else "movie",

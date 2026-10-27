@@ -2933,7 +2933,7 @@ static void update(Screen *s, float dt)
 
     /* Up Next: at the credits when the markers say where they start (and the
      * next episode begins 20 s later), else 45 s before the end */
-    double credits = skip_credits_start(p->skip, p->n_skip);
+    double credits = skip_credits_start(p->skip, p->n_skip, vi.duration);
     int at_credits = credits > 60 && vi.duration > 0 && credits < vi.duration - 10 && vi.position >= credits && vi.position < vi.duration - 1;
     int near_end = vi.duration > 120 && vi.position > vi.duration - 45;
     const TmdbInfo *tmi = p->trailer ? NULL : tmdb_get(p->meta.id, p->meta.type);

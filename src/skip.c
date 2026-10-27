@@ -159,12 +159,13 @@ const SkipSeg *skip_find(const SkipSeg *segs, int n, SkipKind kind, double pos, 
     return NULL;
 }
 
-double skip_credits_start(const SkipSeg *segs, int n)
+double skip_credits_start(const SkipSeg *segs, int n, double duration)
 {
-    double credits = 0, preview = 0;
+    double credits = 0, preview = 0, from = duration > 0 ? duration * 0.75 : 1;
     for (int i = 0; i < n; i++) {
-        if (segs[i].kind == SKIP_CREDITS && segs[i].start > 1 && (credits == 0 || segs[i].start < credits)) credits = segs[i].start;
-        if (segs[i].kind == SKIP_PREVIEW && segs[i].start > 1 && (preview == 0 || segs[i].start < preview)) preview = segs[i].start;
+        if (segs[i].start <= 1 || segs[i].start < from) continue;
+        if (segs[i].kind == SKIP_CREDITS && (credits == 0 || segs[i].start < credits)) credits = segs[i].start;
+        if (segs[i].kind == SKIP_PREVIEW && (preview == 0 || segs[i].start < preview)) preview = segs[i].start;
     }
     return credits > 0 ? credits : preview;
 }
