@@ -1,3 +1,4 @@
+#include "builtin_keys.h"
 #include "opensubs.h"
 #include "app.h"
 #include "http.h"
