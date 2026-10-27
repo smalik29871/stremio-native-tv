@@ -165,8 +165,6 @@ class H(BaseHTTPRequestHandler):
         if carried:
             self.send(400, b'{"error":"the app sent a key"}')
             return None
-        if svc == "trakt":
-            return "/trakt" + rest
         if svc == "mdblist":
             return "/mdblist/?apikey=relayed&" + rest.partition("?")[2]
         if svc == "opensubtitles":

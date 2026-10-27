@@ -55,13 +55,6 @@ static const char *trakt_secret(void)
     return v && *v ? v : built_in(TRACK_TRAKT, 1);
 }
 static const char *token(int svc) { const char *t = store_get_str(K_TOKEN[svc], ""); return t ? t : ""; }
-/* sign-ins and renewals go through the key relay, which adds the app's secret; a viewer's own
-   Trakt app keeps its own secret and goes direct */
-static const char *trakt_relay(void)
-{
-    const char *v = store_get_str("traktClientId", "");
-    return v && *v ? NULL : keyrelay_base(KR_TRAKT);
-}
 
 int tracking_configured(int svc) { return tracking_app_id(svc)[0] != 0; }   /* Trakt apps made today have no secret (PKCE) */
 int tracking_connected(int svc) { return tracking_configured(svc) && token(svc)[0]; }
@@ -93,7 +86,7 @@ static void request(int svc, const char *url, const char *post, HttpCallback cb,
 }
 
 /* ---- signing in ---- */
-typedef struct { int active, v2, via; char device[128], user_code[32]; double next, until; int interval; unsigned inflight; } SignIn;   /* v2: SimKL's OAuth 2.0 device flow */
+typedef struct { int active, v2; char device[128], user_code[32]; double next, until; int interval; unsigned inflight; } SignIn;   /* v2: SimKL's OAuth 2.0 device flow */
 static SignIn g_sign[TRACK_SERVICES];
 
 int tracking_pending(int svc) { return g_sign[svc].active; }
@@ -106,7 +99,6 @@ static void on_token(HttpResponse *r, void *user)
     SignIn *si = &g_sign[svc];
     si->inflight = 0;
     if (!si->active) return;
-    if (si->via) keyrelay_failed(KR_TRAKT, r->status);   /* the next poll goes direct then */
     cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const cJSON *at = cJSON_GetObjectItemCaseSensitive(j, "access_token");
     if (cJSON_IsString(at) && at->valuestring[0]) {
@@ -149,13 +141,11 @@ static void poll(int svc)
     SignIn *si = &g_sign[svc];
     char url[400];
     if (svc == TRACK_TRAKT) {
-        const char *via = trakt_relay();
-        snprintf(url, sizeof url, "%s/oauth/device/token", via ? via : trakt_api());
-        si->via = via != NULL;
+        snprintf(url, sizeof url, "%s/oauth/device/token", trakt_api());
         cJSON *b = cJSON_CreateObject();
         cJSON_AddStringToObject(b, "code", si->device);
         cJSON_AddStringToObject(b, "client_id", tracking_app_id(svc));
-        if (!via && trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
+        if (trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
         char *body = cJSON_PrintUnformatted(b);
         cJSON_Delete(b);
         char hdr[300]; headers_for(svc, hdr, sizeof hdr);
@@ -279,7 +269,7 @@ static int renew_due(int svc, double t)
 
 static void on_refresh(HttpResponse *r, void *user)
 {
-    if (user) keyrelay_failed(KR_TRAKT, r->status);   /* through the relay: the next try goes direct */
+    (void)user;
     g_refreshing = 0;
     cJSON *j = r->status == 200 ? cJSON_Parse(r->body) : NULL;
     const cJSON *at = cJSON_GetObjectItemCaseSensitive(j, "access_token"), *rt = cJSON_GetObjectItemCaseSensitive(j, "refresh_token");
@@ -305,19 +295,14 @@ static void refresh_trakt(void)
     cJSON *b = cJSON_CreateObject();
     cJSON_AddStringToObject(b, "refresh_token", rt);
     cJSON_AddStringToObject(b, "client_id", tracking_app_id(TRACK_TRAKT));
-    const char *via = trakt_relay();
-    if (!via && trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
+    if (trakt_secret()[0]) cJSON_AddStringToObject(b, "client_secret", trakt_secret());
     cJSON_AddStringToObject(b, "redirect_uri", "http://localhost");   /* what the app registers; the device sign-in itself needs none */
     cJSON_AddStringToObject(b, "grant_type", "refresh_token");
     char *body = cJSON_PrintUnformatted(b);
     cJSON_Delete(b);
-    char url[300]; snprintf(url, sizeof url, "%s/oauth/token", via ? via : trakt_api());
+    char url[300]; snprintf(url, sizeof url, "%s/oauth/token", trakt_api());
     g_refreshing = 1;
-    if (via) {   /* the relay gets no sign-in token: a renewal needs none */
-        char hdr[300]; headers_for(TRACK_TRAKT, hdr, sizeof hdr);
-        HttpOptions o = { .post_json = body, .headers = hdr, .timeout_s = 20, .deliver = 1 };
-        http_request_async_ex(url, &o, on_refresh, (void *)1);
-    } else request(TRACK_TRAKT, url, body, on_refresh, NULL);
+    request(TRACK_TRAKT, url, body, on_refresh, NULL);
     free(body);
 }
 
