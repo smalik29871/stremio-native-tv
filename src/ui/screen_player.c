@@ -222,6 +222,7 @@ struct Player {
     float prefetch_tried;     /* when; a stale or empty prefetch is retried after a while */
     int prefetch_renewed;     /* asked again near the end, once */
     int net_retries; float net_retry_at; double net_retry_pos;   /* the same source again after a dropped connection */
+    int file_bad;             /* the current source failed for its file (decoding, audio, an error clip), not its link: no same-file retry */
     int net_reconnecting;     /* this load is such a retry: failing before it plays still counts as the dropped connection */
     int net_played;           /* this source has played (a link that never did gets one retry, not three) */
     int card_logged;          /* the error card was put up (once in the log) */
@@ -1882,7 +1883,8 @@ static void start_candidate(Player *p, int idx, double start)
 {
     int paused = p->viewer_paused || (p->own_load && video_load_count() == p->own_load && video_paused_on_purpose());
     if (idx != p->cur) {   /* another source: its own count, and its own file */
-        if (!same_file(&p->cands[p->cur], &p->cands[idx])) {
+        if (p->cur < 0 || !same_file(&p->cands[p->cur], &p->cands[idx])) {   /* (no current one: a new list after asking the addons again) */
+            p->file_bad = 0;
             p->embedded_offset = 0;
             p->forced_checked = 0;
             if (p->keep_sub_kind == 1 && p->keep_sub_idx >= 0 && p->keep_sub_idx < p->n_addon_subs) {
@@ -2062,7 +2064,9 @@ static void svc_failed(Player *p, int idx, const char *why)
 
 static int next_candidate(const Player *p)
 {
-    for (int i = 0; p->tries < 3 && i < p->n_cands && i < 64; i++)
+    /* the link failed: the same file from another addon first, from the same moment; not when
+       the file itself can't play here (its decoding or its audio), which another link won't change */
+    for (int i = 0; p->cur >= 0 && !p->file_bad && p->tries < 3 && i < p->n_cands && i < 64; i++)
         if (i != p->cur && !(p->tried >> i & 1) && !(i < 16 && p->dead[i]) && same_file(&p->cands[p->cur], &p->cands[i])) return i;
     /* two failed: first a source from a service that has not failed (another addon's),
      * then P2P on this TV */
@@ -2178,6 +2182,7 @@ static void audio_repair(Player *p, const VideoInfo *vi)
         app_toast("This TV can't play that audio. Switched to %s", tr[pick].label[0] ? tr[pick].label : lang_display(tr[pick].lang));
         return;
     }
+    p->file_bad = 1;   /* the same file elsewhere has the same audio */
     if (next_candidate(p) >= 0) {
         LOGI("player: no audio track of source %d plays here; another source", p->cur + 1);
         keep_choices(p);
@@ -2193,13 +2198,13 @@ static void audio_repair(Player *p, const VideoInfo *vi)
 static int decoder_failure(const Player *p, const VideoInfo *vi)
 {
     if (vi->state != VIDEO_ERROR || p->tb_error[0]) return 0;
+    if (strstr(vi->error, "xpired") || strstr(vi->error, "403") || strstr(vi->error, "404")) return 0;   /* the link, whatever the player calls it */
     if (vi->failure != VIDEO_FAILURE_UNKNOWN) return vi->failure == VIDEO_FAILURE_DECODE;
     if (strstr(vi->error, "player error")) return 1;   /* Tizen's player: the file */
     if (strstr(vi->error, "refused this stream")) return 0;   /* webOS would not even load it: the link, not the decoders */
     const char *c = strstr(vi->error, "(code ");
     int code = c ? atoi(c + 6) : 0;
     if (!code || code == 300 || (code >= 40000 && code < 50000)) return 0;   /* network, or no code: nothing about decoding */
-    if (strstr(vi->error, "xpired") || strstr(vi->error, "403") || strstr(vi->error, "404")) return 0;
     return 1;
 }
 
@@ -2224,6 +2229,7 @@ static void fail_over(Player *p, const char *why)
     int clip = strstr(why, "error video") != NULL;   /* it played, but was never the film */
     if (clip) vi.position = 0;
     double resume = vi.position > 5 ? vi.position : 0;
+    if (clip || decoder_failure(p, &vi)) p->file_bad = 1;   /* the file, not the link: no other link to it */
     if (!p->learned && decoder_failure(p, &vi)) {   /* the error never names the decoder: only a source needing one feature says which failed */
         unsigned needs = p->cands[p->cur].needs;
         for (int c = 0; c < TVCAP_COUNT; c++) if (g_app.tv.ok[c] > g_app.tv.fail[c]) needs &= ~(1u << c);   /* played fine here before: not the cause */
@@ -2442,7 +2448,8 @@ static void fallback_tick(Player *p, const VideoInfo *vi_real)
             p->warm[w].state = 1; p->warm[w].at = now;
             WarmReq *q = malloc(sizeof *q);
             q->owner = p; q->gen = p->gen; q->attempt = p->attempt; q->idx = idx; q->slot = w;
-            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1, .headers = p->cands[idx].headers };
+            int via_relay = relay_enabled() && !(idx < 16 && p->relay_off[idx]);   /* as it will be played: the relay sends its headers, the TV's player can't */
+            HttpOptions o = { .range_bytes = 65536, .timeout_s = 12, .no_json_accept = 1, .headers = via_relay ? p->cands[idx].headers : NULL };
             http_request_async_ex(p->cands[idx].url, &o, on_warm, q);
         } else p->warm[w].at = now + 60;
     }
@@ -7096,9 +7103,13 @@ void player_save_progress(void)
 
 int player_needs_bandwidth(void)
 {
-    if (!g_live || g_live->finished) return 0;
-    VideoInfo vi; video_info(&vi);
-    return playback_needs_bandwidth(&vi);
+    static double since = -1;   /* when this stretch of need began */
+    VideoInfo vi;
+    if (!g_live || g_live->finished || g_live->pip) { since = -1; return 0; }   /* in the corner the app is being browsed: its pages come first */
+    video_info(&vi);
+    if (!playback_needs_bandwidth(&vi)) { since = -1; return 0; }
+    if (since < 0) since = g_app.time;
+    return g_app.time - since < 8;   /* past that holding the rest back isn't what's slowing it, and the pages would wait for nothing */
 }
 
 void player_save_progress_quiet(void)   /* an overlay over the app: saved, but Trakt is not told it stopped */

@@ -512,7 +512,8 @@ static void probe_next(Streams *st)
     st->probe_inflight = 1;
     ProbeReq *q = malloc(sizeof *q);
     q->owner = st; q->gen = st->probe_gen; q->url = strdup(s->url);
-    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = s->headers };
+    /* checked as it will be played: with its request headers when the relay plays it (and sends them), else without, as the TV's player opens it */
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = relay_enabled() ? s->headers : NULL };
     http_request_async_ex(s->url, &opt, on_probe, q);
 }
 
@@ -769,7 +770,7 @@ static void check_ahead(void)
     const Stream *s = &tmp.items[r];
     if (!s->url || strncmp(s->url, "http", 4) || torrent_engine_url_is(s->url) || check_find(s->url, CHECK_FRESH_S)) return;
     LOGI("streams: checking the best of %d prefetched sources ahead", g_pre.n);
-    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = s->headers };
+    HttpOptions opt = { .range_bytes = PROBE_BYTES, .range_start = 0, .timeout_s = 5, .no_json_accept = 1, .headers = relay_enabled() ? s->headers : NULL };   /* as the screen checks it */
     AheadReq *q = malloc(sizeof *q);
     q->url = strdup(s->url); q->generation = g_pre.generation;
     g_pre.checking = 1;
@@ -1592,7 +1593,7 @@ static void play_raced(const Streams *st, PlayCandidate *c, int n, double start,
         RaceReq *q = malloc(sizeof *q);
         q->idx = i; q->round = g_race_round;
         r->pending++;
-        HttpOptions o = { .range_bytes = 4096, .timeout_s = 3, .no_json_accept = 1, .headers = c[i].headers };
+        HttpOptions o = { .range_bytes = 4096, .timeout_s = 3, .no_json_accept = 1, .headers = relay_enabled() ? c[i].headers : NULL };   /* as it will be played */
         http_request_async_ex(c[i].url, &o, on_race, q);
     }
     LOGI("streams: racing %d sources", r->pending);

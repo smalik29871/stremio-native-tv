@@ -168,8 +168,10 @@ public final class CuelightPlayer {
                 sFailure = code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
                     || code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
                     || code == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ? 1
-                    : code >= 3000 && code < 6000 ? 3 : 2;
-                sError = "Playback failed (" + e.getErrorCodeName() + ")";
+                    : code >= 4000 && code < 6000 ? 3   // the decoders and the audio output: this device
+                    : 2;   // the source: its link, or a file (3xxx: parsing) that is no video at all
+                String m = e.getMessage();   // "Response code: 403" and the like: the app tells a dead link from the rest by it
+                sError = "Playback failed (" + e.getErrorCodeName() + (m != null ? ": " + m : "") + ")";
                 Log.w(TAG, "video: " + sError);
                 snapshot();
             }
@@ -203,7 +205,8 @@ public final class CuelightPlayer {
             String low = path != null ? path.toLowerCase(Locale.ROOT) : "";
             if (low.contains(".m3u8") || low.endsWith("/playlist") || low.endsWith("/master")) b.setMimeType(MimeTypes.APPLICATION_M3U8);
             else if (low.endsWith(".mpd")) b.setMimeType(MimeTypes.APPLICATION_MPD);
-            p.setMediaItem(b.build(), (long) (Math.max(0, start) * 1000));
+            if (start > 0) p.setMediaItem(b.build(), (long) (start * 1000));
+            else p.setMediaItem(b.build());   // its default position: a live stream's live edge
             p.setPlaybackParameters(new PlaybackParameters(sRate = 1));
             sMuted = false; sVolume = 1; p.setVolume(1);
             p.setPlayWhenReady(true);

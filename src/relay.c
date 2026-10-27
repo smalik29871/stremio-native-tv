@@ -842,7 +842,7 @@ char *relay_url_buffered(const char *url, const char *headers, double est_rate)
     g_buf.mem_at = SDL_GetTicks();
     if (g_prime.url && !strcmp(g_prime.url, url) && !strcmp(g_prime.headers, headers ? headers : "")
         && SDL_GetTicks() - g_prime.at < 900000 && g_prime.len <= budget && put_locked(0, g_prime.data, g_prime.len)) {
-        g_buf.hi = g_prime.len; g_buf.size = g_prime.total; g_buf.got_any = 1;
+        g_buf.hi = g_prime.len; g_buf.size = g_prime.total;   /* not got_any: these came minutes ago, so a link that expired since still reads as down */
         snprintf(g_buf.type, sizeof g_buf.type, "%s", g_prime.type);
         LOGI("relay: next episode starts with %zu KB already loaded", g_prime.len / 1024);
         free(g_prime.url); free(g_prime.headers); free(g_prime.data); memset(&g_prime, 0, sizeof g_prime);

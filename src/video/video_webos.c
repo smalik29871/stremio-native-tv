@@ -451,7 +451,7 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
             } else {
                 snprintf(g_info.error, sizeof g_info.error, "%s (code %d)", tx[0] ? tx : "Playback error", c);
                 g_info.state = VIDEO_ERROR;
-                g_info.failure = c == 300 || (c >= 40000 && c < 50000) ? VIDEO_FAILURE_NETWORK : VIDEO_FAILURE_DECODE;
+                g_info.failure = c == 300 || (c >= 40000 && c < 50000) ? VIDEO_FAILURE_NETWORK : c ? VIDEO_FAILURE_DECODE : VIDEO_FAILURE_UNKNOWN;   /* no code: nothing known */
             }
         }
     }

@@ -12,9 +12,11 @@ void playback_watch_update(PlaybackWatch *w, double position, double elapsed, do
         w->played = w->elapsed = 0;
     } else if (playing && allowed > 0) {
         w->elapsed += allowed;
+        if (w->elapsed > 1) w->elapsed = 1;   /* more than the player's slowest position report: a stall can't pay for a jump */
         if (delta > 0) {
-            w->played += delta < w->elapsed ? delta : w->elapsed;
-            w->elapsed = 0;
+            double c = delta < w->elapsed ? delta : w->elapsed;
+            w->played += c;
+            w->elapsed -= c;   /* frames don't line up with the reports: what one didn't use, the next can */
         }
     } else {
         w->elapsed = 0;
