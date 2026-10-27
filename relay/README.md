@@ -13,7 +13,11 @@ here, without the key; the relay adds it and passes the answer back.
   into the package (if the build has one) and tries the relay again ten minutes later;
   without a built-in key that feature quietly stays off until then.
 - TMDB is not relayed: the app asks it for too much (every poster and page), so its key stays
-  built in, scrambled.
+  built in, scrambled. One thing goes through here, for speed: a person's titles and the
+  filtered lists name up to 24 TMDB titles that each need their IMDb id looked up. The app asks
+  for all of them in one request (`/tmdb/ids`); the relay looks them up at once and keeps the
+  answers in KV storage, so each title is looked up once for every device. Without the relay
+  the app looks them up itself, several at a time.
 - Trakt is not relayed either: its apps sign in with PKCE, which needs only the client ID, and
   that ID is public by design (every Trakt request names it).
 
@@ -27,8 +31,11 @@ In the browser, with a free Cloudflare account (dash.cloudflare.com):
 1. Workers & Pages > Create > Start with Hello World. The first time, pick a `workers.dev`
    subdomain. Name the Worker `cuelight-keys` and Deploy.
 2. Edit code: replace everything with `src/worker.js`, then Deploy.
-3. The Worker's Settings > Variables and Secrets > Add, type Secret: `MDBLIST_KEY` and
-   `OPENSUBTITLES_KEY`. Deploy.
+3. The Worker's Settings > Variables and Secrets > Add, type Secret: `MDBLIST_KEY`,
+   `OPENSUBTITLES_KEY` and `TMDB_API_KEY`. Deploy.
+4. Storage for the IMDb ids (optional, faster): Storage & Databases > KV > Create a namespace
+   (any name, e.g. `cuelight-ids`). Then the Worker's Settings > Bindings > Add > KV namespace:
+   variable name `IDS`, that namespace. Deploy.
 
 Or from a terminal, with Node.js 18 or newer (this also sets up Cloudflare's shared rate limit
 from `wrangler.toml`):
@@ -39,6 +46,8 @@ npm install
 npx wrangler login                          # opens the browser to sign in to Cloudflare
 npx wrangler secret put MDBLIST_KEY         # each asks for the value; paste it there
 npx wrangler secret put OPENSUBTITLES_KEY
+npx wrangler secret put TMDB_API_KEY
+npx wrangler kv namespace create IDS        # then put the id it prints into wrangler.toml
 npx wrangler deploy
 ```
 
@@ -64,4 +73,5 @@ curl -s https://cuelight-keys.<your-subdomain>.workers.dev/mdblist/?i=tt0111161 
 ```
 
 The free plan allows 100,000 requests a day, far more than the app's ratings and subtitle
-searches need. The Worker's Metrics tab shows the counts.
+searches need, and KV 100,000 reads and 1,000 new ids a day (past that, ids just aren't kept
+that day). The Worker's Metrics tab shows the counts.

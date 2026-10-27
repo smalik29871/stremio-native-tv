@@ -1,4 +1,5 @@
 #include "builtin_keys.h"
+#include "keyrelay.h"
 #include "tmdb.h"
 #include "app.h"
 #include "http.h"
@@ -410,6 +411,110 @@ static cJSON *get_json(const char *url)
     return j;
 }
 
+/* ---- IMDb ids for TMDB's ---- */
+/* A person's titles and the filtered lists name TMDB ids; addons want IMDb's. Ids found this
+   session are remembered; the rest come in one request through the key relay (which keeps
+   them for every device), or, without it, a few at a time straight from TMDB. On a network
+   thread; out[i] is "" when a title has no IMDb id (or none could be found). */
+enum { MEMO = 512, ID_LEN = 16, ID_THREADS = 6 };
+static struct { int id, tv; char imdb[ID_LEN]; } g_memo[MEMO];
+static int g_memo_next;
+static SDL_SpinLock g_memo_lock;
+
+static int memo_get(int id, int tv, char *out)
+{
+    int hit = 0;
+    SDL_AtomicLock(&g_memo_lock);
+    for (int i = 0; i < MEMO && !hit; i++)
+        if (g_memo[i].id == id && g_memo[i].tv == tv) { snprintf(out, ID_LEN, "%s", g_memo[i].imdb); hit = 1; }
+    SDL_AtomicUnlock(&g_memo_lock);
+    return hit;
+}
+
+static void memo_put(int id, int tv, const char *imdb)
+{
+    SDL_AtomicLock(&g_memo_lock);
+    int k = g_memo_next; g_memo_next = (g_memo_next + 1) % MEMO;
+    g_memo[k].id = id; g_memo[k].tv = tv; snprintf(g_memo[k].imdb, ID_LEN, "%s", imdb);
+    SDL_AtomicUnlock(&g_memo_lock);
+}
+
+static int imdb_ok(const cJSON *v) { return cJSON_IsString(v) && !strncmp(v->valuestring, "tt", 2) && strlen(v->valuestring) < ID_LEN; }
+
+/* the relay's answer: {"movie":{"603":"tt0133093"},"tv":{"1396":""}}; ids it left out stay to look up */
+static void ids_by_relay(const char *base, const int *ids, const int *tv, int n, int *todo, char (*out)[ID_LEN])
+{
+    char url[1200]; int l = snprintf(url, sizeof url, "%s/ids?", base);
+    for (int kind = 0; kind < 2; kind++) {
+        int first = 1;
+        for (int i = 0; i < n && l < (int)sizeof url - 16; i++) {
+            if (!todo[i] || tv[i] != kind) continue;
+            if (first) l += snprintf(url + l, sizeof url - (size_t)l, "%s%s=", url[l - 1] == '?' ? "" : "&", kind ? "tv" : "movie");
+            l += snprintf(url + l, sizeof url - (size_t)l, "%s%d", first ? "" : ",", ids[i]);
+            first = 0;
+        }
+    }
+    HttpResponse r;
+    HttpOptions o = { .timeout_s = 10 };
+    http_request_ex(url, &o, &r);
+    if (keyrelay_failed(KR_TMDB, r.status) || r.status != 200) { http_response_free(&r); return; }
+    cJSON *j = cJSON_Parse(r.body);
+    for (int i = 0; i < n; i++) {
+        if (!todo[i]) continue;
+        char key[16]; snprintf(key, sizeof key, "%d", ids[i]);
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, tv[i] ? "tv" : "movie"), key);
+        if (!cJSON_IsString(v)) continue;
+        snprintf(out[i], ID_LEN, "%s", imdb_ok(v) ? v->valuestring : "");
+        memo_put(ids[i], tv[i], out[i]);
+        todo[i] = 0;
+    }
+    cJSON_Delete(j);
+    http_response_free(&r);
+}
+
+typedef struct { const int *ids, *tv; int *todo, n; char (*out)[ID_LEN]; SDL_atomic_t next; } IdJob;
+
+static int id_worker(void *arg)
+{
+    IdJob *q = arg;
+    char url[300];
+    for (int i; (i = SDL_AtomicAdd(&q->next, 1)) < q->n; ) {
+        if (!q->todo[i]) continue;
+        snprintf(url, sizeof url, "%s/%s/%d/external_ids?api_key=%s", api_base(), q->tv[i] ? "tv" : "movie", q->ids[i], api_key());
+        cJSON *x = get_json(url);
+        if (!x) continue;
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(x, "imdb_id");
+        snprintf(q->out[i], ID_LEN, "%s", imdb_ok(v) ? v->valuestring : "");
+        memo_put(q->ids[i], q->tv[i], q->out[i]);
+        cJSON_Delete(x);
+    }
+    return 0;
+}
+
+static void imdb_ids(const int *ids, const int *tv, int n, char (*out)[ID_LEN], const char *what)
+{
+    Uint32 t0 = SDL_GetTicks();
+    int *todo = calloc((size_t)n + 1, sizeof *todo), left = 0, known;
+    for (int i = 0; i < n; i++) { out[i][0] = 0; todo[i] = !memo_get(ids[i], tv[i], out[i]); left += todo[i]; }
+    known = n - left;
+    const char *base = left ? keyrelay_base(KR_TMDB) : NULL, *how = "remembered";
+    if (base) {
+        ids_by_relay(base, ids, tv, n, todo, out);
+        int still = 0; for (int i = 0; i < n; i++) still += todo[i];
+        how = still < left ? "the key relay" : "TMDB (the relay did not answer)";
+        left = still;
+    } else if (left) how = "TMDB";
+    if (left) {   /* the rest straight from TMDB, several at once */
+        IdJob q = { ids, tv, todo, n, out, { 0 } };
+        SDL_Thread *th[ID_THREADS]; int nt = 0;
+        for (; nt < ID_THREADS && nt < left; nt++) if (!(th[nt] = SDL_CreateThread(id_worker, "tmdb-ids", &q))) break;
+        if (!nt) id_worker(&q);
+        for (int i = 0; i < nt; i++) SDL_WaitThread(th[i], NULL);
+    }
+    LOGI("tmdb: IMDb ids for %s: %d titles in %u ms (%d remembered, the rest from %s)", what, n, SDL_GetTicks() - t0, known, how);
+    free(todo);
+}
+
 static void person_task(HttpResponse *r, void *arg)
 {
     PersonJob *pj = arg;
@@ -447,27 +552,29 @@ static void person_task(HttpResponse *r, void *arg)
         pick[k] = it; pop[k] = pv;
     }
     pj->out = calloc((size_t)np + 1, sizeof *pj->out);
+    int pids[MAXP], ptv[MAXP]; char pimdb[MAXP][ID_LEN];
+    for (int i = 0; i < np; i++) {
+        const cJSON *tid = cJSON_GetObjectItemCaseSensitive(pick[i], "id");
+        pids[i] = cJSON_IsNumber(tid) ? tid->valueint : 0;
+        ptv[i] = !strcmp(cJSON_GetObjectItemCaseSensitive(pick[i], "media_type")->valuestring, "tv");
+    }
+    imdb_ids(pids, ptv, np, pimdb, "a person's titles");
     for (int i = 0; i < np; i++) {
         const cJSON *e = pick[i];
-        int tv = !strcmp(cJSON_GetObjectItemCaseSensitive(e, "media_type")->valuestring, "tv");
-        const cJSON *tid = cJSON_GetObjectItemCaseSensitive(e, "id");
-        if (!cJSON_IsNumber(tid)) continue;
-        snprintf(url, sizeof url, "%s/%s/%d/external_ids?api_key=%s", api_base(), tv ? "tv" : "movie", tid->valueint, api_key());
-        cJSON *x = get_json(url);
-        const cJSON *imdb = cJSON_GetObjectItemCaseSensitive(x, "imdb_id");
-        if (cJSON_IsString(imdb) && !strncmp(imdb->valuestring, "tt", 2)) {
+        int tv = ptv[i];
+        if (!pids[i]) continue;
+        if (pimdb[i][0]) {
             MetaPreview *m = &pj->out[pj->n++];
             const cJSON *t = cJSON_GetObjectItemCaseSensitive(e, tv ? "name" : "title");
             const cJSON *d = cJSON_GetObjectItemCaseSensitive(e, tv ? "first_air_date" : "release_date");
             const cJSON *pp = cJSON_GetObjectItemCaseSensitive(e, "poster_path"), *ov = cJSON_GetObjectItemCaseSensitive(e, "overview");
-            m->id = strdup(imdb->valuestring);
+            m->id = strdup(pimdb[i]);
             m->type = strdup(tv ? "series" : "movie");
-            m->name = strdup(cJSON_IsString(t) ? t->valuestring : imdb->valuestring);
+            m->name = strdup(cJSON_IsString(t) ? t->valuestring : pimdb[i]);
             if (cJSON_IsString(d) && strlen(d->valuestring) >= 4) { char y[8]; snprintf(y, sizeof y, "%.4s", d->valuestring); m->release_info = strdup(y); }
             if (cJSON_IsString(pp) && pp->valuestring[0]) { char pu[320]; snprintf(pu, sizeof pu, "https://image.tmdb.org/t/p/w342%s", pp->valuestring); m->poster = strdup(pu); }
             if (cJSON_IsString(ov) && ov->valuestring[0]) m->description = strdup(ov->valuestring);
         }
-        cJSON_Delete(x);
     }
     cJSON_Delete(j);
     r->status = 200;
@@ -524,28 +631,30 @@ static void discover_task(HttpResponse *r, void *arg)
     if (f->to > 1800) n += snprintf(url + n, sizeof url - (size_t)n, "&%s.lte=%d-12-31", date, f->to);
     cJSON *j = get_json(url);
     const cJSON *res = cJSON_GetObjectItemCaseSensitive(j, "results"), *e;
-    enum { MAXD = 12 };
+    enum { MAXD = 12, ASK = 20 };   /* TMDB's page; a few have no IMDb id */
     dj->out = calloc(MAXD, sizeof *dj->out);
+    int dids[ASK], dtv[ASK], na = 0; char dimdb[ASK][ID_LEN];
+    const cJSON *dres[ASK];
     cJSON_ArrayForEach(e, res) {
-        if (dj->n >= MAXD) break;
         const cJSON *tid = cJSON_GetObjectItemCaseSensitive(e, "id");
-        if (!cJSON_IsNumber(tid)) continue;
-        snprintf(url, sizeof url, "%s/%s/%d/external_ids?api_key=%s", api_base(), f->tv ? "tv" : "movie", tid->valueint, api_key());
-        cJSON *x = get_json(url);
-        const cJSON *imdb = cJSON_GetObjectItemCaseSensitive(x, "imdb_id");
-        if (cJSON_IsString(imdb) && !strncmp(imdb->valuestring, "tt", 2)) {
+        if (na == ASK || !cJSON_IsNumber(tid)) continue;
+        dres[na] = e; dids[na] = tid->valueint; dtv[na] = f->tv; na++;
+    }
+    if (na) imdb_ids(dids, dtv, na, dimdb, "a filtered list");
+    for (int i = 0; i < na && dj->n < MAXD; i++) {
+        e = dres[i];
+        if (dimdb[i][0]) {
             MetaPreview *m = &dj->out[dj->n++];
             const cJSON *t = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "name" : "title");
             const cJSON *d = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "first_air_date" : "release_date");
             const cJSON *pp = cJSON_GetObjectItemCaseSensitive(e, "poster_path"), *ov = cJSON_GetObjectItemCaseSensitive(e, "overview");
-            m->id = strdup(imdb->valuestring);
+            m->id = strdup(dimdb[i]);
             m->type = strdup(f->tv ? "series" : "movie");
-            m->name = strdup(cJSON_IsString(t) ? t->valuestring : imdb->valuestring);
+            m->name = strdup(cJSON_IsString(t) ? t->valuestring : dimdb[i]);
             if (cJSON_IsString(d) && strlen(d->valuestring) >= 4) { char y[8]; snprintf(y, sizeof y, "%.4s", d->valuestring); m->release_info = strdup(y); }
             if (cJSON_IsString(pp) && pp->valuestring[0]) { char pu[320]; snprintf(pu, sizeof pu, "https://image.tmdb.org/t/p/w342%s", pp->valuestring); m->poster = strdup(pu); }
             if (cJSON_IsString(ov) && ov->valuestring[0]) m->description = strdup(ov->valuestring);
         }
-        cJSON_Delete(x);
     }
     r->status = j ? 200 : 502;
     cJSON_Delete(j);

@@ -6,8 +6,8 @@
 #include <stdlib.h>
 #include <time.h>
 
-static const char *const PATH[KR_COUNT] = { "mdblist", "opensubtitles" };
-static const char *const NAME[KR_COUNT] = { "MDBList", "OpenSubtitles" };
+static const char *const PATH[KR_COUNT] = { "mdblist", "opensubtitles", "tmdb" };
+static const char *const NAME[KR_COUNT] = { "MDBList", "OpenSubtitles", "TMDB" };
 static time_t g_down_until[KR_COUNT];
 
 static const char *relay(void)

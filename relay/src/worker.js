@@ -4,12 +4,14 @@
 // its own limit, and nothing it carries is logged.
 //
 // Secrets (set with `npx wrangler secret put NAME`, never in this file):
-//   MDBLIST_KEY, OPENSUBTITLES_KEY
+//   MDBLIST_KEY, OPENSUBTITLES_KEY, TMDB_API_KEY
 // (Trakt isn't here: its apps sign in with PKCE, which needs no secret.)
+// Storage: a KV namespace bound as IDS keeps the IMDb ids it has looked up (optional).
 
 const UPSTREAM = {
   mdblist: 'https://mdblist.com/api',
   opensubtitles: 'https://api.opensubtitles.com/api/v1',
+  tmdb: 'https://api.themoviedb.org/3',
 };
 
 // what the app asks for, and nothing else
@@ -18,6 +20,7 @@ const ROUTES = [
   { svc: 'opensubtitles', method: 'POST', path: '/login', secret: 'OPENSUBTITLES_KEY' },
   { svc: 'opensubtitles', method: 'GET', path: '/subtitles', secret: 'OPENSUBTITLES_KEY' },
   { svc: 'opensubtitles', method: 'POST', path: '/download', secret: 'OPENSUBTITLES_KEY' },
+  { svc: 'tmdb', method: 'GET', path: '/ids', secret: 'TMDB_API_KEY' },
 ];
 
 const MAX_BODY = 8 * 1024;
@@ -33,6 +36,37 @@ async function allowed(env, key) {
   return ++c.n <= PER_MINUTE;
 }
 
+// IMDb ids for TMDB titles (?movie=603,604&tv=1396): a person's titles or a filtered list name
+// up to 24, each a lookup of its own; here they run at once, and KV keeps the answers, so each
+// title is looked up once for every device. Ids TMDB didn't answer for are left out (the app
+// asks for those itself); "" means the title has no IMDb id.
+const MAX_IDS = 40;
+async function tmdbIds(url, env, key) {
+  const want = [];
+  for (const kind of ['movie', 'tv'])
+    for (const id of (url.searchParams.get(kind) || '').split(',').filter(Boolean)) {
+      if (!/^\d{1,9}$/.test(id)) return json(400, { error: 'TMDB ids are numbers' });
+      want.push([kind, id]);
+    }
+  if (!want.length || want.length > MAX_IDS) return json(400, { error: 'between 1 and ' + MAX_IDS + ' ids' });
+  const out = { movie: {}, tv: {} };
+  await Promise.all(want.map(async ([kind, id]) => {
+    const k = kind[0] + ':' + id;
+    let v = env.IDS ? await env.IDS.get(k).catch(() => null) : null;
+    if (v === null) {
+      try {
+        const r = await fetch(`${UPSTREAM.tmdb}/${kind}/${id}/external_ids?api_key=${encodeURIComponent(key)}`, { headers: { Accept: 'application/json' } });
+        if (!r.ok) return;
+        const j = await r.json();
+        v = typeof j.imdb_id === 'string' && /^tt\d{1,10}$/.test(j.imdb_id) ? j.imdb_id : '-';
+      } catch { return; }
+      if (env.IDS) await env.IDS.put(k, v, { expirationTtl: 180 * 86400 }).catch(() => {});   // past the free writes a day: not kept
+    }
+    out[kind][id] = v === '-' ? '' : v;
+  }));
+  return json(200, out);
+}
+
 const json = (status, obj) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 
 export default {
@@ -46,6 +80,8 @@ export default {
     if (!key) return json(503, { error: 'this relay has no key for ' + svc });   // the app falls back
     const who = request.headers.get('CF-Connecting-IP') || 'unknown';
     if (!(await allowed(env, svc + ':' + who))) return json(429, { error: 'too many requests' });
+
+    if (svc === 'tmdb') return tmdbIds(url, env, key);
 
     let body = null;
     if (request.method === 'POST') {

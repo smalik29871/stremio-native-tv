@@ -92,6 +92,13 @@ grep -q 'search: the films of "Morgan Freeman" from a title page' "$OUT/detail_c
 # with TMDB: their own films and series, most popular first; talk shows and cameos left out
 run detail_cast_tmdb 900 "wait,ok,down,down,right,ok,wait,wait" HOME="$(home_with cast_tmdb '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q "search: 2 titles with Aaron Paul" "$OUT/detail_cast_tmdb.log" || { echo "a cast member did not open their films"; grep -E "search|tmdb" "$OUT/detail_cast_tmdb.log"; exit 1; }
+grep -q "tmdb: IMDb ids for a person's titles: 2 titles in [0-9]* ms (0 remembered, the rest from TMDB)" "$OUT/detail_cast_tmdb.log" \
+  || { echo "a person's titles were not looked up together"; grep tmdb "$OUT/detail_cast_tmdb.log"; exit 1; }
+# The same through the key relay: one request for all the IMDb ids
+run detail_cast_tmdb_relay 900 "wait,ok,down,down,right,ok,wait,wait" HOME="$(home_with cast_tmdbr '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay
+grep -q "search: 2 titles with Aaron Paul" "$OUT/detail_cast_tmdb_relay.log" && grep -q "tmdb: IMDb ids for a person's titles: 2 titles in [0-9]* ms (0 remembered, the rest from the key relay)" "$OUT/detail_cast_tmdb_relay.log" \
+  && grep -q "^keyrelay tmdb /ids$" "$FAKE_TRACK_LOG" && ! grep -q "^keyrelay.*with a key" "$FAKE_TRACK_LOG" \
+  || { echo "a person's titles did not come through the key relay"; grep -E "search|tmdb|keyrelay" "$OUT/detail_cast_tmdb_relay.log"; grep keyrelay "$FAKE_TRACK_LOG"; exit 1; }
 run detail_more_like 320 "wait,ok,down,down,down,ok" HOME="$(home_with about_more "$ABOUT_HOME")"
 grep -q "detail: more like this -> tt" "$OUT/detail_more_like.log" || { echo "More like this did not open the title"; grep detail "$OUT/detail_more_like.log"; exit 1; }
 run detail_about_series 300 "right,ok,down,down,down"
@@ -1153,6 +1160,10 @@ grep -q "search: the assistant suggests" "$OUT/search_ai_short.log" || { echo "\
 run search_ai_filters 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q "search: the assistant's filters: movies, language hi, country IN, 1 genre, 1990-1999" "$OUT/search_ai_filters.log" && grep -q "search: 2 more from TMDB for the assistant's filters" "$OUT/search_ai_filters.log" \
   || { echo "the assistant's filters did not bring TMDB's titles"; grep -E "search|tmdb" "$OUT/search_ai_filters.log"; exit 1; }
+# A relay that can't answer: the ids straight from TMDB instead, at once
+run search_ai_filters_relay_down 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5d '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelaydown
+grep -q "search: 2 more from TMDB for the assistant's filters" "$OUT/search_ai_filters_relay_down.log" && grep -q "tmdb: IMDb ids for a filtered list: 2 titles in [0-9]* ms (0 remembered, the rest from TMDB (the relay did not answer))" "$OUT/search_ai_filters_relay_down.log" \
+  || { echo "the filters' titles did not come when the relay was down"; grep -E "search|tmdb|keyrelay" "$OUT/search_ai_filters_relay_down.log"; exit 1; }
 run player_translate 600 "right,ok,down,down,play,wait,down,right,right,right,ok,up,up,up,up,up,up,down,down,ok,wait,wait" SNTV_FAKE_START=6 HOME="$(home_with ai3 '{"prefSubs":"fra","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "player: subtitles sheet: AI translation in Fran" "$OUT/player_translate.log" || { echo "the AI translation was not offered under its language"; grep -E "subtitles" "$OUT/player_translate.log"; exit 1; }
 run settings_ai 340 "left,down,down,down,down,down,ok,right,down,down,down,down,down,down,down,down" HOME="$(home_with ai4 "$AI")"

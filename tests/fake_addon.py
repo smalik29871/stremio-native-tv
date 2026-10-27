@@ -159,7 +159,7 @@ class H(BaseHTTPRequestHandler):
             return None
         svc, _, rest = p[len("/keyrelay/"):].partition("/")
         rest = "/" + rest
-        carried = (self.headers.get("Api-Key") or "apikey=" in rest or b"client_secret" in body)
+        carried = (self.headers.get("Api-Key") or "apikey=" in rest or "api_key=" in rest or b"client_secret" in body)
         with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
             f.write(f"keyrelay {svc} {rest.split('?')[0]}{' with a key' if carried else ''}\n".encode())
         if carried:
@@ -167,6 +167,12 @@ class H(BaseHTTPRequestHandler):
             return None
         if svc == "mdblist":
             return "/mdblist/?apikey=relayed&" + rest.partition("?")[2]
+        if svc == "tmdb" and rest.startswith("/ids?"):   # IMDb ids for TMDB's, as the fake TMDB below gives them
+            q = dict(kv.split("=", 1) for kv in rest[5:].split("&") if "=" in kv)
+            out = {"movie": {i: f"tt{1000 + int(i)}" for i in q.get("movie", "").split(",") if i},
+                   "tv": {i: "tt0903747" for i in q.get("tv", "").split(",") if i}}
+            self.send(200, json.dumps(out).encode())
+            return None
         if svc == "opensubtitles":
             self.headers["Api-Key"] = "oskey"
             return "/os" + rest
