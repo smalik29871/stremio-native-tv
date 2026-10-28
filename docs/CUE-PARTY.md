@@ -12,8 +12,9 @@ episode, the position, play, pause and seek. Never the video, a link or an accou
 | Cost of a room | A Durable Object answering a held request is billed for that time; one whose only connections are hibernatable WebSockets is not. So TVs wait on the Worker, and the Worker waits on the room by WebSocket. |
 | WebSockets on the TV | The app uses the LG's own libcurl (loaded at run time), whose WebSocket support can't be relied on. TVs hold an ordinary request open instead (long-polling). |
 | The room design | Prototyped with `wrangler dev`: a change reached a waiting TV 29 ms after it was sent; a TV that is behind is answered at once; a held request returns after 25 s with nothing new. |
+| The room as built | `relay/src/party.js`, checked under `wrangler dev` (`relay/test/party-live.mjs`): a TV that is behind is answered in 5 ms, a waiting TV 14 ms after a pause is sent, two waiting TVs by the same change, a quiet wait after 25 s. Each wait is one room request (the change itself comes over the WebSocket), so a TV in a party makes about 150 requests an hour. |
 | HTTP on the TV | The open request runs on its own thread, not one of the six pooled connections that addons, artwork and playback share. |
-| Seek time on the LG and the Shield | Neither player says when a seek is done, so Diagnostics had no figure. Since 0.10.95 a seek counts as done once it plays on past its target ("Seek recovery" in Diagnostics > Speed); the real figures set the thresholds below. |
+| Seek time | Neither player says when a seek is done, so since 0.10.95 a seek counts as done once it plays on past its target (Diagnostics > Speed > Seek recovery). Measured: the LG (webOS 10.3.2) 918 ms, and about 2 s for a long jump; an Android phone 1.4 s on average, 1.8 s at most over 5 seeks. So commands are set 2.5 s ahead. |
 | Speed nudging | Android's player takes any speed (pitch kept). Whether the LG plays 0.95x smoothly with sound is unknown; the first nudge checks that the position's pace really changed, and a TV where it did not is corrected by seeks instead. |
 
 ## How it works
@@ -30,7 +31,7 @@ episode, the position, play, pause and seek. Never the video, a link or an accou
   TV's seek time) and each TV acts at that moment, so all start together rather than one
   network trip apart (Jellyfin SyncPlay's approach).
 - **Ready check**: a start waits until every TV has its source loaded (Syncplay's ready state),
-  with "Waiting for the Shield" on the others.
+  with "Waiting for Alex" on the others.
 - **Buffering**: when a TV buffers, the others pause and say which one they wait for; they go on
   together.
 - **Pause realigns**: a pause moves every TV to the pauser's position (Syncplay's sync on pause).

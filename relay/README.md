@@ -30,42 +30,35 @@ here, without the key; the relay adds it and passes the answer back.
   ("webos9", "android-shield-android-tv"). The sources list asks about the files it shows, up
   to 60 in one request, and ranks a file that keeps failing on this kind of TV lower before
   anyone here has to try it. Network trouble never counts against a file.
+- Cue Party rooms (`/party`, one Durable Object per party; `src/party.js`): who is in, what is
+  on and where playback is, so TVs in different homes play, pause and seek together. A TV
+  waits for the next change with an ordinary request held up to 25 s; the relay waits on the
+  room by a WebSocket the room can sleep through, so a quiet party costs nothing. No video,
+  link or account goes through it; a party ends a minute after its last TV goes quiet.
 - Trakt is not relayed either: its apps sign in with PKCE, which needs only the client ID, and
   that ID is public by design (every Trakt request names it).
 
 Use the same OpenSubtitles key here as in the GitHub secrets while both exist, so a sign-in
 made through one works through the other.
 
-## Deploying it (once)
+## Deploying it
 
-In the browser, with a free Cloudflare account (dash.cloudflare.com):
+GitHub deploys it (`.github/workflows/relay.yml`) whenever `relay/` changes on main, after its
+tests pass, or by hand from Actions > Relay > Run workflow. It needs two repository secrets
+(GitHub: Settings > Secrets and variables > Actions):
 
-1. Workers & Pages > Create > Start with Hello World. The first time, pick a `workers.dev`
-   subdomain. Name the Worker `cuelight-keys` and Deploy.
-2. Edit code: replace everything with `src/worker.js`, then Deploy.
-3. The Worker's Settings > Variables and Secrets > Add, type Secret: `MDBLIST_KEY`,
-   `OPENSUBTITLES_KEY` and `TMDB_API_KEY`. Deploy.
-4. Storage for the IMDb ids and the letterbox's colours (optional, faster): Storage & Databases > KV > Create a namespace
-   (any name, e.g. `cuelight-ids`). Then the Worker's Settings > Bindings > Add > KV namespace:
-   variable name `IDS`, that namespace. Deploy.
+- `CLOUDFLARE_API_TOKEN`: Cloudflare dashboard > your profile (top right) > API Tokens >
+  Create Token > the "Edit Cloudflare Workers" template > Continue > Create.
+- `CLOUDFLARE_ACCOUNT_ID`: Workers & Pages > Overview, "Account ID" on the right.
 
-Or from a terminal, with Node.js 18 or newer (this also sets up Cloudflare's shared rate limit
-from `wrangler.toml`):
+`wrangler.toml` holds the rest: the Worker `cuelight-k`, the shared rate limit, the KV namespace
+bound as `IDS` (its id is under Storage & Databases > KV) and the party rooms. The relay's own
+secrets (`MDBLIST_KEY`, `OPENSUBTITLES_KEY`, `TMDB_API_KEY`) are set once in the dashboard (the
+Worker's Settings > Variables and Secrets) or with `npx wrangler secret put NAME`; a deploy
+keeps them.
 
-```sh
-cd relay
-npm install
-npx wrangler login                          # opens the browser to sign in to Cloudflare
-npx wrangler secret put MDBLIST_KEY         # each asks for the value; paste it there
-npx wrangler secret put OPENSUBTITLES_KEY
-npx wrangler secret put TMDB_API_KEY
-npx wrangler kv namespace create IDS        # then put the id it prints into wrangler.toml
-npx wrangler deploy
-```
-
-The relay's address is `https://cuelight-keys.<your-subdomain>.workers.dev`. Put it on the
-first line of `relay/url.txt` and commit that file: builds made after it send these requests
-to the relay. The address isn't a secret.
+The relay's address is in `relay/url.txt`: builds made after it send these requests to the
+relay. The address isn't a secret.
 
 ## Changing a key
 
@@ -80,11 +73,15 @@ relies on the relay for those two.
 ## Checking it
 
 ```sh
-npm test                                                      # the relay's own tests
-curl -s https://cuelight-keys.<your-subdomain>.workers.dev/mdblist/?i=tt0111161 | head -c 200
+npm test                                     # the relay's own tests
+npx wrangler dev --port 8799 &               # the relay on this computer, rooms included
+node test/party-live.mjs http://127.0.0.1:8799   # a party's held waits, end to end
+curl -s https://cuelight-k.shahrukh2871.workers.dev/mdblist/?i=tt0111161 | head -c 200
 ```
 
 The free plan allows 100,000 requests a day, far more than the app's ratings and subtitle
 searches need, and KV 100,000 reads and 1,000 new ids a day (past that, ids just aren't kept
 that day). Each film whose letterbox colours are shared costs one write when a TV sends new
-cuts for it; each play verdict is one write, and a sources list one read per file it asks about. The Worker's Metrics tab shows the counts.
+cuts for it; each play verdict is one write, and a sources list one read per file it asks about. Durable
+Objects on the free plan allow 100,000 requests a day: a TV in a party makes about 150 an hour
+(one per held wait, and one per play, pause or seek). The Worker's Metrics tab shows the counts.

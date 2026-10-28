@@ -1,9 +1,10 @@
 # Cuelight's key relay. The keys are secrets set with `npx wrangler secret put NAME` (README.md);
 # none of them belongs in this file.
-name = "cuelight-keys"
+name = "cuelight-k"
 main = "src/worker.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
+keep_vars = true   # a deploy keeps settings made in the dashboard (secrets are always kept)
 
 # Cloudflare's own per-address limit, shared by every copy of the relay (free on all plans).
 # Without it each copy keeps its own count, which still stops a single runaway device.
@@ -12,8 +13,18 @@ name = "LIMITER"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
 
-# Storage for the IMDb ids of TMDB titles (optional): `npx wrangler kv namespace create IDS`
-# prints the id to put here.
-# [[kv_namespaces]]
-# binding = "IDS"
-# id = ""
+# Storage for IMDb ids, glow colours and play verdicts: the KV namespace bound as IDS (its id is
+# under Storage & Databases > KV in the dashboard). A deploy without it would unbind it, so the
+# deploy workflow stops while this is still the placeholder.
+[[kv_namespaces]]
+binding = "IDS"
+id = "PUT_THE_IDS_NAMESPACE_ID_HERE"
+
+# Cue Party rooms (src/party.js), one Durable Object per party (SQLite-backed: the free plan's kind).
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

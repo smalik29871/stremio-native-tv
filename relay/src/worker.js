@@ -7,7 +7,11 @@
 //   MDBLIST_KEY, OPENSUBTITLES_KEY, TMDB_API_KEY
 // (Trakt isn't here: its apps sign in with PKCE, which needs no secret.)
 // Storage: a KV namespace bound as IDS keeps the IMDb ids it has looked up and the letterbox's
-// colours of films' cuts (optional; without it neither is kept).
+// colours of films' cuts (optional; without it neither is kept). Cue Party rooms are Durable
+// Objects bound as ROOMS (party.js).
+
+import { party } from './party.js';
+export { Room } from './party.js';
 
 const UPSTREAM = {
   mdblist: 'https://mdblist.com/api',
@@ -142,6 +146,11 @@ export default {
       const who = request.headers.get('CF-Connecting-IP') || 'unknown';
       if (!(await allowed(env, 'glow:' + who))) return json(429, { error: 'too many requests' });
       return glow(request, env, path.slice(1));
+    }
+    if (svc === 'party') {   // Cue Party rooms (party.js)
+      const who = request.headers.get('CF-Connecting-IP') || 'unknown';
+      if (!(await allowed(env, 'party:' + who))) return json(429, { error: 'too many requests' });
+      return party(request, env, url, path);
     }
     if (svc === 'verdicts' && (request.method === 'GET' || request.method === 'POST')) {
       const who = request.headers.get('CF-Connecting-IP') || 'unknown';
