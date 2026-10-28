@@ -53,6 +53,7 @@ add_library(sntv_core STATIC
   src/opensubs.c
   src/srchealth.c
   src/verdict.c
+  src/party.c
   src/ai.c
   src/memlevel.c
   src/sysinfo.c
@@ -332,6 +333,9 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   add_executable(test_log tests/test_log.c)
   target_link_libraries(test_log PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME diagnostic_redaction COMMAND test_log)
+  add_executable(test_party tests/test_party.c)
+  target_link_libraries(test_party PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME cue_party COMMAND test_party)
   add_executable(test_perfstat tests/test_perfstat.c src/perfstat.c)
   target_link_libraries(test_perfstat PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME playback_diagnostics COMMAND test_perfstat)
