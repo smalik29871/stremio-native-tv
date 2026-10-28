@@ -1240,9 +1240,9 @@ grep -q 'search: refine "Only series"' "$OUT/search_ai_refine.log" && [ "$(grep 
 # two words that ask for a kind of thing are a request too
 run search_ai_short 300 "search,t:korean thrillers,wait,wait" HOME="$(home_with ai4 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "search: the assistant suggests" "$OUT/search_ai_short.log" || { echo "\"korean thrillers\" did not go to the assistant"; grep "search" "$OUT/search_ai_short.log"; exit 1; }
-# Ask AI, the last line of the suggestions (Up from the keys): the assistant is asked about anything typed, a plain title too
-run search_ask_ai 320 "search,t:the shawshank redemption,wait,wait,up,up,ok,wait,wait,wait,wait" HOME="$(home_with ai6 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
-grep -q 'search: [0-9]* suggestions*, first "Ask AI: the shawshank redemption"' "$OUT/search_ask_ai.log" && grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/search_ask_ai.log" \
+# Ask AI, the button under the keys (Down from the bottom row): the assistant is asked about anything typed, a plain title too
+run search_ask_ai 320 "search,t:the shawshank redemption,wait,wait,down,down,down,down,ok,wait,wait,wait,wait" HOME="$(home_with ai6 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/search_ask_ai.log" \
   && grep -q "search: the assistant suggests 3 titles" "$OUT/search_ask_ai.log" \
   || { echo "Ask AI did not ask the assistant about a plain title"; grep search "$OUT/search_ask_ai.log"; exit 1; }
 # Every search asks the AI (Settings): the words' results at once, the assistant's picks once the typing rests

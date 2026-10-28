@@ -24,7 +24,7 @@ enum { LIST_ROW = 58, LIST_MAX = 5, HERO_H = 400, COLS_TYPING = 5, COLS = 7, CEL
 
 /* Results are grouped by type, each group under its own heading and starting a new row. */
 enum { SECT_MAX = 4, SECT_H = 56 };
-enum { HIT_FIELD = 0x1000, HIT_LIST = 0x2000, HIT_HERO = 0x3000, HIT_HERO_CARD = 0x3100, HIT_CHIP = 0x4000, HIT_GENRE = 0x5000, HIT_DISC = 0x6000 };   /* touch targets; a result is its index */
+enum { HIT_FIELD = 0x1000, HIT_LIST = 0x2000, HIT_HERO = 0x3000, HIT_HERO_CARD = 0x3100, HIT_CHIP = 0x4000, HIT_GENRE = 0x5000, HIT_DISC = 0x6000, HIT_ASK = 0x7000 };   /* touch targets; a result is its index */
 typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
@@ -78,6 +78,7 @@ struct Search {
     int ai_once; float ai_due;       /* ask the assistant this time (that line); ask it once typing rests (every search asks it) */
     char ai_for[256];                /* what the assistant was last asked */
     int sugg_focus;               /* -1 on the keys, else the suggestion */
+    int ask_focus;                /* the Ask AI button under the keys has the focus */
     int tvkb;                     /* typing with the TV's own keyboard, not the app's */
     int hero_btn;                 /* on the top result's buttons (focus_grid 3): which one */
     int ph_filter;                /* upright on a phone: All, Films, Series */
@@ -700,7 +701,7 @@ static void suggest(Search *s)
     for (int a = 1; a < n; a++)   /* the closest first; a tie keeps the order above */
         for (int b = a; b > 0 && c[b].tier < c[b - 1].tier; b--) { Sugg x = c[b]; c[b] = c[b - 1]; c[b - 1] = x; }
     /* and a line that asks the assistant about exactly what is typed (not once it has been asked) */
-    s->sugg_ai = ai_enabled() && strlen(tw) >= 2 && !(s->ai_state && !strcmp(s->ai_for, t));
+    s->sugg_ai = s->tvkb && ai_enabled() && strlen(tw) >= 2 && !(s->ai_state && !strcmp(s->ai_for, t));
     int k = n < LIST_MAX - s->sugg_ai ? n : LIST_MAX - s->sugg_ai;
     for (int i = 0; i < k; i++) {
         snprintf(s->sugg[i], sizeof s->sugg[0], "%s", c[i].name);
@@ -733,7 +734,7 @@ static void phone_search_open(Search *s)
 
 static void open_keyboard(Search *s)
 {
-    s->typing = 1; s->focus_grid = 0; s->want_results = 0; s->sugg_focus = -1;
+    s->typing = 1; s->focus_grid = 0; s->want_results = 0; s->sugg_focus = -1; s->ask_focus = 0;
     s->tvkb = tv_keyboard();
     if (s->tvkb) { input_text_system(1); LOGI("search: typing with the TV's keyboard"); }
     else input_text(1);
@@ -860,6 +861,20 @@ static void draw_field(const Search *s, float x, float y, float fw)
         }
         if (s->typing) app_redraw();
     } else font_draw("Movies, series, people\xE2\x80\xA6", x + 78, y + (FIELD_H - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT_MUTED);
+}
+
+/* Ask the assistant about what is typed: a button under the keys on the app's own keyboard (the TV's keeps its line of suggestions). */
+static int ask_visible(const Search *s) { return ai_enabled() && !s->tvkb && strlen(s->kb.text) >= 2; }
+static void draw_ask_button(const Search *s, float x, float y, float w)
+{
+    if (!ask_visible(s)) return;
+    float bw = 230, bh = 52, bx = x + w - bw;
+    if (s->ask_focus) ui_focus_under(bx, y, bw, bh, bh / 2, 1);
+    gfx_rrect(bx, y, bw, bh, bh / 2, s->ask_focus ? THEME_ACCENT2 : COLOR_ALPHA(THEME_TEXT, 0x2E));
+    Color fg = s->ask_focus ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT;
+    ui_icon(ICON_SPARK, bx + 36, y + bh / 2, 26, fg);
+    font_draw("Ask AI", bx + 62, y + (bh - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
+    ui_hit(bx, y, bw, bh, HIT_ASK);
 }
 
 /* Under the keyboard: scan to type on the phone instead. */
@@ -990,7 +1005,8 @@ static void draw(Screen *sc)
     ly += draw_list(s, x, ly, lw);
     if (s->typing && !s->tvkb) {
         float ky = ly + 16;
-        keyboard_draw(&s->kb, x, ky, s->sugg_focus < 0);
+        keyboard_draw(&s->kb, x, ky, s->sugg_focus < 0 && !s->ask_focus);
+        draw_ask_button(s, x, ky + keyboard_height_of(&s->kb) + 8, keyboard_width_of(&s->kb));
         font_draw(s->n_sugg ? "Done searches  \xC2\xB7  Up for suggestions" : "Done searches  \xC2\xB7  Back closes the keyboard", x, ky + keyboard_height_of(&s->kb) + 18, FONT_XS, THEME_TEXT_MUTED);
         draw_phone(s, x, ky + keyboard_height_of(&s->kb) + 64);
     } else if (!s->typing && !s->focus_grid) {
@@ -1085,6 +1101,16 @@ static void draw(Screen *sc)
 
 /* Take a line of the left list: a suggestion or a recent search is searched at once; the
  * last recent row clears them. */
+/* Ask the assistant about what is typed: the keys close and its titles come in. */
+static void ask_now(Search *s)
+{
+    close_keyboard(s);
+    s->last_query[0] = 0; s->ai_once = 1;
+    s->dirty = 0; s->focus_grid = 0; run_query(s);
+    recent_add(s, s->kb.text);
+    s->want_results = s->keep_recent = 1;
+}
+
 static void take_list(Search *s, int i)
 {
     if (refining(s)) {   /* asked again, the request kept: "bollywood comedies, only series" */
@@ -1098,14 +1124,7 @@ static void take_list(Search *s, int i)
         return;
     }
     if (!s->kb.text[0] && i == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return; }
-    if (s->kb.text[0] && s->sugg_ai && i == s->n_sugg - 1) {   /* ask the assistant about what is typed, however it reads */
-        close_keyboard(s);
-        s->last_query[0] = 0; s->ai_once = 1;
-        s->dirty = 0; s->focus_grid = 0; run_query(s);
-        recent_add(s, s->kb.text);
-        s->want_results = s->keep_recent = 1;
-        return;
-    }
+    if (s->kb.text[0] && s->sugg_ai && i == s->n_sugg - 1) { ask_now(s); return; }   /* ask the assistant about what is typed, however it reads */
     char pick[256];
     snprintf(pick, sizeof pick, "%s", s->kb.text[0] ? s->sugg[i] : s->recent[i]);
     if (s->kb.text[0]) LOGI("search: suggestion \"%s\" taken", pick);
@@ -1135,6 +1154,11 @@ static int key_typing(Search *s, KeyAction a)
         else if ((a == KEY_DOWN || a == KEY_RIGHT) && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); }
         return 1;
     }
+    if (s->ask_focus) {   /* the Ask AI button under the keys */
+        if (a == KEY_UP) s->ask_focus = 0;
+        else if (a == KEY_OK) { s->ask_focus = 0; ask_now(s); }
+        return 1;
+    }
     if (s->sugg_focus >= 0) {   /* on the suggestions, above the keys */
         if (a == KEY_UP && s->sugg_focus > 0) s->sugg_focus--;
         else if (a == KEY_DOWN) { if (++s->sugg_focus >= s->n_sugg) s->sugg_focus = -1; }
@@ -1145,6 +1169,7 @@ static int key_typing(Search *s, KeyAction a)
     int last = (int)(keyboard_width_of(&s->kb) / 80);   /* the right-hand column of keys */
     if (a == KEY_RIGHT && s->kb.col >= last && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); return 1; }
     if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; return 1; }
+    if (a == KEY_DOWN && s->kb.row == 4 && ask_visible(s)) { s->ask_focus = 1; return 1; }   /* the bottom row of keys: Down reaches the button */
     KeyboardResult r = keyboard_key(&s->kb, a);
     if (r == KB_LEAVE_UP && s->n_sugg) { s->sugg_focus = s->n_sugg - 1; return 1; }   /* the nearest suggestion first */
     if (r == KB_CHANGED) { s->dirty = 1; s->debounce = 0.35f; }
@@ -1432,6 +1457,7 @@ static int tap(Screen *sc, int id)
         app_push(screen_detail_create(&m));
         return 1;
     }
+    if (id == HIT_ASK) { ask_now(s); return 1; }
     if (keyboard_tap(&s->kb, id)) { if (!s->typing) return 1; s->sugg_focus = -1; return 0; }
     if (id == HIT_FIELD) { if (s->typing) return 1; s->focus_grid = 0; return 0; }
     if (id >= HIT_LIST && id < HIT_LIST + 32) {
