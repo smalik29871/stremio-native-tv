@@ -29,7 +29,7 @@ typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
-enum { PICKS_MAX = 100, AI_TITLES = 40 };   /* as many as the assistant gives, and TMDB's for its filters behind them */
+enum { PICKS_MAX = 100, AI_TITLES = 40, AI_BATCH = 20, AI_BATCH_MAX = 5 };   /* picks as many as the request asks (100 at most), TMDB's for its filters behind them; a reply gives up to AI_BATCH more, AI_BATCH_MAX replies */
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; int year, kind, cinemeta; } Pending;   /* kind: -1 any, 0 movie, 1 series */
 /* Every query of every Search gets its own number, never reused; a reply counts only when
  * its Search is still open and still on that query. A Search under another one (a cast
@@ -63,7 +63,9 @@ struct Search {
     int n_picks;                     /* results at the front that the assistant suggested (and TMDB found for its filters) */
     int pick_rank[PICKS_MAX];        /* the assistant's order for those, so they stay in it */
     char ai_note[160];
-    char pick_why[AI_TITLES][96];    /* the assistant's reason for each pick, by its rank */
+    char pick_why[PICKS_MAX][96];    /* the assistant's reason for each pick, by its rank */
+    int ai_want, ai_batch, ai_seen_n;   /* the count the request asks for, replies asked, titles the assistant has named so far */
+    char ai_seen[PICKS_MAX][64];     /* those titles, in the assistant's order */
     char refine[4][48]; int n_refine;   /* follow-ups it offers ("Only series", "Newer"), in the left list once it answered */
     char recent[10][96]; int n_recent, recent_focus;   /* shown while the field is empty */
     Cell *cell; int cell_cap;        /* where each result sits, from place() */
@@ -339,7 +341,7 @@ static void on_result(HttpResponse *r, void *user)
                 int dup = -1;
                 for (int j = 0; j < s->n; j++) if (strcmp(s->results[j].id, metas[i].id) == 0) { dup = j; break; }
                 int fits = same_title(metas[i].name, p->want) && year_fits(&metas[i], p->year) && (p->kind < 0 || kind_of(&metas[i]) == p->kind);
-                if (fits && app_title_watched(metas[i].id) && p->rank < 50) p->rank += 50;   /* seen already: after the ones you have not */
+                if (fits && app_title_watched(metas[i].id) && p->rank < 200) p->rank += 200;   /* seen already: after the ones you have not */
                 int want = dup < 0 && !took && s->n_picks < PICKS_MAX && fits;
                 int promote = dup >= s->n_picks && s->n_picks < PICKS_MAX && fits;
                 if (want || promote) {
@@ -480,6 +482,20 @@ static void discover(Search *s, const cJSON *f)
 }
 
 /* "something funny with robots": the assistant names titles, the addons find them */
+/* Has the assistant named this title already (in an earlier batch)? */
+static int ai_seen_before(const Search *s, const char *name)
+{
+    char key[64], seen[64];
+    name_key(name, key, sizeof key);
+    for (int i = 0; i < s->ai_seen_n; i++) {
+        name_key(s->ai_seen[i], seen, sizeof seen);
+        if (!strcmp(key, seen)) return 1;
+    }
+    return 0;
+}
+
+static int ask_ai_batch(Search *s, const char *q);
+
 static void on_ai_titles(const char *text, const char *error, void *user)
 {
     Pending *p = user;
@@ -488,29 +504,40 @@ static void on_ai_titles(const char *text, const char *error, void *user)
     s->ai_req = 0;
     cJSON *root = text ? cJSON_Parse(text) : NULL;
     const cJSON *titles = root ? cJSON_GetObjectItemCaseSensitive(root, "titles") : NULL;
-    int n = 0;
+    int n = 0, fresh = 0;
     if (cJSON_IsArray(titles)) {
         const cJSON *it;
         cJSON_ArrayForEach(it, titles) {
             const cJSON *name = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "name") : it;
             if (!cJSON_IsString(name) || !name->valuestring[0] || n >= AI_TITLES) continue;
+            n++;
+            if (s->ai_seen_n >= PICKS_MAX || ai_seen_before(s, name->valuestring)) continue;   /* said in an earlier batch */
+            int rank = s->ai_seen_n++;
+            fresh++;
+            snprintf(s->ai_seen[rank], sizeof s->ai_seen[0], "%s", name->valuestring);
             const cJSON *y = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "year") : NULL;
             const cJSON *t = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "type") : NULL;
             int kind = cJSON_IsString(t) ? (!strcmp(t->valuestring, "movie") ? 0 : !strcmp(t->valuestring, "series") ? 1 : -1) : -1;
             const cJSON *why = cJSON_IsObject(it) ? cJSON_GetObjectItemCaseSensitive(it, "why") : NULL;
-            snprintf(s->pick_why[n], sizeof s->pick_why[0], "%s", cJSON_IsString(why) ? why->valuestring : "");
-            search_addons(s, name->valuestring, 1, n, cJSON_IsNumber(y) ? y->valueint : 0, kind);
-            n++;
+            snprintf(s->pick_why[rank], sizeof s->pick_why[0], "%s", cJSON_IsString(why) ? why->valuestring : "");
+            search_addons(s, name->valuestring, 1, rank, cJSON_IsNumber(y) ? y->valueint : 0, kind);
         }
     }
-    const cJSON *sum = root ? cJSON_GetObjectItemCaseSensitive(root, "summary") : NULL, *ref = root ? cJSON_GetObjectItemCaseSensitive(root, "refine") : NULL, *r1;
-    if (n && cJSON_IsString(sum) && sum->valuestring[0]) snprintf(s->ai_note, sizeof s->ai_note, "%s", sum->valuestring);   /* what it understood, over the results */
-    s->n_refine = 0;
-    cJSON_ArrayForEach(r1, ref) if (cJSON_IsString(r1) && r1->valuestring[0] && s->n_refine < 4) snprintf(s->refine[s->n_refine++], sizeof s->refine[0], "%s", r1->valuestring);
-    if (n) LOGI("search: the assistant suggests %d title%s%s%s%s, %d way%s to refine", n, n == 1 ? "" : "s", s->ai_note[0] ? " (" : "", s->ai_note, s->ai_note[0] ? ")" : "", s->n_refine, s->n_refine == 1 ? "" : "s");
-    discover(s, cJSON_GetObjectItemCaseSensitive(root, "filters"));
-    s->ai_state = n ? 2 : 3;
-    if (!n) {
+    if (s->ai_batch <= 1) {   /* the first reply says what it understood, its follow-ups and the filters; later batches only add titles */
+        const cJSON *sum = root ? cJSON_GetObjectItemCaseSensitive(root, "summary") : NULL, *ref = root ? cJSON_GetObjectItemCaseSensitive(root, "refine") : NULL, *r1;
+        if (n && cJSON_IsString(sum) && sum->valuestring[0]) snprintf(s->ai_note, sizeof s->ai_note, "%s", sum->valuestring);   /* what it understood, over the results */
+        s->n_refine = 0;
+        cJSON_ArrayForEach(r1, ref) if (cJSON_IsString(r1) && r1->valuestring[0] && s->n_refine < 4) snprintf(s->refine[s->n_refine++], sizeof s->refine[0], "%s", r1->valuestring);
+        if (n) LOGI("search: the assistant suggests %d title%s%s%s%s, %d way%s to refine", n, n == 1 ? "" : "s", s->ai_note[0] ? " (" : "", s->ai_note, s->ai_note[0] ? ")" : "", s->n_refine, s->n_refine == 1 ? "" : "s");
+        discover(s, cJSON_GetObjectItemCaseSensitive(root, "filters"));
+    }
+    if (root && fresh && s->ai_seen_n < s->ai_want && s->ai_batch < AI_BATCH_MAX) {
+        LOGI("search: %d of the %d asked for so far, asking for more", s->ai_seen_n, s->ai_want);
+        if (ask_ai_batch(s, s->ai_for)) { cJSON_Delete(root); free(p); app_redraw(); return; }
+    }
+    if (s->ai_seen_n) LOGI("search: the assistant named %d of the %d asked for", s->ai_seen_n, s->ai_want);
+    s->ai_state = s->ai_seen_n ? 2 : 3;
+    if (!s->ai_seen_n) {
         snprintf(s->ai_note, sizeof s->ai_note, "%s", error ? error : "The assistant had no suggestions");
         LOGI("search: no suggestions from the assistant; searching the words instead");
         if (!s->n) search_addons(s, s->last_query, 0, 0, 0, -1);
@@ -542,11 +569,22 @@ static int looks_like_a_request(const char *q)
 /* Every search asks the assistant too (Settings > Accounts), not only one that reads as a request. */
 static int always_ai(void) { return ai_enabled() && store_get_int("searchAlwaysAi", 0); }
 
-/* The assistant's titles for q (its picks go in front of whatever the words found): 1 if asked. */
-static int ask_ai(Search *s, const char *q)
+/* The count a request names ("top 50", "100 best films"); 40, the most one reply gives, when it names none. */
+static int asked_count(const char *q)
 {
-    Pending *p = calloc(1, sizeof *p);
-    p->owner = s; p->generation = s->generation;
+    for (const char *c = q; *c; c++) {
+        if (*c < '0' || *c > '9' || (c > q && c[-1] != ' ')) continue;
+        char *end;
+        long v = strtol(c, &end, 10);
+        if (*end && *end != ' ') continue;   /* part of a word: "1990s" */
+        return v >= 2 && v <= PICKS_MAX ? (int)v : AI_TITLES;
+    }
+    return AI_TITLES;
+}
+
+/* One batch of the assistant's titles for q: up to AI_BATCH more, and not the ones it has named. */
+static int ask_ai_batch(Search *s, const char *q)
+{
     static const char *SYS = "You recommend films and series to a viewer who describes what they feel like watching. "
         "Keep to every constraint in the request exactly: language or film industry (Bollywood means Hindi films from India, Tollywood Telugu, "
         "a K-drama a Korean series, anime Japanese animation), country, era, genre, and film or series. Never suggest a title that breaks one of them. "
@@ -559,10 +597,30 @@ static int ask_ai(Search *s, const char *q)
         "language, country an ISO 3166-1 code, genres only from Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, "
         "History, Horror, Music, Mystery, Romance, Science Fiction, Thriller, War, Western; use null for whatever the request does not say. "
         "If the text is just a title or a person's name, return that title or that person's best-known titles, then others like them, and null filters.";
-    s->ai_req = ai_ask(SYS, q, 3600, 1, on_ai_titles, p);   /* room for 40 titles with their reasons */
+    int ask = s->ai_want - s->ai_seen_n;
+    if (ask > AI_BATCH) ask = AI_BATCH;
+    char msg[8192];
+    if (!s->ai_seen_n) snprintf(msg, sizeof msg, "%s\nGive up to %d titles, best match first.", q, ask);
+    else {
+        int k = snprintf(msg, sizeof msg, "%s\nYou already suggested these, do not repeat any: ", q);
+        for (int i = 0; i < s->ai_seen_n && k < (int)sizeof msg - 200; i++) k += snprintf(msg + k, sizeof msg - (size_t)k, "%s%s", i ? "; " : "", s->ai_seen[i]);
+        snprintf(msg + k, sizeof msg - (size_t)k, ".\nGive up to %d more titles, best match first.", ask);
+    }
+    Pending *p = calloc(1, sizeof *p);
+    p->owner = s; p->generation = s->generation;
+    s->ai_req = ai_ask(SYS, msg, 3600, 1, on_ai_titles, p);   /* room for 40 titles with their reasons */
     s->ai_state = s->ai_req ? 1 : 0;
-    snprintf(s->ai_for, sizeof s->ai_for, "%s", q);
     if (!s->ai_req) { free(p); return 0; }
+    s->ai_batch++;
+    return 1;
+}
+
+/* The assistant's titles for q, asked for the count the request names (its picks go in front of whatever the words found): 1 if asked. */
+static int ask_ai(Search *s, const char *q)
+{
+    s->ai_want = asked_count(q); s->ai_batch = 0; s->ai_seen_n = 0;
+    snprintf(s->ai_for, sizeof s->ai_for, "%s", q);
+    if (!ask_ai_batch(s, s->ai_for)) return 0;
     LOGI("search: asking the assistant about \"%s\"", q);
     return 1;
 }
@@ -860,8 +918,8 @@ static void draw_hero(const Search *s, float x, float y, float w, float h)
         if (parts[k] && *parts[k] && n < sizeof meta - 8) n += (size_t)snprintf(meta + n, sizeof meta - n, "%s%s", n ? "  \xC2\xB7  " : "", parts[k]);
     if (m->imdb_rating && *m->imdb_rating && n < sizeof meta - 16) snprintf(meta + n, sizeof meta - n, "%sIMDb %s", n ? "  \xC2\xB7  " : "", m->imdb_rating);
     font_draw_fit(meta, tx, ty + 84, FONT_S, THEME_TEXT_DIM, w - 88);
-    int rank = s->n_picks && s->pick_rank[0] < 100 ? s->pick_rank[0] % 50 : -1;   /* the assistant's reason for it (TMDB's own fill-ins have none) */
-    if (rank >= 0 && rank < AI_TITLES && s->pick_why[rank][0]) font_draw_fit(s->pick_why[rank], tx, ty - 40, FONT_S | FONT_B, THEME_ACCENT2, w - 88);
+    int rank = s->n_picks && s->pick_rank[0] < 300 ? s->pick_rank[0] % 200 : -1;   /* the assistant's reason for it (TMDB's own fill-ins have none) */
+    if (rank >= 0 && rank < PICKS_MAX && s->pick_why[rank][0]) font_draw_fit(s->pick_why[rank], tx, ty - 40, FONT_S | FONT_B, THEME_ACCENT2, w - 88);
     if (app_title_watched(m->id)) ui_chip("Watched", x + w - 150, y + 24, COLOR_ALPHA(THEME_PANEL, 0xD0), THEME_OK);
     float bx = tx, by = y + h - 96;
     for (int k = 0; k < hero_buttons(s); k++) {

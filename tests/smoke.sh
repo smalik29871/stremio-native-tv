@@ -1253,6 +1253,10 @@ grep -q 'search: 1 result for "the shawshank redemption"' "$OUT/search_always_ai
 # as many picks as the assistant gives, up to 40 (a model may give more; the rest are not read)
 run search_ai_many 360 "search,t:clever heist films,wait,wait,wait" HOME="$(home_with ai8 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "search: the assistant suggests 40 titles (Heist films)" "$OUT/search_ai_many.log" || { echo "the assistant's 40 titles were not all taken"; grep search "$OUT/search_ai_many.log"; exit 1; }
+# a count the request names: the assistant gives up to 20 a reply, so it is asked again for the rest, never naming a title twice
+run search_ai_batches 420 "search,t:food related top 50,wait,wait,wait,wait,wait" HOME="$(home_with aib "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q "search: 40 of the 50 asked for so far, asking for more" "$OUT/search_ai_batches.log" && grep -q "search: the assistant named 50 of the 50 asked for" "$OUT/search_ai_batches.log" \
+  || { echo "the assistant's titles were not asked for in batches"; grep search "$OUT/search_ai_batches.log"; exit 1; }
 # a request with a film industry: the assistant's filters go to TMDB, whose titles join its picks; no word-by-word search
 run search_ai_filters 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q "search: the assistant's filters: movies, language hi, country IN, 1 genre, 1990-1999" "$OUT/search_ai_filters.log" && grep -q "search: 2 more from TMDB for the assistant's filters" "$OUT/search_ai_filters.log" \

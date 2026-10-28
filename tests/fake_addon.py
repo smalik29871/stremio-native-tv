@@ -478,6 +478,12 @@ class H(BaseHTTPRequestHandler):
             elif "recommend films" in system:
                 # a request with a film industry in it gets filters too (TMDB lists titles for them)
                 filters = {"type": "movie", "language": "hi", "country": "IN", "genres": ["Comedy"], "from": 1990, "to": 1999} if "bollywood" in user.lower() else None
+                if "food" in user.lower():   # a model that gives up to 20 a reply, and no names it was already given
+                    ask = int(user.split("Give up to ")[1].split(" ")[0])
+                    said = user.split("do not repeat any: ")[1].split(".\n")[0].split("; ") if "do not repeat any: " in user else []
+                    first = len(said) if said and said[0] else 0
+                    return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": json.dumps({"summary": "Food films",
+                        "titles": [{"name": "Dish %d" % i, "year": 2000 + i % 20, "type": "movie", "why": "Food on screen"} for i in range(first, first + min(ask, 20))], "filters": None, "refine": []})}}]}).encode())
                 if "heist" in user.lower():   # a model that gives as many as it is allowed: 40 (more than that is not read)
                     return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": json.dumps({"summary": "Heist films",
                         "titles": [{"name": "Heist %d" % i, "year": 2000 + i % 20, "type": "movie", "why": "A clever crew"} for i in range(45)], "filters": None, "refine": []})}}]}).encode())
