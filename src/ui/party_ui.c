@@ -2,6 +2,7 @@
 #include "party_ui.h"
 #include "../app.h"
 #include "../log.h"
+#include "input.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +16,8 @@ static char g_followed[FOLLOWED][84];     /* the room's videos this TV opened la
 static int g_applying;                    /* the party is moving the player: not the viewer */
 static unsigned g_notice_seen, g_session_seen;
 static PartyState g_state_seen;
+
+void player_party_tick(Screen *player);   /* screen_player.c */
 
 static int followed(const char *video)
 {
@@ -184,6 +187,7 @@ void party_app_tick(void)
     if (v.state != PARTY_IN) return;
     if (v.notice.n != g_notice_seen) {
         g_notice_seen = v.notice.n;
+        g_app.last_input = g_app.time;   /* someone in the party is there and doing things: no screensaver here meanwhile */
         char text[200];
         if (strcmp(v.notice.by, v.me) && party_notice_text(&v, text, sizeof text)) app_toast("%s", text);
     }
@@ -196,6 +200,15 @@ void party_app_tick(void)
             if (strcmp(v.members[i].id, v.me) && (!v.members[i].ready || v.members[i].buffering)) { who = v.members[i].name; break; }
         if (strcmp(who, waiting)) { snprintf(waiting, sizeof waiting, "%s", who); since = g_app.time; told = 0; }
         if (*who && !told && g_app.time - since > 1.5f) { told = 1; app_toast("Waiting for %s\xE2\x80\xA6", who); }   /* (not for the moment its answer is on its way) */
+    }
+    for (int i = g_app.depth - 2; i >= 0; i--)   /* a player under another screen (the screensaver, a menu) keeps in step all the same */
+        if (g_app.stack[i] && g_app.stack[i]->name && !strcmp(g_app.stack[i]->name, "player")) { if (g_app.stack[i] != g_app.pip) player_party_tick(g_app.stack[i]); break; }
+    {   /* playing again while this TV's screensaver is up (the party paused it a while): it goes, and the player under it plays on */
+        Screen *top = app_top();
+        if (top && top->name && !strcmp(top->name, "ambient") && top->key && v.has_play && v.play.playing && g_playing[0] && !strcmp(g_playing, v.video)) {
+            LOGI("party: playing again; the screensaver goes");
+            top->key(top, KEY_BACK);
+        }
     }
     if (v.has_title && v.video[0] && !followed(v.video)) {   /* something else is on: this TV opens it too */
         note_followed(v.video);

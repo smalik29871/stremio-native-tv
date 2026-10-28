@@ -24,10 +24,9 @@ typedef struct {
     float intro, focus_t;
     char code[CODE_LEN + 1];
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX]; int qr_ready; char qr_for[8];
-    Screen *player;   /* the player under this screen, kept in time */
+    Screen *player;   /* the player under this screen (it keeps in time: party_app_tick) */
 } Party;
 
-void player_party_tick(Screen *player);   /* screen_player.c */
 
 /* What the others see this device as: its kind ("LG TV", "Phone"); SNTV_PARTY_NAME for tests. */
 static const char *my_name(void)
@@ -70,7 +69,6 @@ static void update(Screen *sc, float dt)
     Party *s = sc->st;
     s->intro = ui_ease(s->intro * 100, 100, NULL, dt, 9) / 100;
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
-    if (s->player) player_party_tick(s->player);
     PartyView v;
     party_view(&v);
     static unsigned seen;
