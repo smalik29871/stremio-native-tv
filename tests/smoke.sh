@@ -467,10 +467,10 @@ grep -q 'search: "Other Film 0" first of 200' "$OUT/search_many_hits.log" || { e
 run search_exact_first 260 "search,t:breaking bad" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/noisy/manifest.json
 grep -q 'search: "Breaking Bad" first of [0-9]*' "$OUT/search_exact_first.log" \
   || { echo "the title typed was not the first result"; grep "search" "$OUT/search_exact_first.log"; exit 1; }
-# suggestions above the keyboard as you type: Up reaches them, OK searches that title
-run search_suggest 420 "search,t:br,wait,wait,wait,wait,up,up,up,up,up,ok,wait,wait"
+# suggestions below the keyboard as you type: Down reaches them, OK searches that title
+run search_suggest 420 "search,t:br,wait,wait,wait,wait,down,down,down,down,ok,wait,wait"
 grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/search_suggest.log" && grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest.log" \
-  || { echo "no suggestions above the keyboard, or one could not be taken"; grep "search" "$OUT/search_suggest.log"; exit 1; }
+  || { echo "no suggestions below the keyboard, or one could not be taken"; grep "search" "$OUT/search_suggest.log"; exit 1; }
 # On a suggestion while an addon's results come in (Bravo Two Zero, put above it): the list stays as
 # it is under the cursor, and OK takes the one focused, not the keyboard's letter
 # the same title from two addons under different ids (Cinemeta's tt..., another's tmdb:...): shown once, the IMDb one kept
@@ -482,7 +482,7 @@ grep -q "search: 1 of them already shown under another addon's id" "$OUT/search_
 run search_cinemeta_first 3000 "search,t:breaking$(printf ',wait%.0s' $(seq 1 24))" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/cinemeta/slowsearch/manifest.json,http://127.0.0.1:$PORT/rival/manifest.json,http://127.0.0.1:$PORT/otherids/manifest.json
 grep -q "search: Cinemeta's \"Breaking Bad\" in place of another addon's" "$OUT/search_cinemeta_first.log" && grep 'search: "' "$OUT/search_cinemeta_first.log" | tail -1 | grep -q '"Breaking Bad" first of 2' \
   || { echo "Cinemeta's result did not lead"; grep search "$OUT/search_cinemeta_first.log"; exit 1; }
-run search_suggest_late 1500 "search,t:br,wait,up,up,up,up,up,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/shiftsearch/manifest.json
+run search_suggest_late 1500 "search,t:br,wait,down,down,down,down,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/shiftsearch/manifest.json
 grep -q 'search: suggestion "Breaking Bad" taken' "$OUT/search_suggest_late.log" && ! grep -q 'search: asking the addons for "bra"' "$OUT/search_suggest_late.log" \
   || { echo "results coming in moved the suggestions from under the cursor"; grep "search" "$OUT/search_suggest_late.log"; exit 1; }
 # suggestions at once from what this TV knows (the library here), before any addon answers:

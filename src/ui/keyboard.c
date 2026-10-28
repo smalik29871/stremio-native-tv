@@ -3,6 +3,7 @@
 #include "theme.h"
 #include "widgets.h"
 #include "../app.h"
+#include <stdio.h>
 #include <string.h>
 
 enum { COLS = 11, ROWS = 5, KEY_W = 72, KEY_H = 64, GAP = 8 };
@@ -124,7 +125,7 @@ void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
         float w = span_of(kb)[a] * (KEY_W + GAP) - GAP;
         ui_hit(kx, ky, w, KEY_H, KB_HIT | 4 << 8 | col);
         int sel = focused && kb->row == 4 && action_at(kb, kb->col) == a;
-        const char *label = kb->compact && a == ACT_SYM ? (kb->symbols ? "abc" : "123") : ACT_LABEL[a];
+        const char *label = kb->compact && a == ACT_DONE ? "Search" : kb->compact && a == ACT_SYM ? (kb->symbols ? "abc" : "123") : ACT_LABEL[a];
         int lit = (a == ACT_SHIFT && kb->shift) || (a == ACT_SYM && kb->symbols);
         if (aperture) {
             int fs = FONT_S;
