@@ -3764,9 +3764,9 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     if (n_eps > 1 && !p->trailer) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
     if (!p->trailer && vi.duration > 0) { ids[k] = BTN_SCENES; labels[k] = "Scenes"; icons[k++] = ICON_CLOCK; }
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
+    if (!p->trailer) { ids[k] = BTN_PARTY; labels[k] = party_active() ? "Cue Party (on)" : "Cue Party"; icons[k++] = ICON_TV; }
     const TmdbInfo *tm;   /* who's in it: most LG remotes have no Info key, so a button too */
     if (!p->trailer && cast_n(p, &tm) > 0) { ids[k] = BTN_CAST; labels[k] = "Cast"; icons[k++] = ICON_USER; }
-    if (!p->trailer) { ids[k] = BTN_PARTY; labels[k] = party_active() ? "Cue Party (on)" : "Cue Party"; icons[k++] = ICON_TV; }
     return k;
 }
 
