@@ -80,7 +80,8 @@ export class Room {
     switch (body.act) {
       case 'load': {   // something else is on: everyone loads it, then it starts together
         const t = body.title || {};
-        room.title = { meta: clean(t.meta, 40), video: clean(t.video, 80), name: clean(t.name, 120), type: clean(t.type, 16) };
+        room.title = { meta: clean(t.meta, 40), video: clean(t.video, 80), name: clean(t.name, 120), type: clean(t.type, 16),
+                       rel: /^[0-9a-f]{16}$/.test(t.rel || '') ? t.rel : '' };   // the file it plays, by fingerprint (as in play verdicts): never a link
         for (const x of Object.values(room.members)) x.ready = false;
         room.play = { playing: false, pos: at ?? 0, at: now };
         room.want = { pos: at ?? 0 };

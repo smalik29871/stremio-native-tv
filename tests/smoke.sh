@@ -863,6 +863,7 @@ wait $PARTY_HOST
 grep -q "party: started party $PARTY_CODE" "$OUT/party_host.log" && grep -q "party: this TV put on " "$OUT/party_host.log" && grep -q "party: this TV is ready" "$OUT/party_host.log" \
   && grep -q "party: joined party $PARTY_CODE (2 in)" "$OUT/party_guest.log" && grep -q "party: the room put on .*; opening it here" "$OUT/party_guest.log" && grep -q "party: this TV is ready" "$OUT/party_guest.log" \
   && grep -q "^party $PARTY_CODE Sam load" "$FAKE_TRACK_LOG" && grep -q "^party $PARTY_CODE Alex ready true" "$FAKE_TRACK_LOG" \
+  && grep -q "party: the room put on .*, the same copy first where there is one" "$OUT/party_guest.log" && grep -q "party: the same copy as the others" "$OUT/party_guest.log" \
   || { echo "two TVs did not get into one party on the same film"; grep -E "party|player: candidate" "$OUT/party_host.log" "$OUT/party_guest.log"; grep "^party" "$FAKE_TRACK_LOG"; exit 1; }
 grep -q "party: playing at 0.0 s, as the room says" "$OUT/party_host.log" && grep -q "party: playing at 0.0 s, as the room says" "$OUT/party_guest.log" \
   || { echo "the two TVs did not start together from the start"; grep -E "party" "$OUT/party_host.log" "$OUT/party_guest.log"; exit 1; }

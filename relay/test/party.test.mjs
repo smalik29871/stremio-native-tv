@@ -88,6 +88,11 @@ test('a start waits until every TV has the episode loaded, then is set 2.5 s ahe
   const a = await start(env), b = await join(env, a.code, 'Alex');
   let s = await act(env, a.code, a, 'load', { title: { meta: 'tt0903747', video: 'tt0903747:1:1', name: 'Breaking Bad S1 E1', type: 'series' } });
   assert.equal(s.title.video, 'tt0903747:1:1');
+  assert.equal(s.title.rel, '');   // no fingerprint given: none (and only 16 hex digits are kept)
+  s = await act(env, a.code, a, 'load', { title: { meta: 'tt0903747', video: 'tt0903747:1:1', name: 'Breaking Bad S1 E1', type: 'series', rel: '0123456789abcdef' } });
+  assert.equal(s.title.rel, '0123456789abcdef');
+  s = await act(env, a.code, a, 'load', { title: { meta: 'tt0903747', video: 'tt0903747:1:1', name: 'x', type: 'series', rel: 'https://debrid/x?token=1' } });
+  assert.equal(s.title.rel, '');
   assert.equal(s.play.playing, false);
   s = await act(env, a.code, a, 'ready', { ready: true });
   assert.equal(s.play.playing, false);   // Alex is still loading

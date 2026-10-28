@@ -3065,7 +3065,7 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
-    party_player_tick(&p->party, &p->meta, p->video_id, p->title, &vi, p->started, player_seek);
+    party_player_tick(&p->party, &p->meta, p->video_id, p->title, p->cur < p->n_cands ? p->cands[p->cur].vkey : "", &vi, p->started, player_seek);
     if (p->started && !p->length_checked && vi.duration > 0 && !p->error_handled) {
         p->length_checked = 1;
         char why[160];
@@ -7459,7 +7459,7 @@ void player_party_tick(Screen *s)
     if (p->finished) return;
     VideoInfo vi;
     video_info(&vi);
-    party_player_tick(&p->party, &p->meta, p->video_id, p->title, &vi, p->started, player_seek);
+    party_player_tick(&p->party, &p->meta, p->video_id, p->title, p->cur < p->n_cands ? p->cands[p->cur].vkey : "", &vi, p->started, player_seek);
 }
 double player_resume_point(Screen *s)
 {

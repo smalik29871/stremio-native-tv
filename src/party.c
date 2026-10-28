@@ -77,6 +77,7 @@ static int take_room(const char *body, int force)
     copy_str(w->video, sizeof w->video, t, "video");
     copy_str(w->title, sizeof w->title, t, "name");
     copy_str(w->type, sizeof w->type, t, "type");
+    copy_str(w->rel, sizeof w->rel, t, "rel");
     const cJSON *p = cJSON_GetObjectItem(j, "play");
     w->has_play = cJSON_IsObject(p);
     if (w->has_play) {
@@ -338,7 +339,7 @@ static void expect(int playing, double pos)
     unlock();
 }
 
-void party_load(const char *meta, const char *video, const char *title, const char *type, double pos)
+void party_load(const char *meta, const char *video, const char *title, const char *type, const char *rel, double pos)
 {
     if (!party_active()) return;
     cJSON *b = act_body("load", pos), *t = cJSON_AddObjectToObject(b, "title");
@@ -346,6 +347,7 @@ void party_load(const char *meta, const char *video, const char *title, const ch
     cJSON_AddStringToObject(t, "video", video ? video : "");
     cJSON_AddStringToObject(t, "name", title ? title : "");
     cJSON_AddStringToObject(t, "type", type ? type : "");
+    cJSON_AddStringToObject(t, "rel", rel ? rel : "");
     lock();
     if (g_view.state == PARTY_IN) {   /* (as the room will have it) */
         g_view.has_title = 1;
@@ -353,6 +355,7 @@ void party_load(const char *meta, const char *video, const char *title, const ch
         snprintf(g_view.video, sizeof g_view.video, "%s", video ? video : "");
         snprintf(g_view.title, sizeof g_view.title, "%s", title ? title : "");
         snprintf(g_view.type, sizeof g_view.type, "%s", type ? type : "");
+        snprintf(g_view.rel, sizeof g_view.rel, "%s", rel ? rel : "");
     }
     unlock();
     expect(0, pos);

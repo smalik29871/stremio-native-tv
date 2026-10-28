@@ -333,6 +333,9 @@ void    screen_detail_ask(const MetaPreview *preview);   /* the title page with 
 Screen *screen_streams_create(const MetaPreview *meta, const char *video_id, const char *video_title);
 /* The same, starting the recommended source by itself (Back returns to the list). */
 Screen *screen_streams_create_play(const MetaPreview *meta, const char *video_id, const char *video_title);
+/* A file to rank first wherever it is among the sources (a Cue Party's: the copy the others play), by its
+ * fingerprint (verdict_key); "" or NULL none. */
+void streams_prefer_file(const char *vkey);
 Screen *screen_streams_create_from_start(const MetaPreview *meta, const char *video_id, const char *video_title);   /* Restart: 0:00 */
 /* The player takes ownership of `cands`. next_video_id (optional) enables Up Next. */
 /* 1 while a video is on that nothing but a break may cover: playing, stalled, between

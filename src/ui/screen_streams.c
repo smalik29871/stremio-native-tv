@@ -351,6 +351,10 @@ static long rank(const Streams *st, const Stream *s)
     return r;
 }
 
+static char g_prefer_file[VERDICT_KEY];   /* streams_prefer_file */
+
+void streams_prefer_file(const char *vkey) { snprintf(g_prefer_file, sizeof g_prefer_file, "%s", vkey ? vkey : ""); }
+
 static void sort_items(Streams *st);
 
 /* ---- checks kept a while ----
@@ -589,6 +593,7 @@ static void sort_items(Streams *st)
         if (want && s->vkey[0]) memcpy(want[n_want++], s->vkey, VERDICT_KEY);
         s->score = quality_score(&s->tags, &g_app.tv, &qp, runtime);
         s->score += verdict_adjust(s->vkey);       /* how this file played on other TVs of this kind */
+        if (g_prefer_file[0] && !strcmp(s->vkey, g_prefer_file)) s->score += 5000;   /* the copy the others in the party play: in step, same cuts */
         { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; else if (al < 0) s->score -= 300; }   /* only another language: a dub */
         if (is_mine(s)) s->score += 1500;           /* your TorBox first: it is what you chose to keep */
         else if (from_torbox(s) && s->tags.cached <= 0) s->score += 150;   /* cached on TorBox: as any cached copy, not above a better one */

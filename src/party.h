@@ -25,6 +25,7 @@ typedef struct {
     unsigned v;                /* the room's version: changes with everything below */
     PartyMember members[PARTY_MEMBERS]; int n_members;
     int has_title; char meta[44], video[84], title[124], type[20];   /* what is on: a title's id, the episode's video id */
+    char rel[17];              /* the file it plays there, by fingerprint (verdict_key); "" not known */
     int has_play; PartyPlay play;
     int lead_ms;
     struct { unsigned n; char who[28], by[12], what[16], title[124], emoji[12]; } notice;   /* the last thing someone did (by: their member id); n changes with each */
@@ -45,7 +46,7 @@ void party_view(PartyView *out);
 const char *party_code(void);   /* "" when none */
 
 /* What this TV did, for the room. pos in seconds. */
-void party_load(const char *meta, const char *video, const char *title, const char *type, double pos);
+void party_load(const char *meta, const char *video, const char *title, const char *type, const char *rel, double pos);   /* rel: its file's fingerprint, or NULL */
 void party_play(double pos);
 void party_pause(double pos);
 void party_seek(double pos);

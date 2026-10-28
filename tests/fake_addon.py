@@ -226,6 +226,7 @@ def party_request(method, path, query, body):
         if act == "load":
             t = b.get("title") or {}
             r["title"] = {k: str(t.get(k, ""))[:120] for k in ("meta", "video", "name", "type")}
+            r["title"]["rel"] = t.get("rel", "") if re.fullmatch(r"[0-9a-f]{16}", str(t.get("rel", ""))) else ""
             for x in r["members"].values():
                 x["ready"] = False
             r["play"] = {"playing": False, "pos": at or 0, "at": now}

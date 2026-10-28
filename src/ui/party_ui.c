@@ -56,7 +56,7 @@ static void say_seconds(double s, char *out, size_t n)
     else snprintf(out, n, "%d:%02d", t / 60, t % 60);
 }
 
-void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *video_id, const char *title,
+void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *video_id, const char *title, const char *rel,
                        const VideoInfo *vi, int started, void (*seek)(double))
 {
     if (pp->trailer || !party_active()) return;
@@ -70,7 +70,7 @@ void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *vid
            the party (not when it opened something the room had on earlier: then it follows) */
         int mine = !v.has_title || (pp->session == party_session() && strcmp(v.video, video_id) && !followed(video_id));
         if (mine) {
-            party_load(meta->id, video_id, title, meta->type, vi->position > 1 ? vi->position : 0);
+            party_load(meta->id, video_id, title, meta->type, rel, vi->position > 1 ? vi->position : 0);
             note_followed(video_id);
             party_view(&v);
         }
@@ -78,6 +78,14 @@ void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *vid
     if (!v.has_title || strcmp(v.video, video_id)) return;   /* the room has something else on: the app opens it */
 
     if (started && !pp->ready_sent) { pp->ready_sent = 1; party_ready(1); LOGI("party: this TV is ready at %.1f s", vi->position); }
+    if (started && !pp->rel_told && v.rel[0] && rel) {   /* the same file as the one who put it on, or another copy (which may run a little differently) */
+        pp->rel_told = 1;
+        if (!strcmp(rel, v.rel)) LOGI("party: the same copy as the others");
+        else {
+            LOGI("party: another copy than the one who put it on (%s, theirs %s)", rel[0] ? rel : "unknown", v.rel);
+            app_toast("A different copy from the others' here: it may drift a little");
+        }
+    }
 
     int pop = video_paused_on_purpose();   /* the viewer's pause and play (and the app's: a break, the background) */
     if (pop != pp->last_pop) {
@@ -165,6 +173,7 @@ void party_app_tick(void)
     PartyView v;
     if (!active) {
         if (g_state_seen == PARTY_IN || g_state_seen == PARTY_CONNECTING) {
+            streams_prefer_file(NULL);   /* out of the party: sources rank as before */
             party_view(&v);
             if (v.state == PARTY_ENDED && v.error[0]) app_toast("%s", v.error);
             g_state_seen = v.state;
@@ -214,7 +223,8 @@ void party_app_tick(void)
         note_followed(v.video);
         if (strcmp(g_playing, v.video)) {
             MetaPreview m = { .id = v.meta, .type = v.type[0] ? v.type : "movie", .name = v.title };
-            LOGI("party: the room put on %s; opening it here", v.video);
+            LOGI("party: the room put on %s; opening it here%s", v.video, v.rel[0] ? ", the same copy first where there is one" : "");
+            streams_prefer_file(v.rel);
             const Screen *top = app_top();
             if (top && top->name && (!strcmp(top->name, "player") || !strcmp(top->name, "streams"))) {   /* instead of what plays (or starts) here */
                 if (!strcmp(top->name, "player")) video_stop();
