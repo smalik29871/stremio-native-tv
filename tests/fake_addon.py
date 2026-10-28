@@ -475,6 +475,9 @@ class H(BaseHTTPRequestHandler):
             elif "recommend films" in system:
                 # a request with a film industry in it gets filters too (TMDB lists titles for them)
                 filters = {"type": "movie", "language": "hi", "country": "IN", "genres": ["Comedy"], "from": 1990, "to": 1999} if "bollywood" in user.lower() else None
+                if "heist" in user.lower():   # a model that gives as many as it is allowed: 40 (more than that is not read)
+                    return self.send(200, json.dumps({"choices": [{"message": {"role": "assistant", "content": json.dumps({"summary": "Heist films",
+                        "titles": [{"name": "Heist %d" % i, "year": 2000 + i % 20, "type": "movie", "why": "A clever crew"} for i in range(45)], "filters": None, "refine": []})}}]}).encode())
                 answer = json.dumps({"summary": "Hindi comedies from the 1990s" if filters else "Stories of hope behind bars",
                                      "titles": [{"name": "The Shawshank Redemption", "year": 1994, "type": "movie", "why": "Hope and friendship in prison"},
                                                 {"name": "Breaking Bad", "year": 2008, "type": "series", "why": "A slow fall, brilliantly told"},

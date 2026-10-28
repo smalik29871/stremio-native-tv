@@ -29,7 +29,7 @@ typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
-enum { PICKS_MAX = 48, AI_TITLES = 24 };
+enum { PICKS_MAX = 100, AI_TITLES = 40 };   /* as many as the assistant gives, and TMDB's for its filters behind them */
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; int year, kind, cinemeta; } Pending;   /* kind: -1 any, 0 movie, 1 series */
 /* Every query of every Search gets its own number, never reused; a reply counts only when
  * its Search is still open and still on that query. A Search under another one (a cast
@@ -471,7 +471,7 @@ static void discover(Search *s, const cJSON *f)
     cJSON_ArrayForEach(g, gs) if (cJSON_IsString(g) && tf.n_genres < 4) snprintf(tf.genres[tf.n_genres++], sizeof tf.genres[0], "%s", g->valuestring);
     v = cJSON_GetObjectItemCaseSensitive(f, "from"); if (cJSON_IsNumber(v)) tf.from = v->valueint;
     v = cJSON_GetObjectItemCaseSensitive(f, "to"); if (cJSON_IsNumber(v)) tf.to = v->valueint;
-    if (!tf.lang[0] && !tf.country[0] && !tf.n_genres) return;   /* nothing to narrow TMDB's list by */
+    if (!tf.lang[0] && !tf.country[0] && !tf.n_genres && !tf.from && !tf.to) return;   /* nothing to narrow TMDB's list by */
     LOGI("search: the assistant's filters: %s, language %s, country %s, %d genre%s, %d-%d", tf.tv ? "series" : "movies",
          tf.lang[0] ? tf.lang : "any", tf.country[0] ? tf.country : "any", tf.n_genres, tf.n_genres == 1 ? "" : "s", tf.from, tf.to);
     Pending *p = calloc(1, sizeof *p);
@@ -554,12 +554,12 @@ static int ask_ai(Search *s, const char *q)
         "\"titles\": [{\"name\": \"title as on IMDb\", \"year\": 2010, \"type\": \"movie\", \"why\": \"a reason in under 10 words\"}], "
         "\"filters\": {\"type\": \"movie\", \"language\": \"hi\", \"country\": \"IN\", \"genres\": [\"Comedy\"], \"from\": 1990, \"to\": 2009}, "
         "\"refine\": [\"Only series\", \"Newer ones\", \"Funnier\", \"More like Andaz Apna Apna\"]} "
-        "with up to 24 well-known titles, best match first; type is movie or series. summary says in under 8 words what you understood; "
+        "with as many well-known titles as truly fit, up to 40 (aim for 30 or more when the request allows), best match first; type is movie or series. summary says in under 8 words what you understood; "
         "refine gives up to 4 short follow-ups (under 4 words each) the viewer might want next. In filters, language is the ISO 639-1 code of the original "
         "language, country an ISO 3166-1 code, genres only from Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, "
         "History, Horror, Music, Mystery, Romance, Science Fiction, Thriller, War, Western; use null for whatever the request does not say. "
         "If the text is just a title or a person's name, return that title or that person's best-known titles, then others like them, and null filters.";
-    s->ai_req = ai_ask(SYS, q, 2200, 1, on_ai_titles, p);
+    s->ai_req = ai_ask(SYS, q, 3600, 1, on_ai_titles, p);   /* room for 40 titles with their reasons */
     s->ai_state = s->ai_req ? 1 : 0;
     snprintf(s->ai_for, sizeof s->ai_for, "%s", q);
     if (!s->ai_req) { free(p); return 0; }

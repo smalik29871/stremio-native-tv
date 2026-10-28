@@ -623,41 +623,48 @@ static void discover_task(HttpResponse *r, void *arg)
     }
     const char *date = f->tv ? "first_air_date" : "primary_release_date";
     int n = snprintf(url, sizeof url, "%s/discover/%s?api_key=%s&sort_by=popularity.desc&vote_count.gte=25&include_adult=false",
-                     api_base(), f->tv ? "tv" : "movie", api_key());
+                     api_base(), f->tv ? "tv" : "movie", api_key()), base_n;
     if (f->lang[0]) n += snprintf(url + n, sizeof url - (size_t)n, "&with_original_language=%s", f->lang);
     if (f->country[0]) n += snprintf(url + n, sizeof url - (size_t)n, "&with_origin_country=%s", f->country);
     if (genres[0]) n += snprintf(url + n, sizeof url - (size_t)n, "&with_genres=%s", genres);
     if (f->from > 1800) n += snprintf(url + n, sizeof url - (size_t)n, "&%s.gte=%d-01-01", date, f->from);
     if (f->to > 1800) n += snprintf(url + n, sizeof url - (size_t)n, "&%s.lte=%d-12-31", date, f->to);
-    cJSON *j = get_json(url);
-    const cJSON *res = cJSON_GetObjectItemCaseSensitive(j, "results"), *e;
-    enum { MAXD = 12, ASK = 20 };   /* TMDB's page; a few have no IMDb id */
+    base_n = n;
+    enum { MAXD = 40, ASK = 20, PAGES = 2 };   /* two of TMDB's pages; a few have no IMDb id */
     dj->out = calloc(MAXD, sizeof *dj->out);
-    int dids[ASK], dtv[ASK], na = 0; char dimdb[ASK][ID_LEN];
-    const cJSON *dres[ASK];
-    cJSON_ArrayForEach(e, res) {
-        const cJSON *tid = cJSON_GetObjectItemCaseSensitive(e, "id");
-        if (na == ASK || !cJSON_IsNumber(tid)) continue;
-        dres[na] = e; dids[na] = tid->valueint; dtv[na] = f->tv; na++;
-    }
-    if (na) tmdb_imdb_ids(dids, dtv, na, dimdb, "a filtered list");
-    for (int i = 0; i < na && dj->n < MAXD; i++) {
-        e = dres[i];
-        if (dimdb[i][0]) {
-            MetaPreview *m = &dj->out[dj->n++];
-            const cJSON *t = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "name" : "title");
-            const cJSON *d = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "first_air_date" : "release_date");
-            const cJSON *pp = cJSON_GetObjectItemCaseSensitive(e, "poster_path"), *ov = cJSON_GetObjectItemCaseSensitive(e, "overview");
-            m->id = strdup(dimdb[i]);
-            m->type = strdup(f->tv ? "series" : "movie");
-            m->name = strdup(cJSON_IsString(t) ? t->valuestring : dimdb[i]);
-            if (cJSON_IsString(d) && strlen(d->valuestring) >= 4) { char y[8]; snprintf(y, sizeof y, "%.4s", d->valuestring); m->release_info = strdup(y); }
-            if (cJSON_IsString(pp) && pp->valuestring[0]) { char pu[320]; snprintf(pu, sizeof pu, "https://image.tmdb.org/t/p/w342%s", pp->valuestring); m->poster = strdup(pu); }
-            if (cJSON_IsString(ov) && ov->valuestring[0]) m->description = strdup(ov->valuestring);
+    int ok = 0;
+    for (int page = 1; page <= PAGES; page++) {
+        snprintf(url + base_n, sizeof url - (size_t)base_n, "&page=%d", page);
+        cJSON *j = get_json(url);
+        ok |= j != NULL;
+        const cJSON *res = cJSON_GetObjectItemCaseSensitive(j, "results"), *e;
+        int dids[ASK], dtv[ASK], na = 0; char dimdb[ASK][ID_LEN];
+        const cJSON *dres[ASK];
+        cJSON_ArrayForEach(e, res) {
+            const cJSON *tid = cJSON_GetObjectItemCaseSensitive(e, "id");
+            if (na == ASK || !cJSON_IsNumber(tid)) continue;
+            dres[na] = e; dids[na] = tid->valueint; dtv[na] = f->tv; na++;
         }
+        if (na) tmdb_imdb_ids(dids, dtv, na, dimdb, "a filtered list");
+        for (int i = 0; i < na && dj->n < MAXD; i++) {
+            e = dres[i];
+            if (dimdb[i][0]) {
+                MetaPreview *m = &dj->out[dj->n++];
+                const cJSON *t = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "name" : "title");
+                const cJSON *d = cJSON_GetObjectItemCaseSensitive(e, f->tv ? "first_air_date" : "release_date");
+                const cJSON *pp = cJSON_GetObjectItemCaseSensitive(e, "poster_path"), *ov = cJSON_GetObjectItemCaseSensitive(e, "overview");
+                m->id = strdup(dimdb[i]);
+                m->type = strdup(f->tv ? "series" : "movie");
+                m->name = strdup(cJSON_IsString(t) ? t->valuestring : dimdb[i]);
+                if (cJSON_IsString(d) && strlen(d->valuestring) >= 4) { char y[8]; snprintf(y, sizeof y, "%.4s", d->valuestring); m->release_info = strdup(y); }
+                if (cJSON_IsString(pp) && pp->valuestring[0]) { char pu[320]; snprintf(pu, sizeof pu, "https://image.tmdb.org/t/p/w342%s", pp->valuestring); m->poster = strdup(pu); }
+                if (cJSON_IsString(ov) && ov->valuestring[0]) m->description = strdup(ov->valuestring);
+            }
+        }
+        cJSON_Delete(j);
+        if (na < ASK) break;   /* the last page there is */
     }
-    r->status = j ? 200 : 502;
-    cJSON_Delete(j);
+    r->status = ok ? 200 : 502;
 }
 
 static void on_discover(HttpResponse *r, void *user)
