@@ -111,6 +111,7 @@ static Uint32 g_pos_at;               /* when the last report came (0: none sinc
 static Uint32 g_pos_gap;              /* the usual time between reports, ms (0: not known yet) */
 static int g_pos_reports;
 static double g_pos_rate = 1, g_pos_shown;
+static Uint32 g_seek_at;              /* when the app asked to seek (0: none waiting): logged against the TV's seekDone */
 
 static double position_now(void)   /* with g_lock held */
 {
@@ -417,7 +418,9 @@ static int on_event(LSHandle *sh, LSMessage *msg, void *ctx)
     int start_bind = 0;
     SDL_LockMutex(g_lock);
     if (session != g_session) goto done;
-    if (!cJSON_GetObjectItem(root, "currentTime") && !cJSON_GetObjectItem(root, "bufferRange")) LOGI("media event: %.400s", payload);
+    if (!cJSON_GetObjectItem(root, "currentTime") && !cJSON_GetObjectItem(root, "bufferRange") && !cJSON_GetObjectItem(root, "userDefinedEvent"))   /* (the subtitles' place, many times a second while they show) */
+        LOGI("media event: %.400s", payload);
+    if (cJSON_GetObjectItem(root, "seekDone") && g_seek_at) { LOGI("video(webos): the TV says the seek is done after %u ms", (unsigned)(g_now() - g_seek_at)); g_seek_at = 0; }
 
     if (cJSON_GetObjectItem(root, "loadCompleted")) {
         g_info.state = VIDEO_PAUSED;
@@ -841,6 +844,7 @@ void video_seek(double seconds)
     SDL_LockMutex(g_lock);
     g_info.position = g_pos_shown = seconds;
     g_pos_at = 0;   /* from the next report on */
+    g_seek_at = g_now();
     SDL_UnlockMutex(g_lock);
 }
 
