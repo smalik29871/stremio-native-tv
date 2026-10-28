@@ -4,6 +4,7 @@ name = "cuelight-k"
 main = "src/worker.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
+preview_urls = false   # no extra address per version
 keep_vars = true   # a deploy keeps settings made in the dashboard (secrets are always kept)
 
 # Cloudflare's own per-address limit, shared by every copy of the relay (free on all plans).
