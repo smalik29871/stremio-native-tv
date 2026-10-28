@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.97
+
+- **Cue Party buffers far less.** It no longer corrects small differences between TVs with a
+  seek (each one made the TV buffer again): a seek only when a TV is 4-5 s off, at most once
+  in 20 seconds, and smaller differences are played away at a slightly different speed on
+  phones and computers (an LG keeps its speed). A pause or play from the others now happens
+  at once, and the TV where play or a jump was pressed goes on straight away instead of
+  waiting for the others. A short stall on one TV no longer pauses everyone.
+- **Cue Party and the screensaver.** While others in the party pause and play, this TV's
+  screensaver stays away; if it came up during a long pause, a play from the party closes it
+  and the video goes on.
+- **Cue Party: the same copy where you have it.** When someone puts something on, the others'
+  TVs now know which file they play (a fingerprint of it, never a link) and choose that same
+  release from their own sources when they have it, so every TV has the same cuts and keeps
+  in step better. A TV playing another copy says so.
+- **Ask AI from Search.** While you type, the last line of the suggestions asks the AI about
+  exactly what you typed (Up from the keys, then OK): a title or a name works too, and brings
+  that title or that person's best work and others like them. Settings > Accounts > Every
+  search asks the AI makes it ask for every search: the usual results come at once and its
+  picks join in front a moment after you stop typing.
+- **Many more AI picks.** The AI now names up to 40 titles (it was 16), and for a request with
+  a language, a country, a genre or years TMDB adds up to 40 more behind them.
+
 ## 0.10.96
 
 - **Cue Party: watch together.** Friends in other homes watch the same thing at the same moment,
