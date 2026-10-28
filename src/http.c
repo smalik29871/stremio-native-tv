@@ -393,9 +393,9 @@ static size_t on_stream_data(char *ptr, size_t size, size_t nmemb, void *user)
     return n;
 }
 
-int http_stream(const char *url, const char *headers, const char *range, const HttpStream *cb)
+static int stream_run(const char *url, const char *headers, const char *range, const HttpStream *cb)
 {
-    if (!C.lib) return -1;
+    if (!C.lib || g_quit) return -1;   /* the app is closing: the library may be going */
     CURL *h = C.easy_init();
     if (!h) return -1;
     StreamRun r = { .cb = cb, .h = h };
@@ -426,14 +426,22 @@ int http_stream(const char *url, const char *headers, const char *range, const H
     C.easy_setopt(h, OPT_LOW_SPEED_TIME, 30L);    /* nothing for 30 s is a dead link */
     if (C.share) C.easy_setopt(h, OPT_SHARE, C.share);
     C.easy_setopt(h, OPT_TCP_KEEPALIVE, 1L);
-    SDL_AtomicAdd(&g_streams, 1);
     CURLcode rc = C.easy_perform(h);   /* no Accept-Encoding: video bytes as they are, ranges intact */
     if (rc == 0) stream_head(&r);      /* an empty answer still has its status */
     C.slist_free_all(hdrs);
     C.easy_cleanup(h);
-    SDL_AtomicAdd(&g_streams, -1);
     if (rc != 0 && !r.stop && !r.headed) return -1;   /* nothing came: the caller answers for it */
     return 0;
+}
+
+/* Counted before the library is called at all: http_shutdown waits for none to be counted before it unloads the
+ * library, and a transfer that starts after that sees g_quit and does nothing. */
+int http_stream(const char *url, const char *headers, const char *range, const HttpStream *cb)
+{
+    SDL_AtomicAdd(&g_streams, 1);
+    int rc = stream_run(url, headers, range, cb);
+    SDL_AtomicAdd(&g_streams, -1);
+    return rc;
 }
 
 int http_has_bytes(const HttpResponse *r, uint64_t from, size_t len)
