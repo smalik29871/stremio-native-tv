@@ -527,19 +527,22 @@ static int ph_land(const Row *r) { return r->kind == ROW_CONTINUE; }
 static float ph_cw(const Row *r) { return ph_land(r) ? (SNTV_UI_W - PH_X) * 0.62f : PH_POSTER_W; }   /* a card and a half across, as the TV's row shows more to come */
 static float ph_ch(const Row *r) { return ph_land(r) ? ph_cw(r) * 9 / 16 : PH_POSTER_H; }
 static float ph_row_h(const Row *r) { return PH_TITLE_H + ph_ch(r) + 56; }
+/* Where the hero ends: Cinematic a band under the header, Showcase most of the screen; Compact has none. */
+static float ph_hero_bottom(void) { return g_app.home_style == HOME_SHOWCASE ? SNTV_UI_H * 0.7f : PH_HERO_Y + PH_HERO_H; }
 static const MetaPreview *ph_hero(const Home *h)
 {
     const Row *r = featured_row(h);
+    if (g_app.home_style == HOME_COMPACT) return NULL;
     return r && r->n ? &r->metas[h->feat % featured_count(h)] : NULL;
 }
 /* No hero yet, but the catalog it comes from is on its way: its room is kept (no jump). */
 static int ph_hero_coming(const Home *h)
 {
-    if (ph_hero(h)) return 0;
+    if (g_app.home_style == HOME_COMPACT || ph_hero(h)) return 0;
     for (int i = 0; i < h->n_rows; i++) if (h->rows[i]->kind == ROW_CATALOG && (h->rows[i]->loading || !h->rows[i]->requested)) return 1;
     return 0;
 }
-static float ph_rows_top(const Home *h) { return ph_hero(h) || ph_hero_coming(h) ? PH_HERO_Y + PH_HERO_H + 48 : PH_HERO_Y; }
+static float ph_rows_top(const Home *h) { return ph_hero(h) || ph_hero_coming(h) ? ph_hero_bottom() + 48 : PH_HERO_Y; }
 
 /* The focused card kept in view (the row stays put while it already is); a finger moves it freely. */
 static void phone_scroll_row(Row *r, float dt)
@@ -699,10 +702,10 @@ static void ph_hero_draw(Home *h)
 {
     const Row *r = featured_row(h);
     int n = featured_count(h);
-    float W = SNTV_UI_W, H = PH_HERO_Y + PH_HERO_H;
+    float W = SNTV_UI_W, H = ph_hero_bottom();
     if (!h->hero_logged) { h->hero_logged = 1; LOGI("home: the hero shows %d titles", n); }
     float drift = h->phone_y > 0 ? h->phone_y * 0.3f : 0;
-    ui_pan_area(&h->hero_pan, 0, 0, W, PH_HERO_Y + PH_HERO_H - 170, 0);
+    ui_pan_area(&h->hero_pan, 0, 0, W, ph_hero_bottom() - 170, 0);
     gfx_clip_push(0, 0, W, H);
     int i0 = (int)floorf(h->hero_x / W);
     for (int i = i0; i <= i0 + 1; i++) {
@@ -749,7 +752,7 @@ static void phone_draw(Home *h)
     gfx_set_translate(0, top);
     if (ph_hero(h)) ph_hero_draw(h);
     else if (ph_hero_coming(h)) {   /* its room, shimmering until it comes */
-        float H = PH_HERO_Y + PH_HERO_H;
+        float H = ph_hero_bottom();
         gfx_rect(0, 0, SNTV_UI_W, H, THEME_BG2);
         ui_shimmer(0, 0, SNTV_UI_W, H);
         gfx_gradient_v(0, H - 150, SNTV_UI_W, 152, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
