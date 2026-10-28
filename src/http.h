@@ -35,6 +35,7 @@ typedef struct HttpOptions {
     uint64_t max_bytes;     /* the body's budget otherwise (0: HTTP_MAX_BODY) */
     uint64_t range_start;   /* from this offset (0 = the start of the file) */
     long timeout_s;         /* whole-transfer timeout */
+    long quiet_s;           /* give up after this long without a byte (0: 15 s); a request the server holds on purpose needs more */
     int no_json_accept;     /* don't ask for application/json */
     int background;         /* artwork: waits behind API requests, newest first */
     int deliver;            /* must reach the server: http_shutdown waits for it (watch progress) */

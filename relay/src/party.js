@@ -35,7 +35,7 @@ export class Room {
   }
   async save(room, notice, now) {
     room.v++;
-    if (notice) room.notice = { ...notice, at: now, n: (room.notice?.n || 0) + 1 };
+    if (notice) room.notice = { ...notice, at: now, n: (room.notice?.n || 0) + 1 };   // by: the member's id, so a TV knows its own
     await this.ctx.storage.put('room', room);
     const msg = JSON.stringify(this.view(room, now));   // the change itself, so the Worker needs no second call
     for (const ws of this.ctx.getWebSockets()) { try { ws.send(msg); } catch { /* gone */ } }
@@ -81,7 +81,7 @@ export class Room {
         for (const x of Object.values(room.members)) x.ready = false;
         room.play = { playing: false, pos: at ?? 0, at: now };
         room.want = { pos: at ?? 0 };
-        await this.save(room, { who: m.name, what: 'load', name: room.title.name }, now);
+        await this.save(room, { who: m.name, by: body.member, what: 'load', name: room.title.name }, now);
         break;
       }
       case 'ready':   // this TV has the source loaded (or lost it)
@@ -92,18 +92,18 @@ export class Room {
       case 'play':
         if (at === null) return json(400, { error: 'a position is needed' });
         if (everyoneReady()) start(at); else { room.want = { pos: at }; room.play = { playing: false, pos: at, at: now }; }
-        await this.save(room, { who: m.name, what: 'play' }, now);
+        await this.save(room, { who: m.name, by: body.member, what: 'play' }, now);
         break;
       case 'pause':   // everyone stops at the pauser's position
         if (at === null) return json(400, { error: 'a position is needed' });
         room.play = { playing: false, pos: at, at: now }; room.want = null;
-        await this.save(room, { who: m.name, what: 'pause' }, now);
+        await this.save(room, { who: m.name, by: body.member, what: 'pause' }, now);
         break;
       case 'seek':
         if (at === null) return json(400, { error: 'a position is needed' });
         if (room.play?.playing) room.play = { playing: true, pos: at, at: now + LEAD_MS };
         else room.play = { playing: false, pos: at, at: now };
-        await this.save(room, { who: m.name, what: 'seek' }, now);
+        await this.save(room, { who: m.name, by: body.member, what: 'seek' }, now);
         break;
       case 'buffering': {   // while one TV waits for its source, the others wait with it
         const on = !!body.on;
@@ -112,7 +112,7 @@ export class Room {
         if (on && room.play?.playing) {
           room.want = { pos: positionAt(room.play, now) };
           room.play = { playing: false, pos: room.want.pos, at: now };
-          await this.save(room, { who: m.name, what: 'buffering' }, now);
+          await this.save(room, { who: m.name, by: body.member, what: 'buffering' }, now);
         } else {
           if (!on && room.want && everyoneReady()) start(room.want.pos);
           await this.save(room, null, now);
@@ -120,13 +120,13 @@ export class Room {
         break;
       }
       case 'react':
-        await this.save(room, { who: m.name, what: 'react', emoji: clean(body.emoji, 8) }, now);
+        await this.save(room, { who: m.name, by: body.member, what: 'react', emoji: clean(body.emoji, 8) }, now);
         break;
       case 'leave':
         delete room.members[body.member]; delete room.tokens[body.member];
         if (!Object.keys(room.members).length) { await this.ctx.storage.deleteAll(); return json(200, { left: true }); }
         if (room.want && everyoneReady()) start(room.want.pos);
-        await this.save(room, { who: m.name, what: 'leave' }, now);
+        await this.save(room, { who: m.name, by: body.member, what: 'leave' }, now);
         return json(200, { left: true });
       default:
         return json(400, { error: 'unknown act' });
@@ -140,7 +140,7 @@ export class Room {
     room.members[id] = { name: clean(body.name, 24) || 'Guest', device: clean(body.device, 40), seen: now, ready: false, buffering: false };
     room.tokens[id] = tok;
     if (room.want) room.want = { pos: positionAt(room.play, now) };   // it waits for the newcomer to load too
-    await this.save(room, first ? null : { who: room.members[id].name, what: 'join' }, now);
+    await this.save(room, first ? null : { who: room.members[id].name, by: id, what: 'join' }, now);
     await this.ctx.storage.setAlarm(now + GONE_MS);
     return json(200, { ...this.view(room, now), member: id, token: tok });
   }
@@ -157,6 +157,19 @@ export class Room {
 
   async webSocketMessage() {}
   async webSocketClose(ws) { try { ws.close(); } catch { /* closed */ } }
+}
+
+// The page a phone's camera opens from the TV's QR code: it hands the code to Cuelight on the
+// phone. The code is checked (six of A-Z, 2-9), so nothing else reaches the page.
+function page(code) {
+  const link = `cuelight://party?code=${code}`, shown = `${code.slice(0, 3)} ${code.slice(3)}`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cue Party ${shown}</title><style>body{margin:0;font:18px system-ui,sans-serif;background:#111;color:#eee;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}
+main{padding:24px;max-width:420px}h1{font-size:28px;margin:0 0 8px}.code{font-size:44px;font-weight:700;letter-spacing:4px;color:#7cc4ff;margin:16px 0}
+a.b{display:inline-block;margin-top:16px;padding:16px 28px;border-radius:999px;background:#7cc4ff;color:#111;font-weight:700;text-decoration:none}p{color:#aaa}</style></head>
+<body><main><h1>Cue Party</h1><div class="code">${shown}</div><a class="b" href="${link}">Open in Cuelight</a>
+<p>Cuelight opens and joins the party. On a TV: Settings, Cue Party, Join with a code.</p></main></body></html>`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Content-Type-Options': 'nosniff' } });
 }
 
 // The Worker's side: /party (start one), /party/CODE/join, /party/CODE/do, /party/CODE/wait.
@@ -177,6 +190,7 @@ export async function party(request, env, url, path) {
     return json(503, { error: 'no free code' });
   }
   const code = (parts[0] || '').toUpperCase();
+  if (CODE.test(code) && parts.length === 1 && request.method === 'GET') return page(code);   // a phone that scanned the TV's QR code
   if (!CODE.test(code) || parts.length !== 2) return json(404, { error: 'no such party' });
   if ((parts[1] === 'join' || parts[1] === 'do') && request.method === 'POST') return call(code, parts[1]);
   if (parts[1] !== 'wait' || request.method !== 'GET') return json(404, { error: 'unknown' });

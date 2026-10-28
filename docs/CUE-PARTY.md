@@ -47,6 +47,29 @@ episode, the position, play, pause and seek. Never the video, a link or an accou
   is in, short notices ("Sam paused"), and a few quick reactions instead of chat (typing on a
   remote is slow).
 
+## In the app
+
+- **Where**: Settings > Accounts > Cue Party, the Cue Party button in the player, and a
+  `cuelight://party?code=…` link (a phone that scans the TV's QR code opens a page on the relay
+  that hands the code to Cuelight).
+- **What it does**: `src/party.c` holds the room (its own thread for the held wait; acts go to
+  the room one at a time, in order); `src/ui/party_ui.c` tells the room what the viewer does
+  (play, pause and seek are seen from the player, whatever pressed them) and applies the
+  room's plan to the player each frame; the app opens what someone else puts on.
+- **The plan** (`party_plan`): before a start, every TV waits paused at the start's position;
+  a TV late to it seeks to where playback will be once its seek is done (its seek time is
+  learned from its own seeks, 1.2 s until then); off by more than 2 s: a seek; 0.25-2 s:
+  played away at 0.95x or 1.05x, and a player whose pace does not change at that speed (found
+  out within 3 s) is corrected by seeks from 1 s instead.
+- **Checked**: `tests/test_party.c` (the plan against a simulated LG at 21 ms frames and a
+  phone at 17 ms, with the measured seek times), and the `party_host` / `party_guest` smoke
+  runs: two copies of the app in one party (the fake relay keeps the room by the same rules):
+  the guest opens the host's episode by itself, both start in the same second, the host's
+  pause stops the guest at the same position (within 0.3 s), and a seek moves it too. The
+  room clock came within 1 ms of the real one against the relay under `wrangler dev`.
+- **Still to see on the TVs**: how close the LG and a phone keep in a real party (the log says
+  "party: +0.04 s from the room" each minute), and whether the LG's player takes 0.95x.
+
 ## Sources
 
 - Syncplay (Apache-2.0): https://github.com/Syncplay/syncplay — `syncplay/constants.py`

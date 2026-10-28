@@ -22,6 +22,7 @@ static char g_join_code[8], g_join_body[200];   /* what the thread does first: "
 static double g_offset;          /* room ms = SDL ticks + this */
 static double g_best_rtt;
 static int g_clocked;
+static unsigned g_session;
 static Uint32 g_seek_due; static double g_seek_pos;   /* a seek kept back while the viewer is still seeking */
 
 static void lock(void) { if (!g_mx) g_mx = SDL_CreateMutex(); SDL_LockMutex(g_mx); }
@@ -93,6 +94,7 @@ static int take_room(const char *body, int force)
         if (nn != w->notice.n) {
             w->notice.n = nn;
             copy_str(w->notice.who, sizeof w->notice.who, n, "who");
+            copy_str(w->notice.by, sizeof w->notice.by, n, "by");
             copy_str(w->notice.what, sizeof w->notice.what, n, "what");
             copy_str(w->notice.title, sizeof w->notice.title, n, "name");
             copy_str(w->notice.emoji, sizeof w->notice.emoji, n, "emoji");
@@ -173,7 +175,7 @@ static int party_thread(void *arg)
         if (g_view.state != PARTY_IN) { unlock(); break; }
         snprintf(url, sizeof url, "%s/%s/wait?member=%s&token=%s&v=%u", base() ? base() : "", g_view.code, g_member, g_token, g_view.v);
         unlock();
-        HttpOptions w = { .timeout_s = WAIT_TIMEOUT_S, .stop = &g_stop, .keep = &keep };
+        HttpOptions w = { .timeout_s = WAIT_TIMEOUT_S, .quiet_s = WAIT_TIMEOUT_S, .stop = &g_stop, .keep = &keep };   /* (the room holds it up to 25 s, silent) */
         sent = SDL_GetTicks();
         http_request_ex(url, &w, &r);
         got = SDL_GetTicks();
@@ -224,6 +226,7 @@ static void begin(const char *code, const char *name, const char *device)
     lock();
     memset(&g_view, 0, sizeof g_view);
     g_view.state = PARTY_CONNECTING;
+    g_session++;
     g_member[0] = g_token[0] = 0;
     g_clocked = 0;
     size_t n = 0;
@@ -240,9 +243,37 @@ static void begin(const char *code, const char *name, const char *device)
 void party_start(const char *name, const char *device) { begin(NULL, name, device); }
 void party_join(const char *code, const char *name, const char *device) { begin(code && *code ? code : "-", name, device); }
 
+/* Acts go one at a time, in the order they happened: a "ready" overtaking the "load" before it
+ * (which makes everyone not ready) would leave the room waiting for this TV for ever. */
+enum { QUEUE = 16 };
+static char *g_queue[QUEUE];
+static int g_queued, g_sending;
+
+static void on_done(HttpResponse *r, void *user);
+
+static void send_next(void)
+{
+    if (g_sending || !g_queued) return;
+    char *s = g_queue[0];
+    memmove(g_queue, g_queue + 1, sizeof g_queue[0] * (size_t)--g_queued);
+    lock();
+    int in = g_view.state == PARTY_IN;
+    char url[300];
+    snprintf(url, sizeof url, "%s/%s/do", base() ? base() : "", g_view.code);
+    unlock();
+    if (in && base()) {
+        HttpOptions o = { .post_json = s, .timeout_s = 10 };
+        g_sending = http_request_async_ex(url, &o, on_done, (void *)(uintptr_t)SDL_GetTicks()) != 0;
+    }
+    free(s);
+    if (!g_sending) send_next();
+}
+
 static void on_done(HttpResponse *r, void *user)
 {
     Uint32 sent = (Uint32)(uintptr_t)user, got = SDL_GetTicks();
+    g_sending = 0;
+    send_next();
     if (r->status != 200 || !r->body) { if (r->status) LOGW("party: the room said %ld to that", r->status); return; }
     lock();
     if (g_view.state == PARTY_IN) {
@@ -270,9 +301,15 @@ static void act(cJSON *b)
     char *s = in && base() ? cJSON_PrintUnformatted(b) : NULL;
     cJSON_Delete(b);
     if (!s) return;
-    HttpOptions o = { .post_json = s, .timeout_s = 10, .deliver = leaving };
-    http_request_async_ex(url, &o, on_done, (void *)(uintptr_t)SDL_GetTicks());
-    free(s);
+    if (leaving) {   /* now, whatever waits: it must reach the room before the app closes */
+        HttpOptions o = { .post_json = s, .timeout_s = 10, .deliver = 1 };
+        http_request_async_ex(url, &o, NULL, NULL);
+        free(s);
+        return;
+    }
+    if (g_queued == QUEUE) { LOGW("party: too much to tell the room at once; dropped one"); free(s); return; }
+    g_queue[g_queued++] = s;
+    send_next();
 }
 
 static cJSON *act_body(const char *what, double pos)
@@ -371,6 +408,7 @@ void party_leave(void)
         LOGI("party: left");
     }
     stop_thread();
+    while (g_queued) free(g_queue[--g_queued]);   /* what was still to tell this party */
     lock(); memset(&g_view, 0, sizeof g_view); g_member[0] = g_token[0] = 0; unlock();
 }
 
@@ -384,6 +422,8 @@ int party_active(void)
     }
     return g_view.state == PARTY_CONNECTING || g_view.state == PARTY_IN;
 }
+
+unsigned party_session(void) { return g_session; }
 
 void party_view(PartyView *out) { lock(); *out = g_view; unlock(); }
 

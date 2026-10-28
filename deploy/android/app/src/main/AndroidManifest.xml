@@ -53,6 +53,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="cuelight" android:host="sync" />
             </intent-filter>
+            <!-- a Cue Party's code (its QR code opens a page on the relay that hands over here) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cuelight" android:host="party" />
+            </intent-filter>
         </activity>
         <provider
             android:name="androidx.core.content.FileProvider"

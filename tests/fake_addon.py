@@ -4,7 +4,7 @@
     python3 tests/fake_addon.py 8765
 Serves /manifest.json, /catalog/{type}/{id}.json (with optional /{extra}.json),
 /meta/{type}/{id}.json, /stream/{type}/{id}.json and generated poster PNGs."""
-import json, os, re, sys, io, struct, zlib, urllib.parse
+import json, os, re, sys, io, struct, threading, time, zlib, urllib.parse
 from time import sleep
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -137,6 +137,149 @@ if "art" in globals():
         return _ART_CACHE[k]
 
 
+# Cue Party rooms as relay/src/party.js keeps them (the same rules, in memory): the first party
+# started is PARTY2, the next PARTY3 ...; a TV's wait is held until the room changes (or 25 s).
+PARTY_LEAD = 2500
+_parties, _party_cv, _party_n = {}, threading.Condition(), [1]
+
+
+def _party_view(r, now):
+    return {"code": r["code"], "v": r["v"], "t": now, "title": r["title"], "play": r["play"], "notice": r["notice"], "lead": PARTY_LEAD,
+            "members": [{"id": i, "name": m["name"], "device": m["device"], "ready": m["ready"], "buffering": m["buffering"]} for i, m in r["members"].items()]}
+
+
+def _party_save(r, notice, now):
+    r["v"] += 1
+    if notice:
+        r["notice"] = dict(notice, at=now, n=(r["notice"] or {}).get("n", 0) + 1)
+    _party_cv.notify_all()
+
+
+def _party_pos(play, t):
+    if not play:
+        return 0
+    return play["pos"] + (t - play["at"]) / 1000 if play["playing"] and t > play["at"] else play["pos"]
+
+
+def party_request(method, path, query, body):
+    """(status, answer) for /party/..., under the lock."""
+    import secrets
+    now = time.time() * 1000
+    parts = [x for x in path.split("/") if x]
+    try:
+        b = json.loads(body or b"{}")
+    except ValueError:
+        b = {}
+    with _party_cv:
+        def join(r, first):
+            if len(r["members"]) >= 8:
+                return 409, {"error": "the party is full"}
+            mid, tok = secrets.token_hex(4), secrets.token_hex(16)
+            r["members"][mid] = {"name": str(b.get("name") or "Guest")[:24], "device": str(b.get("device") or "")[:40], "ready": False, "buffering": False, "seen": now}
+            r["tokens"][mid] = tok
+            if r["want"]:
+                r["want"] = {"pos": _party_pos(r["play"], now)}
+            _party_save(r, None if first else {"who": r["members"][mid]["name"], "by": mid, "what": "join"}, now)
+            with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+                f.write(f"party {r['code']} {'start' if first else 'join'} {r['members'][mid]['name']}\n".encode())
+            return 200, dict(_party_view(r, now), member=mid, token=tok)
+        if not parts and method == "POST":
+            _party_n[0] += 1
+            code = "PARTY" + "23456789"[(_party_n[0] - 2) % 8]
+            r = _parties[code] = {"code": code, "v": 0, "members": {}, "tokens": {}, "title": None, "play": None, "notice": None, "want": None}
+            return join(r, True)
+        code = parts[0].upper() if parts else ""
+        r = _parties.get(code)
+        if not r or len(parts) != 2:
+            return 404, {"error": "no such party"}
+        if parts[1] == "join":
+            return join(r, False)
+        if parts[1] == "wait":
+            mid = query.get("member", "")
+            if r["tokens"].get(mid) != query.get("token") or not mid:
+                return 403, {"error": "not in this party"}
+            since = int(query.get("v", "-1"))
+            if since == r["v"]:
+                _party_cv.wait_for(lambda: r["v"] != since or code not in _parties, timeout=25)
+            if code not in _parties:
+                return 404, {"error": "no such party"}
+            if r["v"] == since:
+                return 200, {"v": since, "t": time.time() * 1000, "same": True}
+            return 200, _party_view(r, time.time() * 1000)
+        if parts[1] != "do":
+            return 404, {"error": "unknown"}
+        mid = b.get("member", "")
+        m = r["members"].get(mid)
+        if not m or r["tokens"].get(mid) != b.get("token"):
+            return 403, {"error": "not in this party"}
+        pos = b.get("pos")
+        at = pos if isinstance(pos, (int, float)) and 0 <= pos < 864000 else None
+        ready = lambda: all(x["ready"] and not x["buffering"] for x in r["members"].values())
+        def start(p):
+            r["play"] = {"playing": True, "pos": p, "at": now + PARTY_LEAD}
+            r["want"] = None
+        act = b.get("act")
+        with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
+            f.write(f"party {code} {m['name']} {act}{'' if at is None else ' %.1f' % at}{' ' + str(b.get('ready', b.get('on', ''))).lower() if act in ('ready', 'buffering') else ''}\n".encode())
+        note = lambda what, **k: dict({"who": m["name"], "by": mid, "what": what}, **k)
+        if act == "load":
+            t = b.get("title") or {}
+            r["title"] = {k: str(t.get(k, ""))[:120] for k in ("meta", "video", "name", "type")}
+            for x in r["members"].values():
+                x["ready"] = False
+            r["play"] = {"playing": False, "pos": at or 0, "at": now}
+            r["want"] = {"pos": at or 0}
+            _party_save(r, note("load", name=r["title"]["name"]), now)
+        elif act == "ready":
+            m["ready"] = bool(b.get("ready"))
+            if r["want"] and ready():
+                start(r["want"]["pos"])
+            _party_save(r, None, now)
+        elif act in ("play", "pause", "seek"):
+            if at is None:
+                return 400, {"error": "a position is needed"}
+            if act == "play":
+                if ready():
+                    start(at)
+                else:
+                    r["want"] = {"pos": at}
+                    r["play"] = {"playing": False, "pos": at, "at": now}
+            elif act == "pause":
+                r["play"] = {"playing": False, "pos": at, "at": now}
+                r["want"] = None
+            else:
+                r["play"] = {"playing": True, "pos": at, "at": now + PARTY_LEAD} if (r["play"] or {}).get("playing") else {"playing": False, "pos": at, "at": now}
+            _party_save(r, note(act), now)
+        elif act == "buffering":
+            on = bool(b.get("on"))
+            if on != m["buffering"]:
+                m["buffering"] = on
+                if on and (r["play"] or {}).get("playing"):
+                    r["want"] = {"pos": _party_pos(r["play"], now)}
+                    r["play"] = {"playing": False, "pos": r["want"]["pos"], "at": now}
+                    _party_save(r, note("buffering"), now)
+                else:
+                    if not on and r["want"] and ready():
+                        start(r["want"]["pos"])
+                    _party_save(r, None, now)
+        elif act == "react":
+            _party_save(r, note("react", emoji=str(b.get("emoji", ""))[:8]), now)
+        elif act == "leave":
+            r["members"].pop(mid, None)
+            r["tokens"].pop(mid, None)
+            if not r["members"]:
+                del _parties[code]
+                _party_cv.notify_all()
+            else:
+                if r["want"] and ready():
+                    start(r["want"]["pos"])
+                _party_save(r, note("leave"), now)
+            return 200, {"left": True}
+        else:
+            return 400, {"error": "unknown act"}
+        return 200, _party_view(r, now)
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -164,6 +307,11 @@ class H(BaseHTTPRequestHandler):
         if "?" in svc:   # the service itself asked, with only a query after it
             svc, _, q = svc.partition("?")
             rest = "?" + q
+        if svc == "party":   # Cue Party rooms (see party_request)
+            path, _, qs = ("/" + rest).partition("?")
+            q = dict(kv.split("=", 1) for kv in qs.split("&") if "=" in kv)
+            code, answer = party_request(self.command, path, q, body)
+            return self.send(code, json.dumps(answer).encode()) or None
         if svc == "verdicts":   # which files play on which kind of TV: the /verdict/ addon's 2160p file fails on a webos9
             import hashlib
             q = dict(kv.split("=", 1) for kv in rest.partition("?")[2].split("&") if "=" in kv)

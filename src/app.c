@@ -790,6 +790,14 @@ void app_open_links(void)
     env_done = 1;
     if (env && *env) snprintf(link, sizeof link, "%s", env);
     else if (!video_take_open_url(link, sizeof link)) return;
+    if (!strncmp(link, "cuelight://party", 16)) {   /* a Cue Party's code, scanned on this phone */
+        const char *c = strstr(link, "code=");
+        char code[8] = "";
+        for (size_t i = 0; c && c[5 + i] && i < 6; i++) code[i] = c[5 + i];
+        LOGI("app: opened with a Cue Party code");
+        app_push(screen_party_create(code));
+        return;
+    }
     if (!strncmp(link, "cuelight://sync", 15)) {   /* a device's sync code, scanned on this phone */
         LOGI("app: opened with a sync code");
         app_push(screen_sync_create(strstr(link, "u=") ? link : NULL));   /* no device in it: this one's code */

@@ -5,6 +5,7 @@
 #include "ui/widgets.h"
 #include "ui/rail.h"
 #include "ui/island.h"
+#include "ui/party_ui.h"
 #include "ui/intro.h"
 #include "ui/bgtrailer.h"
 #include "http.h"
@@ -1163,6 +1164,7 @@ int main(int argc, char **argv)
             app_redraw();
         }
         http_pump();
+        party_app_tick();
         http_hold_background(player_needs_bandwidth());
         tracking_tick();
         { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
@@ -1244,6 +1246,7 @@ int main(int argc, char **argv)
 
     Uint32 closing = SDL_GetTicks();
     relay_buffer_close();   /* its download stops at its next bytes; its memory goes now */
+    party_shutdown();   /* the others hear this TV left */
     app_shutdown();
 #if defined(SNTV_PLATFORM_ANDROID)
     /* Android keeps the process (and every thread still in it) after SDL_main returns, so a

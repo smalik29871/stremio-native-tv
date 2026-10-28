@@ -323,6 +323,7 @@ const MetaPreview *app_details_cached(const char *type, const char *id);      /*
 Screen *screen_home_create(void);
 Screen *screen_explore_create(void);   /* catalogs by type, catalog and genre */
 Screen *screen_explore_create_genre(const char *genre);   /* ...open on the first list that has this genre */
+Screen *screen_party_create(const char *code);   /* Cue Party: NULL to start, join or see the party; a code joins it */
 Screen *screen_sync_create(const char *link);   /* NULL: show this device's code; a cuelight://sync link: sync with that device */
 Screen *screen_library_create(void);   /* the account's library as a grid */
 Screen *screen_calendar_create(void);  /* upcoming and recent episodes of library series */

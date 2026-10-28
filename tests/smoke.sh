@@ -852,6 +852,27 @@ run verdict_told 900 "right,ok,down,down,play,wait,wait" $VERDICT SNTV_DEVICE_CL
 grep -q "verdicts: told the relay this file failed on a android-shield" "$OUT/verdict_told.log" && grep -qE "^keyrelay verdicts POST [0-9a-f]{16} android-shield fail$" "$FAKE_TRACK_LOG" \
   && ! grep -E "^keyrelay verdicts" "$FAKE_TRACK_LOG" | grep -qiE "mkv|http|movie" \
   || { echo "a file that failed to decode was not told (or more than its fingerprint went)"; grep -E "verdicts|player: (candidate|source)" "$OUT/verdict_told.log"; grep verdicts "$FAKE_TRACK_LOG"; exit 1; }
+# Cue Party: two TVs in one party (the fake relay keeps the room as relay/src/party.js does). The
+# host starts the party and plays a film; the guest joins by its code, opens the same film by
+# itself, and both start together once both have it; the host pauses and the guest stops there.
+PARTY="SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay SNTV_NO_RACE=1"
+( run party_host 1660 "wait,wait,wait,wait,ok,wait,back,right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,play,wait,wait,right,wait,wait,wait,wait,wait,wait" $PARTY SNTV_OPEN_LINK=cuelight://party SNTV_PARTY_NAME=Sam HOME="$(home_with party_host '{"prefSubs":"","setupDone":1,"preflight":0}')" ) & PARTY_HOST=$!
+for i in $(seq 1 150); do PARTY_CODE=$(grep -o "^party [A-Z2-9]* start Sam" "$FAKE_TRACK_LOG" 2>/dev/null | tail -1 | cut -d' ' -f2); [ -n "$PARTY_CODE" ] && break; sleep 0.2; done
+run party_guest 1400 "wait" $PARTY SNTV_OPEN_LINK="cuelight://party?code=$PARTY_CODE" SNTV_PARTY_NAME=Alex HOME="$(home_with party_guest '{"prefSubs":"","setupDone":1,"preflight":0}')"
+wait $PARTY_HOST
+grep -q "party: started party $PARTY_CODE" "$OUT/party_host.log" && grep -q "party: this TV put on " "$OUT/party_host.log" && grep -q "party: this TV is ready" "$OUT/party_host.log" \
+  && grep -q "party: joined party $PARTY_CODE (2 in)" "$OUT/party_guest.log" && grep -q "party: the room put on .*; opening it here" "$OUT/party_guest.log" && grep -q "party: this TV is ready" "$OUT/party_guest.log" \
+  && grep -q "^party $PARTY_CODE Sam load" "$FAKE_TRACK_LOG" && grep -q "^party $PARTY_CODE Alex ready true" "$FAKE_TRACK_LOG" \
+  || { echo "two TVs did not get into one party on the same film"; grep -E "party|player: candidate" "$OUT/party_host.log" "$OUT/party_guest.log"; grep "^party" "$FAKE_TRACK_LOG"; exit 1; }
+grep -q "party: playing at 0.0 s, as the room says" "$OUT/party_host.log" && grep -q "party: playing at 0.0 s, as the room says" "$OUT/party_guest.log" \
+  || { echo "the two TVs did not start together from the start"; grep -E "party" "$OUT/party_host.log" "$OUT/party_guest.log"; exit 1; }
+host_at=$(grep -o "party: this TV paused at [0-9.]*" "$OUT/party_host.log" | head -1 | awk '{print $NF}')
+guest_at=$(grep -o "party: paused at [0-9.]* s, as the room says" "$OUT/party_guest.log" | tail -1 | awk '{print $4}')
+grep -q "^party $PARTY_CODE Sam pause" "$FAKE_TRACK_LOG" && [ -n "$host_at" ] && [ -n "$guest_at" ] && python3 -c "import sys; sys.exit(abs($host_at - $guest_at) > 0.3)" \
+  || { echo "the host's pause did not stop the guest at the same moment ($host_at, $guest_at)"; grep -E "party" "$OUT/party_host.log" "$OUT/party_guest.log"; grep "^party" "$FAKE_TRACK_LOG"; exit 1; }
+# the host moves on while paused: the guest goes there too, still paused
+grep -q "^party $PARTY_CODE Sam seek" "$FAKE_TRACK_LOG" && grep -q "party: [0-9.]* s behind the room: to " "$OUT/party_guest.log" && grep -q "toast: Sam jumped to " "$OUT/party_guest.log" \
+  || { echo "the host's seek did not move the guest"; grep -E "party|toast" "$OUT/party_guest.log"; grep "^party" "$FAKE_TRACK_LOG"; exit 1; }
 run player_letterbox_slow 1500 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/scope/manifest.json HOME="$(home_with lboxslow '{"fx":1,"livingLetterbox":1,"letterboxOffOnce":1,"prefSubs":"","setupDone":1,"thumbServer":"http://127.0.0.1:'"$PORT"'/thumbsslow"}')"
 # a TV slow to get frames (1.8 s each) keeps the light: it follows the cuts it can get ready
 grep -q "player: the bars' frames take [0-9.]* s here" "$OUT/player_letterbox_slow.log" && [ "$(grep -c "player: the bars follow the cut at" "$OUT/player_letterbox_slow.log")" -ge 2 ] \

@@ -258,7 +258,7 @@ static int request_with(CURL *h, const char *url, const char *post_json, const H
     C.easy_setopt(h, OPT_NOPROGRESS, 0L);
     C.easy_setopt(h, OPT_TIMEOUT, opt && opt->timeout_s ? opt->timeout_s : 30L);
     C.easy_setopt(h, OPT_LOW_SPEED_LIMIT, 1L);
-    C.easy_setopt(h, OPT_LOW_SPEED_TIME, 15L);
+    C.easy_setopt(h, OPT_LOW_SPEED_TIME, opt && opt->quiet_s ? opt->quiet_s : 15L);
     C.easy_setopt(h, OPT_ACCEPT_ENCODING, "");
     if (C.share) C.easy_setopt(h, OPT_SHARE, C.share);
     C.easy_setopt(h, OPT_DNS_CACHE_TIMEOUT, 600L);

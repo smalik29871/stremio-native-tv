@@ -37,6 +37,7 @@
 #include "theme.h"
 #include "widgets.h"
 #include "island.h"
+#include "party_ui.h"
 #include "../advisory.h"
 #include <math.h>
 #include <ctype.h>
@@ -51,7 +52,7 @@ enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
 enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_SOURCES, MENU_EPISODES };
 /* Subtitles menu rows: the controls first, then Off and the tracks */
 enum { SUB_CHOOSE, SUB_TIMING, SUB_SIZE, SUB_STYLE, SUB_POS, SUB_SYNC, SUB_OFF, SUB_TRACKS };
-enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_CAST, BTN_COUNT };
+enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_CAST, BTN_PARTY, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
 /* The touch controls over the picture: a phone or tablet's, and a computer's by the mouse
  * (it has no remote: play, seek, tracks and sources are buttons there too). */
@@ -271,6 +272,7 @@ struct Player {
     int bar_focus, bar_id;     /* Down moves from the seek bar to the button row; the button by BTN_* id */
     float play_flash;          /* big centre icon after play/pause */
     int flash_icon;
+    PartyPlayer party;         /* Cue Party: what the viewer does goes to the others; the room keeps this one with them */
 };
 
 static Player *g_live;
@@ -284,7 +286,7 @@ static void desk_next_rect(float k, float *r);
 static void show_overlay(Player *p) { p->overlay_until = g_app.time + 4.0f; app_redraw(); }
 static void player_seek(double position)
 {
-    if (g_live) g_live->watch.valid = 0;
+    if (g_live) { g_live->watch.valid = 0; party_player_seeked(&g_live->party, position); }
     VideoInfo vi; video_info(&vi);
     perf_playback_seek(vi.seek_version, vi.seek_supported && vi.first_frame, position);
     video_seek(position);
@@ -3063,6 +3065,7 @@ static void update(Screen *s, float dt)
     /* never got going: still loading, or loaded but buffering at the start, past its time.
      * A torrent nobody seeds goes sooner; one with peers gets longer to fetch its start. */
     if (vi.state == VIDEO_PLAYING && !vi.buffering && vi.position > 0) p->started = 1;   /* not the position alone: a resume reports it before any picture */
+    party_player_tick(&p->party, &p->meta, p->video_id, p->title, &vi, p->started, player_seek);
     if (p->started && !p->length_checked && vi.duration > 0 && !p->error_handled) {
         p->length_checked = 1;
         char why[160];
@@ -3763,6 +3766,7 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
     const TmdbInfo *tm;   /* who's in it: most LG remotes have no Info key, so a button too */
     if (!p->trailer && cast_n(p, &tm) > 0) { ids[k] = BTN_CAST; labels[k] = "Cast"; icons[k++] = ICON_USER; }
+    if (!p->trailer) { ids[k] = BTN_PARTY; labels[k] = party_active() ? "Cue Party (on)" : "Cue Party"; icons[k++] = ICON_TV; }
     return k;
 }
 
@@ -3895,6 +3899,7 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     case BTN_SCENES: p->scenes_open = 1; p->scenes_focus = scene_now(p, vi->position); p->overlay_until = 0; LOGI("player: scenes rail (%d)", scenes_list(p, vi->duration, NULL, NULL, 0)); break;
     case BTN_STATS: p->stats = !p->stats; break;
     case BTN_CAST: open_cast(p); break;
+    case BTN_PARTY: app_push(screen_party_create(NULL)); return;
     }
     show_overlay(p);
 }
@@ -7258,6 +7263,7 @@ static void destroy(Screen *s)
     if (p->bright >= 0) video_set_brightness(-1);   /* the screen's brightness is the system's again */
     if (p->tch_fast) video_set_rate(1.0);   /* closed with a finger still holding it fast */
     video_pip_allow(0);
+    party_player_close(&p->party);
     relay_buffer_close();   /* its memory goes with it */
     if (!p->finished) report(p, 1);
     glow_send(p);
@@ -7403,6 +7409,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     s->name = "player"; s->st = p;
     s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 0;   /* a phone turns sideways to play */
     if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
+    party_player_open(&p->party, video_id, p->trailer);
     if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);
     start_candidate(p, start_index < n_cands ? start_index : 0, start_s);
     query_addon_subs(p);
@@ -7445,6 +7452,15 @@ void player_set_pip(Screen *s, int on)
 }
 
 void player_pip_update(Screen *s, float dt) { update(s, dt); }
+/* The Cue Party screen over the player: the party keeps this one in time meanwhile. */
+void player_party_tick(Screen *s)
+{
+    Player *p = s->st;
+    if (p->finished) return;
+    VideoInfo vi;
+    video_info(&vi);
+    party_player_tick(&p->party, &p->meta, p->video_id, p->title, &vi, p->started, player_seek);
+}
 double player_resume_point(Screen *s)
 {
     VideoInfo vi;

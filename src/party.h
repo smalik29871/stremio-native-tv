@@ -27,7 +27,7 @@ typedef struct {
     int has_title; char meta[44], video[84], title[124], type[20];   /* what is on: a title's id, the episode's video id */
     int has_play; PartyPlay play;
     int lead_ms;
-    struct { unsigned n; char who[28], what[16], title[124], emoji[12]; } notice;   /* the last thing someone did; n changes with each */
+    struct { unsigned n; char who[28], by[12], what[16], title[124], emoji[12]; } notice;   /* the last thing someone did (by: their member id); n changes with each */
     char error[160];           /* why it ended, or "" */
     int reconnecting;          /* the room has not answered for a while */
 } PartyView;
@@ -40,6 +40,7 @@ void party_leave(void);
 void party_shutdown(void);   /* at exit: leave, and stop the thread */
 
 int  party_active(void);     /* connecting or in */
+unsigned party_session(void);   /* changes with each party started or joined */
 void party_view(PartyView *out);
 const char *party_code(void);   /* "" when none */
 

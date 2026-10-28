@@ -175,3 +175,13 @@ test('where playback is at a moment', () => {
 test('a relay without rooms says so', async () => {
   assert.equal((await call({}, '', { name: 'Sam' })).status, 503);
 });
+
+test('a phone that scanned the QR code gets a page that opens Cuelight with the code, and nothing else', async () => {
+  const env = { ROOMS: rooms() };
+  const r = await worker.fetch(new Request('https://relay.test/party/7ckpvv'), env);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('Content-Type'), /text\/html/);
+  const html = await r.text();
+  assert.ok(html.includes('href="cuelight://party?code=7CKPVV"') && html.includes('7CK PVV'));
+  assert.equal((await worker.fetch(new Request('https://relay.test/party/%3Cscript%3E'), env)).status, 404);
+});
