@@ -868,12 +868,18 @@ static int ask_visible(const Search *s) { return ai_enabled() && !s->tvkb && str
 static void draw_ask_button(const Search *s, float x, float y)
 {
     if (!ask_visible(s)) return;
-    float bw = 230, bh = 52, bx = x;
-    if (s->ask_focus) ui_focus_under(bx, y, bw, bh, bh / 2, 1);
-    gfx_rrect(bx, y, bw, bh, bh / 2, s->ask_focus ? THEME_ACCENT2 : COLOR_ALPHA(THEME_TEXT, 0x2E));
-    Color fg = s->ask_focus ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT;
-    ui_icon(ICON_SPARK, bx + 36, y + bh / 2, 26, fg);
-    font_draw("Ask AI", bx + 62, y + (bh - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
+    int foc = s->ask_focus;
+    float bh = 56, bx = x, bw = 28 + 26 + 14 + font_measure("Ask AI", FONT_S | FONT_B) + 32;
+    if (foc) {   /* the phone's Play button: white, with the accent ring around */
+        ui_focus_under(bx, y, bw, bh, bh / 2, 1);
+        gfx_rrect(bx, y, bw, bh, bh / 2, RGBA(255, 255, 255, 255));
+        gfx_rrect_ring(bx - 6, y - 6, bw + 12, bh + 12, bh / 2 + 6, 4, THEME_ACCENT);
+    } else {
+        gfx_rrect(bx, y, bw, bh, bh / 2, COLOR_ALPHA(THEME_TEXT, 0x18));
+        gfx_rrect_ring(bx, y, bw, bh, bh / 2, 1, COLOR_ALPHA(THEME_TEXT, 0x40));
+    }
+    ui_icon(ICON_SPARK, bx + 28 + 13, y + bh / 2, 26, foc ? THEME_ACCENT : THEME_ACCENT2);
+    font_draw("Ask AI", bx + 28 + 26 + 14, y + (bh - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, foc ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT);
     ui_hit(bx, y, bw, bh, HIT_ASK);
 }
 
