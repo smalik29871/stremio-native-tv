@@ -56,11 +56,19 @@ episode, the position, play, pause and seek. Never the video, a link or an accou
   the room one at a time, in order); `src/ui/party_ui.c` tells the room what the viewer does
   (play, pause and seek are seen from the player, whatever pressed them) and applies the
   room's plan to the player each frame; the app opens what someone else puts on.
-- **The plan** (`party_plan`): before a start, every TV waits paused at the start's position;
-  a TV late to it seeks to where playback will be once its seek is done (its seek time is
-  learned from its own seeks, 1.2 s until then); off by more than 2 s: a seek; 0.25-2 s:
-  played away at 0.95x or 1.05x, and a player whose pace does not change at that speed (found
-  out within 3 s) is corrected by seeks from 1 s instead.
+- **The plan** (`party_plan`), after the first try on the LG and a phone buffered far too often
+  (every correction was a seek, and every seek on a stream is a new buffer):
+  - a pause or play from the room is applied the same frame, never held behind a correction;
+  - a play or seek goes on from when it happened on that TV (its time by the room clock): that
+    TV does not wait, the others start ~0.3 s later and that is left; only the start once
+    everyone has loaded is set 2.5 s ahead (everyone is paused then);
+  - a drift is corrected by a seek only past Syncplay's limits (4 s ahead, 5 s behind), at most
+    once in 20 s, and further apart each time it keeps slipping; 1-4 s is played away at 0.95x
+    or 1.05x where the player takes that smoothly (phones, the desktop; not the LG, whose player
+    may buffer again at a speed change), else it stays;
+  - a pause moves the others only when they are more than 1.5 s elsewhere;
+  - a TV's own buffering makes the others wait only when it lasts 4 s while playing, and not in
+    the 10 s after its own seek or start.
 - **Checked**: `tests/test_party.c` (the plan against a simulated LG at 21 ms frames and a
   phone at 17 ms, with the measured seek times), and the `party_host` / `party_guest` smoke
   runs: two copies of the app in one party (the fake relay keeps the room by the same rules):

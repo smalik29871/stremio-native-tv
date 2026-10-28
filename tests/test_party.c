@@ -86,74 +86,125 @@ int main(void)
         CHECK(phone.seeks == 1);
     }
 
-    /* 0.6 s ahead: played away at 0.95x, no seek, and the player's speed is trusted after */
+    /* 1.6 s ahead: played away at 0.95x, no seek (a seek would make it buffer), and the
+       player's speed is trusted after */
     {
         PartyPlay room = { .playing = 1, .pos = 100, .at = T0 - 1000 };
-        Sim phone = { .rate = 1, .seek_cost = 1.4, .obeys_rate = 1, .playing = 1, .pos = 101.6 };
-        PartySync s = { 0 };
-        run(&room, &phone, &s, T0, 15000, PHONE);
+        Sim phone = { .rate = 1, .seek_cost = 1.4, .obeys_rate = 1, .playing = 1, .pos = 102.6 };
+        PartySync s = { .anchor_pos = 100, .anchor_at = T0 - 1000 };   /* in step with this play already, drifting since */
+        run(&room, &phone, &s, T0, 40000, PHONE);
         CHECK(phone.seeks == 0 && s.nudges == 1 && s.rate_ok == 1);
-        CHECK(fabs(phone.pos - target(&room, T0 + 15000)) < PARTY_NUDGE_DONE + 0.02);
+        CHECK(fabs(phone.pos - target(&room, T0 + 40000)) < PARTY_NUDGE_DONE + 0.02);
         CHECK(phone.rate == 1);
     }
 
-    /* behind by 0.4 s: 1.05x */
+    /* under a second off is left alone: nobody notices it, and every correction costs */
     {
         PartyPlay room = { .playing = 1, .pos = 100, .at = T0 - 1000 };
-        Sim phone = { .rate = 1, .seek_cost = 1.4, .obeys_rate = 1, .playing = 1, .pos = 100.6 };
-        PartySync s = { 0 };
-        PartyLocal l = { .loaded = 1, .playing = 1, .pos = 100.6 };
+        Sim phone = { .rate = 1, .seek_cost = 1.4, .obeys_rate = 1, .playing = 1, .pos = 101.7 };
+        PartySync s = { .anchor_pos = 100, .anchor_at = T0 - 1000 };   /* in step with this play already, drifting since */
+        run(&room, &phone, &s, T0, 20000, PHONE);
+        CHECK(phone.seeks == 0 && s.nudges == 0 && phone.rate == 1);
+    }
+
+    /* behind by 1.4 s: 1.05x */
+    {
+        PartyPlay room = { .playing = 1, .pos = 100, .at = T0 - 1000 };
+        Sim phone = { .rate = 1, .seek_cost = 1.4, .obeys_rate = 1, .playing = 1, .pos = 99.6 };
+        PartySync s = { .anchor_pos = 100, .anchor_at = T0 - 1000 };   /* in step with this play already, drifting since */
+        PartyLocal l = { .loaded = 1, .playing = 1, .pos = 99.6 };
         PartyCmd c;
         party_plan(&room, T0, &l, &s, &c);
         CHECK(c.rate == PARTY_NUDGE_FAST && c.seek < 0);
         sim_apply(&phone, &c, T0);
-        run(&room, &phone, &s, T0, 12000, PHONE);
-        CHECK(fabs(phone.pos - target(&room, T0 + 12000)) < PARTY_NUDGE_DONE + 0.02 && phone.seeks == 0);
+        run(&room, &phone, &s, T0, 40000, PHONE);
+        CHECK(fabs(phone.pos - target(&room, T0 + 40000)) < PARTY_NUDGE_DONE + 0.02 && phone.seeks == 0);
     }
 
-    /* a player that ignores the speed (the LG's, until it is known): found out within ~3 s,
-       then small differences stay and a larger one is a seek */
+    /* an LG (its speed is never changed: it may buffer again at one): 3 s off stays; past the
+       limit one seek, and the next only 20 s later at the earliest */
     {
         PartyPlay room = { .playing = 1, .pos = 100, .at = T0 - 1000 };
-        Sim tv = { .rate = 1, .seek_cost = 0.9, .obeys_rate = 0, .playing = 1, .pos = 101.6 };
-        PartySync s = { 0 };
-        run(&room, &tv, &s, T0, 4000, LG);
+        Sim tv = { .rate = 1, .seek_cost = 0.9, .obeys_rate = 1, .playing = 1, .pos = 98 };
+        PartySync s = { .anchor_pos = 100, .anchor_at = T0 - 1000 };   /* in step with this play already, drifting since */
+        PartyLocal probe = { .loaded = 1, .playing = 1, .no_rate = 1 };
+        for (double now = T0; now < T0 + 10000; now += LG) {   /* 3 s behind, ten seconds */
+            probe.pos = tv.pos; PartyCmd c; party_plan(&room, now, &probe, &s, &c); sim_apply(&tv, &c, now); sim_step(&tv, now, LG);
+        }
+        CHECK(tv.seeks == 0 && tv.rate == 1 && s.nudges == 0);
+        tv.pos -= 3;   /* it slips further: 6 s behind */
+        for (double now = T0 + 10000; now < T0 + 14000; now += LG) {
+            probe.pos = tv.pos; probe.buffering = now < tv.stalled_until; PartyCmd c; party_plan(&room, now, &probe, &s, &c); sim_apply(&tv, &c, now); sim_step(&tv, now, LG);
+        }
+        CHECK(tv.seeks == 1 && fabs(tv.pos - target(&room, T0 + 14000)) < 0.4);
+        tv.pos -= 6;   /* and again, at once: no second seek within 20 s */
+        for (double now = T0 + 14000; now < T0 + 20000; now += LG) {
+            probe.pos = tv.pos; probe.buffering = now < tv.stalled_until; PartyCmd c; party_plan(&room, now, &probe, &s, &c); sim_apply(&tv, &c, now); sim_step(&tv, now, LG);
+        }
+        CHECK(tv.seeks == 1);
+        for (double now = T0 + 20000; now < T0 + 40000; now += LG) {
+            probe.pos = tv.pos; probe.buffering = now < tv.stalled_until; PartyCmd c; party_plan(&room, now, &probe, &s, &c); sim_apply(&tv, &c, now); sim_step(&tv, now, LG);
+        }
+        CHECK(tv.seeks == 2 && s.backoff > 1);   /* then one, and it waits for a larger slip next time */
+    }
+
+    /* a player that ignores the speed (found out within ~4 s): then only seeks, past the limits */
+    {
+        PartyPlay room = { .playing = 1, .pos = 100, .at = T0 - 1000 };
+        Sim tv = { .rate = 1, .seek_cost = 0.9, .obeys_rate = 0, .playing = 1, .pos = 102.6 };
+        PartySync s = { .anchor_pos = 100, .anchor_at = T0 - 1000 };   /* in step with this play already, drifting since */
+        run(&room, &tv, &s, T0, 5000, LG);
         CHECK(s.rate_ok == -1 && tv.rate == 1 && tv.seeks == 0);
-        run(&room, &tv, &s, T0 + 4000, 5000, LG);
-        CHECK(tv.seeks == 0);   /* 0.6 s off stays */
-        tv.pos += 0.6;          /* it slips further: 1.2 s */
-        run(&room, &tv, &s, T0 + 9000, 4000, LG);
-        /* the first seek takes 1.2 s for its cost (this TV's 0.9 s is learned from it): 0.3 s
-           early, which a player without speeds keeps */
-        CHECK(tv.seeks == 1 && fabs(tv.pos - target(&room, T0 + 13000)) < 0.35);
-        CHECK(fabs(s.seek_cost - 0.9) < 0.05);
+        run(&room, &tv, &s, T0 + 5000, 20000, LG);
+        CHECK(tv.seeks == 0);   /* 1.6 s off stays */
     }
 
-    /* 3 s off is a seek straight away */
+    /* someone else seeks: this TV follows at once, whatever waits for a drift */
     {
         PartyPlay room = { .playing = 1, .pos = 100, .at = T0 - 1000 };
-        Sim tv = { .rate = 1, .seek_cost = 2.0, .obeys_rate = 1, .playing = 1, .pos = 98 };
-        PartySync s = { 0 };
-        run(&room, &tv, &s, T0, 6000, LG);
-        CHECK(tv.seeks == 1);   /* landing 0.8 s late (a 2 s seek, taken for 1.2 s), then played away */
-        CHECK(fabs(tv.pos - target(&room, T0 + 6000)) < 1.0 && tv.rate == PARTY_NUDGE_FAST);
-        run(&room, &tv, &s, T0 + 6000, 20000, LG);
-        CHECK(tv.seeks == 1 && fabs(tv.pos - target(&room, T0 + 26000)) < PARTY_NUDGE_DONE + 0.02);
-        CHECK(fabs(s.seek_cost - 2.0) < 0.05);
+        Sim tv = { .rate = 1, .seek_cost = 0.9, .obeys_rate = 1, .playing = 1, .pos = 101 };
+        PartySync s = { .drift_seek_ok = T0 + 60000 };   /* (a drift seek just happened) */
+        run(&room, &tv, &s, T0, 2000, LG);
+        CHECK(tv.seeks == 0);
+        PartyPlay moved = { .playing = 1, .pos = 600, .at = T0 + 2000 };
+        run(&moved, &tv, &s, T0 + 2000, 4000, LG);
+        CHECK(tv.seeks == 1 && fabs(tv.pos - target(&moved, T0 + 6000)) < 0.4);
     }
 
-    /* a pause in the room stops this TV where the room says, even mid-nudge */
+    /* a pause in the room stops this TV at once, even mid-seek or mid-nudge; it is moved only
+       when it is really somewhere else */
     {
         PartyPlay room = { .playing = 1, .pos = 100, .at = T0 - 1000 };
-        Sim tv = { .rate = 1, .seek_cost = 0.9, .obeys_rate = 1, .playing = 1, .pos = 101.5 };
-        PartySync s = { 0 };
+        Sim tv = { .rate = 1, .seek_cost = 0.9, .obeys_rate = 1, .playing = 1, .pos = 102.5 };
+        PartySync s = { .anchor_pos = 100, .anchor_at = T0 - 1000 };   /* in step with this play already, drifting since */
         run(&room, &tv, &s, T0, 1000, LG);
         CHECK(tv.rate == PARTY_NUDGE_SLOW);
         PartyPlay paused = { .playing = 0, .pos = 104.2, .at = T0 + 1000 };
-        run(&paused, &tv, &s, T0 + 1000, 2000, LG);
-        CHECK(!tv.playing && tv.pos == 104.2 && tv.rate == 1 && tv.pauses == 1);
-        run(&paused, &tv, &s, T0 + 3000, 5000, LG);
-        CHECK(tv.pauses == 1 && tv.seeks == 1);   /* and leaves it there */
+        PartyLocal l = { .loaded = 1, .playing = 1, .pos = tv.pos };
+        PartyCmd c;
+        party_plan(&paused, T0 + 1000, &l, &s, &c);
+        CHECK(c.pause && c.rate == 1 && c.seek < 0);   /* the same frame: no waiting */
+        sim_apply(&tv, &c, T0 + 1000);
+        run(&paused, &tv, &s, T0 + 1000, 5000, LG);
+        CHECK(!tv.playing && tv.pauses == 1 && tv.seeks == 0);   /* 0.6 s off: left there */
+        PartyPlay far = { .playing = 0, .pos = 300, .at = T0 + 6000 };
+        run(&far, &tv, &s, T0 + 6000, 4000, LG);
+        CHECK(tv.pos == 300 && tv.seeks == 1);
+        /* landing a seek while the room pauses: the pause is not held back */
+        PartySync s2 = { .seek_at = T0, .seek_to = 50 };
+        PartyLocal l2 = { .loaded = 1, .playing = 1, .buffering = 1, .pos = 50 };
+        party_plan(&paused, T0 + 300, &l2, &s2, &c);
+        CHECK(c.pause);
+    }
+
+    /* someone pressed play: this TV plays at once, from where it is when that is close */
+    {
+        PartyPlay room = { .playing = 1, .pos = 42, .at = T0 - 400 };   /* pressed 0.4 s ago over there */
+        PartyLocal l = { .loaded = 1, .playing = 0, .pos = 42 };
+        PartySync s = { .anchor_pos = 42, .anchor_at = T0 - 5000 };
+        PartyCmd c;
+        party_plan(&room, T0, &l, &s, &c);
+        CHECK(c.play && c.seek < 0);
     }
 
     /* nothing is done before this TV has the video */

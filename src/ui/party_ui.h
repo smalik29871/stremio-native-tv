@@ -12,7 +12,7 @@ typedef struct {
     unsigned session;          /* the party it was opened in (0: none) */
     int joined;                /* it has seen the room since */
     int ready_sent, last_pop, buf_on;
-    float buf_since, own_seek_at, logged_at;
+    float buf_since, own_seek_at, played_at, logged_at;
     PartySync sync;
 } PartyPlayer;
 
@@ -22,7 +22,7 @@ void party_player_open(PartyPlayer *pp, const char *video_id, int trailer);
 void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *video_id, const char *title,
                        const VideoInfo *vi, int started, void (*seek)(double));
 /* The viewer moved the position (the player's seek): the others go there too. */
-void party_player_seeked(const PartyPlayer *pp, double pos);
+void party_player_seeked(PartyPlayer *pp, double pos);
 void party_player_close(PartyPlayer *pp);
 
 /* Each frame, from the main loop: the party's notices, and following what it puts on. */

@@ -222,6 +222,7 @@ def party_request(method, path, query, body):
         with open(os.environ.get("FAKE_TRACK_LOG", os.devnull), "ab") as f:
             f.write(f"party {code} {m['name']} {act}{'' if at is None else ' %.1f' % at}{' ' + str(b.get('ready', b.get('on', ''))).lower() if act in ('ready', 'buffering') else ''}\n".encode())
         note = lambda what, **k: dict({"who": m["name"], "by": mid, "what": what}, **k)
+        when = b.get("at") if isinstance(b.get("at"), (int, float)) and abs(b.get("at") - now) < 5000 else now   # a play or seek goes on from when it happened
         if act == "load":
             t = b.get("title") or {}
             r["title"] = {k: str(t.get(k, ""))[:120] for k in ("meta", "video", "name", "type")}
@@ -240,7 +241,8 @@ def party_request(method, path, query, body):
                 return 400, {"error": "a position is needed"}
             if act == "play":
                 if ready():
-                    start(at)
+                    r["play"] = {"playing": True, "pos": at, "at": when}
+                    r["want"] = None
                 else:
                     r["want"] = {"pos": at}
                     r["play"] = {"playing": False, "pos": at, "at": now}
@@ -248,7 +250,7 @@ def party_request(method, path, query, body):
                 r["play"] = {"playing": False, "pos": at, "at": now}
                 r["want"] = None
             else:
-                r["play"] = {"playing": True, "pos": at, "at": now + PARTY_LEAD} if (r["play"] or {}).get("playing") else {"playing": False, "pos": at, "at": now}
+                r["play"] = {"playing": True, "pos": at, "at": when} if (r["play"] or {}).get("playing") else {"playing": False, "pos": at, "at": now}
             _party_save(r, note(act), now)
         elif act == "buffering":
             on = bool(b.get("on"))

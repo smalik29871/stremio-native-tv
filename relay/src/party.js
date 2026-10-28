@@ -9,7 +9,7 @@
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O, 1/I: read off a TV across a room
 const CODE = /^[A-Z2-9]{6}$/;
 const MAX_MEMBERS = 8;
-const LEAD_MS = 2500;        // a play or seek is for this far ahead: the slowest seek measured (an LG's long jump, ~2 s) and a margin
+const LEAD_MS = 2500;        // a start once everyone has the video is this far ahead: the slowest seek measured (an LG's long jump, ~2 s) and a margin
 const GONE_MS = 60000;       // a TV not heard from for this long has left
 const SEEN_MS = 30000;       // how often a waiting TV's last sign of life is written down
 const WAIT_MS = 25000;       // how long a TV's wait is held when nothing changes
@@ -74,6 +74,9 @@ export class Room {
     const pos = Number(body.pos), at = Number.isFinite(pos) && pos >= 0 && pos < 864000 ? pos : null;
     const everyoneReady = () => Object.values(room.members).every(x => x.ready && !x.buffering);
     const start = (p) => { room.play = { playing: true, pos: p, at: now + LEAD_MS }; room.want = null; };
+    // a play or a seek goes on from when it happened on that TV (its time by the room's clock): that TV
+    // does not wait, and the others catch up (moving them costs them a buffer, so not ahead of time)
+    const when = Number.isFinite(Number(body.at)) && Math.abs(Number(body.at) - now) < 5000 ? Number(body.at) : now;
     switch (body.act) {
       case 'load': {   // something else is on: everyone loads it, then it starts together
         const t = body.title || {};
@@ -91,7 +94,7 @@ export class Room {
         break;
       case 'play':
         if (at === null) return json(400, { error: 'a position is needed' });
-        if (everyoneReady()) start(at); else { room.want = { pos: at }; room.play = { playing: false, pos: at, at: now }; }
+        if (everyoneReady()) { room.play = { playing: true, pos: at, at: when }; room.want = null; } else { room.want = { pos: at }; room.play = { playing: false, pos: at, at: now }; }
         await this.save(room, { who: m.name, by: body.member, what: 'play' }, now);
         break;
       case 'pause':   // everyone stops at the pauser's position
@@ -101,7 +104,7 @@ export class Room {
         break;
       case 'seek':
         if (at === null) return json(400, { error: 'a position is needed' });
-        if (room.play?.playing) room.play = { playing: true, pos: at, at: now + LEAD_MS };
+        if (room.play?.playing) room.play = { playing: true, pos: at, at: when };
         else room.play = { playing: false, pos: at, at: now };
         await this.save(room, { who: m.name, by: body.member, what: 'seek' }, now);
         break;

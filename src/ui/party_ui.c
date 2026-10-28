@@ -6,7 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define BUFFERING_TELL 2.0f   /* stalled this long: the others wait (a seek's own stall is shorter) */
+#define BUFFERING_TELL 4.0f   /* stalled this long while playing: the others wait (pausing them costs them too, so not for a short one) */
+#define SETTLING 10.0f        /* after a seek or a start here, its own buffering is not a stall to wait for */
 #define FOLLOWED 4
 
 static char g_playing[84];                /* the player's video now ("" none) */
@@ -78,7 +79,7 @@ void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *vid
     int pop = video_paused_on_purpose();   /* the viewer's pause and play (and the app's: a break, the background) */
     if (pop != pp->last_pop) {
         if (pp->last_pop >= 0 && started) {
-            if (pop) party_pause(vi->position); else party_play(vi->position);
+            if (pop) party_pause(vi->position); else { party_play(vi->position); pp->played_at = g_app.time; }
             LOGI("party: this TV %s at %.1f s", pop ? "paused" : "pressed play", vi->position);
         }
         pp->last_pop = pop;
@@ -86,7 +87,7 @@ void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *vid
     }
 
     float now = g_app.time;
-    if (started && vi->buffering && now - pp->own_seek_at > 4) {   /* a stall: the others wait for it */
+    if (started && vi->buffering && v.has_play && v.play.playing && now - pp->own_seek_at > SETTLING && now - pp->played_at > SETTLING) {   /* a stall: the others wait for it */
         if (!pp->buf_since) pp->buf_since = now;
         if (!pp->buf_on && now - pp->buf_since > BUFFERING_TELL) { pp->buf_on = 1; party_buffering(1); LOGI("party: this TV is buffering; the others wait"); }
     } else {
@@ -96,6 +97,9 @@ void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *vid
 
     if (!v.has_play) return;
     PartyLocal l = { .loaded = started, .playing = vi->state == VIDEO_PLAYING && !pop, .buffering = vi->buffering, .pos = vi->position };
+#if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN)
+    l.no_rate = 1;   /* a TV's player may buffer again at a speed change: small differences stay, larger ones are a seek */
+#endif
     double rnow = party_now_ms();
     PartyCmd c;
     double was_cost = pp->sync.seek_cost;
@@ -115,7 +119,7 @@ void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *vid
         seek(c.seek);
         pp->own_seek_at = now;
     }
-    if (c.play) video_play();
+    if (c.play) { video_play(); pp->played_at = now; }
     if (c.rate > 0) {
         video_set_rate(c.rate);
         if (c.rate != 1) LOGI("party: %.2f s %s the room: playing at %.2fx", fabs(vi->position - target), vi->position < target ? "behind" : "ahead of", c.rate);
@@ -126,11 +130,12 @@ void party_player_tick(PartyPlayer *pp, const MetaPreview *meta, const char *vid
     pp->last_pop = video_paused_on_purpose();   /* the party's own pause or play is not the viewer's */
 }
 
-void party_player_seeked(const PartyPlayer *pp, double pos)
+void party_player_seeked(PartyPlayer *pp, double pos)
 {
     if (g_applying || pp->trailer || !pp->joined || !party_active()) return;
     if (!party_code()[0]) return;
     party_seek(pos);
+    pp->own_seek_at = g_app.time;   /* its buffering after it is no stall to wait for */
     LOGI("party: this TV moved to %.1f s", pos);
 }
 

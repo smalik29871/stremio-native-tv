@@ -104,8 +104,9 @@ test('play while someone is loading waits for them; pause stops everyone where t
   await act(env, a.code, a, 'ready', { ready: true });
   let s = await act(env, a.code, a, 'play', { pos: 120 });
   assert.equal(s.play.playing, false);
-  s = await act(env, a.code, b, 'ready', { ready: true });
+  s = await act(env, a.code, b, 'ready', { ready: true });   // the last one ready: a start everyone can make, ahead
   assert.deepEqual([s.play.playing, s.play.pos], [true, 120]);
+  assert.ok(s.play.at > Date.now() + 2000);
   s = await act(env, a.code, b, 'pause', { pos: 131.4 });
   assert.deepEqual([s.play.playing, s.play.pos, s.notice.who, s.notice.what], [false, 131.4, 'Alex', 'pause']);
   assert.equal((await call(env, `/${a.code}/do`, { member: a.member, token: a.token, act: 'seek', pos: -4 })).status, 400);
@@ -118,7 +119,7 @@ test('one TV buffering pauses the rest where playback had got to; they go on tog
   await act(env, a.code, b, 'ready', { ready: true });
   let s = await act(env, a.code, a, 'play', { pos: 10 });
   const data = env.ROOMS.objects.get(a.code).data, room = data.get('room');   // as if it had been playing 1.5 s
-  room.play.at -= 4000; data.set('room', room);
+  room.play.at -= 1500; data.set('room', room);
   s = await act(env, a.code, b, 'buffering', { on: true });
   assert.equal(s.play.playing, false);
   assert.ok(s.play.pos >= 11.4 && s.play.pos < 11.7, String(s.play.pos));
@@ -128,15 +129,18 @@ test('one TV buffering pauses the rest where playback had got to; they go on tog
   assert.ok(s.play.pos >= 11.4 && s.play.pos < 11.7);
 });
 
-test('a seek while playing is set ahead too; while paused it is at once', async () => {
+test('a play or a seek goes on from when it happened on that TV; while paused a seek is just where it stands', async () => {
   const env = { ROOMS: rooms() };
   const a = await start(env);
   await act(env, a.code, a, 'ready', { ready: true });
-  await act(env, a.code, a, 'play', { pos: 5 });
-  let s = await act(env, a.code, a, 'seek', { pos: 900 });
-  assert.deepEqual([s.play.playing, s.play.pos], [true, 900]);
-  assert.ok(s.play.at > Date.now() + 2000);
-  await act(env, a.code, a, 'pause', { pos: 901 });
+  const t = Date.now() - 300;   // pressed 0.3 s before the room heard
+  let s = await act(env, a.code, a, 'play', { pos: 5, at: t });
+  assert.deepEqual([s.play.playing, s.play.pos, s.play.at], [true, 5, t]);
+  s = await act(env, a.code, a, 'seek', { pos: 900, at: t + 100 });
+  assert.deepEqual([s.play.playing, s.play.pos, s.play.at], [true, 900, t + 100]);
+  s = await act(env, a.code, a, 'seek', { pos: 950, at: 12 });   // a clock far off: the room's own time
+  assert.ok(Math.abs(s.play.at - Date.now()) < 1000);
+  await act(env, a.code, a, 'pause', { pos: 951 });
   s = await act(env, a.code, a, 'seek', { pos: 30 });
   assert.deepEqual([s.play.playing, s.play.pos], [false, 30]);
 });

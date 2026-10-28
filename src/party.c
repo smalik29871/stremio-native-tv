@@ -316,12 +316,15 @@ static cJSON *act_body(const char *what, double pos)
 {
     cJSON *b = cJSON_CreateObject();
     cJSON_AddStringToObject(b, "act", what);
-    if (pos >= 0) cJSON_AddNumberToObject(b, "pos", floor(pos * 1000 + 0.5) / 1000);
+    if (pos >= 0) {
+        cJSON_AddNumberToObject(b, "pos", floor(pos * 1000 + 0.5) / 1000);
+        cJSON_AddNumberToObject(b, "at", floor(party_now_ms()));   /* when, by the room's clock: it goes on from then, not from when the room heard */
+    }
     return b;
 }
 
 /* What this TV did shows in its own view at once (the room confirms it a moment later), so the
- * plan doesn't undo it meanwhile. A play is held where it is until the room sets the start. */
+ * plan doesn't undo it meanwhile. */
 static void expect(int playing, double pos)
 {
     lock();
@@ -330,7 +333,7 @@ static void expect(int playing, double pos)
         g_view.has_play = 1;
         g_view.play.playing = playing;
         g_view.play.pos = pos;
-        g_view.play.at = playing ? now + (g_view.lead_ms ? g_view.lead_ms : 2500) : now;
+        g_view.play.at = now;   /* this TV goes on at once; the others catch up */
     }
     unlock();
 }
@@ -437,61 +440,69 @@ void party_plan(const PartyPlay *room, double now, const PartyLocal *l, PartySyn
     out->seek = -1;
     if (!room || !l || !l->loaded) return;
     double cost = s->seek_cost > 0 ? s->seek_cost : 1.2;   /* the LG's ~0.9-2 s and a phone's ~1.4 s, until this TV's own is known */
+    if (s->backoff < 1) s->backoff = 1;
 
     if (s->seek_at > 0) {   /* a seek while playing: what it cost, once it plays on from there */
         if (l->playing && !l->buffering && l->pos > s->seek_to + 0.2 && l->pos < s->seek_to + 6) {
             double lost = (now - s->seek_at) / 1000 - (l->pos - s->seek_to);
             if (lost >= 0 && lost < 8) s->seek_cost = s->seek_cost > 0 ? 0.7 * s->seek_cost + 0.3 * lost : lost;
             s->seek_at = 0;
-        } else if (now - s->seek_at > 8000 || !room->playing) s->seek_at = 0;
-        else return;   /* still landing */
+        } else if (now - s->seek_at > 10000 || !room->playing) s->seek_at = 0;
     }
+    int landing = s->seek_at > 0;
+    int fresh = room->pos != s->anchor_pos || room->at != s->anchor_at;   /* someone played, paused or moved it */
+    s->anchor_pos = room->pos; s->anchor_at = room->at;
 
-    if (!room->playing) {   /* everyone stops where the room says */
+    if (!room->playing) {   /* a pause: at once, whatever is under way; moved only when really elsewhere */
         if (s->rate && s->rate != 1) { out->rate = 1; s->rate = 1; }
-        if (now < s->hold_until) return;
         if (l->playing) out->pause = 1;
-        if (fabs(l->pos - room->pos) > 0.5) out->seek = room->pos;
-        if (out->pause || out->seek >= 0) s->hold_until = now + 1500;
+        if (!landing && now >= s->hold_until && fabs(l->pos - room->pos) > PARTY_ALIGN) { out->seek = room->pos; s->hold_until = now + 3000; }
         return;
     }
-    if (now < room->at) {   /* a start is coming: be there, paused, when it does */
+    if (now < room->at) {   /* a start once everyone has the video: be there, paused, when it comes */
         if (s->rate && s->rate != 1) { out->rate = 1; s->rate = 1; }
-        if (now < s->hold_until) return;
         if (l->playing) out->pause = 1;
-        if (fabs(l->pos - room->pos) > 0.3) out->seek = room->pos;
-        if (out->pause || out->seek >= 0) s->hold_until = fmin(now + 700, room->at);
+        if (!landing && now >= s->hold_until && fabs(l->pos - room->pos) > PARTY_ALIGN) { out->seek = room->pos; s->hold_until = now + 3000; }
         return;
     }
-    double target = room->pos + (now - room->at) / 1000;
-    if (!l->playing) {
-        if (l->buffering || now < s->hold_until) return;   /* (a stall: the room hears of it and waits) */
-        if (fabs(l->pos - target) > 0.5) {   /* late to it: where it will be once the seek is done */
-            out->seek = target + cost;
+    double target = room->pos + (now - room->at) / 1000, drift = l->pos - target, ad = fabs(drift);
+    if (!l->playing) {   /* playing again: at once; a seek first only when far from it */
+        if (l->buffering) return;   /* (a stall: the room hears of it and waits) */
+        if (!landing && (ad > PARTY_SEEK_AHEAD || (fresh && ad > PARTY_ALIGN))) {
+            out->seek = target + cost;   /* where playback will be once the seek is done */
             s->seek_at = now; s->seek_to = out->seek; s->seeks++;
+            s->drift_seek_ok = now + PARTY_SEEK_GAP_MS;
         }
         out->play = 1;
-        s->hold_until = now + 1000 + (out->seek >= 0 ? cost * 1000 : 0);
         return;
     }
-    if (now < s->hold_until) return;
-    double drift = l->pos - target, ad = fabs(drift);
-    if (ad > PARTY_SEEK_DRIFT || (s->rate_ok < 0 && ad > 1.0)) {
+    if (landing) return;
+    if (fresh && ad > PARTY_ALIGN) {   /* someone moved it: there too, now (theirs, not a drift: no waiting) */
         if (s->rate && s->rate != 1) { out->rate = 1; s->rate = 1; }
         out->seek = target + cost;
         s->seek_at = now; s->seek_to = out->seek; s->seeks++;
-        s->hold_until = now + 1000 + cost * 1000;
+        s->drift_seek_ok = now + PARTY_SEEK_GAP_MS;
         return;
     }
-    if (s->rate_ok < 0) return;   /* this player keeps its speed: small differences stay */
+    if (now < s->hold_until) return;
+    if ((drift > PARTY_SEEK_AHEAD * s->backoff || -drift > PARTY_SEEK_BEHIND * s->backoff) && now >= s->drift_seek_ok) {
+        if (s->rate && s->rate != 1) { out->rate = 1; s->rate = 1; }
+        out->seek = target + cost;
+        s->seek_at = now; s->seek_to = out->seek; s->seeks++;
+        if (s->last_drift_seek > 0 && now - s->last_drift_seek < 120000 && s->backoff < 4) s->backoff *= 1.5;   /* it keeps slipping: correct it less often */
+        s->last_drift_seek = now;
+        s->drift_seek_ok = now + PARTY_SEEK_GAP_MS;
+        return;
+    }
+    if (l->no_rate || s->rate_ok < 0) return;   /* this player keeps its speed: differences under the seek limits stay */
     if (s->rate && s->rate != 1) {   /* nudging */
         if (ad < PARTY_NUDGE_DONE || (drift > 0) != (s->nudge_drift > 0)) {
             out->rate = 1; s->rate = 1;
             if (!s->rate_ok) s->rate_ok = 1;
             return;
         }
-        if (!s->rate_ok && now - s->nudge_at > 3000) {   /* 3 s at 5%: 0.15 s closer if the speed really changed */
-            if (fabs(s->nudge_drift) - ad < 0.05) { s->rate_ok = -1; out->rate = 1; s->rate = 1; }
+        if (!s->rate_ok && now - s->nudge_at > 4000) {   /* 4 s at 5%: 0.2 s closer if the speed really changed */
+            if (fabs(s->nudge_drift) - ad < 0.07) { s->rate_ok = -1; out->rate = 1; s->rate = 1; }
             else s->rate_ok = 1;
         }
         return;

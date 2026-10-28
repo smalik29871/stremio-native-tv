@@ -16,7 +16,7 @@ typedef enum { PARTY_OFF, PARTY_CONNECTING, PARTY_IN, PARTY_ENDED } PartyState;
 
 typedef struct { char id[12], name[28], device[44]; int ready, buffering; } PartyMember;
 /* Where playback is: playing from pos (seconds) since at (the room's clock, ms), or stopped at
- * pos. A play or seek is set a little ahead (lead_ms), so at can be later than now. */
+ * pos. A start once everyone has the video is set a little ahead (lead_ms), so at can be later than now. */
 typedef struct { int playing; double pos, at; } PartyPlay;
 
 typedef struct {
@@ -63,6 +63,7 @@ typedef struct {
     int playing;     /* playing, not paused */
     int buffering;
     double pos;      /* seconds */
+    int no_rate;     /* not to be sped up or slowed (an LG: a speed change may make it buffer) */
 } PartyLocal;
 
 /* What the player should do now: pause, play, seek to (>= 0), and the speed (0: leave it). */
@@ -70,18 +71,28 @@ typedef struct { int pause, play; double seek, rate; } PartyCmd;
 
 /* The plan's memory between frames: zero it when a new video starts. */
 typedef struct {
-    double hold_until;     /* the last command settles until then (room ms) */
+    double hold_until;     /* drift corrections wait until then (room ms); a pause or play from the room never does */
     double rate;           /* the speed set (0 or 1: normal) */
-    int rate_ok;           /* 0 not known yet, 1 the speed changes, -1 it does not: seeks only */
+    int rate_ok;           /* 0 not known yet, 1 the speed changes, -1 it does not: no nudges */
     double nudge_at, nudge_drift;   /* when a speed nudge began, and the difference then */
     double seek_at, seek_to;        /* a seek under way: sent then, to there (room ms, s) */
     double seek_cost;      /* seconds a seek here costs (stands still), learned; 0 unknown */
+    double drift_seek_ok;  /* no seek for drift before then (room ms): each seek re-buffers a stream */
+    double last_drift_seek, backoff;   /* the last such seek, and how much further off it has to be now (1: as set) */
+    double anchor_pos, anchor_at;      /* the room's play or seek last seen: a new one is someone's own */
     unsigned seeks, nudges;
 } PartySync;
 
-#define PARTY_SEEK_DRIFT 2.0   /* off by more than this: a seek, not a nudge (s) */
-#define PARTY_NUDGE_DRIFT 0.25 /* off by more than this: played away at a slightly other speed (s) */
-#define PARTY_NUDGE_DONE 0.08
+/* How far off before this TV is moved. A seek on a stream means buffering again, so it waits
+ * for a real difference (Syncplay's: 4 s ahead, 5 s behind), at most one in 20 s, and further
+ * off each time it keeps having to. A smaller one is played away at a slightly other speed
+ * where the player takes that smoothly. */
+#define PARTY_SEEK_AHEAD 4.0
+#define PARTY_SEEK_BEHIND 5.0
+#define PARTY_SEEK_GAP_MS 20000
+#define PARTY_ALIGN 1.5        /* at a pause, a start or someone's seek: moved there only when off by more */
+#define PARTY_NUDGE_DRIFT 1.0  /* off by more than this: played away at 0.95x or 1.05x */
+#define PARTY_NUDGE_DONE 0.2
 #define PARTY_NUDGE_SLOW 0.95
 #define PARTY_NUDGE_FAST 1.05
 
