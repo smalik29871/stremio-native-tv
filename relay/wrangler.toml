@@ -18,7 +18,7 @@ simple = { limit = 60, period = 60 }
 # deploy workflow stops while this is still the placeholder.
 [[kv_namespaces]]
 binding = "IDS"
-id = "PUT_THE_IDS_NAMESPACE_ID_HERE"
+id = "3231480d695c4275a0115c3034407ab6"
 
 # Cue Party rooms (src/party.js), one Durable Object per party (SQLite-backed: the free plan's kind).
 [[durable_objects.bindings]]
