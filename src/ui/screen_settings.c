@@ -59,7 +59,7 @@ static const Icon CAT_ICONS[CAT_COUNT] = { ICON_USER, ICON_PLAY, ICON_CLOCK, ICO
 
 enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_AUDIO, IT_PREF_SUBS, IT_SUBS_WHEN, IT_SUBS_SIZE, IT_SUBS_STYLE, IT_SUBS_COLOUR,
        IT_QUALITY, IT_RES_CAP, IT_PREFLIGHT, IT_AUTO_REC, IT_HOME_STYLE, IT_HIDE_WATCHED, IT_FX, IT_OLED, IT_THEME, IT_ACCENT, IT_CARD_DETAILS, IT_AUTO_TRAILER, IT_AMBIENT, IT_BLUR,
-       IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL,
+       IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL, IT_AI_EVERY,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_PARTY, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS, IT_BROWSE, IT_SUBS_BARS, IT_BETA,
        IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
@@ -143,7 +143,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_SUBS_ACCT); ids[n++] = IT_OS_KEY; if (opensubs_enabled()) ids[n++] = IT_OS_LOGIN;
         SEC(SEC_META); ids[n++] = IT_TMDB; ids[n++] = IT_MDBLIST;
         SEC(SEC_AI); ids[n++] = IT_AI_PROVIDER;
-        if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; }
+        if (g_app.ai_provider) { ids[n++] = IT_AI_KEY; if (g_app.ai_provider == AI_CUSTOM) ids[n++] = IT_AI_BASE; ids[n++] = IT_AI_MODEL; ids[n++] = IT_AI_EVERY; }
         break;
     case CAT_PLAYBACK:
         SEC(SEC_EPISODES); ids[n++] = IT_AUTOPLAY; ids[n++] = IT_SKIP;
@@ -255,6 +255,7 @@ static const char *row_title(int id)
     case IT_AI_KEY: return "AI API key";
     case IT_AI_BASE: return "AI endpoint";
     case IT_AI_MODEL: return "AI model";
+    case IT_AI_EVERY: return "Every search asks the AI";
     case IT_MEMORY: return "Memory use";
     case IT_TRANSITIONS: return "Animated screen changes";
     case IT_DEPTH: return "Depth on backdrops";
@@ -401,6 +402,7 @@ static const char *row_desc(int id)
     case IT_FIRE_VIDEO: return "A YouTube or video link of a real fire, played full screen and looped with the clock.";
     case IT_MEMORY: return "Rows and artwork kept; Automatic saves when memory gets tight.";
     case IT_AI_PROVIDER: return "Ask about a title, describe a mood, translate subtitles.";
+    case IT_AI_EVERY: return "Off, only a search that reads like a request asks it (\"funny 90s films\"); Ask AI at the top of the suggestions asks about anything.";
     case IT_AUTO_UPDATE: return "A popup at a quiet moment: Update now or Later. Never while something plays.";
     case IT_BETA: return "New versions here first, before everyone else; they can still have bugs.";
     case IT_BR_ON: return "Playback pauses at the times below.";
@@ -1040,6 +1042,7 @@ static void draw(Screen *s)
             draw_row(y, ICON_SETTINGS, "AI model", m, foc, KIND_ACTION, 0);
             break;
         }
+        case IT_AI_EVERY: draw_row(y, ICON_SPARK, "Every search asks the AI", NULL, foc, KIND_TOGGLE, store_get_int("searchAlwaysAi", 0)); break;
         case IT_MEMORY: {
             static const char *MEM[] = { "Automatic", "Low", "Normal" };
             snprintf(v, sizeof v, "%s%s%s%s", MEM[g_app.memory_mode], g_app.memory_mode == 0 ? (g_app.low_memory ? " (Low  \xC2\xB7  " : " (Normal  \xC2\xB7  ") : "", g_app.memory_mode == 0 ? mem_reason_text() : "", g_app.memory_mode == 0 ? ")" : "");
@@ -1734,6 +1737,7 @@ static int adjust(Settings *st, int id, int dir)
     case IT_SRC_AUDIO: g_app.src_audio_lang = !g_app.src_audio_lang; break;
     case IT_P2P: g_app.p2p_fallback = !g_app.p2p_fallback; if (!g_app.p2p_fallback) torrent_engine_stop(); break;
     case IT_AUTO_UPDATE: g_app.auto_update = !g_app.auto_update; break;
+    case IT_AI_EVERY: store_set_int("searchAlwaysAi", !store_get_int("searchAlwaysAi", 0)); store_save(); LOGI("search: every search asks the assistant: %s", store_get_int("searchAlwaysAi", 0) ? "on" : "off"); break;
     case IT_BETA: store_set_int("betaUpdates", !store_get_int("betaUpdates", 0)); store_save(); LOGI("update: beta updates %s", store_get_int("betaUpdates", 0) ? "on" : "off"); app_update_check_now(); break;
     case IT_ADDON_WAIT: g_app.addon_wait = step_move(ADDON_WAITS, N_OF(ADDON_WAITS), g_app.addon_wait, 2, dir); break;
     case IT_AI_PROVIDER: g_app.ai_provider = (g_app.ai_provider + dir + AI_PROVIDER_COUNT) % AI_PROVIDER_COUNT; break;

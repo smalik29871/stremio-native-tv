@@ -29,7 +29,7 @@ typedef struct { int row, col; } Cell;
 typedef struct { int first_row, n; const char *label; } Section;
 
 typedef struct Search Search;
-enum { PICKS_MAX = 32, AI_TITLES = 16 };
+enum { PICKS_MAX = 48, AI_TITLES = 24 };
 typedef struct { Search *owner; unsigned generation; int pick; int rank; char want[160]; int year, kind, cinemeta; } Pending;   /* kind: -1 any, 0 movie, 1 series */
 /* Every query of every Search gets its own number, never reused; a reply counts only when
  * its Search is still open and still on that query. A Search under another one (a cast
@@ -72,6 +72,9 @@ struct Search {
     int groups_logged;
     char first_logged[64];        /* the leading result last logged */
     char sugg[5][96]; char sugg_sub[5][32]; int n_sugg;   /* titles for what is typed so far, and "Film · 1999" */
+    int sugg_ai, sugg_ai_state;      /* the first line asks the assistant about what is typed */
+    int ai_once; float ai_due;       /* ask the assistant this time (that line); ask it once typing rests (every search asks it) */
+    char ai_for[256];                /* what the assistant was last asked */
     int sugg_focus;               /* -1 on the keys, else the suggestion */
     int tvkb;                     /* typing with the TV's own keyboard, not the app's */
     int hero_btn;                 /* on the top result's buttons (focus_grid 3): which one */
@@ -510,7 +513,7 @@ static void on_ai_titles(const char *text, const char *error, void *user)
     if (!n) {
         snprintf(s->ai_note, sizeof s->ai_note, "%s", error ? error : "The assistant had no suggestions");
         LOGI("search: no suggestions from the assistant; searching the words instead");
-        search_addons(s, s->last_query, 0, 0, 0, -1);
+        if (!s->n) search_addons(s, s->last_query, 0, 0, 0, -1);
     }
     if (root) cJSON_Delete(root);
     app_redraw();
@@ -536,6 +539,34 @@ static int looks_like_a_request(const char *q)
     return 0;
 }
 
+/* Every search asks the assistant too (Settings > Accounts), not only one that reads as a request. */
+static int always_ai(void) { return ai_enabled() && store_get_int("searchAlwaysAi", 0); }
+
+/* The assistant's titles for q (its picks go in front of whatever the words found): 1 if asked. */
+static int ask_ai(Search *s, const char *q)
+{
+    Pending *p = calloc(1, sizeof *p);
+    p->owner = s; p->generation = s->generation;
+    static const char *SYS = "You recommend films and series to a viewer who describes what they feel like watching. "
+        "Keep to every constraint in the request exactly: language or film industry (Bollywood means Hindi films from India, Tollywood Telugu, "
+        "a K-drama a Korean series, anime Japanese animation), country, era, genre, and film or series. Never suggest a title that breaks one of them. "
+        "Reply with JSON only, no markdown: {\"summary\": \"Hindi comedies from the 1990s\", "
+        "\"titles\": [{\"name\": \"title as on IMDb\", \"year\": 2010, \"type\": \"movie\", \"why\": \"a reason in under 10 words\"}], "
+        "\"filters\": {\"type\": \"movie\", \"language\": \"hi\", \"country\": \"IN\", \"genres\": [\"Comedy\"], \"from\": 1990, \"to\": 2009}, "
+        "\"refine\": [\"Only series\", \"Newer ones\", \"Funnier\", \"More like Andaz Apna Apna\"]} "
+        "with up to 24 well-known titles, best match first; type is movie or series. summary says in under 8 words what you understood; "
+        "refine gives up to 4 short follow-ups (under 4 words each) the viewer might want next. In filters, language is the ISO 639-1 code of the original "
+        "language, country an ISO 3166-1 code, genres only from Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, "
+        "History, Horror, Music, Mystery, Romance, Science Fiction, Thriller, War, Western; use null for whatever the request does not say. "
+        "If the text is just a title or a person's name, return that title or that person's best-known titles, then others like them, and null filters.";
+    s->ai_req = ai_ask(SYS, q, 2200, 1, on_ai_titles, p);
+    s->ai_state = s->ai_req ? 1 : 0;
+    snprintf(s->ai_for, sizeof s->ai_for, "%s", q);
+    if (!s->ai_req) { free(p); return 0; }
+    LOGI("search: asking the assistant about \"%s\"", q);
+    return 1;
+}
+
 static void run_query(Search *s)
 {
     const char *q = s->kb.text;
@@ -546,30 +577,15 @@ static void run_query(Search *s)
     s->generation = ++g_search_gen;
     s->pending = 0;
     if (s->ai_req) ai_cancel(s->ai_req);   /* the last question is no longer wanted */
-    s->ai_state = 0; s->ai_req = 0; s->ai_note[0] = 0; s->n_refine = 0;
+    s->ai_state = 0; s->ai_req = 0; s->ai_note[0] = 0; s->n_refine = 0; s->ai_due = 0; s->ai_for[0] = 0;
     clear_results(s);
-    if (strlen(q) < 2) return;
-    if (ai_enabled() && looks_like_a_request(q)) {
-        Pending *p = calloc(1, sizeof *p);
-        p->owner = s; p->generation = s->generation;
-        static const char *SYS = "You recommend films and series to a viewer who describes what they feel like watching. "
-            "Keep to every constraint in the request exactly: language or film industry (Bollywood means Hindi films from India, Tollywood Telugu, "
-            "a K-drama a Korean series, anime Japanese animation), country, era, genre, and film or series. Never suggest a title that breaks one of them. "
-            "Reply with JSON only, no markdown: {\"summary\": \"Hindi comedies from the 1990s\", "
-            "\"titles\": [{\"name\": \"title as on IMDb\", \"year\": 2010, \"type\": \"movie\", \"why\": \"a reason in under 10 words\"}], "
-            "\"filters\": {\"type\": \"movie\", \"language\": \"hi\", \"country\": \"IN\", \"genres\": [\"Comedy\"], \"from\": 1990, \"to\": 2009}, "
-            "\"refine\": [\"Only series\", \"Newer ones\", \"Funnier\", \"More like Andaz Apna Apna\"]} "
-            "with up to 16 well-known titles, best match first; type is movie or series. summary says in under 8 words what you understood; "
-            "refine gives up to 4 short follow-ups (under 4 words each) the viewer might want next. In filters, language is the ISO 639-1 code of the original "
-            "language, country an ISO 3166-1 code, genres only from Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, "
-            "History, Horror, Music, Mystery, Romance, Science Fiction, Thriller, War, Western; use null for whatever the request does not say. "
-            "If the text is just a title or a person's name, return titles that match it and null filters.";
-        s->ai_req = ai_ask(SYS, q, 1300, 1, on_ai_titles, p);
-        s->ai_state = s->ai_req ? 1 : 0;
-        if (s->ai_req) return;   /* a request: the assistant's titles, not every title with one of its words (they come if it has none) */
-        free(p);
-    }
+    if (strlen(q) < 2) { s->ai_once = 0; return; }
+    int once = s->ai_once;
+    s->ai_once = 0;
+    if (ai_enabled() && (once || looks_like_a_request(q)) && ask_ai(s, q))
+        return;   /* a request: the assistant's titles, not every title with one of its words (they come if it has none) */
     search_addons(s, q, 0, 0, 0, -1);
+    if (always_ai()) s->ai_due = 1.2f;   /* every search asks it: the words' results now, its picks once the typing rests */
 }
 
 /* Suggestions while typing, as a TV's own keyboard gives: your recent searches that start
@@ -600,10 +616,10 @@ static void sugg_offer(Sugg *c, int *n, int max, const char *name, const char *s
 static void suggest(Search *s)
 {
     const char *t = s->kb.text;
-    if (!strcmp(t, s->sugg_for) && s->n == s->sugg_n_res && g_app.library_version == s->sugg_lib && s->generation == s->sugg_gen) return;   /* nothing new to suggest from */
+    if (!strcmp(t, s->sugg_for) && s->n == s->sugg_n_res && g_app.library_version == s->sugg_lib && s->generation == s->sugg_gen && s->ai_state == s->sugg_ai_state) return;   /* nothing new to suggest from */
     if (s->sugg_focus >= 0 && s->n_sugg && !strcmp(t, s->sugg_for)) return;   /* on the list: results coming in don't move it under the cursor (it catches up once the keys have the focus) */
     snprintf(s->sugg_for, sizeof s->sugg_for, "%s", t);
-    s->sugg_n_res = s->n; s->sugg_lib = g_app.library_version; s->sugg_gen = s->generation;
+    s->sugg_n_res = s->n; s->sugg_lib = g_app.library_version; s->sugg_gen = s->generation; s->sugg_ai_state = s->ai_state;
     char tw[256];
     words_of(t, tw, sizeof tw);
     Sugg c[96];
@@ -625,11 +641,14 @@ static void suggest(Search *s)
     }
     for (int a = 1; a < n; a++)   /* the closest first; a tie keeps the order above */
         for (int b = a; b > 0 && c[b].tier < c[b - 1].tier; b--) { Sugg x = c[b]; c[b] = c[b - 1]; c[b - 1] = x; }
-    int k = n < LIST_MAX ? n : LIST_MAX;
+    /* and a line that asks the assistant about exactly what is typed (not once it has been asked) */
+    s->sugg_ai = ai_enabled() && strlen(tw) >= 2 && !(s->ai_state && !strcmp(s->ai_for, t));
+    int k = n < LIST_MAX - s->sugg_ai ? n : LIST_MAX - s->sugg_ai;
     for (int i = 0; i < k; i++) {
         snprintf(s->sugg[i], sizeof s->sugg[0], "%s", c[i].name);
         snprintf(s->sugg_sub[i], sizeof s->sugg_sub[0], "%s", c[i].sub ? c[i].sub : "");
     }
+    if (s->sugg_ai) { snprintf(s->sugg[k], sizeof s->sugg[0], "Ask AI: %s", t); snprintf(s->sugg_sub[k], sizeof s->sugg_sub[0], "AI"); k++; }   /* last: next to the keys */
     s->n_sugg = k;
     if (s->sugg_focus >= k) s->sugg_focus = k - 1;
     if (k && strcmp(s->sugg[0], s->sugg_logged)) { snprintf(s->sugg_logged, sizeof s->sugg_logged, "%s", s->sugg[0]); LOGI("search: %d suggestion%s, first \"%s\"", k, k == 1 ? "" : "s", s->sugg[0]); }
@@ -756,6 +775,7 @@ static void update(Screen *sc, float dt)
     s->focus_t = ui_ease(s->focus_t * 100, 100, NULL, dt, 16) / 100;
     ui_peek_step(&s->peek, s->focus_grid == 1 && s->grid_focus < s->n ? &s->results[s->grid_focus] : NULL, dt);
     if (s->dirty) { s->debounce -= dt; if (s->debounce <= 0) { s->dirty = 0; run_query(s); } }
+    else if (s->ai_due > 0 && (s->ai_due -= dt) <= 0 && !s->ai_req && !strcmp(s->kb.text, s->last_query)) { s->ai_due = 0; ask_ai(s, s->last_query); }
     if (s->pending || s->dirty || s->ai_state == 1) app_redraw();
 }
 
@@ -879,8 +899,10 @@ static float draw_list(const Search *s, float x, float y, float w)
         const char *t = s->kb.text[0] ? s->sugg[i] : i < s->n_recent ? s->recent[i] : "Clear recent searches";
         const char *sub = s->kb.text[0] ? s->sugg_sub[i] : NULL;
         float sw = sub && *sub ? font_measure(sub, FONT_XS) + 20 : 0;
+        int ask = s->kb.text[0] && s->sugg_ai && i == n - 1;
         if (!s->kb.text[0] && i < s->n_recent) ui_icon(ICON_CLOCK, x + 26, ry + (LIST_ROW - 6) / 2, 22, on ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
-        float lx = x + (s->kb.text[0] ? 18 : 52);
+        if (ask) ui_icon(ICON_SPARK, x + 26, ry + (LIST_ROW - 6) / 2, 22, on ? THEME_ON_FOCUS : THEME_ACCENT2);
+        float lx = x + (s->kb.text[0] && !ask ? 18 : 52);
         font_draw_fit(t, lx, ry + (LIST_ROW - 6 - font_height(FONT_S | FONT_B)) / 2, FONT_S | (i < (s->kb.text[0] ? n : s->n_recent) ? FONT_B : 0),
                       i < (s->kb.text[0] ? n : s->n_recent) ? fg : on ? fg : THEME_TEXT_DIM, w - (lx - x) - sw - 12);
         if (sw) font_draw(sub, x + w - sw + 4, ry + (LIST_ROW - 6 - font_height(FONT_XS)) / 2, FONT_XS, on ? THEME_ON_FOCUS : THEME_TEXT_MUTED);
@@ -1018,6 +1040,14 @@ static void take_list(Search *s, int i)
         return;
     }
     if (!s->kb.text[0] && i == s->n_recent) { s->n_recent = 0; recent_save(s); s->focus_grid = 0; app_toast("Recent searches cleared"); return; }
+    if (s->kb.text[0] && s->sugg_ai && i == s->n_sugg - 1) {   /* ask the assistant about what is typed, however it reads */
+        close_keyboard(s);
+        s->last_query[0] = 0; s->ai_once = 1;
+        s->dirty = 0; s->focus_grid = 0; run_query(s);
+        recent_add(s, s->kb.text);
+        s->want_results = s->keep_recent = 1;
+        return;
+    }
     char pick[256];
     snprintf(pick, sizeof pick, "%s", s->kb.text[0] ? s->sugg[i] : s->recent[i]);
     if (s->kb.text[0]) LOGI("search: suggestion \"%s\" taken", pick);
@@ -1247,7 +1277,7 @@ static void phone_draw(Search *s)
         for (int i = 0; i < nl; i++, y += 100) {
             const char *t = refining(s) ? s->refine[i] : s->kb.text[0] ? s->sugg[i] : i < s->n_recent ? s->recent[i] : "Clear recent searches";
             const char *sub = !refining(s) && s->kb.text[0] ? s->sugg_sub[i] : NULL;
-            Icon ic = refining(s) ? ICON_STAR : !s->kb.text[0] && i < s->n_recent ? ICON_CLOCK : (Icon)-1;
+            Icon ic = refining(s) ? ICON_STAR : !s->kb.text[0] && i < s->n_recent ? ICON_CLOCK : s->kb.text[0] && s->sugg_ai && i == s->n_sugg - 1 ? ICON_SPARK : (Icon)-1;
             ph_line(t, sub, ic, x, y, w, 88, lfoc == i, HIT_LIST + i);
             ph_focus_at(s, lfoc == i, y, 88);
         }
