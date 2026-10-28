@@ -17,7 +17,7 @@
 - Fake values in tests come from real devices, never from what the code needs to pass. Frame
   times include the wait for the display: about 17 ms at 60 Hz when a frame keeps up, 33 ms
   when it misses one; a TV is never faster than that. Memory, network speeds and decode limits
-  likewise follow what the LG, the Shield and phones report (Diagnostics > Speed, the log).
+  likewise follow what the LG, phones and the desktop (Windows) report (Diagnostics > Speed, the log).
 - Anything that depends on the hardware (frame timing, memory, decoding, remote input) is
   checked against what real devices report before it is called done, not only the test machine.
 - The full suite passes before any release.
