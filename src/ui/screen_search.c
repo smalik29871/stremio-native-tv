@@ -865,10 +865,10 @@ static void draw_field(const Search *s, float x, float y, float fw)
 
 /* Ask the assistant about what is typed: a button under the keys on the app's own keyboard (the TV's keeps its line of suggestions). */
 static int ask_visible(const Search *s) { return ai_enabled() && !s->tvkb && strlen(s->kb.text) >= 2; }
-static void draw_ask_button(const Search *s, float x, float y, float w)
+static void draw_ask_button(const Search *s, float x, float y)
 {
     if (!ask_visible(s)) return;
-    float bw = 230, bh = 52, bx = x + w - bw;
+    float bw = 230, bh = 52, bx = x;
     if (s->ask_focus) ui_focus_under(bx, y, bw, bh, bh / 2, 1);
     gfx_rrect(bx, y, bw, bh, bh / 2, s->ask_focus ? THEME_ACCENT2 : COLOR_ALPHA(THEME_TEXT, 0x2E));
     Color fg = s->ask_focus ? RGBA(0x11, 0x11, 0x11, 255) : THEME_TEXT;
@@ -1006,9 +1006,9 @@ static void draw(Screen *sc)
     if (s->typing && !s->tvkb) {
         float ky = ly + 16;
         keyboard_draw(&s->kb, x, ky, s->sugg_focus < 0 && !s->ask_focus);
-        draw_ask_button(s, x, ky + keyboard_height_of(&s->kb) + 8, keyboard_width_of(&s->kb));
+        draw_ask_button(s, x, ky + keyboard_height_of(&s->kb) + 44);
         font_draw(s->n_sugg ? "Done searches  \xC2\xB7  Up for suggestions" : "Done searches  \xC2\xB7  Back closes the keyboard", x, ky + keyboard_height_of(&s->kb) + 18, FONT_XS, THEME_TEXT_MUTED);
-        draw_phone(s, x, ky + keyboard_height_of(&s->kb) + 64);
+        draw_phone(s, x, ky + keyboard_height_of(&s->kb) + 120);
     } else if (!s->typing && !s->focus_grid) {
         font_draw("OK to type  \xC2\xB7  Right for the results", x, ly + 16, FONT_XS, THEME_TEXT_MUTED);
     }

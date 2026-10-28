@@ -1246,6 +1246,8 @@ grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/se
   && grep -q "search: the assistant suggests 3 titles" "$OUT/search_ask_ai.log" \
   || { echo "Ask AI did not ask the assistant about a plain title"; grep search "$OUT/search_ask_ai.log"; exit 1; }
 # Every search asks the AI (Settings): the words' results at once, the assistant's picks once the typing rests
+# the Ask AI button under the keys, focused (Down from the bottom row), before OK sends it
+run search_ask_button 200 "search,t:the shawshank redemption,wait,wait,down,down,down,down,wait" HOME="$(home_with aib2 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 run search_always_ai 700 "search,t:the shawshank redemption,wait,wait,wait,wait,wait,wait" HOME="$(home_with ai7 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","searchAlwaysAi":1}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q 'search: 1 result for "the shawshank redemption"' "$OUT/search_always_ai.log" && grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/search_always_ai.log" \
   && grep -q "search: the assistant suggests 3 titles" "$OUT/search_always_ai.log" \
