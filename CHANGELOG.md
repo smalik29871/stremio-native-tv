@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.96
+
+- **Cue Party: watch together.** Friends in other homes watch the same thing at the same moment,
+  each on their own TV or phone and from their own sources. Start a party (Settings > Accounts >
+  Cue Party, or the Cue Party button in the player) and others join with its code, or by
+  scanning its QR code with a phone. What one TV puts on opens on the others; it starts on all
+  of them together once each has it loaded, and a pause, a seek, or one TV waiting for its
+  video goes to everyone. Small differences are played away at a slightly different speed,
+  larger ones with a seek. Only the title and the time go between you: no video, link or
+  account.
+- **Quieter LG log.** The subtitles' place, which the TV reports many times a second, no longer
+  fills the log.
+
 ## 0.10.95
 
 - **Seek recovery on every TV.** Diagnostics > Speed now shows how long a seek takes to play on
