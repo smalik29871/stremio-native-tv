@@ -1232,6 +1232,16 @@ grep -q 'search: refine "Only series"' "$OUT/search_ai_refine.log" && [ "$(grep 
 # two words that ask for a kind of thing are a request too
 run search_ai_short 300 "search,t:korean thrillers,wait,wait" HOME="$(home_with ai4 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q "search: the assistant suggests" "$OUT/search_ai_short.log" || { echo "\"korean thrillers\" did not go to the assistant"; grep "search" "$OUT/search_ai_short.log"; exit 1; }
+# Ask AI, the last line of the suggestions (Up from the keys): the assistant is asked about anything typed, a plain title too
+run search_ask_ai 320 "search,t:the shawshank redemption,wait,wait,up,up,ok,wait,wait,wait,wait" HOME="$(home_with ai6 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q 'search: [0-9]* suggestions*, first "Ask AI: the shawshank redemption"' "$OUT/search_ask_ai.log" && grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/search_ask_ai.log" \
+  && grep -q "search: the assistant suggests 3 titles" "$OUT/search_ask_ai.log" \
+  || { echo "Ask AI did not ask the assistant about a plain title"; grep search "$OUT/search_ask_ai.log"; exit 1; }
+# Every search asks the AI (Settings): the words' results at once, the assistant's picks once the typing rests
+run search_always_ai 700 "search,t:the shawshank redemption,wait,wait,wait,wait,wait,wait" HOME="$(home_with ai7 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","searchAlwaysAi":1}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q 'search: 1 result for "the shawshank redemption"' "$OUT/search_always_ai.log" && grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/search_always_ai.log" \
+  && grep -q "search: the assistant suggests 3 titles" "$OUT/search_always_ai.log" \
+  || { echo "with every search asking the AI, a plain title did not get its picks"; grep search "$OUT/search_always_ai.log"; exit 1; }
 # a request with a film industry: the assistant's filters go to TMDB, whose titles join its picks; no word-by-word search
 run search_ai_filters 420 "search,t:bollywood comedies from the nineties" HOME="$(home_with ai5 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","tmdbKey":"0123456789abcdef0123456789abcdef"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1 SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg
 grep -q "search: the assistant's filters: movies, language hi, country IN, 1 genre, 1990-1999" "$OUT/search_ai_filters.log" && grep -q "search: 2 more from TMDB for the assistant's filters" "$OUT/search_ai_filters.log" \
