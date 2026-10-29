@@ -1251,6 +1251,12 @@ grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/se
 # Every search asks the AI (Settings): the words' results at once, the assistant's picks once the typing rests
 # the Ask AI button under the keys, focused (Down from the bottom row), before OK sends it
 run search_ask_button 200 "search,t:the shawshank redemption,wait,wait,down,down,down,down,wait" HOME="$(home_with aib2 "$AI")" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+# with the TV's own keyboard: Back closes it, and Ask AI is still under the list, Down from the search bar, for a plain title too
+run search_tv_ask_ai 420 "search,ok,t:the shawshank redemption,wait,wait,back,wait,down,down,down,down,down,down,ok,wait,wait,wait,wait" HOME="$(home_with tvai '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
+grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/search_tv_ask_ai.log" && grep -q "search: the assistant suggests 3 titles" "$OUT/search_tv_ask_ai.log" \
+  || { echo "Ask AI could not be reached with the TV's keyboard closed"; grep -E "search|UI check" "$OUT/search_tv_ask_ai.log"; exit 1; }
+# after the AI has answered a request, the card stays: closed keyboard, Down reaches it (a screenshot of it focused)
+run search_tv_ask_card 420 "search,ok,t:food related top 50,wait,wait,wait,wait,back,wait,down,down,down,down,down,down,wait" HOME="$(home_with tvai2 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key"}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 run search_always_ai 700 "search,t:the shawshank redemption,wait,wait,wait,wait,wait,wait" HOME="$(home_with ai7 '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"aiProvider":1,"aiKey":"gsk_smoke_test_key","searchAlwaysAi":1}')" SNTV_AI_API=http://127.0.0.1:$PORT/ai/v1
 grep -q 'search: 1 result for "the shawshank redemption"' "$OUT/search_always_ai.log" && grep -q 'search: asking the assistant about "the shawshank redemption"' "$OUT/search_always_ai.log" \
   && grep -q "search: the assistant suggests 3 titles" "$OUT/search_always_ai.log" \

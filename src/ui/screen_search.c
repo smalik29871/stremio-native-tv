@@ -701,7 +701,7 @@ static void suggest(Search *s)
     for (int a = 1; a < n; a++)   /* the closest first; a tie keeps the order above */
         for (int b = a; b > 0 && c[b].tier < c[b - 1].tier; b--) { Sugg x = c[b]; c[b] = c[b - 1]; c[b - 1] = x; }
     /* and a line that asks the assistant about exactly what is typed (not once it has been asked) */
-    s->sugg_ai = s->tvkb && ai_enabled() && strlen(tw) >= 2 && !(s->ai_state && !strcmp(s->ai_for, t));
+    s->sugg_ai = 0;   /* Ask AI is its own card under the list, with either keyboard */
     int k = n < LIST_MAX - s->sugg_ai ? n : LIST_MAX - s->sugg_ai;
     for (int i = 0; i < k; i++) {
         snprintf(s->sugg[i], sizeof s->sugg[0], "%s", c[i].name);
@@ -864,11 +864,11 @@ static void draw_field(const Search *s, float x, float y, float fw)
 }
 
 /* Ask the assistant about what is typed: a button under the keys on the app's own keyboard (the TV's keeps its line of suggestions). */
-static int ask_visible(const Search *s) { return ai_enabled() && !s->tvkb && strlen(s->kb.text) >= 2; }
+static int ask_visible(const Search *s) { return ai_enabled() && strlen(s->kb.text) >= 2; }   /* either keyboard, typing or not, asked already or not: it can always ask again */
 static void draw_ask_button(const Search *s, float x, float y)
 {
     if (!ask_visible(s)) return;
-    int foc = s->ask_focus;
+    int foc = s->ask_focus || (!s->typing && s->focus_grid == 4);
     float bh = 80, bw = left_w(s);
     if (foc) ui_focus_under(x, y, bw, bh, R_PANEL, 1);
     gfx_rrect(x, y, bw, bh, R_PANEL, foc ? THEME_FOCUS : THEME_SURFACE);
@@ -1033,6 +1033,7 @@ static void draw(Screen *sc)
         draw_phone(s, x, ay + (ask_visible(s) ? 100 : 0));
     } else {
         ly += draw_list(s, x, ly, lw);
+        if (ask_visible(s)) { draw_ask_button(s, x, ly + 16); ly += 16 + 80; }   /* the TV's keyboard too: Down reaches it once that keyboard closes */
         if (!s->typing && !s->focus_grid)
             font_draw_fit(s->n ? "OK: edit search  \xC2\xB7  Right: results" : "Press OK to start typing", x, ly + 16, FONT_XS, THEME_TEXT_DIM, lw);
     }
@@ -1230,7 +1231,7 @@ static int key(Screen *sc, KeyAction a)
     if (!s->focus_grid) {   /* the search bar */
         switch (a) {
         case KEY_OK: open_keyboard(s); return 1;
-        case KEY_DOWN: if (nl) { s->focus_grid = 2; s->recent_focus = 0; } else if (s->n) focus_results(s); return 1;
+        case KEY_DOWN: if (nl) { s->focus_grid = 2; s->recent_focus = 0; } else if (ask_visible(s)) s->focus_grid = 4; else if (s->n) focus_results(s); return 1;
         case KEY_RIGHT: if (s->n) focus_results(s); return 1;
         case KEY_BACKSPACE: open_keyboard(s); return key_typing(s, a);
         case KEY_BACK: return 0;
@@ -1241,10 +1242,20 @@ static int key(Screen *sc, KeyAction a)
     if (s->focus_grid == 2) {   /* the left list: suggestions, or the recent searches */
         switch (a) {
         case KEY_UP: if (s->recent_focus > 0) s->recent_focus--; else s->focus_grid = 0; return 1;
-        case KEY_DOWN: if (s->recent_focus < nl - 1) s->recent_focus++; return 1;
+        case KEY_DOWN: if (s->recent_focus < nl - 1) s->recent_focus++; else if (ask_visible(s)) s->focus_grid = 4; return 1;
         case KEY_RIGHT: if (s->n) focus_results(s); return 1;
         case KEY_BACK: s->focus_grid = 0; return 1;
         case KEY_OK: if (s->recent_focus < nl) take_list(s, s->recent_focus); return 1;
+        default: return 1;
+        }
+    }
+    if (s->focus_grid == 4) {   /* the Ask AI card under the list */
+        if (!ask_visible(s)) { s->focus_grid = 0; return 1; }
+        switch (a) {
+        case KEY_UP: if (nl) { s->focus_grid = 2; s->recent_focus = nl - 1; } else s->focus_grid = 0; return 1;
+        case KEY_RIGHT: if (s->n) focus_results(s); return 1;
+        case KEY_OK: ask_now(s); return 1;
+        case KEY_BACK: s->focus_grid = 0; return 1;
         default: return 1;
         }
     }
