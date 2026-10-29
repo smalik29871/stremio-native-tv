@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.99
+
+- **Ask AI with the TV's own keyboard.** The Ask AI card now shows with the TV's keyboard too,
+  under the suggestions once two letters are typed. It stays when the keyboard closes and
+  after the AI has answered, so it can always ask again: Down from the search bar reaches it,
+  then OK. It replaces the Ask AI line in the suggestions.
+
 ## 0.10.98
 
 - **AI search finds as many as you ask for.** Ask for "top 50 food films" and it now asks the
