@@ -367,7 +367,7 @@ run buffer_no_room 600 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_
 grep -q "relay: 200 MB of memory free on the TV: no buffer ahead" "$OUT/buffer_no_room.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_no_room.log" && ! grep -q "from the buffer" "$OUT/buffer_no_room.log" \
   || { echo "with too little memory free, the buffer was made or the source did not play"; grep -E "relay|video\(null\)" "$OUT/buffer_no_room.log"; exit 1; }
 # the TV runs short of memory while it plays: the buffer gives its memory back and the source plays on
-run buffer_shrinks 1400 "right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FREE_MB_LATER=100 HOME="$(home_with bufshrink "$HDRP")"
+run buffer_shrinks 1400 "wait,right,ok,down,down,play,wait,wait" SNTV_NO_BUFFER= SNTV_FAKE_FETCH=1 SNTV_FAKE_FREE_MB_LATER=100 HOME="$(home_with bufshrink "$HDRP")"
 grep -q "relay: the TV is short of memory; the buffer lets go and the source plays on directly" "$OUT/buffer_shrinks.log" && grep -q "video(null): fetched 65536 bytes, status 206$" "$OUT/buffer_shrinks.log" \
   && ! grep -q "did not start through the relay\|player: candidate 2/" "$OUT/buffer_shrinks.log" \
   || { echo "the buffer did not let go when memory ran short, or playback suffered"; grep -E "relay|player: (candidate|source)|video\(null\)" "$OUT/buffer_shrinks.log"; exit 1; }
