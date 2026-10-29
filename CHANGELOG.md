@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.98
+
+- **AI search finds as many as you ask for.** Ask for "top 50 food films" and it now asks the
+  AI again for more until it has that many (up to 100), never naming a title twice; a request
+  without a number gets up to 40. Before, one answer often stopped at about 20.
+- **Ask AI is a button.** With the on-screen keyboard open, the Ask AI card sits under the keys
+  and the suggestions (Down from the keys reaches them, then the card); the keyboard's Done
+  key now reads Search. With the TV's own keyboard the Ask AI line stays in the suggestions.
+- **Home styles on phones.** Cinematic, Showcase and Compact now change the Home screen held
+  upright too: Showcase gives the artwork most of the screen, Compact starts the rows at the top.
+- **No crash at close.** Closing the app while a download was stuck could crash it on the way
+  out; it now closes cleanly.
+
 ## 0.10.97
 
 - **Cue Party buffers far less.** It no longer corrects small differences between TVs with a
