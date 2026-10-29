@@ -859,8 +859,8 @@ PARTY="SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay SNTV_NO_RACE=1"
 # the track log keeps earlier runs' starts (the fake's codes begin again each run): the guest waits for this host's own
 rm -f "$OUT/party_host.log" "$OUT/party_guest.log"   # an earlier run's logs would give the guest a stale code before the host starts afresh
 ( run party_host 1860 "wait,wait,wait,wait,ok,wait,back,right,ok,down,down,play,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,play,wait,wait,right,wait,wait,wait,wait,wait,wait,play,wait,wait,wait,wait,wait,wait" $PARTY SNTV_OPEN_LINK=cuelight://party SNTV_PARTY_NAME=Sam HOME="$(home_with party_host '{"prefSubs":"","setupDone":1,"preflight":0}')" ) & PARTY_HOST=$!
-for i in $(seq 1 600); do PARTY_CODE=$(grep -o "party: started party [A-Z2-9]*" "$OUT/party_host.log" 2>/dev/null | tail -1 | awk '{print $NF}' || true); [ -n "$PARTY_CODE" ] && break; sleep 0.2; done   # the host's own log (this run's: each run starts its log afresh), up to 2 min
-[ -n "${PARTY_CODE:-}" ] || { echo "the host did not start a party"; grep party "$OUT/party_host.log" 2>/dev/null | tail -5; exit 1; }
+# the code from the host's own log for this run (each run starts its log afresh), waiting up to 2 min; the loop stays one line ending in "done" (tests/shard.py cuts only outside blocks)
+for i in $(seq 1 600); do PARTY_CODE=$(grep -o "party: started party [A-Z2-9]*" "$OUT/party_host.log" 2>/dev/null | tail -1 | awk '{print $NF}' || true); [ -n "$PARTY_CODE" ] && break; sleep 0.2; done
 run party_guest 1560 "wait" $PARTY SNTV_OPEN_LINK="cuelight://party?code=$PARTY_CODE" SNTV_PARTY_NAME=Alex SNTV_AMBIENT_SECONDS=1 HOME="$(home_with party_guest '{"prefSubs":"","setupDone":1,"preflight":0}')"
 wait $PARTY_HOST
 grep -q "party: started party $PARTY_CODE" "$OUT/party_host.log" && grep -q "party: this TV put on " "$OUT/party_host.log" && grep -q "party: this TV is ready" "$OUT/party_host.log" \
