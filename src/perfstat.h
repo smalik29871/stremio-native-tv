@@ -18,6 +18,7 @@ void perf_upload(float ms, size_t bytes);
 float perf_frame_period_ms(void);
 float perf_snap_dt(float dt, int hz);   /* a frame step that landed on whole refreshes (within 30%) is exactly that long */
 void  perf_set_refresh(float hz);
+void  perf_stage(const char *name, float ms);   /* one step of the frame's update: the slowest ones are listed on the Speed page */
 void  perf_phases(float update_ms, float draw_ms, float swap_ms);   /* where a frame's time went: update (network, pictures, the screen's update), draw, swap */   /* the display's own rate where the platform says it (Android); else it is read from the frame times */
 void perf_shown(void);                              /* a frame reached the display */
 /* A stream start, from the press to the first frame: begin names how it was asked for

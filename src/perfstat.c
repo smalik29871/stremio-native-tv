@@ -68,6 +68,22 @@ void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
     if (fill > g_screens[i].fill_max) g_screens[i].fill_max = fill;
 }
 
+#define STAGES 28
+static struct { char name[20]; unsigned over; float worst; } g_stage[STAGES];   /* over: times it took more than 3 ms */
+static int g_n_stages;
+void perf_stage(const char *name, float ms)
+{
+    int i = 0;
+    while (i < g_n_stages && strcmp(g_stage[i].name, name)) i++;
+    if (i == g_n_stages) {
+        if (g_n_stages == STAGES) return;
+        snprintf(g_stage[i].name, sizeof g_stage[0].name, "%s", name);
+        g_n_stages++;
+    }
+    if (ms > 3.0f) g_stage[i].over++;
+    if (ms > g_stage[i].worst) g_stage[i].worst = ms;
+}
+
 static struct { unsigned slow, frames, in_update, in_draw, in_swap; float worst, wu, wd, ws; } g_ph;   /* frames past 1.5 refreshes, and which part of them took the time */
 void perf_phases(float update_ms, float draw_ms, float swap_ms)
 {
@@ -229,6 +245,17 @@ void perf_report(char *out, size_t n)
         if (g_playback.seeks) ADD("Seek recovery: average %u ms, slowest %u ms (%u seeks)\n", g_playback.seek_total / g_playback.seeks, g_playback.seek_max, g_playback.seeks);
     }
     if (g_uploads.n) ADD("Pictures to the GPU: %u frames, %.1f MB; typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms in a frame\n", g_uploads.n, g_upload_bytes / 1048576.0, hist_pct(&g_uploads, 0.5f), hist_pct(&g_uploads, 0.95f), g_uploads.max);
+    if (g_n_stages) {   /* the three steps of the update that took longest at their worst */
+        int pick[3] = { -1, -1, -1 };
+        for (int k = 0; k < 3; k++) {
+            for (int i = 0; i < g_n_stages; i++) {
+                if (g_stage[i].worst <= 3.0f || i == pick[0] || i == pick[1]) continue;
+                if (pick[k] < 0 || g_stage[i].worst > g_stage[pick[k]].worst) pick[k] = i;
+            }
+        }
+        for (int k = 0; k < 3; k++) if (pick[k] >= 0)
+            ADD("%s%s: worst %.0f ms, over 3 ms %u times%s", k ? "" : "Slowest steps: ", g_stage[pick[k]].name, g_stage[pick[k]].worst, g_stage[pick[k]].over, k < 2 && pick[k + 1] >= 0 ? "; " : "\n");
+    }
     if (g_ph.slow) ADD("Slow frames (past 1.5 refreshes): %u of %u; the most time went to the update %u times (network, pictures, the screen), the drawing %u, the swap %u; the worst one: %.0f ms (update %.0f, draw %.0f, swap %.0f)\n", g_ph.slow, g_ph.frames, g_ph.in_update, g_ph.in_draw, g_ph.in_swap, g_ph.worst, g_ph.wu, g_ph.wd, g_ph.ws);
     ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20 / slowest, frames (late: missed a refresh), screens of pixels painted (average / most):\n");
     for (int i = 0; i < g_n_screens; i++) {

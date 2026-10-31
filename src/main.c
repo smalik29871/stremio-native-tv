@@ -838,6 +838,7 @@ static void android_unpack_assets(void)
 
 static int g_perf_fill;   /* SNTV_PERF_FILL: every 30th frame's paint in the log (finding what a TV's GPU finds slow) */
 
+#define STAGE(name, call) do { Uint64 s_ = SDL_GetPerformanceCounter(); call; perf_stage(name, (float)((double)(SDL_GetPerformanceCounter() - s_) * 1000.0 / (double)SDL_GetPerformanceFrequency())); } while (0)
 static int g_refresh_hz;   /* the display's refresh rate where the platform tells it (Android), else 0 */
 int main(int argc, char **argv)
 {
@@ -1174,36 +1175,36 @@ int main(int argc, char **argv)
             if (held >= 2500) { g_ok_down = 0; g_app.ok_hold = 0; dispatch_key(KEY_LONG_OK); }
             app_redraw();
         }
-        http_pump();
-        party_app_tick();
+        STAGE("http", http_pump());
+        STAGE("party", party_app_tick());
         http_hold_background(player_needs_bandwidth());
-        tracking_tick();
+        STAGE("tracking", tracking_tick());
         { static int was_online = 1; int online = http_online(); if (online && !was_online) app_toast("Back online"); if (online != was_online) app_redraw(); was_online = online; }
         image_hold_speculative(g_app.time < g_travel_until || player_needs_bandwidth());
-        image_pump();
-        image_frame_tick();
-        video_update();
+        STAGE("pictures", image_pump());
+        STAGE("picture tick", image_frame_tick());
+        STAGE("video", video_update());
 
         if (image_busy() || http_pending_replies() || g_app.time < g_app.toast_until) app_redraw();
         { static time_t minute; time_t m = time(NULL) / (g_app.island_style == ISLAND_SECONDS ? 1 : 60); if (m != minute) { minute = m; app_redraw(); } }   /* the clock moves */
 
         Screen *top = app_top();
-        if (top && top->update) top->update(top, dt);
-        bgtrailer_frame(dt);
+        if (top && top->update) STAGE("screen update", top->update(top, dt));
+        STAGE("trailer", bgtrailer_frame(dt));
         if (g_app.pip) { player_pip_update(g_app.pip, dt); if (g_app.pip && player_pip_done(g_app.pip)) app_pip_close(); }
         top = app_top();   /* update() may have popped or replaced the screen */
 
         if (!g_backgrounded) breaks_tick(dt);   /* behind the TV's Home: no chime, no break */
-        newep_tick();
-        app_library_flush(0);
-        mem_tick(dt);
+        STAGE("new episodes", newep_tick());
+        STAGE("library save", app_library_flush(0));
+        STAGE("memory", mem_tick(dt));
         { static float kill_at = -2; if (kill_at == -2) { const char *k = getenv("SNTV_KILL_SELF_AFTER"); kill_at = k ? (float)atof(k) : -1; }   /* tests: the TV ending the app */
           if (kill_at >= 0 && g_app.time > kill_at) SNTV_KILL_SELF(); }
         { static float away_at = -2; if (away_at == -2) { const char *k = getenv("SNTV_BACKGROUND_AFTER"); away_at = k ? (float)atof(k) : -1; }   /* tests: sent to the background (Home, recents) */
           if (away_at >= 0 && g_app.time > away_at) { SDL_Event ev = { .type = SDL_APP_WILLENTERBACKGROUND }; SDL_PushEvent(&ev); away_at = -1; } }
-        app_update_check(dt);
-        app_open_links();
-        { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; app_library_tick(g_app.pip || playing); mem_playback(playing && !g_app.pip); }
+        STAGE("update check", app_update_check(dt));
+        STAGE("links", app_open_links());
+        { const Screen *t = app_top(); int playing = t && strcmp(t->name, "player") == 0; STAGE("library tick", app_library_tick(g_app.pip || playing)); mem_playback(playing && !g_app.pip); }
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         charging_tick();
@@ -1220,7 +1221,7 @@ int main(int argc, char **argv)
             g_app.need_redraw = 0;
             Uint64 pc_draw = SDL_GetPerformanceCounter();
             gfx_begin_frame(g_app.oled ? RGBA(0, 0, 0, 0xFF) : THEME_BG);
-            app_draw_screen(top, dt);
+            STAGE("screen draw", app_draw_screen(top, dt));
             int in_player = top && strcmp(top->name, "player") == 0;
             if (!g_app.pip) g_pip_focus = 0;
             if (g_app.pip && !(top && !strcmp(top->name, "ambient"))) player_pip_draw(g_app.pip, g_pip_focus);   /* not a still frame over the screensaver */

@@ -73,6 +73,12 @@ int main(void)
     CHECK(strstr(report, "the update 1 times") && strstr(report, "the drawing 1, the swap 1"));
     CHECK(strstr(report, "the worst one: 29 ms (update 2, draw 2, swap 25)"));
     CHECK(strstr(report, "from the display"));
+    /* the slowest steps of the update, worst first; a step that never passed 3 ms is not listed */
+    perf_stage("http", 1.0f); perf_stage("http", 14.0f); perf_stage("http", 4.0f);
+    perf_stage("pictures", 6.0f); perf_stage("video", 2.0f); perf_stage("screen draw", 9.0f);
+    perf_report(report, sizeof report);
+    CHECK(strstr(report, "Slowest steps: http: worst 14 ms, over 3 ms 2 times; screen draw: worst 9 ms, over 3 ms 1 times; pictures: worst 6 ms, over 3 ms 1 times"));
+    CHECK(!strstr(report, "video: worst"));
     perf_set_refresh(0);
     if (failures) return 1;
     puts("playback diagnostic checks passed");
