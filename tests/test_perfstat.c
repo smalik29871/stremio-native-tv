@@ -62,6 +62,17 @@ int main(void)
     CHECK(perf_snap_dt(0.05f, 0) == 0.05f);        /* no known refresh rate: untouched */
     perf_set_refresh(90);
     CHECK(fabsf(perf_frame_period_ms() - 11.1111f) < 0.01f);
+    /* where a slow frame's time went: at 120 Hz (8.3 ms) a frame past 12.5 ms is slow */
+    perf_set_refresh(120);
+    perf_phases(1, 2, 3);     /* 6 ms: kept up */
+    perf_phases(14, 2, 1);    /* slow, in the update */
+    perf_phases(2, 20, 1);    /* slow, in the drawing */
+    perf_phases(2, 2, 25);    /* slow, in the swap (the worst) */
+    perf_report(report, sizeof report);
+    CHECK(strstr(report, "Slow frames (past 1.5 refreshes): 3 of 4"));
+    CHECK(strstr(report, "the update 1 times") && strstr(report, "the drawing 1, the swap 1"));
+    CHECK(strstr(report, "the worst one: 29 ms (update 2, draw 2, swap 25)"));
+    CHECK(strstr(report, "from the display"));
     perf_set_refresh(0);
     if (failures) return 1;
     puts("playback diagnostic checks passed");

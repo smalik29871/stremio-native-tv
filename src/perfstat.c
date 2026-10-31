@@ -68,6 +68,19 @@ void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
     if (fill > g_screens[i].fill_max) g_screens[i].fill_max = fill;
 }
 
+static struct { unsigned slow, frames, in_update, in_draw, in_swap; float worst, wu, wd, ws; } g_ph;   /* frames past 1.5 refreshes, and which part of them took the time */
+void perf_phases(float update_ms, float draw_ms, float swap_ms)
+{
+    float total = update_ms + draw_ms + swap_ms, period = perf_frame_period_ms();
+    g_ph.frames++;
+    if (total <= 1.5f * period) return;
+    g_ph.slow++;
+    if (update_ms >= draw_ms && update_ms >= swap_ms) g_ph.in_update++;
+    else if (draw_ms >= swap_ms) g_ph.in_draw++;
+    else g_ph.in_swap++;
+    if (total > g_ph.worst) { g_ph.worst = total; g_ph.wu = update_ms; g_ph.wd = draw_ms; g_ph.ws = swap_ms; }
+}
+
 void perf_key(void) { if (!g_key_at) g_key_at = SDL_GetTicks(); }
 
 float perf_snap_dt(float dt, int hz)
@@ -202,7 +215,7 @@ void perf_report(char *out, size_t n)
     for (int i = 0; i < g_n_marks; i++) ADD("%s %s %.1f s", i ? "," : "", g_marks[i].name, g_marks[i].at / 1000.0);
     if (!g_n_marks) ADD(" not measured");
     ADD("\n");
-    { float p = perf_frame_period_ms(); ADD("Screen: about %.0f refreshes a second (%.0f ms a frame, from the frame times)\n", 1000.0f / p, p); }
+    { float p = perf_frame_period_ms(); ADD("Screen: about %.0f refreshes a second (%.0f ms a frame, from %s)\n", 1000.0f / p, p, g_refresh_ms > 0 ? "the display" : "the frame times"); }
     if (g_keys.n) ADD("Key to screen: typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms, %u keys\n", hist_pct(&g_keys, 0.5f), hist_pct(&g_keys, 0.95f), g_keys.max, g_keys.n);
     else ADD("Key to screen: no keys yet\n");
     if (g_n_starts) {
@@ -216,6 +229,7 @@ void perf_report(char *out, size_t n)
         if (g_playback.seeks) ADD("Seek recovery: average %u ms, slowest %u ms (%u seeks)\n", g_playback.seek_total / g_playback.seeks, g_playback.seek_max, g_playback.seeks);
     }
     if (g_uploads.n) ADD("Pictures to the GPU: %u frames, %.1f MB; typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms in a frame\n", g_uploads.n, g_upload_bytes / 1048576.0, hist_pct(&g_uploads, 0.5f), hist_pct(&g_uploads, 0.95f), g_uploads.max);
+    if (g_ph.slow) ADD("Slow frames (past 1.5 refreshes): %u of %u; the most time went to the update %u times (network, pictures, the screen), the drawing %u, the swap %u; the worst one: %.0f ms (update %.0f, draw %.0f, swap %.0f)\n", g_ph.slow, g_ph.frames, g_ph.in_update, g_ph.in_draw, g_ph.in_swap, g_ph.worst, g_ph.wu, g_ph.wd, g_ph.ws);
     ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20 / slowest, frames (late: missed a refresh), screens of pixels painted (average / most):\n");
     for (int i = 0; i < g_n_screens; i++) {
         const Hist *h = &g_screens[i].h, *t = &g_screens[i].total;

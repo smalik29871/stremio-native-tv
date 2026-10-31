@@ -1218,6 +1218,7 @@ int main(int argc, char **argv)
         int must_draw = g_app.need_redraw || frame < 60 || getenv("SNTV_SCREENSHOT");
         if (must_draw) {
             g_app.need_redraw = 0;
+            Uint64 pc_draw = SDL_GetPerformanceCounter();
             gfx_begin_frame(g_app.oled ? RGBA(0, 0, 0, 0xFF) : THEME_BG);
             app_draw_screen(top, dt);
             int in_player = top && strcmp(top->name, "player") == 0;
@@ -1231,7 +1232,10 @@ int main(int argc, char **argv)
             intro_draw();
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();
+            Uint64 pc_swap = SDL_GetPerformanceCounter();
             gfx_end_frame();
+            Uint64 pc_end = SDL_GetPerformanceCounter();
+            { double ms = 1000.0 / (double)SDL_GetPerformanceFrequency(); perf_phases((float)((double)(pc_draw - pc) * ms), (float)((double)(pc_swap - pc_draw) * ms), (float)((double)(pc_end - pc_swap) * ms)); }
             Uint32 end = SDL_GetTicks(), spent = end - now;
             float fill, heavy, whole = app_test_frame_ms((float)spent);
             gfx_frame_fill(&fill, &heavy);
