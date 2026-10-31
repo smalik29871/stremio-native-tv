@@ -1526,6 +1526,8 @@ run phone_signin 260 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wait,w
 run phone_signin_pw 300 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:270,wait,tap:390:791,wait,t:me@example.com,wait" $PH SNTV_EXPECT_SCREEN=login HOME="$(home_with ph11 '{"setupDone":1}')"
 run phone_about 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:364,wait,wait" $PH SNTV_EXPECT_SCREEN=whatsnew HOME="$(home_with ph12 '{"setupDone":1}')"
 run phone_diagnostics 280 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:1103,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13 '{"setupDone":1}')"
+# the Speed tab on a phone wraps its lines (they were cut off at the screen's edge, the late-frame counts with them)
+run phone_speed 300 "wait,tap:702:1660,wait,tap:300:1430,wait,tap:400:1103,wait,wait,tap:461:241,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=diagnostics HOME="$(home_with ph13s '{"setupDone":1}')"
 run phone_calendar 220 "wait,tap:546:1660,wait,tap:370:76,wait,wait" $PH SNTV_EXPECT_SCREEN=calendar HOME="$(home_with ph14 '{"setupDone":1}')"
 # a phone's real size (600 units across, as 360-400 dp phones are): settings rows keep their titles with the
 # value below, the sync page fits a short screen with its button, the recommendation names the stream

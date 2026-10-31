@@ -332,16 +332,26 @@ static void draw(Screen *s)
         return;
     }
     if (d->tab == TAB_SPEED) {   /* the measurements, not the log */
-        char rep[2048];
+        char rep[3072];
         perf_report(rep, sizeof rep);
         gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, R_PANEL, RGBA(0x00, 0x00, 0x00, 0x40));
         float ly = LIST_Y + 8;
-        for (char *p = rep, *e; *p && ly < LIST_Y + list_h; p = e + (*e ? 1 : 0), ly += 44) {
+        for (char *p = rep, *e; *p && ly < LIST_Y + list_h; p = e + (*e ? 1 : 0)) {
             e = strchr(p, '\n'); if (!e) e = p + strlen(p);
             char one[300]; snprintf(one, sizeof one, "%.*s", (int)(e - p), p);
-            font_draw_fit(one, x + 10, ly, (one[0] == ' ' ? FONT_S | FONT_ALT : FONT_S | FONT_B), one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20);
+            if (SNTV_PHONE) {   /* upright: smaller and wrapped, not cut off at the screen's edge (the late-frame counts were lost) */
+                const char *t = !strncmp(one, "Per frame:", 10) ? "Per screen, ms: app work (typical / 1 in 20), whole frame (typical / 1 in 20 / slowest), frames (late), screens painted" : one;
+                int fs = one[0] == ' ' ? FONT_XS | FONT_ALT : FONT_XS | FONT_B;
+                int nl = font_draw_wrapped(t, x + 10, ly, fs, one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20, 3);
+                ly += (float)nl * (font_height(fs) + 2) + 10;
+            } else {
+                font_draw_fit(one, x + 10, ly, (one[0] == ' ' ? FONT_S | FONT_ALT : FONT_S | FONT_B), one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20);
+                ly += 44;
+            }
         }
-        font_draw("A late frame missed a screen refresh; slowest is the worst one so far. The figures are also in the log (Everything) for the QR code.", x, LIST_Y + list_h + 30, FONT_XS, THEME_TEXT_MUTED);
+        const char *note = "A late frame missed a screen refresh; slowest is the worst one so far. The figures are also in the log (Everything) for the QR code.";
+        if (SNTV_PHONE) font_draw_wrapped(note, x, LIST_Y + list_h + 30, FONT_XS, THEME_TEXT_MUTED, w, 3);
+        else font_draw(note, x, LIST_Y + list_h + 30, FONT_XS, THEME_TEXT_MUTED);
         app_redraw();   /* the numbers keep moving */
         if (d->show_qr) draw_qr_overlay(d);
         return;
