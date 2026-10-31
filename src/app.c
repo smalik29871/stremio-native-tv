@@ -45,13 +45,14 @@ App g_app;
 
 void app_redraw(void) { g_app.need_redraw = 1; }
 
+#define PHONE_ANIM 1.5f   /* how much faster a phone's animations run than a TV's */
 float ui_ease(float from, float to, float *vel, float dt, float speed)
 {
     if (g_app.fx_light) { if (vel) *vel = 0; return to; }   /* light mode: no interpolation */
     if (vel) {
         /* a critically damped spring, solved exactly for the step: it eases in as well as
          * out, never overshoots, and a new target mid-flight keeps the speed it had */
-        float w = speed * 0.75f, x = from - to, step = dt;   /* exact for any step: slow TVs keep the timing */
+        float w = speed * 0.75f * (SNTV_PHONE ? PHONE_ANIM : 1.0f), x = from - to, step = dt;   /* a phone: a thumb waits on it, native apps settle in about 250 ms */   /* exact for any step: slow TVs keep the timing */
         float e = SDL_expf(-w * step), c = (*vel + w * x) * step;
         float v = to + (x + c) * e, nv = (*vel - w * c) * e;
         if ((to > from && v > to) || (to < from && v < to)) { v = to; nv = 0; }
@@ -60,7 +61,7 @@ float ui_ease(float from, float to, float *vel, float dt, float speed)
         app_redraw();
         return v;
     }
-    float k = 1 - SDL_powf(0.5f, dt * speed);   /* half-life based, frame-rate independent */
+    float k = 1 - SDL_powf(0.5f, dt * speed * (SNTV_PHONE ? PHONE_ANIM : 1.0f));   /* half-life based, frame-rate independent */
     float v = from + (to - from) * k;
     if (SDL_fabsf(to - v) < 0.3f) v = to; else app_redraw();
     return v;
@@ -146,7 +147,7 @@ void app_draw_screen(Screen *top, float dt)
     if (want != sideways) { sideways = want; video_landscape_only(want); }
     if (!g_trans.active) { if (top && top->draw) draw_one(top); return; }
     /* a slow frame (a page building, a picture going up) slows the move instead of jumping it */
-    g_trans.t += (dt > 1 / 30.0f ? 1 / 30.0f : dt) / (g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.36f : 0.26f);
+    g_trans.t += (dt > 1 / 30.0f ? 1 / 30.0f : dt) / ((g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.36f : 0.26f) * (SNTV_PHONE ? 0.7f : 1.0f));   /* a phone: shorter, the thumb is waiting */
     if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) draw_one(top); return; }
     float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
     float W = SNTV_UI_W;
