@@ -433,6 +433,7 @@ static void touch_to_ui(float fx, float fy, float *ux, float *uy)
 
 /* How fast the finger was going as it lifted: across the last 100 ms of its moves (a finger
  * that stopped before lifting gives about 0). Canvas units a second. */
+#define PHONE_FLING 1.5f   /* a phone's flick: how much faster the page leaves the finger than the finger moved */
 static float touch_speed(Uint32 now)
 {
     int n = g_touch.n_trail < 16 ? g_touch.n_trail : 16;
@@ -533,14 +534,14 @@ static void touch_event(const SDL_Event *e)
     Uint32 held = g_touch_now - g_touch.t;
     float v = touch_speed(g_touch_now);
     if (v > 14000) v = 14000;
-    if (v < -14000) v = -14000;
+    if (v < -14000) v = -14000;   /* (the fling's gain comes after, so a hard flick may go further) */
     static int told;
 #ifdef SNTV_DESKTOP_PLAYER
     if (!told) { told = 1; app_toast("Click anything to open it  \xC2\xB7  Wheel to scroll  \xC2\xB7  Right-click for options"); }
 #else
     if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
 #endif
-    if (g_touch.mode == 1) { ui_pan_release(v); return; }
+    if (g_touch.mode == 1) { ui_pan_release(SNTV_PHONE ? v * PHONE_FLING : v); return; }   /* a phone: a flick carries about twice as far as it did (see ui_pan) */
     if (g_touch.mode == 4) return;   /* a drag over nothing: not a tap either */
     if (g_touch.mode == 2) {   /* a quick flick goes a few steps further */
         float fast = SDL_fabsf(v) / SNTV_UI_W;   /* screen widths a second */

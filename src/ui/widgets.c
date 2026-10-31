@@ -1868,7 +1868,7 @@ float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed)
         x = ui_ease(x, x < 0 ? 0 : max, &p->vel, dt, 20);
     } else if (SDL_fabsf(p->vel) > 8) {   /* gliding, slowing down: it goes on a little over half its speed a second */
         x += p->vel * dt;
-        p->vel *= SDL_expf(-dt * 1.8f);
+        p->vel *= SDL_expf(-dt * (SNTV_PHONE ? 1.5f : 1.8f));   /* a phone's glide runs a little longer */
         app_redraw();
     } else p->vel = 0;
     *pos = x;
