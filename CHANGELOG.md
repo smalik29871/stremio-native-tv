@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.10.100
+
+- **Back up or restore settings is in Accounts.** It moved from Interface to Settings > Accounts, next to
+  Sync with another device.
+- [phone] **Backup on a phone, with no code to scan.** Save a backup opens Android's share sheet (Files,
+  Drive, a chat) and Restore from a file opens its file picker.
+- [phone] **Scrolling carries further.** A flick leaves your finger faster and glides longer, so a swipe goes
+  about twice as far. Animations and screen changes run about 1.5 times quicker.
+- [phone] **Paced to your screen's real refresh rate.** A 120 Hz phone often runs an app at 90, so frames are
+  timed to what the screen delivers, the best rate is asked of Android, and a screen that cannot keep up
+  drops to a steady half rate instead of stuttering.
+- [phone] **A lighter Home.** Home paints less on a phone, and pictures reach the graphics chip within a
+  time budget, so scrolling stays even while posters load.
+- [phone] **Phone updates can ship on their own.** Phones have their own update file, so a phone-only release
+  offers nothing to TVs or computers.
+- **Smoother animation steps everywhere.** Animations are timed to a thousandth of a second, not to whole
+  milliseconds, which removes a small judder on high refresh rates.
+- **A plain rating star.** The star on Rate, on ratings and on badges is a solid star; the old outline with
+  a dot in it looked like a symbol it was not meant to be.
+- **Diagnostics > Speed shows where the time goes.** Slow frames are split into the update, the drawing and
+  the swap, the slowest steps are named, and the screen's real refresh rate is shown.
+- **Release notes for your device.** This page lists only the changes for your phone, TV or computer, as
+  cards, and the release page on GitHub groups them the same way.
+
 ## 0.10.99
 
 - **Ask AI with the TV's own keyboard.** The Ask AI card now shows with the TV's keyboard too,
