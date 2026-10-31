@@ -456,6 +456,13 @@ run scenes_mute 320 "right,right,ok,play,wait,wait" SNTV_SCENES_API="http://127.
 grep -q "player: scene filter: muted 0-4 s" "$OUT/scenes_mute.log" && ! grep -q "scene filter: skipping" "$OUT/scenes_mute.log" || { echo "the scene filter in mute mode did not mute (or skipped)"; grep "scene filter" "$OUT/scenes_mute.log"; exit 1; }
 run scenes_series 320 "right,ok,down,down,play,wait,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenesser '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"sceneFilter":1}')"
 ! grep -q "scene filter: asking" "$OUT/scenes_series.log" || { echo "the scene filter asked for a list for an episode"; grep "scene filter" "$OUT/scenes_series.log"; exit 1; }
+# more kinds switched on (nudity+sex+violence+language = 39): the full list is asked for too, and the same scene in both answers is one
+run scenes_more 320 "right,right,ok,play,wait,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenesmore '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"sceneFilter":1,"sceneCats":39}')"
+grep -c "player: scene filter: asking for" "$OUT/scenes_more.log" | grep -qx 2 && grep -q "player: scene filter: 3 scenes (" "$OUT/scenes_more.log" \
+  || { echo "more kinds did not ask for both lists and join them"; grep "scene filter" "$OUT/scenes_more.log"; exit 1; }
+# every kind switched off: nothing is asked
+run scenes_none 200 "right,right,ok,play,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenesnone '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"sceneFilter":1,"sceneCats":0}')"
+! grep -q "scene filter: asking" "$OUT/scenes_none.log" || { echo "the scene filter asked for a list with every kind switched off"; grep "scene filter" "$OUT/scenes_none.log"; exit 1; }
 run scenes_off 200 "right,right,ok,play,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenesoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 ! grep -q "scene filter" "$OUT/scenes_off.log" || { echo "the scene filter asked for a list while it was off"; grep "scene filter" "$OUT/scenes_off.log"; exit 1; }
 run player_skipped 300 "right,ok,down,down,play,wait,ok"

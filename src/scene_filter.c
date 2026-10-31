@@ -6,8 +6,9 @@
 
 enum { PAD_BEFORE_MS = 1000, PAD_AFTER_MS = 500, MERGE_GAP_MS = 1500 };
 
-int scene_filter_url(const char *base, const char *video_id, char *url, size_t n)
+int scene_filter_url(const char *base, const char *video_id, const char *what, char *url, size_t n)
 {
+    if (!what || (strcmp(what, "skips") && strcmp(what, "filters"))) return -1;
     if (!video_id || strncmp(video_id, "tt", 2) || !video_id[2] || strchr(video_id, ':') || strlen(video_id) > 20) return -1;
     const char *env = getenv("SNTV_SCENES_API");
     if (env && *env) base = env;
@@ -15,14 +16,15 @@ int scene_filter_url(const char *base, const char *video_id, char *url, size_t n
     size_t bl = strlen(base);
     while (bl && base[bl - 1] == '/') bl--;
     if (!bl) return -1;
-    snprintf(url, n, "%.*s/api/skips/%s", (int)bl, base, video_id);
+    snprintf(url, n, "%.*s/api/%s/%s", (int)bl, base, what, video_id);
     return 0;
 }
 
 static int category_of(const char *s)
 {
     if (!s) return 0;
-    if (!strcmp(s, "nudity") || !strcmp(s, "sex")) return FCAT_NUDITY;
+    if (!strcmp(s, "nudity")) return FCAT_NUDITY;
+    if (!strcmp(s, "sex")) return FCAT_SEX;
     if (!strcmp(s, "violence") || !strcmp(s, "gore")) return FCAT_VIOLENCE;
     if (!strcmp(s, "language") || !strcmp(s, "profanity")) return FCAT_LANGUAGE;
     if (!strcmp(s, "drugs")) return FCAT_DRUGS;
@@ -43,11 +45,27 @@ static int by_start(const void *a, const void *b)
     return x < y ? -1 : x > y;
 }
 
+int scene_filter_merge(FilterSeg *out, int n)
+{
+    qsort(out, (size_t)n, sizeof *out, by_start);
+    int m = 0;   /* overlapping or nearly touching ones become one (a skip then a skip a second later is one cut) */
+    for (int i = 0; i < n; i++) {
+        if (m && out[i].start <= out[m - 1].end + MERGE_GAP_MS / 1000.0 && out[i].audio_only == out[m - 1].audio_only) {
+            if (out[i].end > out[m - 1].end) out[m - 1].end = out[i].end;
+            out[m - 1].cat |= out[i].cat;
+        } else out[m++] = out[i];
+    }
+    return m;
+}
+
 int scene_filter_parse(const char *json, int cats, int min_sev, FilterSeg *out, int max)
 {
     cJSON *root = json ? cJSON_Parse(json) : NULL;
     if (!root) return -1;
-    cJSON *skips = cJSON_GetObjectItem(root, "skips");
+    cJSON *skips = NULL;   /* /api/skips says "skips"; the fuller list's key is not documented, so the likely ones are tried */
+    static const char *const KEYS[] = { "skips", "segments", "filters", "items" };
+    for (unsigned k = 0; k < sizeof KEYS / sizeof KEYS[0] && !cJSON_IsArray(skips); k++) skips = cJSON_GetObjectItem(root, KEYS[k]);
+    if (!cJSON_IsArray(skips) && cJSON_IsArray(root)) skips = root;
     if (!cJSON_IsArray(skips)) { cJSON_Delete(root); return -1; }
     int n = 0;
     cJSON *it;
@@ -66,15 +84,7 @@ int scene_filter_parse(const char *json, int cats, int min_sev, FilterSeg *out, 
         n++;
     }
     cJSON_Delete(root);
-    qsort(out, (size_t)n, sizeof *out, by_start);
-    int m = 0;   /* overlapping or nearly touching ones become one (a skip then a skip a second later is one cut) */
-    for (int i = 0; i < n; i++) {
-        if (m && out[i].start <= out[m - 1].end + MERGE_GAP_MS / 1000.0 && out[i].audio_only == out[m - 1].audio_only) {
-            if (out[i].end > out[m - 1].end) out[m - 1].end = out[i].end;
-            out[m - 1].cat |= out[i].cat;
-        } else out[m++] = out[i];
-    }
-    return m;
+    return scene_filter_merge(out, n);
 }
 
 const FilterSeg *scene_filter_at(const FilterSeg *segs, int n, double pos)

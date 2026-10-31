@@ -2186,6 +2186,8 @@ static void load_prefs(void)
     if (g_app.skip_mode < 0 || g_app.skip_mode > 2) g_app.skip_mode = 0;
     g_app.scene_filter = store_get_int("sceneFilter", 0);
     if (g_app.scene_filter < 0 || g_app.scene_filter > 2) g_app.scene_filter = 0;
+    g_app.scene_cats = store_get_int("sceneCats", 1 | 32);   /* FCAT_NUDITY | FCAT_SEX */
+    g_app.scene_cats &= 63;
     g_app.scene_sev = store_get_int("sceneSev", 0);
     if (g_app.scene_sev < 0 || g_app.scene_sev > 2) g_app.scene_sev = 0;
     snprintf(g_app.scene_source, sizeof g_app.scene_source, "%s", store_get_str("sceneSource", ""));
@@ -2300,6 +2302,7 @@ void app_save_prefs(void)
     store_set_int("autoplayNext", g_app.autoplay_next);
     store_set_int("skipMode", g_app.skip_mode);
     store_set_int("sceneFilter", g_app.scene_filter);
+    store_set_int("sceneCats", g_app.scene_cats);
     store_set_int("sceneSev", g_app.scene_sev);
     store_set_str("sceneSource", g_app.scene_source);
     store_set_int("nightMode", g_app.night_mode);

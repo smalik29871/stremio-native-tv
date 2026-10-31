@@ -266,6 +266,7 @@ struct Player {
     /* the scene filter (nudity and sex scenes: src/scene_filter.h) */
     FilterSeg fseg[FILTER_MAX]; int n_fseg;
     int fstate;               /* 0 not asked, 1 asking, 2 answered (or gave up) */
+    int f_pending;            /* answers still to come (the server's own picks, and its full list for the other kinds) */
     int f_muted;              /* the sound is off for a scene */
     float f_hold_until;       /* after a skip: the seek is under way, do not ask again before this time */
     double f_skipped;         /* seconds skipped so far */
@@ -1939,12 +1940,16 @@ static void on_scenes(HttpResponse *r, void *user)
     Player *p = q->owner;
     if (p != g_live || q->gen != p->gen) { free(q); return; }
     free(q);
+    if (r->status == 200 && r->body) {
+        int sev = g_app.scene_sev == 2 ? FSEV_HIGH : g_app.scene_sev == 1 ? FSEV_MEDIUM : FSEV_LOW;
+        FilterSeg more[FILTER_MAX];
+        int n = scene_filter_parse(r->body, g_app.scene_cats, sev, more, FILTER_MAX);
+        if (n < 0) LOGW("player: scene filter: an answer for %s is not a scene list", p->video_id);
+        for (int i = 0; i < n && p->n_fseg < FILTER_MAX; i++) p->fseg[p->n_fseg++] = more[i];
+        p->n_fseg = scene_filter_merge(p->fseg, p->n_fseg);   /* the same scene in both answers is one */
+    } else LOGI("player: scene filter: a list for %s is missing (status %ld)", p->video_id, r->status);
+    if (--p->f_pending > 0) return;
     p->fstate = 2;
-    if (r->status != 200 || !r->body) { LOGI("player: scene filter: no list for %s (status %ld)", p->video_id, r->status); return; }
-    int sev = g_app.scene_sev == 2 ? FSEV_HIGH : g_app.scene_sev == 1 ? FSEV_MEDIUM : FSEV_LOW;
-    int n = scene_filter_parse(r->body, FCAT_NUDITY, sev, p->fseg, FILTER_MAX);
-    p->n_fseg = n > 0 ? n : 0;
-    if (n < 0) { LOGW("player: scene filter: the answer for %s is not a scene list", p->video_id); return; }
     double total = 0;
     for (int i = 0; i < p->n_fseg; i++) total += p->fseg[i].end - p->fseg[i].start;
     LOGI("player: scene filter: %d scene%s (%.0f s) for %s", p->n_fseg, p->n_fseg == 1 ? "" : "s", total, p->video_id);
@@ -1957,11 +1962,18 @@ static void scene_fetch(Player *p, const VideoInfo *vi)
     if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED) return;
     char url[320];
     p->fstate = 1;
-    if (scene_filter_url(g_app.scene_source, p->video_id, url, sizeof url) != 0) { p->fstate = 2; return; }
-    SubReq *q = calloc(1, sizeof *q);
-    q->owner = p; q->gen = p->gen; q->addon = -1;
-    LOGI("player: scene filter: asking for %s", url);
-    http_request_async(url, NULL, on_scenes, q);
+    if (!g_app.scene_cats || scene_filter_url(g_app.scene_source, p->video_id, "skips", url, sizeof url) != 0) { p->fstate = 2; return; }
+    /* the server's own picks (nudity and sex) first; its full list too when another kind is switched on */
+    const char *what[2] = { "skips", "filters" };
+    int asks = g_app.scene_cats & ~(FCAT_NUDITY | FCAT_SEX) ? 2 : 1;
+    p->f_pending = asks;
+    for (int k = 0; k < asks; k++) {
+        scene_filter_url(g_app.scene_source, p->video_id, what[k], url, sizeof url);
+        SubReq *q = calloc(1, sizeof *q);
+        q->owner = p; q->gen = p->gen; q->addon = -1;
+        LOGI("player: scene filter: asking for %s", url);
+        http_request_async(url, NULL, on_scenes, q);
+    }
 }
 
 /* Playing and inside a scene: skip it (the sound only for a word, or while Cue Party keeps everyone together, is

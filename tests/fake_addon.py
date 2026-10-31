@@ -1106,6 +1106,13 @@ class H(BaseHTTPRequestHandler):
             if scope:
                 return self.send(200, json.dumps({"streams": [dict(st, url=st["url"] + ("&" if "?" in st["url"] else "?") + "scope=1") if st.get("url") else st for st in STREAMS["streams"]]}).encode())
             return self.send(200, json.dumps(STREAMS).encode())
+        if p.startswith("/scenes/api/filters/"):
+            # the fuller list (its real shape is not documented: this is a guess the parser tolerates): the same nudity scene, a word, a fight
+            return self.send(200, json.dumps({"imdbId": p.rsplit("/", 1)[1], "segments": [
+                {"id": "a", "startMs": 1000, "endMs": 3000, "category": "nudity", "severity": "high", "channel": "both"},
+                {"id": "b", "startMs": 60000, "endMs": 61000, "category": "language", "severity": "low", "channel": "audio"},
+                {"id": "c", "startMs": 90000, "endMs": 95000, "category": "violence", "severity": "high", "channel": "both"},
+                {"id": "d", "startMs": 120000, "endMs": 125000, "category": "drugs", "severity": "high", "channel": "both"}]}).encode())
         if p.startswith("/scenes/api/skips/"):
             # a CleanStream answer: a scene at the very start (padded, it is covered at once), a word muted later, a kind that is not nudity
             return self.send(200, json.dumps({"version": "1.0.0", "imdbId": p.rsplit("/", 1)[1], "totalSkips": 3, "skips": [

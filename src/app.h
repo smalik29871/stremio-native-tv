@@ -109,6 +109,7 @@ typedef struct App {
     int autoplay_next;         /* Up Next at the credits */
     int skip_mode;             /* intro/recap skipping: 0 button, 1 automatic, 2 off */
     int scene_filter;          /* nudity and sex scenes (src/scene_filter.h): 0 off, 1 skipped, 2 muted */
+    int scene_cats;            /* FCAT_ bits (src/scene_filter.h): which kinds of scene; nudity and sex to begin with */
     int scene_sev;             /* how strict: 0 everything listed, 1 medium and strong, 2 strong ones only */
     char scene_source[128];    /* a CleanStream server; empty: the public one */
     int night_mode;            /* quieter, larger subtitles: 0 off, 1 from 11 pm to 6 am, 2 always */

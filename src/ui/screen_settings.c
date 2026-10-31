@@ -63,13 +63,13 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL, IT_AI_EVERY,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_PARTY, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS, IT_BROWSE, IT_SUBS_BARS, IT_BETA,
-       IT_SCENES, IT_SCENES_STRENGTH, IT_SCENES_SOURCE, IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
+       IT_SCENES, IT_SCENES_STRENGTH, IT_SCENES_SOURCE, IT_SCENE_NUDITY, IT_SCENE_SEX, IT_SCENE_VIOLENCE, IT_SCENE_LANGUAGE, IT_SCENE_DRUGS, IT_SCENE_FEAR, IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
        SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_SUBS_ACCT, SEC_RECOMMENDED, SEC_SCENES, SEC_COUNT };
 static const char *const SEC_NAMES[SEC_COUNT] = { "Sync", "Streaming", "Episodes", "Player", "Languages", "Subtitle look", "Smart subtitles",
     "Ranking", "Starting playback", "Fallback", "Look", "Home", "Motion", "Screen and memory", "Breaks", "Your place", "Reminder and sound",
-    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME, "Subtitles", "More addons", "Scene filter" };
+    "Stretch, bedtime and your own times", "Artwork and ratings", "AI assistant", "Updates", "Help and setup", SNTV_APP_NAME, "Subtitles", "More addons", "Scene filter (experimental)" };
 #define IS_SEC(id) ((id) >= IT_SEC_BASE && (id) < IT_ROWS_BASE)
 
 /* Addons to start with, one press each: catalogs, subtitles and free sources from Stremio and
@@ -153,7 +153,11 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_PARENTAL:
         ids[n++] = IT_PIN; if (g_app.parental_pin[0]) { ids[n++] = IT_PIN_SETTINGS; ids[n++] = IT_HIDE_ADULT; }
-        SEC(SEC_SCENES); ids[n++] = IT_SCENES; if (g_app.scene_filter) { ids[n++] = IT_SCENES_STRENGTH; ids[n++] = IT_SCENES_SOURCE; }
+        SEC(SEC_SCENES); ids[n++] = IT_SCENES;
+        if (g_app.scene_filter) {
+            ids[n++] = IT_SCENE_NUDITY; ids[n++] = IT_SCENE_SEX; ids[n++] = IT_SCENE_VIOLENCE; ids[n++] = IT_SCENE_LANGUAGE; ids[n++] = IT_SCENE_DRUGS; ids[n++] = IT_SCENE_FEAR;
+            ids[n++] = IT_SCENES_STRENGTH; ids[n++] = IT_SCENES_SOURCE;
+        }
         break;
     case CAT_LANG:
         SEC(SEC_LANGS); ids[n++] = IT_PREF_AUDIO; ids[n++] = IT_PREF_SUBS; ids[n++] = IT_SUBS_WHEN;
@@ -224,7 +228,13 @@ static const char *row_title(int id)
     case IT_SUBS_XL: return "Translate with AI when nobody offers my language";
     case IT_AUTOPLAY: return "Play next episode automatically";
     case IT_SKIP: return "Skip intros and recaps";
-    case IT_SCENES: return "Skip nudity and sex scenes";
+    case IT_SCENES: return "Skip scenes (experimental)";
+    case IT_SCENE_NUDITY: return "Nudity";
+    case IT_SCENE_SEX: return "Sex scenes";
+    case IT_SCENE_VIOLENCE: return "Violence";
+    case IT_SCENE_LANGUAGE: return "Bad language";
+    case IT_SCENE_DRUGS: return "Drug use";
+    case IT_SCENE_FEAR: return "Frightening scenes";
     case IT_SCENES_STRENGTH: return "How strict";
     case IT_SCENES_SOURCE: return "Scene list source";
     case IT_NIGHT: return "Night mode";
@@ -343,7 +353,13 @@ static const char *row_desc(int id)
     case IT_SERVER: return "Stremio's streaming service on your network plays torrents.";
     case IT_AUTOPLAY: return "Starts the next episode when the credits roll.";
     case IT_SKIP: return "Uses known intro, recap and credits times (IntroDB, AniSkip).";
-    case IT_SCENES: return "Uses a community list of scenes (CleanStream) to skip them, or only mute the sound. For films with an IMDb id; not every film has a list, and a list made for another cut can be a little off. Set a PIN above so it cannot be switched off.";
+    case IT_SCENES: return "Experimental: it will miss some scenes and can cut a little too much or too little. Uses a community list of scenes (CleanStream), for films with an IMDb id, to skip them or only mute the sound. Not every film has a list. Set a PIN above so it cannot be switched off.";
+    case IT_SCENE_NUDITY: return "Scenes with nudity. Experimental.";
+    case IT_SCENE_SEX: return "Sex scenes. Experimental.";
+    case IT_SCENE_VIOLENCE: return "Violent scenes. Experimental, and it needs the server's full list, which fewer films have.";
+    case IT_SCENE_LANGUAGE: return "Bad language: the sound is muted for the words. Experimental, and it needs the server's full list.";
+    case IT_SCENE_DRUGS: return "Drug use. Experimental, and it needs the server's full list.";
+    case IT_SCENE_FEAR: return "Frightening scenes. Experimental, and it needs the server's full list.";
     case IT_SCENES_STRENGTH: return "Contributors rate each scene low, medium or high.";
     case IT_SCENES_SOURCE: return "The CleanStream server asked for scene lists. Only the film's IMDb id is sent. Empty uses the public one.";
     case IT_LETTERBOX: return "Experimental: it can make playback less smooth on some TVs. A film wider or narrower than the screen leaves bars. Glow: a soft blur of the picture. One colour: the scene's main colour. It works ahead, and where the TV is too slow for it, the bars take the colour of the film's artwork instead. A film's built-in subtitles are drawn by the app so it stays on; where that can't be done, it steps aside for them.";
@@ -1041,7 +1057,13 @@ static void draw(Screen *s)
         case IT_SRC_EXCLUDE: draw_row(y, ICON_CLOSE, "Words to avoid in source names", g_app.src_exclude[0] ? g_app.src_exclude : "None  \xC2\xB7  OK to add, e.g. CAM, HDTS, 3D", foc, KIND_ACTION, 0); break;
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
         case IT_SCRUB: draw_row(y, ICON_PLAY, "Show the picture while seeking", NULL, foc, KIND_TOGGLE, g_app.live_scrub); break;
-        case IT_SCENES: draw_row(y, ICON_EYE, "Skip nudity and sex scenes", SCENE_NAMES[g_app.scene_filter], foc, KIND_CHOICE, 0); break;
+        case IT_SCENES: draw_row(y, ICON_EYE, "Skip scenes (experimental)", SCENE_NAMES[g_app.scene_filter], foc, KIND_CHOICE, 0); break;
+        case IT_SCENE_NUDITY: draw_row(y, ICON_EYE, "Nudity", NULL, foc, KIND_TOGGLE, (g_app.scene_cats & 1) != 0); break;
+        case IT_SCENE_SEX: draw_row(y, ICON_EYE, "Sex scenes", NULL, foc, KIND_TOGGLE, (g_app.scene_cats & 32) != 0); break;
+        case IT_SCENE_VIOLENCE: draw_row(y, ICON_EYE, "Violence", NULL, foc, KIND_TOGGLE, (g_app.scene_cats & 2) != 0); break;
+        case IT_SCENE_LANGUAGE: draw_row(y, ICON_EYE, "Bad language", NULL, foc, KIND_TOGGLE, (g_app.scene_cats & 4) != 0); break;
+        case IT_SCENE_DRUGS: draw_row(y, ICON_EYE, "Drug use", NULL, foc, KIND_TOGGLE, (g_app.scene_cats & 8) != 0); break;
+        case IT_SCENE_FEAR: draw_row(y, ICON_EYE, "Frightening scenes", NULL, foc, KIND_TOGGLE, (g_app.scene_cats & 16) != 0); break;
         case IT_SCENES_STRENGTH: draw_row(y, ICON_EYE, "How strict", SCENE_STRENGTH[g_app.scene_sev], foc, KIND_CHOICE, 0); break;
         case IT_SCENES_SOURCE: draw_row(y, ICON_LINK, "Scene list source", g_app.scene_source[0] ? g_app.scene_source : "The public CleanStream server", foc, KIND_ACTION, 0); break;
         case IT_THUMBS: draw_row(y, ICON_ASPECT, "Home helper (optional)", g_app.thumb_server ? g_app.thumb_server : "Not needed: the TV makes seek previews and saves YouTube links itself", foc, KIND_ACTION, 0); break;
@@ -1725,6 +1747,12 @@ static int adjust(Settings *st, int id, int dir)
     case IT_SKIP: g_app.skip_mode = (g_app.skip_mode + dir + 3) % 3; break;
     case IT_SCENES: g_app.scene_filter = (g_app.scene_filter + dir + 3) % 3; break;
     case IT_SCENES_STRENGTH: g_app.scene_sev = (g_app.scene_sev + dir + 3) % 3; break;
+    case IT_SCENE_NUDITY: g_app.scene_cats ^= 1; break;
+    case IT_SCENE_SEX: g_app.scene_cats ^= 32; break;
+    case IT_SCENE_VIOLENCE: g_app.scene_cats ^= 2; break;
+    case IT_SCENE_LANGUAGE: g_app.scene_cats ^= 4; break;
+    case IT_SCENE_DRUGS: g_app.scene_cats ^= 8; break;
+    case IT_SCENE_FEAR: g_app.scene_cats ^= 16; break;
     case IT_NIGHT: g_app.night_mode = (g_app.night_mode + dir + 3) % 3; break;
     case IT_SUBS_WHEN: g_app.subs_always = !g_app.subs_always; break;
     case IT_CLOCK: g_app.clock_mode = (g_app.clock_mode + dir + 3) % 3; break;
