@@ -1,6 +1,6 @@
 /* A link typed without its scheme ("example.com/manifest.json"): https is added. On this network (an address, a
  * port, localhost or .local) the other end is plain http. The settings boxes start empty, so nothing is there to
- * delete first and the scheme is the app's to add. Pure: tests/test_link_scheme.c. */
+ * delete first and the scheme is the app's to add; a scheme typed twice is one. Pure: tests/test_link_scheme.c. */
 #ifndef SNTV_LINK_SCHEME_H
 #define SNTV_LINK_SCHEME_H
 #include <stdio.h>
@@ -8,7 +8,12 @@
 
 static inline const char *with_scheme(const char *v, char *out, size_t n)
 {
-    if (!*v || strstr(v, "://")) return v;
+    if (!*v) return v;
+    for (;;) {   /* "https://https://x": a link pasted after a scheme was already there; the second is the link */
+        const char *r = !strncmp(v, "https://", 8) ? v + 8 : !strncmp(v, "http://", 7) ? v + 7 : NULL;
+        if (r && (!strncmp(r, "https://", 8) || !strncmp(r, "http://", 7))) v = r; else break;
+    }
+    if (strstr(v, "://")) return v;
     size_t hl = strcspn(v, "/");
     int dotted_digits = hl > 0, dots = 0;
     for (size_t i = 0; i < hl; i++) {

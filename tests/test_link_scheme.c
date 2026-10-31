@@ -20,6 +20,11 @@ int main(void)
     IS("http://192.168.1.10:11470", "http://192.168.1.10:11470");
     IS("stremio://v3.example/manifest.json", "stremio://v3.example/manifest.json");
     IS("sntv-sound://abc", "sntv-sound://abc");
+    IS("https://https://example.com/manifest.json", "https://example.com/manifest.json");        /* a link pasted after https:// */
+    IS("http://https://example.com/a", "https://example.com/a");
+    IS("https://http://192.168.1.10:11434/v1", "http://192.168.1.10:11434/v1");
+    IS("https://https://https://example.com", "https://example.com");
+    IS("https://example.com/?next=https://other.com", "https://example.com/?next=https://other.com");   /* a link inside a link is kept */
     IS("", "");                                                                               /* empty stays empty */
     IS("1.2.3.4.example.com/x", "https://1.2.3.4.example.com/x");                             /* digits and dots in a name are not an address */
     IS("example.com/path.local", "https://example.com/path.local");                           /* .local only counts in the host */
