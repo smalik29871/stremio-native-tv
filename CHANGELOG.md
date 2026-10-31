@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.102
+
+- **Experimental: skip or mute scenes.** Settings > Parental > Scene filter uses a community list of scenes
+  (CleanStream) to skip them while a film plays, or only mute the sound. Each kind has its own switch:
+  nudity, sex scenes, violence, bad language, drug use and frightening scenes. Nudity and sex are on to
+  begin with. It works for films, not episodes, it will miss some scenes and can cut a little too much or
+  too little, and the lists for violence, language, drugs and fear are the least complete. Set a parental PIN
+  so it cannot be switched off.
+
 ## 0.10.101
 
 - **Link boxes start empty.** Install an addon, Play a link, the break sound links, the AI endpoint and the
