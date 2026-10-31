@@ -1,3 +1,4 @@
+#include <math.h>
 #include "perfstat.h"
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +54,15 @@ int main(void)
     perf_playback_end();
     perf_report(report, sizeof report);
     CHECK(strstr(report, "Playback last session"));
+    /* a frame step on a 90 Hz screen: timer noise around one refresh (11.1 ms) is one refresh; a missed refresh is two; a real pause is left alone */
+    CHECK(fabsf(perf_snap_dt(0.0108f, 90) - 1.0f / 90) < 1e-6f);
+    CHECK(fabsf(perf_snap_dt(0.0118f, 90) - 1.0f / 90) < 1e-6f);
+    CHECK(fabsf(perf_snap_dt(0.0225f, 90) - 2.0f / 90) < 1e-6f);
+    CHECK(perf_snap_dt(0.0166f, 90) == 0.0166f);   /* between one and two refreshes: kept as measured */
+    CHECK(perf_snap_dt(0.05f, 0) == 0.05f);        /* no known refresh rate: untouched */
+    perf_set_refresh(90);
+    CHECK(fabsf(perf_frame_period_ms() - 11.1111f) < 0.01f);
+    perf_set_refresh(0);
     if (failures) return 1;
     puts("playback diagnostic checks passed");
     return 0;

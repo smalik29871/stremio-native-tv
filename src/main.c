@@ -1,3 +1,4 @@
+#include <math.h>
 #include "app.h"
 #include "audio.h"
 #include "breaks.h"
@@ -837,6 +838,7 @@ static void android_unpack_assets(void)
 
 static int g_perf_fill;   /* SNTV_PERF_FILL: every 30th frame's paint in the log (finding what a TV's GPU finds slow) */
 
+static int g_refresh_hz;   /* the display's refresh rate where the platform tells it (Android), else 0 */
 int main(int argc, char **argv)
 {
     g_perf_fill = getenv("SNTV_PERF_FILL") != NULL;
@@ -933,6 +935,13 @@ int main(int argc, char **argv)
     g_win = win;
 #endif
     if (!win) { LOGE("SDL_CreateWindow: %s", SDL_GetError()); return 1; }
+#ifdef __ANDROID__
+    {   /* a phone's screen is 90 or 120 Hz as often as 60: frames are paced to its own refresh, not to 16 ms (which shows some frames twice) */
+        SDL_DisplayMode dm2;
+        if (SDL_GetWindowDisplayMode(win, &dm2) == 0 && dm2.refresh_rate >= 30 && dm2.refresh_rate <= 240) { g_refresh_hz = dm2.refresh_rate; perf_set_refresh((float)dm2.refresh_rate); }
+        LOGI("display: %d Hz", g_refresh_hz);
+    }
+#endif
     SDL_GLContext ctx = SDL_GL_CreateContext(win);
     if (!ctx) { LOGE("SDL_GL_CreateContext: %s", SDL_GetError()); return 1; }
     SDL_GL_SetSwapInterval(1);
@@ -1011,7 +1020,7 @@ int main(int argc, char **argv)
     intro_start();
     if (crashed && !getenv("SNTV_SCREENSHOT")) app_toast("The app closed unexpectedly last time. Settings > About > Diagnostics, Blue: that session's log");
 
-    Uint32 prev = SDL_GetTicks();
+    Uint64 prev_pc = SDL_GetPerformanceCounter();
     while (!g_app.quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -1147,10 +1156,12 @@ int main(int argc, char **argv)
             app_redraw();
         }
         Uint32 now = SDL_GetTicks();
-        float dt = (now - prev) / 1000.0f;
+        Uint64 pc = SDL_GetPerformanceCounter();
+        float dt = (float)((double)(pc - prev_pc) / (double)SDL_GetPerformanceFrequency());   /* not whole milliseconds: at 90 Hz a frame is 11.1, and 11 or 12 each time shows as judder */
         if (dt > 0.1f) dt = 0.1f;
+        dt = perf_snap_dt(dt, g_refresh_hz);   /* a frame that came on a refresh is exactly that many refreshes long, whatever the scheduler did to the timer */
         { static float fixed = -1; if (fixed < 0) { const char *f = getenv("SNTV_FRAME_DT"); fixed = f ? (float)atof(f) : 0; } if (fixed > 0) dt = fixed; }   /* test hook: animations frame by frame */
-        prev = now;
+        prev_pc = pc;
         g_app.time += dt;
 
         /* Holding OK fills the screen's "Hold for options" hint; past 500 ms it reads
@@ -1232,7 +1243,8 @@ int main(int argc, char **argv)
             if (frame == 120) LOGI("perf: %d draw calls, %u ms frame", gfx_draw_calls(), spent);
             /* A swap that waited for the display already paced the frame; sleeping on top of
              * it only delays the next key. Cap the rate only when the swap returned at once. */
-            if (end - swap_at < 2 && spent < 16) SDL_Delay(16 - spent);
+            Uint32 cap = g_refresh_hz ? 1000u / (unsigned)g_refresh_hz : 16;   /* a hair under a refresh: the swap then waits for the display and paces the frame */
+            if (end - swap_at < 2 && spent < cap) SDL_Delay(cap - spent);
         } else {
             SDL_WaitEventTimeout(NULL, 25);   /* idle: wake the moment a key arrives, else poll the network at 40 Hz */
         }

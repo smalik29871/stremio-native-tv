@@ -1,5 +1,6 @@
 /* See perfstat.h. Histograms in whole milliseconds, so a percentile is a short walk
  * and nothing is allocated while frames run. */
+#include <math.h>
 #include "perfstat.h"
 #include "log.h"
 #include <SDL.h>
@@ -49,6 +50,7 @@ void perf_mark(const char *name)
     g_marks[g_n_marks++].at = SDL_GetTicks();
 }
 
+static float g_refresh_ms;   /* the display's own refresh period where the platform says it, else 0 */
 void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
 {
     if (!screen) screen = "?";
@@ -61,15 +63,25 @@ void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
     }
     hist_add(&g_screens[i].h, work_ms);
     hist_add(&g_screens[i].total, total_ms);
-    if (total_ms > 25) g_screens[i].late++;   /* past a second refresh at 60 Hz (one is 16.7 ms; a frame that waited for it lands near 17) */
+    if (total_ms > (g_refresh_ms > 0 ? 1.5f * g_refresh_ms : 25.0f)) g_screens[i].late++;   /* past a second refresh (at 60 Hz one is 16.7 ms; a frame that waited for it lands near 17) */
     g_screens[i].fill_sum += fill;
     if (fill > g_screens[i].fill_max) g_screens[i].fill_max = fill;
 }
 
 void perf_key(void) { if (!g_key_at) g_key_at = SDL_GetTicks(); }
 
+float perf_snap_dt(float dt, int hz)
+{
+    if (hz <= 0) return dt;
+    float p = 1.0f / hz, n = floorf(dt / p + 0.5f);
+    return n >= 1 && fabsf(dt - n * p) < 0.3f * p ? n * p : dt;
+}
+
+void perf_set_refresh(float hz) { g_refresh_ms = hz >= 30 && hz <= 240 ? 1000.0f / hz : 0; }
+
 float perf_frame_period_ms(void)
 {
+    if (g_refresh_ms > 0) return g_refresh_ms;
     unsigned best = 0, n = 0; int at = 0;
     for (int b = 12; b <= 34; b++) {
         unsigned c = 0;
