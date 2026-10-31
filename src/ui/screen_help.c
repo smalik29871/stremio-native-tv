@@ -104,7 +104,7 @@ static void build(Help *h)
     static const char *const SYNC[] = {
         "Settings > Accounts > Sync with another device copies your addons, sign-ins and settings to another Cuelight: scan its code or type its 4-digit number.",
         "Stremio sync keeps your Library and Continue Watching the same as Stremio's own apps; Trakt and SimKL keep what you watched.",
-        "Settings > Interface > Back up or restore settings saves them to your phone, to bring back later or on another device.",
+        "Settings > Accounts > Back up or restore settings saves them to your phone, to bring back later or on another device.",
         NULL };
     add(h, "Your other devices", SYNC);
     const char *const PROBLEMS[] = {   /* the last line is for this device */

@@ -137,6 +137,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         for (int i = 0; i < st->n_accounts && n < max - 3; i++) ids[n++] = IT_ACCT_BASE + i;
         if (st->n_accounts && g_app.auth_key) ids[n++] = IT_ASK_PROFILE;
         ids[n++] = IT_SYNC_DEVICES;
+        ids[n++] = IT_BACKUP;
         ids[n++] = IT_PARTY;
         ids[n++] = IT_TRAKT; ids[n++] = IT_SIMKL;
         SEC(SEC_SERVER); ids[n++] = IT_TORBOX; if (torbox_enabled()) ids[n++] = IT_TORBOX_FILES; ids[n++] = IT_SERVER;
@@ -165,7 +166,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_PALETTE; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_DEPTH;
-        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; ids[n++] = IT_FIRE_FREE; } ids[n++] = IT_AMBIENT_PREVIEW; if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } ids[n++] = IT_MEMORY; ids[n++] = IT_BACKUP;
+        SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; ids[n++] = IT_FIRE_FREE; } ids[n++] = IT_AMBIENT_PREVIEW; if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } ids[n++] = IT_MEMORY;
         break;
     case CAT_BREAKS:
         SEC(SEC_BR_MAIN); ids[n++] = IT_BR_TEST; ids[n++] = IT_BR_ON; ids[n++] = IT_BR_SCHED;
