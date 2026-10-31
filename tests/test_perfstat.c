@@ -106,6 +106,24 @@ int main(void)
         perf_report(report, sizeof report);
         CHECK(!strstr(report, "Frame rate: a steady"));
     }
+    /* the cadence the screen really delivers: a phone that offers 120 Hz and runs the app at 90 */
+    perf_cadence_reset();
+    CHECK(perf_live_hz() == 0);
+    for (int i = 0; i < 64; i++) perf_cadence(i % 9 == 0 ? 13.5f : 11.2f);   /* mostly one refresh at 90, now and then a late one */
+    CHECK(perf_live_hz() == 90);
+    CHECK(fabsf(perf_frame_period_ms() - 1000.0f / 90) < 0.01f);
+    perf_cadence_reset();
+    for (int i = 0; i < 64; i++) perf_cadence(8.4f + (i % 5) * 0.1f);
+    CHECK(perf_live_hz() == 120);
+    perf_cadence_reset();
+    for (int i = 0; i < 64; i++) perf_cadence(3.5f);                          /* frames that do not wait for the display say nothing */
+    CHECK(perf_live_hz() == 0);
+    for (int i = 0; i < 64; i++) perf_cadence(15.0f);                         /* between two standard rates: unknown */
+    CHECK(perf_live_hz() == 0);
+    for (int i = 0; i < 64; i++) perf_cadence(16.7f);                         /* a steady 60 (also what the governor's half rate looks like) */
+    CHECK(perf_live_hz() == 60);
+    perf_cadence_reset();
+    CHECK(perf_governor(50.0f, 5000, 90) == 1);                               /* 90 is not worth halving */
     perf_set_refresh(0);
     if (failures) return 1;
     puts("playback diagnostic checks passed");

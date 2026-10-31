@@ -16,6 +16,9 @@ void perf_upload(float ms, size_t bytes);
 /* The screen's refresh period in ms, from the frames: the most common whole-frame time between
  * 12 and 34 ms (a frame that kept up waited for the display that long); 16.7 until it is known. */
 float perf_frame_period_ms(void);
+void  perf_cadence(float whole_ms);   /* a drawn frame's time: the cadence the screen really delivers is read from these (90 on a phone that offers 120) */
+int   perf_live_hz(void);               /* that cadence in Hz (a standard rate), or 0 until it is known */
+void  perf_cadence_reset(void);
 int   perf_governor(float whole_ms, float now_s, int base_hz);   /* 1 or 2: a screen that cannot finish frames every refresh looks smoother at a steady half rate; tries full rate again later */
 float perf_snap_dt(float dt, int hz);   /* a frame step that landed on whole refreshes (within 30%) is exactly that long */
 void  perf_set_refresh(float hz);

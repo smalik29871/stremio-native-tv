@@ -51,6 +51,7 @@ void perf_mark(const char *name)
 }
 
 static float g_refresh_ms;   /* the display's own refresh period where the platform says it, else 0 */
+static int g_cad_hz;         /* the cadence the screen really delivers (perf_cadence), else 0 */
 void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
 {
     if (!screen) screen = "?";
@@ -63,7 +64,8 @@ void perf_frame(const char *screen, float work_ms, float total_ms, float fill)
     }
     hist_add(&g_screens[i].h, work_ms);
     hist_add(&g_screens[i].total, total_ms);
-    if (total_ms > (g_refresh_ms > 0 ? 1.5f * g_refresh_ms : 25.0f)) g_screens[i].late++;   /* past a second refresh (at 60 Hz one is 16.7 ms; a frame that waited for it lands near 17) */
+    float period = g_cad_hz ? 1000.0f / (float)g_cad_hz : g_refresh_ms;
+    if (total_ms > (period > 0 ? 1.5f * period : 25.0f)) g_screens[i].late++;   /* past a second refresh (at 60 Hz one is 16.7 ms; a frame that waited for it lands near 17) */
     g_screens[i].fill_sum += fill;
     if (fill > g_screens[i].fill_max) g_screens[i].fill_max = fill;
 }
@@ -106,6 +108,28 @@ float perf_snap_dt(float dt, int hz)
     return n >= 1 && fabsf(dt - n * p) < 0.3f * p ? n * p : dt;
 }
 
+/* The cadence the screen really delivers. A phone offers 120 Hz and runs an app at 90 unless it asks for more; frames that wait
+ * for the display take one refresh each, so their median is the refresh (kept only when it is near a standard rate). */
+#define CAD_N 48
+static float g_cad[CAD_N];
+static int g_cad_n;
+void perf_cadence_reset(void) { g_cad_n = 0; g_cad_hz = 0; }
+int perf_live_hz(void) { return g_cad_hz; }
+void perf_cadence(float whole_ms)
+{
+    if (whole_ms < 3.0f || whole_ms > 40.0f) { return; }
+    g_cad[g_cad_n % CAD_N] = whole_ms;
+    if (++g_cad_n < CAD_N || g_cad_n % 16) return;
+    float v[CAD_N];
+    memcpy(v, g_cad, sizeof v);
+    for (int i = 1; i < CAD_N; i++) { float x = v[i]; int j = i; while (j > 0 && v[j - 1] > x) { v[j] = v[j - 1]; j--; } v[j] = x; }
+    float hz = 1000.0f / v[CAD_N / 2];
+    static const int RATES[] = { 30, 48, 60, 72, 90, 120, 144, 165 };
+    g_cad_hz = 0;
+    for (unsigned k = 0; k < sizeof RATES / sizeof RATES[0]; k++)
+        if (fabsf(hz - (float)RATES[k]) < 0.07f * (float)RATES[k]) g_cad_hz = RATES[k];
+}
+
 /* The frame-rate governor. Windows of GOV_WINDOW drawn frames: a window is slow when a seventh or more of its frames took
  * past 1.5 refreshes. Two slow windows in a row at full rate halve the rate; after RETRY seconds (doubling on every failure
  * to 16 minutes) full rate is tried again, and kept once six windows in a row are fine. */
@@ -115,7 +139,7 @@ static int g_gov_base;
 
 int perf_governor(float whole_ms, float now_s, int base_hz)
 {
-    if (base_hz < 90) return 1;   /* at 60 there is nothing to halve to */
+    if (base_hz < 100) return 1;   /* at 60 or 90 there is nothing worth halving to */
     g_gov_base = base_hz;
     if (g_gov.div == 2) {
         if (now_s - g_gov.since >= g_gov.retry) { g_gov.div = 1; g_gov.trial = 1; g_gov.n = g_gov.slow = g_gov.bad = g_gov.good = 0; }
@@ -145,6 +169,7 @@ void perf_set_refresh(float hz) { g_refresh_ms = hz >= 30 && hz <= 240 ? 1000.0f
 
 float perf_frame_period_ms(void)
 {
+    if (g_cad_hz) return 1000.0f / (float)g_cad_hz;
     if (g_refresh_ms > 0) return g_refresh_ms;
     unsigned best = 0, n = 0; int at = 0;
     for (int b = 12; b <= 34; b++) {
@@ -266,7 +291,7 @@ void perf_report(char *out, size_t n)
     for (int i = 0; i < g_n_marks; i++) ADD("%s %s %.1f s", i ? "," : "", g_marks[i].name, g_marks[i].at / 1000.0);
     if (!g_n_marks) ADD(" not measured");
     ADD("\n");
-    { float p = perf_frame_period_ms(); ADD("Screen: about %.0f refreshes a second (%.0f ms a frame, from %s)\n", 1000.0f / p, p, g_refresh_ms > 0 ? "the display" : "the frame times"); }
+    { float p = perf_frame_period_ms(); ADD("Screen: about %.0f refreshes a second (%.0f ms a frame, from %s)\n", 1000.0f / p, p, g_cad_hz ? "what the screen delivers" : g_refresh_ms > 0 ? "the display" : "the frame times"); }
     if (g_keys.n) ADD("Key to screen: typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms, %u keys\n", hist_pct(&g_keys, 0.5f), hist_pct(&g_keys, 0.95f), g_keys.max, g_keys.n);
     else ADD("Key to screen: no keys yet\n");
     if (g_n_starts) {
