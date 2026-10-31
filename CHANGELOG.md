@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.101
+
+- **Link boxes start empty.** Install an addon, Play a link, the break sound links, the AI endpoint and the
+  home helper no longer open holding `https://`, so a link pasted in is not doubled. The scheme is added when
+  you save (https, or plain http for an address on your own network), and one typed twice is saved as one.
+
 ## 0.10.100
 
 - **Back up or restore settings is in Accounts.** It moved from Interface to Settings > Accounts, next to
