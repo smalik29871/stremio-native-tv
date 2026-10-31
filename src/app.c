@@ -12,6 +12,7 @@
 #include "tracking.h"
 #include "log.h"
 #include "store.h"
+#include "update_channel.h"
 #include "tmdb.h"
 #include "opensubs.h"
 #include "image.h"
@@ -1474,9 +1475,17 @@ static int version_newer(const char *a, const char *b)   /* a > b, dotted number
     return 0;
 }
 
+static const char *releases_dl(const char *file);
+
 static void on_repo(HttpResponse *r, void *user)
 {
-    int version_only = user != NULL;   /* the TV's list, asked by a computer: the version, nothing to install */
+    int version_only = user == (void *)1;   /* the TV's list, asked by a computer: the version, nothing to install */
+#ifdef SNTV_PLATFORM_ANDROID
+    if (r->status == 404 && user == NULL && gfx_handheld() && !getenv("SNTV_UPDATE_URL")) {   /* no phone file in that release (the first one with it is still to come): the shared Android file */
+        http_request_async(releases_dl(update_manifest_file(1, 0, 0)), NULL, on_repo, (void *)2);
+        return;
+    }
+#endif
 #ifdef SNTV_PLATFORM_WINDOWS
     if (r->status == 404 && !version_only && !getenv("SNTV_UPDATE_URL")) {   /* a release from before the installer */
         http_request_async("https://github.com/smalik29871/cuelight-releases/releases/latest/download/repo.json", NULL, on_repo, (void *)1);
@@ -1533,11 +1542,11 @@ static const char *repo_url(void)
 {
     const char *url = getenv("SNTV_UPDATE_URL");
 #ifdef SNTV_PLATFORM_ANDROID
-    return url ? url : RELEASES_DL("android.json");   /* the APK of the same release */
+    return url ? url : RELEASES_DL(update_manifest_file(1, 0, gfx_handheld()));   /* the APK of the same release: a phone's or tablet's own file, a TV's the shared one */
 #elif defined(SNTV_PLATFORM_WINDOWS)
-    return url ? url : RELEASES_DL("windows.json");   /* the installer of the same release */
+    return url ? url : RELEASES_DL(update_manifest_file(0, 1, 0));   /* the installer of the same release */
 #else
-    return url ? url : RELEASES_DL("repo.json");   /* the public releases repository (renamed; the old address still forwards here) */
+    return url ? url : RELEASES_DL(update_manifest_file(0, 0, 0));   /* the public releases repository (renamed; the old address still forwards here) */
 #endif
 }
 

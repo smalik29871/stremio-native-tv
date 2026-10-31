@@ -10,6 +10,8 @@
 # as a beta: a pre-release (which .../releases/latest/... skips, so nobody else gets it) whose
 # update files are also put on the fixed "beta" release, where devices with Settings > About >
 # Beta updates on look. The Promote workflow then makes it the release everyone gets.
+# A commit message with [mobile] after the version makes a mobile release: only the Android build, and only
+# mobile.json (what phones and tablets read), so no TV or computer is offered it (docs/RELEASE-CHANNELS.md).
 name: Build
 
 on:
@@ -122,8 +124,9 @@ jobs:
 
   webos:
     if: >-
-      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')) &&
+      !contains(github.event.head_commit.message, '[mobile]')
     name: LG webOS package
     runs-on: ubuntu-24.04
     steps:
@@ -241,8 +244,9 @@ jobs:
     # (tools/windows.sh). Like the APK it never holds the TV release back: a failure here only
     # leaves the zip out of the release.
     if: >-
-      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
-      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') ||
+      github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '0.')) &&
+      !contains(github.event.head_commit.message, '[mobile]')
     name: Windows zip
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -288,7 +292,7 @@ jobs:
       always() && github.event_name == 'push' &&
       (startsWith(github.ref, 'refs/heads/feat/') || startsWith(github.ref, 'refs/heads/fix/') || startsWith(github.ref, 'refs/heads/claude/')) &&
       (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
-      needs.webos.result == 'success' &&
+      (needs.webos.result == 'success' || (needs.webos.result == 'skipped' && contains(github.event.head_commit.message, '[mobile]'))) &&
       (needs.ui.result == 'success' || (needs.ui.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]')))
     needs: [desktop, webos, ui]
     runs-on: ubuntu-24.04
@@ -322,7 +326,8 @@ jobs:
     if: >-
       always() && github.event_name == 'push' &&
       (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
-      needs.webos.result == 'success' &&
+      (needs.webos.result == 'success' || (needs.webos.result == 'skipped' && contains(github.event.head_commit.message, '[mobile]'))) &&
+      (!contains(github.event.head_commit.message, '[mobile]') || needs.android.result == 'success') &&
       (needs.ui.result == 'success' || (needs.ui.result == 'skipped' && contains(github.event.head_commit.message, '[tested here]'))) &&
       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || needs.promote.outputs.promoted == 'true')
     needs: [desktop, webos, ui, promote, android, windows]
@@ -333,7 +338,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false   # git to the releases repository uses its own token
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4   # the LG package (a [mobile] release has none)
+        if: needs.webos.result == 'success'
         with:
           name: webos-ipk
           path: dist
@@ -374,6 +380,7 @@ jobs:
         env:
           VERSION: ${{ steps.ver.outputs.version }}
           TAG: ${{ steps.ver.outputs.tag }}
+          MOBILE: ${{ contains(github.event.head_commit.message, '[mobile]') }}
         run: |
           # what the app on Android reads to update itself: .../releases/latest/download/android.json
           APK=$(ls dist/*.apk 2>/dev/null | head -1)
@@ -386,20 +393,30 @@ jobs:
                             "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest()}))
           PY
           cat dist/android.json
+          # phones and tablets read mobile.json, Android TV and Fire TV (and apps from before it) android.json: a
+          # release for all devices writes both alike, a [mobile] one only mobile.json, so no TV is offered it
+          cp dist/android.json dist/mobile.json
+          if [ "$MOBILE" = "true" ]; then rm dist/android.json; fi
       - name: Release notes from CHANGELOG
         if: steps.ver.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.ver.outputs.version }}
+          MOBILE: ${{ contains(github.event.head_commit.message, '[mobile]') }}
         run: |
           awk -v v="## $VERSION" '$0==v{on=1;next} /^## /{if(on)exit} on' CHANGELOG.md > notes.md
           {
-            echo
-            echo "### Install on LG webOS"
-            echo "In the Homebrew Channel, open Settings, add this repository, and install **Cuelight**:"
-            echo
-            echo '```'
-            echo "https://github.com/${RELEASES_REPO}/releases/latest/download/repo.json"
-            echo '```'
+            if [ "$MOBILE" = "true" ]; then
+              echo
+              echo "**A mobile release:** for Android phones and tablets only. TVs and computers are not offered this version."
+            else
+              echo
+              echo "### Install on LG webOS"
+              echo "In the Homebrew Channel, open Settings, add this repository, and install **Cuelight**:"
+              echo
+              echo '```'
+              echo "https://github.com/${RELEASES_REPO}/releases/latest/download/repo.json"
+              echo '```'
+            fi
             if ls dist/*.apk >/dev/null 2>&1; then
               echo
               echo "### Install on Android (phones, tablets, Android TV, Fire TV)"
@@ -417,6 +434,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
+          MOBILE: ${{ contains(github.event.head_commit.message, '[mobile]') }}
         run: |
           # a release needs a commit to tag: an empty repository gets a README first
           if [ -z "$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" 2>/dev/null)" ]; then
@@ -427,9 +445,10 @@ jobs:
             git push -q "https://x-access-token:${GH_TOKEN}@github.com/${RELEASES_REPO}.git" main
             cd ..
           fi
+          KIND=""; if [ "$MOBILE" = "true" ]; then KIND="mobile "; fi
           gh release create "$TAG" dist/* \
             --repo "$RELEASES_REPO" \
-            --title "Cuelight $TAG (beta)" \
+            --title "Cuelight $TAG (${KIND}beta)" \
             --notes-file notes.md \
             --prerelease
       - name: The beta channel

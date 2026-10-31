@@ -33,8 +33,8 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           # the versioned pre-releases, newest first (not the rolling "beta" one the update check reads)
-          gh release list --repo "$RELEASES_REPO" --limit 40 --json tagName,isPrerelease,isLatest,publishedAt \
-            --jq '.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | [.tagName, (if .isPrerelease then "beta" elif .isLatest then "everyone (latest)" else "released" end), .publishedAt[0:16]] | @tsv' > releases.tsv
+          gh release list --repo "$RELEASES_REPO" --limit 40 --json tagName,name,isPrerelease,isLatest,publishedAt \
+            --jq '.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | [.tagName, (if .isPrerelease then "beta" elif .isLatest then "everyone (latest)" else "released" end), .publishedAt[0:16], (if (.name | test("mobile")) then "phones and tablets" else "all devices" end)] | @tsv' > releases.tsv
           if [ -n "$VERSION" ]; then
             TAG="v${VERSION#v}"
           else
@@ -44,12 +44,13 @@ jobs:
           {
             echo "### Promoting $TAG"
             echo
-            echo "| Version | Now | Published (UTC) |"
-            echo "|---|---|---|"
-            head -10 releases.tsv | awk -F'\t' '{ printf "| %s | %s | %s |\n", $1, $2, $3 }'
+            echo "| Version | Now | Published (UTC) | For |"
+            echo "|---|---|---|---|"
+            head -10 releases.tsv | awk -F'\t' '{ printf "| %s | %s | %s | %s |\n", $1, $2, $3, $4 }'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Make it the latest release
+        id: latest
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ steps.pick.outputs.tag }}
@@ -57,9 +58,23 @@ jobs:
           if ! gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
             echo "::error::$TAG is not in $RELEASES_REPO"; exit 1
           fi
-          gh release edit "$TAG" --repo "$RELEASES_REPO" --prerelease=false --latest --title "Cuelight $TAG"
-          echo "$TAG is the latest release"
+          if gh release view "$TAG" --repo "$RELEASES_REPO" --json assets --jq '.assets[].name' | grep -qx 'repo.json'; then
+            gh release edit "$TAG" --repo "$RELEASES_REPO" --prerelease=false --latest --title "Cuelight $TAG"
+            echo "$TAG is the latest release"
+            echo "mobile=false" >> "$GITHUB_OUTPUT"
+          else
+            # A mobile release has no LG or Windows files: "latest" (one whole release, where every TV and computer
+            # looks) must not move to it. It is marked released, and its phone update file goes into the release that
+            # is latest, which is where phones look: TVs and computers stay as they are.
+            gh release edit "$TAG" --repo "$RELEASES_REPO" --prerelease=false --latest=false --title "Cuelight $TAG (mobile)"
+            LATEST="$(gh release view --repo "$RELEASES_REPO" --json tagName --jq .tagName)"
+            mkdir -p mobile && gh release download "$TAG" --repo "$RELEASES_REPO" --pattern mobile.json --dir mobile
+            gh release upload "$LATEST" mobile/mobile.json --repo "$RELEASES_REPO" --clobber
+            echo "$TAG is the mobile release: phones get it (through $LATEST's mobile.json); TVs and computers stay on $LATEST"
+            echo "mobile=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Refresh the README in the public repository
+        if: steps.latest.outputs.mobile != 'true'   # the README names the release everyone gets: a mobile one is not it
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ steps.pick.outputs.tag }}
