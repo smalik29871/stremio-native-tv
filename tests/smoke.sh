@@ -966,6 +966,8 @@ run streams_rules 240 "right,ok,down,down,play" HOME="$(home_with rules2 '{"pref
 run streams_youtube 440 "right,ok,down,down,yellow,down,down,down,ok,down,down,ok,wait,wait,wait" HOME="$(home_with ytstream '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "streams: YouTube video for tt0903747:1:1 streaming" "$OUT/streams_youtube.log" || { echo "an addon's YouTube stream did not play"; grep -E "streams|youtube" "$OUT/streams_youtube.log"; exit 1; }
 run settings_tvcap 380 "left,down,down,down,down,down,ok,up,ok,t:this tv can,down,down,down,down,left,ok,ok" HOME="$(home_with tvcap '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvCaps":{"dts":[0,2],"hevc":[5,0]}}')"
+# a text box for a link starts empty (it used to hold "https://" to delete first); the scheme is added when it is saved
+run settings_link_empty 420 "left,down,down,down,down,down,ok,up,ok,t:play a link,down,down,down,down,left,ok,ok" SNTV_EXPECT_SCREEN=settings HOME="$(home_with linkempty '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run settings_backup 420 "left,down,down,down,down,down,ok,up,ok,t:back up,down,down,down,down,left,ok,ok"
 grep -q "settings: found Back up or restore settings" "$OUT/settings_backup.log" || { echo "Back up or restore is not in Settings"; grep settings "$OUT/settings_backup.log"; exit 1; }
 # the backup carries the Stremio sign-in under the Cuelight tag; a restore follows it and keeps this TV's other accounts

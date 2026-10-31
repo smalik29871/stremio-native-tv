@@ -19,6 +19,7 @@
 #include "../lang.h"
 #include "../log.h"
 #include "../store.h"
+#include "../link_scheme.h"
 #include "../tracking.h"
 #include "../opensubs.h"
 #include "../platform/platform.h"
@@ -1523,13 +1524,13 @@ static void begin_edit(Settings *st, int which)
     st->edit = which;
     char loc[64] = "";
     if (breaks_location_known()) snprintf(loc, sizeof loc, "%.4f, %.4f", g_app.break_lat, g_app.break_lon);
-    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : which == EDIT_THUMBS ? (g_app.thumb_server ? g_app.thumb_server : "http://")
+    keyboard_init(&st->kb, 0, which == EDIT_SERVER ? g_app.streaming_server : which == EDIT_THUMBS ? (g_app.thumb_server ? g_app.thumb_server : "")
                   : which == EDIT_TMDB ? (g_app.tmdb_key ? g_app.tmdb_key : "")
-                  : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "http://")
+                  : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
                   : which == EDIT_SEARCH || which == EDIT_BACKUP || which == EDIT_TRAKT_APP || which == EDIT_SIMKL_APP ? ""
-                  : which == EDIT_FIRE_VIDEO ? (torbox_is_link(store_get_str("fireplaceVideo", "")) ? "" : store_get_str("fireplaceVideo", "")) : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_TORBOX ? store_get_str("torboxKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "https://" : which == EDIT_EXCLUDE ? g_app.src_exclude
-                  : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "https://") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "https://") : "https://");
+                  : which == EDIT_FIRE_VIDEO ? (torbox_is_link(store_get_str("fireplaceVideo", "")) ? "" : store_get_str("fireplaceVideo", "")) : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_TORBOX ? store_get_str("torboxKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "" : which == EDIT_EXCLUDE ? g_app.src_exclude
+                  : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "") : "");
     input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
     if (which == EDIT_BR_AUDIO || which == EDIT_BR_END) phone_accept_file(which == EDIT_BR_AUDIO ? "start" : "end");
@@ -1611,10 +1612,11 @@ static void finish_edit(Settings *st, int save)
                 }
             }
         } else if (st->edit == EDIT_PLAY_LINK) {
-            char *v = st->kb.text;
+            char *v = st->kb.text, buf[320];
             while (*v == ' ') v++;
-            if (strncmp(v, "http://", 7) == 0 || strncmp(v, "https://", 8) == 0) { if (strlen(v) > 9) app_play_link(v); }
-            else app_toast("That is not a video link (it starts with http)");
+            const char *u = with_scheme(v, buf, sizeof buf);
+            if (strncmp(u, "http://", 7) == 0 || strncmp(u, "https://", 8) == 0) { if (strlen(u) > 9) app_play_link(u); }
+            else if (*v) app_toast("That is not a video link (it starts with http)");
         } else if (st->edit == EDIT_EXCLUDE) {
             char *v = st->kb.text;
             while (*v == ' ' || *v == ',') v++;
@@ -1635,8 +1637,10 @@ static void finish_edit(Settings *st, int save)
             size_t n = strlen(v);
             while (n && (v[n - 1] == ' ' || (st->edit == EDIT_AI_BASE && v[n - 1] == '/'))) v[--n] = 0;
             char **dst = st->edit == EDIT_AI_KEY ? &g_app.ai_key : st->edit == EDIT_AI_BASE ? &g_app.ai_base : &g_app.ai_model;
+            char buf[320];
+            const char *u = st->edit == EDIT_AI_BASE ? with_scheme(v, buf, sizeof buf) : v;
             free(*dst);
-            *dst = n && !(st->edit == EDIT_AI_BASE && n < 8) ? strdup(v) : NULL;
+            *dst = n && !(st->edit == EDIT_AI_BASE && strlen(u) < 8) ? strdup(u) : NULL;
             app_save_prefs();
             app_toast(ai_enabled() ? "AI assistant ready" : st->edit == EDIT_AI_KEY && !n ? "AI key removed" : "Saved  \xC2\xB7  the assistant still needs its key or endpoint");
         } else if (st->edit == EDIT_LOCATION) {
@@ -1646,11 +1650,12 @@ static void finish_edit(Settings *st, int save)
             else app_toast("Please enter latitude, longitude");
         } else if (st->edit == EDIT_BR_AUDIO || st->edit == EDIT_BR_END) {
             char **slot = st->edit == EDIT_BR_AUDIO ? &g_app.break_audio : &g_app.break_end;
-            char *v = st->kb.text; while (*v == ' ') v++;
+            char *v0 = st->kb.text, buf[320]; while (*v0 == ' ') v0++;
+            const char *v = with_scheme(v0, buf, sizeof buf);
             int is_file = strncmp(v, "sntv-sound://", 13) == 0;
             int is_page = breaks_is_page_link(v);
             free(*slot);
-            *slot = strlen(v) > 10 && strcmp(v, "https://") ? strdup(v) : NULL;
+            *slot = strlen(v) > 10 ? strdup(v) : NULL;
             app_save_prefs();
             if (g_app.break_sound != 1 && *slot) g_app.break_sound = 1;
             app_tidy(0);   /* the recording it replaced goes */
@@ -1661,15 +1666,20 @@ static void finish_edit(Settings *st, int save)
             else if (*slot && is_page) warm_media(*slot);
             else app_toast(is_file ? "Recording saved on the TV" : *slot ? "Link saved" : "No recording set");
         } else if (st->edit == EDIT_THUMBS) {
-            char *v = st->kb.text;
+            char *v = st->kb.text, buf[320];
+            while (*v == ' ') v++;
             size_t n = strlen(v);
             while (n && v[n - 1] == '/') v[--n] = 0;
+            const char *u = with_scheme(v, buf, sizeof buf);
             free(g_app.thumb_server);
-            g_app.thumb_server = n > 8 ? strdup(v) : NULL;
+            g_app.thumb_server = strlen(u) > 8 ? strdup(u) : NULL;
             app_save_prefs();
             app_toast(g_app.thumb_server ? "Home helper set: previews come from it" : "Home helper off: the TV makes previews itself");
-        } else if (strlen(st->kb.text) > 10) {
-            app_install_addon(st->kb.text);
+        } else {
+            char *v = st->kb.text, buf[320];
+            while (*v == ' ') v++;
+            const char *u = with_scheme(v, buf, sizeof buf);
+            if (strlen(u) > 10) app_install_addon(u);
         }
     }
     st->edit = EDIT_NONE;
