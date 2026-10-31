@@ -448,6 +448,16 @@ grep -q "subs: file hash 0123456789abcdef from the addon" "$OUT/stream_hints.log
   || { echo "the stream's headers, hash or subtitles were dropped"; grep -E "subs:|probe:|player: candidate" "$OUT/stream_hints.log"; exit 1; }
 run player_next_loading 300 "right,ok,down,down,play,wait,down,right" "$SLOW" SNTV_FAKE_START=300
 run player_next_ring 300 "right,ok,down,down,play,wait,down,right,right" "$SLOW" SNTV_FAKE_START=300
+# the scene filter: a film's list from a CleanStream server is asked for, and a scene the playhead is in is skipped (off: nothing is asked)
+run scenes_skip 320 "right,right,ok,play,wait,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenes '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"sceneFilter":1}')"
+grep -q "player: scene filter: asking for http://127.0.0.1:$PORT" "$OUT/scenes_skip.log" && grep -q "player: scene filter: 1 scene (4 s) for tt" "$OUT/scenes_skip.log" && grep -q "player: scene filter: skipping 0-4 s" "$OUT/scenes_skip.log" \
+  || { echo "the scene filter did not ask for a list and skip its scene"; grep -E "scene filter" "$OUT/scenes_skip.log"; exit 1; }
+run scenes_mute 320 "right,right,ok,play,wait,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenesmute '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"sceneFilter":2}')"
+grep -q "player: scene filter: muted 0-4 s" "$OUT/scenes_mute.log" && ! grep -q "scene filter: skipping" "$OUT/scenes_mute.log" || { echo "the scene filter in mute mode did not mute (or skipped)"; grep "scene filter" "$OUT/scenes_mute.log"; exit 1; }
+run scenes_series 320 "right,ok,down,down,play,wait,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenesser '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"sceneFilter":1}')"
+! grep -q "scene filter: asking" "$OUT/scenes_series.log" || { echo "the scene filter asked for a list for an episode"; grep "scene filter" "$OUT/scenes_series.log"; exit 1; }
+run scenes_off 200 "right,right,ok,play,wait" SNTV_SCENES_API="http://127.0.0.1:$PORT/scenes" HOME="$(home_with scenesoff '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+! grep -q "scene filter" "$OUT/scenes_off.log" || { echo "the scene filter asked for a list while it was off"; grep "scene filter" "$OUT/scenes_off.log"; exit 1; }
 run player_skipped 300 "right,ok,down,down,play,wait,ok"
 # the controls up (Play brings them) and Skip intro showing: OK skips, it does not pause
 run player_skip_controls_up 320 "right,ok,down,down,play,wait,play,ok" HOME="$(home_with skipup '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -968,6 +978,8 @@ grep -q "streams: YouTube video for tt0903747:1:1 streaming" "$OUT/streams_youtu
 run settings_tvcap 380 "left,down,down,down,down,down,ok,up,ok,t:this tv can,down,down,down,down,left,ok,ok" HOME="$(home_with tvcap '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvCaps":{"dts":[0,2],"hevc":[5,0]}}')"
 # a text box for a link starts empty (it used to hold "https://" to delete first); the scheme is added when it is saved
 run settings_link_empty 420 "left,down,down,down,down,down,ok,up,ok,t:play a link,down,down,down,down,left,ok,ok" SNTV_EXPECT_SCREEN=settings HOME="$(home_with linkempty '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+# Settings > Parental: the scene filter's rows (they follow the filter being on)
+run settings_scenes 520 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,ok,down,down" SNTV_EXPECT_SCREEN=settings HOME="$(home_with scenesrows '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"sceneFilter":1}')"
 run settings_backup 420 "left,down,down,down,down,down,ok,up,ok,t:back up,down,down,down,down,left,ok,ok"
 grep -q "settings: found Back up or restore settings" "$OUT/settings_backup.log" || { echo "Back up or restore is not in Settings"; grep settings "$OUT/settings_backup.log"; exit 1; }
 # the backup carries the Stremio sign-in under the Cuelight tag; a restore follows it and keeps this TV's other accounts

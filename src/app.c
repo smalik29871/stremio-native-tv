@@ -2184,6 +2184,11 @@ static void load_prefs(void)
     if (g_app.night_mode < 0 || g_app.night_mode > 2) g_app.night_mode = 0;
     g_app.skip_mode = store_get_int("skipMode", 0);
     if (g_app.skip_mode < 0 || g_app.skip_mode > 2) g_app.skip_mode = 0;
+    g_app.scene_filter = store_get_int("sceneFilter", 0);
+    if (g_app.scene_filter < 0 || g_app.scene_filter > 2) g_app.scene_filter = 0;
+    g_app.scene_sev = store_get_int("sceneSev", 0);
+    if (g_app.scene_sev < 0 || g_app.scene_sev > 2) g_app.scene_sev = 0;
+    snprintf(g_app.scene_source, sizeof g_app.scene_source, "%s", store_get_str("sceneSource", ""));
     g_app.subs_always = store_get_int("subsAlways", 0);
     g_app.clock_mode = store_get_int("clockMode", 0);
     if (g_app.clock_mode < 0 || g_app.clock_mode > 2) g_app.clock_mode = 0;
@@ -2294,6 +2299,9 @@ void app_save_prefs(void)
     store_set_int("subsColour", g_app.subs_colour);
     store_set_int("autoplayNext", g_app.autoplay_next);
     store_set_int("skipMode", g_app.skip_mode);
+    store_set_int("sceneFilter", g_app.scene_filter);
+    store_set_int("sceneSev", g_app.scene_sev);
+    store_set_str("sceneSource", g_app.scene_source);
     store_set_int("nightMode", g_app.night_mode);
     store_set_int("subsAlways", g_app.subs_always);
     store_set_int("clockMode", g_app.clock_mode);

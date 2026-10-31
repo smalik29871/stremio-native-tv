@@ -24,6 +24,7 @@
 #include "../ai.h"
 #include "../../vendor/cJSON.h"
 #include "../skip.h"
+#include "../scene_filter.h"
 #include "../store.h"
 #include "../youtube.h"
 #include "../subs.h"
@@ -262,6 +263,12 @@ struct Player {
     SkipSeg skip[SKIP_MAX]; int n_skip;
     int skip_state;           /* 0 not asked, 1 asking, 2 answered (or gave up) */
     unsigned skip_used;       /* bit per segment: skipped or played through */
+    /* the scene filter (nudity and sex scenes: src/scene_filter.h) */
+    FilterSeg fseg[FILTER_MAX]; int n_fseg;
+    int fstate;               /* 0 not asked, 1 asking, 2 answered (or gave up) */
+    int f_muted;              /* the sound is off for a scene */
+    float f_hold_until;       /* after a skip: the seek is under way, do not ask again before this time */
+    double f_skipped;         /* seconds skipped so far */
     double next_at;           /* position where Up Next starts by itself */
     int up_next_dismissed;
     int next_wanted;          /* OK on the card while the next episode was still being prepared: it starts when ready */
@@ -1924,6 +1931,61 @@ static void do_skip(Player *p, const SkipSeg *s)
     app_redraw();
 }
 
+/* ---- the scene filter ---- */
+
+static void on_scenes(HttpResponse *r, void *user)
+{
+    SubReq *q = user;
+    Player *p = q->owner;
+    if (p != g_live || q->gen != p->gen) { free(q); return; }
+    free(q);
+    p->fstate = 2;
+    if (r->status != 200 || !r->body) { LOGI("player: scene filter: no list for %s (status %ld)", p->video_id, r->status); return; }
+    int sev = g_app.scene_sev == 2 ? FSEV_HIGH : g_app.scene_sev == 1 ? FSEV_MEDIUM : FSEV_LOW;
+    int n = scene_filter_parse(r->body, FCAT_NUDITY, sev, p->fseg, FILTER_MAX);
+    p->n_fseg = n > 0 ? n : 0;
+    if (n < 0) { LOGW("player: scene filter: the answer for %s is not a scene list", p->video_id); return; }
+    double total = 0;
+    for (int i = 0; i < p->n_fseg; i++) total += p->fseg[i].end - p->fseg[i].start;
+    LOGI("player: scene filter: %d scene%s (%.0f s) for %s", p->n_fseg, p->n_fseg == 1 ? "" : "s", total, p->video_id);
+}
+
+/* Once per film, when it plays: only a film (an IMDb id without season and episode) has a list. */
+static void scene_fetch(Player *p, const VideoInfo *vi)
+{
+    if (!g_app.scene_filter || p->fstate || p->trailer) return;
+    if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED) return;
+    char url[320];
+    p->fstate = 1;
+    if (scene_filter_url(g_app.scene_source, p->video_id, url, sizeof url) != 0) { p->fstate = 2; return; }
+    SubReq *q = calloc(1, sizeof *q);
+    q->owner = p; q->gen = p->gen; q->addon = -1;
+    LOGI("player: scene filter: asking for %s", url);
+    http_request_async(url, NULL, on_scenes, q);
+}
+
+/* Playing and inside a scene: skip it (the sound only for a word, or while Cue Party keeps everyone together, is
+ * muted instead); out of it again: the sound back. */
+static void scene_apply(Player *p, const VideoInfo *vi)
+{
+    const FilterSeg *s = g_app.scene_filter && p->n_fseg > 0 && vi->state == VIDEO_PLAYING ? scene_filter_at(p->fseg, p->n_fseg, vi->position) : NULL;
+    if (!s) {
+        if (p->f_muted) { p->f_muted = 0; video_set_muted(0); }
+        return;
+    }
+    if (s->audio_only || g_app.scene_filter == 2 || party_active()) {
+        if (!p->f_muted) { p->f_muted = 1; video_set_muted(1); LOGI("player: scene filter: muted %.0f-%.0f s", s->start, s->end); }
+        return;
+    }
+    if (g_app.time < p->f_hold_until) return;
+    p->f_hold_until = g_app.time + 1.5f;
+    p->f_skipped += s->end - vi->position;
+    LOGI("player: scene filter: skipping %.0f-%.0f s (%.0f s)", s->start, s->end, s->end - vi->position);
+    player_seek(s->end);
+    app_toast("Skipped a scene (%.0f s)", s->end - vi->position);
+    app_redraw();
+}
+
 /* Back to the sources list for this episode; the player goes away with its video. */
 static void browse_sources(Player *p)
 {
@@ -3123,6 +3185,8 @@ static void update(Screen *s, float dt)
     }
     fallback_tick(p, &vi);
     skip_fetch(p, &vi);
+    scene_fetch(p, &vi);
+    scene_apply(p, &vi);
     if (g_app.skip_mode == 1 && vi.state == VIDEO_PLAYING && !p->menu) { const SkipSeg *sk = skippable(p, &vi); if (sk) do_skip(p, sk); }
 
     if (p->pip) {   /* no Up Next card in the corner: finish quietly and hand the plane back */
@@ -7257,6 +7321,7 @@ void player_save_progress_quiet(void)   /* an overlay over the app: saved, but T
 
 static void destroy(Screen *s)
 {
+    if (((Player *)s->st)->f_muted) video_set_muted(0);   /* closed inside a scene the sound was off for */
     Player *p = s->st;
     if (p->tb_waiting) { cand_drop(&p->tb_wait); p->tb_waiting = 0; }
     if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */

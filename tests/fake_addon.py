@@ -1106,6 +1106,12 @@ class H(BaseHTTPRequestHandler):
             if scope:
                 return self.send(200, json.dumps({"streams": [dict(st, url=st["url"] + ("&" if "?" in st["url"] else "?") + "scope=1") if st.get("url") else st for st in STREAMS["streams"]]}).encode())
             return self.send(200, json.dumps(STREAMS).encode())
+        if p.startswith("/scenes/api/skips/"):
+            # a CleanStream answer: a scene at the very start (padded, it is covered at once), a word muted later, a kind that is not nudity
+            return self.send(200, json.dumps({"version": "1.0.0", "imdbId": p.rsplit("/", 1)[1], "totalSkips": 3, "skips": [
+                {"id": "a", "startMs": 1000, "endMs": 3000, "category": "nudity", "severity": "high", "channel": "both"},
+                {"id": "b", "startMs": 60000, "endMs": 61000, "category": "language", "severity": "low", "channel": "audio"},
+                {"id": "c", "startMs": 90000, "endMs": 95000, "category": "violence", "severity": "high", "channel": "both"}]}).encode())
         if p.startswith("/introdb/media"):
             # TheIntroDB v4 shape: intro from the start to 60 s, credits at 50 min (the end of a 52 min episode)
             from urllib.parse import urlparse, parse_qs

@@ -46,6 +46,7 @@ add_library(sntv_core STATIC
   src/sha256.c
   src/subs.c
   src/skip.c
+  src/scene_filter.c
   src/quality.c
   src/probe.c
   src/tmdb.c
@@ -374,6 +375,9 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_skip PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_skip PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME skip_markers COMMAND test_skip)
+  add_executable(test_scene_filter tests/test_scene_filter.c)
+  target_link_libraries(test_scene_filter PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME scene_filter COMMAND test_scene_filter)
   add_executable(test_prefs tests/test_prefs.c)
   target_link_libraries(test_prefs PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME language_and_track_memory COMMAND test_prefs)
