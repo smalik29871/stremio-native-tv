@@ -472,6 +472,54 @@ public final class CuelightPlayer {
         }
     }
 
+    /* A settings backup leaves through Android's share sheet (Files, Drive, a chat) and comes back through its file picker */
+    private static volatile String sPicked;
+    static final int PICK_CODE = 7311;
+
+    public static void shareText(String name, String text) {
+        run(() -> {
+            try {
+                File dir = new File(sActivity.getCacheDir(), "updates");
+                dir.mkdirs();
+                File f = new File(dir, name);
+                try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(text.getBytes("UTF-8")); }
+                Uri u = FileProvider.getUriForFile(sActivity, sActivity.getPackageName() + ".updates", f);
+                Intent i = new Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, u)
+                        .putExtra(Intent.EXTRA_SUBJECT, name).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                sActivity.startActivity(Intent.createChooser(i, "Save the backup"));
+            } catch (Exception e) {
+                Log.w(TAG, "backup share: " + e);
+            }
+        });
+    }
+
+    public static void pickText() {
+        run(() -> {
+            try {
+                sPicked = null;
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+                sActivity.startActivityForResult(i, PICK_CODE);
+            } catch (Exception e) {
+                Log.w(TAG, "backup pick: " + e);
+            }
+        });
+    }
+
+    static void onPicked(int code, int result, Intent data) {
+        if (code != PICK_CODE || result != Activity.RESULT_OK || data == null || data.getData() == null) return;
+        try (java.io.InputStream in = sActivity.getContentResolver().openInputStream(data.getData())) {
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while (in != null && (n = in.read(buf)) > 0 && b.size() < 262144) b.write(buf, 0, n);
+            sPicked = b.toString("UTF-8");
+        } catch (Exception e) {
+            Log.w(TAG, "backup read: " + e);
+        }
+    }
+
+    public static String takePicked() { String t = sPicked; sPicked = null; return t; }
+
     public static int installState() {
         if (sUpdWaiting && sUpdFile != null && (Build.VERSION.SDK_INT < 26 || sActivity.getPackageManager().canRequestPackageInstalls())) {
             sUpdWaiting = false;   /* allowed now: on to the install */

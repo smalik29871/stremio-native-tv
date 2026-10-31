@@ -1147,6 +1147,9 @@ void video_subtitle_style(int size, int style, const char *colour, int position,
 
 void video_landscape_only(int on) { (void)on; }
 int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }
+int video_share_text(const char *name, const char *text) { (void)name; (void)text; return 0; }
+int video_pick_text_start(void) { return 0; }
+char *video_pick_text_take(void) { return NULL; }
 int video_open_browser(const char *url)
 {
     if (strncmp(url, "http://", 7) && strncmp(url, "https://", 8)) return 0;

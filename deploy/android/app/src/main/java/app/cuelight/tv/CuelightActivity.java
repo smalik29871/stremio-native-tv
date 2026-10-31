@@ -94,6 +94,12 @@ public class CuelightActivity extends SDLActivity {
     }
 
     @Override
+    protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        CuelightPlayer.onPicked(code, result, data);
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         CuelightPlayer.offerUrl(intent != null ? intent.getDataString() : null);

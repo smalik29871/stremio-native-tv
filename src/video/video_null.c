@@ -235,6 +235,9 @@ void video_select_track(TrackKind kind, int index)
 
 void video_landscape_only(int on) { (void)on; }
 int video_take_open_url(char *out, size_t n) { (void)out; (void)n; return 0; }   /* only Android is opened with links */   /* TVs and the desktop do not turn */
+int video_share_text(const char *name, const char *text) { (void)name; (void)text; return 0; }
+int video_pick_text_start(void) { return 0; }
+char *video_pick_text_take(void) { return NULL; }
 int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!getenv("SNTV_FAKE_EMBED") || !youtube_id_valid(id)) return 0; snprintf(out, n, "youtube-embed:%.20s", id); return 1; }   /* tests: as Android does */
 int video_has_youtube_app(void) { return getenv("SNTV_FAKE_BROWSER") != NULL; }   /* tests: as Android does */
 int video_open_youtube(const char *id) { if (!video_has_youtube_app() || !youtube_id_valid(id)) return 0; LOGI("video: the YouTube app opened %s", id); return 1; }

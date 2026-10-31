@@ -71,6 +71,9 @@ void video_subtitle_style(int size, int style, const char *colour, int position,
 void video_landscape_only(int on);
 /* A link the app was opened with since the last call (a stremio:// addon), copied to out: 1, else 0. */
 int  video_take_open_url(char *out, size_t n);
+int  video_share_text(const char *name, const char *text);   /* Android: the share sheet takes it as a file; 0 where there is none */
+int  video_pick_text_start(void);                              /* Android: the file picker opens; 0 where there is none */
+char *video_pick_text_take(void);                              /* what the picker returned (malloc'd, once), or NULL */
 /* A web page (an addon's settings) in the device's browser: 1 when one opened, else 0. */
 int  video_open_browser(const char *url);
 /* A YouTube video in the device's own YouTube app (signed in, so YouTube's "are you a bot"

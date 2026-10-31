@@ -1519,6 +1519,9 @@ run phone_search_space 400 "wait,tap:390:1660,wait,tap:390:180,wait,t:breaking,s
 grep -qE '"recentSearches":[[:space:]]*\["breaking bad"\]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json" \
   || { echo "the space bar of a phone keyboard did not type a space"; grep -o '"recentSearches":[^]]*]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json"; exit 1; }
 run phone_settings 240 "wait,tap:702:1660,wait,tap:300:300,wait,wait" $PH SNTV_EXPECT_SCREEN=settings HOME="$(home_with ph6 '{"setupDone":1}')"
+# a phone saves a backup through its own share sheet and restores from its file picker: no code to scan (the page was drawn for a TV, off the right edge)
+run phone_backup 2500 "wait,tap:702:1660,wait,tap:300:932,wait,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,down,wait,tap:300:1515,wait,wait,tap:390:329,wait,wait" $PH SNTV_EXPECT_SCREEN=settings HOME="$(home_with phbk '{"setupDone":1}')"
+grep -q "toast: This device cannot share a file" "$OUT/phone_backup.log" || { echo "Save a backup on a phone did not reach the share sheet"; grep -E "toast|settings" "$OUT/phone_backup.log" | tail -5; exit 1; }
 run phone_explore 220 "wait,tap:234:1660,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=explore HOME="$(home_with ph7 '{"setupDone":1}')"
 run phone_library 200 "wait,tap:546:1660,wait,wait" $PH SNTV_EXPECT_SCREEN=library HOME="$(home_with ph8 '{"setupDone":1}')"
 run phone_setup 160 "wait,wait" $PH SNTV_EXPECT_SCREEN=welcome HOME="$(home_with ph9 '{}')"

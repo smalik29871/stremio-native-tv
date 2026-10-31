@@ -92,7 +92,7 @@ static int rec_installed(int i)
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX };
 enum { MAX_ROWS = 160 };
 #define ROW_H 100.0f
-enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001, HIT_RIGHT = 0x5000 };   /* touch targets besides the rows (their index) */
+enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001, HIT_SAVE = 0x4002, HIT_RESTORE = 0x4003, HIT_RIGHT = 0x5000 };   /* touch targets besides the rows (their index) */
 static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define SEC_H 70.0f
 /* Choosing a category the rows start at COL_X0; inside one the category list shrinks
@@ -620,7 +620,8 @@ static void update(Screen *s, float dt)
 {
     Settings *st = s->st;
     if (st->edit == EDIT_BACKUP) {
-        char *json = phone_take_restore();
+        char *json = SNTV_PHONE ? video_pick_text_take() : NULL;
+        if (!json) json = phone_take_restore();
         if (json) { int n = app_restore_settings(json); free(json); app_toast(n > 0 ? "Settings restored from your phone (%d)" : "That backup could not be read", n); finish_edit(st, 0); app_redraw(); }
         return;
     }
@@ -889,6 +890,20 @@ static void draw(Screen *s)
         s_r = SNTV_UI_W - THEME_MARGIN + (COL_R1 - (SNTV_UI_W - THEME_MARGIN)) * e;
     }
 
+    if (SNTV_PHONE && st->edit == EDIT_BACKUP) {   /* this phone is the phone: its own share sheet and file picker, no code to scan */
+        float x = 40, w = SNTV_UI_W - 80, y = 170;
+        gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+        phone_header(edit_title(st->edit));
+        y += font_draw_wrapped("Save your settings to a file (Files, Drive, a chat), or restore them from one. A restored backup applies at once. Your Stremio sign-in is not included.", x, y, FONT_S, THEME_TEXT_DIM, w, 6) * font_height(FONT_S) + 40;
+        gfx_rrect(x, y, w, 96, 48, THEME_ACCENT);
+        font_draw_center("Save a backup", x + w / 2, y + (96 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_ON_ACCENT);
+        ui_hit(x, y, w, 96, HIT_SAVE);
+        y += 120;
+        gfx_rrect(x, y, w, 96, 48, COLOR_ALPHA(THEME_TEXT, 0x1C));
+        font_draw_center("Restore from a file", x + w / 2, y + (96 - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, THEME_TEXT);
+        ui_hit(x, y, w, 96, HIT_RESTORE);
+        return;
+    }
     if (st->edit == EDIT_BACKUP) {   /* no typing: the phone does it all */
         float x = COL_X0;
         font_draw(edit_title(st->edit), x, 100, FONT_L | FONT_B, THEME_TEXT);
@@ -1839,7 +1854,18 @@ static void after_pin_toggle(int ok, void *user) { if (!ok) return; int *flag = 
 static int tap(Screen *s, int id)
 {
     Settings *st = s->st;
-    if (st->edit == EDIT_BACKUP) return 1;
+    if (st->edit == EDIT_BACKUP) {
+        if (!SNTV_PHONE || g_touch_aim) return 1;
+        if (id == HIT_BACK) finish_edit(st, 0);
+        else if (id == HIT_SAVE) {
+            char *j = app_backup_settings();
+            char name[48];
+            snprintf(name, sizeof name, "cuelight-backup-%s.json", SNTV_APP_VERSION);
+            if (!video_share_text(name, j ? j : "{}")) app_toast("This device cannot share a file");
+            free(j);
+        } else if (id == HIT_RESTORE && !video_pick_text_start()) app_toast("This device cannot open a file");
+        return 1;
+    }
     if (st->edit != EDIT_NONE && SNTV_PHONE) {   /* the phone's keyboard types; Done or Cancel */
         if (g_touch_aim) return 1;
         if (id == HIT_DONE) finish_edit(st, 1); else if (id == HIT_BACK) finish_edit(st, 0);

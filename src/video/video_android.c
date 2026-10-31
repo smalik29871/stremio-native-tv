@@ -16,7 +16,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;DJ)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -27,6 +27,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
     { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" }, { "subtitleLift", "(F)V" },
+    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -117,6 +118,30 @@ int video_take_open_url(char *out, size_t n)
     if (c) (*e)->ReleaseStringUTFChars(e, s, c);
     (*e)->DeleteLocalRef(e, s);
     return ok;
+}
+int video_share_text(const char *name, const char *text)
+{
+    JNIEnv *e = env();
+    if (!e || !name || !text) return 0;
+    jstring n = (*e)->NewStringUTF(e, name), t = (*e)->NewStringUTF(e, text);
+    (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_SHARE], n, t);
+    clear(e);
+    (*e)->DeleteLocalRef(e, n); (*e)->DeleteLocalRef(e, t);
+    return 1;
+}
+int video_pick_text_start(void) { if (!env()) return 0; CALL(M_PICK); return 1; }
+char *video_pick_text_take(void)
+{
+    JNIEnv *e = env();
+    if (!e) return NULL;
+    jstring s = (jstring)(*e)->CallStaticObjectMethod(e, g_cls, g_m[M_TAKE_PICKED]);
+    clear(e);
+    if (!s) return NULL;
+    const char *c = (*e)->GetStringUTFChars(e, s, NULL);
+    char *out = c ? strdup(c) : NULL;
+    if (c) (*e)->ReleaseStringUTFChars(e, s, c);
+    (*e)->DeleteLocalRef(e, s);
+    return out;
 }
 int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }   /* 0 where nothing opens web links (some TV boxes) */
 int video_has_youtube_app(void) { return 1; }
