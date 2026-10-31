@@ -334,6 +334,7 @@ static void draw(Screen *s)
     if (d->tab == TAB_SPEED) {   /* the measurements, not the log */
         char rep[3072];
         perf_report(rep, sizeof rep);
+        if (SNTV_PHONE) list_h = SNTV_UI_H - LIST_Y - 260;   /* upright: the lines wrap, so they need the room the screen has below */
         gfx_rrect(x - 16, LIST_Y - 12, w + 32, list_h + 24, R_PANEL, RGBA(0x00, 0x00, 0x00, 0x40));
         float ly = LIST_Y + 8;
         for (char *p = rep, *e; *p && ly < LIST_Y + list_h; p = e + (*e ? 1 : 0)) {
@@ -342,7 +343,7 @@ static void draw(Screen *s)
             if (SNTV_PHONE) {   /* upright: smaller and wrapped, not cut off at the screen's edge (the late-frame counts were lost) */
                 const char *t = !strncmp(one, "Per frame:", 10) ? "Per screen, ms: app work (typical / 1 in 20), whole frame (typical / 1 in 20 / slowest), frames (late), screens painted" : one;
                 int fs = one[0] == ' ' ? FONT_XS | FONT_ALT : FONT_XS | FONT_B;
-                int nl = font_draw_wrapped(t, x + 10, ly, fs, one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20, 3);
+                int nl = font_draw_wrapped(t, x + 10, ly, fs, one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20, 7);
                 ly += (float)nl * (font_height(fs) + 2) + 10;
             } else {
                 font_draw_fit(one, x + 10, ly, (one[0] == ' ' ? FONT_S | FONT_ALT : FONT_S | FONT_B), one[0] == ' ' ? THEME_TEXT_DIM : THEME_TEXT, w - 20);

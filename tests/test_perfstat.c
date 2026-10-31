@@ -79,6 +79,33 @@ int main(void)
     perf_report(report, sizeof report);
     CHECK(strstr(report, "Slowest steps: http: worst 14 ms, over 3 ms 2 times; screen draw: worst 9 ms, over 3 ms 1 times; pictures: worst 6 ms, over 3 ms 1 times"));
     CHECK(!strstr(report, "video: worst"));
+    /* the frame-rate governor at 120 Hz (8.3 ms; slow is past 12.5): a screen that keeps up stays; one that does not drops to a steady 60,
+     * is tried at full rate again after 120 s, and a failed try waits twice as long */
+    {
+        float t = 10;
+        int d = 1;
+        for (int i = 0; i < 400; i++) d = perf_governor(8.4f, t += 0.01f, 120);   /* 400 frames at the refresh: stays */
+        CHECK(d == 1);
+        for (int i = 0; i < 119; i++) d = perf_governor(17.0f, t += 0.01f, 120);  /* every frame late, but a window is not over */
+        CHECK(d == 1);
+        d = perf_governor(17.0f, t += 0.01f, 120);                                /* the first slow window: one is not enough */
+        CHECK(d == 1);
+        for (int i = 0; i < 120; i++) d = perf_governor(17.0f, t += 0.01f, 120);
+        CHECK(d == 2);                                                            /* the second: a steady 60 */
+        float dropped = t;
+        CHECK(perf_governor(40.0f, dropped + 119, 120) == 2);                     /* frames at half rate are not judged */
+        CHECK(perf_governor(16.7f, dropped + 121, 120) == 1);                     /* tried again */
+        for (int i = 0; i < 120; i++) d = perf_governor(17.0f, t = dropped + 121 + i * 0.01f, 120);
+        CHECK(d == 2);                                                            /* a trial that is slow once is over */
+        float second = t;
+        CHECK(perf_governor(16.7f, second + 121, 120) == 2);                      /* now it waits twice as long */
+        CHECK(perf_governor(16.7f, second + 241, 120) == 1);
+        for (int w = 0; w < 7; w++) for (int i = 0; i < 120; i++) d = perf_governor(8.4f, t = second + 241 + (w * 120 + i) * 0.01f, 120);
+        CHECK(d == 1);                                                            /* a trial that holds is kept */
+        CHECK(perf_governor(50.0f, t + 1, 60) == 1);                              /* a 60 Hz screen has nothing to halve to */
+        perf_report(report, sizeof report);
+        CHECK(!strstr(report, "Frame rate: a steady"));
+    }
     perf_set_refresh(0);
     if (failures) return 1;
     puts("playback diagnostic checks passed");

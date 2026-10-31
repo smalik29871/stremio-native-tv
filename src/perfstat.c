@@ -106,6 +106,41 @@ float perf_snap_dt(float dt, int hz)
     return n >= 1 && fabsf(dt - n * p) < 0.3f * p ? n * p : dt;
 }
 
+/* The frame-rate governor. Windows of GOV_WINDOW drawn frames: a window is slow when a seventh or more of its frames took
+ * past 1.5 refreshes. Two slow windows in a row at full rate halve the rate; after RETRY seconds (doubling on every failure
+ * to 16 minutes) full rate is tried again, and kept once six windows in a row are fine. */
+#define GOV_WINDOW 120
+static struct { int div, n, slow, bad, good, trial; float since, retry; } g_gov = { 1, 0, 0, 0, 0, 0, 0, 120 };
+static int g_gov_base;
+
+int perf_governor(float whole_ms, float now_s, int base_hz)
+{
+    if (base_hz < 90) return 1;   /* at 60 there is nothing to halve to */
+    g_gov_base = base_hz;
+    if (g_gov.div == 2) {
+        if (now_s - g_gov.since >= g_gov.retry) { g_gov.div = 1; g_gov.trial = 1; g_gov.n = g_gov.slow = g_gov.bad = g_gov.good = 0; }
+        return g_gov.div;
+    }
+    float base_ms = 1000.0f / (float)base_hz;
+    g_gov.n++;
+    if (whole_ms > 1.5f * base_ms) g_gov.slow++;
+    if (g_gov.n < GOV_WINDOW) return 1;
+    int slow = g_gov.slow * 7 >= g_gov.n;
+    g_gov.n = g_gov.slow = 0;
+    if (slow) {
+        g_gov.good = 0;
+        if (++g_gov.bad >= 2 || g_gov.trial) {   /* a trial that is slow once is over */
+            if (g_gov.trial && g_gov.retry < 960) g_gov.retry *= 2;
+            g_gov.div = 2; g_gov.since = now_s; g_gov.bad = g_gov.trial = 0;
+            LOGI("perf: frames keep missing their refresh at %d Hz -> a steady %d Hz (full rate tried again in %.0f s)", base_hz, base_hz / 2, g_gov.retry);
+        }
+    } else {
+        g_gov.bad = 0;
+        if (g_gov.trial && ++g_gov.good >= 6) { g_gov.trial = 0; g_gov.retry = 120; LOGI("perf: full rate holds at %d Hz", base_hz); }
+    }
+    return g_gov.div;
+}
+
 void perf_set_refresh(float hz) { g_refresh_ms = hz >= 30 && hz <= 240 ? 1000.0f / hz : 0; }
 
 float perf_frame_period_ms(void)
@@ -245,6 +280,7 @@ void perf_report(char *out, size_t n)
         if (g_playback.seeks) ADD("Seek recovery: average %u ms, slowest %u ms (%u seeks)\n", g_playback.seek_total / g_playback.seeks, g_playback.seek_max, g_playback.seeks);
     }
     if (g_uploads.n) ADD("Pictures to the GPU: %u frames, %.1f MB; typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms in a frame\n", g_uploads.n, g_upload_bytes / 1048576.0, hist_pct(&g_uploads, 0.5f), hist_pct(&g_uploads, 0.95f), g_uploads.max);
+    if (g_gov.div == 2) ADD("Frame rate: a steady %d of %d (the screen could not finish every frame at %d); full rate is tried again later\n", g_gov_base / 2, g_gov_base, g_gov_base);
     if (g_n_stages) {   /* the three steps of the update that took longest at their worst */
         int pick[3] = { -1, -1, -1 };
         for (int k = 0; k < 3; k++) {

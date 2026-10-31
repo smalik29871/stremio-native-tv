@@ -839,6 +839,7 @@ static void android_unpack_assets(void)
 static int g_perf_fill;   /* SNTV_PERF_FILL: every 30th frame's paint in the log (finding what a TV's GPU finds slow) */
 
 #define STAGE(name, call) do { Uint64 s_ = SDL_GetPerformanceCounter(); call; perf_stage(name, (float)((double)(SDL_GetPerformanceCounter() - s_) * 1000.0 / (double)SDL_GetPerformanceFrequency())); } while (0)
+static int g_frame_div = 1;   /* 2: every second refresh (the governor in perfstat.c)  */
 static int g_refresh_hz;   /* the display's refresh rate where the platform tells it (Android), else 0 */
 int main(int argc, char **argv)
 {
@@ -1160,7 +1161,7 @@ int main(int argc, char **argv)
         Uint64 pc = SDL_GetPerformanceCounter();
         float dt = (float)((double)(pc - prev_pc) / (double)SDL_GetPerformanceFrequency());   /* not whole milliseconds: at 90 Hz a frame is 11.1, and 11 or 12 each time shows as judder */
         if (dt > 0.1f) dt = 0.1f;
-        dt = perf_snap_dt(dt, g_refresh_hz);   /* a frame that came on a refresh is exactly that many refreshes long, whatever the scheduler did to the timer */
+        dt = perf_snap_dt(dt, g_refresh_hz / g_frame_div);   /* a frame that came on a refresh is exactly that many refreshes long, whatever the scheduler did to the timer */
         { static float fixed = -1; if (fixed < 0) { const char *f = getenv("SNTV_FRAME_DT"); fixed = f ? (float)atof(f) : 0; } if (fixed > 0) dt = fixed; }   /* test hook: animations frame by frame */
         prev_pc = pc;
         g_app.time += dt;
@@ -1245,10 +1246,14 @@ int main(int argc, char **argv)
             perf_mark("first frame");
             perf_shown();
             app_note_frame(whole);
+            if (g_refresh_hz >= 90 && !g_app.pip && !(top && (!strcmp(top->name, "player") || !strcmp(top->name, "ambient")))) {   /* the player and the screensaver draw at the video's rate */
+                int d = perf_governor(whole, g_app.time, g_refresh_hz);
+                if (d != g_frame_div) { g_frame_div = d; perf_set_refresh((float)g_refresh_hz / (float)d); }
+            }
             if (frame == 120) LOGI("perf: %d draw calls, %u ms frame", gfx_draw_calls(), spent);
             /* A swap that waited for the display already paced the frame; sleeping on top of
              * it only delays the next key. Cap the rate only when the swap returned at once. */
-            Uint32 cap = g_refresh_hz ? 1000u / (unsigned)g_refresh_hz : 16;   /* a hair under a refresh: the swap then waits for the display and paces the frame */
+            Uint32 cap = g_refresh_hz ? 1000u * (unsigned)g_frame_div / (unsigned)g_refresh_hz - (g_frame_div > 1 ? 1u : 0u) : 16;   /* a hair under a refresh: the swap then waits for the display and paces the frame */
             if (end - swap_at < 2 && spent < cap) SDL_Delay(cap - spent);
         } else {
             SDL_WaitEventTimeout(NULL, 25);   /* idle: wake the moment a key arrives, else poll the network at 40 Hz */
