@@ -520,6 +520,19 @@ int image_failed(const char *url)
  * show when complete. */
 enum { UPLOAD_BUDGET = 1u << 20 };
 static Img *g_upload_q;   /* main thread only */
+/* The bytes a frame may send are also limited by time: a quarter of a refresh (2 to 5 ms), and what a
+ * millisecond buys is learned from the uploads themselves, so a slow GPU takes less each frame and a
+ * fast one the whole megabyte. At least one picture or band goes every frame, so they always arrive. */
+static double g_up_kb_ms = 256;   /* learned: KB sent per ms; a guess until the first upload */
+static double up_ms_now(void) { return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency(); }
+static double up_budget_ms(void) { double b = perf_frame_period_ms() * 0.25; return b < 2.0 ? 2.0 : b > 5.0 ? 5.0 : b; }
+static void up_learn(size_t bytes, double ms)
+{
+    if (ms < 0.05 || bytes < 16384) return;
+    double rate = (double)bytes / 1024.0 / ms;
+    g_up_kb_ms = g_up_kb_ms * 0.7 + rate * 0.3;
+    if (g_up_kb_ms < 16) g_up_kb_ms = 16;
+}
 
 static void upload_done(Img *i)
 {
@@ -533,21 +546,37 @@ static void upload_done(Img *i)
     i->ready_at = g_clock;
 }
 
+/* Closes the frame's uploads: what they took, for Diagnostics > Speed (and the log when one ran long). */
+static void up_report(size_t uploaded, double t0)
+{
+    if (!uploaded) return;
+    double ms = up_ms_now() - t0;
+    perf_upload((float)ms, uploaded);
+    if (ms > 2.0 * up_budget_ms()) LOGI("image: %.1f MB took %.1f ms to send to the GPU in one frame (budget %.1f ms, %.0f KB/ms learned)", uploaded / 1048576.0, ms, up_budget_ms(), g_up_kb_ms);
+}
+
 void image_pump(void)
 {
     size_t uploaded = 0;
-    while (g_upload_q && uploaded < UPLOAD_BUDGET) {   /* the bands of pictures already going up */
+    double t0 = up_ms_now(), budget = up_budget_ms();
+#define UP_FULL() (uploaded >= UPLOAD_BUDGET || (uploaded && up_ms_now() - t0 >= budget))
+    while (g_upload_q && !UP_FULL()) {   /* the bands of pictures already going up */
         Img *i = g_upload_q;
         size_t row = (size_t)i->w * 4;
-        int n = (int)((UPLOAD_BUDGET - uploaded) / row);
+        double left = budget - (up_ms_now() - t0);
+        size_t room = UPLOAD_BUDGET - uploaded, by_time = (size_t)(g_up_kb_ms * 1024.0 * (left > 0.5 ? left : 0.5));
+        if (by_time < room) room = by_time;
+        int n = (int)(room / row);
         if (n < 16) n = 16;
         if (n > i->h - i->up_row) n = i->h - i->up_row;
+        double b0 = up_ms_now();
         gfx_texture_update_rows(i->tex, i->pixels + (size_t)i->up_row * row, i->w, i->up_row, n);
+        up_learn((size_t)n * row, up_ms_now() - b0);
         i->up_row += n;
         uploaded += (size_t)n * row;
         if (i->up_row >= i->h) { g_upload_q = i->unext; upload_done(i); }
     }
-    if (uploaded >= UPLOAD_BUDGET) { evict_if_needed(); return; }
+    if (UP_FULL()) { up_report(uploaded, t0); evict_if_needed(); return; }
     SDL_LockMutex(g_lock);
     Img *done = g_done_q;
     g_done_q = NULL;
@@ -570,14 +599,16 @@ void image_pump(void)
             while (*t) t = &(*t)->unext;
             *t = i;
         } else if (i->pixels) {
+            double b0 = up_ms_now();
             i->tex = (i->flags & IMAGE_MIPMAP) ? gfx_texture_rgba_mip(i->pixels, i->w, i->h) : gfx_texture_rgba(i->pixels, i->w, i->h);
             upload_done(i);
+            up_learn(i->bytes, up_ms_now() - b0);
             uploaded += i->bytes;
         } else {
             i->state = IMG_FAILED;
         }
         SDL_LockMutex(g_lock); g_pending_decodes--; SDL_UnlockMutex(g_lock);
-        if (uploaded >= UPLOAD_BUDGET && done) {   /* the rest next frame */
+        if (UP_FULL() && done) {   /* the rest next frame */
             SDL_LockMutex(g_lock);
             Img *tail = done;
             while (tail->qnext) tail = tail->qnext;
@@ -587,8 +618,10 @@ void image_pump(void)
             break;
         }
     }
+    up_report(uploaded, t0);
     evict_if_needed();
 }
+#undef UP_FULL
 
 void image_hold_speculative(int on) { g_hold = on; }
 

@@ -11,6 +11,8 @@ void perf_mark(const char *name);                   /* a startup milestone; only
  * pixels it painted (the GPU's work: 1 is every pixel once). */
 void perf_frame(const char *screen, float work_ms, float total_ms, float fill);
 void perf_key(void);                                /* a key arrived */
+/* A frame that sent pictures to the GPU: how long the sending took on the main thread (ms) and how much went. */
+void perf_upload(float ms, size_t bytes);
 /* The screen's refresh period in ms, from the frames: the most common whole-frame time between
  * 12 and 34 ms (a frame that kept up waited for the display that long); 16.7 until it is known. */
 float perf_frame_period_ms(void);

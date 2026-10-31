@@ -15,6 +15,8 @@ static int g_n_marks;
 static struct { char name[16]; Hist h, total; unsigned late; double fill_sum; float fill_max; } g_screens[MAX_SCREENS];   /* late: frames that missed a refresh */
 static int g_n_screens;
 static Hist g_keys;
+static Hist g_uploads;   /* the frames that sent pictures to the GPU: ms each */
+static double g_upload_bytes;
 static Uint32 g_key_at;   /* 0: no key waiting to be shown */
 
 static void hist_add(Hist *h, float ms)
@@ -31,6 +33,12 @@ static int hist_pct(const Hist *h, float p)
     if (want < 1) want = 1;
     for (int b = 0; b < BINS; b++) if ((seen += h->bins[b]) >= want) return b;
     return BINS - 1;
+}
+
+void perf_upload(float ms, size_t bytes)
+{
+    hist_add(&g_uploads, ms);
+    g_upload_bytes += (double)bytes;
 }
 
 void perf_mark(const char *name)
@@ -195,6 +203,7 @@ void perf_report(char *out, size_t n)
             g_playback.played, g_playback.buffered, total > 0 ? g_playback.buffered * 100 / total : 0, g_playback.stalls, g_playback.dropped);
         if (g_playback.seeks) ADD("Seek recovery: average %u ms, slowest %u ms (%u seeks)\n", g_playback.seek_total / g_playback.seeks, g_playback.seek_max, g_playback.seeks);
     }
+    if (g_uploads.n) ADD("Pictures to the GPU: %u frames, %.1f MB; typical %d ms, slow (1 in 20) %d ms, slowest %.0f ms in a frame\n", g_uploads.n, g_upload_bytes / 1048576.0, hist_pct(&g_uploads, 0.5f), hist_pct(&g_uploads, 0.95f), g_uploads.max);
     ADD("Per frame: app work typical / 1 in 20, whole frame typical / 1 in 20 / slowest, frames (late: missed a refresh), screens of pixels painted (average / most):\n");
     for (int i = 0; i < g_n_screens; i++) {
         const Hist *h = &g_screens[i].h, *t = &g_screens[i].total;

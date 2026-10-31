@@ -746,7 +746,13 @@ static void ph_hero_draw(Home *h)
 
 static void phone_draw(Home *h)
 {
-    gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, THEME_BG);
+    /* Clear only what the hero will not paint over: a full screen of pixels a frame was wasted under it
+     * (the hero covers the top of the page, down to its bottom edge, and moves with the page). */
+    float cover = ph_hero(h) ? ph_hero_bottom() - h->phone_y : 0;
+    if (cover < 0) cover = 0;
+    if (cover > SNTV_UI_H) cover = SNTV_UI_H;
+    if (cover < SNTV_UI_H) gfx_rect(0, cover, SNTV_UI_W, SNTV_UI_H - cover, THEME_BG);
+    if (cover > 0 && h->phone_y < 0) gfx_rect(0, 0, SNTV_UI_W, -h->phone_y < cover ? -h->phone_y : cover, THEME_BG);   /* pulled down: the gap above the hero */
     ui_pan_area(&h->phone_pan, 0, 0, SNTV_UI_W, SNTV_UI_H - PHONE_TABS_H, 1);
     float top = -h->phone_y;
     gfx_set_translate(0, top);
