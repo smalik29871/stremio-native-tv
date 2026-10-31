@@ -630,7 +630,7 @@ static void update(Screen *s, float dt)
     if (st->edit != EDIT_NONE) {   /* text sent from the phone fills the field and saves */
         char got[4096];
         if (phone_take(got, sizeof got)) {
-            if (st->edit == EDIT_INSTALL) { app_toast("Received from your phone"); finish_edit(st, 0); if (strlen(got) > 10) app_install_addon(got); }   /* the whole link: a configured addon's outgrows the field */
+            if (st->edit == EDIT_INSTALL) { app_toast("Received from your phone"); finish_edit(st, 0); char sb[4112]; const char *u = with_scheme(got, sb, sizeof sb); if (strlen(u) > 10) app_install_addon(u); }   /* the whole link: a configured addon's outgrows the field */
             else { snprintf(st->kb.text, sizeof st->kb.text, "%.255s", got); app_toast("Received from your phone"); finish_edit(st, 1); }
             app_redraw();
         }
