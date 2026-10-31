@@ -87,14 +87,25 @@ void ui_icon(Icon icon, float cx, float cy, float s, Color c)
     case ICON_LIBRARY:
         for (int i = 0; i < 3; i++) gfx_rrect(cx - s * 0.36f + i * s * 0.26f, cy - s * 0.34f, s * 0.18f, s * 0.68f, s * 0.04f, c);
         break;
-    case ICON_STAR: {
-        float pts[10][2];
+    case ICON_STAR: {   /* a plain solid star, the rating shape: an outline with a dot in it read as an occult sigil */
+        float px[10], py[10], top = 1e9f, bot = -1e9f;
         for (int i = 0; i < 10; i++) {
-            float a = -1.5708f + i * 0.6283f, r = (i & 1) ? s * 0.2f : s * 0.45f;
-            pts[i][0] = cx + cosf(a) * r; pts[i][1] = cy + sinf(a) * r;
+            float a = -1.5708f + i * 0.6283f, r = (i & 1) ? s * 0.21f : s * 0.5f;
+            px[i] = cx + cosf(a) * r; py[i] = cy + s * 0.04f + sinf(a) * r;   /* a hair low: the points weigh the top */
+            if (py[i] < top) top = py[i];
+            if (py[i] > bot) bot = py[i];
         }
-        for (int i = 0; i < 10; i++) gfx_line(pts[i][0], pts[i][1], pts[(i + 1) % 10][0], pts[(i + 1) % 10][1], t * 0.8f, c);
-        gfx_circle(cx, cy, s * 0.2f, c);
+        int rows = (int)(s * 0.9f); if (rows < 12) rows = 12; if (rows > 40) rows = 40;
+        float step = (bot - top) / (float)rows;
+        for (int k = 0; k < rows; k++) {   /* filled row by row: where this row crosses the outline, between each pair of crossings */
+            float y = top + (k + 0.5f) * step, xs[10]; int n = 0;
+            for (int i = 0; i < 10; i++) {
+                int j = (i + 1) % 10;
+                if ((py[i] <= y && py[j] > y) || (py[j] <= y && py[i] > y)) xs[n++] = px[i] + (y - py[i]) / (py[j] - py[i]) * (px[j] - px[i]);
+            }
+            for (int a = 1; a < n; a++) { float v = xs[a]; int b = a; while (b > 0 && xs[b - 1] > v) { xs[b] = xs[b - 1]; b--; } xs[b] = v; }
+            for (int a = 0; a + 1 < n; a += 2) gfx_rect(xs[a], y - step * 0.5f, xs[a + 1] - xs[a], step + 0.6f, c);
+        }
         break;
     }
     case ICON_SWAP:
