@@ -40,3 +40,17 @@ Put `[mobile]` in the commit message: `0.10.101 [mobile]: headline, headline [te
 - `tests/test_release_channels.py` runs the changed workflow steps against a stand-in `gh` and `git` (no
   GitHub involved). It cannot test the workflow's `if:` conditions or GitHub itself: the first real
   `[mobile]` release is the real test, so watch its run.
+
+## Notes per device
+
+An item in CHANGELOG.md can name who it is for with a tag after the dash:
+
+    - [phone] **Scrolling carries further.** A flick leaves faster and glides longer.
+    - [phone,tv] **Both.** ...
+    - **For everyone.** (no tag)
+
+`[phone]` is Android phones and tablets, `[tv]` the TVs (LG, Samsung, Android TV, Fire TV), `[desktop]` the
+computers. The app's What's new page shows each device only its own notes (and skips the page after an update
+when none apply), and `tools/release_notes.py` groups the release page on GitHub the same way. Give every
+release at least one untagged note, so no device is left with an empty page. A section with no tags at all
+(every release before 0.10.100) shows as it always did.

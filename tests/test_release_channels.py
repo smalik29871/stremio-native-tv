@@ -117,6 +117,8 @@ for mobile in ("false", "true"):
 for mobile in ("false", "true"):
     d = scratch(["Cuelight-0.10.101.apk"])
     shutil.copy(os.path.join(ROOT, "CHANGELOG.md"), d)
+    os.makedirs(os.path.join(d, "tools"))
+    shutil.copy(os.path.join(ROOT, "tools", "release_notes.py"), os.path.join(d, "tools"))
     # the newest section of the changelog stands in for this version's
     first = [l for l in open(os.path.join(d, "CHANGELOG.md")) if l.startswith("## ")][0].strip()[3:]
     e = base_env(d); e["MOBILE"] = mobile; e["VERSION"] = first
@@ -126,6 +128,9 @@ for mobile in ("false", "true"):
     check(("Homebrew Channel" in notes) == (mobile == "false"), "the LG install section is there only for an all-device release (mobile=%s)" % mobile)
     check(("A mobile release" in notes) == (mobile == "true"), "a mobile release says so (mobile=%s)" % mobile)
     check("Install on Android" in notes, "the Android section is always there (mobile=%s)" % mobile)
+    if first.startswith("0.10.100"):
+        check("### Android phones and tablets" in notes, "the notes are grouped by device (mobile=%s)" % mobile)
+        check("### For everyone" in notes, "what is for everyone is there (mobile=%s)" % mobile)
     shutil.rmtree(d)
 
 # ---- the release's title ---------------------------------------------------------------------------

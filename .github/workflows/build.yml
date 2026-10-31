@@ -403,7 +403,8 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
           MOBILE: ${{ contains(github.event.head_commit.message, '[mobile]') }}
         run: |
-          awk -v v="## $VERSION" '$0==v{on=1;next} /^## /{if(on)exit} on' CHANGELOG.md > notes.md
+          # grouped by the device each note is for (a [phone], [tv] or [desktop] tag in CHANGELOG.md); a mobile release lists the phone's and everyone's
+          python3 tools/release_notes.py "$VERSION" $([ "$MOBILE" = "true" ] && echo --mobile) > notes.md
           {
             if [ "$MOBILE" = "true" ]; then
               echo

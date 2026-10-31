@@ -1,9 +1,11 @@
-/* What's new: this version's notes from CHANGELOG.md (built in by tools/whatsnew.cmake).
+/* What's new: this version's notes from CHANGELOG.md (built in by tools/whatsnew.cmake), the ones for this kind
+ * of device (a [phone], [tv] or [desktop] tag in the changelog; none means everyone: src/whatsnew_notes.h).
  * Shown once after an update, and from Settings > About (there under what Cuelight is). Up/Down scroll, OK or Back
  * closes it. */
 #include "../app.h"
 #include "../log.h"
 #include "../store.h"
+#include "../whatsnew_notes.h"
 #include "../platform/platform.h"
 #include "whatsnew.h"
 #include "font.h"
@@ -19,8 +21,8 @@ enum { ITEMS_MAX = 40 };
 #define TOP 300.0f
 
 typedef struct {
-    char *items[ITEMS_MAX]; int n;
-    int first;                /* the item at the top */
+    Note *notes; int n;
+    int first;                /* the note at the top */
     int about;                /* Settings > About: what Cuelight is, above the notes */
 } WhatsNew;
 
@@ -32,35 +34,18 @@ static const char *const ABOUT[] = {
     NULL,
 };
 
-/* "- a **bold** `word`\n  more" -> one plain line per item */
-static void parse(WhatsNew *w)
+/* the kind of device this is, for the notes that are only for some */
+static int device(void)
 {
-    const char *p = WHATSNEW;
-    while (*p && w->n < ITEMS_MAX) {
-        size_t len = strcspn(p, "\n");
-        const char *line = p;
-        p += len + (p[len] == '\n');
-        while (len && (*line == ' ' || *line == '\t')) { line++; len--; }
-        if (!len) continue;
-        int starts = len > 1 && line[0] == '-' && line[1] == ' ';
-        if (starts) { line += 2; len -= 2; }
-        if (starts || !w->n) {
-            w->items[w->n] = calloc(1, 1);
-            w->n++;
-        }
-        char *it = w->items[w->n - 1];
-        size_t have = strlen(it);
-        it = realloc(it, have + len + 2);
-        size_t o = have;
-        if (have) it[o++] = ' ';
-        for (size_t i = 0; i < len; i++) {
-            if (line[i] == '`' || (line[i] == '*' && i + 1 < len && line[i + 1] == '*')) { if (line[i] == '*') i++; continue; }
-            it[o++] = line[i];
-        }
-        it[o] = 0;
-        w->items[w->n - 1] = it;
-    }
+    if (gfx_handheld()) return NOTE_PHONE;
+#ifdef SNTV_DESKTOP_PLAYER
+    return NOTE_DESKTOP;
+#else
+    return NOTE_TV;
+#endif
 }
+
+static const char *device_name(int d) { return d == NOTE_PHONE ? "your phone" : d == NOTE_DESKTOP ? "your computer" : "your TV"; }
 
 static void draw(Screen *s)
 {
@@ -71,7 +56,7 @@ static void draw(Screen *s)
     snprintf(title, sizeof title, w->about ? "About " SNTV_APP_NAME : "What's new in %s", SNTV_APP_VERSION);
     if (g_theme.id == THEME_APERTURE) font_draw(title, TEXT_X, 160, FONT_XL | FONT_ALT, THEME_TEXT);
     else font_draw(title, TEXT_X, 170, FONT_L | FONT_B, THEME_TEXT);
-    float y = TOP, lh = font_height(FONT_M) + 6;
+    float y = TOP;
     if (w->about) {
         font_draw("Version " SNTV_APP_VERSION, TEXT_X, 236, FONT_S, THEME_TEXT_DIM);
         y = TOP - 10;
@@ -79,12 +64,27 @@ static void draw(Screen *s)
         y += 24;
         font_draw("What's new in " SNTV_APP_VERSION, TEXT_X, y, FONT_M | FONT_B, THEME_TEXT);
         y += font_height(FONT_M) + 24;
-    } else font_draw(w->n ? "This update" : "Nothing listed for this version", TEXT_X, 236, FONT_S, THEME_TEXT_DIM);
+    } else {
+        char sub[96];
+        snprintf(sub, sizeof sub, w->n ? "This update  \xC2\xB7  for %s" : "Nothing listed for this version", device_name(device()));
+        font_draw(sub, TEXT_X, 236, FONT_S, THEME_TEXT_DIM);
+    }
+    const float pad = SNTV_PHONE ? 26 : 34, bar = 8;
+    const int tf = FONT_M | FONT_B;
+    float tw = TEXT_W - 2 * pad - bar;
     int i = w->first;
-    for (; i < w->n && y < SNTV_UI_H - 170; i++) {
-        gfx_circle(TEXT_X + 8, y + lh / 2, 6, THEME_ACCENT);
-        int lines = font_draw_wrapped(w->items[i], TEXT_X + 36, y, FONT_M, THEME_TEXT, TEXT_W - 36, SNTV_PHONE ? 10 : 4);
-        y += (lines ? lines : 1) * font_height(FONT_M) + 28;
+    for (; i < w->n; i++) {   /* one card a note: a bold title, then what it does */
+        const Note *n = &w->notes[i];
+        int tl = n->title[0] ? font_draw_wrapped(n->title, 0, 0, tf, 0, tw, 2) : 0;
+        int bl = n->body[0] ? font_draw_wrapped(n->body, 0, 0, FONT_S, 0, tw, SNTV_PHONE ? 10 : 5) : 0;
+        float h = 2 * pad + tl * font_height(tf) + (tl && bl ? 12 : 0) + bl * font_height(FONT_S);
+        if (y + h > SNTV_UI_H - 150 && i > w->first) break;   /* the next one is below: Down for it */
+        gfx_rrect(TEXT_X, y, TEXT_W, h, SNTV_PHONE ? 26 : R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x12));
+        gfx_rrect(TEXT_X + pad * 0.5f, y + pad * 0.7f, 5, h - pad * 1.4f, 2.5f, THEME_ACCENT);
+        float tx = TEXT_X + pad + bar, ty = y + pad;
+        if (tl) { font_draw_wrapped(n->title, tx, ty, tf, THEME_TEXT, tw, 2); ty += tl * font_height(tf) + (bl ? 12 : 0); }
+        if (bl) font_draw_wrapped(n->body, tx, ty, FONT_S, tl ? THEME_TEXT_DIM : THEME_TEXT, tw, SNTV_PHONE ? 10 : 5);
+        y += h + 18;
     }
     const char *hint = SNTV_PHONE ? (i < w->n ? "Swipe up: more   \xC2\xB7   Tap: close" : "Tap: close") : i < w->n ? "Down: more   \xC2\xB7   OK: close" : "OK: close";   /* some still below */
     font_draw(hint, TEXT_X, SNTV_UI_H - 110, FONT_S, THEME_TEXT_MUTED);
@@ -105,7 +105,7 @@ static int key(Screen *s, KeyAction a)
 static void destroy(Screen *s)
 {
     WhatsNew *w = s->st;
-    for (int i = 0; i < w->n; i++) free(w->items[i]);
+    free(w->notes);
     free(w);
     free(s);
 }
@@ -115,14 +115,15 @@ Screen *screen_whatsnew_create(int about)
     Screen *s = calloc(1, sizeof *s);
     WhatsNew *w = calloc(1, sizeof *w);
     w->about = about;
-    parse(w);
+    w->notes = calloc(ITEMS_MAX, sizeof *w->notes);
+    w->n = notes_parse(WHATSNEW, device(), w->notes, ITEMS_MAX);
     s->name = "whatsnew"; s->st = w;
     s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;
 }
 
 /* After an update (not a first install): the notes once, at the first start of the new
- * version. The version seen last is kept either way. */
+ * version, when any of them are for this device. The version seen last is kept either way. */
 void app_whatsnew_check(void)
 {
     const char *s = store_get_str("seenVersion", NULL);
@@ -134,6 +135,10 @@ void app_whatsnew_check(void)
     store_save();
     const char *quiet = getenv("SNTV_NO_WHATSNEW");   /* tests */
     if (!updated || (quiet && *quiet) || !WHATSNEW[0]) return;
+    Note *probe = calloc(1, sizeof *probe);
+    int any = probe && notes_parse(WHATSNEW, device(), probe, 1);   /* nothing for this device: not worth an interruption */
+    free(probe);
+    if (!any) { LOGI("whatsnew: updated from %s to %s, nothing in it for this device", seen ? seen : "an earlier version", SNTV_APP_VERSION); return; }
     LOGI("whatsnew: updated from %s to %s", seen ? seen : "an earlier version", SNTV_APP_VERSION);
     app_push(screen_whatsnew_create(0));
 }
