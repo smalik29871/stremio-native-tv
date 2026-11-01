@@ -665,7 +665,8 @@ grep -q "player: paused corner: Tomatometer 91%, Popcornmeter 96%, Metacritic 82
   || { echo "the paused corner did not show the scores and Trakt's numbers"; grep -E "corner|mdblist|trakt" "$OUT/player_corner.log"; exit 1; }
 # paused: a line from Trakt's comments on this episode, spoilers and one-word ones left out
 run player_comments 330 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05 SNTV_TRAKT_API=http://127.0.0.1:$PORT/trakt HOME="$(home_with comments '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"traktClientId":"cid"}')"
-grep -q "trakt: 2 comments for tt0903747:" "$OUT/player_comments.log" || { echo "the paused panel did not get Trakt's comments"; grep -E "trakt" "$OUT/player_comments.log"; exit 1; }
+# Trakt's comments are switched off: the paused panel does not ask for them (the Popcornmeter score from MDBList is in its corner)
+! grep -q "trakt: [0-9]* comments for" "$OUT/player_comments.log" || { echo "the paused panel asked for Trakt's comments"; grep -E "trakt" "$OUT/player_comments.log"; exit 1; }
 run player_rest 330 "right,ok,down,down,play,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05
 grep -q "player: paused and idle, the controls step aside" "$OUT/player_rest.log" || { echo "the paused player never leaned back"; grep player "$OUT/player_rest.log"; exit 1; }
 run player_rest_ok 360 "right,ok,down,down,play,wait,ok,wait,wait,wait,wait,wait,wait,wait,wait,ok" SNTV_FAKE_START=200 SNTV_FRAME_DT=0.05

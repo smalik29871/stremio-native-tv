@@ -4537,11 +4537,13 @@ static void draw_paused_info(Player *p, const VideoInfo *vi, float k)
     for (int i = 0; i < nv && p->video_id; i++)
         if (!strcmp(vids[i].id, p->video_id) && vids[i].overview && *vids[i].overview) { about = vids[i].overview; break; }   /* this episode, not the show */
     const char *next = p->next_video_id && p->next_title && !p->trailer ? p->next_title : NULL;
-    /* what someone on Trakt said about it, one at a time, most liked first */
+    /* what someone on Trakt said about it, one at a time, most liked first: switched off (the audience's score, the
+     * Popcornmeter, is in the corner instead); set SHOW_TRAKT_COMMENTS to 1 to bring the quotes back */
+    enum { SHOW_TRAKT_COMMENTS = 0 };
     int cse = -1, cep = -1, ncm = 0;
     { const char *c = p->video_id ? strchr(p->video_id, ':') : NULL; if (c) sscanf(c + 1, "%d:%d", &cse, &cep); }
     const TraktComment *cm = NULL;
-    if (!p->trailer) trakt_comments(p->meta.id, p->meta.type, cse, cep, &cm, &ncm);
+    if (SHOW_TRAKT_COMMENTS && !p->trailer) trakt_comments(p->meta.id, p->meta.type, cse, cep, &cm, &ncm);
     float per = 9, cyc = fmodf(g_app.time, per);
     const TraktComment *say = ncm ? &cm[(int)(g_app.time / per) % ncm] : NULL;
     char quote[320] = "";

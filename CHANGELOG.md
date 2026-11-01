@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.103
+
+- **Stability fixes.**
+
 ## 0.10.102
 
 - **Experimental: skip or mute scenes.** Settings > Parental > Scene filter uses a community list of scenes
