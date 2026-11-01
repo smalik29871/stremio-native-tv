@@ -1282,6 +1282,16 @@ static void open_rail(Home *h)
     move_focus(h, -1, -1);
 }
 
+/* The pointer is over a rail item: open the rail focused on it (remembering where it came from
+ * the first time, so leaving the rail returns there), so a click opens that section. */
+static void rail_hover_cb(Screen *s, int item)
+{
+    Home *h = s->st;
+    if (h->focus_row != -1) h->rail_from = h->focus_row;   /* only on the way in, not between rail items */
+    h->focus_nav = item;
+    if (h->focus_row != -1) move_focus(h, -1, -1); else app_redraw();
+}
+
 /* Back to the content after the rail: the row it was opened from when that is still there. */
 static void close_rail(Home *h)
 {
@@ -1405,7 +1415,7 @@ Screen *screen_home_create(void)
     h->watched_seen = g_app.hide_watched;
     s->name = "home"; s->st = h; s->long_ok = 1;
     g_home_live = h;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->rail_hover = rail_hover_cb; s->phone = 1;
     rebuild_rows(h);
     return s;
 }

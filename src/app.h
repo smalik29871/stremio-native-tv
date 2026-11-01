@@ -28,6 +28,10 @@ typedef struct Screen {
     /* Touch, optional: a finger went down at canvas x, y (phase 0); return 1 to have the whole
      * gesture, its moves (1) and its lifting (2), instead of a tap or a scroll. */
     int  (*drag)(struct Screen *s, int phase, float x, float y);
+    /* Pointer, optional: the mouse / Magic Remote pointer is hovering rail item `item`
+     * (0..RAIL_COUNT-1). Open the side rail focused on it, so a click there opens it.
+     * Top-level screens with a rail set this; others leave it NULL (the hover is ignored). */
+    void (*rail_hover)(struct Screen *s, int item);
     int phone;   /* it has a layout for a phone held upright; without one the phone turns sideways */
 } Screen;
 

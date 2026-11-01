@@ -573,12 +573,12 @@ static void touch_event(const SDL_Event *e)
     }
     if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
 }
-#ifdef SNTV_DESKTOP_PLAYER
 static SDL_Window *g_win;
 static float g_mouse_x = -1, g_mouse_y = -1, g_mouse_t = -100;   /* the pointer (canvas units) and when it last moved */
 
 int window_fullscreen(void) { return g_win && (SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
 
+#ifdef SNTV_DESKTOP_PLAYER
 static void toggle_fullscreen(void)
 {
     Uint32 fs = SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -619,9 +619,11 @@ static void window_chrome(void)
     gfx_set_alpha(1);
     app_redraw();   /* until it has faded */
 }
+#endif
 
-/* A computer: the focus goes where the pointer rests (a hover); nothing opens until a click.
- * The lists hold still under it, or one sliding to its new focus would slide from the pointer. */
+/* The focus goes where the pointer rests (a hover); nothing opens until a click. On a computer
+ * that is the mouse; on a TV it is the LG Magic Remote's pointer. The lists hold still under it,
+ * or one sliding to its new focus would slide from the pointer. */
 static void mouse_hover(SDL_Window *win, int x, int y)
 {
     static int last_id = -1;
@@ -646,13 +648,46 @@ static void mouse_hover(SDL_Window *win, int x, int y)
         if (on_pip) { last_id = -1; return; }
     }
     if (!ui_hit_find(ux, uy, top, &id)) { last_id = -1; return; }
-    if ((id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) || id == HIT_TRAILER_SOUND || id == HIT_WIN_BACK || id == HIT_WIN_FULL || (id == last_id && top == last_top)) return;
+    if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) {   /* the side rail: the pointer opens it, focused on the item under it, so a click there opens it */
+        if (top->rail_hover) { if (id != last_id || top != last_top) { last_id = id; last_top = top; top->rail_hover(top, id - HIT_RAIL); app_redraw(); } }
+        return;
+    }
+    if (id == HIT_TRAILER_SOUND || id == HIT_WIN_BACK || id == HIT_WIN_FULL || (id == last_id && top == last_top)) return;
     last_id = id; last_top = top;
     ui_pan_hold();
     g_touch_aim = 1; top->tap(top, id); g_touch_aim = 0;
     app_redraw();
 }
+
+/* A left click (the mouse, or OK on the LG Magic Remote's pointer): open what is under the
+ * pointer, the same as a tap does. Mirrors the tap path in touch_event so a click and a tap
+ * behave alike. Desktop-only chrome (the window's Back and full-screen corners) stays guarded. */
+static void mouse_click(SDL_Window *win, int x, int y)
+{
+    int ww, wh, id;
+    SDL_GetWindowSize(win, &ww, &wh);
+    if (ww <= 0 || wh <= 0) return;
+    float ux, uy;
+    touch_to_ui((float)x / ww, (float)y / wh, &ux, &uy);
+    g_app.last_input = g_app.time; g_mouse_t = g_app.time;
+    Screen *top = app_top();
+    if (!top) return;
+    ui_pan_keys();   /* what it does may move the focus: the lists follow it again */
+    if (strcmp(top->name, "player") && island_tap(ux, uy)) { app_redraw(); return; }   /* the resume card, over the screen */
+    if (ui_hit_find(ux, uy, top, &id)) {
+        if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) { rail_tap(id - HIT_RAIL); app_redraw(); return; }
+        if (id == HIT_TRAILER_SOUND) { bgtrailer_key_sound(); return; }
+#ifdef SNTV_DESKTOP_PLAYER
+        if (id == HIT_WIN_BACK) { dispatch_key(KEY_BACK); app_redraw(); return; }
+        if (id == HIT_WIN_FULL) { toggle_fullscreen(); return; }
 #endif
+        if (g_app.pip && (id == HIT_PIP || id == HIT_PIP_FULL || id == HIT_PIP_CLOSE)) { g_pip_focus = 0; if (id == HIT_PIP_CLOSE) app_pip_close(); else app_pip_restore(); app_redraw(); return; }
+        if (!top->tap || !top->tap(top, id)) dispatch_key(KEY_OK);
+        app_redraw();
+        return;
+    }
+    if (!top->tap) dispatch_key(KEY_OK);   /* a screen that does not say where things are: OK on its focus */
+}
 static int g_backgrounded;   /* hidden or sent to the background (not just an overlay over us) */
 
 /* The marker a clean exit removes says whether the app was away: a system ends an app it
@@ -1056,11 +1091,12 @@ int main(int argc, char **argv)
             else if (e.type == SDL_TEXTINPUT && top && top->text) { ui_pan_keys(); top->text(top, e.text.text); }
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
             else if (e.type == SDL_MULTIGESTURE && e.mgesture.numFingers == 2 && SDL_fabsf(e.mgesture.dDist) > 0.002f && top && !strcmp(top->name, "player")) player_pinch(e.mgesture.dDist);   /* two fingers in the player: the picture's fill */
-#ifdef SNTV_DESKTOP_PLAYER
             else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID && !e.motion.state) mouse_hover(win, e.motion.x, e.motion.y);
-            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT && e.button.clicks == 2 && top && !strcmp(top->name, "player")) toggle_fullscreen();   /* a double click on the film */
+            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT && e.button.clicks == 1) mouse_click(win, e.button.x, e.button.y);   /* a left click (the LG Magic Remote's OK too): open what is under the pointer */
             else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_RIGHT) { g_app.last_input = g_app.time; mouse_hover(win, e.button.x, e.button.y); Screen *t = app_top(); if (t && t->key) t->key(t, KEY_LONG_OK); app_redraw(); }   /* a right click: the options of what is under it (nothing where there are none) */
             else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_X1) { g_app.last_input = g_app.time; dispatch_key(KEY_BACK); }   /* the mouse's back button */
+#ifdef SNTV_DESKTOP_PLAYER
+            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT && e.button.clicks == 2 && top && !strcmp(top->name, "player")) toggle_fullscreen();   /* a double click on the film */
             else if (e.type == SDL_MOUSEWHEEL && (e.wheel.y || e.wheel.x) && ui_pan_wheel(g_mouse_x, g_mouse_y, (SDL_GetModState() & KMOD_SHIFT) ? 0 : (float)e.wheel.y, (SDL_GetModState() & KMOD_SHIFT) ? (float)e.wheel.y : (float)-e.wheel.x)) {
                 g_app.last_input = g_app.time; g_mouse_t = g_app.time; app_redraw();   /* the wheel scrolls what is under the pointer */
             }

@@ -397,6 +397,13 @@ static void destroy(Screen *s)
     free(l); free(s);
 }
 
+/* The pointer is over a rail item: open the rail focused on it so a click opens that section. */
+static void rail_hover_cb(Screen *s, int item)
+{
+    Library *l = s->st;
+    if (l->rail_focus != item) { l->rail_focus = item; app_redraw(); }
+}
+
 Screen *screen_library_create(void)
 {
     Screen *s = calloc(1, sizeof *s);
@@ -404,7 +411,7 @@ Screen *screen_library_create(void)
     l->rail_focus = -1; l->focus_t = 1; l->seen_version = -1;
     l->zone = Z_GRID;
     s->name = "library"; s->st = l; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->rail_hover = rail_hover_cb; s->phone = 1;
     build(l);
     if (!l->n) l->zone = Z_FILTERS;
     return s;

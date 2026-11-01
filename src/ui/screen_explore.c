@@ -588,6 +588,13 @@ static void destroy(Screen *s)
     free(s);
 }
 
+/* The pointer is over a rail item: open the rail focused on it so a click opens that section. */
+static void rail_hover_cb(Screen *s, int item)
+{
+    Explore *e = s->st;
+    if (e->rail_focus != item) { e->rail_focus = item; app_redraw(); }
+}
+
 Screen *screen_explore_create(void)
 {
     Screen *s = calloc(1, sizeof *s);
@@ -599,7 +606,7 @@ Screen *screen_explore_create(void)
     e->gen = g_next_gen++;
     for (int i = 0; i < MAX_LIVE; i++) if (!g_live[i]) { g_live[i] = e; break; }
     s->name = "explore"; s->st = e; s->long_ok = 1;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->rail_hover = rail_hover_cb; s->phone = 1;
     return s;
 }
 
