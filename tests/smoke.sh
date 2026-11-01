@@ -731,6 +731,11 @@ run player_more_sources 600 "right,ok,down,down,play,wait,down,right,right,right
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with more_src "$NO_PREFLIGHT")"
 grep -qE "player: every addon asked from the Sources panel: [1-9][0-9]* more sources" "$OUT/player_more_sources.log" && [ "$(grep -c "streams: #1 score" "$OUT/player_more_sources.log")" -eq 1 ] \
   || { echo "Find more sources did not add sources while playing"; grep -E "player: (every|asking)" "$OUT/player_more_sources.log"; exit 1; }
+# Find more sources with an addon that answers after 9 s: the list comes without it (about 4 s), the slow one is left out, not waited for
+run player_more_slow 1100 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok,up,up,up,up,up,up,up,up,up,ok,wait,wait,wait,wait" \
+  "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json,http://127.0.0.1:$PORT/slowmore/manifest.json" HOME="$(home_with more_slow "$NO_PREFLIGHT")"
+grep -qE "streams: lookup done with [1-9][0-9]* sources after [0-9.]+ s; 1 slower addon left out" "$OUT/player_more_slow.log" && grep -qE "player: every addon asked from the Sources panel: [1-9][0-9]* more sources" "$OUT/player_more_slow.log" \
+  || { echo "Find more sources waited for a slow addon, or did not finish"; grep -E "streams: (lookup|.* answered)|player: (every|asking)" "$OUT/player_more_slow.log"; exit 1; }
 # the Sources panel during playback (as Nuvio's): Right narrows it to one addon, OK there switches at the same moment
 run player_sources_filter 560 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,ok,right,right,down,ok,wait" \
   "SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/many/manifest.json" HOME="$(home_with src_filter "$NO_PREFLIGHT")"
@@ -1413,6 +1418,7 @@ run other_sources 800 "wait,wait,ok,wait,wait,right,right,ok,wait,wait,wait,wait
 grep -q "detail: other sources for tt0903747:2:3" "$OUT/other_sources.log" && grep -q "player: candidate [0-9]*/[0-9]* .* @1[45][0-9][0-9]s" "$OUT/other_sources.log" \
   || { echo "Other sources did not list the sources, or the one chosen did not resume"; grep -E "detail|player: candidate|streams:" "$OUT/other_sources.log"; exit 1; }
 # resuming, the first source fails before it loads (it reports 0:00): the next one starts at the resume point, not the beginning
+NO_PREFLIGHT='{"prefSubs":"eng","subsAlways":1,"setupDone":1,"preflight":0}'   # the names decide (the test file itself is 180p)   # (again: a part of the runs may carry RF_HOME before the first one)
 RF_HOME="$(home_with resumefail "$NO_PREFLIGHT")"; cp "$ROOT/tests/fixtures/library.json" "$RF_HOME/.local/share/stremio/nativetv/library.json"
 run resume_failover 900 "wait,wait,ok,wait,wait,ok,wait,wait,wait,ok,wait,wait,wait" "$LIGHTER" HOME="$RF_HOME" SNTV_FAKE_FAIL_LOADS=1 SNTV_NO_RACE=1
 grep -q "player: candidate 2/[0-9]* .* @1[45][0-9][0-9]s" "$OUT/resume_failover.log" || { echo "a failed first source lost the resume point"; grep "player: candidate" "$OUT/resume_failover.log"; exit 1; }

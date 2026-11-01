@@ -473,7 +473,7 @@ typedef struct Job {
     struct Job *next;
 } Job;
 
-enum { WORKERS = 6, ART_MAX = 4 };   /* artwork never holds more than four: two stay for the addons, the account and playback */
+enum { WORKERS = 10, ART_MAX = 4 };   /* artwork never holds more than four: the rest stay for the addons (a title asks ten at once), the account and playback */
 static int g_art_busy;   /* artwork transfers running (under g_qlock) */
 static int g_hold_artwork;
 static SDL_Thread *g_workers[WORKERS];

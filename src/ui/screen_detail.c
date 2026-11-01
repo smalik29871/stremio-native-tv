@@ -822,7 +822,7 @@ static void update(Screen *s, float dt)
         const char *pre = NULL;
         if (d->has_meta && d->age > 0.8f) {
             if (d->meta.n_videos > 0 && d->area == AREA_EPISODES && d->ep_focus < d->n_eps) pre = d->meta.videos[d->ep_index[d->ep_focus]].id;
-            else if (d->resume_label[0] && !d->resume_url[0]) pre = d->resume_video;
+            else if (d->resume_label[0]) pre = d->resume_video;   /* with a saved link too: Resume goes straight to it, and the other sources are ready for "Sources" and the player's panel */
             else if (d->meta.n_videos == 0) pre = d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
         }
         if (pre && strcmp(pre, d->pre_id)) { snprintf(d->pre_id, sizeof d->pre_id, "%s", pre); d->pre_since = g_app.time; }

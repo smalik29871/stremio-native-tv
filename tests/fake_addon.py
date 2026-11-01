@@ -1044,6 +1044,20 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"streams": [{"name": "Caps\n1080p", "title": f"Breaking.Bad.S01E01.{tags}-CAPS",
                                                                "url": f"{BASE}/video/sample_h264_aac.mkv?caps={kind}"}]}).encode())
             return self.send(404, b"{}")
+        # /slowmore/...: a stream-only addon that answers a title's first ask at once and every later one after 9 s (an addon holding up a "Find more sources")
+        if p.startswith("/slowmore/"):
+            p = p[9:]
+            if p == "/manifest.json":
+                return self.send(200, json.dumps(dict(MANIFEST, id="org.sntv.slowmore", name="Slow More Addon",
+                                                      resources=["stream"], catalogs=[])).encode())
+            if p.startswith("/stream/"):
+                import time
+                seen = globals().setdefault("SLOWMORE_SEEN", set())
+                if p in seen:   # the first ask for a video is quick (the list opens); asking again (Find more sources) takes 9 s
+                    time.sleep(9)
+                seen.add(p)
+                return self.send(200, json.dumps(STREAMS).encode())
+            return self.send(404, b"{}")
         if p.startswith("/slow/"):
             p = p[5:]
             if p == "/manifest.json":

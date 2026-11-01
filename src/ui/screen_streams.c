@@ -28,7 +28,7 @@
 enum { VISIBLE = 7 };
 
 typedef struct Streams Streams;
-typedef struct { Streams *owner; int addon; unsigned generation; } Pending;
+typedef struct { Streams *owner; int addon; unsigned generation; float asked; } Pending;   /* asked: when the request was made (g_app.time) */
 static unsigned g_generation;
 static Streams *g_live;
 
@@ -642,9 +642,14 @@ static int race_resume(const Streams *st);
 static void race_tick(const Streams *st);
 
 /* Parse one addon's answer into `items`; returns how many were added. */
-static int absorb(Stream **items, int *count, HttpResponse *r, int addon)
+static int absorb(Stream **items, int *count, HttpResponse *r, const Pending *p)
 {
+    int addon = p->addon;
     const char *addon_name = addon < 0 ? "My TorBox" : addon < g_app.n_addons ? g_app.addons[addon].manifest.name : "addon";
+    /* when each addon answered, from the request: its own transfer, and what came before it (waiting for a free
+     * network thread) and after it (the TorBox check of its torrents), so a slow title says which one was slow */
+    float total = g_app.time - p->asked;
+    LOGI("streams: %s answered %d in %.1f s (transfer %.1f s)", addon_name, r->parsed ? ((ParsedStreams *)r->parsed)->n : 0, total, r->seconds);
     ParsedStreams *ps = r->parsed;   /* parsed and tagged on the network thread */
     if (r->status != 200 || !ps) {
         LOGW("streams: %s failed (%ld %s)", addon_name, r->status, r->error);
@@ -697,7 +702,7 @@ static void on_streams(HttpResponse *r, void *user)
     Streams *st = p->owner;
     if (st != g_live || p->generation != g_generation) { free(p); return; }
     st->pending--;
-    if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
+    if (absorb(&st->items, &st->n, r, p)) { sort_items(st); app_redraw(); }
     if (!st->pending && !st->sources_timed) { st->sources_timed = 1; perf_start_phase("sources"); }
     free(p);
     autoplay_check(st);
@@ -733,7 +738,7 @@ static void query_addons(const MetaPreview *meta, const char *video_id, Streams 
         for (int i = 0; i < nv && a->n_others < 40 && season >= 0; i++)
             if (v[i].season == season && v[i].episode != episode && v[i].title && v[i].title[0]) snprintf(a->others[a->n_others++], sizeof a->others[0], "%s", v[i].title);
         Pending *p = malloc(sizeof *p);
-        p->owner = owner; p->addon = -1; p->generation = generation;
+        p->owner = owner; p->addon = -1; p->generation = generation; p->asked = g_app.time;
         (*pending)++;
         if (n_reqs) (*n_reqs)++;
         http_task_async_ex("torbox library", library_task, a, app_free_streams, cb, p);
@@ -743,7 +748,7 @@ static void query_addons(const MetaPreview *meta, const char *video_id, Streams 
         char url[1024];
         addon_url_stream(&g_app.addons[i], type, video_id, url, sizeof url);
         Pending *p = malloc(sizeof *p);
-        p->owner = owner; p->addon = i; p->generation = generation;
+        p->owner = owner; p->addon = i; p->generation = generation; p->asked = g_app.time;
         (*pending)++;
         if (n_reqs) (*n_reqs)++;
         app_fetch_streams(url, cb, p);
@@ -800,12 +805,12 @@ static void on_prefetch(HttpResponse *r, void *user)
     Streams *st = g_live && g_live->from_prefetch && g_live->video_id && g_pre.video_id[0] && strcmp(g_live->video_id, g_pre.video_id) == 0 ? g_live : NULL;
     if (st) {   /* the screen for this episode is already open: feed it directly */
         st->pending--;
-        if (absorb(&st->items, &st->n, r, p->addon)) { sort_items(st); app_redraw(); }
+        if (absorb(&st->items, &st->n, r, p)) { sort_items(st); app_redraw(); }
         free(p);
         autoplay_check(st);
         return;
     }
-    absorb(&g_pre.items, &g_pre.n, r, p->addon);
+    absorb(&g_pre.items, &g_pre.n, r, p);
     free(p);
     if (g_pre.pending == 0) { LOGI("streams: prefetched %d sources for %s", g_pre.n, g_pre.video_id); check_ahead(); }
 }
@@ -1774,6 +1779,7 @@ static void lookup_finish(void)
         n = k;
     }
     g_look.cb = NULL;
+    if (g_look.pending) LOGI("streams: lookup done with %d sources after %.1f s; %d slower addon%s left out", g_look.n, g_app.time - g_look.started, g_look.pending, g_look.pending == 1 ? "" : "s");
     if (cb) cb(g_look.items, n, user);
     streams_lookup_cancel();
 }
@@ -1783,7 +1789,7 @@ static void on_lookup(HttpResponse *r, void *user)
     Pending *p = user;
     if (p->generation != g_look.generation || !g_look.cb) { free(p); return; }
     g_look.pending--;
-    absorb(&g_look.items, &g_look.n, r, p->addon);
+    absorb(&g_look.items, &g_look.n, r, p);
     free(p);
     if (!g_look.pending) lookup_finish();
 }
@@ -1812,6 +1818,15 @@ static void lookup_start(const MetaPreview *meta, const char *video_id, StreamsL
     g_look.cb = cb; g_look.user = user;
     g_look.started = g_app.time;
     g_look.generation += 1000;
+    if (!auto_only && g_pre.video_id[0] && video_id && !strcmp(g_pre.video_id, video_id) && g_pre.n && !g_pre.pending
+        && g_pre.addons_version == g_app.addons_version && g_app.time - g_pre.started < 600) {   /* already asked a moment ago (the title page did): no second round */
+        g_look.items = g_pre.items; g_look.n = g_pre.n;
+        g_pre.items = NULL; g_pre.n = 0;
+        LOGI("streams: using the %d sources fetched ahead for %s; no new round of addons", g_look.n, video_id);
+        prefetch_clear();
+        lookup_finish();
+        return;
+    }
     query_addons(meta, video_id, NULL, g_look.generation, on_lookup, &g_look.pending, NULL);
     if (!g_look.pending) lookup_finish();
 }
@@ -1819,7 +1834,8 @@ static void lookup_start(const MetaPreview *meta, const char *video_id, StreamsL
 /* Called from the player's update: an addon that never answers does not hold the rest. */
 void streams_lookup_tick(void)
 {
-    if (g_look.cb && g_app.time - g_look.started > 15) lookup_finish();
+    /* a slow addon does not hold the rest: with sources in, 4 s is enough for the viewer's own "Find more sources" (15 s when nothing is in yet) */
+    if (g_look.cb && (g_app.time - g_look.started > 15 || (!g_look.auto_only && g_look.n && g_app.time - g_look.started > 4))) lookup_finish();
 }
 
 static int key(Screen *s, KeyAction a)
