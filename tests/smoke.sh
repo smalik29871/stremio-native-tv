@@ -570,6 +570,12 @@ run catalog_home 400 "wait,wait,wait,wait,wait,wait,wait,wait" HOME="$(home_with
 grep -q "catalog: movie popular page 1 -> 3 titles" "$OUT/catalog_home.log" && grep -q "catalog: series trending page 1 -> 1 titles" "$OUT/catalog_home.log" \
   && grep -q "catalog: poster for tt1003 from TMDB (200)" "$OUT/catalog_home.log" \
   || { echo "the built-in catalog did not fill Home"; grep -E "catalog|addons" "$OUT/catalog_home.log"; exit 1; }
+# a slow addon's details: the built-in catalog is asked beside it after 3 s and its answer is used; and Sources opens at once, without the details
+SLOWMETA="SNTV_TMDB_API=http://127.0.0.1:$PORT/tmdb/3 SNTV_TMDB_IMG=http://127.0.0.1:$PORT/tmdbimg SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/slowmeta/manifest.json,cuelight://catalog/manifest.json"
+run detail_slow_meta 900 "wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok$(printf ',wait%.0s' $(seq 1 24))" HOME="$(home_with slowm "$TK")" $SLOWMETA
+grep -q "detail: tt[0-9]*'s details are slow or failed; also asking the built-in catalog" "$OUT/detail_slow_meta.log" && grep -q "detail: tt[0-9]*'s details came from the built-in source first" "$OUT/detail_slow_meta.log" \
+  || { echo "a slow addon's details were not raced by the built-in catalog"; grep -E "detail:|catalog:" "$OUT/detail_slow_meta.log" | head; exit 1; }
+run detail_slow_sources 700 "wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,ok,wait,wait" SNTV_EXPECT_SCREEN=streams HOME="$(home_with slowp "$TK")" $SLOWMETA
 run catalog_movie 700 "wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,ok,wait,wait,wait,wait" HOME="$(home_with catm "$TK")" $CAT
 grep -q "catalog: movie tt1001 -> Fake Saga, trailer, 1 cast, 0 episodes" "$OUT/catalog_movie.log" \
   || { echo "the built-in catalog did not give a film's details"; grep -E "catalog|detail" "$OUT/catalog_movie.log"; exit 1; }

@@ -621,6 +621,9 @@ class H(BaseHTTPRequestHandler):
         as_cinemeta = p.startswith("/cinemeta/")   # the same addon under Cinemeta's own id (com.linvo.cinemeta)
         if as_cinemeta:
             p = p[9:]
+        slowmeta = p.startswith("/slowmeta/")   # an addon whose details answer after 9 s (a title page waiting on one)
+        if slowmeta:
+            p = p[9:]
         slowsearch = p.startswith("/slowsearch/")   # an addon whose search answers after 2 s
         if slowsearch:
             p = p[11:]
@@ -1078,6 +1081,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, json.dumps({"metas": metas}).encode())
             return self.send(200, json.dumps(CATALOG).encode())
         if p.startswith("/meta/"):
+            if slowmeta:
+                sleep(9)
             mid = p.rsplit("/", 1)[1][:-5]
             if p.startswith("/meta/series/") and longseason:
                 v0 = META["meta"]["videos"][0]

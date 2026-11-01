@@ -61,6 +61,7 @@ typedef struct {
     MetaPreview preview;
     MetaItem meta; int has_meta;
     int loading; unsigned req; char error[400];
+    unsigned fb_req; int fb_asked;   /* the built-in catalog's (or Cinemeta's) details, asked beside a slow addon's, or after its failure */
     unsigned eps_req; int eps_tried;   /* Cinemeta's episodes asked for, when the addon's have no names of their own */
     int *seasons; int n_seasons; int season_idx;
     int *ep_index; int n_eps; int ep_focus;
@@ -476,18 +477,52 @@ static void on_better_episodes(HttpResponse *r, void *user)
     meta_item_free(&m);
 }
 
+static void on_meta(HttpResponse *r, void *user);
+
+/* The details from the built-in catalog (TMDB) or Cinemeta, for an IMDb title: asked when the addon is slow or has failed, the
+ * first good answer wins. */
+static void on_meta_fb(HttpResponse *r, void *user)
+{
+    Detail *d = user;
+    d->fb_req = 0;
+    if (d->has_meta || r->status != 200 || !r->len) return;   /* the addon's came first; or this one has nothing: the addon's is still awaited */
+    MetaItem probe = { 0 };
+    int ok = addon_parse_meta(r->body, &probe) == 0;
+    meta_item_free(&probe);
+    if (!ok) return;
+    if (d->req) { http_cancel(d->req); d->req = 0; }
+    LOGI("detail: %s's details came from the built-in source first", d->preview.id);
+    on_meta(r, d);
+}
+
+static void ask_fallback(Detail *d)
+{
+    if (d->fb_asked || d->has_meta || !d->preview.type || !d->preview.id || strncmp(d->preview.id, "tt", 2)) return;
+    char url[512];
+    int own = tmdb_enabled();
+    snprintf(url, sizeof url, own ? "cuelight://catalog/meta/%s/%s.json" : "https://v3-cinemeta.strem.io/meta/%s/%s.json", d->preview.type, d->preview.id);
+    d->fb_asked = 1;
+    d->loading = 1;
+    d->fb_req = http_request_async(url, NULL, on_meta_fb, d);
+    LOGI("detail: %s's details are slow or failed; also asking %s", d->preview.id, own ? "the built-in catalog" : "Cinemeta");
+}
+
 static void on_meta(HttpResponse *r, void *user)
 {
     Detail *d = user;
     int was = btn_at(d, d->btn);   /* a trailer or a resume point can add buttons: keep the focused one */
     d->req = 0;
-    d->loading = 0;
+    d->loading = d->fb_req ? 1 : 0;
     if (r->status == 200 && r->len && r->seconds >= 0) app_meta_put(d->preview.type, d->preview.id, r->body, r->len);
     if (r->status != 200 || addon_parse_meta(r->body, &d->meta) != 0) {
+        if (!d->fb_asked && !d->has_meta && d->preview.id && !strncmp(d->preview.id, "tt", 2)) { ask_fallback(d); app_redraw(); return; }   /* its answer may still come */
+        if (d->fb_req) return;   /* the other source is on its way: no error yet */
+        d->loading = 0;
         snprintf(d->error, sizeof d->error, "Couldn't load details (%s)", r->error[0] ? r->error : "bad response");
         app_redraw();
         return;
     }
+    if (d->fb_req) { http_cancel(d->fb_req); d->fb_req = 0; }   /* this one is in: the other is not needed */
     d->has_meta = 1;
     app_remember_videos(d->preview.id, d->meta.videos, d->meta.n_videos);
     MetaPreview merged;
@@ -535,6 +570,7 @@ static void fetch_meta(Detail *d)
         int own = tmdb_enabled();   /* the built-in catalog (TMDB), else Cinemeta */
         snprintf(url, sizeof url, own ? "cuelight://catalog/meta/%s/%s.json" : "https://v3-cinemeta.strem.io/meta/%s/%s.json", d->preview.type, d->preview.id);
         d->loading = 1;
+        d->fb_asked = 1;   /* this is the fallback already */
         d->req = http_request_async(url, NULL, on_meta, d);
         LOGI("detail: no installed addon for %s's details; asking %s", d->preview.id, own ? "the built-in catalog" : "Cinemeta");
         return;
@@ -780,6 +816,7 @@ static void update(Screen *s, float dt)
     d->intro = ui_ease(d->intro * 100, 100, NULL, dt, 9) / 100;
     if (d->ask_open) { d->ask_t = ui_ease(d->ask_t * 100, 100, NULL, dt, 14) / 100; if (d->ask_t < 0.999f || d->ask_req) app_redraw(); }
     if (d->loading) app_redraw();
+    if (d->loading && !d->has_meta && d->req && !d->fb_asked && d->age > 3.0f) ask_fallback(d);   /* a slow addon: the built-in source races it */
     if (d->meta_wait && !d->has_meta && d->addons_seen != g_app.addons_version && !d->req) { d->meta_wait = 0; d->error[0] = 0; fetch_meta(d); }
     {   /* the sources Play would open, asked once the focus rests: they are in by the press */
         const char *pre = NULL;
@@ -1790,8 +1827,17 @@ static int key(Screen *s, KeyAction a)
                 app_push(screen_player_create(&d->preview, d->resume_video, d->preview.name, c, 1, 0, d->resume_pos, has_next ? nid : NULL, has_next ? nt : NULL));
                 return 1;
             }
-            if (series) { if (d->n_eps) open_streams_for_video_ex(d, d->ep_index[d->ep_focus], play_key); return 1; }   /* OK: its sources to choose from; Play: it starts */
-            if (!d->has_meta && d->loading) { app_toast("Still loading details..."); return 1; }
+            if (series) {   /* OK: its sources to choose from; Play: it starts */
+                if (d->n_eps) open_streams_for_video_ex(d, d->ep_index[d->ep_focus], play_key);
+                else if (!d->has_meta && d->preview.id) {   /* the episode list is not here yet (a slow addon): the first episode's sources, rather than nothing */
+                    char first[160];
+                    snprintf(first, sizeof first, "%.120s:1:1", d->preview.id);
+                    LOGI("detail: no episode list yet; opening %s", first);
+                    app_toast("Details are still loading: sources for S1 E1");
+                    app_push(play_key ? screen_streams_create_play(&d->preview, first, "S1 E1") : screen_streams_create(&d->preview, first, "S1 E1"));
+                }
+                return 1;
+            }
             if (app_pip_claim(d->meta.default_video_id ? d->meta.default_video_id : d->preview.id)) return 1;
             {
                 const char *vid = d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
@@ -1993,6 +2039,7 @@ static void destroy(Screen *s)
 {
     Detail *d = s->st;
     if (d->req) http_cancel(d->req);
+    if (d->fb_req) http_cancel(d->fb_req);
     if (d->eps_req) http_cancel(d->eps_req);
     if (d->ask_req) ai_cancel(d->ask_req);
     if (d->sim_req) http_cancel(d->sim_req);
