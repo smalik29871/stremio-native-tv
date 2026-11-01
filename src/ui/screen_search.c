@@ -1172,23 +1172,26 @@ static void searched(Search *s)   /* Done (or the TV keyboard's Enter): search n
 static int key_typing(Search *s, KeyAction a)
 {
     if (a == KEY_BACK) { close_keyboard(s); return 1; }
-    if (s->tvkb) {   /* the TV's keyboard types (text()); its Enter comes as OK */
-        if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; }
-        else if (a == KEY_OK) searched(s);
-        else if ((a == KEY_DOWN || a == KEY_RIGHT) && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); }
-        return 1;
-    }
     if (s->ask_focus) {   /* the Ask AI button under the keys */
         if (a == KEY_UP) { s->ask_focus = 0; s->sugg_focus = list_n(s) - 1; }
         else if (a == KEY_RIGHT && s->n) { s->ask_focus = 0; close_keyboard(s); focus_results(s); }
         else if (a == KEY_OK) { s->ask_focus = 0; ask_now(s); }
         return 1;
     }
-    if (s->sugg_focus >= 0) {
+    if (s->sugg_focus >= 0) {   /* the list down the left: suggestions, or the recent searches */
         if (a == KEY_UP) s->sugg_focus--;
         else if (a == KEY_DOWN) { if (s->sugg_focus + 1 < list_n(s)) s->sugg_focus++; else if (ask_visible(s)) { s->sugg_focus = -1; s->ask_focus = 1; } }
         else if (a == KEY_RIGHT && s->n) { close_keyboard(s); focus_results(s); }
         else if (a == KEY_OK && s->sugg_focus < list_n(s)) take_list(s, s->sugg_focus);
+        return 1;
+    }
+    if (s->tvkb) {   /* the TV's keyboard types (text()); its Enter comes as OK. The TV can close its keyboard
+                      * without telling us (its own Back), so Down must reach the list from here too. */
+        if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; }
+        else if (a == KEY_OK) searched(s);
+        else if (a == KEY_DOWN && list_n(s) && !(s->kb.text[0] && s->n)) s->sugg_focus = 0;   /* typed with results: Down still opens them */
+        else if (a == KEY_DOWN && ask_visible(s)) s->ask_focus = 1;
+        else if ((a == KEY_DOWN || a == KEY_RIGHT) && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); }
         return 1;
     }
     int last = (int)(keyboard_width_of(&s->kb) / 80);   /* the right-hand column of keys */
@@ -1522,6 +1525,7 @@ static void text(Screen *sc, const char *utf8)
 {
     Search *s = sc->st;
     if (!s->typing) open_keyboard(s);
+    s->sugg_focus = -1; s->ask_focus = 0;   /* typing goes back to the field */
     keyboard_text_input(&s->kb, utf8);
     s->dirty = 1; s->debounce = 0.35f;
     app_redraw();

@@ -1175,6 +1175,10 @@ run episode_marked 470 "right,ok,down,down,right,hold,$HOLD,release,wait,wait,ok
 run episode_upto 520 "right,ok,down,down,right,right,right,hold,$HOLD,release,wait,wait,down,ok" HOME="$(home_with ep_upto '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run options_yellow 200 "right,right,right,yellow"
 run search_recent 200 "search,down,down" HOME="$(home_with recent '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"recentSearches":["breaking bad","midnight harbor","something about prison and hope"]}')"
+# the TV's keyboard is up (or was closed by the TV itself, which never tells the app): Down still reaches the recent searches and OK takes one
+run search_tv_recent 300 "search,ok,down,down,ok,wait,wait,wait" HOME="$(home_with tvrecent '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":1,"recentSearches":["breaking bad","midnight harbor","something about prison and hope"]}')"
+grep -q 'search: asking the addons for "midnight harbor"' "$OUT/search_tv_recent.log" \
+  || { echo "with the TV's keyboard, Down did not reach the recent searches"; grep search "$OUT/search_tv_recent.log"; exit 1; }
 run offline_update 220 "right" SNTV_FAKE_OFFLINE=1 SNTV_UPDATE_URL=http://127.0.0.1:$PORT/repo.json
 # a new release: at a quiet moment the app asks; Update now hands it to the Homebrew Channel
 # beta updates on: the update check reads the beta channel, not the release everyone has
