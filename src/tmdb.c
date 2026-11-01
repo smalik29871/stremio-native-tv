@@ -515,6 +515,34 @@ void tmdb_imdb_ids(const int *ids, const int *tv, int n, char (*out)[ID_LEN], co
     free(todo);
 }
 
+/* The acting credits to list for a person: films and series, the most popular first; talk shows, news, reality and a
+ * series one or two episodes long are left out. At most `max` (64 at most); pick[0..n) are all set. */
+int tmdb_pick_credits(const cJSON *cast, const cJSON **pick, int max)
+{
+    double pop[64];
+    int np = 0;
+    if (max > 64) max = 64;
+    const cJSON *it;
+    cJSON_ArrayForEach(it, cast) {
+        const cJSON *mt = cJSON_GetObjectItemCaseSensitive(it, "media_type"), *p = cJSON_GetObjectItemCaseSensitive(it, "popularity");
+        const cJSON *eps = cJSON_GetObjectItemCaseSensitive(it, "episode_count"), *g = cJSON_GetObjectItemCaseSensitive(it, "genre_ids"), *gg;
+        if (!cJSON_IsString(mt)) continue;
+        int tv = !strcmp(mt->valuestring, "tv");
+        if (!tv && strcmp(mt->valuestring, "movie")) continue;
+        int talk = 0;
+        cJSON_ArrayForEach(gg, g) if (cJSON_IsNumber(gg) && (gg->valueint == 10767 || gg->valueint == 10763 || gg->valueint == 10764)) talk = 1;   /* talk, news, reality */
+        if (talk || (tv && cJSON_IsNumber(eps) && eps->valueint < 2)) continue;
+        double pv = cJSON_IsNumber(p) ? p->valuedouble : 0;
+        int k;
+        if (np < max) k = np++;                    /* room: it goes in at the end, then up to its place */
+        else if (pv > pop[max - 1]) k = max - 1;   /* full: it takes the place of the least popular, if it is more popular than that */
+        else continue;
+        for (; k > 0 && pop[k - 1] < pv; k--) { pick[k] = pick[k - 1]; pop[k] = pop[k - 1]; }
+        pick[k] = it; pop[k] = pv;
+    }
+    return np;
+}
+
 static void person_task(HttpResponse *r, void *arg)
 {
     PersonJob *pj = arg;
@@ -532,31 +560,17 @@ static void person_task(HttpResponse *r, void *arg)
     if (!id) { r->status = 404; return; }
     snprintf(url, sizeof url, "%s/person/%d/combined_credits?api_key=%s", api_base(), id, api_key());
     cJSON *j = get_json(url);
-    const cJSON *cast = cJSON_GetObjectItemCaseSensitive(j, "cast"), *it;
-    /* acting roles, the most popular first; talk shows and one-off appearances left out */
+    const cJSON *cast = cJSON_GetObjectItemCaseSensitive(j, "cast");
     enum { MAXP = 24 };
-    const cJSON *pick[MAXP]; double pop[MAXP]; int np = 0;
-    cJSON_ArrayForEach(it, cast) {
-        const cJSON *mt = cJSON_GetObjectItemCaseSensitive(it, "media_type"), *p = cJSON_GetObjectItemCaseSensitive(it, "popularity");
-        const cJSON *eps = cJSON_GetObjectItemCaseSensitive(it, "episode_count"), *g = cJSON_GetObjectItemCaseSensitive(it, "genre_ids"), *gg;
-        if (!cJSON_IsString(mt)) continue;
-        int tv = !strcmp(mt->valuestring, "tv");
-        if (!tv && strcmp(mt->valuestring, "movie")) continue;
-        int talk = 0;
-        cJSON_ArrayForEach(gg, g) if (cJSON_IsNumber(gg) && (gg->valueint == 10767 || gg->valueint == 10763 || gg->valueint == 10764)) talk = 1;   /* talk, news, reality */
-        if (talk || (tv && cJSON_IsNumber(eps) && eps->valueint < 2)) continue;
-        double pv = cJSON_IsNumber(p) ? p->valuedouble : 0;
-        int k = np < MAXP ? np++ : MAXP - 1;
-        if (k == MAXP - 1 && np == MAXP && pv <= pop[k]) continue;
-        for (; k > 0 && pop[k - 1] < pv; k--) { pick[k] = pick[k - 1]; pop[k] = pop[k - 1]; }
-        pick[k] = it; pop[k] = pv;
-    }
+    const cJSON *pick[MAXP];
+    int np = tmdb_pick_credits(cast, pick, MAXP);
     pj->out = calloc((size_t)np + 1, sizeof *pj->out);
     int pids[MAXP], ptv[MAXP]; char pimdb[MAXP][ID_LEN];
     for (int i = 0; i < np; i++) {
         const cJSON *tid = cJSON_GetObjectItemCaseSensitive(pick[i], "id");
         pids[i] = cJSON_IsNumber(tid) ? tid->valueint : 0;
-        ptv[i] = !strcmp(cJSON_GetObjectItemCaseSensitive(pick[i], "media_type")->valuestring, "tv");
+        const cJSON *mt = cJSON_GetObjectItemCaseSensitive(pick[i], "media_type");
+        ptv[i] = cJSON_IsString(mt) && !strcmp(mt->valuestring, "tv");
     }
     tmdb_imdb_ids(pids, ptv, np, pimdb, "a person's titles");
     for (int i = 0; i < np; i++) {

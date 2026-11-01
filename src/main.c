@@ -719,6 +719,8 @@ static void crash_hex(int fd, unsigned long v)
     crash_put(fd, p);
 }
 
+static unsigned long g_crash_base;   /* where this program's code is loaded: pc minus this is the place in the file */
+
 static void on_crash(int sig, siginfo_t *si, void *ctx)
 {
     int fd = log_fd();
@@ -732,10 +734,24 @@ static void on_crash(int sig, siginfo_t *si, void *ctx)
         crash_put(fd, " lr "); crash_hex(fd, uc->uc_mcontext.arm_lr);
 #elif defined(__aarch64__)
         crash_put(fd, ", pc "); crash_hex(fd, uc->uc_mcontext.pc);
+        crash_put(fd, " lr "); crash_hex(fd, uc->uc_mcontext.regs[30]);
 #elif defined(__x86_64__)
         crash_put(fd, ", pc "); crash_hex(fd, (unsigned long)uc->uc_mcontext.gregs[16]   /* REG_RIP */);
 #else
         (void)uc;
+#endif
+        if (g_crash_base) { crash_put(fd, " base "); crash_hex(fd, g_crash_base); }
+#if defined(__aarch64__)
+        {   /* who called: the frame pointers up the stack (each frame is {the caller's frame, the return address}), while they stay sane */
+            unsigned long sp = uc->uc_mcontext.sp, fp = uc->uc_mcontext.regs[29];
+            crash_put(fd, " calls");
+            for (int i = 0; i < 8 && fp >= sp && fp - sp < (8ul << 20) && !(fp & 7); i++) {
+                const unsigned long *f = (const unsigned long *)fp;
+                crash_put(fd, " "); crash_hex(fd, f[1]);
+                if (f[0] <= fp) break;
+                fp = f[0];
+            }
+        }
 #endif
         crash_put(fd, ", screens");
         for (int i = 0; i < g_app.depth && i < 12; i++) { crash_put(fd, i ? " > " : " "); crash_put(fd, g_app.stack[i] && g_app.stack[i]->name ? g_app.stack[i]->name : "?"); }
@@ -754,6 +770,16 @@ static void on_crash(int sig, siginfo_t *si, void *ctx)
 
 static void crash_log_install(void)
 {
+    FILE *maps = fopen("/proc/self/maps", "r");   /* where the code that holds this function is loaded: its mapping's start less the file offset */
+    if (maps) {
+        char ln[320];
+        unsigned long at = (unsigned long)(void *)on_crash;
+        while (fgets(ln, sizeof ln, maps)) {
+            unsigned long lo, hi, off;
+            if (sscanf(ln, "%lx-%lx %*s %lx", &lo, &hi, &off) == 3 && at >= lo && at < hi) { g_crash_base = lo - off; break; }
+        }
+        fclose(maps);
+    }
     static char alt[64 * 1024];   /* a stack of its own, so a stack overflow is logged too */
     stack_t ss = { .ss_sp = alt, .ss_size = sizeof alt };
     sigaltstack(&ss, NULL);

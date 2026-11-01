@@ -52,6 +52,8 @@ void tmdb_imdb_ids(const int *ids, const int *tv, int n, char (*out)[TMDB_IMDB_L
 #include "addon/addon.h"
 typedef void (*TmdbTitlesCb)(const MetaPreview *titles, int n, void *user);
 void tmdb_person_titles(const char *name, int person_id, TmdbTitlesCb cb, void *user);
+struct cJSON;
+int  tmdb_pick_credits(const struct cJSON *cast, const struct cJSON **pick, int max);   /* a person's credits worth listing, most popular first (tests/test_tmdb_credits.c) */
 /* Titles TMDB lists for filters (an AI search's: "Bollywood comedies of the 90s"), most
  * popular first, with IMDb ids; same callback contract. Genres by TMDB's English names. */
 typedef struct TmdbFilter { int tv; char lang[8], country[8]; char genres[4][24]; int n_genres; int from, to; } TmdbFilter;
