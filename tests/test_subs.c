@@ -169,6 +169,17 @@ int main(void)
         subs_free(&t);
     }
 
+    {   /* tags the file wrote oddly: none of them reaches the screen (src/sub_text.h) */
+        const char *srt = "1\n00:00:01,000 --> 00:00:02,000\n{\\an8} On August 14\n\n2\n00:00:03,000 --> 00:00:04,000\n{\\an8 No end\n\n"
+                          "3\n00:00:05,000 --> 00:00:06,000\n&#123;\\an8&#125;Entities <i>and</i> tags\\Nline two\n\n4\n00:00:07,000 --> 00:00:08,000\n{sighs} Words stay\n";
+        CHECK(subs_parse(srt, strlen(srt), &t) == 4);
+        CHECK(strcmp(t.cues[0].text, "On August 14") == 0 && t.cues[0].top == 1);
+        CHECK(strcmp(t.cues[1].text, "No end") == 0 && t.cues[1].top == 1);
+        CHECK(strcmp(t.cues[2].text, "Entities and tags\nline two") == 0);
+        CHECK(strcmp(t.cues[3].text, "{sighs} Words stay") == 0);
+        subs_free(&t);
+    }
+
     d = read_fixture("sample.vtt", &len);
     CHECK(subs_parse(d, len, &t) == 2);
     free(d);

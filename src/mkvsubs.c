@@ -1,4 +1,5 @@
 #include "mkvsubs.h"
+#include "sub_text.h"
 #include "http.h"
 #include "log.h"
 #include "relay.h"
@@ -194,6 +195,8 @@ static size_t clean_text(const uint8_t *s, size_t n, int ass, int *top, char *ou
     }
     while (o && (out[o - 1] == '\n' || out[o - 1] == ' ')) o--;
     out[o] = 0;
+    if (subtext_clean(out)) *top = 1;   /* what the passes above missed (a tag with no end, one spelled as entities ...) */
+    o = strlen(out);
     size_t k = 0;
     while (out[k] == '\n' || out[k] == ' ') k++;
     if (k) { memmove(out, out + k, o - k + 1); o -= k; }

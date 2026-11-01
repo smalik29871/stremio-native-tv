@@ -9,6 +9,7 @@
  * sound, the wall clock from the first frame. A seek or a load bumps a serial number, and
  * whatever carries an older one is dropped on the way. Text subtitles in the file are
  * decoded on the reading thread into cues the player screen draws (video_subtitle_text). */
+#include "sub_text.h"
 #include "video.h"
 #include "../log.h"
 #include "../youtube.h"
@@ -461,6 +462,7 @@ static void subtitle_packet(Player *pl, AVPacket *pk)
         if (*line) { size_t l = strlen(text); snprintf(text + l, sizeof text - l, "%s%s", l ? "\n" : "", line); }
     }
     avsubtitle_free(&s);
+    subtext_clean(text);   /* a plain-text cue (SRT, WebVTT) was never cleaned: {\an8}, <i> ... */
     if (!*text || start < 0) return;
     SDL_LockMutex(pl->sm);
     if (pl->ncue == 256) { memmove(pl->cues, pl->cues + 64, sizeof(Cue) * 192); pl->ncue = 192; }

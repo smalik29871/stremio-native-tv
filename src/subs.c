@@ -1,4 +1,5 @@
 #include "subs.h"
+#include "sub_text.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,6 +88,7 @@ static char *clean_text(const char *raw, int is_utf8)
         out[w++] = out[r++];
     }
     out[w] = 0;
+    subtext_clean(out);   /* what the passes above missed: a tag with no end, one spelled as entities, \N ... */
     return out;
 }
 

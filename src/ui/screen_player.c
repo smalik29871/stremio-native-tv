@@ -2,6 +2,7 @@
  * addon + embedded subtitles, audio/subtitle menu, auto-fallback across stream
  * candidates, intro/recap skipping, Up Next at the credits, and progress sync to
  * the Stremio library. */
+#include "sub_text.h"
 #include "../relay.h"
 #include "../mkvsubs.h"
 #include "../quality.h"
@@ -3322,6 +3323,14 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     }
     static char vb[1024];
     if (!text && !p->track_loaded && video_subtitle_text(vb, sizeof vb)) text = vb;   /* the desktop player's, from inside the file */
+    /* whatever way a line came (a file, the film's own track, the desktop player, a translation), no tag of the file is drawn */
+    if (text == vb && subtext_clean(vb) && !top) { top = vb; text = NULL; }   /* the desktop player's has no top flag of its own */
+    else if (text) subtext_clean((char *)text);
+    if (text2) subtext_clean((char *)text2);
+    if (top && top != vb) subtext_clean((char *)top);
+    if (text && !*text) text = NULL;   /* a line that was only tags: nothing to draw (no empty box) */
+    if (text2 && !*text2) text2 = NULL;
+    if (top && !*top) top = NULL;
     float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
     /* the controls up: a phone's, a computer's (their own) or the TV's; the lines go above them */
     int ctl = TOUCH_UI ? p->fs_k > 0.01f && !p->ph_locked : g_app.time < p->overlay_until && !subs_tuning(p);
