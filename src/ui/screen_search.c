@@ -754,12 +754,7 @@ static void close_keyboard(Search *s)
 /* The TV's own keyboard for Search (Settings; on by default on the TV, tests ask for it). */
 static int tv_keyboard(void)
 {
-    if (SNTV_PHONE) return 1;   /* a phone types with its own */
-#ifdef SNTV_PLATFORM_WEBOS
-    return store_get_int("tvKeyboard", 1);
-#else
-    return store_get_int("tvKeyboard", 0);   /* the desktop has a real keyboard */
-#endif
+    return store_get_int("tvKeyboard", input_system_kb_default());   /* Settings > Interface; a computer has a real keyboard of its own */
 }
 
 static int cols(const Search *s) { (void)s; return COLS_TYPING; }
@@ -1439,8 +1434,15 @@ static void phone_draw(Search *s)
             y += rh;
         }
     }
+    if (s->typing && !s->tvkb) y += keyboard_height_of(&s->kb) + 60;   /* room under the keys for the last lines */
     s->ph_total = y;
     gfx_set_translate(0, 0);
+    if (s->typing && !s->tvkb) {   /* Cuelight's own keyboard (Settings > Interface): over the page, above the tab bar */
+        float kw = keyboard_width_of(&s->kb), kh = keyboard_height_of(&s->kb);
+        float kx = (W - kw) / 2, ky = SNTV_UI_H - PHONE_TABS_H - kh - 24;
+        gfx_rrect(kx - 20, ky - 20, kw + 40, kh + 44, 28, COLOR_ALPHA(THEME_BG, 0xF2));
+        keyboard_draw(&s->kb, kx, ky, s->sugg_focus < 0 && !s->ask_focus);
+    }
     rail_draw(RAIL_SEARCH, -1);
 }
 

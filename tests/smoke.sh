@@ -1556,6 +1556,12 @@ run phone_search 300 "wait,tap:390:1660,wait,tap:390:180,wait,t:brea,wait,wait,o
 run phone_search_space 400 "wait,tap:390:1660,wait,tap:390:180,wait,t:breaking,space,t:bad,wait,wait,ok,wait,wait" $PH SNTV_EXPECT_SCREEN=search HOME="$(home_with phsp '{"setupDone":1}')"
 grep -qE '"recentSearches":[[:space:]]*\["breaking bad"\]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json" \
   || { echo "the space bar of a phone keyboard did not type a space"; grep -o '"recentSearches":[^]]*]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json"; exit 1; }
+# a phone or tablet can type with Cuelight's own keyboard on screen instead of the device's (Settings > Interface): tapped keys type, and no system keyboard is asked for
+run phone_search_appkb 360 "wait,tap:390:1660,wait,tap:390:180,wait,wait,wait,tap:150:1245,wait,wait,tap:230:1245,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=search HOME="$(home_with phappkb '{"setupDone":1,"tvKeyboard":0}')"
+grep -q 'search: asking the addons for "ab"' "$OUT/phone_search_appkb.log" && ! grep -q "typing with the TV's keyboard" "$OUT/phone_search_appkb.log" \
+  || { echo "Cuelight's own keyboard did not type on a phone"; grep -E "search:" "$OUT/phone_search_appkb.log"; exit 1; }
+grep -q "typing with the TV's keyboard" "$OUT/phone_search.log" \
+  || { echo "a phone no longer opens its own keyboard by default"; grep -E "search:" "$OUT/phone_search.log"; exit 1; }
 run phone_settings 240 "wait,tap:702:1660,wait,tap:300:300,wait,wait" $PH SNTV_EXPECT_SCREEN=settings HOME="$(home_with ph6 '{"setupDone":1}')"
 # a phone saves a backup through its own share sheet and restores from its file picker: no code to scan (the page was drawn for a TV, off the right edge); it is in Accounts, beside Sync with another device
 run phone_backup 600 "wait,tap:702:1660,wait,tap:300:300,wait,tap:300:451,wait,wait,tap:390:329,wait,wait" $PH SNTV_EXPECT_SCREEN=settings HOME="$(home_with phbk '{"setupDone":1}')"

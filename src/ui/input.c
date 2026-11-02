@@ -1,4 +1,5 @@
 #include "input.h"
+#include "gfx.h"
 #include "../platform/platform.h"
 
 /* webOS remote scancodes from the webosbrew SDL fork (include/SDL_scancode.h,
@@ -71,9 +72,21 @@ KeyAction input_map(const SDL_Event *e)
     }
 }
 
+int input_system_kb_default(void)
+{
+#ifdef SNTV_PLATFORM_WEBOS
+    return 1;   /* LG's keyboard, unless turned off */
+#else
+    return gfx_handheld() || SNTV_PHONE ? 1 : 0;   /* a phone or tablet: its own keyboard; a remote or a computer: the app's on screen */
+#endif
+}
+
 void input_text_system(int on)
 {
     g_typing = on;
+#ifdef SNTV_PLATFORM_ANDROID
+    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "1");   /* the system keyboard slides up */
+#endif
     SDL_StopTextInput();   /* off first: on again brings it back if it was put away */
     if (on) SDL_StartTextInput();
 }
@@ -84,6 +97,9 @@ void input_text(int on)
 #if defined(SNTV_PLATFORM_WEBOS) || defined(SNTV_PLATFORM_TIZEN)
     (void)on;
 #else
+#ifdef SNTV_PLATFORM_ANDROID
+    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "0");   /* the app's own keyboard is on screen: no system keyboard over it */
+#endif
     if (on) SDL_StartTextInput(); else SDL_StopTextInput();
 #endif
 }

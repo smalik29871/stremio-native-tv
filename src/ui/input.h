@@ -18,5 +18,7 @@ void input_text(int on);
 /* The system's own keyboard (LG's on webOS) for typing now: on shows it (again), off hides it.
  * Only while a field is being typed in, so the remote's OK stays the app's otherwise. */
 void input_text_system(int on);
+/* The keyboard Search starts with when none was chosen: the system's on LG TVs and on phones and tablets, the app's own on screen elsewhere (a remote, a computer). */
+int input_system_kb_default(void);
 
 #endif

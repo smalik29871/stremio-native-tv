@@ -23,7 +23,7 @@ float keyboard_width_of(const Keyboard *kb);
 float keyboard_height_of(const Keyboard *kb);
 /* Touch: each key is a hit target (ui_hit) with an id from KB_HIT up. A tapped key takes
  * the keyboard's focus (1); OK then presses it. 0 when the id is not a key. */
-enum { KB_HIT = 0x7E000000 };
+enum { KB_HIT = 0x7B000000 };   /* clear of HIT_TRAILER_SOUND (0x7E000000), which the key "a" (row 0, column 0) used to share */
 int keyboard_tap(Keyboard *kb, int id);
 
 #endif

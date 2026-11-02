@@ -37,11 +37,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef SNTV_PLATFORM_WEBOS
-#define TV_KB_DEFAULT 1   /* LG's keyboard for Search, unless turned off */
-#else
-#define TV_KB_DEFAULT 0
-#endif
+#define TV_KB_DEFAULT input_system_kb_default()   /* LG's keyboard and a phone's or tablet's own for Search, unless turned off */
+static int kb_handheld(void) { return gfx_handheld() || SNTV_PHONE; }
 
 enum { CAT_ACCOUNT, CAT_PLAYBACK, CAT_BREAKS, CAT_LANG, CAT_SOURCES, CAT_INTERFACE, CAT_ROWS, CAT_ADDONS, CAT_PARENTAL, CAT_ABOUT, CAT_COUNT };
 static const char *const CAT_NAMES[CAT_COUNT] = { "Accounts", "Playback", "Take breaks", "Audio & subtitles", "Sources", "Interface", "Home rows", "Addons", "Parental", "About" };
@@ -220,7 +217,7 @@ static const char *row_title(int id)
     case IT_SUBS_SYNC: return "Auto-sync subtitles to the file";
     case IT_SUBS_FILES: return "Subtitle files over the video's own";
     case IT_BUFFER: return "Load ahead";
-    case IT_TV_KB: return "Type with the TV's keyboard";
+    case IT_TV_KB: return kb_handheld() ? "Type with the device's keyboard" : "Type with the TV's keyboard";
     case IT_BR_VIDEO: return "Show the video";
     case IT_P2P: return "P2P fallback on this TV";
     case IT_SRC_AUDIO: return "Sources in my audio language first";
@@ -379,7 +376,7 @@ static const char *row_desc(int id)
     case IT_SUBS_COLOUR: return "The letters in a caption colour, over any style; easier to tell apart for some eyes.";
     case IT_SUBS_SYNC: return "Lines addon subtitles up with the video's own timing.";
     case IT_SUBS_FILES: return "Off: a video's own subtitles first; always in sync, drawn by the TV. On: a file matched to the video first; your style, though it can be a little off.";
-    case IT_TV_KB: return "Search opens the TV's own keyboard, with its suggestions. Off: the app's keyboard on screen.";
+    case IT_TV_KB: return kb_handheld() ? "Search opens the keyboard this device came with, with its suggestions. Off: Cuelight's own keyboard on screen, which no suggestion or autocorrect can change." : "Search opens the TV's own keyboard, with its suggestions. Off: the app's keyboard on screen.";
     case IT_BUFFER: return "Up to 2 minutes kept ready in the TV's memory, so a slow or dropped connection doesn't stop the picture. Only what the TV can spare.";
     case IT_QUALITY: return "Which source comes first in the list.";
     case IT_RES_CAP: return "Recommended sources stay at or below this.";
@@ -1013,7 +1010,7 @@ static void draw(Screen *s)
         case IT_SUBS_SYNC: draw_row(y, ICON_SUBS, "Auto-sync subtitles to the file", NULL, foc, KIND_TOGGLE, g_app.subs_autosync); break;
         case IT_SUBS_FILES: draw_row(y, ICON_SUBS, "Subtitle files over the video's own", NULL, foc, KIND_TOGGLE, g_app.subs_prefer_files); break;
         case IT_BUFFER: draw_row(y, ICON_SPEED, "Load ahead", NULL, foc, KIND_TOGGLE, store_get_int("bufferAhead", 1)); break;
-        case IT_TV_KB: draw_row(y, ICON_SEARCH, "Type with the TV's keyboard", NULL, foc, KIND_TOGGLE, store_get_int("tvKeyboard", TV_KB_DEFAULT)); break;
+        case IT_TV_KB: draw_row(y, ICON_SEARCH, kb_handheld() ? "Type with the device's keyboard" : "Type with the TV's keyboard", NULL, foc, KIND_TOGGLE, store_get_int("tvKeyboard", TV_KB_DEFAULT)); break;
         case IT_BR_VIDEO: draw_row(y, ICON_TV, "Show the video", NULL, foc, KIND_TOGGLE, g_app.break_video); break;
         case IT_P2P: draw_row(y, ICON_SWAP, "P2P fallback on this TV", NULL, foc, KIND_TOGGLE, g_app.p2p_fallback); break;
         case IT_SRC_AUDIO: { char la[96]; snprintf(la, sizeof la, "Sources in my audio language first%s%s%s", lang_known(g_app.pref_audio) ? " (" : "", lang_known(g_app.pref_audio) ? lang_display(g_app.pref_audio) : "", lang_known(g_app.pref_audio) ? ")" : ""); draw_row(y, ICON_AUDIO, la, NULL, foc, KIND_TOGGLE, g_app.src_audio_lang); break; }
