@@ -267,12 +267,19 @@ static void destroy(Screen *s)
     free(c->items); free(c); free(s);
 }
 
+/* The pointer is over a rail item: open the rail focused on it so a click opens that section. */
+static void rail_hover_cb(Screen *s, int item)
+{
+    Calendar *c = s->st;
+    if (c->rail_focus != item) { c->rail_focus = item; app_redraw(); }
+}
+
 Screen *screen_calendar_create(void)
 {
     Screen *s = calloc(1, sizeof *s);
     Calendar *c = calloc(1, sizeof *c);
     c->rail_focus = -1; c->gen = 1;
     s->name = "calendar"; s->st = c;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->resume = resume; s->rail_hover = rail_hover_cb; s->phone = 1;
     return s;
 }
