@@ -1070,6 +1070,12 @@ class H(BaseHTTPRequestHandler):
                     time.sleep(float(os.environ.get("FAKE_SLOW_S", "6")))
                 return self.send(200, json.dumps(STREAMS).encode())
             return self.send(404, b"{}")
+        # /plain/...: an addon whose one list has no genre filter (a service's own catalog, like Streaming Catalogs)
+        if p == "/plain/manifest.json":
+            return self.send(200, json.dumps({"id": "org.sntv.plain", "version": "1.0.0", "name": "Plain Catalogs", "resources": ["catalog"], "types": ["movie"],
+                                              "catalogs": [{"id": "plain", "type": "movie", "name": "Plain List"}]}).encode())
+        if p.startswith("/plain/catalog/"):
+            return self.send(200, json.dumps(CATALOG).encode())
         if p == "/manifest.json":
             return self.send(200, json.dumps(MANIFEST).encode())
         if p.startswith("/catalog/"):

@@ -121,7 +121,7 @@ int mkvsubs_parse_head(const uint8_t *d, size_t n, MkvSubHead *out)
 
 /* ---- the lines, read from the bytes as they come ---- */
 
-typedef struct { int number; SubCue *c; int n, cap; } Lines;
+typedef struct { int number; SubCue *c; int n, cap; int dirty; } Lines;   /* dirty: lines with a tag the TV would show as text */
 enum { M_SYNC, M_HEAD, M_SKIP, M_PAY };
 
 static struct {
@@ -177,10 +177,20 @@ static size_t clean_text(const uint8_t *s, size_t n, int ass, int *top, char *ou
         uint8_t c = s[i];
         if (c == '{') {   /* override tags */
             size_t e = i;
-            while (e < n && s[e] != '}') e++;
-            for (size_t k = i; k + 3 < e; k++) if (s[k] == '\\' && s[k + 1] == 'a' && s[k + 2] == 'n' && s[k + 3] >= '7' && s[k + 3] <= '9') *top = 1;
-            i = e < n ? e + 1 : n;
-            continue;
+            while (e < n && s[e] != '}' && e - i < 120) e++;
+            if (e < n && s[e] == '}') {
+                for (size_t k = i; k + 3 < e; k++) if (s[k] == '\\' && s[k + 1] == 'a' && s[k + 2] == 'n' && s[k + 3] >= '7' && s[k + 3] <= '9') *top = 1;
+                i = e + 1;
+                continue;
+            }
+            size_t w = i + 1;   /* no end: the tag is the word that starts "{\", the rest of the line is text */
+            while (w < n && s[w] == ' ') w++;
+            if (w < n && s[w] == '\\') {
+                for (size_t k = w; k + 3 < n && k < w + 8; k++) if (s[k] == '\\' && s[k + 1] == 'a' && s[k + 2] == 'n' && s[k + 3] >= '7' && s[k + 3] <= '9') *top = 1;
+                while (w < n && s[w] != ' ' && s[w] != '\n' && w - i < 60) w++;
+                i = w;
+                continue;
+            }
         }
         if (c == '<' && !ass) {   /* <i>, <font ...>, WebVTT's voice tags */
             size_t e = i;
@@ -254,6 +264,14 @@ static void block_done(int simple)
     double start = ((double)S.cluster_tc + rel) * S.head.tick_ms / 1000.0;
     char text[4096];
     int top = 0;
+    {   /* a tag the TV would draw as text (look-alike signs, escaped, an SRT tag in an ASS line): the app draws this track instead */
+        char raw[1024];
+        size_t rl = n - (size_t)tl - 3 < sizeof raw - 1 ? n - (size_t)tl - 3 : sizeof raw - 1;
+        memcpy(raw, p + tl + 3, rl);
+        raw[rl] = 0;
+        Lines *dl = lines_for(track);
+        if (dl && subtext_odd(raw, is_ass(track))) dl->dirty++;
+    }
     if (!clean_text(p + tl + 3, n - (size_t)tl - 3, is_ass(track), &top, text, sizeof text)) return;
     if (simple) { emit(track, start, 0, text, top); return; }
     finish_pending();
@@ -455,6 +473,16 @@ int mkvsubs_head(MkvSubHead *out)
     if (ok && out) *out = S.head;
     SDL_UnlockMutex(S.lock);
     return ok;
+}
+
+int mkvsubs_dirty(int number)
+{
+    if (!S.lock) return 0;
+    SDL_LockMutex(S.lock);
+    Lines *l = lines_for(number);
+    int n = l ? l->dirty : 0;
+    SDL_UnlockMutex(S.lock);
+    return n;
 }
 
 int mkvsubs_count(int number)

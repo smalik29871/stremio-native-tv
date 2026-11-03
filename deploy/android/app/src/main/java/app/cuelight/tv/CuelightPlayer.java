@@ -33,6 +33,7 @@ import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
+import androidx.media3.common.text.Cue;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
@@ -58,6 +59,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
+import android.text.SpannableStringBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -178,7 +180,7 @@ public final class CuelightPlayer {
             @Override public void onTracksChanged(Tracks t) { tracks(t); }
             @Override public void onVideoSizeChanged(VideoSize v) { layout(); snapshot(); }
             @Override public void onRenderedFirstFrame() { sFirstFrame = true; snapshot(); }
-            @Override public void onCues(CueGroup cues) { sSubs.setCues(cues.cues); }
+            @Override public void onCues(CueGroup cues) { sSubs.setCues(cleanCues(cues.cues)); }
         });
         sPlayer.addAnalyticsListener(new AnalyticsListener() {
             @Override public void onDroppedVideoFrames(EventTime time, int count, long elapsedMs) {
@@ -253,6 +255,23 @@ public final class CuelightPlayer {
         return b.build();
     }
     public static void setRect(final int x, final int y, final int w, final int h) { run(() -> { sRectX = x; sRectY = y; sRectW = w; sRectH = h; layout(); }); }
+
+    /* The file's own subtitle lines as drawn: tags the file wrote that ExoPlayer leaves as text ({\an8}, <font ...> with
+     * look-alike or escaped signs) are taken out first (SubText, the same rules as the C app's own lines). */
+    private static List<Cue> cleanCues(List<Cue> in) {
+        List<Cue> out = null;
+        for (int i = 0; i < in.size(); i++) {
+            Cue c = in.get(i);
+            List<int[]> r = c.text != null ? SubText.ranges(c.text.toString()) : null;
+            if (r == null || r.isEmpty()) { if (out != null) out.add(c); continue; }
+            if (out == null) out = new ArrayList<>(in.subList(0, i));
+            SpannableStringBuilder b = new SpannableStringBuilder(c.text);
+            for (int k = r.size() - 1; k >= 0; k--) b.delete(r.get(k)[0], r.get(k)[1]);
+            if (b.toString().trim().length() == 0) continue;   // only tags: nothing to draw
+            out.add(c.buildUpon().setText(b).build());
+        }
+        return out != null ? out : in;
+    }
 
     /* index: group << 8 | track, as tracks() lists them; -1 turns the file's subtitles off. */
     public static void selectTrack(final int kind, final int index) {

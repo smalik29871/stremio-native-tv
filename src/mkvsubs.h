@@ -42,6 +42,8 @@ void mkvsubs_feed(uint64_t offset, const uint8_t *data, size_t n);
  * copied into out (their text malloc'd, the caller frees). The count copied. */
 int  mkvsubs_take(int number, int from, SubCue *out, int max);
 int  mkvsubs_count(int number);
+/* How many of its lines so far carry a tag the TV's own drawing would show as text (the app can draw the track clean instead). */
+int  mkvsubs_dirty(int number);
 
 /* tests: a parser run over bytes on its own, without a download */
 void mkvsubs_reset(const MkvSubHead *head);

@@ -703,6 +703,10 @@ run home_peek_aperture 900 "right,right,wait,wait,wait,wait,wait,wait,wait,wait,
 # a Continue Watching row sliding off the top fades out instead of leaving a sliced strip
 CW_HOME="$(home_with cw_scroll '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"theme":2}')"; cp "$ROOT/tests/fixtures/library.json" "$CW_HOME/.local/share/stremio/nativetv/library.json"
 run home_cw_scroll 90 "right,right,right,down" HOME="$CW_HOME"
+# the first list has no genre filter (a service's own catalog): Explore opens on the first one that has genres, and says so when a list has none
+run explore_genres 320 "left,down,ok,wait,right,down,right,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/plain/manifest.json,http://127.0.0.1:$PORT/manifest.json HOME="$(home_with exgen '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+grep -q "explore: movie first: its list 2 has genres" "$OUT/explore_genres.log" \
+  || { echo "Explore did not open on a list with genres"; grep explore "$OUT/explore_genres.log"; exit 1; }
 run explore_cats 300 "left,down,ok,right,down,right"
 run library 260 "left,down,down,down,ok"
 run explore_moods 300 "left,down,ok,wait,up,right,right,down,right,ok"

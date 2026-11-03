@@ -164,6 +164,13 @@ static void build_cats(Explore *e)
         }
     if (e->cat_i >= e->n_cats) e->cat_i = 0;
     if (e->cat_focus >= e->n_cats) e->cat_focus = e->cat_i;
+    /* open on a list that has genres when there is one: the first list is often a service's own (Netflix, Disney+), which has none */
+    if (e->cat_i == 0 && !e->want_genre[0])
+        for (int i = 0; i < e->n_cats; i++) {
+            const AddonCatalog *cat = &g_app.addons[e->cats[i].addon].manifest.catalogs[e->cats[i].catalog];
+            const AddonExtra *g = addon_catalog_extra(cat, "genre");
+            if (g && g->options.n) { if (i) LOGI("explore: %s first: its list %d has genres, the ones before it have none", e->types[e->type_i], i + 1); e->cat_i = e->cat_focus = i; break; }
+        }
     e->genre_i = 0;
     if (e->genre_focus > 0) e->genre_focus = 0;
 }
@@ -445,6 +452,9 @@ static void draw(Screen *s)
         font_draw("GENRE", LX, 278, FONT_XS | FONT_B, THEME_TEXT_MUTED);
         draw_pills(LX + 86, 268, maxw - 86, gl, k, e->genre_i, e->zone == Z_GENRES && e->rail_focus < 0, e->genre_focus, &e->genre_scroll, &e->genre_pan, HIT_GENRE);
         free(gl);
+    } else if (!is_moods(e) && e->n_cats) {   /* a list can only be filtered by a genre when its addon offers one */
+        font_draw("GENRE", LX, 278, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+        font_draw("This list has no genre filter", LX + 86, 278, FONT_XS, THEME_TEXT_DIM);
     }
     /* grid */
     float gx = LX, gy = GRID_Y;

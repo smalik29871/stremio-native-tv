@@ -29,6 +29,12 @@ int main(void)
     IS("\xEF\xBD\x9B\\an8\xEF\xBD\x9D" "Fullwidth", "Fullwidth", 1);
     IS("<i>Italic</i> and <font color=\"#ff0\">colour</font> and <c.yellow>cue</c>", "Italic and colour and cue", 0);
     IS("{\\an8}<i>Both kinds</i>", "Both kinds", 1);
+    IS("\xE3\x80\x88" "font color=\"#00ffff\"" "\xE3\x80\x89" ":::::[GWC]:::::" "\xE3\x80\x88" "/font" "\xE3\x80\x89", ":::::[GWC]:::::", 0);   /* the one on the photo */
+    IS("&lt;font color=\"#00ffff\"&gt;hi&lt;/font&gt; there", "hi there", 0);       /* a tag written escaped */
+    IS("\xEF\xBC\x9Ci\xEF\xBC\x9Ex\xEF\xBC\x9C/i\xEF\xBC\x9E", "x", 0);                /* fullwidth signs */
+    IS("\xE2\x80\xB9" "b" "\xE2\x80\xBA" "bold" "\xE2\x80\xB9/b" "\xE2\x80\xBA", "bold", 0);
+    IS("I \xE2\x80\xB9" "3 you", "I \xE2\x80\xB9" "3 you", 0);                           /* a sign that opens no tag stays */
+    IS("&lt;3 and &lt;&gt;", "&lt;3 and &lt;&gt;", 0);
     IS("First\\NSecond\\nThird", "First\nSecond\nThird", 0);
     IS("A\\hB", "A B", 0);
     IS("{\\p1}m 0 0 l 10 0 10 10 0 10{\\p0}Visible", "Visible", 0);   /* an ASS drawing is not text */

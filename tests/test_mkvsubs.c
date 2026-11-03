@@ -88,6 +88,32 @@ int main(void)
     mkvsubs_feed(12345, junk, sizeof junk);
     CHECK(mkvsubs_count(h.t[0].number) == 0 && mkvsubs_count(h.t[1].number) == 0);
 
+    /* a track whose lines carry tags the TV would draw as text (an SRT tag inside an ASS line, an override with no end):
+     * counted as dirty, and the lines come out clean */
+    {
+        size_t tn = 0;
+        uint8_t *tf = load(SNTV_FIXTURES "/media/subs_tags.mkv", &tn);
+        CHECK(tf && tn > 1000);
+        MkvSubHead th;
+        if (tf && mkvsubs_parse_head(tf, tn, &th) && th.n == 1) {
+            mkvsubs_reset(&th);
+            for (size_t at = 0; at < tn; at += 700) mkvsubs_feed(at, tf + at, at + 700 < tn ? 700 : tn - at);
+            SubCue tc[8];
+            int nn = lines(th.t[0].number, tc, 8);
+            CHECK(nn == 4);
+            CHECK(mkvsubs_dirty(th.t[0].number) == 2);   /* the font tag and the override with no end; the plain lines are not */
+            if (nn == 4) {
+                CHECK(!strcmp(tc[0].text, ":::::[GWC]:::::"));
+                CHECK(!strcmp(tc[1].text, "Plain line, no tags"));
+                CHECK(!strcmp(tc[2].text, "Up here, the tag has no end") && tc[2].top);
+            }
+            drop(tc, nn);
+            mkvsubs_reset(&th);
+            CHECK(mkvsubs_dirty(th.t[0].number) == 0);
+        } else CHECK(0);
+        free(tf);
+    }
+
     free(f);
     if (fails) { fprintf(stderr, "%d failed\n", fails); return 1; }
     printf("mkvsubs: ok\n");

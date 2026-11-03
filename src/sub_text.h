@@ -25,6 +25,51 @@ static inline int subtext_brace(const char *p, char *which)
     return 0;
 }
 
+/* a spelling of "<" or ">" that a file may use for a tag (the look-alike signs); the length of it, and which; 0 when it is not one */
+static inline int subtext_angle(const char *p, char *which)
+{
+    static const struct { const char *s; char b; } sp[] = {
+        { "\xE2\x80\xB9", '<' }, { "\xE2\x80\xBA", '>' },   /* U+2039, U+203A */
+        { "\xE3\x80\x88", '<' }, { "\xE3\x80\x89", '>' },   /* U+3008, U+3009 */
+        { "\xE2\x9F\xA8", '<' }, { "\xE2\x9F\xA9", '>' },   /* U+27E8, U+27E9 */
+        { "\xE2\x8C\xA9", '<' }, { "\xE2\x8C\xAA", '>' },   /* U+2329, U+232A */
+        { "\xEF\xBC\x9C", '<' }, { "\xEF\xBC\x9E", '>' },   /* U+FF1C, U+FF1E */
+        { NULL, 0 } };
+    for (int i = 0; sp[i].s; i++) {
+        size_t l = strlen(sp[i].s);
+        if (!strncmp(p, sp[i].s, l)) { *which = sp[i].b; return (int)l; }
+    }
+    return 0;
+}
+
+static inline int subtext_letter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+
+/* A tag opening at r ("<i>", "</font color=..>", the same with look-alike signs, or escaped as "&lt;i&gt;"): where it ends
+ * (just past its closer), or NULL when it is not a tag ("<3", "1 < 2"). */
+static inline const char *subtext_tag_end(const char *r)
+{
+    char ab = 0;
+    int al = subtext_angle(r, &ab);
+    const char *q;
+    int escaped = !strncmp(r, "&lt;", 4);
+    if (*r == '<') q = r + 1;
+    else if (al && ab == '<') q = r + al;
+    else if (escaped) q = r + 4;
+    else return NULL;
+    if (*q == '/') q++;
+    if (!subtext_letter(*q)) return NULL;
+    for (int k = 0; *q && k < 60; k++) {
+        char b2 = 0;
+        int l2 = subtext_angle(q, &b2);
+        if (escaped) { if (!strncmp(q, "&gt;", 4)) return q + 4; }
+        else if (*q == '>') return q + 1;
+        else if (l2 && b2 == '>') return q + l2;
+        if (*q == '<' || (l2 && b2 == '<')) return NULL;   /* another opens first: this one has no end */
+        q += l2 ? l2 : 1;
+    }
+    return NULL;
+}
+
 /* the text between braces: is it an override tag ("\an8", "\i1", "an8") rather than a word? */
 static inline int subtext_is_tag(const char *c, size_t n, int *top, int *draw)
 {
@@ -42,6 +87,24 @@ static inline int subtext_is_tag(const char *c, size_t n, int *top, int *draw)
     if (e - s >= 3 && e - s <= 4 && (c[s] == 'a' || c[s] == 'A') && (c[s + 1] == 'n' || c[s + 1] == 'N') && c[s + 2] >= '1' && c[s + 2] <= '9') {   /* {an8}: the backslash lost */
         if (c[s + 2] >= '7') *top = 1;
         return 1;
+    }
+    return 0;
+}
+
+/* A tag in this raw line that a TV's own subtitle drawing shows as text (the app can draw it clean instead): the look-alike
+ * angle signs, a tag written escaped, an SRT tag inside an ASS line (ASS does not read them), an override with no end. */
+static inline int subtext_odd(const char *s, int ass)
+{
+    for (const char *r = s; *r; r++) {
+        char ab = 0;
+        int al = subtext_angle(r, &ab);
+        if (al && ab == '<' && subtext_tag_end(r)) return 1;
+        if (!strncmp(r, "&lt;", 4) && subtext_tag_end(r)) return 1;
+        if (ass && *r == '<' && subtext_tag_end(r)) return 1;
+        if (*r == '{' && r[1] == '\\') {
+            const char *e = strchr(r, '}');
+            if (!e || e - r > 120) return 1;
+        }
     }
     return 0;
 }
@@ -86,12 +149,9 @@ static inline int subtext_clean(char *s)
             }
         }
         if (drawing) { r += cl; continue; }
-        if (*r == '<') {   /* <i>, </font ...>, <c.yellow>; "<3" stays */
-            size_t qi = 1 + (r[1] == '/');
-            if ((r[qi] >= 'a' && r[qi] <= 'z') || (r[qi] >= 'A' && r[qi] <= 'Z')) {
-                const char *e = strchr(r + qi, '>');
-                if (e && e - (r + qi) < 60) { r = e + 1; continue; }
-            }
+        {   /* <i>, </font ...>, <c.yellow>, the look-alike signs and &lt;i&gt;; "<3" stays */
+            const char *e = subtext_tag_end(r);
+            if (e) { r = e; continue; }
         }
         if (*r == '\\' && (r[1] == 'N' || r[1] == 'n')) { *w++ = '\n'; r += 2; continue; }
         if (*r == '\\' && r[1] == 'h') { *w++ = ' '; r += 2; continue; }
