@@ -253,7 +253,7 @@ struct Player {
     float last_live_seek;     /* live scrub: the video follows the key every third of a second */
 
     /* stats for nerds (Red) */
-    int stats;
+    int stats, keys_help, subs_off_from;   /* keys_help: the computer's key list on screen; subs_off_from: the subtitles C turned off (their place in the list)*/
     int stalls; float stall_s, stall_since; int was_buffering;
     float pp_since; int pp_logged;          /* the pipeline paused by itself (LG reports a stall so): since when, 0 none */
     int drain_relay;                        /* the buffer ahead counted in the last drain sample */
@@ -263,7 +263,8 @@ struct Player {
     SkipId skip_id;
     SkipSeg skip[SKIP_MAX]; int n_skip;
     int skip_state;           /* 0 not asked, 1 asking, 2 answered (or gave up) */
-    unsigned skip_used;       /* bit per segment: skipped or played through */
+    unsigned skip_used;       /* bit per segment: skipped or played through (cleared when the viewer goes back to it) */
+    float skip_hold_until;    /* just skipped: the position takes a moment to follow, the button must not come back meanwhile */
     /* the scene filter (nudity and sex scenes: src/scene_filter.h) */
     FilterSeg fseg[FILTER_MAX]; int n_fseg;
     int fstate;               /* 0 not asked, 1 asking, 2 answered (or gave up) */
@@ -1916,15 +1917,25 @@ static void skip_fetch(Player *p, const VideoInfo *vi)
     }
 }
 
-/* The intro or recap the playhead is in, if it can still be skipped. */
+/* The intro or recap the playhead is in, if it can still be skipped. A segment passed (or skipped) can be skipped again when the
+ * viewer goes back to it: a rewind, a jump on the timeline, watching the episode again. */
 static const SkipSeg *skippable(Player *p, const VideoInfo *vi)
 {
-    if (g_app.skip_mode == 2 || (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED)) return NULL;
+    if (g_app.skip_mode == 2) return NULL;
+    /* while it loads or buffers after the first picture the button stays (state LOADING comes with a seek or a stall on some TVs) */
+    if (vi->state != VIDEO_PLAYING && vi->state != VIDEO_PAUSED && !(vi->state == VIDEO_LOADING && p->start_timed)) return NULL;
     for (int i = 0; i < p->n_skip; i++) {
         const SkipSeg *s = &p->skip[i];
-        if ((s->kind != SKIP_INTRO && s->kind != SKIP_RECAP) || s->end <= 0 || (p->skip_used & (1u << i))) continue;
+        if ((s->kind != SKIP_INTRO && s->kind != SKIP_RECAP) || s->end <= 0) continue;
+        unsigned bit = 1u << i;
+        if (vi->position >= s->end) { p->skip_used |= bit; continue; }   /* played through it, or skipped */
+        if ((p->skip_used & bit) && vi->position < s->end - 1.5) {
+            if (g_app.time < p->skip_hold_until) continue;   /* just skipped: the position is still on its way */
+            p->skip_used &= ~bit;
+            LOGI("player: the %s can be skipped again (back at %.0f s)", s->kind == SKIP_RECAP ? "recap" : "intro", vi->position);
+        }
+        if (p->skip_used & bit) continue;
         if (vi->position >= s->start && vi->position < s->end - 1.5) return s;
-        if (vi->position >= s->end) p->skip_used |= 1u << i;   /* played through it */
     }
     return NULL;
 }
@@ -1932,6 +1943,7 @@ static const SkipSeg *skippable(Player *p, const VideoInfo *vi)
 static void do_skip(Player *p, const SkipSeg *s)
 {
     p->skip_used |= 1u << (int)(s - p->skip);
+    p->skip_hold_until = g_app.time + 4.0f;
     LOGI("player: skipping %s %.0f-%.0fs", s->kind == SKIP_RECAP ? "recap" : "intro", s->start, s->end);
     player_seek(s->end);
     p->viewer_paused = 0;
@@ -3794,6 +3806,9 @@ static void url_host(const char *url, char *out, size_t n)
     out[i] = 0;
 }
 
+#ifdef SNTV_DESKTOP_KEYS
+static void draw_keys_help(Player *p);
+#endif
 static void draw_stats(Player *p, const VideoInfo *vi)
 {
     char host[128], l[18][160];
@@ -4992,6 +5007,9 @@ static void draw(Screen *s)
     gfx_set_translate(0, 0);
     gfx_set_alpha(1);
     if (p->stats && !p->menu) draw_stats(p, &vi);
+#ifdef SNTV_DESKTOP_KEYS
+    if (p->keys_help) draw_keys_help(p);
+#endif
     float card_top = 0;
     if (p->still_asking) {
         float w = 760, h = 230, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
@@ -7642,6 +7660,151 @@ void player_toggle_mute(void)
     LOGI("player: %s", v > 0.001f ? "muted" : "sound on");
 #endif
 }
+
+#ifdef SNTV_DESKTOP_KEYS
+/* ---- a computer's keyboard in the player ----------------------------------------------------
+ * The keys the other players share (YouTube, Netflix, VLC, mpv, Kodi), on top of the arrows, Enter, Esc, F, M and P:
+ *   K play/pause   J / L back / on 10 s   Shift+Left/Right 3 s   Ctrl+Left/Right 1 min   0-9 to 0-90 %   Home / End
+ *   , / . one frame (paused)   < > or [ ] slower / faster   Backspace normal speed   + / - or Ctrl+Up/Down volume
+ *   C subtitles on/off   V next subtitles   G / H subtitles earlier / later   B next sound track   A or Z picture shape
+ *   N next episode   S skip intro or recap   X stop   I details   O controls   ? this list (any key closes it) */
+
+/* the subtitle choices in the panel's order (off, the file's own tracks, the addons' files): the next one, or off and back */
+static void key_volume(Player *p, float by)
+{
+    float v = ph_vol(p) + by;
+    if (v < 0) v = 0;
+    if (v > 1) v = 1;
+    p->vol = v;
+    video_set_volume((int)(v * 100 + 0.5f));
+    LOGI("player: volume %d%%", (int)(v * 100 + 0.5f));
+    app_toast("Volume %d%%", (int)(v * 100 + 0.5f));
+    show_overlay(p);
+}
+
+static void subs_step(Player *p, int toggle)
+{
+    VideoTrack tr[MAX_TRACKS];
+    int n = video_tracks(TRACK_TEXT, tr, MAX_TRACKS);
+    int order[MAX_ADDON_SUBS], ng = sorted_subs(p, order);
+    int total = 1 + n + ng, cur = 0;
+    if (total <= 1) { app_toast("No subtitles for this video"); return; }
+    if (p->active_addon_sub >= 0) { for (int g = 0; g < ng; g++) if (order[g] == p->active_addon_sub) cur = 1 + n + g; }
+    else if (p->embedded_text_sel >= 0) { for (int i = 0; i < n; i++) if (tr[i].index == p->embedded_text_sel) cur = 1 + i; }
+    int next;
+    if (toggle) {
+        if (cur) { p->subs_off_from = cur; next = 0; }
+        else next = p->subs_off_from > 0 && p->subs_off_from < total ? p->subs_off_from : 1;
+    } else next = (cur + 1) % total;
+    int menu = p->menu, focus = p->menu_focus, second = p->assign_second;
+    p->menu = MENU_SUBS; p->menu_focus = SUB_OFF + next; p->assign_second = 0;
+    menu_activate(p);
+    p->menu = menu; p->menu_focus = focus; p->assign_second = second;
+    if (!next) app_toast("Subtitles off");
+    else if (next <= n) app_toast("Subtitles: %s", tr[next - 1].label[0] ? tr[next - 1].label : tr[next - 1].lang[0] ? tr[next - 1].lang : "the film's own");
+    else app_toast("Subtitles: %s", p->addon_subs[order[next - 1 - n]].lang);
+    show_overlay(p);
+}
+
+static void audio_step(Player *p)
+{
+    VideoTrack tr[MAX_TRACKS];
+    int n = video_tracks(TRACK_AUDIO, tr, MAX_TRACKS), cur = 0;
+    if (n < 2) { app_toast("This video has one sound track"); return; }
+    for (int i = 0; i < n; i++) if (tr[i].selected) cur = i;
+    int next = (cur + 1) % n;
+    video_select_track(TRACK_AUDIO, tr[next].index); p->audio_req = tr[next].index; p->audio_req_at = g_app.time; remember_audio(p, &tr[next]);
+    app_toast("Sound: %s", tr[next].label[0] ? tr[next].label : tr[next].lang[0] ? tr[next].lang : "next track");
+    show_overlay(p);
+}
+
+/* 1 when the key was used here; main.c asks for the player's keys before the shared mapping */
+int player_desktop_key(Screen *top, int key_sym, unsigned mod)
+{
+    SDL_Keycode k = key_sym;
+    Player *p = g_live;
+    if (!p || !top || top->st != p || p->finished || p->pip || p->trailer) return 0;
+    if (p->keys_help) { p->keys_help = 0; app_redraw(); return 1; }   /* any key puts the list away */
+    int shift = (mod & KMOD_SHIFT) != 0, ctrl = (mod & KMOD_CTRL) != 0, alt = (mod & KMOD_ALT) != 0;
+    if (alt) return 0;   /* Alt+Enter, Alt+Left, Alt+F4 are the window's */
+    VideoInfo vi;
+    video_info(&vi);
+    int free_keys = !p->menu && !p->cast_open && !p->scenes_open;   /* a panel open: its own keys, the arrows and Enter */
+    if (k == SDLK_QUESTION || (k == SDLK_SLASH && shift)) { p->keys_help = 1; LOGI("player: the list of keys is shown"); app_redraw(); return 1; }
+    if ((k == SDLK_LEFT || k == SDLK_RIGHT) && (shift || ctrl) && free_keys) { seek_by(p, (k == SDLK_RIGHT ? 1 : -1) * (ctrl ? 60 : 3)); return 1; }
+    if ((k == SDLK_UP || k == SDLK_DOWN) && ctrl) { key_volume(p, k == SDLK_UP ? 0.05f : -0.05f); return 1; }
+    if (!free_keys || ctrl) return 0;
+    switch (k) {
+    case SDLK_k:
+        if (vi.state == VIDEO_PLAYING) { video_pause(); p->viewer_paused = 1; } else { video_play(); p->flash_icon = ICON_PLAY; p->play_flash = g_app.time + 0.6f; }
+        show_overlay(p);
+        return 1;
+    case SDLK_j: LOGI("player: key J, back 10 s"); seek_by(p, -10); return 1;
+    case SDLK_l: LOGI("player: key L, on 10 s"); seek_by(p, 10); return 1;
+    case SDLK_PAGEUP: return top->key ? top->key(top, KEY_REWIND) : 0;   /* chapter to chapter, or a minute */
+    case SDLK_PAGEDOWN: return top->key ? top->key(top, KEY_FORWARD) : 0;
+    case SDLK_HOME: player_seek(0); show_overlay(p); return 1;
+    case SDLK_END: if (vi.duration > 5) { player_seek(vi.duration - 3); show_overlay(p); } return 1;
+    case SDLK_COMMA: case SDLK_PERIOD:
+        if (shift) { set_rate(p, p->rate_idx + (k == SDLK_PERIOD ? 1 : -1)); return 1; }   /* < and > */
+        if (vi.state == VIDEO_PAUSED) { double step = 1.0 / (vi.fps > 0 ? vi.fps : 24); player_seek(vi.position + (k == SDLK_PERIOD ? step : -step)); return 1; }
+        return 0;
+    case SDLK_LESS: set_rate(p, p->rate_idx - 1); return 1;
+    case SDLK_GREATER: set_rate(p, p->rate_idx + 1); return 1;
+    case SDLK_LEFTBRACKET: set_rate(p, p->rate_idx - 1); return 1;
+    case SDLK_RIGHTBRACKET: set_rate(p, p->rate_idx + 1); return 1;
+    case SDLK_BACKSPACE: set_rate(p, RATE_NORMAL); return 1;
+    case SDLK_PLUS: case SDLK_EQUALS: case SDLK_KP_PLUS: key_volume(p, 0.05f); return 1;
+    case SDLK_MINUS: case SDLK_KP_MINUS: key_volume(p, -0.05f); return 1;
+    case SDLK_c: subs_step(p, 1); return 1;
+    case SDLK_v: subs_step(p, 0); return 1;
+    case SDLK_g: case SDLK_h:
+        if (!p->track_loaded && p->embedded_text_sel < 0) { app_toast("Choose subtitles to adjust their timing"); return 1; }
+        shift_subs(p, k == SDLK_h ? 0.1 : -0.1);
+        app_toast("Subtitle timing %+.1f s", p->track_loaded ? p->track.offset : p->embedded_offset);
+        return 1;
+    case SDLK_b: audio_step(p); return 1;
+    case SDLK_a: case SDLK_z: p->aspect = (p->aspect + 1) % ASPECT_COUNT; apply_aspect(p); app_toast("Picture: %s", ASPECT_NAMES[p->aspect]); return 1;
+    case SDLK_n: if (p->next_video_id) go_up_next(p); else app_toast("No next episode"); return 1;
+    case SDLK_s: { const SkipSeg *sk = g_app.skip_mode == 0 ? skippable(p, &vi) : NULL; if (sk) do_skip(p, sk); return sk != NULL; }
+    case SDLK_x: return top->key ? top->key(top, KEY_STOP) : 0;
+    case SDLK_i: p->stats = !p->stats; app_redraw(); return 1;
+    case SDLK_o: show_overlay(p); return 1;
+    default: break;
+    }
+    if (k >= SDLK_0 && k <= SDLK_9 && !shift) {   /* 0-9: that tenth of the film */
+        if (vi.duration > 0) { LOGI("player: key %d, to %d0%% of the film", (int)(k - SDLK_0), (int)(k - SDLK_0)); player_seek(vi.duration * (k - SDLK_0) / 10.0); show_overlay(p); }
+        return 1;
+    }
+    if (k >= SDLK_KP_1 && k <= SDLK_KP_9) { if (vi.duration > 0) { player_seek(vi.duration * (k - SDLK_KP_1 + 1) / 10.0); show_overlay(p); } return 1; }
+    if (k == SDLK_KP_0) { player_seek(0); return 1; }
+    return 0;
+}
+
+/* The list of those keys, over the picture (any key closes it). */
+static void draw_keys_help(Player *p)
+{
+    static const char *const L[][2] = {
+        { "Space  K  Enter", "Play or pause" }, { "Left  Right  J  L", "Back, on 10 s" }, { "Shift + Left / Right", "3 s" }, { "Ctrl + Left / Right", "1 minute" },
+        { "0 - 9", "Jump to 0 - 90 % of the film" }, { "Home  End", "Start, end" }, { ", and .", "One frame back, on (paused)" },
+        { "< >  [ ]", "Slower, faster" }, { "Backspace", "Normal speed" }, { "+  -  Ctrl + Up / Down", "Volume" }, { "M", "Mute" },
+        { "C", "Subtitles on or off" }, { "V", "Next subtitles" }, { "G  H", "Subtitles earlier, later" }, { "B", "Next sound track" },
+        { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "X  Esc", "Stop" },
+        { "F  F11  Alt + Enter", "Full screen" }, { "I  F1", "Stream details" }, { "O", "Controls" } };
+    int n = (int)(sizeof L / sizeof L[0]), rows = (n + 1) / 2;
+    float w = 1180, lh = 42, h = 120 + rows * lh, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;
+    gfx_rrect(x, y, w, h, R_PANEL, COLOR_ALPHA(THEME_BG, 0xEE));
+    gfx_rrect_ring(x, y, w, h, R_PANEL, 1.5f, COLOR_ALPHA(THEME_TEXT, 0x20));
+    font_draw("Keyboard", x + 36, y + 26, FONT_S | FONT_B, THEME_ACCENT2);
+    font_draw("any key closes", x + w - 36 - font_measure("any key closes", FONT_XS), y + 30, FONT_XS, THEME_TEXT_MUTED);
+    for (int i = 0; i < n; i++) {
+        float cx = x + 36 + (i / rows) * (w / 2), cy = y + 86 + (i % rows) * lh;
+        font_draw(L[i][0], cx, cy, FONT_XS | FONT_B, THEME_TEXT);
+        font_draw(L[i][1], cx + 270, cy, FONT_XS, THEME_TEXT_DIM);
+    }
+    (void)p;
+}
+#endif
 
 int player_holds_screen(void)
 {

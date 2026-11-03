@@ -91,6 +91,8 @@ static void build(Help *h)
         "The arrow at the top left, Esc or the mouse's back button go back; the corners at the top right (F11, Alt+Enter) switch full screen. Arrow keys and Enter work everywhere too. F3: search, P: play or pause.",
         "In the player: move the mouse for the controls (subtitles, audio, speed, sources, episodes), click the film to pause, double-click for full screen, drag the bar to seek. Space or Enter pauses and Left and Right seek too.",
         "F1 shows the stream's details, F2 plays the next episode now, F5 tries the next source, F4 resumes what you watched last.",
+        "More keys in the player, as in YouTube, VLC and mpv: K pauses, J and L go back and on 10 s, Shift or Ctrl with Left and Right 3 s or a minute, 0 to 9 jump to that tenth of the film, , and . step a frame, < and > change the speed, + and - the volume.",
+        "C turns the subtitles on and off, V picks the next ones, G and H move their timing, B picks the next sound track, A or Z changes the picture shape, N plays the next episode, S skips an intro, X stops. Press ? in the player for the whole list. / or Ctrl+F searches, Ctrl+Q quits.",
         NULL };
     add(h, h->dev == DEV_COMPUTER ? "Keyboard and mouse" : h->dev == DEV_PHONE ? "Touch" : "Your remote",
         h->dev == DEV_COMPUTER ? KEYS : h->dev == DEV_PHONE ? TOUCH : REMOTE);

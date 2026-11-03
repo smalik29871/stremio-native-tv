@@ -46,6 +46,22 @@ KeyAction input_map(const SDL_Event *e)
     default: break;
     }
 
+#if defined(SNTV_PLATFORM_WINDOWS) || defined(SNTV_PLATFORM_LINUX)
+    {   /* a computer's keyboard */
+        Uint16 m = e->key.keysym.mod;
+        if ((m & KMOD_ALT) && k == SDLK_LEFT) return KEY_BACK;                              /* as in a browser */
+        if ((m & KMOD_CTRL) && (k == SDLK_f || k == SDLK_k)) return KEY_SEARCH;              /* Ctrl+F, Ctrl+K: search */
+        if (!g_typing && k == SDLK_SLASH && !(m & KMOD_SHIFT)) return KEY_SEARCH;           /* / : search, as on YouTube */
+        if (!g_typing) switch (k) {   /* the keypad's arrows with Num Lock off */
+            case SDLK_KP_8: return KEY_UP;
+            case SDLK_KP_2: return KEY_DOWN;
+            case SDLK_KP_4: return KEY_LEFT;
+            case SDLK_KP_6: return KEY_RIGHT;
+            case SDLK_KP_5: return KEY_OK;
+            default: break;
+        }
+    }
+#endif
     switch (k) {
     case SDLK_UP:    return KEY_UP;
     case SDLK_DOWN:  return KEY_DOWN;

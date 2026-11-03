@@ -469,6 +469,20 @@ run player_skipped 300 "right,ok,down,down,play,wait,ok"
 # the controls up (Play brings them) and Skip intro showing: OK skips, it does not pause
 run player_skip_controls_up 320 "right,ok,down,down,play,wait,play,ok" HOME="$(home_with skipup '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "player: skipping intro" "$OUT/player_skip_controls_up.log" || { echo "OK with the controls up paused instead of skipping"; grep -E "player:" "$OUT/player_skip_controls_up.log" | tail -5; exit 1; }
+# skipped, then back into the intro (a rewind): the button comes back and skips again
+W10=$(printf 'wait,%.0s' $(seq 1 10))
+run player_skip_again 1200 "right,ok,down,down,play,wait,ok,${W10}rewind,${W10}ok,${W10}ok,wait" HOME="$(home_with skipagain '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
+[ "$(grep -c "player: skipping intro" "$OUT/player_skip_again.log")" -ge 2 ] && grep -q "player: the intro can be skipped again" "$OUT/player_skip_again.log" \
+  || { echo "after a rewind into the intro the skip button did not come back"; grep -E "player: (skipping|the intro|marker|seek)" "$OUT/player_skip_again.log" | tail -8; exit 1; }
+# a computer's keyboard in the player: the keys of YouTube, VLC and mpv (J/L, digits, < >, +/-, A, ?, ...)
+run player_desktop_keys 520 "right,ok,down,down,play,wait,key:greater,key:greater,wait,key:backspace,key:l,key:j,key:5,wait,key:plus,key:minus,key:a,key:shift+right,key:ctrl+left,key:question,wait,key:c,wait,key:end,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
+for want in "toast: Speed 1.5x" "toast: Normal speed" "player: key L, on 10 s" "player: key J, back 10 s" "player: key 5, to 50% of the film" "toast: Volume" "toast: Picture:" "player: the list of keys is shown"; do
+  grep -q "$want" "$OUT/player_desktop_keys.log" || { echo "a computer's key did nothing in the player: $want"; grep -E "toast:|player: key|list of keys" "$OUT/player_desktop_keys.log" | tail -20; exit 1; }
+done
+# K pauses and plays, the frame step works while paused, and nothing of it reaches a screen outside the player
+run player_desktop_pause 400 "right,ok,down,down,play,wait,key:k,wait,key:period,key:comma,key:k,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
+run desktop_keys_home 150 "key:j,key:l,key:5,key:question,key:pgdn,key:pgup,key:slash,wait"
+! grep -q "player: key" "$OUT/desktop_keys_home.log" || { echo "a player key acted outside the player"; exit 1; }
 run upnext_credits 300 "right,ok,down,down,play,wait" SNTV_FAKE_DURATION=3120 SNTV_FAKE_START=2999 HOME="$(home_with fresh_upnext_credits '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 run search 210 "search,t:ar"
 run search_grid 260 "search,t:ar,right,right,right,right,right,right,right,right,right,right,right"

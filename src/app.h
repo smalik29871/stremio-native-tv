@@ -390,6 +390,10 @@ void player_pip_draw(Screen *s, int focused);
 void player_pointer_moved(float x, float y);   /* a computer: the mouse moved over the player, to x:y (canvas units): its controls show */
 void player_pinch(float d);      /* a phone or tablet: two fingers apart (d > 0) or together, in the player */
 void player_toggle_mute(void);   /* a computer: M in the player */
+#if defined(SNTV_DESKTOP_PLAYER) || defined(SNTV_PLATFORM_LINUX) || defined(SNTV_PLATFORM_WINDOWS)
+#define SNTV_DESKTOP_KEYS 1   /* a computer's keyboard (the Linux test build too, with its fake video) */
+#endif
+int  player_desktop_key(Screen *top, int key, unsigned mod);   /* a computer: the other players' keys in the player (YouTube, VLC, mpv, Kodi); 1 when used */
 int window_fullscreen(void);     /* a computer: the window fills the screen */
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);

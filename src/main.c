@@ -348,6 +348,30 @@ static void dev_hooks(SDL_Window *win, int frame)
                 e.type = SDL_KEYUP; SDL_PushEvent(&e);
                 continue;
             }
+            if (!strncmp(tok, "key:", 4)) {   /* a computer keyboard's key: "key:k", "key:shift+right", "key:ctrl+left", "key:comma", "key:question" */
+                static const struct { const char *n; SDL_Keycode k; } names[] = {
+                    { "left", SDLK_LEFT }, { "right", SDLK_RIGHT }, { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "home", SDLK_HOME }, { "end", SDLK_END },
+                    { "pgup", SDLK_PAGEUP }, { "pgdn", SDLK_PAGEDOWN }, { "comma", SDLK_COMMA }, { "period", SDLK_PERIOD }, { "lbracket", SDLK_LEFTBRACKET },
+                    { "rbracket", SDLK_RIGHTBRACKET }, { "backspace", SDLK_BACKSPACE }, { "slash", SDLK_SLASH }, { "question", SDLK_QUESTION },
+                    { "plus", SDLK_PLUS }, { "minus", SDLK_MINUS }, { "less", SDLK_LESS }, { "greater", SDLK_GREATER }, { NULL, 0 } };
+                const char *spec = tok + 4;
+                Uint16 mod = 0;
+                for (;;) {
+                    if (!strncmp(spec, "shift+", 6)) { mod |= KMOD_LSHIFT; spec += 6; }
+                    else if (!strncmp(spec, "ctrl+", 5)) { mod |= KMOD_LCTRL; spec += 5; }
+                    else if (!strncmp(spec, "alt+", 4)) { mod |= KMOD_LALT; spec += 4; }
+                    else break;
+                }
+                SDL_Keycode kc = spec[0] && !spec[1] ? (SDL_Keycode)spec[0] : 0;
+                for (int k = 0; !kc && names[k].n; k++) if (!strcmp(names[k].n, spec)) kc = names[k].k;
+                if (kc) {
+                    SDL_Event e; memset(&e, 0, sizeof e);
+                    e.type = SDL_KEYDOWN; e.key.keysym.sym = kc; e.key.keysym.scancode = SDL_GetScancodeFromKey(kc); e.key.keysym.mod = mod;
+                    SDL_PushEvent(&e);
+                    e.type = SDL_KEYUP; SDL_PushEvent(&e);
+                }
+                continue;
+            }
             char fk[16]; int fn;
             if (sscanf(tok, "fast:%15[a-z]:%d", fk, &fn) == 2) {   /* a direction key held: fn presses at once, all but the first marked as repeats */
                 for (int k = 0; keys[k].n; k++) if (!strcmp(keys[k].n, fk))
@@ -1123,6 +1147,14 @@ int main(int argc, char **argv)
                 if (!e.key.repeat && top && !strcmp(top->name, "player") && !g_app.pip && (e.key.keysym.sym == SDLK_f || e.key.keysym.sym == SDLK_m)) {   /* F: full screen, M: mute, as in the streaming apps */
                     g_app.last_input = g_app.time;
                     if (e.key.keysym.sym == SDLK_f) toggle_fullscreen(); else player_toggle_mute();
+                    continue;
+                }
+#endif
+#if defined(SNTV_DESKTOP_KEYS)
+                if (top && !strcmp(top->name, "player") && player_desktop_key(top, (int)e.key.keysym.sym, (unsigned)e.key.keysym.mod)) { g_app.last_input = g_app.time; continue; }   /* K, J, L, C, V, B, 0-9 ...: the keys of the other players */
+                if (!e.key.repeat && e.key.keysym.sym == SDLK_q && (e.key.keysym.mod & KMOD_CTRL)) { g_app.quit = 1; continue; }
+                if (top && strcmp(top->name, "player") && (e.key.keysym.sym == SDLK_PAGEUP || e.key.keysym.sym == SDLK_PAGEDOWN)) {   /* a page of rows or cards */
+                    for (int n = 0; n < 4; n++) dispatch_key(e.key.keysym.sym == SDLK_PAGEUP ? KEY_UP : KEY_DOWN);
                     continue;
                 }
 #endif
