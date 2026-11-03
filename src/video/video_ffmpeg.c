@@ -587,6 +587,7 @@ static int reader_thread(void *arg)
         for (int w = 0; w < 30 && !pl->abort && !pl->switch_audio && !pl->text_req; w++) SDL_Delay(5);   /* first read is already the right one */
 
     AVPacket *pk = av_packet_alloc();
+    int read_fails = 0;   /* reads that failed in a row: a server that refuses the new connection a seek makes is asked again before the source is given up */
     while (!pl->abort) {
         /* another sound track, or subtitles from the file: one seek for both, and none of its
          * own while one is coming anyway; before anything is out, from where it starts; once
@@ -645,9 +646,20 @@ static int reader_thread(void *arg)
                 pl->eof = 1;
                 continue;
             }
+            if (read_fails < 3) {   /* a seek opens a new connection and a server may refuse it once (busy, a limit of connections, a link that wants a moment): ask again from here */
+                char e[96]; av_strerror(r, e, sizeof e);
+                read_fails++;
+                LOGW("video(ffmpeg): a read failed (%s), asking the server again from %.1f s (%d of 3)", e, clock_now() >= 0 ? clock_now() : pl->seek_to, read_fails);
+                SDL_Delay(400 * read_fails);
+                if (pl->abort) break;
+                pl->seek_to = clock_now() >= 0 ? clock_now() : pl->seek_to;
+                pl->seek_req = 1;
+                continue;
+            }
             set_error(pl, "The video stopped", r);
             break;
         }
+        read_fails = 0;
         AVStream *st = pl->fmt->streams[pk->stream_index];
         double pts = ts(pl, st, pk->pts != AV_NOPTS_VALUE ? pk->pts : pk->dts);
         if (pk->stream_index == pl->vi || pk->stream_index == pl->ai) {

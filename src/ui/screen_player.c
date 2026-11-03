@@ -7670,6 +7670,17 @@ void player_toggle_mute(void)
  *   N next episode   S skip intro or recap   X stop   I details   O controls   ? this list (any key closes it) */
 
 /* the subtitle choices in the panel's order (off, the file's own tracks, the addons' files): the next one, or off and back */
+static void key_speed(Player *p, int idx)
+{
+#ifdef SNTV_DESKTOP_PLAYER
+    (void)idx;
+    app_toast("This player cannot change the speed yet");   /* the FFmpeg player plays at normal speed (its audio is the clock) */
+    show_overlay(p);
+#else
+    set_rate(p, idx);
+#endif
+}
+
 static void key_volume(Player *p, float by)
 {
     float v = ph_vol(p) + by;
@@ -7746,14 +7757,14 @@ int player_desktop_key(Screen *top, int key_sym, unsigned mod)
     case SDLK_HOME: player_seek(0); show_overlay(p); return 1;
     case SDLK_END: if (vi.duration > 5) { player_seek(vi.duration - 3); show_overlay(p); } return 1;
     case SDLK_COMMA: case SDLK_PERIOD:
-        if (shift) { set_rate(p, p->rate_idx + (k == SDLK_PERIOD ? 1 : -1)); return 1; }   /* < and > */
+        if (shift) { key_speed(p, p->rate_idx + (k == SDLK_PERIOD ? 1 : -1)); return 1; }   /* < and > */
         if (vi.state == VIDEO_PAUSED) { double step = 1.0 / (vi.fps > 0 ? vi.fps : 24); player_seek(vi.position + (k == SDLK_PERIOD ? step : -step)); return 1; }
         return 0;
-    case SDLK_LESS: set_rate(p, p->rate_idx - 1); return 1;
-    case SDLK_GREATER: set_rate(p, p->rate_idx + 1); return 1;
-    case SDLK_LEFTBRACKET: set_rate(p, p->rate_idx - 1); return 1;
-    case SDLK_RIGHTBRACKET: set_rate(p, p->rate_idx + 1); return 1;
-    case SDLK_BACKSPACE: set_rate(p, RATE_NORMAL); return 1;
+    case SDLK_LESS: key_speed(p, p->rate_idx - 1); return 1;
+    case SDLK_GREATER: key_speed(p, p->rate_idx + 1); return 1;
+    case SDLK_LEFTBRACKET: key_speed(p, p->rate_idx - 1); return 1;
+    case SDLK_RIGHTBRACKET: key_speed(p, p->rate_idx + 1); return 1;
+    case SDLK_BACKSPACE: key_speed(p, RATE_NORMAL); return 1;
     case SDLK_PLUS: case SDLK_EQUALS: case SDLK_KP_PLUS: key_volume(p, 0.05f); return 1;
     case SDLK_MINUS: case SDLK_KP_MINUS: key_volume(p, -0.05f); return 1;
     case SDLK_c: subs_step(p, 1); return 1;
