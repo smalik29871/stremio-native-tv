@@ -9,24 +9,32 @@
 enum { COLS = 11, ROWS = 5, KEY_W = 72, KEY_H = 64, GAP = 8 };
 
 static const char *ROW_ALPHA[4] = { "1234567890@", "qwertyuiop.", "asdfghjkl-_", "zxcvbnm,:/!" };
-/* compact: the alphabet in order, then the digits and marks a title has */
-enum { CCOLS = 7 };
-static const char *CROW_ALPHA[4] = { "abcdefg", "hijklmn", "opqrstu", "vwxyz-'" };
-static const char *CROW_SYM[4]   = { "1234567", "890&:!?", ".,/()@#", "+%$*\"_" };
+/* compact (Search): QWERTY with the digits above it, ten keys across; the marks a title has are on the other page */
+enum { CCOLS = 10 };
+static const char *CROW_ALPHA[4] = { "1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm-.," };
+static const char *CROW_SYM[4]   = { "1234567890", "@#&()+%$*\"", "!?:;/'_-,.", "[]{}<>^|~=" };
 static const char *ROW_SYM[4]   = { "1234567890@", "!#$%&*()+=.", "[]{}<>?;'\"~", "^|\\-_,:/! " };
 /* row 4 is the action row: shift, symbols, space, backspace, done */
 enum { ACT_SHIFT, ACT_SYM, ACT_SPACE, ACT_BACK, ACT_DONE, ACT_COUNT };
 static const char *ACT_LABEL[ACT_COUNT] = { "Shift", "?123", "Space", "Del", "Done" };
 static const int ACT_SPAN[ACT_COUNT] = { 2, 2, 3, 2, 2 };
-static const int CACT_SPAN[ACT_COUNT] = { 0, 2, 2, 1, 2 };   /* compact: no Shift (titles match either case) */
+static const int CACT_SPAN[ACT_COUNT] = { 0, 2, 4, 2, 2 };   /* compact: no Shift (titles match either case) */
 
 static int cols_of(const Keyboard *kb) { return kb->compact ? CCOLS : COLS; }
 static const char *row_of(const Keyboard *kb, int r) { return kb->compact ? (kb->symbols ? CROW_SYM : CROW_ALPHA)[r] : (kb->symbols ? ROW_SYM : ROW_ALPHA)[r]; }
 static const int *span_of(const Keyboard *kb) { return kb->compact ? CACT_SPAN : ACT_SPAN; }
 
+enum { COMPACT_W = 552 };   /* Search's left column */
+static float key_w(const Keyboard *kb)
+{
+    if (!kb->compact) return KEY_W;
+    float w = kb->fit_w > 0 ? kb->fit_w : COMPACT_W;
+    return (w - (CCOLS - 1) * GAP) / CCOLS;
+}
+int keyboard_cols(const Keyboard *kb) { return cols_of(kb); }
 float keyboard_width(void) { return COLS * (KEY_W + GAP) - GAP; }
 float keyboard_height(void) { return ROWS * (KEY_H + GAP) - GAP; }
-float keyboard_width_of(const Keyboard *kb) { return cols_of(kb) * (KEY_W + GAP) - GAP; }
+float keyboard_width_of(const Keyboard *kb) { return cols_of(kb) * (key_w(kb) + GAP) - GAP; }
 float keyboard_height_of(const Keyboard *kb) { (void)kb; return keyboard_height(); }
 
 void keyboard_init(Keyboard *kb, int password, const char *initial)
@@ -99,33 +107,34 @@ void keyboard_text_input(Keyboard *kb, const char *utf8)
 void keyboard_draw(const Keyboard *kb, float x, float y, int focused)
 {
     int aperture = g_theme.id == THEME_APERTURE;
+    const float kw = key_w(kb);
     for (int r = 0; r < 4; r++) {
         const char *row = row_of(kb, r);
         for (int c = 0; c < cols_of(kb); c++) {
-            float kx = x + c * (KEY_W + GAP), ky = y + r * (KEY_H + GAP);
+            float kx = x + c * (kw + GAP), ky = y + r * (KEY_H + GAP);
             int sel = focused && kb->row == r && kb->col == c;
             char ch[2] = { row[c], 0 };
-            ui_hit(kx, ky, KEY_W, KEY_H, KB_HIT | r << 8 | c);
+            ui_hit(kx, ky, kw, KEY_H, KB_HIT | r << 8 | c);
             if (kb->shift && ch[0] >= 'a' && ch[0] <= 'z') ch[0] = (char)(ch[0] - 32);
             if (aperture) {
-                if (sel) { gfx_rrect_ring(kx + 4, ky + 2, KEY_W - 8, KEY_H - 4, 3, 2, THEME_TEXT); gfx_rect(kx + 8, ky + KEY_H - 4, KEY_W - 16, 3, THEME_ACCENT); }
+                if (sel) { gfx_rrect_ring(kx + 4, ky + 2, kw - 8, KEY_H - 4, 3, 2, THEME_TEXT); gfx_rect(kx + 8, ky + KEY_H - 4, kw - 16, 3, THEME_ACCENT); }
                 float tw = font_measure(ch, FONT_M);
-                font_draw(ch, kx + (KEY_W - tw) / 2, ky + (KEY_H - font_height(FONT_M)) / 2, FONT_M, sel ? THEME_TEXT : THEME_TEXT_DIM);
+                font_draw(ch, kx + (kw - tw) / 2, ky + (KEY_H - font_height(FONT_M)) / 2, FONT_M, sel ? THEME_TEXT : THEME_TEXT_DIM);
                 continue;
             }
-            if (sel && !g_app.fx_light) gfx_shadow(kx, ky + 4, KEY_W, KEY_H, R_KEY, 16, RGBA(0, 0, 0, 0x80));
-            gfx_rrect(kx, ky, KEY_W, KEY_H, R_KEY, sel ? THEME_FOCUS : THEME_SURFACE);
+            if (sel && !g_app.fx_light) gfx_shadow(kx, ky + 4, kw, KEY_H, R_KEY, 16, RGBA(0, 0, 0, 0x80));
+            gfx_rrect(kx, ky, kw, KEY_H, R_KEY, sel ? THEME_FOCUS : THEME_SURFACE);
             float tw = font_measure(ch, FONT_M | FONT_B);
-            font_draw(ch, kx + (KEY_W - tw) / 2, ky + (KEY_H - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, sel ? THEME_ON_FOCUS : THEME_TEXT);
+            font_draw(ch, kx + (kw - tw) / 2, ky + (KEY_H - font_height(FONT_M | FONT_B)) / 2, FONT_M | FONT_B, sel ? THEME_ON_FOCUS : THEME_TEXT);
         }
     }
     float kx = x, ky = y + 4 * (KEY_H + GAP);
     for (int a = 0, col = 0; a < ACT_COUNT; col += span_of(kb)[a], a++) {
         if (!span_of(kb)[a]) continue;
-        float w = span_of(kb)[a] * (KEY_W + GAP) - GAP;
+        float w = span_of(kb)[a] * (kw + GAP) - GAP;
         ui_hit(kx, ky, w, KEY_H, KB_HIT | 4 << 8 | col);
         int sel = focused && kb->row == 4 && action_at(kb, kb->col) == a;
-        const char *label = kb->compact && a == ACT_DONE ? "Search" : kb->compact && a == ACT_SYM ? (kb->symbols ? "abc" : "123") : ACT_LABEL[a];
+        const char *label = kb->compact && a == ACT_DONE ? "Search" : kb->compact && a == ACT_SYM ? (kb->symbols ? "abc" : "#@!") : ACT_LABEL[a];
         int lit = (a == ACT_SHIFT && kb->shift) || (a == ACT_SYM && kb->symbols);
         if (aperture) {
             int fs = FONT_S;

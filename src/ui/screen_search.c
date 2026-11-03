@@ -719,6 +719,7 @@ static void kb_set(Search *s, const char *text)   /* the compact keyboard, with 
 {
     keyboard_init(&s->kb, 0, text);
     s->kb.compact = 1;
+    s->kb.fit_w = SNTV_PHONE ? (float)SNTV_UI_W - 80 : 0;   /* upright: the keys fill the page's width; else the column's */
 }
 
 /* The phone page offers the search box while this screen is up (not only while typing), and
@@ -798,6 +799,7 @@ static void ph_focus_at(Search *s, int on, float y, float h) { if (on) { s->ph_f
 static void update(Screen *sc, float dt)
 {
     Search *s = sc->st;
+    s->kb.fit_w = SNTV_PHONE ? (float)SNTV_UI_W - 80 : 0;   /* the screen turned: the keys follow */
     if (SNTV_PHONE) {   /* the page follows the focus, the field and the kinds at the top */
         float view = SNTV_UI_H - PHONE_TABS_H, want = s->ph_y;
         if (s->ph_fy + s->ph_fh > want + view - 30) want = s->ph_fy + s->ph_fh - view + 30;
@@ -1189,7 +1191,7 @@ static int key_typing(Search *s, KeyAction a)
         else if ((a == KEY_DOWN || a == KEY_RIGHT) && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); }
         return 1;
     }
-    int last = (int)(keyboard_width_of(&s->kb) / 80);   /* the right-hand column of keys */
+    int last = keyboard_cols(&s->kb) - 1;   /* the right-hand column of keys */
     if (a == KEY_RIGHT && s->kb.col >= last && s->n) { close_keyboard(s); focus_results(s); recent_add(s, s->kb.text); return 1; }
     if (a == KEY_BACKSPACE) { keyboard_key(&s->kb, KEY_BACKSPACE); s->dirty = 1; s->debounce = 0.5f; return 1; }
     if (a == KEY_DOWN && s->kb.row == 4) {

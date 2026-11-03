@@ -556,6 +556,10 @@ grep -q "search: typing with the TV's keyboard" "$OUT/search_tv_keyboard.log" &&
 # whose search takes 2 s: each pause asks them, but a new letter drops the last search's requests
 # that haven't gone out, so the whole title's answers come about 2 s after it is typed, not
 # behind every earlier search
+# Search's own keyboard is QWERTY, the digits above: the first key under the remote is q, Right moves to w
+run search_qwerty 260 "search,ok,ok,right,ok,wait,wait,wait,wait" HOME="$(home_with qwerty '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":0}')"
+grep -q 'search: asking the addons for "qw"' "$OUT/search_qwerty.log" \
+  || { echo "Search's keyboard is not QWERTY"; grep -E "search:" "$OUT/search_qwerty.log"; exit 1; }
 run search_typing 1400 "search,ok,t:s,wait,t:k,wait,t:y,wait,t: ,wait,t:c,wait,t:a,wait,t:s,wait,t:t,wait,t:l,wait,t:e,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait" SNTV_FRAME_DT=0.02 SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/slowsearch/manifest.json,http://127.0.0.1:$PORT/bestfit/slowsearch/manifest.json,http://127.0.0.1:$PORT/latesubs/slowsearch/manifest.json HOME="$(home_with stype '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "search: [0-9]* requests\? of the last search dropped before they went out" "$OUT/search_typing.log" \
   && grep -E "search: every addon answered \"sky castle\" in [0-9]+ ms" "$OUT/search_typing.log" | grep -qE " in ([0-9]{1,3}|[1-3][0-9]{3}|4[0-4][0-9]{2}) ms" \
@@ -1527,7 +1531,7 @@ run tap_card 200 "wait,wait,tap:877:810,wait,wait" SNTV_EXPECT_SCREEN=detail HOM
 run tap_play 260 "wait,wait,tap:877:810,wait,wait,tap:175:632,wait,wait,wait" SNTV_EXPECT_SCREEN=streams HOME="$(home_with tap3 '{"setupDone":1}')"
 run tap_sheet 240 "wait,wait,yellow,wait,wait,tap:700:562,wait,wait" SNTV_EXPECT_SCREEN=home HOME="$(home_with tap4 '{"setupDone":1}')"
 grep -q "toast: Added to Library" "$OUT/tap_sheet.log" || { echo "tapping a sheet's choice did not take it"; exit 1; }
-run tap_typing 400 "wait,tap:52:496,wait,tap:300:178,wait,tap:212:284,tap:370:428,tap:450:284,tap:132:284,wait,wait" HOME="$(home_with tap5 '{"setupDone":1}')"
+run tap_typing 400 "wait,tap:52:496,wait,tap:300:178,wait,tap:344:501,tap:288:357,tap:231:357,tap:120:429,wait,wait" HOME="$(home_with tap5 '{"setupDone":1}')"
 grep -q 'search: 1 suggestion, first "Breaking Bad"' "$OUT/tap_typing.log" || { echo "tapped keys did not type"; exit 1; }
 run tap_settings_key 260 "wait,tap:52:760,wait,tap:800:714,wait,tap:600:560,tap:700:560,wait" SNTV_EXPECT_SCREEN=settings HOME="$(home_with tap6 '{"setupDone":1}')"
 run handheld_home 160 "wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 HOME="$(home_with hh '{"setupDone":1}')"
@@ -1557,7 +1561,7 @@ run phone_search_space 400 "wait,tap:390:1660,wait,tap:390:180,wait,t:breaking,s
 grep -qE '"recentSearches":[[:space:]]*\["breaking bad"\]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json" \
   || { echo "the space bar of a phone keyboard did not type a space"; grep -o '"recentSearches":[^]]*]' "$OUT/home_phsp/.local/share/stremio/nativetv/settings.json"; exit 1; }
 # a phone or tablet can type with Cuelight's own keyboard on screen instead of the device's (Settings > Interface): tapped keys type, and no system keyboard is asked for
-run phone_search_appkb 360 "wait,tap:390:1660,wait,tap:390:180,wait,wait,wait,tap:150:1245,wait,wait,tap:230:1245,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=search HOME="$(home_with phappkb '{"setupDone":1,"tvKeyboard":0}')"
+run phone_search_appkb 360 "wait,tap:390:1660,wait,tap:390:180,wait,wait,wait,tap:71:1389,wait,wait,tap:354:1461,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=search HOME="$(home_with phappkb '{"setupDone":1,"tvKeyboard":0}')"
 grep -q 'search: asking the addons for "ab"' "$OUT/phone_search_appkb.log" && ! grep -q "typing with the TV's keyboard" "$OUT/phone_search_appkb.log" \
   || { echo "Cuelight's own keyboard did not type on a phone"; grep -E "search:" "$OUT/phone_search_appkb.log"; exit 1; }
 grep -q "typing with the TV's keyboard" "$OUT/phone_search.log" \

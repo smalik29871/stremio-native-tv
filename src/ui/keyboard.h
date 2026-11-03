@@ -8,7 +8,8 @@ typedef struct Keyboard {
     int row, col;
     int shift, symbols;
     int password;
-    int compact;   /* 7 keys wide, letters in order (Search's left column) */
+    int compact;   /* Search's keyboard: QWERTY, 10 keys wide, fitted to fit_w */
+    float fit_w;   /* compact: how wide the keys together are (0: the Search column's 552) */
 } Keyboard;
 
 typedef enum { KB_IGNORED = 0, KB_CHANGED, KB_DONE, KB_LEAVE_UP } KeyboardResult;
@@ -21,6 +22,7 @@ float keyboard_height(void);
 float keyboard_width(void);
 float keyboard_width_of(const Keyboard *kb);
 float keyboard_height_of(const Keyboard *kb);
+int keyboard_cols(const Keyboard *kb);   /* keys across: the right-hand column is keyboard_cols() - 1 */
 /* Touch: each key is a hit target (ui_hit) with an id from KB_HIT up. A tapped key takes
  * the keyboard's focus (1); OK then presses it. 0 when the id is not a key. */
 enum { KB_HIT = 0x7B000000 };   /* clear of HIT_TRAILER_SOUND (0x7E000000), which the key "a" (row 0, column 0) used to share */
