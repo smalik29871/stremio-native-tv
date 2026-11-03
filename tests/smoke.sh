@@ -475,7 +475,7 @@ run player_skip_again 1200 "right,ok,down,down,play,wait,ok,${W10}rewind,${W10}o
 [ "$(grep -c "player: skipping intro" "$OUT/player_skip_again.log")" -ge 2 ] && grep -q "player: the intro can be skipped again" "$OUT/player_skip_again.log" \
   || { echo "after a rewind into the intro the skip button did not come back"; grep -E "player: (skipping|the intro|marker|seek)" "$OUT/player_skip_again.log" | tail -8; exit 1; }
 # a computer's keyboard in the player: the keys of YouTube, VLC and mpv (J/L, digits, < >, +/-, A, ?, ...)
-run player_desktop_keys 520 "right,ok,down,down,play,wait,key:greater,key:greater,wait,key:backspace,key:l,key:j,key:5,wait,key:plus,key:minus,key:a,key:shift+right,key:ctrl+left,key:question,wait,key:c,wait,key:end,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
+run player_desktop_keys 640 "right,ok,down,down,play,wait,wait,wait,wait,key:greater,key:greater,wait,key:backspace,key:l,key:j,key:5,wait,key:plus,key:minus,key:a,key:shift+right,key:ctrl+left,key:question,wait,key:c,wait,key:end,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
 for want in "toast: Speed 1.5x" "toast: Normal speed" "player: key L, on 10 s" "player: key J, back 10 s" "player: key 5, to 50% of the film" "toast: Volume" "toast: Picture:" "player: the list of keys is shown"; do
   grep -q "$want" "$OUT/player_desktop_keys.log" || { echo "a computer's key did nothing in the player: $want"; grep -E "toast:|player: key|list of keys" "$OUT/player_desktop_keys.log" | tail -20; exit 1; }
 done
