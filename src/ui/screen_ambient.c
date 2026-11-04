@@ -61,6 +61,9 @@ typedef struct {
     int dim; float dim_at;   /* dimmed, and when (the dark comes over a few seconds) */
     int off;              /* the picture is off: black with a faint clock, until a key */
     int gal_state;        /* Art gallery: 0 not asked, 1 asking the museum, 2 works on the wall, 3 none came */
+    int fell_back;        /* memory was tight when it came up: the plain clock stands in for the chosen one, which returns when there is room */
+    int want_style, want_face;   /* the one that was chosen (or picked by Shuffle) */
+    float retry_at;       /* when to look at the memory again */
 } Ambient;
 
 static Ambient *g_amb_live;   /* the screensaver a YouTube answer is for */
@@ -700,11 +703,40 @@ static void advance(Ambient *a)
     a->shown_at = g_app.time;
 }
 
+/* Is memory tight right now? A fresh reading: the watch's stage (mem_stage) lags, it takes two minutes of room to clear, and the TV's own
+ * screensaver or another app lifts the reading just while this one is coming up. */
+static int memory_tight_now(void)
+{
+    MemSample m;
+    return mem_sample(&m) && mem_level(m.total_kb, m.avail_kb, m.rss_kb) >= 2;
+}
+
+/* The styles that hold pictures, a video or a gallery in memory; the drawn ones (Aurora, Warp) cost none to speak of. */
+static int style_is_heavy(int st) { return st != AMBIENT_CLOCK && st != AMBIENT_LOGO && st != AMBIENT_AURORA && st != AMBIENT_WARP; }
+
+static void style_begin(Ambient *a)
+{
+    if (g_style == AMBIENT_FIRE) fv_start(a);
+    if (g_style == AMBIENT_GALLERY) gallery_ask(a);
+    if (g_style == AMBIENT_CLOCK || g_style == AMBIENT_DEPTH) font_digits_load();
+}
+
 static unsigned art_get(const char *url, int *w, int *h);
 static void update(Screen *s, float dt)
 {
     Ambient *a = s->st;
     stage_tick(a);
+    if (a->fell_back && g_app.time >= a->retry_at) {   /* the room is back: the screensaver that was chosen */
+        a->retry_at = g_app.time + env_sec("SNTV_AMBIENT_RETRY_S", 5);
+        if (!memory_tight_now()) {
+            a->fell_back = 0;
+            g_style = a->want_style; g_face = a->want_face;
+            LOGI("ambient: there is room again; %s instead of the plain clock", AMBIENT_STYLE_NAMES[g_style]);
+            style_begin(a);
+            a->shown_at = g_app.time; a->t = 0; a->cur_ready = 0;
+            app_redraw();
+        }
+    }
     if (a->off) { if (g_app.time - a->drawn_at >= 1) app_redraw(); return; }
     if (g_app.time - a->drawn_at >= 1.0f / 30) app_redraw();
     if (g_style == AMBIENT_LOGO) {   /* drifts and bounces off the edges */
@@ -1073,18 +1105,18 @@ Screen *screen_ambient_create(void)
         g_face = (int)((r / 1000) % CLOCKFACE_COUNT);
         LOGI("ambient: shuffle picked %s%s%s", AMBIENT_STYLE_NAMES[g_style], g_style == AMBIENT_CLOCK ? ", face " : "", g_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_face] : "");
     }
-    if (mem_stage() >= 2 && g_style != AMBIENT_CLOCK && g_style != AMBIENT_LOGO) {   /* tight: the plain clock costs nothing */
-        LOGI("ambient: memory is tight; the plain clock instead of %s", AMBIENT_STYLE_NAMES[g_style]);
+    a->want_style = g_style; a->want_face = g_face;
+    if (style_is_heavy(g_style) && memory_tight_now()) {   /* tight right now: the plain clock costs nothing, and the chosen one comes back when there is room */
+        LOGI("ambient: memory is tight; the plain clock for now instead of %s", AMBIENT_STYLE_NAMES[g_style]);
         g_style = AMBIENT_CLOCK; g_face = CLOCKFACE_DIGITAL;
+        a->fell_back = 1; a->retry_at = g_app.time + 5;
     }
     collect(a);
     a->shown_at = a->born = g_app.time;
     a->lx = SNTV_UI_W * 0.3f; a->ly = SNTV_UI_H * 0.35f; a->lvx = 90; a->lvy = 64;
     g_amb_live = a;
     video_hold_screensaver(1);   /* this is the screensaver now: the TV's would cover it after its own wait */
-    if (g_style == AMBIENT_FIRE) fv_start(a);
-    if (g_style == AMBIENT_GALLERY) gallery_ask(a);
-    if (g_style == AMBIENT_CLOCK || g_style == AMBIENT_DEPTH) font_digits_load();
+    style_begin(a);
     LOGI("ambient: %s screensaver with %d backdrops%s%s", AMBIENT_STYLE_NAMES[g_style], a->n,
          g_style == AMBIENT_CLOCK ? ", face " : "", g_style == AMBIENT_CLOCK ? CLOCKFACE_NAMES[g_face] : "");
     s->name = "ambient"; s->st = a;

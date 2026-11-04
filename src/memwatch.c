@@ -27,7 +27,13 @@ int mem_sample(MemSample *out)
 {
     memset(out, 0, sizeof *out);
     const char *fake = getenv("SNTV_FAKE_MEM");
-    if (fake && *fake) { sscanf(fake, "%ld,%ld", &out->total_kb, &out->avail_kb); out->rss_kb = 60 * 1024; return out->total_kb > 0; }
+    if (fake && *fake) {
+        sscanf(fake, "%ld,%ld", &out->total_kb, &out->avail_kb); out->rss_kb = 60 * 1024;
+        const char *later = getenv("SNTV_FAKE_MEM_LATER");   /* tests: "seconds,total,avail": the room comes back after that long */
+        float at = 0; long t2 = 0, a2 = 0;
+        if (later && sscanf(later, "%f,%ld,%ld", &at, &t2, &a2) == 3 && g_app.time >= at) { out->total_kb = t2; out->avail_kb = a2; }
+        return out->total_kb > 0;
+    }
     FILE *f = fopen("/proc/meminfo", "r");
     if (!f) return 0;
     char line[160]; long free_kb = 0, cached_kb = 0, buffers_kb = 0;
@@ -75,6 +81,8 @@ static void give_back(void)
 
 static MemStageState g_st;
 static int g_fx_forced, g_bg;
+static int g_video;     /* a video is playing (whatever the room): the extra artwork is not kept then */
+static size_t g_boost;  /* artwork kept beyond the usual budget while the TV has room to spare (fewer pictures fetched again) */
 static volatile int g_trim;   /* Android's onTrimMemory level, waiting for the main thread */
 
 static void stage_apply(int st)
@@ -98,14 +106,14 @@ void mem_background(int on)
     if (g_bg == on) return;
     g_bg = on;
     if (on) { image_set_budget(12u << 20); give_back(); LOGI("memory: in the background: the artwork let go"); }
-    else { image_set_budget(mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb) >= 2 ? 16u << 20 : g_app.low_memory ? 48u << 20 : mem_normal_budget()); LOGI("memory: back in front: the artwork budget restored"); }
+    else { g_boost = 0; image_set_budget(mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb) >= 2 ? 16u << 20 : g_app.low_memory ? 48u << 20 : mem_normal_budget()); LOGI("memory: back in front: the artwork budget restored"); }
 }
 
 static int g_playing;   /* a video fills the screen: the artwork cache shrinks for the decoder */
 
 static size_t budget(int low, int reason)
 {
-    size_t b = low ? (reason == WHY_TIGHT ? 32u << 20 : 48u << 20) : mem_normal_budget();
+    size_t b = low ? (reason == WHY_TIGHT ? 32u << 20 : 48u << 20) : mem_normal_budget() + g_boost;
     if (g_playing && b > (24u << 20)) b = 24u << 20;
     return b;
 }
@@ -157,6 +165,20 @@ void mem_tick(float dt)
     }
     int level = mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb);
     stage_apply(mem_stage_step(&g_st, level, 5));
+    {   /* room beyond the line the TV itself needs (the "getting low" mark, and 60 MB more for the video and the system): kept as artwork, given back when it shrinks */
+        size_t want = 0;
+        if (level == 0 && mem_stage() == 0 && !g_app.low_memory && !g_bg && !g_video) {
+            long room_kb = g_last.total_kb * 15 / 100; if (room_kb < 300 * 1024) room_kb = 300 * 1024;
+            long spare_mb = (g_last.avail_kb - room_kb) / 1024 - 60;
+            if (spare_mb > 0) want = ((size_t)(spare_mb > 96 ? 96 : spare_mb) >> 3 << 3) << 20;   /* 8 MB steps, at most 96 */
+        }
+        size_t diff = want > g_boost ? want - g_boost : g_boost - want;
+        if (want != g_boost && (want == 0 || g_boost == 0 || diff >= (16u << 20))) {
+            g_boost = want;
+            image_set_budget(budget(g_app.low_memory, g_reason));
+            LOGI("memory: %ld MB free of %ld: artwork cache %ld MB%s", g_last.avail_kb / 1024, g_last.total_kb / 1024, (long)((mem_normal_budget() + g_boost) >> 20), g_boost ? " (room to spare)" : " (the usual)");
+        }
+    }
     if (level == 2) {
         if (++g_tight_runs >= 2 && g_app.memory_mode != 2 && g_reason != WHY_TIGHT && g_reason != WHY_CHOSEN) {
             apply(1, WHY_TIGHT);
@@ -177,6 +199,8 @@ int mem_saver_lasting(void) { return g_app.low_memory && (g_reason == WHY_SMALL_
 
 void mem_playback(int playing)
 {
+    g_video = playing;
+    if (playing && g_boost) { g_boost = 0; image_set_budget(budget(g_app.low_memory, g_reason)); LOGI("memory: the extra artwork is let go for the video"); }   /* the usual budget stays */
     /* only where room is short: elsewhere the posters stay for the way back */
     playing = playing && (g_app.low_memory || mem_level(g_last.total_kb, g_last.avail_kb, g_last.rss_kb) >= 1);
     if (playing == g_playing) return;

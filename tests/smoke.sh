@@ -1097,6 +1097,9 @@ run fx_stuck 700 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="17" HO
 grep -q "perf: light effects keep up with the screen .* -> full effects" "$OUT/fx_stuck.log" || { echo "a TV kept on light effects never went back to full"; grep "perf:" "$OUT/fx_stuck.log"; exit 1; }
 run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000 SNTV_MEM_SAMPLE_S=0.5   # read twice a second: the step down comes whatever the frame rate
 grep -q "memory saver on (memory got tight)" "$OUT/home_mem_tight.log" && grep -q "memory: tight (87 MB free of 2929): the saver" "$OUT/home_mem_tight.log" || { echo "a tight TV did not step down"; grep -E "memory" "$OUT/home_mem_tight.log"; exit 1; }
+# the reading from an LG with 1.7 GB: 425 MB free, the app 88 MB: the room past the TV's own line is kept as artwork (160 MB instead of 96)
+run home_mem_spare 400 "right,right" SNTV_FAKE_MEM=1744896,435200 SNTV_MEM_SAMPLE_S=0.5
+grep -q "memory: 425 MB free of 1704: artwork cache 160 MB (room to spare)" "$OUT/home_mem_spare.log" || { echo "spare memory was not kept as artwork"; grep "memory:" "$OUT/home_mem_spare.log"; exit 1; }
 run home_mem_low 600 "right,right" SNTV_FAKE_MEM=3000000,400000 SNTV_MEM_SAMPLE_S=0.5
 grep -q "memory: getting low (390 MB free of 2929): poster prefetch" "$OUT/home_mem_low.log" && ! grep -q "memory saver on" "$OUT/home_mem_low.log" || { echo "a TV getting low did not pause the extras"; grep -E "memory" "$OUT/home_mem_low.log"; exit 1; }
 run home_lowmem 150 "right,right" HOME="$(home_with lowmem '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"memoryMode":1}')"
@@ -1529,6 +1532,10 @@ for f in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
 done
 grep -q "weather: 18C, Partly cloudy" "$OUT/ambient_face15.log" || { echo "the weather clock did not get the weather"; grep -E "weather" "$OUT/ambient_face15.log"; exit 1; }
 # Shuffle picks a screensaver each time; the screensaver dims and then goes black after its set times
+# memory tight as it comes up (the TV's own screensaver, another app): the plain clock for now, the chosen screensaver back when there is room
+run ambient_tight_then_room 600 "" SNTV_AMBIENT_SECONDS=1 SNTV_FRAME_DT=0.05 SNTV_AMBIENT_RETRY_S=1 SNTV_FAKE_MEM=3000000,90000 SNTV_FAKE_MEM_LATER=8,3000000,2000000 SNTV_MEM_SAMPLE_S=0.5 HOME="$(home_with ambtight '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":1,"ambientMinutes":2}')"
+grep -q "ambient: memory is tight; the plain clock for now instead of" "$OUT/ambient_tight_then_room.log" && grep -q "ambient: there is room again; " "$OUT/ambient_tight_then_room.log" \
+  || { echo "the screensaver did not stand in with the clock while memory was tight and come back after"; grep "ambient:" "$OUT/ambient_tight_then_room.log"; exit 1; }
 run ambient_shuffle 200 "" SNTV_AMBIENT_SECONDS=1 SNTV_AMBIENT_PICK=2 HOME="$(home_with shuffle '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":11,"ambientMinutes":2}')"
 grep -q "ambient: shuffle picked Clock, face " "$OUT/ambient_shuffle.log" && grep -q "ambient: Clock screensaver with" "$OUT/ambient_shuffle.log" || { echo "shuffle did not pick a screensaver"; grep ambient "$OUT/ambient_shuffle.log"; exit 1; }
 run ambient_gallery 400 "" SNTV_AMBIENT_SECONDS=1 SNTV_ART_API=http://127.0.0.1:$PORT/artic SNTV_ART_IIIF=http://127.0.0.1:$PORT/artic/iiif HOME="$(home_with gal '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"ambientStyle":10,"ambientMinutes":2}')"
