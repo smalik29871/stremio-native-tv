@@ -49,6 +49,7 @@ KeyAction input_map(const SDL_Event *e)
 #if defined(SNTV_PLATFORM_WINDOWS) || defined(SNTV_PLATFORM_LINUX)
     {   /* a computer's keyboard */
         Uint16 m = e->key.keysym.mod;
+        if ((m & KMOD_CTRL) && k == SDLK_v && g_typing) return KEY_PASTE;
         if ((m & KMOD_ALT) && k == SDLK_LEFT) return KEY_BACK;                              /* as in a browser */
         if ((m & KMOD_CTRL) && (k == SDLK_f || k == SDLK_k)) return KEY_SEARCH;              /* Ctrl+F, Ctrl+K: search */
         if (!g_typing && k == SDLK_SLASH && !(m & KMOD_SHIFT)) return KEY_SEARCH;           /* / : search, as on YouTube */
@@ -86,6 +87,34 @@ KeyAction input_map(const SDL_Event *e)
     case SDLK_p:  return g_typing ? KEY_NONE : KEY_PLAY_PAUSE;  /* desktop convenience; typing: a letter */
     default: return KEY_NONE;
     }
+}
+
+KeyAction input_player_shortcut(const SDL_Event *e)
+{
+    if (e->type != SDL_KEYDOWN || e->key.repeat || g_typing || (e->key.keysym.mod & (KMOD_CTRL | KMOD_ALT | KMOD_GUI))) return KEY_NONE;
+    if (e->key.keysym.sym == SDLK_f) return KEY_FULLSCREEN;
+    if (e->key.keysym.sym == SDLK_m) return KEY_MUTE;
+    return KEY_NONE;
+}
+
+void input_wheel_delta(const SDL_MouseWheelEvent *e, unsigned mod, float *dx, float *dy)
+{
+    float x = (float)e->x, y = (float)e->y;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    if (e->preciseX != 0) x = e->preciseX;
+    if (e->preciseY != 0) y = e->preciseY;
+#endif
+    if (e->direction == SDL_MOUSEWHEEL_FLIPPED) { x = -x; y = -y; }
+    *dx = mod & KMOD_SHIFT ? y : -x;
+    *dy = mod & KMOD_SHIFT ? 0 : y;
+}
+
+int input_wheel_steps(float delta, float *remainder)
+{
+    if (delta * *remainder < 0) *remainder = 0;
+    float whole = SDL_truncf(*remainder + delta);
+    *remainder += delta - whole;
+    return whole < -4 ? -4 : whole > 4 ? 4 : (int)whole;
 }
 
 int input_system_kb_default(void)

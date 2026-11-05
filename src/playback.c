@@ -1,6 +1,16 @@
 #include "playback.h"
 #include <math.h>
 
+double playback_seek_target(double position, double duration)
+{
+    if (!isfinite(position) || position < 0) return 0;
+    if (isfinite(duration) && duration > 0) {
+        double last = duration > 1 ? duration - 1 : 0;
+        if (position > last) position = last;
+    }
+    return position;
+}
+
 void playback_watch_update(PlaybackWatch *w, double position, double elapsed, double rate, int playing, int seeking)
 {
     if (!isfinite(position) || position < 0) return;

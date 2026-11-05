@@ -106,6 +106,9 @@ struct Player {
     float overlay_until;
     float paused_since;       /* the paused info panel comes after a moment */
     int rate_idx;             /* index into RATES */
+    VideoState dk_click_state;
+    float dk_click_at, dk_audio_scroll;
+    UiPan dk_audio_pan;
     int rate_applied;         /* the pipeline got the rate for this load */
     int aspect;               /* ASPECT_* */
     /* a phone (always sideways): the controls over the picture, a list at the right */
@@ -2913,6 +2916,9 @@ static void apply_aspect(Player *p)
 
 static void set_rate(Player *p, int idx)
 {
+#ifdef SNTV_DESKTOP_PLAYER
+    if (idx != RATE_NORMAL) { app_toast("This player cannot change the speed yet"); return; }
+#endif
     if (idx < 0) idx = 0;
     if (idx >= N_RATES) idx = N_RATES - 1;
     p->rate_idx = idx;
@@ -5932,7 +5938,11 @@ static int ph_rows(Player *p, PhRow *r)
         return n;
     }
     if (p->ph_sheet == PH_SPEED) {
-        for (int i = 0; i < N_RATES && n < PH_ROWS; i++, n++) { snprintf(r[n].label, sizeof r[n].label, i == RATE_NORMAL ? "Normal" : "%gx", RATES[i]); r[n].sub[0] = 0; r[n].on = p->rate_idx == i; r[n].act = i; }
+        int first = 0, last = N_RATES;
+#ifdef SNTV_DESKTOP_PLAYER
+        first = RATE_NORMAL; last = RATE_NORMAL + 1;
+#endif
+        for (int i = first; i < last && n < PH_ROWS; i++, n++) { snprintf(r[n].label, sizeof r[n].label, i == RATE_NORMAL ? "Normal" : "%gx", RATES[i]); r[n].sub[0] = 0; r[n].on = p->rate_idx == i; r[n].act = i; }
         return n;
     }
     if (p->ph_sheet == PH_AUDIO) {
@@ -6046,6 +6056,7 @@ static void ph_open(Player *p, int sheet)
 {
     if (p->ph_sheet == sheet) { p->ph_sheet = PH_NONE; return; }
     p->ph_sheet = sheet; p->ph_scroll = 0; p->ph_focus = 0; p->ph_pan.free = 0;
+    p->dk_audio_scroll = 0; p->dk_audio_pan.free = 0; p->dk_audio_pan.vel = 0;
     static const char *const LIST[] = { "", "audio", "subtitles", "sources", "episodes", "speed", "audio & subtitles", "more", "subtitle settings", "scenes", "cast" };
     LOGI("player: the %s list", LIST[sheet]);
     PhRow r[PH_ROWS];
@@ -6107,8 +6118,7 @@ static void touch_seek(Player *p, double t, float after)
     VideoInfo vi;
     video_info(&vi);
     double dur = ph_dur(p, &vi);
-    if (t < 0) t = 0;
-    if (dur > 0 && t > dur - 1) t = dur - 1;
+    t = playback_seek_target(t, dur);
     if (p->seek_commit <= 0) p->seek_origin = vi.position;
     p->seek_target = t;
     p->seek_commit = after;
@@ -6412,23 +6422,25 @@ static void desk_row(const PhRow *r, float x, float y, float w, float rh, int fo
 }
 
 /* A list's rows in a column; the focused one kept in view (rows first..last of r) */
-static void desk_rows(Player *p, const PhRow *r, int first, int last, float x, float top, float w, float bottom, int scrolls)
+static void desk_rows(Player *p, const PhRow *r, int first, int last, float x, float top, float w, float bottom, int audio_column)
 {
     const float rh = 80;
     int n = last - first;
     float view = bottom - top, scroll = 0;
-    if (scrolls) {
+    {
+        UiPan *pan = audio_column ? &p->dk_audio_pan : &p->ph_pan;
+        float *offset = audio_column ? &p->dk_audio_scroll : &p->ph_scroll;
         int f = p->ph_focus - first;
-        float want = p->ph_scroll;
+        float want = *offset;
         if (f >= 0 && f < n) {
             if (f * rh + rh > want + view) want = f * rh + rh - view;
             if (f * rh < want) want = f * rh;
         }
         float dt = g_app.time - p->ph_t;
-        p->ph_t = g_app.time;
-        ui_pan(&p->ph_pan, &p->ph_scroll, want, n * rh - view, dt < 0 ? 0 : dt > 0.1f ? 0.1f : dt, 16);
-        ui_pan_area(&p->ph_pan, x - 12, top, w + 24, view, 1);
-        scroll = p->ph_scroll;
+        if (!audio_column) p->ph_t = g_app.time;
+        ui_pan(pan, offset, want, n * rh - view, dt < 0 ? 0 : dt > 0.1f ? 0.1f : dt, 16);
+        ui_pan_area(pan, x - 12, top, w + 24, view, 1);
+        scroll = *offset;
     }
     gfx_clip_push(x - 16, top, w + 32, view);
     for (int i = 0; i < n; i++) {
@@ -6481,7 +6493,7 @@ static void desk_sheet(Player *p, float right, float bottom)
     if (!tracks) {
         font_draw(NAMES[p->ph_sheet], x + 40, y + 30, FONT_M | FONT_B, THEME_TEXT);
         if (!n) font_draw(p->ph_sheet == PH_EPISODES ? "No other episodes" : "Nothing here", x + 40, lt + 10, FONT_S, THEME_TEXT_MUTED);
-        desk_rows(p, r, 0, n, x + 40, lt, w - 80, lb, 1);
+        desk_rows(p, r, 0, n, x + 40, lt, w - 80, lb, 0);
         return;
     }
     float cw = (w - 120) / 2, ax = x + 40, sx = x + 80 + cw;
@@ -6489,8 +6501,8 @@ static void desk_sheet(Player *p, float right, float bottom)
     font_draw("Subtitles", sx, y + 30, FONT_M | FONT_B, THEME_TEXT);
     gfx_rect(x + 60 + cw - 1, y + 36, 2, h - 72, COLOR_ALPHA(THEME_TEXT, 0x18));
     if (!na) font_draw("One audio track", ax, lt + 10, FONT_S, THEME_TEXT_MUTED);
-    desk_rows(p, r, 0, na, ax, lt, cw, lb, 0);
-    desk_rows(p, r, na, n, sx, lt, cw, lb, 1);
+    desk_rows(p, r, 0, na, ax, lt, cw, lb, 1);
+    desk_rows(p, r, na, n, sx, lt, cw, lb, 0);
     /* how the subtitles look and when they come, under the lists */
     gfx_rect(x + 40, lb + 6, w - 80, 2, COLOR_ALPHA(THEME_TEXT, 0x18));
     char v[64];
@@ -6789,10 +6801,6 @@ static void desk_controls(Player *p, const VideoInfo *vi, int shown, int failed)
     desk_btn(rx, cy, fs ? "Leave full screen (F)" : "Full screen (F)", HIT_WIN_FULL);
     desk_full_icon(rx, cy, fs, THEME_TEXT);
     rx -= 88;
-    desk_btn(rx, cy, "Speed", PHH_SHEET + PHB_SPEED);
-    if (p->rate_idx != RATE_NORMAL) { char sp[16]; snprintf(sp, sizeof sp, "%gx", RATES[p->rate_idx]); font_draw_center(sp, rx, cy - font_height(FONT_XS | FONT_B) / 2, FONT_XS | FONT_B, THEME_ACCENT); }
-    else ui_icon(ICON_SPEED, rx, cy, 36, p->ph_sheet == PH_SPEED ? THEME_ACCENT : THEME_TEXT);
-    rx -= 88;
     desk_icon_btn(ICON_SETTINGS, rx, cy, "More: scenes, cast, subtitle settings, reload", PHH_MORE, p->ph_sheet >= PH_MORE);
     rx -= 88;
     char asp[48];
@@ -7032,6 +7040,7 @@ static void picture_tap(Player *p, float x)
     if (p->ph_sheet) { p->ph_sheet = PH_NONE; p->tap_pending = 0; LOGI("player: a tap away closed the list"); app_redraw(); return; }   /* away from an open list: it goes, and that is all */
 #ifdef SNTV_DESKTOP_PLAYER
     (void)x;   /* a computer: a click on the film plays or pauses (two are full screen); moving the mouse shows the controls */
+    p->dk_click_state = vi.state; p->dk_click_at = g_app.time;
     toggle_play(p, &vi);
     p->fs_until = g_app.time + 3.0f;
     app_redraw();
@@ -7099,6 +7108,7 @@ static double ph_swipe_secs(double dur) { return dur >= 3600 ? 120 : dur >= 1800
 /* A finger held still on a playing picture plays it at double speed until it lifts. */
 static void ph_hold_fast(Player *p, const VideoInfo *vi)
 {
+#ifndef SNTV_DESKTOP_PLAYER
     if (p->tch != 2 || p->tch_fast || p->tch_moved || p->tch_seeking || p->tch_adjust || g_app.time - p->tch_at < 0.5f) return;
     if (vi->state != VIDEO_PLAYING || p->ph_sheet) return;
     p->tch_fast = 1;
@@ -7106,6 +7116,9 @@ static void ph_hold_fast(Player *p, const VideoInfo *vi)
     video_set_rate(2.0);
     LOGI("player: held: double speed while the finger stays");
     app_redraw();
+#else
+    (void)p; (void)vi;
+#endif
 }
 
 static int in_rect(const float *r, float x, float y) { return r[2] > 0 && x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]; }
@@ -7632,6 +7645,26 @@ void player_pointer_moved(float x, float y)
     if (g_live->fs_until < g_app.time + 2.9f) { g_live->fs_until = g_app.time + 3.0f; app_redraw(); }
 }
 
+int player_pointer_double_click(Screen *screen, float x, float y)
+{
+#ifdef SNTV_DESKTOP_PLAYER
+    Player *p = g_live;
+    int id;
+    if (!p || !screen || screen->st != p || p->pip || p->ph_sheet || p->menu || p->cast_open || p->scenes_open || p->keys_help) return 0;
+    if (!in_rect(p->ph_pic, x, y) || in_rect(p->fs_barr, x, y) || in_rect(p->dk_volr, x, y) || ui_hit_find(x, y, screen, &id)) return 0;
+    VideoInfo vi; video_info(&vi);
+    if (g_app.time - p->dk_click_at < 1 && (p->dk_click_state == VIDEO_PLAYING || p->dk_click_state == VIDEO_PAUSED) && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) && vi.state != p->dk_click_state) {
+        if (p->dk_click_state == VIDEO_PLAYING) { video_play(); p->viewer_paused = 0; }
+        else { video_pause(); p->viewer_paused = 1; }
+        p->play_flash = 0;
+    }
+    return 1;
+#else
+    (void)screen; (void)x; (void)y;
+    return 0;
+#endif
+}
+
 /* Two fingers apart: the picture fills the screen (cropped); together: all of it again. */
 void player_pinch(float d)
 {
@@ -7740,7 +7773,7 @@ int player_desktop_key(Screen *top, int key_sym, unsigned mod)
     if (alt) return 0;   /* Alt+Enter, Alt+Left, Alt+F4 are the window's */
     VideoInfo vi;
     video_info(&vi);
-    int free_keys = !p->menu && !p->cast_open && !p->scenes_open;   /* a panel open: its own keys, the arrows and Enter */
+    int free_keys = !p->menu && !p->ph_sheet && !p->cast_open && !p->scenes_open;
     if (k == SDLK_QUESTION || (k == SDLK_SLASH && shift)) { p->keys_help = 1; LOGI("player: the list of keys is shown"); app_redraw(); return 1; }
     if ((k == SDLK_LEFT || k == SDLK_RIGHT) && (shift || ctrl) && free_keys) { seek_by(p, (k == SDLK_RIGHT ? 1 : -1) * (ctrl ? 60 : 3)); return 1; }
     if ((k == SDLK_UP || k == SDLK_DOWN) && ctrl) { key_volume(p, k == SDLK_UP ? 0.05f : -0.05f); return 1; }
@@ -7798,7 +7831,10 @@ static void draw_keys_help(Player *p)
     static const char *const L[][2] = {
         { "Space  K  Enter", "Play or pause" }, { "Left  Right  J  L", "Back, on 10 s" }, { "Shift + Left / Right", "3 s" }, { "Ctrl + Left / Right", "1 minute" },
         { "0 - 9", "Jump to 0 - 90 % of the film" }, { "Home  End", "Start, end" }, { ", and .", "One frame back, on (paused)" },
-        { "< >  [ ]", "Slower, faster" }, { "Backspace", "Normal speed" }, { "+  -  Ctrl + Up / Down", "Volume" }, { "M", "Mute" },
+#ifndef SNTV_DESKTOP_PLAYER
+        { "< >  [ ]", "Slower, faster" }, { "Backspace", "Normal speed" },
+#endif
+        { "+  -  Ctrl + Up / Down", "Volume" }, { "M", "Mute" },
         { "C", "Subtitles on or off" }, { "V", "Next subtitles" }, { "G  H", "Subtitles earlier, later" }, { "B", "Next sound track" },
         { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "X  Esc", "Stop" },
         { "F  F11  Alt + Enter", "Full screen" }, { "I  F1", "Stream details" }, { "O", "Controls" } };

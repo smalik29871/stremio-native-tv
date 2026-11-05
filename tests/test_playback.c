@@ -12,6 +12,11 @@ static int frames(double seconds) { return (int)(seconds / LG_FRAME + 0.5); }
 
 int main(void)
 {
+    CHECK(playback_seek_target(-10, 120) == 0);
+    CHECK(playback_seek_target(140, 120) == 119);
+    CHECK(playback_seek_target(10, 0.5) == 0);
+    CHECK(playback_seek_target(10, 0) == 10);
+    CHECK(playback_seek_target(NAN, 120) == 0);
     PlaybackWatch w = { 0 };
     playback_watch_update(&w, 5700, 0, 1, 0, 1);
     for (int i = 0; i < frames(180); i++) playback_watch_update(&w, 5700, LG_FRAME, 1, 0, 0);

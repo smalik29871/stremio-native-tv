@@ -9,9 +9,13 @@ typedef enum {
     KEY_MENU, KEY_INFO, KEY_RED, KEY_GREEN, KEY_YELLOW, KEY_BLUE, KEY_SEARCH,
     KEY_BACKSPACE, KEY_EXIT,
     KEY_LONG_OK,   /* OK held for half a second (screens with Screen.long_ok only) */
+    KEY_PASTE, KEY_FULLSCREEN, KEY_MUTE,
 } KeyAction;
 
 KeyAction input_map(const SDL_Event *e);
+KeyAction input_player_shortcut(const SDL_Event *e);
+void input_wheel_delta(const SDL_MouseWheelEvent *e, unsigned mod, float *dx, float *dy);
+int input_wheel_steps(float delta, float *remainder);
 /* Text input from a real keyboard (desktop). On TVs it would open the system keyboard,
  * which takes the remote's focus; the app's own keyboard and the phone page are used there. */
 void input_text(int on);

@@ -8,5 +8,6 @@ typedef struct {
 
 void playback_watch_update(PlaybackWatch *w, double position, double elapsed, double rate, int playing, int seeking);
 int playback_watch_through(const PlaybackWatch *w, double duration);
+double playback_seek_target(double position, double duration);
 
 #endif

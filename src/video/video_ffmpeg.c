@@ -14,6 +14,7 @@
 #include "../log.h"
 #include "../youtube.h"
 #include "../audio.h"
+#include "../playback.h"
 #include "../platform/platform.h"
 #include "../http.h"
 #include "../sha256.h"
@@ -1056,8 +1057,7 @@ void video_pause(void)
 void video_seek(double s)
 {
     if (!P) return;
-    if (s < 0) s = 0;
-    if (g_info.duration > 0 && s > g_info.duration - 1) s = g_info.duration - 1;
+    s = playback_seek_target(s, g_info.duration);
     P->seek_to = s; P->seek_req = 1;
     g_info.position = s; g_shown_pts = s; g_wall_base = -1;
     if (g_info.state == VIDEO_ENDED) g_info.state = g_paused ? VIDEO_PAUSED : VIDEO_PLAYING;

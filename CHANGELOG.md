@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Desktop controls.** Search and paste shortcuts work while using the player and text fields. Double-clicking the picture changes fullscreen without changing playback; clicks on controls stay on those controls. Right-clicking empty space no longer acts on the previously focused item.
+- **Desktop scrolling and windows.** Trackpad scrolling preserves fractional movement and direction, both audio and subtitle columns scroll independently, and open track panels keep their keyboard navigation. Windows follow display scaling and the initial window fits the usable display.
+- **Playback accuracy.** Unsupported desktop speed controls are hidden, holding the mouse no longer reports double speed, and seeking very short clips stays within valid bounds.
+
 ## 0.10.110
 
 - **Stability fixes.**

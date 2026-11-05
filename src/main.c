@@ -600,6 +600,21 @@ static void touch_event(const SDL_Event *e)
 #ifdef SNTV_DESKTOP_PLAYER
 static SDL_Window *g_win;
 static float g_mouse_x = -1, g_mouse_y = -1, g_mouse_t = -100;   /* the pointer (canvas units) and when it last moved */
+static int g_mouse_double;
+static float g_wheel_remainder;
+
+static void mouse_touch(SDL_Window *win, Uint32 type, int x, int y, Uint32 timestamp)
+{
+    int w, h;
+    SDL_GetWindowSize(win, &w, &h);
+    if (w <= 0 || h <= 0 || (type != SDL_FINGERDOWN && !g_touch.down)) return;
+    SDL_Event event; SDL_zero(event);
+    event.type = type; event.tfinger.timestamp = timestamp;
+    event.tfinger.fingerId = -1;
+    event.tfinger.x = (float)x / w; event.tfinger.y = (float)y / h;
+    g_app.last_input = g_mouse_t = g_app.time;
+    touch_event(&event);
+}
 
 int window_fullscreen(void) { return g_win && (SDL_GetWindowFlags(g_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
 
@@ -930,9 +945,10 @@ int main(int argc, char **argv)
     _fmode = _O_BINARY;   /* files as written, no \r added before each \n */
     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");   /* OpenGL ES through ANGLE (Direct3D), not the driver's own */
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");   /* sharp on a scaled display */
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
 #endif
 #ifdef SNTV_DESKTOP_PLAYER
-    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "1");   /* a computer: a click is a tap, a drag a swipe */
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");   /* mouse clicks are routed below, so a double click is not two player actions */
 #endif
 #ifdef SNTV_PLATFORM_WEBOS
     /* Without these the remote's Back/Exit keys never reach the app. Must be set before the window exists. */
@@ -1004,6 +1020,15 @@ int main(int argc, char **argv)
     flags |= SDL_WINDOW_RESIZABLE;
     const char *ws = getenv("SNTV_WINDOW");   /* tests: "2000x900" is a phone's shape, "1440x1080" a tablet's */
     if (ws && sscanf(ws, "%dx%d", &w, &h) != 2) { w = 1280; h = 720; }
+#ifdef SNTV_DESKTOP_PLAYER
+    if (!ws) {
+        SDL_Rect bounds;
+        if (SDL_GetDisplayUsableBounds(0, &bounds) == 0 && bounds.w > 0 && bounds.h > 0) {
+            if (w > bounds.w * 0.9f) w = (int)(bounds.w * 0.9f);
+            if (h > bounds.h * 0.9f) h = (int)(bounds.h * 0.9f);
+        }
+    }
+#endif
 #endif
     SDL_Window *win = SDL_CreateWindow(SNTV_APP_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
 #ifdef SNTV_DESKTOP_PLAYER
@@ -1107,16 +1132,39 @@ int main(int argc, char **argv)
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
             else if (e.type == SDL_MULTIGESTURE && e.mgesture.numFingers == 2 && SDL_fabsf(e.mgesture.dDist) > 0.002f && top && !strcmp(top->name, "player")) player_pinch(e.mgesture.dDist);   /* two fingers in the player: the picture's fill */
 #ifdef SNTV_DESKTOP_PLAYER
-            else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID && !e.motion.state) mouse_hover(win, e.motion.x, e.motion.y);
-            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT && e.button.clicks == 2 && top && !strcmp(top->name, "player")) toggle_fullscreen();   /* a double click on the film */
-            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_RIGHT) { g_app.last_input = g_app.time; mouse_hover(win, e.button.x, e.button.y); Screen *t = app_top(); if (t && t->key) t->key(t, KEY_LONG_OK); app_redraw(); }   /* a right click: the options of what is under it (nothing where there are none) */
-            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_X1) { g_app.last_input = g_app.time; dispatch_key(KEY_BACK); }   /* the mouse's back button */
-            else if (e.type == SDL_MOUSEWHEEL && (e.wheel.y || e.wheel.x) && ui_pan_wheel(g_mouse_x, g_mouse_y, (SDL_GetModState() & KMOD_SHIFT) ? 0 : (float)e.wheel.y, (SDL_GetModState() & KMOD_SHIFT) ? (float)e.wheel.y : (float)-e.wheel.x)) {
-                g_app.last_input = g_app.time; g_mouse_t = g_app.time; app_redraw();   /* the wheel scrolls what is under the pointer */
+            else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID) {
+                if (e.motion.state & SDL_BUTTON_LMASK) { if (!g_mouse_double) mouse_touch(win, SDL_FINGERMOTION, e.motion.x, e.motion.y, e.motion.timestamp); }
+                else mouse_hover(win, e.motion.x, e.motion.y);
             }
-            else if (e.type == SDL_MOUSEWHEEL && e.wheel.y) {   /* nothing scrolls there: the wheel moves the focus a step a notch */
-                g_app.last_input = g_app.time;
-                for (int n = 0; n < (e.wheel.y > 0 ? e.wheel.y : -e.wheel.y) && n < 4; n++) dispatch_key(e.wheel.y > 0 ? KEY_UP : KEY_DOWN);
+            else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT) {
+                mouse_hover(win, e.button.x, e.button.y);
+                if (app_top() != top) g_mouse_double = 1;
+                else if (e.button.clicks == 2 && top && !strcmp(top->name, "player") && player_pointer_double_click(top, g_mouse_x, g_mouse_y)) { g_mouse_double = 1; toggle_fullscreen(); }
+                else { g_mouse_double = 0; mouse_touch(win, SDL_FINGERDOWN, e.button.x, e.button.y, e.button.timestamp); }
+            }
+            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_LEFT) {
+                if (!g_mouse_double) mouse_touch(win, SDL_FINGERUP, e.button.x, e.button.y, e.button.timestamp);
+                g_mouse_double = 0;
+                mouse_hover(win, e.button.x, e.button.y);
+            }
+            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_RIGHT) {
+                mouse_hover(win, e.button.x, e.button.y);
+                int id;
+                if (app_top() == top && top && top->tap && top->long_ok && top->key && ui_hit_find(g_mouse_x, g_mouse_y, top, &id) && id < HIT_WIN_BACK) top->key(top, KEY_LONG_OK);
+                app_redraw();
+            }
+            else if (e.type == SDL_MOUSEBUTTONUP && e.button.which != SDL_TOUCH_MOUSEID && e.button.button == SDL_BUTTON_X1) { g_app.last_input = g_app.time; dispatch_key(KEY_BACK); }   /* the mouse's back button */
+            else if (e.type == SDL_MOUSEWHEEL) {
+                float dx, dy;
+                input_wheel_delta(&e.wheel, SDL_GetModState(), &dx, &dy);
+                int mx, my; SDL_GetMouseState(&mx, &my);
+                mouse_hover(win, mx, my);
+                if (ui_pan_wheel(g_mouse_x, g_mouse_y, dy, dx)) g_wheel_remainder = 0;
+                else {
+                    int steps = input_wheel_steps(dy, &g_wheel_remainder);
+                    for (int n = 0; n < abs(steps); n++) dispatch_key(steps > 0 ? KEY_UP : KEY_DOWN);
+                }
+                app_redraw();
             }
 #endif
             else if (e.type == SDL_KEYUP) {
@@ -1144,9 +1192,10 @@ int main(int argc, char **argv)
                 }
 #endif
 #ifdef SNTV_DESKTOP_PLAYER
-                if (!e.key.repeat && top && !strcmp(top->name, "player") && !g_app.pip && (e.key.keysym.sym == SDLK_f || e.key.keysym.sym == SDLK_m)) {   /* F: full screen, M: mute, as in the streaming apps */
+                KeyAction shortcut = input_player_shortcut(&e);
+                if (top && !strcmp(top->name, "player") && !g_app.pip && shortcut != KEY_NONE) {
                     g_app.last_input = g_app.time;
-                    if (e.key.keysym.sym == SDLK_f) toggle_fullscreen(); else player_toggle_mute();
+                    if (shortcut == KEY_FULLSCREEN) toggle_fullscreen(); else player_toggle_mute();
                     continue;
                 }
 #endif
@@ -1161,6 +1210,13 @@ int main(int argc, char **argv)
                 perf_key();
                 KeyAction a = input_map(&e);
                 g_app.last_input = g_app.key_at = g_app.time;
+                if (a == KEY_PASTE) {
+                    if (!e.key.repeat && top && top->text) {
+                        char *text = SDL_GetClipboardText();
+                        if (text) { ui_pan_keys(); top->text(top, text); SDL_free(text); app_redraw(); }
+                    }
+                    continue;
+                }
                 ui_pan_keys();   /* a key: the lists follow the focus again */
                 g_app.key_repeat = e.key.repeat != 0;
                 if (a == KEY_LEFT || a == KEY_RIGHT || a == KEY_UP || a == KEY_DOWN) {   /* held, or pressed fast (remotes that send no repeats): the focus is travelling */
