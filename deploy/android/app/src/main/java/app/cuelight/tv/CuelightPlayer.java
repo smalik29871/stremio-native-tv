@@ -23,6 +23,7 @@ import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 
 import androidx.media3.common.C;
+import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
@@ -151,6 +152,8 @@ public final class CuelightPlayer {
         sPlayer = new ExoPlayer.Builder(sActivity, renderers)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(sActivity, http)))
             .setLoadControl(loadControl())
+            .setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+            .setHandleAudioBecomingNoisy(true)
             .build();
         sPlayer.setVideoSurfaceView(sView);
         sPlayer.setTrackSelectionParameters(sPlayer.getTrackSelectionParameters().buildUpon()
@@ -298,7 +301,9 @@ public final class CuelightPlayer {
             float[] sizes = { 0.045f, 0.055f, 0.068f, 0.082f };
             sSubs.setApplyEmbeddedStyles(false);
             sSubs.setApplyEmbeddedFontSizes(false);
-            sSubs.setFractionalTextSize(sizes[Math.max(0, Math.min(3, size))]);
+            int index = Math.max(0, Math.min(3, size));
+            if (CuelightActivity.sHandheld) sSubs.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, 16 + index * 4);
+            else sSubs.setFractionalTextSize(sizes[index]);
             int fg = Color.WHITE, bg = Color.TRANSPARENT, edge = CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW;
             switch (style) {
                 case 1: edge = CaptionStyleCompat.EDGE_TYPE_OUTLINE; break;                   // bold outline
@@ -376,7 +381,7 @@ public final class CuelightPlayer {
 
     @SuppressWarnings("deprecation")
     static void systemBars(boolean shown) {
-        if (!CuelightActivity.sPhone) return;   /* TVs and tablets: full screen throughout, as before */
+        if (!CuelightActivity.sHandheld) return;
         sFull = !shown;
         View decor = sActivity.getWindow().getDecorView();
         if (shown) {
@@ -698,7 +703,7 @@ public final class CuelightPlayer {
             int ps = p.getPlaybackState();
             if (ps == Player.STATE_ENDED) state = ENDED;
             else if (!sReady) state = LOADING;
-            else state = p.getPlayWhenReady() ? PLAYING : PAUSED;
+            else state = p.getPlayWhenReady() && p.getPlaybackSuppressionReason() == Player.PLAYBACK_SUPPRESSION_REASON_NONE ? PLAYING : PAUSED;
             sState = state;
         }
         s[0] = state;

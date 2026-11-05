@@ -9,6 +9,7 @@
 #include "../perfstat.h"
 #include "../playback.h"
 #include "../app.h"
+#include "accessibility.h"
 #include "../memwatch.h"
 #include "../http.h"
 #include "../image.h"
@@ -370,6 +371,7 @@ static const char *emb_lang(const Player *p, const VideoTrack *tr, int i, int n)
 static int subs_key(Player *p, KeyAction a);
 static void full_draw(Player *p, const VideoInfo *vi);
 static void full_draw_loading(Player *p);
+static void portrait_draw(Player *p, const VideoInfo *vi);
 static void picture_tap_settle(Player *p);
 static void ph_hold_fast(Player *p, const VideoInfo *vi);
 static void subs_open(Player *p);
@@ -3351,6 +3353,7 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
     if (text2 && !*text2) text2 = NULL;
     if (top && !*top) top = NULL;
     float bottom = g_app.subs_pos == 2 ? 260 : g_app.subs_pos == 1 ? SNTV_UI_H - 220 : SNTV_UI_H - 96;
+    if (gfx_portrait() && !p->pip) bottom = p->ph_pic[1] + p->ph_pic[3] - (g_app.subs_pos == 1 ? 70 : 24);
     /* the controls up: a phone's, a computer's (their own) or the TV's; the lines go above them */
     int ctl = TOUCH_UI ? p->fs_k > 0.01f && !p->ph_locked : g_app.time < p->overlay_until && !subs_tuning(p);
 #ifdef SNTV_DESKTOP_PLAYER
@@ -3358,7 +3361,7 @@ static void draw_subtitle(Player *p, const VideoInfo *vi)
 #else
     float clear = TOUCH_UI ? SNTV_UI_H - 360 : SNTV_UI_H - 250;   /* a phone: the timeline and the labelled row under it */
 #endif
-    video_subtitle_lift(TOUCH_UI && ctl && g_app.subs_pos != 2 ? (SNTV_UI_H - clear) / SNTV_UI_H : 0);   /* the file's own, where the player draws them (Android) */
+    video_subtitle_lift(TOUCH_UI && !gfx_portrait() && ctl && g_app.subs_pos != 2 ? (SNTV_UI_H - clear) / SNTV_UI_H : 0);
     if (top) {   /* the file asks for the top ({\an8}): over a credit or a sign at the bottom */
         int lines = 1;
         for (const char *c = top; *c; c++) lines += *c == '\n';
@@ -4738,7 +4741,7 @@ static void draw(Screen *s)
     Player *p = s->st;
     VideoInfo vi;
     video_info(&vi);
-    if (SNTV_PHONE && !p->pip) { gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 255)); app_redraw(); return; }   /* a phone still turning sideways */
+    if (gfx_portrait() && !p->pip && !video_in_pip()) { portrait_draw(p, &vi); return; }
     if (TOUCH_UI && !p->pip) {   /* a phone sideways: its own touch controls over the picture */
         float nk = 0;
 #ifdef SNTV_DESKTOP_PLAYER
@@ -5848,7 +5851,7 @@ enum { SS_FOR, SS_SIZE, SS_STYLE, SS_POS, SS_EARLIER, SS_LATER, SS_RESET, SS_SYN
 #define SRC_MORE (-2)        /* PH_SOURCES: find more sources (or browse them all) */
 #define TRACKS_SUB 0x10000   /* PH_TRACKS: a subtitles row (the audio rows come first) */
 enum { PHH_BACK = 0x7FFF0000, PHH_PLAY, PHH_BACK10, PHH_FWD10, PHH_SKIP, PHH_NEXT, PHH_STILL_ON, PHH_STILL_STOP, PHH_CLOSE,
-       PHH_PREV_EP, PHH_NEXT_EP, PHH_ASPECT, PHH_PANEL, PHH_TRACKS, PHH_MUTE, PHH_SZ_DN, PHH_SZ_UP, PHH_TM_DN, PHH_TM_UP, PHH_CREDITS, PHH_LOCK, PHH_UNLOCK, PHH_MORE, PHH_SHEET = 0x7FFE0000, PHH_ROW = 0x7FFD0000 };
+       PHH_PREV_EP, PHH_NEXT_EP, PHH_ASPECT, PHH_PANEL, PHH_TRACKS, PHH_MUTE, PHH_SZ_DN, PHH_SZ_UP, PHH_TM_DN, PHH_TM_UP, PHH_CREDITS, PHH_LOCK, PHH_UNLOCK, PHH_MORE, PHH_FULLSCREEN, PHH_SHEET = 0x7FFE0000, PHH_ROW = 0x7FFD0000 };
 enum { PHB_SUBS, PHB_AUDIO, PHB_SPEED, PHB_SOURCES, PHB_EPISODES, PHB_PIP, PHB_COUNT };
 #define PH_ROWS 72
 
@@ -6090,7 +6093,7 @@ static int fs_shown(const Player *p, const VideoInfo *vi)
     if (g_app.time < p->overlay_until) return 1;   /* a key used: they show as they would for the mouse */
     if (desk_resting(p, vi)) return 0;   /* paused a while and nobody moving: the card instead */
 #endif
-    return p->ph_sheet || g_app.time < p->fs_until || vi->state != VIDEO_PLAYING || p->tch || error_final(p, vi);
+    return ui_access_enabled() || p->ph_sheet || g_app.time < p->fs_until || vi->state != VIDEO_PLAYING || p->tch || error_final(p, vi);
 }
 
 static void toggle_play(Player *p, const VideoInfo *vi)
@@ -6845,6 +6848,50 @@ static void full_draw_loading(Player *p)
     ph_round(ICON_CHEVRON_LEFT, NULL, 96, 84, 52, 0, PHH_BACK);
 }
 
+static void portrait_draw(Player *p, const VideoInfo *vi)
+{
+    float W = SNTV_UI_W, H = SNTV_UI_H, vh = W * 9 / 16;
+    if (vh > H * 0.38f) vh = H * 0.38f;
+    gfx_rect(0, 0, W, H, THEME_BG);
+    ph_round(ICON_CHEVRON_LEFT, NULL, 70, 70, 38, 0, PHH_BACK);
+    float bw = fminf(280, W / 2 - 40), bx = W - 40 - bw;
+    gfx_rrect(bx, 30, bw, 80, 40, COLOR_ALPHA(THEME_TEXT, 0x18));
+    font_draw_fit("Full screen", bx + 18, 30 + (80 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT, bw - 36);
+    ui_hit(bx, 30, bw, 80, PHH_FULLSCREEN);
+    ui_access_text("Full screen", 0, bx, 30, bw, 80, 2);
+    p->ph_pic[0] = 0; p->ph_pic[1] = 140; p->ph_pic[2] = W; p->ph_pic[3] = vh;
+    draw_video_area(p, 0, 140, W, vh);
+    draw_subtitle(p, vi);
+    if (vi->state == VIDEO_LOADING || vi->buffering) { ui_spinner(W / 2, 140 + vh / 2, 26); app_redraw(); }
+    float cy = 140 + vh + 70;
+    ph_round(ICON_PREV, "-10", W * 0.2f, cy, 44, 0, PHH_BACK10);
+    ph_round(vi->state == VIDEO_PLAYING ? ICON_PAUSE : ICON_PLAY, NULL, W / 2, cy, 54, 1, PHH_PLAY);
+    ph_round(ICON_NEXT, "+10", W * 0.8f, cy, 44, 0, PHH_FWD10);
+    float by = cy + 100;
+    ph_bar(p, vi, 60, by, W - 120, p->fs_barr);
+    char at[24], dur[24]; ph_time(vi->position, at, sizeof at); ph_time(ph_dur(p, vi), dur, sizeof dur);
+    font_draw(at, 40, by + 28, FONT_S, THEME_TEXT_DIM);
+    font_draw(dur, W - 40 - font_measure(dur, FONT_S), by + 28, FONT_S, THEME_TEXT_DIM);
+    float y = by + 100, gap = 20, cw = (W - 100) / 2;
+    const char *labels[] = { "Audio & subtitles", ph_has_eps(p) ? "Episodes" : "Sources", "Speed", "More" };
+    const int hits[] = { PHH_TRACKS, PHH_SHEET + (ph_has_eps(p) ? PHB_EPISODES : PHB_SOURCES), PHH_SHEET + PHB_SPEED, PHH_MORE };
+    for (int i = 0; i < 4; i++) {
+        float x = 40 + (i % 2) * (cw + gap), ry = y + (i / 2) * 108;
+        gfx_rrect(x, ry, cw, 88, 24, COLOR_ALPHA(THEME_TEXT, 0x18));
+        font_draw_fit(labels[i], x + 20, ry + (88 - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, THEME_TEXT, cw - 40);
+        ui_hit(x, ry, cw, 88, hits[i]);
+    }
+    y += 236;
+    if (p->ph_sheet) ph_sheet_draw(p, 40, fminf(by + 86, H - 260), W - 80, H - 24, 1);
+    else {
+        int lines = font_draw_wrapped(p->meta.name ? p->meta.name : p->title, 40, y, FONT_L | FONT_B, THEME_TEXT, W - 80, 2);
+        y += lines * font_height(FONT_L | FONT_B) + 24;
+        if (p->meta.description && y < H - 80) font_draw_wrapped(p->meta.description, 40, y, FONT_S, THEME_TEXT_DIM, W - 80, (int)((H - y - 40) / font_height(FONT_S)));
+        ph_offer(p, vi, 40, 140 + vh - 110, W - 80, 88);
+        if (error_final(p, vi)) font_draw_wrapped("This source can't be played. Open Sources to try another.", 40, 180, FONT_M | FONT_B, THEME_TEXT, W - 80, 3);
+    }
+}
+
 static void full_draw(Player *p, const VideoInfo *vi)
 {
     float W = SNTV_UI_W, H = SNTV_UI_H;
@@ -6862,7 +6909,7 @@ static void full_draw(Player *p, const VideoInfo *vi)
     }
     ph_feedback(p, vi, 0, 0, W, H);
     p->fs_barr[2] = 0;
-    float sheet_x = p->ph_sheet ? W - 820 : W;
+    float sheet_x = p->ph_sheet && W >= 1500 ? W - 820 : W;
     {   /* the controls fade in from the edges, and out again */
         float want = shown ? 1 : 0, step = g_app.time - p->fs_kt;
         p->fs_kt = g_app.time;
@@ -6899,6 +6946,7 @@ static void full_draw(Player *p, const VideoInfo *vi)
     }
     /* top: back, what is playing, and at the right the lock, picture in picture and the picture's shape */
     ph_round(ICON_CHEVRON_LEFT, NULL, 96, 84, 52, 0, PHH_BACK);
+    ph_round(ICON_TV, NULL, 244, 84, 52, 0, PHH_FULLSCREEN);
     float rx = sheet_x - 96;
     int tops = 0;
     struct { Icon icon; int hit; } top[3];
@@ -6915,13 +6963,13 @@ static void full_draw(Player *p, const VideoInfo *vi)
     float tw = rx + 64 - 180 - 24;
     char code[32], line[300];
     const char *ename = NULL;
-    font_draw_fit(p->meta.name ? p->meta.name : "", 180, 40, FONT_L | FONT_B, THEME_TEXT, tw);
+    font_draw_fit(p->meta.name ? p->meta.name : "", 330, 40, FONT_L | FONT_B, THEME_TEXT, tw - 150);
     if (episode_parts(p, code, sizeof code, &ename)) {
         char *e = strchr(code, 'E');
         if (e && strlen(code) + 1 < sizeof code) { memmove(e + 1, e, strlen(e) + 1); *e = ':'; }   /* S2E1 -> S2:E1 */
         snprintf(line, sizeof line, "%s%s%s", code, ename && *ename ? "  \xC2\xB7  " : "", ename ? ename : "");
-        font_draw_fit(line, 180, 96, FONT_S, THEME_TEXT_DIM, tw);
-    } else if (p->title && *p->title && (!p->meta.name || strcmp(p->title, p->meta.name))) font_draw_fit(p->title, 180, 96, FONT_S, THEME_TEXT_DIM, tw);
+        font_draw_fit(line, 330, 96, FONT_S, THEME_TEXT_DIM, tw - 150);
+    } else if (p->title && *p->title && (!p->meta.name || strcmp(p->title, p->meta.name))) font_draw_fit(p->title, 330, 96, FONT_S, THEME_TEXT_DIM, tw - 150);
     gfx_set_translate(0, 0);
     if (!failed) {
         ph_transport(p, vi, sheet_x / 2, H / 2 - 40, sheet_x < W ? 250 : 330);
@@ -6953,7 +7001,7 @@ static void full_draw(Player *p, const VideoInfo *vi)
         store_set_int("pinchHint", 1);
         app_redraw();
     }
-    if (p->ph_sheet) ph_sheet_draw(p, W - 800, 20, 760, H - 20, 1);
+    if (p->ph_sheet) { float sw = fminf(760, W - 80); ph_sheet_draw(p, W - sw - 40, 20, sw, H - 20, 1); }
 }
 
 static int phone_tap(Player *p, int id)
@@ -6985,6 +7033,13 @@ static int phone_tap(Player *p, int id)
     }
     switch (id) {
     case PHH_BACK: return -1;   /* as Back */
+    case PHH_FULLSCREEN: {
+        Screen *s = app_top();
+        if (s) s->phone = !s->phone;
+        p->ph_sheet = PH_NONE;
+        app_redraw();
+        return 1;
+    }
     case PHH_PLAY: toggle_play(p, &vi); return 1;
     case PHH_BACK10: touch_seek(p, (p->seek_commit > 0 ? p->seek_target : vi.position) - 10, 0.4f); return 1;
     case PHH_FWD10: touch_seek(p, (p->seek_commit > 0 ? p->seek_target : vi.position) + 10, 0.4f); return 1;
@@ -7520,7 +7575,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     if (!p->trailer) perf_playback_begin();
     g_live = p;
     s->name = "player"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 0;   /* a phone turns sideways to play */
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 1;
     if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
     party_player_open(&p->party, video_id, p->trailer);
     if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);

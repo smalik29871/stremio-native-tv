@@ -1,4 +1,5 @@
 #include "font.h"
+#include "accessibility.h"
 #include "../log.h"
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
@@ -270,7 +271,7 @@ static const FontFile *file_for(int size)
 
 static const Face *face_for(int size)
 {
-    int s = size & 0xFFF;
+    int s = (int)((size & 0xFFF) * gfx_font_scale());
     const FontFile *ff = file_for(size);
     int best = 0;
     for (int i = 0; i < ff->nfaces; i++) if (abs(ff->faces[i].size - s) < abs(ff->faces[best].size - s)) best = i;
@@ -307,8 +308,8 @@ static stbtt_packedchar *lookup(const Face *fc, int cp)
     return NULL;
 }
 
-float font_height(int size) { return face_for(size)->line_h * (float)(size & 0xFFF) / face_for(size)->size; }
-float font_ascent(int size) { return face_for(size)->ascent * (float)(size & 0xFFF) / face_for(size)->size; }
+float font_height(int size) { return face_for(size)->line_h * (float)(size & 0xFFF) * gfx_font_scale() / face_for(size)->size; }
+float font_ascent(int size) { return face_for(size)->ascent * (float)(size & 0xFFF) * gfx_font_scale() / face_for(size)->size; }
 
 /* Lays out [s, end) and draws it when `draw`. `track` adds space after every glyph
  * (letter spacing, in canvas units). With `max_w` > 0 it stops before the glyph that
@@ -316,9 +317,10 @@ float font_ascent(int size) { return face_for(size)->ascent * (float)(size & 0xF
 static float walk(const char *s, const char *end, float x, float y, int size, Color c, int draw, float track,
                   float max_w, const char **stop)
 {
+    const char *begin = s;
     const FontFile *ff = file_for(size);
     const Face *fc = face_for(size);
-    float scale = (float)(size & 0xFFF) / fc->size;   /* sizes between atlas sizes */
+    float scale = (float)(size & 0xFFF) * gfx_font_scale() / fc->size;
     float pen = 0, base = fc->ascent, tr = track / scale;
     while (*s && (!end || s < end)) {
         const char *at = s;
@@ -338,6 +340,7 @@ static float walk(const char *s, const char *end, float x, float y, int size, Co
             gfx_glyph(ff->tex, x + q.x0 * scale, y + q.y0 * scale, (q.x1 - q.x0) * scale, (q.y1 - q.y0) * scale, q.s0, q.t0, q.s1, q.t1, c);
         pen = px + tr;
     }
+    if (draw && c) ui_access_text(begin, (size_t)(s - begin), x, y, (pen - (pen > 0 ? tr : 0)) * scale, font_height(size), 1);
     if (stop) *stop = s;
     return (pen - (pen > 0 ? tr : 0)) * scale;
 }

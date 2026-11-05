@@ -26,6 +26,7 @@
 #include "../video/video.h"
 #include "font.h"
 #include "keyboard.h"
+#include "accessibility.h"
 #include "rail.h"
 #include "theme.h"
 #include "widgets.h"
@@ -89,8 +90,8 @@ static int rec_installed(int i)
 }
 enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX, EDIT_SCENES };
 enum { MAX_ROWS = 160 };
-#define ROW_H 100.0f
-enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001, HIT_SAVE = 0x4002, HIT_RESTORE = 0x4003, HIT_RIGHT = 0x5000 };   /* touch targets besides the rows (their index) */
+#define ROW_H (100.0f * (gfx_font_scale() > 1 ? gfx_font_scale() : 1))
+enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001, HIT_SAVE = 0x4002, HIT_RESTORE = 0x4003, HIT_EDIT = 0x4004, HIT_RIGHT = 0x5000 };
 static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define SEC_H 70.0f
 /* Choosing a category the rows start at COL_X0; inside one the category list shrinks
@@ -102,7 +103,7 @@ static int s_hit_row;   /* the row being drawn, for its choice's back arrow */
 #define PREV_X 1226.0f
 #define ROWS_TOP (SNTV_PHONE ? 150.0f : 230.0f)   /* a phone: under the page header */
 #define PH_CAT_Y 254.0f   /* ...and its list of categories */
-#define PH_CAT_H 124.0f
+#define PH_CAT_H (124.0f * (gfx_font_scale() > 1 ? gfx_font_scale() : 1))
 
 typedef struct {
     int cat;                 /* the category shown */
@@ -672,11 +673,12 @@ static void update(Screen *s, float dt)
     }
     ui_pan(&st->pan, &st->scroll, st->scroll_target, st->scroll_max, dt, 12);
     if (SNTV_PHONE) {   /* the categories: the focused one kept above the tab bar */
-        float view = SNTV_UI_H - PHONE_TABS_H, fy = PH_CAT_Y + st->cat * PH_CAT_H, want = st->cat_y;
+        int cols = gfx_tablet() && SNTV_UI_W >= 1000 ? 2 : 1;
+        float view = SNTV_UI_H - PHONE_TABS_H, fy = PH_CAT_Y + (st->cat / cols) * PH_CAT_H, want = st->cat_y;
         if (fy + PH_CAT_H > want + view - 20) want = fy + PH_CAT_H - view + 20;
         if (fy - 40 < want) want = fy - 40;
         if (st->search_foc || want < 0) want = 0;
-        ui_pan(&st->cat_pan, &st->cat_y, want, PH_CAT_Y + CAT_COUNT * PH_CAT_H + 20 - view, dt, 14);
+        ui_pan(&st->cat_pan, &st->cat_y, want, PH_CAT_Y + ((CAT_COUNT + cols - 1) / cols) * PH_CAT_H + 20 - view, dt, 14);
     }
     if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_light ? 1 : 0; }
     if (st->pane_t < 1) { st->pane_t += dt * 5; if (st->pane_t > 1) st->pane_t = 1; app_redraw(); }
@@ -848,14 +850,17 @@ static void phone_categories(Settings *st)
     ui_icon(ICON_SEARCH, x + 48, fy + fh / 2, 32, THEME_TEXT_MUTED);
     font_draw("Find a setting", x + 90, fy + (fh - font_height(FONT_M)) / 2, FONT_M, THEME_TEXT_MUTED);
     ui_hit(x, fy, w, fh, HIT_FIND);
+    int cols = gfx_tablet() && W >= 1000 ? 2 : 1;
+    w = (W - 80 - (cols - 1) * 40) / cols;
     float y = PH_CAT_Y, rh = PH_CAT_H;
-    for (int i = 0; i < CAT_COUNT; i++, y += rh) {
+    for (int i = 0; i < CAT_COUNT; i++) {
+        x = 40 + (i % cols) * (w + 40); y = PH_CAT_Y + (i / cols) * rh;
         int foc = !st->search_foc && st->cat == i;
         if (foc) { ui_focus_under(x - 12, y, w + 24, rh - 8, R_PANEL, 1); gfx_rrect(x - 12, y, w + 24, rh - 8, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x14)); }
         gfx_rrect(x, y + (rh - 8 - 76) / 2, 76, 76, 20, COLOR_ALPHA(THEME_ACCENT, 0x24));
         ui_icon(CAT_ICONS[i], x + 38, y + (rh - 8) / 2, 34, THEME_ACCENT);
         font_draw(CAT_NAMES[i], x + 104, y + 22, FONT_M | FONT_B, THEME_TEXT);
-        font_draw_fit(CAT_DESC[i], x + 104, y + 66, FONT_XS, THEME_TEXT_DIM, w - 104 - 50);
+        font_draw_fit(CAT_DESC[i], x + 104, y + 22 + font_height(FONT_M | FONT_B) + 10, FONT_XS, THEME_TEXT_DIM, w - 104 - 50);
         ui_icon(ICON_CHEVRON_RIGHT, x + w - 14, y + (rh - 8) / 2, 26, THEME_TEXT_MUTED);
         gfx_rect(x + 104, y + rh - 4, w - 104, 2, THEME_LINE);
         ui_hit(x - 12, y, w + 24, rh - 8, HIT_CAT + i);
@@ -882,6 +887,8 @@ static void phone_edit(const Settings *st)
     y += font_draw_wrapped(edit_hint(st->edit), x, y, FONT_S, THEME_TEXT_DIM, w, 5) * font_height(FONT_S) + 30;
     gfx_rrect(x, y, w, 100, R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x1C));
     gfx_rrect_ring(x, y, w, 100, R_PANEL, 3, THEME_ACCENT2);
+    ui_hit(x, y, w, 100, HIT_EDIT);
+    ui_access_text(edit_title(st->edit), 0, x, y, w, 100, 2);
     const char *t = st->kb.text;
     float tx = x + 30, tw = font_measure(t, FONT_M);
     gfx_clip_push(x + 20, y, w - 40, 100);
@@ -1565,7 +1572,7 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_SEARCH || which == EDIT_BACKUP || which == EDIT_TRAKT_APP || which == EDIT_SIMKL_APP ? ""
                   : which == EDIT_FIRE_VIDEO ? (torbox_is_link(store_get_str("fireplaceVideo", "")) ? "" : store_get_str("fireplaceVideo", "")) : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_TORBOX ? store_get_str("torboxKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "" : which == EDIT_EXCLUDE ? g_app.src_exclude
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "") : "");
-    input_text(1);
+    if (gfx_handheld()) input_text_system(1); else input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
     if (which == EDIT_BR_AUDIO || which == EDIT_BR_END) phone_accept_file(which == EDIT_BR_AUDIO ? "start" : "end");
     phone_qr_make(st);
@@ -1930,7 +1937,7 @@ static int tap(Screen *s, int id)
     }
     if (st->edit != EDIT_NONE && SNTV_PHONE) {   /* the phone's keyboard types; Done or Cancel */
         if (g_touch_aim) return 1;
-        if (id == HIT_DONE) finish_edit(st, 1); else if (id == HIT_BACK) finish_edit(st, 0);
+        if (id == HIT_DONE) finish_edit(st, 1); else if (id == HIT_BACK) finish_edit(st, 0); else if (id == HIT_EDIT) input_text_system(1);
         return 1;
     }
     if (st->edit != EDIT_NONE) return keyboard_tap(&st->kb, id) ? 0 : 1;

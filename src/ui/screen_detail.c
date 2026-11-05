@@ -1253,7 +1253,14 @@ static void phone_draw(Detail *d)
     ui_card(bg, 0, d->scroll > 0 ? d->scroll * 0.5f : 0, W, PH_ART_H, 0, 0, NULL, CARD_TRUE_COLOUR);
     gfx_clip_pop();
     gfx_gradient_v(0, PH_ART_H * 0.45f, W, PH_ART_H * 0.55f + 2, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
-    float y = PH_ART_H - 130;
+    int split = gfx_tablet() && W >= 1000;
+    if (split) {
+        float pw = W * 0.32f;
+        if (pw > 360) pw = 360;
+        ui_card(app_art_poster(&d->preview, buf, sizeof buf), PH_X, 140, pw, pw * 1.5f, 0, 0, d->preview.name, CARD_TRUE_COLOUR);
+        x = W * 0.42f; w = W - x - PH_X;
+    }
+    float y = split ? 140 : PH_ART_H - 130;
     int lines = font_draw_wrapped(d->preview.name ? d->preview.name : "", x, y, FONT_XL | FONT_B, THEME_TEXT, w, 3);
     y += (lines ? lines : 1) * font_height(FONT_XL | FONT_B) + 12;
     {   /* IMDb, year, runtime, seasons, genres */
@@ -1315,6 +1322,7 @@ static void phone_draw(Detail *d)
         ph_focus(d, foc, y, nl * font_height(FONT_S));
         y += nl * font_height(FONT_S) + 36;
     }
+    if (split) { if (y < 710) y = 710; x = PH_X; w = W - 2 * PH_X; }
     if (series && d->n_seasons) {   /* the seasons, a row of pills that scrolls to the chosen one */
         float px = x - d->ph_sx, sel_x = 0, sel_w = 0;
         for (int i = 0; i < d->n_seasons; i++) {

@@ -114,6 +114,7 @@ void input_text(int on)
     (void)on;
 #else
 #ifdef SNTV_PLATFORM_ANDROID
+    SDL_StopTextInput();
     SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "0");   /* the app's own keyboard is on screen: no system keyboard over it */
 #endif
     if (on) SDL_StartTextInput(); else SDL_StopTextInput();

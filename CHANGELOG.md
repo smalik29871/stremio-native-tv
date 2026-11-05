@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- [phone] Restore Android keyboards in sign-in and settings, keep tab history bounded while preserving each section, and make release notes scroll by touch.
+- [phone] Adapt tablet grids, settings and title pages to the window, refresh sizing after resizing or unfolding, and protect controls from system bars and camera cutouts.
+- [phone] Add portrait playback with a full-screen option, screen-reader labels and actions, Android text-size support, and audio interruption and headphone-disconnection handling.
+
 ## 0.10.110
 
 - **Stability fixes.**

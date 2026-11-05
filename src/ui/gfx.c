@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef SNTV_PLATFORM_ANDROID
+#include <jni.h>
+#endif
 
 typedef struct {
     float x, y, u, v, lx, ly;
@@ -199,41 +202,76 @@ static void flush(void)
 }
 
 int g_ui_w = SNTV_UI_BASE_W, g_ui_h = SNTV_UI_BASE_H;
-static int g_handheld;   /* a phone: the screen's width holds 1920 units, so everything is drawn larger */
+static int g_handheld;   /* 1 phone, 2 tablet */
 int g_ui_portrait;
-int gfx_handheld(void) { return g_handheld; }
+int g_ui_mobile;
+static SDL_atomic_t g_density_milli, g_font_milli, g_device_kind;
+static float density(void)
+{
+    int n = SDL_AtomicGet(&g_density_milli);
+    const char *d = getenv("SNTV_DENSITY");
+    return n > 0 ? n / 1000.0f : d && atof(d) > 0.5 ? (float)atof(d) : 0;
+}
+int gfx_portrait(void) { return g_ui_portrait; }
+int gfx_tablet(void) { return gfx_handheld() == 2; }
+int gfx_grid_columns(void)
+{
+    if (!SNTV_PHONE) return 7;
+    int n = (int)((SNTV_UI_W - 80) / (220 * gfx_font_scale()));
+    return gfx_tablet() && n > 3 ? n : 3;
+}
+float gfx_font_scale(void)
+{
+    if (!gfx_handheld()) return 1;
+    int n = SDL_AtomicGet(&g_font_milli);
+    const char *s = getenv("SNTV_FONT_SCALE");
+    float f = n > 0 ? n / 1000.0f : s ? (float)atof(s) : 1;
+    return f < 0.5f ? 0.5f : f > 3 ? 3 : f;
+}
+#ifdef SNTV_PLATFORM_ANDROID
+JNIEXPORT void JNICALL Java_app_cuelight_tv_CuelightActivity_nativeWindowMetrics(JNIEnv *e, jclass cls, jfloat d, jfloat f, jint kind)
+{
+    (void)e; (void)cls;
+    SDL_AtomicSet(&g_density_milli, (int)(d * 1000));
+    SDL_AtomicSet(&g_font_milli, (int)(f * 1000));
+    SDL_AtomicSet(&g_device_kind, kind);
+    SDL_Event event; SDL_zero(event); event.type = SDL_USEREVENT; SDL_PushEvent(&event);
+}
+#endif
+int gfx_handheld(void) { int kind = SDL_AtomicGet(&g_device_kind); return kind ? kind : g_handheld; }
 void gfx_set_handheld(int on) { g_handheld = on; }
 
-/* Upright on a phone, units across: as many as make the text a comfortable size there (a
- * unit about 0.62 dp: body text near 15 dp), 600 to 780. The phone's density comes from the
- * app (SNTV_DENSITY, Android's dp scale); without it, 780. SNTV_PHONE_UNITS sets it outright. */
+/* A unit near 0.62 dp keeps body text near 15 dp. Tablets use a wider canvas. */
 static int phone_units(void)
 {
-    static int units;
-    if (units) return units;
-    const char *u = getenv("SNTV_PHONE_UNITS"), *d = getenv("SNTV_DENSITY");
-    units = 780;
+    const char *u = getenv("SNTV_PHONE_UNITS");
+    float d = density();
+    int units = gfx_tablet() ? 1280 : 780;
     if (u && atoi(u) > 0) units = atoi(u);
-    else if (d && atof(d) > 0.5) {
-        int w = g_draw_w < g_draw_h ? g_draw_w : g_draw_h;   /* the short side: upright, its width */
-        units = (int)(w / atof(d) / 0.62f + 0.5f);
+    else if (d > 0.5f) {
+        int w = g_draw_w;
+        units = (int)(w / d / 0.62f + 0.5f);
         if (units < 600) units = 600;
-        if (units > 780) units = 780;
+        int max = gfx_tablet() ? 1920 : 780;
+        if (units > max) units = max;
     }
-    LOGI("gfx: upright on a phone, %d units across", units);
+    static int last;
+    if (units != last) { LOGI("gfx: upright on a phone, %d units across", units); last = units; }
     return units;
 }
 
-void gfx_begin_frame(Color clear)
+void gfx_update_layout(int width, int height)
 {
-    SDL_GL_GetDrawableSize(g_win, &g_draw_w, &g_draw_h);
+    if (width <= 0 || height <= 0) return;
+    g_draw_w = width; g_draw_h = height;
     if (g_draw_w > 0 && g_draw_h > 0) {   /* the screen's own shape, never smaller than 16:9's */
         double aspect = (double)g_draw_w / g_draw_h;
         g_ui_w = aspect > 16.0 / 9.0 + 0.01 ? (int)(SNTV_UI_BASE_H * aspect + 0.5) : SNTV_UI_BASE_W;
         g_ui_h = aspect < 16.0 / 9.0 - 0.01 ? (int)(SNTV_UI_BASE_W / aspect + 0.5) : SNTV_UI_BASE_H;
-        g_ui_portrait = g_handheld && aspect < 1;
-        if (g_ui_portrait) { int pw = phone_units(); g_ui_w = pw; g_ui_h = (int)(pw / aspect + 0.5); }   /* upright: its own layouts */
-        else if (g_handheld && g_ui_w > SNTV_UI_BASE_W) {   /* 20:9 is 1920 x 864: no shorter than 820, the layouts' floor */
+        g_ui_portrait = gfx_handheld() && aspect < 1;
+        g_ui_mobile = g_ui_portrait || gfx_tablet();
+        if (g_ui_mobile) { int pw = phone_units(); g_ui_w = pw; g_ui_h = (int)(pw / aspect + 0.5); }
+        else if (gfx_handheld() && g_ui_w > SNTV_UI_BASE_W) {
             g_ui_h = (int)(SNTV_UI_BASE_W / aspect + 0.5);
             if (g_ui_h < 820) g_ui_h = 820;
             g_ui_w = (int)(g_ui_h * aspect + 0.5);
@@ -244,6 +282,13 @@ void gfx_begin_frame(Color clear)
     g_off_x = ((float)g_draw_w - SNTV_UI_W * g_scale) * 0.5f;
     g_off_y = ((float)g_draw_h - SNTV_UI_H * g_scale) * 0.5f;
     g_aa = 0.8f / g_scale;   /* one physical pixel of feathering, in logical units */
+}
+
+void gfx_begin_frame(Color clear)
+{
+    int width, height;
+    SDL_GL_GetDrawableSize(g_win, &width, &height);
+    gfx_update_layout(width, height);
 
     glViewport(0, 0, g_draw_w, g_draw_h);
     glDisable(GL_DEPTH_TEST);
