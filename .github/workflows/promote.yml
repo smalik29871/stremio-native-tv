@@ -34,7 +34,7 @@ jobs:
         run: |
           # the versioned pre-releases, newest first (not the rolling "beta" one the update check reads)
           gh release list --repo "$RELEASES_REPO" --limit 40 --json tagName,name,isPrerelease,isLatest,publishedAt \
-            --jq '.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | [.tagName, (if .isPrerelease then "beta" elif .isLatest then "everyone (latest)" else "released" end), .publishedAt[0:16], (if (.name | test("mobile")) then "phones and tablets" else "all devices" end)] | @tsv' > releases.tsv
+            --jq '.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | [.tagName, (if .isPrerelease then "beta" elif .isLatest then "everyone (latest)" else "released" end), .publishedAt[0:16], (if (.name | test("\\((tv|mobile|desktop)( \\+ (tv|mobile|desktop))*( beta)?\\)$")) then (.name | capture("\\((?<k>[a-z +]+?)(?: beta)?\\)$").k) else "all devices" end)] | @tsv' > releases.tsv
           if [ -n "$VERSION" ]; then
             TAG="v${VERSION#v}"
           else
@@ -58,23 +58,31 @@ jobs:
           if ! gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
             echo "::error::$TAG is not in $RELEASES_REPO"; exit 1
           fi
-          if gh release view "$TAG" --repo "$RELEASES_REPO" --json assets --jq '.assets[].name' | grep -qx 'repo.json'; then
+          NAME="$(gh release view "$TAG" --repo "$RELEASES_REPO" --json name --jq .name)"
+          # a release for some families only is titled "Cuelight vX (tv beta)", "(mobile beta)", "(desktop beta)", "(tv + mobile beta)"
+          LABEL="$(printf '%s' "$NAME" | sed -nE 's/^.*\(((tv|mobile|desktop)( \+ (tv|mobile|desktop))*)( beta)?\)$/\1/p')"
+          if [ -z "$LABEL" ]; then
             gh release edit "$TAG" --repo "$RELEASES_REPO" --prerelease=false --latest --title "Cuelight $TAG"
             echo "$TAG is the latest release"
-            echo "mobile=false" >> "$GITHUB_OUTPUT"
+            echo "partial=false" >> "$GITHUB_OUTPUT"
           else
-            # A mobile release has no LG or Windows files: "latest" (one whole release, where every TV and computer
-            # looks) must not move to it. It is marked released, and its phone update file goes into the release that
-            # is latest, which is where phones look: TVs and computers stay as they are.
-            gh release edit "$TAG" --repo "$RELEASES_REPO" --prerelease=false --latest=false --title "Cuelight $TAG (mobile)"
+            # A release for some families has only their files: "latest" (one whole release, where every TV, phone and
+            # computer looks) must not move to it. It is marked released, and its update files go into the release that
+            # is latest, which is where each device reads them: the other families stay as they are. (Every address in
+            # them is to this version's own files.)
+            gh release edit "$TAG" --repo "$RELEASES_REPO" --prerelease=false --latest=false --title "Cuelight $TAG ($LABEL)"
             LATEST="$(gh release view --repo "$RELEASES_REPO" --json tagName --jq .tagName)"
-            mkdir -p mobile && gh release download "$TAG" --repo "$RELEASES_REPO" --pattern mobile.json --dir mobile
-            gh release upload "$LATEST" mobile/mobile.json --repo "$RELEASES_REPO" --clobber
-            echo "$TAG is the mobile release: phones get it (through $LATEST's mobile.json); TVs and computers stay on $LATEST"
-            echo "mobile=true" >> "$GITHUB_OUTPUT"
+            mkdir -p upd
+            for F in repo.json android.json mobile.json windows.json; do
+              gh release download "$TAG" --repo "$RELEASES_REPO" --pattern "$F" --dir upd 2>/dev/null || true
+            done
+            ls upd/*.json >/dev/null 2>&1 || { echo "::error::$TAG has no update file to hand on"; exit 1; }
+            gh release upload "$LATEST" upd/*.json --repo "$RELEASES_REPO" --clobber
+            echo "$TAG is the $LABEL release: those devices get it (through $LATEST's update files); the others stay on $LATEST"
+            echo "partial=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Refresh the README in the public repository
-        if: steps.latest.outputs.mobile != 'true'   # the README names the release everyone gets: a mobile one is not it
+        if: steps.latest.outputs.partial != 'true'   # the README names the release everyone gets: one for some families is not it
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           TAG: ${{ steps.pick.outputs.tag }}

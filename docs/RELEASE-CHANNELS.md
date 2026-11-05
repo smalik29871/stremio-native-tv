@@ -18,28 +18,44 @@ and **beta** (`releases/download/beta/…`, devices with Settings > About > Beta
 every update file (including `mobile.json`, the same as `android.json`) and puts them on the `beta` release.
 **Promote** makes it the latest release.
 
-## Releasing for mobile only
+## Releasing for some devices only
 
-Put `[mobile]` in the commit message: `0.10.101 [mobile]: headline, headline [tested here]`.
+Put a flag after the version, one or more of them: the families are the three below, and each flag names
+the builds and update files that release makes.
 
-- Only the Android build is made (the LG and Windows jobs are skipped); the release is titled *(mobile beta)*.
-- Only `mobile.json` is written: no `repo.json`, `android.json` or `windows.json`, so no TV, Android TV or
-  computer is offered it. The beta stream gets the new `mobile.json`; the others stay as they were.
-- **Promote** with that version marks it released but does not make it the latest release (that would take
-  every TV's and computer's update address with it). Its `mobile.json` is put into the release that *is*
-  latest, which is where phones look. The run's summary lists each release and who it is for.
-- The version number is shared: a mobile release uses the next number, and the next all-device release the
-  one after it.
+| Flag | For | Builds | Update files written |
+|---|---|---|---|
+| `[tv]` | LG webOS, Samsung, Android TV, Fire TV | LG package, Android APK | `repo.json`, `android.json` |
+| `[mobile]` | Android phones and tablets | Android APK | `mobile.json` |
+| `[desktop]` | Windows | Windows installer and zip | `windows.json` |
+
+`0.10.101 [mobile]: headline, headline [tested here]` is a mobile release. `0.10.101 [tv][mobile]: ...` is for
+those two together (no Windows). No flag is every family. (`tools/release_families.sh` reads the flags; the
+Android APK is one file for phones, tablets and Android TV, so `[tv]` builds it too, but writes only `android.json`.)
+
+- Only those builds are made; the others are skipped. The release is titled *(mobile beta)*, *(tv beta)*,
+  *(tv + mobile beta)* ... and its notes say who it is for (and list only that family's and everyone's notes).
+- Only those update files are written, so no other device is offered it. The `beta` stream gets the new files;
+  the others stay as they were.
+- It publishes only when every build it asked for succeeded (an all-device release still leaves out an APK or a
+  Windows zip that failed, as before).
+- **Promote** with that version marks it released but does not make it the latest release (that would take every
+  other device's update address with it). Its update files are put into the release that *is* latest, which is where
+  each device reads them. The run's summary lists each release and who it is for.
+- The version number is shared: each release, for any family, takes the next number.
 
 ## Things to know
 
-- Phones with an app from before `mobile.json` read `android.json`. The first release with this change must
-  be an **all-device** one; mobile-only releases work from the one after it.
+- Phones with an app from before `mobile.json` read `android.json`. A `[mobile]` release does not move it, so
+  those phones stay on the last release that wrote `android.json` (an all-device or `[tv]` one).
 - A phone that finds no `mobile.json` (a stable stream whose latest release has none yet) falls back to
   `android.json`.
-- `tests/test_release_channels.py` runs the changed workflow steps against a stand-in `gh` and `git` (no
-  GitHub involved). It cannot test the workflow's `if:` conditions or GitHub itself: the first real
-  `[mobile]` release is the real test, so watch its run.
+- `tests/test_release_channels.py` runs the release steps against a stand-in `gh` and `git` (no GitHub involved)
+  and evaluates the workflow's `if:` conditions (which builds each flag runs, when a release publishes) for every
+  combination of flags. It cannot test GitHub itself: the first real `[tv]`, `[mobile]` and `[desktop]` releases
+  are the real test, so watch their runs.
+- Promote in version order. A whole release promoted after a later `[mobile]` one puts that one's older `mobile.json`
+  back as the latest.
 
 ## Notes per device
 
