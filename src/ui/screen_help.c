@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define RELEASES "https://github.com/smalik29871/cuelight-releases"
 #define LG_REPO RELEASES "/releases/latest/download/repo.json"
@@ -39,6 +40,9 @@ typedef struct {
     int zone;           /* 0 topics, 1 the downloads (last topic) */
     int card;
     int page;           /* a phone upright: a topic open on its own page */
+    float scroll, total;
+    UiPan pan;
+    int last_page, last_focus;
     uint8_t qr[N_GET][qrcodegen_BUFFER_LEN_MAX]; int qr_ok[N_GET];
 } Help;
 
@@ -148,12 +152,24 @@ static void draw_get(Help *h, float x, float y, float w)
     }
 }
 
-static void draw_topic(Help *h, int t, float x, float y, float w)
+static float draw_topic(Help *h, int t, float x, float y, float w)
 {
-    if (t == h->n - 1) { draw_get(h, x, y, w); return; }
+    if (t == h->n - 1) { draw_get(h, x, y, w); return y + (SNTV_PHONE ? N_GET : (N_GET + 1) / 2) * (SNTV_PHONE ? 248 : 278); }
     for (int i = 0; h->topics[t].paras[i]; i++) {
         int lines = font_draw_wrapped(h->topics[t].paras[i], x, y, FONT_M, THEME_TEXT, w, SNTV_PHONE ? 8 : 4);
         y += (lines ? lines : 1) * font_height(FONT_M) + 26;
+    }
+    return y;
+}
+
+static void update(Screen *s, float dt)
+{
+    Help *h = s->st;
+    if (h->last_page != h->page || (h->page && h->last_focus != h->focus)) { h->scroll = 0; h->pan.free = 0; h->pan.vel = 0; }
+    h->last_page = h->page; h->last_focus = h->focus;
+    if (SNTV_PHONE) {
+        float max = fmaxf(0, h->total - (SNTV_UI_H - 220));
+        ui_pan(&h->pan, &h->scroll, fminf(max, fmaxf(0, h->scroll)), max, dt, 14);
     }
 }
 
@@ -164,14 +180,19 @@ static void draw(Screen *s)
     if (SNTV_PHONE) {   /* upright: the list, or one topic on its own page */
         float x = 40, w = SNTV_UI_W - 80;
         font_draw(h->page ? h->topics[h->focus].title : "Help", x, 90, FONT_L | FONT_B, THEME_TEXT);
-        if (h->page) { draw_topic(h, h->focus, x, 200, w); return; }
-        font_draw("Cuelight " SNTV_APP_VERSION " (beta)", x, 150, FONT_S, THEME_TEXT_DIM);
-        for (int i = 0; i < h->n; i++) {
+        if (!h->page) font_draw("Cuelight " SNTV_APP_VERSION " (beta)", x, 150, FONT_S, THEME_TEXT_DIM);
+        ui_pan_area(&h->pan, 0, 200, SNTV_UI_W, SNTV_UI_H - 220, 1);
+        gfx_clip_push(0, 200, SNTV_UI_W, SNTV_UI_H - 220);
+        gfx_set_translate(0, -h->scroll);
+        if (h->page) h->total = draw_topic(h, h->focus, x, 200, w) - 200;
+        else for (int i = 0; i < h->n; i++) {
             float y = 220 + i * 104;
             ui_hit(x, y, w, 88, i);
             gfx_rrect(x, y, w, 88, 22, h->focus == i ? COLOR_ALPHA(THEME_ACCENT, 0x30) : COLOR_ALPHA(THEME_TEXT, 0x0D));
             font_draw(h->topics[i].title, x + 28, y + 44 - font_height(FONT_M) / 2, FONT_M | FONT_B, THEME_TEXT);
         }
+        if (!h->page) h->total = h->n * 104 + 20;
+        gfx_set_translate(0, 0); gfx_clip_pop();
         return;
     }
     float lx = 120, lw = 520, rx = lx + lw + 80, rw = SNTV_UI_W - rx - 120;
@@ -254,6 +275,6 @@ Screen *screen_help_create(int get)
         h->qr_ok[i] = qrcodegen_encodeText(GET[i].url, tmp, h->qr[i], qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 10, qrcodegen_Mask_AUTO, true);
     }
     s->name = "help"; s->st = h;
-    s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->destroy = destroy; s->phone = 1;
     return s;
 }

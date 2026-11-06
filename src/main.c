@@ -3,6 +3,7 @@
 #include "audio.h"
 #include "breaks.h"
 #include "phone.h"
+#include "ui/accessibility.h"
 #include "ui/widgets.h"
 #include "ui/rail.h"
 #include "ui/island.h"
@@ -1105,6 +1106,19 @@ int main(int argc, char **argv)
             if (e.type == SDL_QUIT) g_app.quit = 1;
             else if (e.type == SDL_TEXTINPUT && top && top->text) { ui_pan_keys(); top->text(top, e.text.text); }
             else if (e.type == SDL_FINGERDOWN || e.type == SDL_FINGERUP || e.type == SDL_FINGERMOTION) touch_event(&e);
+            else if (e.type == SDL_USEREVENT && e.user.code == SNTV_ACCESS_EVENT) {
+                uintptr_t data = (uintptr_t)e.user.data2;
+                int id = (int)(intptr_t)e.user.data1, action = (int)e.user.windowID;
+                if (!action) { app_redraw(); continue; }
+                if (!ui_access_target((unsigned)data, id)) continue;
+                g_app.last_input = g_app.touch_at = g_app.time;
+                ui_pan_keys();
+                if (action == 3 || action == 4) {
+                    if (!ui_pan_wheel(SNTV_UI_W / 2, SNTV_UI_H / 2, action == 3 ? -6 : 6, 0)) dispatch_key(action == 3 ? KEY_DOWN : KEY_UP);
+                } else if (id >= HIT_RAIL && id < HIT_RAIL + RAIL_COUNT) rail_tap(id - HIT_RAIL);
+                else if (top && (!top->tap || !top->tap(top, id))) dispatch_key(action == 2 ? KEY_LONG_OK : KEY_OK);
+                app_redraw();
+            }
             else if (e.type == SDL_MULTIGESTURE && e.mgesture.numFingers == 2 && SDL_fabsf(e.mgesture.dDist) > 0.002f && top && !strcmp(top->name, "player")) player_pinch(e.mgesture.dDist);   /* two fingers in the player: the picture's fill */
 #ifdef SNTV_DESKTOP_PLAYER
             else if (e.type == SDL_MOUSEMOTION && e.motion.which != SDL_TOUCH_MOUSEID && !e.motion.state) mouse_hover(win, e.motion.x, e.motion.y);
@@ -1315,6 +1329,7 @@ int main(int argc, char **argv)
             if (top && strcmp(top->name, "ambient") != 0) window_chrome();
 #endif
             intro_draw();
+            ui_access_publish();
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();
             Uint64 pc_swap = SDL_GetPerformanceCounter();

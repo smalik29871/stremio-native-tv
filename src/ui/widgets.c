@@ -1,4 +1,5 @@
 #include "widgets.h"
+#include "accessibility.h"
 #include "../http.h"
 #include "font.h"
 #include "../app.h"
@@ -14,6 +15,8 @@
 
 void ui_icon(Icon icon, float cx, float cy, float s, Color c)
 {
+    static const char *const names[] = { "Play", "Pause", "Search", "Settings", "Account", "Add", "Selected", "Audio", "Subtitles", "Next", "Back", "Back", "Next", "Home", "Library", "Rating", "Sources", "Open link", "Previous", "Reload", "Picture shape", "List", "Clock", "Speed", "Information", "Explore", "Calendar", "Lock controls", "Unlock controls", "Close", "Palette", "Show", "Night", "Assistant", "Language", "Full screen", "Key", "Notifications", "Expand", "Picture in picture" };
+    if ((unsigned)icon < sizeof names / sizeof *names) ui_access_text(names[icon], 0, cx - s / 2, cy - s / 2, s, s, 0);
     float t = s * 0.11f;            /* stroke */
     if (t < 2.5f) t = 2.5f;
     float h = s * 0.5f;
@@ -1668,6 +1671,7 @@ void ui_shimmer(float x, float y, float w, float h)
 
 void ui_card(const char *url, float x, float y, float w, float h, float focus, float dim, const char *title, int flags)
 {
+    if (title) ui_access_text(title, 0, x, y, w, h, 2);
     int mip = flags & (CARD_MIP | CARD_BLUR), blur = flags & CARD_BLUR;
     float sc = ui_focus_scale(focus);
     float cw = w * sc, ch = h * sc, cx = x - (cw - w) / 2, cy = y - (ch - h) / 2 - ui_focus_lift(focus);
@@ -1742,6 +1746,7 @@ static struct { UiPan *pan; const Screen *owner; float start, d; } g_drag;
 
 void ui_hits_begin(Screen *drawing)
 {
+    ui_access_begin(drawing);
     if (drawing && drawing == app_top()) g_n_hits = g_n_pans = 0;   /* a new frame of the screen on top */
     g_hit_owner = drawing;
 }
@@ -1877,6 +1882,7 @@ float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed)
 
 void ui_hit(float x, float y, float w, float h, int id)
 {
+    ui_access_hit(x, y, w, h, id);
     if (g_n_hits >= HITS_MAX || !gfx_visible_rect(&x, &y, &w, &h)) return;
     g_hits[g_n_hits].x = x; g_hits[g_n_hits].y = y; g_hits[g_n_hits].w = w; g_hits[g_n_hits].h = h;
     g_hits[g_n_hits].id = id; g_hits[g_n_hits].owner = g_hit_owner;

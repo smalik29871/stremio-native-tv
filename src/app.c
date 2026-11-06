@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #ifndef _WIN32
 #include <sys/statvfs.h>
 #endif
@@ -74,6 +75,8 @@ float ui_ease(float from, float to, float *vel, float dt, float speed)
 static struct { Screen *from; int owned, dir; float t; int active; int zoom; float rect[4]; char url[512]; } g_trans;
 /* The card each pushed screen opened out of (so Back can shrink it back into it). */
 static struct { int has; float r[4]; char url[512]; } g_origin[sizeof g_app.stack / sizeof g_app.stack[0]];
+static const char *const TAB_NAMES[] = { "explore", "search", "library", "calendar", "settings" };
+static Screen *g_tabs[sizeof TAB_NAMES / sizeof *TAB_NAMES];
 
 static int transitional(const Screen *s)
 {
@@ -189,6 +192,7 @@ void app_push(Screen *s)
 {
     if (!s || g_app.depth >= (int)(sizeof g_app.stack / sizeof g_app.stack[0])) { if (s && s->destroy) s->destroy(s); return; }
     Screen *old = app_top();
+    if (old && old->suspend) old->suspend(old);
     int d = g_app.depth;
     island_drop_focus();   /* a dialog or break over the resume card: OK is for it */
     /* opened with OK on a card drawn this moment: grow out of that card */
@@ -219,6 +223,35 @@ void app_replace(Screen *s)
 }
 
 Screen *app_top(void) { return g_app.depth ? g_app.stack[g_app.depth - 1] : NULL; }
+
+void app_switch_tab(Screen *s)
+{
+    Screen *old = app_top();
+    if (g_app.depth <= 2 && old && s && !strcmp(old->name, s->name)) { if (s->destroy) s->destroy(s); return; }
+    trans_finish();
+    if (old && old->suspend) old->suspend(old);
+    int keep_old = old && g_app.depth == 1;
+    for (int d = 1; d < g_app.depth; d++) {
+        Screen *p = g_app.stack[d];
+        int tab = -1;
+        for (size_t i = 0; i < sizeof g_tabs / sizeof *g_tabs; i++) if (!strcmp(p->name, TAB_NAMES[i])) { tab = (int)i; break; }
+        if (tab >= 0 && !g_tabs[tab]) { g_tabs[tab] = p; if (p == old) keep_old = 1; }
+        else if (p->destroy) p->destroy(p);
+        memset(&g_origin[d], 0, sizeof g_origin[0]);
+    }
+    if (g_app.depth) g_app.depth = 1;
+    if (s) {
+        for (size_t i = 0; i < sizeof g_tabs / sizeof *g_tabs; i++) if (g_tabs[i] && !strcmp(s->name, TAB_NAMES[i])) {
+            if (s->destroy) s->destroy(s);
+            s = g_tabs[i]; g_tabs[i] = NULL; break;
+        }
+        g_app.stack[g_app.depth++] = s;
+    }
+    Screen *top = app_top();
+    if (top && top->resume) top->resume(top);
+    trans_begin(keep_old ? old : NULL, 0, 1, NULL, NULL);
+    app_redraw();
+}
 
 void app_pip_enter(void)
 {
@@ -938,11 +971,12 @@ void app_set_parental_pin(const char *pin)
     store_save();
 }
 
-static void settings_after_pin(int ok, void *user) { (void)user; if (ok) app_push(screen_settings_create()); }
+static void settings_after_pin(int ok, void *user) { (void)user; if (ok) { if (gfx_handheld()) app_switch_tab(screen_settings_create()); else app_push(screen_settings_create()); } }
 
 void app_open_settings(void)
 {
     if (g_app.parental_pin[0] && g_app.pin_settings) app_push(screen_pin_create("Settings are locked", 0, settings_after_pin, NULL));
+    else if (gfx_handheld()) app_switch_tab(screen_settings_create());
     else app_push(screen_settings_create());
 }
 
@@ -2727,6 +2761,7 @@ void app_shutdown(void)
 {
     app_pip_close();
     while (g_app.depth) { Screen *s = g_app.stack[--g_app.depth]; if (s->destroy) s->destroy(s); }
+    for (size_t i = 0; i < sizeof g_tabs / sizeof *g_tabs; i++) { if (g_tabs[i] && g_tabs[i]->destroy) g_tabs[i]->destroy(g_tabs[i]); g_tabs[i] = NULL; }
     torrent_engine_stop();
     app_library_flush(1);   /* after the player had its last say */
     free_addons();

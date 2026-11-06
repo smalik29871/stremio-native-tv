@@ -9,7 +9,7 @@
 
 #define SNTV_APP_ID      "org.stremio.nativetv"
 #define SNTV_APP_NAME    "Cuelight"
-#define SNTV_APP_VERSION "0.10.110"
+#define SNTV_APP_VERSION "0.10.111"
 #define SNTV_USER_AGENT  "StremioNativeTV/" SNTV_APP_VERSION
 
 /* Logical UI canvas. Everything is laid out in these units and scaled to the
@@ -18,10 +18,10 @@
  * height, so what is anchored to the right or bottom edge sits at the real edge. Set by
  * gfx_begin_frame for each frame. */
 extern int g_ui_w, g_ui_h;
-/* A phone held upright: a canvas 780 units wide (src/ui/gfx.c) and the screens' phone
- * layouts; a screen without one turns the phone sideways (Screen.phone). */
+/* Physical portrait orientation, and the mobile layout used by phones upright and tablets. */
 extern int g_ui_portrait;
-#define SNTV_PHONE g_ui_portrait
+extern int g_ui_mobile;
+#define SNTV_PHONE g_ui_mobile
 #define SNTV_UI_W g_ui_w
 #define SNTV_UI_H g_ui_h
 #define SNTV_UI_BASE_W 1920

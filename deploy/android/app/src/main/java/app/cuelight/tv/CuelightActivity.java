@@ -16,6 +16,13 @@ import org.libsdl.app.SDLActivity;
 /* SDL's activity runs the C app (libmain.so, SDL_main in src/main.c); the video plays
  * under it (CuelightPlayer). */
 public class CuelightActivity extends SDLActivity {
+    private static volatile CuelightAccessibility sAccessibility;
+    static native void nativeAccessibilityAction(long version, int id, int action);
+    public static boolean accessibilityEnabled() { return sAccessibility != null && sAccessibility.enabled(); }
+    public static void accessibilityUpdate(byte[] nodes, long version, String screen) {
+        CuelightAccessibility view = sAccessibility;
+        if (view != null) view.post(() -> { if (view == sAccessibility) view.update(nodes, version, screen); });
+    }
     @Override
     protected String[] getLibraries() {
         return new String[] { "SDL2", "main" };
@@ -36,7 +43,16 @@ public class CuelightActivity extends SDLActivity {
             || pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature("amazon.hardware.fire_tv");
     }
 
-    static boolean sPhone;   /* a phone, not a TV or a tablet: CuelightPlayer's system bars ask */
+    static boolean sPhone;
+    static boolean sHandheld;
+    private static native void nativeWindowMetrics(float density, float fontScale, int kind);
+
+    private void updateMetrics() {
+        sHandheld = !tv();
+        sPhone = phone();
+        try { nativeWindowMetrics(getResources().getDisplayMetrics().density, getResources().getConfiguration().fontScale, sHandheld ? sPhone ? 1 : 2 : 0); }
+        catch (UnsatisfiedLinkError ignored) { }
+    }
     private boolean phone() { return !tv() && getResources().getConfiguration().smallestScreenWidthDp < 600; }
 
     @Override
@@ -45,12 +61,19 @@ public class CuelightActivity extends SDLActivity {
         // a 1080p Android TV is 540 dp across too
         sPhone = phone();
         try {
-            if (sPhone) Os.setenv("SNTV_HANDHELD", "1", true);
+            if (!tv()) Os.setenv("SNTV_HANDHELD", sPhone ? "1" : "2", true);
             Os.setenv("SNTV_DENSITY", Float.toString(getResources().getDisplayMetrics().density), true);   // how big a dp is: the upright layouts size their text by it
+            Os.setenv("SNTV_FONT_SCALE", Float.toString(getResources().getConfiguration().fontScale), true);
         } catch (ErrnoException ignored) { }
         super.onCreate(savedInstanceState);
+        updateMetrics();
         if (mLayout != null && mSurface != null) CuelightPlayer.attach(this, mLayout, mSurface);
-        if (phone() && Build.VERSION.SDK_INT >= 21) {   // a phone keeps its bars: dark, like the app
+        if (mLayout != null && mSurface != null && sHandheld) {
+            sAccessibility = new CuelightAccessibility(this);
+            mSurface.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            mLayout.addView(sAccessibility, new android.widget.RelativeLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        if (sHandheld && Build.VERSION.SDK_INT >= 21) {
             getWindow().setStatusBarColor(Color.BLACK);
             getWindow().setNavigationBarColor(Color.BLACK);
             getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.BLACK));   // what shows past the app's view: black, not the theme's
@@ -65,28 +88,40 @@ public class CuelightActivity extends SDLActivity {
     }
 
     @Override
+    public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        updateMetrics();
+        if (mLayout != null) mLayout.requestApplyInsets();
+    }
+
+    @Override
     protected void onDestroy() {
+        if (sAccessibility != null && sAccessibility.getContext() == this) sAccessibility = null;
         try { super.onDestroy(); }
         finally { CuelightPlayer.detach(this); }
     }
 
-    /* Android 15 draws an app under its status and navigation bars (edge to edge): the app's
-     * view keeps clear of them by their size, so nothing of it hides behind them. The player
-     * hides the bars, and the view then has the whole screen again, a camera cutout included
-     * (it kept a strip clear for it, which showed beside the picture). */
+    /* Android 15 forces edge-to-edge windows. Keep controls clear of system bars and cutouts. */
     @SuppressWarnings("deprecation")
     private void keepBetweenBars() {
         if (mLayout == null || Build.VERSION.SDK_INT < 20) return;
         mLayout.setOnApplyWindowInsetsListener((v, insets) -> {
             int l, t, r, b;
             if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets i = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                int types = WindowInsets.Type.displayCutout() | (CuelightPlayer.fullScreen() ? 0 : WindowInsets.Type.systemBars());
+                android.graphics.Insets i = insets.getInsets(types);
                 l = i.left; t = i.top; r = i.right; b = i.bottom;
             } else {
                 l = insets.getSystemWindowInsetLeft(); t = insets.getSystemWindowInsetTop();
                 r = insets.getSystemWindowInsetRight(); b = insets.getSystemWindowInsetBottom();
             }
-            if (CuelightPlayer.fullScreen()) l = t = r = b = 0;
+            if (CuelightPlayer.fullScreen() && Build.VERSION.SDK_INT < 30) {
+                l = t = r = b = 0;
+                if (Build.VERSION.SDK_INT >= 28 && insets.getDisplayCutout() != null) {
+                    android.view.DisplayCutout c = insets.getDisplayCutout();
+                    l = c.getSafeInsetLeft(); t = c.getSafeInsetTop(); r = c.getSafeInsetRight(); b = c.getSafeInsetBottom();
+                }
+            }
             if (v.getPaddingLeft() != l || v.getPaddingTop() != t || v.getPaddingRight() != r || v.getPaddingBottom() != b) v.setPadding(l, t, r, b);
             return insets;
         });

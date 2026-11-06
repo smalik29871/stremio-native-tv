@@ -27,7 +27,7 @@ static void draw_tabs(int active)
 {
     static const int TABS[] = { RAIL_HOME, RAIL_EXPLORE, RAIL_SEARCH, RAIL_LIBRARY, RAIL_SETTINGS };
     static float glide = -1, glide_v, last_t;
-    float W = SNTV_UI_W, m = 28, ph = 116, pw = W - 2 * m, px = m, py = SNTV_UI_H - ph - 14;
+    float W = SNTV_UI_W, m = 28, ph = PHONE_TABS_H - 28, pw = W - 2 * m, px = m, py = SNTV_UI_H - ph - 14;
     float tw = (pw - 16) / 5;
     gfx_gradient_v(0, SNTV_UI_H - PHONE_TABS_H - 30, W, PHONE_TABS_H + 30, COLOR_ALPHA(THEME_BG, 0), COLOR_ALPHA(THEME_BG, 0xF0));
     ui_panel(px, py, pw, ph, ph / 2, COLOR_ALPHA(THEME_BG2, 0xF4));
@@ -109,6 +109,21 @@ int rail_key(KeyAction a, int *focus, int active)
 void rail_go(int active, int target)
 {
     Screen *s = NULL;
+    if (gfx_handheld()) {
+        if (target == active) return;
+        switch (target) {
+        case RAIL_HOME: app_switch_tab(NULL); return;
+        case RAIL_EXPLORE: s = screen_explore_create(); break;
+        case RAIL_SEARCH: s = screen_search_create(); break;
+        case RAIL_LIBRARY: s = screen_library_create(); break;
+        case RAIL_CALENDAR: s = screen_calendar_create(); break;
+        case RAIL_SETTINGS: app_open_settings(); return;
+        case RAIL_ACCOUNT: if (g_app.auth_key) app_open_settings(); else app_push(screen_login_create()); return;
+        default: return;
+        }
+        app_switch_tab(s);
+        return;
+    }
     switch (target) {
     case RAIL_HOME: if (active != RAIL_HOME) app_pop(); return;
     case RAIL_EXPLORE: if (active == RAIL_EXPLORE) return; s = screen_explore_create(); break;

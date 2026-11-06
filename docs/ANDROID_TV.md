@@ -1,8 +1,23 @@
 # Cuelight for Android TV and Fire TV: plan
 
 One APK for Android TV, Google TV and Fire TV (all Android 7+, `minSdk 24`), built from the
-same C code as the webOS app. Phones and tablets are not in scope: the UI is made for a
-remote across the room, and a touch layout is a separate project.
+same C code as the webOS app. Phones and tablets use touch layouts, native keyboards,
+adaptive tablet grids and title pages, and portrait or full-screen playback. TVs retain
+their remote-driven layouts.
+
+## Mobile validation
+
+The host suite includes `mobile_navigation`, `mobile_layout` and `mobile_keyboard`.
+The Android instrumented test opens the actual keyboard and repeatedly activates tabs
+through the accessibility bridge; it does not inject text as a substitute for a keyboard.
+With a phone or tablet connected, run `connectedDebugAndroidTest` from `deploy/android`
+using Gradle and the SDK/NDK required by the project.
+
+Before shipping, also check a phone and tablet in portrait and landscape, split-screen
+or a resized window, enlarged Android text, TalkBack, gesture navigation and a camera
+cutout. During playback, test another app taking audio focus, a headset disconnecting,
+picture-in-picture, and switching between portrait playback and full screen. Host tests
+do not verify hardware timing, decoder behavior, or Android system UI interactions.
 
 ## Why it ports well
 

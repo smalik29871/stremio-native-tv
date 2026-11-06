@@ -189,7 +189,7 @@ int video_subtitle_text(char *out, size_t n) { if (n) *out = 0; return 0; }
 
 /* CuelightActivity.onTrimMemory, on Android's thread: the watch acts on the next frame. */
 JNIEXPORT void JNICALL Java_app_cuelight_tv_CuelightActivity_nativeTrimMemory(JNIEnv *e, jclass c, jint level) { (void)e; (void)c; mem_system_trim((int)level); }
-int video_paused_on_purpose(void) { return g_paused_on_purpose; }
+int video_paused_on_purpose(void) { return g_paused_on_purpose || g.state == VIDEO_PAUSED; }
 
 /* Updating itself comes in a later milestone (PackageInstaller); until then the release page. */
 /* The update: CuelightPlayer downloads the APK, checks its SHA-256 and opens Android's

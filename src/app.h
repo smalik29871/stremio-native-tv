@@ -19,6 +19,7 @@ typedef struct Screen {
     int  (*key)(struct Screen *s, KeyAction a);        /* 1 = consumed */
     void (*text)(struct Screen *s, const char *utf8);  /* optional */
     void (*resume)(struct Screen *s);                  /* becomes top again */
+    void (*suspend)(struct Screen *s);
     void (*destroy)(struct Screen *s);
     int long_ok;   /* OK acts on release here, and holding it sends KEY_LONG_OK (0 from key() = treat as OK) */
     /* Touch: a tap landed on what the screen drew with ui_hit(..., id). Move the focus there
@@ -182,6 +183,7 @@ void app_init(void);
 void app_shutdown(void);
 
 void app_push(Screen *s);
+void app_switch_tab(Screen *s);
 void app_pop(void);
 void app_replace(Screen *s);
 Screen *app_top(void);

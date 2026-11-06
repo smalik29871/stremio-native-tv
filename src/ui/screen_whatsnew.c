@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 enum { ITEMS_MAX = 40 };
 #define TEXT_X (SNTV_PHONE ? 40.0f : 160.0f)   /* a phone upright: the width of the screen */
@@ -24,7 +25,18 @@ typedef struct {
     Note *notes; int n;
     int first;                /* the note at the top */
     int about;                /* Settings > About: what Cuelight is, above the notes */
+    UiPan pan;
+    float scroll, total;
 } WhatsNew;
+
+static void update(Screen *s, float dt)
+{
+    WhatsNew *w = s->st;
+    if (gfx_handheld()) {
+        float max = fmaxf(0, w->total - (SNTV_UI_H - TOP - 150));
+        ui_pan(&w->pan, &w->scroll, fminf(max, fmaxf(0, w->scroll)), max, dt, 14);
+    }
+}
 
 static const char *const ABOUT[] = {
     SNTV_APP_NAME " is a player made for TVs: written from scratch in C for the TV's own hardware, so it starts fast and stays smooth on a modest TV.",
@@ -56,29 +68,35 @@ static void draw(Screen *s)
     snprintf(title, sizeof title, w->about ? "About " SNTV_APP_NAME : "What's new in %s", SNTV_APP_VERSION);
     if (g_theme.id == THEME_APERTURE) font_draw(title, TEXT_X, 160, FONT_XL | FONT_ALT, THEME_TEXT);
     else font_draw(title, TEXT_X, 170, FONT_L | FONT_B, THEME_TEXT);
+    if (w->about) font_draw("Version " SNTV_APP_VERSION, TEXT_X, 236, FONT_S, THEME_TEXT_DIM);
+    else {
+        char sub[96];
+        snprintf(sub, sizeof sub, w->n ? "This update  \xC2\xB7  for %s" : "Nothing listed for this version", device_name(device()));
+        font_draw(sub, TEXT_X, 236, FONT_S, THEME_TEXT_DIM);
+    }
     float y = TOP;
+    if (gfx_handheld()) {
+        gfx_clip_push(0, TOP - 10, SNTV_UI_W, SNTV_UI_H - TOP - 140);
+        ui_pan_area(&w->pan, 0, TOP - 10, SNTV_UI_W, SNTV_UI_H - TOP - 140, 1);
+        gfx_set_translate(0, -w->scroll);
+    }
     if (w->about) {
-        font_draw("Version " SNTV_APP_VERSION, TEXT_X, 236, FONT_S, THEME_TEXT_DIM);
         y = TOP - 10;
         for (int k = 0; ABOUT[k]; k++) y += font_draw_wrapped(ABOUT[k], TEXT_X, y, FONT_S, THEME_TEXT_DIM, TEXT_W, 3) * font_height(FONT_S) + 18;
         y += 24;
         font_draw("What's new in " SNTV_APP_VERSION, TEXT_X, y, FONT_M | FONT_B, THEME_TEXT);
         y += font_height(FONT_M) + 24;
-    } else {
-        char sub[96];
-        snprintf(sub, sizeof sub, w->n ? "This update  \xC2\xB7  for %s" : "Nothing listed for this version", device_name(device()));
-        font_draw(sub, TEXT_X, 236, FONT_S, THEME_TEXT_DIM);
     }
     const float pad = SNTV_PHONE ? 26 : 34, bar = 8;
     const int tf = FONT_M | FONT_B;
     float tw = TEXT_W - 2 * pad - bar;
-    int i = w->first;
+    int i = gfx_handheld() ? 0 : w->first;
     for (; i < w->n; i++) {   /* one card a note: a bold title, then what it does */
         const Note *n = &w->notes[i];
         int tl = n->title[0] ? font_draw_wrapped(n->title, 0, 0, tf, 0, tw, 2) : 0;
         int bl = n->body[0] ? font_draw_wrapped(n->body, 0, 0, FONT_S, 0, tw, SNTV_PHONE ? 10 : 5) : 0;
         float h = 2 * pad + tl * font_height(tf) + (tl && bl ? 12 : 0) + bl * font_height(FONT_S);
-        if (y + h > SNTV_UI_H - 150 && i > w->first) break;   /* the next one is below: Down for it */
+        if (!gfx_handheld() && y + h > SNTV_UI_H - 150 && i > w->first) break;
         gfx_rrect(TEXT_X, y, TEXT_W, h, SNTV_PHONE ? 26 : R_PANEL, COLOR_ALPHA(THEME_TEXT, 0x12));
         gfx_rrect(TEXT_X + pad * 0.5f, y + pad * 0.7f, 5, h - pad * 1.4f, 2.5f, THEME_ACCENT);
         float tx = TEXT_X + pad + bar, ty = y + pad;
@@ -86,7 +104,9 @@ static void draw(Screen *s)
         if (bl) font_draw_wrapped(n->body, tx, ty, FONT_S, tl ? THEME_TEXT_DIM : THEME_TEXT, tw, SNTV_PHONE ? 10 : 5);
         y += h + 18;
     }
-    const char *hint = SNTV_PHONE ? (i < w->n ? "Swipe up: more   \xC2\xB7   Tap: close" : "Tap: close") : i < w->n ? "Down: more   \xC2\xB7   OK: close" : "OK: close";   /* some still below */
+    w->total = y - TOP;
+    if (gfx_handheld()) { gfx_set_translate(0, 0); gfx_clip_pop(); }
+    const char *hint = gfx_handheld() ? (w->total > SNTV_UI_H - TOP - 150 ? "Swipe up: more   \xC2\xB7   Tap: close" : "Tap: close") : i < w->n ? "Down: more   \xC2\xB7   OK: close" : "OK: close";
     font_draw(hint, TEXT_X, SNTV_UI_H - 110, FONT_S, THEME_TEXT_MUTED);
 }
 
@@ -95,8 +115,8 @@ static int key(Screen *s, KeyAction a)
     WhatsNew *w = s->st;
     app_redraw();
     switch (a) {
-    case KEY_DOWN: if (w->first + 1 < w->n) w->first++; return 1;
-    case KEY_UP: if (w->first > 0) w->first--; return 1;
+    case KEY_DOWN: if (gfx_handheld()) w->scroll += 200; else if (w->first + 1 < w->n) w->first++; return 1;
+    case KEY_UP: if (gfx_handheld()) w->scroll = w->scroll > 200 ? w->scroll - 200 : 0; else if (w->first > 0) w->first--; return 1;
     case KEY_OK: case KEY_BACK: app_pop(); return 1;
     default: return 1;
     }
@@ -118,7 +138,7 @@ Screen *screen_whatsnew_create(int about)
     w->notes = calloc(ITEMS_MAX, sizeof *w->notes);
     w->n = notes_parse(WHATSNEW, device(), w->notes, ITEMS_MAX);
     s->name = "whatsnew"; s->st = w;
-    s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;
 }
 
