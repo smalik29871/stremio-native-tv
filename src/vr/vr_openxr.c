@@ -15,6 +15,7 @@
 #include <GLES3/gl3.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define XR_USE_PLATFORM_ANDROID
 #define XR_USE_GRAPHICS_API_OPENGL_ES
@@ -130,9 +131,8 @@ static int make_swapchain(void)
 {
     uint32_t nf = 0;
     xrEnumerateSwapchainFormats(X.session, 0, &nf, NULL);
-    int64_t formats[64];
-    if (nf > 64) nf = 64;
-    xrEnumerateSwapchainFormats(X.session, nf, &nf, formats);
+    int64_t *formats = nf ? calloc(nf, sizeof *formats) : NULL;   /* the Quest offers 70: sized by what it says, never a guess */
+    if (!formats || !xr_ok(xrEnumerateSwapchainFormats(X.session, nf, &nf, formats), "xrEnumerateSwapchainFormats")) { free(formats); return -1; }
     /* The canvas is drawn in sRGB values as it always was. An sRGB swapchain with the sRGB write
      * conversion off keeps those bytes as they are and the compositor reads them as sRGB. */
     int64_t pick = 0; int have_srgb = 0;
@@ -143,6 +143,8 @@ static int make_swapchain(void)
     else for (uint32_t i = 0; i < nf; i++) if (formats[i] == GL_RGBA8_) pick = GL_RGBA8_;
     if (!pick && nf) pick = formats[0];
     LOGI("vr: swapchain format 0x%llx (%u offered, sRGB write control %s)", (unsigned long long)pick, nf, can_off ? "yes" : "no");
+    free(formats);
+    if (!pick) { LOGW("vr: the headset offered no usable picture format"); return -1; }
 
     XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
     ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
@@ -165,7 +167,7 @@ static int make_swapchain(void)
     return 0;
 }
 
-int vr_init(void)
+static int vr_init_inner(void)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
@@ -360,6 +362,13 @@ static void sync_input(XrTime t)
     if (fire) { X.input.up_k = dir == 1; X.input.down_k = dir == 2; X.input.left_k = dir == 3; X.input.right_k = dir == 4; }
 }
 
+int vr_init(void)
+{
+    int r = vr_init_inner();
+    if (r != 0) vr_shutdown();   /* a session left open would keep the headset waiting for frames that never come */
+    return r;
+}
+
 int vr_active(void) { return X.session != XR_NULL_HANDLE; }
 int vr_quit_requested(void) { return X.quit; }
 void vr_input(VrInput *in) { *in = X.input; }
@@ -421,7 +430,7 @@ void vr_frame_end(void)
     fe.displayTime = X.frame.predictedDisplayTime;
     fe.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     fe.layerCount = n; fe.layers = n ? layers : NULL;
-    xr_ok(xrEndFrame(X.session, &fe), "xrEndFrame");
+    if (xr_ok(xrEndFrame(X.session, &fe), "xrEndFrame") && n) { static int said; if (!said) { said = 1; LOGI("vr: the first frame is on the panel"); } }
     X.in_frame = 0;
 }
 
