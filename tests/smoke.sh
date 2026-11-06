@@ -1778,7 +1778,7 @@ run fs_player_edge 420 "$FSP,drag:400:1060:400:600" $LS SNTV_EXPECT_SCREEN=playe
 # a phone's sources, scrolled: no row under the recommendation, every chip right of the addon's name
 run phone_streams_scrolled 360 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,drag:390:1500:390:1000,wait" $PH SNTV_EXPECT_SCREEN=streams HOME="$(home_with ph22 '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 # Settings > About > Storage: what the app keeps here, and OK clears the cache
-run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:1205,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
+run storage_clear 700 "wait,tap:702:1660,wait,tap:300:1430,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,wait,tap:300:1304,wait,wait,wait" $PH SNTV_TIDY_DELAY=0 HOME="$(home_with st1 '{"setupDone":1}')"
 grep -q "storage: [0-9]* MB here" "$OUT/storage_clear.log" && grep -q "tidy: cache cleared" "$OUT/storage_clear.log" || { echo "Storage did not count or clear the cache"; grep -E "storage|tidy" "$OUT/storage_clear.log"; exit 1; }
 # a TV low on storage: the cache clears by itself and says so once
 run storage_low 300 "wait,wait,wait,wait,wait,wait,wait,wait" SNTV_TIDY_DELAY=0 SNTV_FAKE_LOW_DISK=1 SNTV_AUTO_CLEAR_MIN_MB=0 HOME="$(home_with stlow '{"setupDone":1}')"
