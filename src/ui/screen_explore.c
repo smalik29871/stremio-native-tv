@@ -17,7 +17,7 @@
 
 enum { MAX_TYPES = 8, MAX_CATS = 64, PAGE = 100 };
 /* upright on a phone: three across, above the tab bar */
-#define COLS (SNTV_PHONE ? 3 : 7)
+#define COLS gfx_grid_columns()
 #define CELL_W (SNTV_PHONE ? (SNTV_UI_W - 2 * LX - (COLS - 1) * CELL_GAP) / COLS : 196)   /* a phone: three across, whatever its width */
 #define CELL_H (SNTV_PHONE ? CELL_W * 1.5f : 294)
 #define CELL_GAP (SNTV_PHONE ? 20 : 28)

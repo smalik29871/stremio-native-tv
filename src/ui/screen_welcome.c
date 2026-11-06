@@ -11,13 +11,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 enum { ST_AUDIO, ST_SUBS, ST_SUBS_WHEN, ST_SKIP, ST_NEXT, ST_LOOK, ST_ACCOUNT, ST_COUNT };
 /* a phone upright: the question on top, the choices under it */
-#define LIST_X (SNTV_PHONE ? 40.0f : 900.0f)
-#define LIST_Y (SNTV_PHONE ? 760.0f : 230.0f)
+#define SETUP_STACKED (SNTV_PHONE && (!gfx_tablet() || gfx_portrait()))
+#define LIST_X (SETUP_STACKED ? 40.0f : gfx_handheld() ? SNTV_UI_W * 0.52f : 900.0f)
+#define LIST_Y (SETUP_STACKED ? fminf(760.0f, SNTV_UI_H * 0.57f) : gfx_handheld() ? 140.0f : 230.0f)
 #define ROW (SNTV_PHONE ? 112.0f : 84.0f)
-#define VISIBLE (SNTV_PHONE ? (int)((SNTV_UI_H - LIST_Y - 150) / ROW) : SNTV_UI_H >= 1000 ? 9 : 7)   /* a short screen fits fewer */
+#define VISIBLE (gfx_handheld() ? (int)fmaxf(1, fminf(9, (SNTV_UI_H - LIST_Y - 150) / ROW)) : SNTV_UI_H >= 1000 ? 9 : 7)
 
 typedef struct {
     int step, focus;
@@ -144,9 +146,8 @@ static void draw(Screen *s)
         "Pure black saves power and looks deeper on OLED panels.",
         "Cuelight needs no account. Sync only if you already use Stremio elsewhere and want the same addons and Library here; you can change this in Settings." };
     ui_background(0);
-    float x = SNTV_PHONE ? 40 : THEME_MARGIN + 20, tw = SNTV_PHONE ? SNTV_UI_W - 80 : LIST_X - x - 80;
-    float top = SNTV_PHONE ? -60 : 0;   /* a phone: all of it a little higher */
-    ui_brand(x, 110 + top, 46);
+    float x = gfx_handheld() ? 40 : THEME_MARGIN + 20, tw = SETUP_STACKED ? SNTV_UI_W - 80 : LIST_X - x - (gfx_handheld() ? 40 : 80);
+    ui_brand(x, gfx_handheld() ? 40 : 110, 46);
     /* step dots */
     /* the subtitle-timing step counts until "No subtitles" has actually been picked */
     int total = 0, here = 0;
@@ -157,16 +158,18 @@ static void draw(Screen *s)
         total++;
     }
     for (int i = 0; i < total; i++)
-        gfx_rrect(x + i * 34, 300 + top, i == here ? 26 : 12, 12, 6, i == here ? THEME_ACCENT2 : COLOR_ALPHA(THEME_TEXT, 0x30));
+        gfx_rrect(x + i * 34, gfx_handheld() ? 140 : 300, i == here ? 26 : 12, 12, 6, i == here ? THEME_ACCENT2 : COLOR_ALPHA(THEME_TEXT, 0x30));
     char counter[32];
     snprintf(counter, sizeof counter, "Step %d of %d", here + 1, total);
-    font_draw(counter, x, 340 + top, FONT_XS | FONT_B, THEME_TEXT_MUTED);
-    int tl = font_draw_wrapped(TITLES[w->step], x, 390 + top, FONT_XL | FONT_B, THEME_TEXT, tw, 3);
-    font_draw_wrapped(BODY[w->step], x, SNTV_PHONE ? 390 + top + tl * font_height(FONT_XL | FONT_B) + 20 : 600, FONT_S, THEME_TEXT_DIM, SNTV_PHONE ? tw : tw - 20, 4);
+    font_draw(counter, x, gfx_handheld() ? 180 : 340, FONT_XS | FONT_B, THEME_TEXT_MUTED);
+    float ty = gfx_handheld() ? 230 : 390;
+    int title_size = gfx_handheld() && SNTV_UI_H < 1000 ? FONT_L | FONT_B : FONT_XL | FONT_B;
+    int tl = font_draw_wrapped(TITLES[w->step], x, ty, title_size, THEME_TEXT, tw, 3);
+    font_draw_wrapped(BODY[w->step], x, gfx_handheld() ? ty + tl * font_height(title_size) + 20 : 600, FONT_S, THEME_TEXT_DIM, gfx_handheld() ? tw : tw - 20, 4);
     font_draw(here == 0 ? (SNTV_PHONE ? "Back gesture: skip setup" : "Back: skip setup") : (SNTV_PHONE ? "Back gesture: previous step" : "Back: previous step"), x, SNTV_UI_H - 110, FONT_XS, THEME_TEXT_MUTED);
 
     int n = option_count(w->step), cur = current_choice(w->step);
-    float lw = SNTV_PHONE ? SNTV_UI_W - 80 : SNTV_UI_W - THEME_MARGIN - LIST_X;
+    float lw = SETUP_STACKED ? SNTV_UI_W - 80 : SNTV_UI_W - (gfx_handheld() ? 40 : THEME_MARGIN) - LIST_X;
     gfx_clip_push(LIST_X - 30, LIST_Y - 20, lw + 60, VISIBLE * ROW + 30);
     ui_pan_area(&w->pan, LIST_X - 30, LIST_Y - 20, lw + 60, VISIBLE * ROW + 30, 1);
     for (int i = 0; i < n; i++) {

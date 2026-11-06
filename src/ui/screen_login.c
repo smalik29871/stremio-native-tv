@@ -7,6 +7,7 @@
 #include "qrcodegen.h"
 #include "font.h"
 #include "keyboard.h"
+#include "accessibility.h"
 #include "theme.h"
 #include "widgets.h"
 #include <stdio.h>
@@ -184,6 +185,7 @@ static void update(Screen *s, float dt)
 
 static void draw_field(const Login *l, int f, const char *label, float x, float y, float w)
 {
+    ui_access_text(label, 0, x, y + 32, w, 72, 2);
     int foc = l->focus == f || (l->focus == F_KEYBOARD && l->editing == f);
     font_draw(label, x + 4, y, FONT_XS | FONT_B, THEME_TEXT_MUTED);
     gfx_rrect(x, y + 32, w, 72, R_PANEL, COLOR_ALPHA(THEME_TEXT, foc ? 0x22 : 0x12));
@@ -348,7 +350,7 @@ static void switch_mode(Login *l)
     l->mode = l->mode == MODE_QR ? MODE_PASSWORD : MODE_QR;
     l->message[0] = 0;
     if (l->mode == MODE_QR) { l->focus = F_SWITCH; if (!l->code[0]) start_link(l); input_text(0); }
-    else { l->focus = F_EMAIL; input_text(1); }
+    else { l->focus = F_EMAIL; if (gfx_handheld()) input_text_system(1); else input_text(1); }
 }
 
 static int key(Screen *s, KeyAction a)
@@ -429,7 +431,7 @@ static int tap(Screen *s, int id)
     Login *l = s->st;
     if (id == HIT_OPEN) { if (!g_touch_aim) { l->focus = F_SUBMIT; if (l->link[0]) SDL_OpenURL(l->link); } return 1; }
     if (l->mode == MODE_PASSWORD && keyboard_tap(&l->kb[l->editing], id)) { l->focus = F_KEYBOARD; return 0; }
-    if (id == F_EMAIL || id == F_PASSWORD) { if (l->mode != MODE_PASSWORD || g_touch_aim) return 1; l->editing = id; l->focus = F_KEYBOARD; return 1; }
+    if (id == F_EMAIL || id == F_PASSWORD) { if (l->mode != MODE_PASSWORD || g_touch_aim) return 1; l->editing = id; l->focus = F_KEYBOARD; if (gfx_handheld()) input_text_system(1); return 1; }
     if (id != F_SUBMIT && id != F_SWITCH && id != F_SKIP) return 1;
     l->focus = id;
     return 0;

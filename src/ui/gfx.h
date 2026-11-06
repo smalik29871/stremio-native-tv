@@ -22,6 +22,11 @@ Color color_lerp(Color a, Color b, float t);
 int  gfx_init(SDL_Window *win);
 void gfx_set_handheld(int on);
 int  gfx_handheld(void);   /* a phone-sized screen: larger, filling its width */
+int  gfx_tablet(void);
+int  gfx_portrait(void);
+float gfx_font_scale(void);
+int  gfx_grid_columns(void);
+void gfx_update_layout(int width, int height);
 void gfx_shutdown(void);
 
 /* Logical canvas is SNTV_UI_W x SNTV_UI_H; gfx scales to the real drawable. */

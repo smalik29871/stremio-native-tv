@@ -1541,6 +1541,12 @@ static void resume(Screen *sc)   /* back from a title page or Settings: the phon
     if (!SNTV_PHONE) phone_search_open(s);
 }
 
+static void suspend(Screen *sc)
+{
+    Search *s = sc->st;
+    if (s->typing) close_keyboard(s);
+}
+
 static void destroy(Screen *sc)
 {
     Search *s = sc->st;
@@ -1565,7 +1571,7 @@ Screen *screen_search_create(void)
     recent_load(s);
     for (int i = 0; i < OPEN_MAX; i++) if (!g_open[i]) { g_open[i] = s; break; }   /* (past eight deep, its replies are just dropped) */
     sc->name = "search"; sc->st = s; sc->long_ok = 1;
-    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->text = text; sc->destroy = destroy; sc->resume = resume; sc->phone = 1;
+    sc->update = update; sc->draw = draw; sc->key = key; sc->tap = tap; sc->text = text; sc->destroy = destroy; sc->resume = resume; sc->suspend = suspend; sc->phone = 1;
     if (!SNTV_PHONE) phone_search_open(s);
     return sc;
 }
