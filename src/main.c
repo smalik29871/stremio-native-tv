@@ -262,7 +262,7 @@ static void dev_hooks(SDL_Window *win, int frame)
 {
     static const struct { const char *n; SDL_Keycode k; } keys[] = {
         { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "left", SDLK_LEFT }, { "right", SDLK_RIGHT },
-        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "blue", SDLK_F4 }, { "yellow", SDLK_F5 },
+        { "ok", SDLK_RETURN }, { "back", SDLK_ESCAPE }, { "search", SDLK_F3 }, { "red", SDLK_F1 }, { "green", SDLK_F2 }, { "blue", SDLK_F4 }, { "yellow", SDLK_F5 },
         { "play", SDLK_p }, { "stop", SDLK_AUDIOSTOP }, { "info", SDLK_HELP }, { "rewind", SDLK_AUDIOREWIND }, { NULL, 0 } };
     static struct { int left; float x, y, dx, dy; Uint32 until; } drag;   /* a scripted drag, one move a frame (a press: until then) */
     if (drag.left > 0) {

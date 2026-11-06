@@ -892,6 +892,20 @@ grep -q "player: the bars' colours for this file came from the relay (10 cuts, t
 # one starts; on another kind of TV nothing is known and the 2160p starts; a file that fails to
 # decode here is told (a fingerprint and the kind of TV, nothing else)
 VERDICT="SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json SNTV_KEY_RELAY=http://127.0.0.1:$PORT/keyrelay SNTV_NO_RACE=1"
+# Sources: a starred release group comes first. The 2160p "-BAD" copy ranks first on its own; with "GOOD" starred
+# (Settings > Sources > Rules) Play starts the 1080p "-GOOD" copy instead
+run streams_fav_group 600 "right,ok,down,down,play,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json SNTV_NO_RACE=1 HOME="$(home_with favgrp '{"prefSubs":"","setupDone":1,"preflight":0,"srcFavGroups":"good"}')"
+grep -q "player: candidate 1/[0-9]* Verdict - Verdict .*(1080p)" "$OUT/streams_fav_group.log" || { echo "a starred release group did not come first"; grep -E "player: candidate|streams: #" "$OUT/streams_fav_group.log"; exit 1; }
+run streams_no_fav 600 "right,ok,down,down,play,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json SNTV_NO_RACE=1 HOME="$(home_with nofavgrp '{"prefSubs":"","setupDone":1,"preflight":0}')"
+grep -q "player: candidate 1/[0-9]* Verdict - Verdict .*(2160p)" "$OUT/streams_no_fav.log" || { echo "without a star the order changed"; grep -E "player: candidate" "$OUT/streams_no_fav.log"; exit 1; }
+# Sources: Yellow searches the list (only what matches shows), Green on a source stars its release group, Back clears the search
+run streams_search 600 "right,ok,down,down,yellow,down,down,down,ok,wait,yellow,t:good,back,green,back,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json HOME="$(home_with srcsearch '{"prefSubs":"","setupDone":1,"preflight":0}')"
+grep -q 'streams: 1 of [0-9]* sources match "good"' "$OUT/streams_search.log" && grep -q "streams: release group GOOD is a favourite" "$OUT/streams_search.log" \
+  && grep -q 'streams: [0-9]* of [0-9]* sources match ""' "$OUT/streams_search.log" && ! grep -q "player: candidate" "$OUT/streams_search.log" \
+  || { echo "searching the sources or starring a group failed"; grep -E "streams: (searching|[0-9]* of|release group)|player: candidate|toast" "$OUT/streams_search.log"; exit 1; }
+# the search's keyboard open over the Sources list (a screenshot to look at)
+run streams_search_keys 600 "right,ok,down,down,yellow,down,down,down,ok,wait,yellow,t:web" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json HOME="$(home_with srcsearchk '{"prefSubs":"","setupDone":1,"preflight":0,"srcFavGroups":"GOOD"}')"
+grep -q 'streams: 3 of 5 sources match "web"' "$OUT/streams_search_keys.log" || { echo "the search did not narrow the list as typed"; grep -E "streams: ([0-9]* of|searching)" "$OUT/streams_search_keys.log"; exit 1; }
 run verdict_demotes 900 "right,ok,down,down,play,wait,wait" $VERDICT SNTV_DEVICE_CLASS=webos9 HOME="$(home_with verdict1 '{"prefSubs":"","setupDone":1,"preflight":0}')"
 grep -q "verdicts: this is a webos9" "$OUT/verdict_demotes.log" && grep -q "verdicts: 1 of these files were played on a webos9 before" "$OUT/verdict_demotes.log" \
   && grep "player: candidate 1/" "$OUT/verdict_demotes.log" | grep -q "(1080p)$" \

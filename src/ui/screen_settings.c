@@ -61,7 +61,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_INSTALL, IT_DIAG, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL, IT_AI_EVERY,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_PARTY, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS, IT_BROWSE, IT_SUBS_BARS, IT_BETA,
-       IT_SCENES, IT_SCENES_STRENGTH, IT_SCENES_SOURCE, IT_SCENE_NUDITY, IT_SCENE_SEX, IT_SCENE_VIOLENCE, IT_SCENE_LANGUAGE, IT_SCENE_DRUGS, IT_SCENE_FEAR, IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
+       IT_SCENES, IT_SCENES_STRENGTH, IT_SCENES_SOURCE, IT_SCENE_NUDITY, IT_SCENE_SEX, IT_SCENE_VIOLENCE, IT_SCENE_LANGUAGE, IT_SCENE_DRUGS, IT_SCENE_FEAR, IT_SRC_FAVS, IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
        SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_SUBS_ACCT, SEC_RECOMMENDED, SEC_SCENES, SEC_COUNT };
@@ -88,7 +88,7 @@ static int rec_installed(int i)
     }
     return 0;
 }
-enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX, EDIT_SCENES };
+enum { EDIT_NONE, EDIT_SERVER, EDIT_INSTALL, EDIT_THUMBS, EDIT_TMDB, EDIT_LOCATION, EDIT_BR_AUDIO, EDIT_BR_END, EDIT_AI_KEY, EDIT_AI_BASE, EDIT_AI_MODEL, EDIT_SEARCH, EDIT_EXCLUDE, EDIT_PLAY_LINK, EDIT_BACKUP, EDIT_TRAKT_APP, EDIT_SIMKL_APP, EDIT_MDBLIST, EDIT_OS_KEY, EDIT_OS_LOGIN, EDIT_FIRE_VIDEO, EDIT_TORBOX, EDIT_SCENES, EDIT_FAVS };
 enum { MAX_ROWS = 160 };
 #define ROW_H (100.0f * (gfx_font_scale() > 1 ? gfx_font_scale() : 1))
 enum { HIT_CAT = 0x1000, HIT_FIND = 0x2000, HIT_LEFT = 0x3000, HIT_BACK = 0x4000, HIT_DONE = 0x4001, HIT_SAVE = 0x4002, HIT_RESTORE = 0x4003, HIT_EDIT = 0x4004, HIT_RIGHT = 0x5000 };
@@ -164,7 +164,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_SOURCES:
         SEC(SEC_RANKING); ids[n++] = IT_QUALITY; ids[n++] = IT_RES_CAP; ids[n++] = IT_SRC_AUDIO;
-        ids[n++] = IT_SRC_SIZE; ids[n++] = IT_SRC_HDR; ids[n++] = IT_SRC_CACHED; ids[n++] = IT_SRC_EXCLUDE; ids[n++] = IT_TVCAP;
+        ids[n++] = IT_SRC_SIZE; ids[n++] = IT_SRC_HDR; ids[n++] = IT_SRC_CACHED; ids[n++] = IT_SRC_EXCLUDE; ids[n++] = IT_SRC_FAVS; ids[n++] = IT_TVCAP;
         SEC(SEC_STARTING); ids[n++] = IT_PREFLIGHT; ids[n++] = IT_AUTO_REC; ids[n++] = IT_ADDON_WAIT;
         SEC(SEC_FALLBACK); ids[n++] = IT_P2P;
         break;
@@ -249,6 +249,7 @@ static const char *row_title(int id)
     case IT_SRC_HDR: return "HDR and Dolby Vision";
     case IT_SRC_CACHED: return "Only cached or direct sources";
     case IT_SRC_EXCLUDE: return "Words to avoid in source names";
+    case IT_SRC_FAVS: return "Favourite release groups";
     case IT_TVCAP: return "What this TV can play";
     case IT_TRAKT: return "Trakt";
     case IT_SIMKL: return "SimKL";
@@ -397,6 +398,7 @@ static const char *row_desc(int id)
     case IT_BACKUP: return "Save your settings to your phone, or bring a backup back.";
     case IT_TVCAP: return "4K, HEVC, AV1, Dolby Vision, DTS and TrueHD: what plays here, learned from what you watch.";
     case IT_SRC_EXCLUDE: return "Comma-separated, e.g. CAM, HDTS, 3D. Matching sources are never picked.";
+    case IT_SRC_FAVS: return "Their releases come first, for every title. Green on a source stars its group.";
     case IT_PREFLIGHT: return "Makes sure a link answers before it is recommended.";
     case IT_AUTO_REC: return "Skips the list and starts the best match.";
     case IT_ADDON_WAIT: return "How long autoplay waits for slow addons before choosing.";
@@ -1059,6 +1061,7 @@ static void draw(Screen *s)
         case IT_MDBLIST: draw_row(y, ICON_STAR, "MDBList ratings", mdblist_enabled() ? "Key set  \xC2\xB7  more ratings on title pages" : "Not set  \xC2\xB7  OK to add a key", foc, KIND_ACTION, 0); break;
         case IT_TVCAP: draw_row(y, ICON_TV, "What this TV can play", NULL, foc, KIND_ACTION, 0); break;
         case IT_SRC_EXCLUDE: draw_row(y, ICON_CLOSE, "Words to avoid in source names", g_app.src_exclude[0] ? g_app.src_exclude : "None  \xC2\xB7  OK to add, e.g. CAM, HDTS, 3D", foc, KIND_ACTION, 0); break;
+        case IT_SRC_FAVS: draw_row(y, ICON_STAR, "Favourite release groups", g_app.src_favs[0] ? g_app.src_favs : "None  \xC2\xB7  Green on a source stars its group", foc, KIND_ACTION, 0); break;
         case IT_PREFLIGHT: draw_row(y, ICON_CHECK, "Check sources before recommending", NULL, foc, KIND_TOGGLE, g_app.preflight); break;
         case IT_SCRUB: draw_row(y, ICON_PLAY, "Show the picture while seeking", NULL, foc, KIND_TOGGLE, g_app.live_scrub); break;
         case IT_SCENES: draw_row(y, ICON_EYE, "Skip scenes (experimental)", SCENE_NAMES[g_app.scene_filter], foc, KIND_CHOICE, 0); break;
@@ -1321,7 +1324,7 @@ static const char *edit_title(int which)
          : which == EDIT_FIRE_VIDEO ? "Fireplace video" : which == EDIT_OS_KEY ? "OpenSubtitles.com API key" : which == EDIT_OS_LOGIN ? "OpenSubtitles account"
          : which == EDIT_TRAKT_APP ? "Trakt app" : which == EDIT_SIMKL_APP ? "SimKL app id" : which == EDIT_MDBLIST ? "MDBList API key" : which == EDIT_TORBOX ? "TorBox API key"
          : which == EDIT_PLAY_LINK ? "Play a link" : which == EDIT_BACKUP ? "Back up or restore settings"
-         : which == EDIT_EXCLUDE ? "Words to avoid in source names" : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_SCENES ? "Scene list source" : which == EDIT_TMDB ? "TMDB API key"
+         : which == EDIT_EXCLUDE ? "Words to avoid in source names" : which == EDIT_FAVS ? "Favourite release groups" : which == EDIT_SERVER ? "Streaming server URL" : which == EDIT_THUMBS ? "Home helper" : which == EDIT_SCENES ? "Scene list source" : which == EDIT_TMDB ? "TMDB API key"
          : which == EDIT_LOCATION ? "Your location" : which == EDIT_BR_AUDIO ? "Audio at the start of a break" : which == EDIT_BR_END ? "Audio at the end of a break" : "Addon manifest URL";
 }
 static const char *edit_hint(int which)
@@ -1337,6 +1340,7 @@ static const char *edit_hint(int which)
          : which == EDIT_PLAY_LINK ? "A direct video link (MP4, MKV, M3U8). Scan the code to paste it on your phone; it plays at once."
          : which == EDIT_BACKUP ? "Scan the code with your phone: save a backup there, or send one back to restore it on this TV. Your Stremio sign-in is not included."
          : which == EDIT_EXCLUDE ? "Comma-separated, e.g. CAM, HDTS, 3D, HC. Sources with any of them in their name are never picked for you. Empty removes the rule."
+         : which == EDIT_FAVS ? "Comma-separated release groups, e.g. FLUX, NTb. Their releases come first for every title. Empty removes them all."
          : which == EDIT_SERVER ? "Any machine on your network running Stremio, e.g. http://192.168.1.10:11470"
          : which == EDIT_SCENES ? "A CleanStream server, e.g. http://192.168.1.10:7000 for your own. Only a film's IMDb id is sent to it. Empty uses the public one."
          : which == EDIT_THUMBS ? "Optional: tools/thumbs/server.py on a computer or NAS, e.g. http://192.168.1.10:11480. The TV already decodes seek previews and saves YouTube links; set this only to use the computer instead. Empty turns it off."
@@ -1570,7 +1574,7 @@ static void begin_edit(Settings *st, int which)
                   : which == EDIT_AI_KEY ? (g_app.ai_key ? g_app.ai_key : "") : which == EDIT_AI_BASE ? (g_app.ai_base ? g_app.ai_base : "")
                   : which == EDIT_AI_MODEL ? (g_app.ai_model ? g_app.ai_model : "") : which == EDIT_LOCATION ? loc
                   : which == EDIT_SEARCH || which == EDIT_BACKUP || which == EDIT_TRAKT_APP || which == EDIT_SIMKL_APP ? ""
-                  : which == EDIT_FIRE_VIDEO ? (torbox_is_link(store_get_str("fireplaceVideo", "")) ? "" : store_get_str("fireplaceVideo", "")) : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_TORBOX ? store_get_str("torboxKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "" : which == EDIT_EXCLUDE ? g_app.src_exclude
+                  : which == EDIT_FIRE_VIDEO ? (torbox_is_link(store_get_str("fireplaceVideo", "")) ? "" : store_get_str("fireplaceVideo", "")) : which == EDIT_MDBLIST ? store_get_str("mdblistKey", "") : which == EDIT_TORBOX ? store_get_str("torboxKey", "") : which == EDIT_OS_KEY ? store_get_str("osApiKey", "") : which == EDIT_OS_LOGIN ? "" : which == EDIT_PLAY_LINK ? "" : which == EDIT_EXCLUDE ? g_app.src_exclude : which == EDIT_FAVS ? g_app.src_favs
                   : which == EDIT_BR_AUDIO ? (g_app.break_audio && strncmp(g_app.break_audio, "sntv-sound://", 13) ? g_app.break_audio : "") : which == EDIT_BR_END ? (g_app.break_end && strncmp(g_app.break_end, "sntv-sound://", 13) ? g_app.break_end : "") : "");
     if (gfx_handheld()) input_text_system(1); else input_text(1);
     phone_prompt(edit_title(which), edit_hint(which), st->kb.text);
@@ -1658,6 +1662,12 @@ static void finish_edit(Settings *st, int save)
             const char *u = with_scheme(v, buf, sizeof buf);
             if (strncmp(u, "http://", 7) == 0 || strncmp(u, "https://", 8) == 0) { if (strlen(u) > 9) app_play_link(u); }
             else if (*v) app_toast("That is not a video link (it starts with http)");
+        } else if (st->edit == EDIT_FAVS) {
+            char *v = st->kb.text;
+            while (*v == ' ' || *v == ',') v++;
+            snprintf(g_app.src_favs, sizeof g_app.src_favs, "%.127s", v);
+            app_save_prefs();
+            app_toast(g_app.src_favs[0] ? "Releases from these groups come first" : "No favourite release groups");
         } else if (st->edit == EDIT_EXCLUDE) {
             char *v = st->kb.text;
             while (*v == ' ' || *v == ',') v++;
@@ -1831,7 +1841,7 @@ static int adjust(Settings *st, int id, int dir)
         app_toast(g_app.low_memory ? "Memory saver on: fewer rows and posters kept" : g_app.memory_mode == 0 ? "Automatic: the saver turns on by itself when memory gets tight" : "Normal memory use");
         break;
     }
-    case IT_TMDB: case IT_AI_KEY: case IT_AI_BASE: case IT_AI_MODEL: case IT_SRC_EXCLUDE: return 1;
+    case IT_TMDB: case IT_AI_KEY: case IT_AI_BASE: case IT_AI_MODEL: case IT_SRC_EXCLUDE: case IT_SRC_FAVS: return 1;
     case IT_BR_ON: g_app.breaks_on = !g_app.breaks_on; break;
     case IT_BR_SCHED: g_app.break_sched = (g_app.break_sched + dir + BRK_SCHED_COUNT) % BRK_SCHED_COUNT; break;
     case IT_BR_METHOD: g_app.break_method = (g_app.break_method + 1 + dir + SUN_METHOD_COUNT + 1) % (SUN_METHOD_COUNT + 1) - 1; break;   /* Auto, then each method */
@@ -2027,6 +2037,7 @@ static int key(Screen *s, KeyAction a)
         else if (id == IT_SCENES_SOURCE) begin_edit(st, EDIT_SCENES);
         else if (id == IT_TMDB) begin_edit(st, EDIT_TMDB);
         else if (id == IT_SRC_EXCLUDE) begin_edit(st, EDIT_EXCLUDE);
+        else if (id == IT_SRC_FAVS) begin_edit(st, EDIT_FAVS);
         else if (id == IT_TVCAP) show_tv_caps();
         else if (id == IT_PLAY_LINK) begin_edit(st, EDIT_PLAY_LINK);
         else if (id == IT_FIRE_VIDEO) begin_edit(st, EDIT_FIRE_VIDEO);

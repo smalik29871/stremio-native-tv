@@ -2255,6 +2255,7 @@ static void load_prefs(void)
     g_app.src_hdr = store_get_int("srcHdr", 0);
     g_app.src_cached_only = store_get_int("srcCachedOnly", 0);
     snprintf(g_app.src_exclude, sizeof g_app.src_exclude, "%s", store_get_str("srcExclude", ""));
+    snprintf(g_app.src_favs, sizeof g_app.src_favs, "%s", store_get_str("srcFavGroups", ""));
     g_app.preflight = store_get_int("preflight", 1);
     g_app.live_scrub = store_get_int("liveScrub", 1);
     g_app.home_style = store_get_int("homeStyle", HOME_CINEMATIC);
@@ -2361,6 +2362,7 @@ void app_save_prefs(void)
     store_set_int("srcHdr", g_app.src_hdr);
     store_set_int("srcCachedOnly", g_app.src_cached_only);
     store_set_str("srcExclude", g_app.src_exclude[0] ? g_app.src_exclude : NULL);
+    store_set_str("srcFavGroups", g_app.src_favs[0] ? g_app.src_favs : NULL);
     store_set_int("preflight", g_app.preflight);
     store_set_int("liveScrub", g_app.live_scrub);
     store_set_int("homeStyle", g_app.home_style);
