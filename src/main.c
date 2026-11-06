@@ -598,6 +598,49 @@ static void touch_event(const SDL_Event *e)
     }
     if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
 }
+#ifdef SNTV_DESKTOP_KEYS
+/* A computer's window comes back as it was left: its size and place, maximised or not. What was
+ * saved is trusted only where the title bar can still be grabbed (a screen unplugged since, a
+ * resolution changed), and a window too small for the layout is not kept. */
+static int g_win_dirty;
+static Uint32 g_win_dirty_at;
+
+static void window_remember(SDL_Window *win)
+{
+    if (!win || (getenv("SNTV_WINDOW") && *getenv("SNTV_WINDOW"))) return;
+    Uint32 fl = SDL_GetWindowFlags(win);
+    if (fl & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_MINIMIZED)) return;
+    int max = (fl & SDL_WINDOW_MAXIMIZED) != 0;
+    store_set_int("winMax", max);
+    if (max) return;   /* the size to come back to is the one it had before */
+    int x, y, w, h;
+    SDL_GetWindowPosition(win, &x, &y);
+    SDL_GetWindowSize(win, &w, &h);
+    if (w < 640 || h < 360) return;
+    store_set_int("winX", x); store_set_int("winY", y); store_set_int("winW", w); store_set_int("winH", h);
+}
+
+static int window_title_bar_reachable(int x, int y, int w)
+{
+    int n = SDL_GetNumVideoDisplays();
+    for (int i = 0; i < n; i++) {
+        SDL_Rect b;
+        if (SDL_GetDisplayUsableBounds(i, &b) != 0) continue;
+        if (x + w - 80 > b.x && x + 80 < b.x + b.w && y >= b.y - 4 && y + 40 < b.y + b.h) return 1;
+    }
+    return 0;
+}
+
+/* 1 and the saved rectangle where there is one worth restoring */
+static int window_saved(int *x, int *y, int *w, int *h)
+{
+    if ((getenv("SNTV_WINDOW") && *getenv("SNTV_WINDOW")) || !store_get_int("winW", 0)) return 0;
+    *w = store_get_int("winW", 0); *h = store_get_int("winH", 0); *x = store_get_int("winX", 0); *y = store_get_int("winY", 0);
+    if (*w < 640 || *h < 360 || *w > 16000 || *h > 16000) return 0;
+    if (!window_title_bar_reachable(*x, *y, *w)) { LOGI("window: the saved place is off every screen, centred instead"); return 0; }
+    return 1;
+}
+#endif
 #ifdef SNTV_DESKTOP_PLAYER
 static SDL_Window *g_win;
 static float g_mouse_x = -1, g_mouse_y = -1, g_mouse_t = -100;   /* the pointer (canvas units) and when it last moved */
@@ -1031,9 +1074,17 @@ int main(int argc, char **argv)
     }
 #endif
 #endif
-    SDL_Window *win = SDL_CreateWindow(SNTV_APP_NAME, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
+    int win_x = SDL_WINDOWPOS_CENTERED, win_y = SDL_WINDOWPOS_CENTERED, win_max = 0;
+    (void)win_max;
+#ifdef SNTV_DESKTOP_KEYS
+    { int sx, sy, sw, sh; if (window_saved(&sx, &sy, &sw, &sh)) { win_x = sx; win_y = sy; w = sw; h = sh; win_max = store_get_int("winMax", 0); LOGI("window: back as it was, %dx%d at %d,%d%s", w, h, sx, sy, win_max ? ", maximised" : ""); } }
+#endif
+    SDL_Window *win = SDL_CreateWindow(SNTV_APP_NAME, win_x, win_y, w, h, flags);
 #ifdef SNTV_DESKTOP_PLAYER
     g_win = win;
+#endif
+#ifdef SNTV_DESKTOP_KEYS
+    if (win && win_max) SDL_MaximizeWindow(win);
 #endif
     if (!win) { LOGE("SDL_CreateWindow: %s", SDL_GetError()); return 1; }
 #ifdef __ANDROID__
@@ -1261,9 +1312,16 @@ int main(int argc, char **argv)
                 g_app.enter_key = 0;
             }
             else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+#ifdef SNTV_DESKTOP_KEYS
+                g_win_dirty = 1; g_win_dirty_at = SDL_GetTicks();
+#endif
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
                 if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
+            } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_MOVED) {
+#ifdef SNTV_DESKTOP_KEYS
+                g_win_dirty = 1; g_win_dirty_at = SDL_GetTicks();   /* kept a moment after it stops moving */
+#endif
             } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 /* An overlay took the remote (the TV's own settings, volume, input list):
                  * the app is still on screen, so the video plays on. Progress is saved in
@@ -1330,6 +1388,9 @@ int main(int argc, char **argv)
             app_redraw();
         }
         STAGE("http", http_pump());
+#ifdef SNTV_DESKTOP_KEYS
+        if (g_win_dirty && SDL_GetTicks() - g_win_dirty_at > 1500) { g_win_dirty = 0; window_remember(win); store_save(); }   /* once it has settled */
+#endif
         STAGE("party", party_app_tick());
         http_hold_background(player_needs_bandwidth());
         STAGE("tracking", tracking_tick());
@@ -1437,6 +1498,9 @@ int main(int argc, char **argv)
     LOGI("main: closed in %u ms", SDL_GetTicks() - closing);
     log_shutdown();
     _exit(0);
+#endif
+#ifdef SNTV_DESKTOP_KEYS
+    window_remember(win);
 #endif
     video_shutdown();
     audio_shutdown();

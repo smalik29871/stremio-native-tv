@@ -1119,6 +1119,14 @@ grep -q "perf: frames slow (.* a refresh is 21 ms; twice in a row) -> light effe
 run fx_stuck 700 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="17" HOME="$(home_with fxs '{"setupDone":1,"fx":0,"fxAutoLight":1}')"
 grep -q "perf: light effects keep up with the screen .* -> full effects" "$OUT/fx_stuck.log" || { echo "a TV kept on light effects never went back to full"; grep "perf:" "$OUT/fx_stuck.log"; exit 1; }
 # Light effects keep their motion; where frames still drop while it runs the motion goes for a while
+# A computer's window comes back as it was left; a place no screen shows any more is centred, and the size is kept at exit
+run window_restored 120 "" SNTV_WINDOW= HOME="$(home_with winback '{"setupDone":1,"winW":1000,"winH":600,"winX":120,"winY":80}')"
+grep -q "window: back as it was, 1000x600 at 120,80" "$OUT/window_restored.log" && grep -q "screen: 1000x600" "$OUT/window_restored.log" || { echo "the window did not come back as it was left"; grep -E "window:|screen:" "$OUT/window_restored.log"; exit 1; }
+run window_off_screen 120 "" SNTV_WINDOW= HOME="$(home_with winoff '{"setupDone":1,"winW":1000,"winH":600,"winX":9000,"winY":80}')"
+grep -q "the saved place is off every screen" "$OUT/window_off_screen.log" && grep -q "screen: 1280x720" "$OUT/window_off_screen.log" || { echo "a window saved off every screen was not centred"; grep -E "window:|screen:" "$OUT/window_off_screen.log"; exit 1; }
+WK="$(home_with winkeep '{"setupDone":1}')"
+run window_kept 120 "" SNTV_WINDOW= HOME="$WK"
+grep -rqE '"winW":[[:space:]]*1280' "$WK/.local/share/stremio/nativetv/" || { echo "the window's size was not kept at exit"; ls "$WK/.local/share/stremio/nativetv/"; exit 1; }
 run motion_light_slow 900 "right,left,right,left,right,left" SNTV_FX_ADAPT=1 SNTV_FAKE_FRAME_MS="40" HOME="$(home_with mslow '{"setupDone":1,"fx":2}')"
 grep -q "perf: frames drop while things move (.* ms average, a refresh is [0-9]* ms) -> no motion for 20 s" "$OUT/motion_light_slow.log" || { echo "light effects with dropping frames kept their motion"; grep "perf:" "$OUT/motion_light_slow.log"; exit 1; }
 run motion_light_fast 900 "right,left,right,left,right,left" SNTV_FX_ADAPT=1 SNTV_FAKE_FRAME_MS="17" HOME="$(home_with mfast '{"setupDone":1,"fx":2}')"

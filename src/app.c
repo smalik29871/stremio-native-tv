@@ -2833,7 +2833,7 @@ static const char *follow_signin(const char *old_key, int *switched_out)
 
 static int backup_skips(const char *key)
 {
-    static const char *const SKIP[] = { "user", "signinsShared", "tvCaps", "setupDone", "seenVersion", NULL };
+    static const char *const SKIP[] = { "user", "signinsShared", "tvCaps", "setupDone", "seenVersion", "winX", "winY", "winW", "winH", "winMax", NULL };
     for (int i = 0; SKIP[i]; i++) if (strcmp(key, SKIP[i]) == 0) return 1;
     return 0;
 }
