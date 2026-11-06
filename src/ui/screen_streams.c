@@ -45,7 +45,8 @@ struct Streams {
     ChainHint chain;
     Stream *items; int n;
     int pending, n_reqs;
-    int focus;
+    int focus;                /* -2 the search button, -1 the recommendation, else a source */
+    int on_star;              /* the focus is on the focused source's star (Right; OK stars its release group) */
     int moved;                /* the viewer has moved the focus: from then on it follows its source */
     unsigned verdict_gen;     /* the shared play verdicts it was sorted with */
     float scroll, scroll_target;
@@ -1223,9 +1224,9 @@ static const char *search_keys_hint(void)
 {
     if (gfx_handheld()) return "";
 #ifdef SNTV_DESKTOP_KEYS
-    return "  \xC2\xB7  / or Ctrl+F: search  \xC2\xB7  F2: favourite release group";
+    return "  \xC2\xB7  Up or /: search  \xC2\xB7  Right or F2: favourite release group";
 #else
-    return "  \xC2\xB7  Yellow: search  \xC2\xB7  Green: favourite release group";
+    return "  \xC2\xB7  Up: search  \xC2\xB7  Right: favourite release group";
 #endif
 }
 
@@ -1246,7 +1247,7 @@ static void draw_search_keys(Streams *st)
 /* The search changed: the focus onto a source it shows; nothing starts by itself any more */
 static void search_applied(Streams *st)
 {
-    st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1;
+    st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; st->on_star = 0;
     if (!shown(st, st->focus)) {
         int to = -2;
         for (int i = 0; i < st->n && to < 0; i++) if (shown(st, i)) to = i;
@@ -1276,6 +1277,28 @@ static void search_close(Streams *st)
     app_redraw();
 }
 
+/* The search button of a remote's or mouse's header: Up from the top reaches it, OK opens the keys */
+static void draw_search_chip(Streams *st, float right, float y)
+{
+    if (gfx_handheld() || !st->n) return;   /* a touch screen has its round button */
+    int foc = st->focus == -2, on = st->query[0] != 0;
+    const char *t = on ? "Search: change" : "Search sources";
+    float w = font_measure(t, FONT_S | FONT_B) + 84, h = 48, x = right - w;
+    ui_hit(x, y, w, h, HIT_SRC_SEARCH);
+    gfx_rrect(x, y, w, h, h / 2, foc ? THEME_FOCUS : on ? THEME_ACCENT : COLOR_ALPHA(THEME_TEXT, 0x22));
+    Color fg = foc ? THEME_ON_FOCUS : on ? THEME_ON_ACCENT : THEME_TEXT;
+    ui_icon(ICON_SEARCH, x + 30, y + h / 2, 22, fg);
+    font_draw(t, x + 54, y + (h - font_height(FONT_S | FONT_B)) / 2, FONT_S | FONT_B, fg);
+}
+
+/* A row's star: gold when its release group is a favourite, a ring when the focus is on it */
+static void draw_star(Streams *st, int foc, int fav, float sx, float sy)
+{
+    int on = foc && st->on_star;
+    if (on) gfx_circle(sx, sy, 28, THEME_ACCENT);
+    ui_icon(ICON_STAR, sx, sy, 30, on ? THEME_ON_ACCENT : fav ? THEME_GOLD : COLOR_ALPHA(THEME_TEXT, 0x55));
+}
+
 static void draw_aperture(Streams *st)
 {
     char buf[512], line[300];
@@ -1291,7 +1314,8 @@ static void draw_aperture(Streams *st)
     font_draw("Choose a source", x, 92, FONT_L | FONT_B, THEME_TEXT);
     if (st->query[0]) snprintf(line, sizeof line, "%d of %d match \xE2\x80\x9C%s\xE2\x80\x9D  /  Back clears the search", n_shown(st), st->n, st->query);
     else snprintf(line, sizeof line, "%d sources  /  %d addons searching%s", st->n, st->pending, search_keys_hint());
-    font_draw_fit(st->n || st->pending ? line : "No sources. Check your stream addons in Settings.", x, 150, FONT_S, THEME_TEXT_DIM, w - 60);
+    font_draw_fit(st->n || st->pending ? line : "No sources. Check your stream addons in Settings.", x, 150, FONT_S, THEME_TEXT_DIM, w - 60 - (gfx_handheld() ? 0 : 250));
+    draw_search_chip(st, x + w - 60, 84);
     if (st->pending) ui_spinner(x + w - 28, 140, 18);
     if (!st->n && st->pending) {
         for (int i = 0; i < 4; i++) ui_skeleton(x, LIST_Y + i * ROW_H, w, ROW_H - 14, R_PANEL);
@@ -1334,9 +1358,10 @@ static void draw_aperture(Streams *st)
         first_line(sm->name, line, sizeof line);
         char grp[24];
         group_of(sm, grp, sizeof grp);
-        int fav = fav_group(grp);
-        font_draw_fit(line[0] ? line : "Stream", x + 24 + (fav ? 40 : 0), y + 16, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 270 - (fav ? 40 : 0));
-        if (fav) ui_icon(ICON_STAR, x + 40, y + 16 + font_height(FONT_M | FONT_B) / 2, 26, THEME_GOLD);
+        int fav = fav_group(grp), star = fav || (foc && grp[0]);   /* starred, or the focused one's group can be */
+        font_draw_fit(line[0] ? line : "Stream", x + 24 + (star ? 48 : 0), y + 16, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 270 - (star ? 48 : 0));
+        if (star) draw_star(st, foc, fav, x + 40, y + 16 + font_height(FONT_M | FONT_B) / 2);
+        if (grp[0]) ui_hit(x + 8, y + 4, 64, 56, HIT_SRC_STAR + i);
         font_draw_fit(sm->addon_name, x + w - 230, y + 22, FONT_XS, THEME_TEXT_DIM, 210);
         {   /* the same badges as the other themes' Sources page: quality, size, cached */
             char b[8][24], list[200] = "";
@@ -1421,7 +1446,8 @@ static void draw(Screen *s)
     else if (st->pending) snprintf(msg, sizeof msg, "%d found  ·  %d addon%s still searching", st->n, st->pending, st->pending == 1 ? "" : "s");
     else if (!st->n) snprintf(msg, sizeof msg, "%s", st->n_reqs ? "No sources found for this title" : "No stream addons installed. Add one in Settings.");
     else snprintf(msg, sizeof msg, "%d source%s%s", st->n, st->n == 1 ? "" : "s", search_keys_hint());
-    font_draw_fit(msg, x, 156, FONT_S, THEME_TEXT_MUTED, w - (n_shown(st) > VISIBLE ? 150 : 0) - (gfx_handheld() ? 120 : 0));
+    font_draw_fit(msg, x, 156, FONT_S, THEME_TEXT_MUTED, w - (n_shown(st) > VISIBLE ? 150 : 0) - (gfx_handheld() ? 120 : 250));
+    draw_search_chip(st, x + w - 60, 100);
     if (gfx_handheld() && st->n) {   /* touch: the search's own button */
         float bx = x + w - (st->pending ? 100 : 40), by = 150;
         ui_hit(bx - 34, by - 34, 68, 68, HIT_SRC_SEARCH);
@@ -1531,7 +1557,7 @@ static void draw(Screen *s)
         font_draw_fit(line1[0] ? line1 : "Stream", ax, ry + 60, FONT_M | FONT_B, ok ? THEME_TEXT : THEME_TEXT_MUTED, w - 48 - (star ? 64 : 0));
         if (star) {
             float sx = x + w - 48, sy = ry + 60 + font_height(FONT_M | FONT_B) / 2;
-            ui_icon(ICON_STAR, sx, sy, 30, fav ? THEME_GOLD : COLOR_ALPHA(THEME_TEXT, 0x55));
+            draw_star(st, foc, fav, sx, sy);
         }
         if (grp[0]) ui_hit(x + w - 84, ry + 40, 72, 64, HIT_SRC_STAR + i);   /* touch: the star */
         int offer = foc && fetchable(sm) && !fetching(st, sm);   /* hold OK: onto your TorBox */
@@ -2015,7 +2041,7 @@ static int key(Screen *s, KeyAction a)
     }
     if (a == KEY_YELLOW || a == KEY_SEARCH) { if (st->n) search_open(st); return 1; }
     if (a == KEY_BACK && st->query[0]) { st->query[0] = 0; search_applied(st); return 1; }   /* Back: the search goes first, then the list */
-    if (a == KEY_GREEN) {   /* the focused source's release group: starred, or not any more */
+    if (a == KEY_GREEN || (a == KEY_OK && st->on_star)) {   /* the focused source's release group: starred, or not any more */
         int i = st->focus == -1 ? recommended(st) : st->focus;
         if (i < 0 || i >= st->n) return 1;
         char g[24];
@@ -2037,12 +2063,17 @@ static int key(Screen *s, KeyAction a)
         while (i >= 0 && !shown(st, i)) i--;   /* past what a search leaves out */
         if (i >= 0) st->focus = i;
         else if (st->focus >= 0 && !st->query[0] && recommended(st) >= 0) st->focus = -1;
+        else if (st->n && !gfx_handheld()) st->focus = -2;   /* above the list: the search button */
+        st->on_star = 0;
         app_redraw();
         return 1;
     }
     case KEY_DOWN: {
         st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1;
+        st->on_star = 0;
         int i = st->focus + 1;
+        if (st->focus == -2) i = !st->query[0] && recommended(st) >= 0 ? -1 : 0;   /* from the search button: the list */
+        if (i == -1) { st->focus = -1; app_redraw(); return 1; }
         while (i < st->n && !shown(st, i)) i++;
         if (i < st->n) { st->focus = i; app_redraw(); return 1; }
         return 0;
@@ -2050,7 +2081,21 @@ static int key(Screen *s, KeyAction a)
     case KEY_LONG_OK:   /* held on a torrent no one has cached: onto your TorBox */
         if (st->focus >= 0 && st->focus < st->n && fetchable(&st->items[st->focus]) && !fetching(st, &st->items[st->focus])) { fetch_start(st, &st->items[st->focus]); return 1; }
         return 0;   /* anything else: as OK */
+    case KEY_RIGHT: {   /* a source with a release group: onto its star */
+        char g[24];
+        int i = st->focus == -1 ? recommended(st) : st->focus;   /* the recommendation: its own row in the list */
+        if (st->focus < -1 || i < 0 || i >= st->n || st->on_star) return 0;
+        group_of(&st->items[i], g, sizeof g);
+        if (!g[0]) { if (st->focus == -1) app_toast("This source's name has no release group to star"); return 0; }
+        st->focus = i; st->on_star = 1; st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; app_redraw();
+        return 1;
+    }
+    case KEY_LEFT:
+        if (!st->on_star) return 0;
+        st->on_star = 0; app_redraw();
+        return 1;
     case KEY_OK:   /* a choice: timed from here, the sources are in */
+        if (st->focus == -2) { search_open(st); return 1; }
         perf_start_begin("chosen"); st->sources_timed = 1;
         if (st->focus == -1) { int r = recommended(st); if (r >= 0) play_from(st, r); return 1; }
         if (!shown(st, st->focus)) return 1;   /* a search that shows nothing: nothing to play */
@@ -2075,6 +2120,7 @@ static int tap(Screen *s, int id)
         return 1;
     }
     if (id < -1 || id >= st->n) return 1;
+    if (st->focus != id) st->on_star = 0;
     if (g_touch_aim && st->focus != id) { st->focus = id; return 1; }   /* a pointer resting on it: the focus only, the recommendation's start goes on */
     if (st->focus != id) { st->moved = 1; st->auto_rec_done = 1; st->autoplayed = 1; st->focus = id; }
     return 0;

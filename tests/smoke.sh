@@ -907,6 +907,11 @@ grep -q 'streams: 1 of [0-9]* sources match "good"' "$OUT/streams_search.log" &&
   && grep -q 'streams: [0-9]* of [0-9]* sources match ""' "$OUT/streams_search.log" && ! grep -q "player: candidate" "$OUT/streams_search.log" \
   || { echo "searching the sources or starring a group failed"; grep -E "streams: (searching|[0-9]* of|release group)|player: candidate|toast" "$OUT/streams_search.log"; exit 1; }
 # the search's keyboard open over the Sources list (a screenshot to look at)
+# a remote with no colour keys: Up from the list reaches the search button, OK opens the keys; Right on a source reaches its star, OK stars the release group
+run streams_dpad 700 "right,ok,down,down,yellow,down,down,down,ok,wait,up,up,up,ok,t:good,back,right,ok,wait" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json HOME="$(home_with srcdpad '{"prefSubs":"","setupDone":1,"preflight":0}')"
+grep -q "streams: searching the sources" "$OUT/streams_dpad.log" && grep -q 'streams: 1 of [0-9]* sources match "good"' "$OUT/streams_dpad.log" && grep -q "streams: release group GOOD is a favourite" "$OUT/streams_dpad.log" \
+  || { echo "the arrow keys alone did not reach the sources' search or a source's star"; grep -E "streams: (searching|[0-9]* of|release group)" "$OUT/streams_dpad.log"; exit 1; }
+run streams_chip 600 "right,ok,down,down,yellow,down,down,down,ok,wait,up,up,up" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json HOME="$(home_with srcchip '{"prefSubs":"","setupDone":1,"preflight":0}')"
 run streams_search_keys 600 "right,ok,down,down,yellow,down,down,down,ok,wait,yellow,t:web" SNTV_DEFAULT_ADDONS=http://127.0.0.1:$PORT/verdict/manifest.json,http://127.0.0.1:$PORT/manifest.json HOME="$(home_with srcsearchk '{"prefSubs":"","setupDone":1,"preflight":0,"srcFavGroups":"GOOD"}')"
 grep -q 'streams: 3 of 5 sources match "web"' "$OUT/streams_search_keys.log" || { echo "the search did not narrow the list as typed"; grep -E "streams: ([0-9]* of|searching)" "$OUT/streams_search_keys.log"; exit 1; }
 run verdict_demotes 900 "right,ok,down,down,play,wait,wait" $VERDICT SNTV_DEVICE_CLASS=webos9 HOME="$(home_with verdict1 '{"prefSubs":"","setupDone":1,"preflight":0}')"
