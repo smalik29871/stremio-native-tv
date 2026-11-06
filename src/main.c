@@ -1081,13 +1081,15 @@ static void vr_inject(const VrInput *in)
     else if (in->down && was_down && in->have_pointer) { e.type = SDL_FINGERMOTION; touch_event(&e); }
     else if (!in->down && was_down) { e.type = SDL_FINGERUP; e.tfinger.x = in->have_pointer ? in->x : g_touch.x; e.tfinger.y = in->have_pointer ? in->y : g_touch.y; touch_event(&e); }
     was_down = in->down;
+    if (in->play) dispatch_key(KEY_PLAY_PAUSE);   /* X */
+    if (in->view) { const char *vn = vr_video_cycle(); if (*vn) app_toast("View: %s", vn); }   /* Y: flat, 3D, 180, 360 */
     if (in->ok) dispatch_key(KEY_OK);
     if (in->back) dispatch_key(KEY_BACK);
     if (in->up_k) dispatch_key(KEY_UP);
     if (in->down_k) dispatch_key(KEY_DOWN);
     if (in->left_k) dispatch_key(KEY_LEFT);
     if (in->right_k) dispatch_key(KEY_RIGHT);
-    if (in->ok || in->back || in->up_k || in->down_k || in->left_k || in->right_k) g_app.last_input = g_app.time;
+    if (in->play || in->view || in->ok || in->back || in->up_k || in->down_k || in->left_k || in->right_k) g_app.last_input = g_app.time;
 }
 #endif
 
@@ -1672,6 +1674,7 @@ int main(int argc, char **argv)
     window_remember(win);
 #endif
     video_shutdown();
+    vr_shutdown();
     audio_shutdown();
     phone_stop();
     image_shutdown();

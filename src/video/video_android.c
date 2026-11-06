@@ -7,6 +7,7 @@
 #include "../youtube.h"
 #include "../memwatch.h"
 #include "../ui/gfx.h"
+#include "../vr/vr.h"
 #include <SDL.h>
 #include <SDL_system.h>
 #include <jni.h>
@@ -16,7 +17,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_VR_SURFACE, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;DJ)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -27,7 +28,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
     { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" }, { "subtitleLift", "(F)V" },
-    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" },
+    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" }, { "vrSurface", "(Landroid/view/Surface;)V" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -61,6 +62,7 @@ int video_init(SDL_Window *win)
     }
     g_cls = (jclass)(*e)->NewGlobalRef(e, cls);
     g.state = VIDEO_IDLE; g.buffer_ahead = -1;
+    { void *vs = vr_video_surface(); if (vs) { CALL(M_VR_SURFACE, (jobject)vs); LOGI("video: the picture goes to the headset's surface"); } }   /* in a headset: not to the window */
     return 0;
 }
 
@@ -85,6 +87,7 @@ int video_load(const char *url, const char *title, double start)
     g_paused_on_purpose = 0;
     if (!e) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The video player did not start on this device"); return -1; }
     g.state = VIDEO_LOADING;
+    { char tag[1100]; snprintf(tag, sizeof tag, "%s %s", title ? title : "", url ? url : ""); const char *vn = vr_video_hint(tag); if (*vn && strcmp(vn, "Flat")) { LOGI("vr: the name says %s", vn); app_toast("View: %s (Y changes it)", vn); } }   /* the headset's view: 3D, 180 or 360 where the name says so */
     jstring u = (*e)->NewStringUTF(e, url);
     (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_LOAD], u, (jdouble)(start > 0 ? start : 0), (jlong)g_loads);
     (*e)->DeleteLocalRef(e, u);
@@ -100,7 +103,7 @@ void video_set_rate(double r) { CALL(M_RATE, (jdouble)r); }
 void video_set_volume(int v) { CALL(M_VOLUME, (jint)v); }
 void video_set_muted(int m) { CALL(M_MUTED, (jboolean)(m != 0)); }
 unsigned video_load_count(void) { return g_loads; }
-void video_set_display_rect(int x, int y, int w, int h) { CALL(M_RECT, (jint)x, (jint)y, (jint)w, (jint)h); }
+void video_set_display_rect(int x, int y, int w, int h) { CALL(M_RECT, (jint)x, (jint)y, (jint)w, (jint)h); vr_video_box(x, y, w, h); }
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 void video_landscape_only(int on) { CALL(M_LANDSCAPE, (jboolean)(on != 0)); }

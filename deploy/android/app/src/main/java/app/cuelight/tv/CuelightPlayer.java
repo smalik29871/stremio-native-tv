@@ -15,6 +15,7 @@ import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.PixelCopy;
+import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -140,6 +141,18 @@ public final class CuelightPlayer {
         if (h != null) h.post(() -> { if (h == sMain && sActivity != null) r.run(); });
     }
 
+    /* In a headset the picture goes to a surface the compositor shows (src/vr/vr_openxr.c), not to the window's. */
+    private static volatile Surface sVrSurface;
+    public static void vrSurface(final Surface s) {
+        sVrSurface = s;
+        run(() -> { if (sPlayer != null) applyOutput(); });
+    }
+    private static void applyOutput() {
+        Surface vr = sVrSurface;
+        if (vr != null && vr.isValid()) sPlayer.setVideoSurface(vr);
+        else sPlayer.setVideoSurfaceView(sView);
+    }
+
     private static ExoPlayer player() {
         if (sPlayer != null) return sPlayer;
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
@@ -155,7 +168,7 @@ public final class CuelightPlayer {
             .setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             .setHandleAudioBecomingNoisy(true)
             .build();
-        sPlayer.setVideoSurfaceView(sView);
+        applyOutput();
         sPlayer.setTrackSelectionParameters(sPlayer.getTrackSelectionParameters().buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());   // the app picks subtitles itself
         sPlayer.addListener(new Player.Listener() {

@@ -8,6 +8,9 @@
 #include "vr.h"
 #include "vr_math.h"
 #include "../log.h"
+#include "../video/video.h"
+#include <ctype.h>
+#include <math.h>
 #include <SDL.h>
 #include <SDL_system.h>
 #include <jni.h>
@@ -27,6 +30,8 @@
 #define PANEL_M_W 2.8f           /* a metre and a half wide per metre of distance: a cinema screen's worth of a field of view */
 #define PANEL_M_H (PANEL_M_W * PANEL_PX_H / PANEL_PX_W)
 #define PANEL_DIST 2.2f
+#define VIDEO_PX_W 2560          /* the picture's surface: a quad of this size, the compositor scales it to what the eyes get */
+#define VIDEO_PX_H 1440
 #define PANEL_LOWER 0.15f        /* a little below eye level, where a head rests */
 #define GL_FRAMEBUFFER_SRGB_EXT_ 0x8DB9
 #define GL_SRGB8_ALPHA8_ 0x8C43
@@ -52,11 +57,37 @@ static struct {
     XrPath hand[2];
     XrSpace aim_space[2];
     VrInput input;
-    int trig_was[2], pressed_was[4], stick_dir_was;
+    int trig_was[2], pressed_was[6], stick_dir_was;
     double stick_repeat_at;
     int active_hand;
     PFN_xrGetOpenGLESGraphicsRequirementsKHR get_gles_req;
+    /* where the panel is and how big: moved by hand (the grip), brought back by the menu button */
+    float dist, scale, head_pos[3];
+    int grab, grab_was;
+    float grab_dist;
+    XrAction x_click, y_click, squeeze;
+    int has_equirect;
 } X;
+
+/* The film: ExoPlayer draws into an Android surface that the compositor shows (no copy through
+ * the app), as a quad behind the panel, or as the inside of a sphere for 180 and 360 degree films;
+ * 3D films are two halves of the one surface, one for each eye. */
+static struct {
+    PFN_xrCreateSwapchainAndroidSurfaceKHR create;
+    XrSwapchain chain;
+    jobject surface;                 /* a global reference to the android.view.Surface */
+    int ok;
+    int bx, by, bw, bh;              /* where the player screen wants it, in panel pixels */
+    int mode;                        /* an index into MODES */
+} V;
+
+typedef struct { const char *name; int proj, stereo; } ViewMode;   /* proj: 0 flat 1 180 degrees 2 360; stereo: 0 mono 1 side by side 2 top and bottom */
+static const ViewMode MODES[] = {
+    { "Flat", 0, 0 }, { "3D side by side", 0, 1 }, { "3D top and bottom", 0, 2 },
+    { "180 degrees, 3D side by side", 1, 1 }, { "180 degrees, 3D top and bottom", 1, 2 }, { "180 degrees, flat", 1, 0 },
+    { "360 degrees", 2, 0 }, { "360 degrees, 3D top and bottom", 2, 2 }, { "360 degrees, 3D side by side", 2, 1 },
+};
+#define N_MODES ((int)(sizeof MODES / sizeof MODES[0]))
 
 static int xr_ok(XrResult r, const char *what)
 {
@@ -94,8 +125,11 @@ static int setup_input(void)
     X.trigger = make_action(XR_ACTION_TYPE_FLOAT_INPUT, "trigger", "Trigger", 1);
     X.stick = make_action(XR_ACTION_TYPE_VECTOR2F_INPUT, "stick", "Thumbstick", 1);
     X.stick_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "stick_click", "Thumbstick press", 1);
-    X.a_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "ok", "OK (A or X)", 1);
-    X.b_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "back", "Back (B or Y)", 1);
+    X.a_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "ok", "OK (A)", 0);
+    X.b_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "back", "Back (B)", 0);
+    X.x_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "playpause", "Play or pause (X)", 0);
+    X.y_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "view", "Change the view: 3D, 180, 360 (Y)", 0);
+    X.squeeze = make_action(XR_ACTION_TYPE_FLOAT_INPUT, "grip", "Grab the screen (grip)", 1);
     X.menu_click = make_action(XR_ACTION_TYPE_BOOLEAN_INPUT, "menu", "Menu", 0);
 
     struct { XrAction a; const char *path; } b[] = {
@@ -103,8 +137,9 @@ static int setup_input(void)
         { X.trigger, "/user/hand/left/input/trigger/value" }, { X.trigger, "/user/hand/right/input/trigger/value" },
         { X.stick, "/user/hand/left/input/thumbstick" }, { X.stick, "/user/hand/right/input/thumbstick" },
         { X.stick_click, "/user/hand/left/input/thumbstick/click" }, { X.stick_click, "/user/hand/right/input/thumbstick/click" },
-        { X.a_click, "/user/hand/right/input/a/click" }, { X.a_click, "/user/hand/left/input/x/click" },
-        { X.b_click, "/user/hand/right/input/b/click" }, { X.b_click, "/user/hand/left/input/y/click" },
+        { X.a_click, "/user/hand/right/input/a/click" }, { X.x_click, "/user/hand/left/input/x/click" },
+        { X.b_click, "/user/hand/right/input/b/click" }, { X.y_click, "/user/hand/left/input/y/click" },
+        { X.squeeze, "/user/hand/left/input/squeeze/value" }, { X.squeeze, "/user/hand/right/input/squeeze/value" },
         { X.menu_click, "/user/hand/left/input/menu/click" } };
     XrActionSuggestedBinding sb[sizeof b / sizeof b[0]];
     for (size_t i = 0; i < sizeof b / sizeof b[0]; i++) { sb[i].action = b[i].a; sb[i].binding = path_of(b[i].path); }
@@ -167,6 +202,76 @@ static int make_swapchain(void)
     return 0;
 }
 
+/* The surface the film is decoded into. Its swapchain has no images the app touches: MediaCodec
+ * fills it and the compositor reads it. The player gets the Surface object (CuelightPlayer.vrSurface). */
+static void make_video_surface(JNIEnv *env)
+{
+    xrGetInstanceProcAddr(X.inst, "xrCreateSwapchainAndroidSurfaceKHR", (PFN_xrVoidFunction *)&V.create);
+    if (!V.create) { LOGW("vr: no video surface function: films will not show in the headset"); return; }
+    XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    ci.sampleCount = 1; ci.width = VIDEO_PX_W; ci.height = VIDEO_PX_H; ci.faceCount = 1; ci.arraySize = 1; ci.mipCount = 1;
+    jobject surf = NULL;
+    XrResult r = V.create(X.session, &ci, &V.chain, &surf);   /* the fields a surface swapchain ignores are left empty */
+    if (XR_FAILED(r)) {   /* a runtime that wants the colour usage named anyway */
+        ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+        V.chain = XR_NULL_HANDLE; surf = NULL;
+        r = V.create(X.session, &ci, &V.chain, &surf);
+    }
+    if (!xr_ok(r, "xrCreateSwapchainAndroidSurfaceKHR") || !surf) { V.chain = XR_NULL_HANDLE; return; }
+    V.surface = (*env)->NewGlobalRef(env, surf);
+    (*env)->DeleteLocalRef(env, surf);
+    V.ok = V.surface != NULL;
+    LOGI("vr: the film's surface is ready (%dx%d)", VIDEO_PX_W, VIDEO_PX_H);
+}
+
+void *vr_video_surface(void) { return V.ok ? (void *)V.surface : NULL; }
+void vr_video_box(int x, int y, int w, int h) { V.bx = x; V.by = y; V.bw = w; V.bh = h; }
+int vr_video_mode(void) { return V.mode; }
+
+const char *vr_video_cycle(void)
+{
+    for (int i = 1; i <= N_MODES; i++) {
+        int m = (V.mode + i) % N_MODES;
+        if (MODES[m].proj && !X.has_equirect) continue;   /* this runtime has no 180 or 360 */
+        V.mode = m;
+        break;
+    }
+    return MODES[V.mode].name;
+}
+
+static int has_word(const char *low, const char *w)
+{
+    size_t n = strlen(w);
+    for (const char *p = low; (p = strstr(p, w)); p++) {
+        int before = p == low || !isalnum((unsigned char)p[-1]);
+        int after = !isalnum((unsigned char)p[n]);
+        if (before && after) return 1;
+    }
+    return 0;
+}
+
+/* What a release is called says what it is: "Film.2019.1080p.HSBS", "Trip_VR180_LR", "Dive 360 TB". */
+const char *vr_video_hint(const char *text)
+{
+    char low[1100]; size_t n = 0;
+    for (const char *c = text ? text : ""; *c && n < sizeof low - 1; c++) low[n++] = (char)tolower((unsigned char)*c);
+    low[n] = 0;
+    for (size_t i = 0; i < n; i++) if (low[i] == '.' || low[i] == '_' || low[i] == '-' || low[i] == '[' || low[i] == ']' || low[i] == '(' || low[i] == ')') low[i] = ' ';
+    int p180 = has_word(low, "180") || has_word(low, "vr180") || has_word(low, "180x180");
+    int p360 = has_word(low, "360") || has_word(low, "vr360") || has_word(low, "equirectangular");
+    int vrish = p180 || p360 || has_word(low, "3d") || has_word(low, "vr");   /* "lr", "ou" and "tb" are also ordinary words and initials */
+    int sbs = has_word(low, "sbs") || has_word(low, "hsbs") || has_word(low, "3dh") || (vrish && has_word(low, "lr"));
+    int ou = has_word(low, "hou") || has_word(low, "htb") || has_word(low, "3dv") || (has_word(low, "over") && has_word(low, "under")) || (has_word(low, "top") && has_word(low, "bottom")) || (vrish && (has_word(low, "ou") || has_word(low, "tb")));
+    if (!X.has_equirect) p180 = p360 = 0;
+    int m = 0;   /* Flat */
+    if (p360) m = ou ? 7 : sbs ? 8 : 6;
+    else if (p180) m = ou ? 4 : sbs ? 3 : 5;
+    else if (sbs) m = 1;
+    else if (ou) m = 2;
+    V.mode = m;
+    return MODES[m].name;
+}
+
 static int vr_init_inner(void)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
@@ -194,16 +299,21 @@ static int vr_init_inner(void)
     if (!ep) return -1;
     for (uint32_t i = 0; i < ne; i++) { ep[i].type = XR_TYPE_EXTENSION_PROPERTIES; ep[i].next = NULL; }
     xrEnumerateInstanceExtensionProperties(NULL, ne, &ne, ep);
-    int has_gles = 0, has_android = 0;
+    int has_gles = 0, has_android = 0, has_surface = 0;
     for (uint32_t i = 0; i < ne; i++) {
         if (!strcmp(ep[i].extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME)) has_gles = 1;
         if (!strcmp(ep[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) has_android = 1;
+        if (!strcmp(ep[i].extensionName, XR_KHR_ANDROID_SURFACE_SWAPCHAIN_EXTENSION_NAME)) has_surface = 1;
+        if (!strcmp(ep[i].extensionName, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)) X.has_equirect = 1;
     }
     free(ep);
-    LOGI("vr: the runtime offers %u extensions (OpenGL ES %s, Android instance %s)", ne, has_gles ? "yes" : "NO", has_android ? "yes" : "NO");
+    LOGI("vr: the runtime offers %u extensions (OpenGL ES %s, Android instance %s, video surface %s, 180/360 %s)", ne, has_gles ? "yes" : "NO", has_android ? "yes" : "NO", has_surface ? "yes" : "NO", X.has_equirect ? "yes" : "no");
     if (!has_gles || !has_android) return -1;
 
-    const char *want[2] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
+    const char *want[4] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
+    uint32_t n_want = 2;
+    if (has_surface) want[n_want++] = XR_KHR_ANDROID_SURFACE_SWAPCHAIN_EXTENSION_NAME;
+    if (X.has_equirect) want[n_want++] = XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME;
     XrInstanceCreateInfoAndroidKHR ai = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
     ai.applicationVM = vm; ai.applicationActivity = activity;
     XrInstanceCreateInfo ci = { XR_TYPE_INSTANCE_CREATE_INFO };
@@ -211,7 +321,7 @@ static int vr_init_inner(void)
     snprintf(ci.applicationInfo.applicationName, sizeof ci.applicationInfo.applicationName, "Cuelight");
     snprintf(ci.applicationInfo.engineName, sizeof ci.applicationInfo.engineName, "Cuelight");
     ci.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
-    ci.enabledExtensionCount = 2; ci.enabledExtensionNames = want;
+    ci.enabledExtensionCount = n_want; ci.enabledExtensionNames = want;
     if (!xr_ok(xrCreateInstance(&ci, &X.inst), "xrCreateInstance")) return -1;
 
     XrInstanceProperties ip = { XR_TYPE_INSTANCE_PROPERTIES };
@@ -255,6 +365,8 @@ static int vr_init_inner(void)
 
     if (setup_input() != 0 || attach_input() != 0) return -1;
     if (make_swapchain() != 0) return -1;
+    if (has_surface) make_video_surface(env);
+    X.dist = PANEL_DIST; X.scale = 1.0f;
 
     /* the panel's first place, before the head has been located: straight ahead */
     const float p0[3] = { 0, -PANEL_LOWER, -PANEL_DIST }; memcpy(X.panel_pos, p0, sizeof p0);
@@ -270,9 +382,10 @@ static void place_panel_in_front(XrTime t)
     if (!(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) || !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) return;
     float hp[3] = { loc.pose.position.x, loc.pose.position.y, loc.pose.position.z };
     float hr[4] = { loc.pose.orientation.x, loc.pose.orientation.y, loc.pose.orientation.z, loc.pose.orientation.w };
-    vr_panel_in_front(hp, hr, PANEL_DIST, PANEL_LOWER, X.panel_pos, X.panel_rot);
+    vr_panel_in_front(hp, hr, X.dist, PANEL_LOWER, X.panel_pos, X.panel_rot);
+    memcpy(X.head_pos, hp, sizeof hp);
     X.panel_placed = 1;
-    LOGI("vr: the panel is %.1f m ahead of you", PANEL_DIST);
+    LOGI("vr: the panel is %.1f m ahead of you", X.dist);
 }
 
 static void poll_events(void)
@@ -336,28 +449,79 @@ static void sync_input(XrTime t)
         float d[3];
         vr_rotate(q, fwd, d);
         float u, v, dist;
-        if (vr_ray_panel(o, d, X.panel_pos, X.panel_rot, PANEL_M_W, PANEL_M_H, &u, &v, &dist)) { X.input.have_pointer = 1; X.input.x = u; X.input.y = v; }
+        if (vr_ray_panel(o, d, X.panel_pos, X.panel_rot, PANEL_M_W * X.scale, PANEL_M_H * X.scale, &u, &v, &dist)) { X.input.have_pointer = 1; X.input.x = u; X.input.y = v; }
     }
+    /* the grip: take hold of the screen and carry it (the thumbstick then pushes and pulls it, and makes it bigger or smaller) */
+    float grip[2] = { 0, 0 };
+    for (int h = 0; h < 2; h++) {
+        XrActionStateGetInfo gi = { XR_TYPE_ACTION_STATE_GET_INFO };
+        gi.action = X.squeeze; gi.subactionPath = X.hand[h];
+        XrActionStateFloat gf = { XR_TYPE_ACTION_STATE_FLOAT };
+        if (XR_SUCCEEDED(xrGetActionStateFloat(X.session, &gi, &gf)) && gf.isActive) grip[h] = gf.currentState;
+    }
+    int gh = grip[1] > grip[0] ? 1 : 0;
+    int want_grab = grip[gh] > (X.grab ? 0.4f : 0.7f);
+    static Uint32 last_ms;
+    Uint32 ms = SDL_GetTicks();
+    float dt = last_ms ? (ms - last_ms) / 1000.0f : 0.016f;
+    if (dt > 0.1f) dt = 0.1f;
+    last_ms = ms;
+    if (want_grab) {
+        XrSpaceLocation gl = { XR_TYPE_SPACE_LOCATION };
+        XrSpaceLocation hl = { XR_TYPE_SPACE_LOCATION };
+        if (XR_SUCCEEDED(xrLocateSpace(X.aim_space[gh], X.local, t, &gl)) && (gl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && (gl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+            float o[3] = { gl.pose.position.x, gl.pose.position.y, gl.pose.position.z };
+            float q[4] = { gl.pose.orientation.x, gl.pose.orientation.y, gl.pose.orientation.z, gl.pose.orientation.w };
+            const float fwd[3] = { 0, 0, -1 };
+            float d[3];
+            vr_rotate(q, fwd, d);
+            if (!X.grab) {   /* the screen stays as far from the hand as it is */
+                float dx = X.panel_pos[0] - o[0], dy = X.panel_pos[1] - o[1], dz = X.panel_pos[2] - o[2];
+                X.grab_dist = sqrtf(dx * dx + dy * dy + dz * dz);
+                X.grab = 1;
+            }
+            X.grab_dist += sy2 * 1.6f * dt;   /* the stick up pushes it away, down pulls it in */
+            if (X.grab_dist < 0.8f) X.grab_dist = 0.8f;
+            if (X.grab_dist > 8.0f) X.grab_dist = 8.0f;
+            X.scale *= 1.0f + sx * 0.9f * dt;   /* right bigger, left smaller */
+            if (X.scale < 0.4f) X.scale = 0.4f;
+            if (X.scale > 3.0f) X.scale = 3.0f;
+            for (int k = 0; k < 3; k++) X.panel_pos[k] = o[k] + d[k] * X.grab_dist;
+            if (XR_SUCCEEDED(xrLocateSpace(X.view, X.local, t, &hl)) && (hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {   /* and it faces you, upright */
+                float fx = X.panel_pos[0] - hl.pose.position.x, fz = X.panel_pos[2] - hl.pose.position.z;
+                float yaw = atan2f(-fx, -fz);
+                X.panel_rot[0] = 0; X.panel_rot[1] = sinf(yaw / 2); X.panel_rot[2] = 0; X.panel_rot[3] = cosf(yaw / 2);
+                X.head_pos[0] = hl.pose.position.x; X.head_pos[1] = hl.pose.position.y; X.head_pos[2] = hl.pose.position.z;
+                X.dist = sqrtf(fx * fx + fz * fz);   /* where the menu button brings it back to */
+                if (X.dist < 0.8f) X.dist = 0.8f;
+            }
+        }
+    } else X.grab = 0;
+    X.input.grabbing = X.grab;
+    if (X.grab) { sx = sy2 = 0; }   /* the stick was moving the screen, not the menus */
+
     /* a trigger pressed hard is down, let go well below it: no flutter at the edge */
     int was = X.trig_was[0];
-    X.input.down = X.input.have_pointer && (trig[hand] > (was ? 0.35f : 0.65f));
+    X.input.down = X.input.have_pointer && !X.grab && (trig[hand] > (was ? 0.35f : 0.65f));
     X.trig_was[0] = X.input.down;
 
     /* buttons */
-    int pressed[4] = { 0, 0, 0, 0 };   /* ok, back, menu, stick click */
-    XrAction acts[4] = { X.a_click, X.b_click, X.menu_click, X.stick_click };
-    for (int k = 0; k < 4; k++) {
+    int pressed[6] = { 0, 0, 0, 0, 0, 0 };   /* ok, back, menu, stick click, play or pause, view */
+    XrAction acts[6] = { X.a_click, X.b_click, X.menu_click, X.stick_click, X.x_click, X.y_click };
+    for (int k = 0; k < 6; k++) {
         for (int h = 0; h < 2; h++) {
             XrActionStateGetInfo gi = { XR_TYPE_ACTION_STATE_GET_INFO };
-            gi.action = acts[k]; gi.subactionPath = k == 2 ? XR_NULL_PATH : X.hand[h];
+            gi.action = acts[k]; gi.subactionPath = k == 3 ? X.hand[h] : XR_NULL_PATH;   /* only the stick press is per hand */
             XrActionStateBoolean bs = { XR_TYPE_ACTION_STATE_BOOLEAN };
             if (XR_SUCCEEDED(xrGetActionStateBoolean(X.session, &gi, &bs)) && bs.isActive && bs.currentState) pressed[k] = 1;
-            if (k == 2) break;
+            if (k != 3) break;
         }
     }
     X.input.ok = edge(pressed[0] || pressed[3], &X.pressed_was[0]);
     X.input.back = edge(pressed[1], &X.pressed_was[1]);
     X.input.menu = edge(pressed[2], &X.pressed_was[2]);
+    X.input.play = edge(pressed[4], &X.pressed_was[3]);
+    X.input.view = edge(pressed[5], &X.pressed_was[4]);
 
     /* the thumbstick as arrow keys: a push is one press, held it repeats after a pause */
     int dir = 0;   /* 1 up 2 down 3 left 4 right */
@@ -417,11 +581,67 @@ void vr_frame_end(void)
         if (xr_ok(xrReleaseSwapchainImage(X.chain, &ri), "xrReleaseSwapchainImage")) X.ever_released = 1;
         X.acquired = 0;
     }
-    XrCompositionLayerQuad q = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-    const XrCompositionLayerBaseHeader *layers[1];
+    const XrCompositionLayerBaseHeader *layers[4];
     uint32_t n = 0;
+    XrCompositionLayerQuad vq[2], q = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+    XrCompositionLayerEquirect2KHR eq[2];
     if (X.frame.shouldRender && X.ever_released) {
-        q.layerFlags = 0;
+        /* behind the panel: the film, where there is one on show */
+        VideoInfo vi; video_info(&vi);
+        const ViewMode *vm = &MODES[V.mode];
+        if (V.ok && V.chain && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) && vi.width > 0 && vi.height > 0) {
+            int eyes = vm->stereo ? 2 : 1;
+            for (int e = 0; e < eyes; e++) {
+                XrSwapchainSubImage si; memset(&si, 0, sizeof si);
+                si.swapchain = V.chain;
+                si.imageRect.extent.width = VIDEO_PX_W; si.imageRect.extent.height = VIDEO_PX_H;
+                if (vm->stereo == 1) { si.imageRect.extent.width = VIDEO_PX_W / 2; si.imageRect.offset.x = e ? VIDEO_PX_W / 2 : 0; }
+                if (vm->stereo == 2) { si.imageRect.extent.height = VIDEO_PX_H / 2; si.imageRect.offset.y = e ? VIDEO_PX_H / 2 : 0; }
+                XrEyeVisibility vis = !vm->stereo ? XR_EYE_VISIBILITY_BOTH : (e ? XR_EYE_VISIBILITY_RIGHT : XR_EYE_VISIBILITY_LEFT);
+                if (vm->proj) {   /* the inside of half or all of a sphere around where your head was */
+                    XrCompositionLayerEquirect2KHR *l = &eq[e];
+                    memset(l, 0, sizeof *l);
+                    l->type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
+                    l->space = X.local; l->eyeVisibility = vis; l->subImage = si;
+                    l->pose.orientation.x = X.panel_rot[0]; l->pose.orientation.y = X.panel_rot[1]; l->pose.orientation.z = X.panel_rot[2]; l->pose.orientation.w = X.panel_rot[3];
+                    l->pose.position.x = X.head_pos[0]; l->pose.position.y = X.head_pos[1]; l->pose.position.z = X.head_pos[2];
+                    l->radius = 50.0f;
+                    l->centralHorizontalAngle = vm->proj == 1 ? 3.14159265f : 6.2831853f;
+                    l->upperVerticalAngle = 1.5707963f; l->lowerVerticalAngle = -1.5707963f;
+                    layers[n++] = (const XrCompositionLayerBaseHeader *)l;
+                } else {   /* a flat screen inside the box the player screen gave, the shape of one eye's picture */
+                    float a = (float)vi.width / (float)vi.height;
+                    if (vm->stereo == 1 && a >= 3.0f) a *= 0.5f;   /* full width side by side: each half is already a whole picture */
+                    if (vm->stereo == 2 && a < 1.2f) a *= 2.0f;    /* full height top and bottom */
+                    int bx = V.bx, by = V.by, bw = V.bw, bh = V.bh;
+                    if (bw <= 0 || bh <= 0) { bx = 0; by = 0; bw = PANEL_PX_W; bh = PANEL_PX_H; }
+                    if (bx < 0) { bw += bx; bx = 0; }
+                    if (by < 0) { bh += by; by = 0; }
+                    if (bx + bw > PANEL_PX_W) bw = PANEL_PX_W - bx;
+                    if (by + bh > PANEL_PX_H) bh = PANEL_PX_H - by;
+                    if (bw < 2 || bh < 2) continue;
+                    float fw, fh;
+                    if ((float)bw / (float)bh > a) { fh = (float)bh; fw = fh * a; } else { fw = (float)bw; fh = fw / a; }
+                    float mw = PANEL_M_W * X.scale, mh = PANEL_M_H * X.scale;
+                    float ox = ((bx + bw * 0.5f) / PANEL_PX_W - 0.5f) * mw, oy = -((by + bh * 0.5f) / PANEL_PX_H - 0.5f) * mh;
+                    static const float AX[3] = { 1, 0, 0 }, AY[3] = { 0, 1, 0 };
+                    float ax[3], ay[3];
+                    vr_rotate(X.panel_rot, AX, ax); vr_rotate(X.panel_rot, AY, ay);
+                    XrCompositionLayerQuad *l = &vq[e];
+                    memset(l, 0, sizeof *l);
+                    l->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                    l->space = X.local; l->eyeVisibility = vis; l->subImage = si;
+                    l->pose.orientation.x = X.panel_rot[0]; l->pose.orientation.y = X.panel_rot[1]; l->pose.orientation.z = X.panel_rot[2]; l->pose.orientation.w = X.panel_rot[3];
+                    l->pose.position.x = X.panel_pos[0] + ax[0] * ox + ay[0] * oy;
+                    l->pose.position.y = X.panel_pos[1] + ax[1] * ox + ay[1] * oy;
+                    l->pose.position.z = X.panel_pos[2] + ax[2] * ox + ay[2] * oy;
+                    l->size.width = mw * fw / PANEL_PX_W; l->size.height = mh * fh / PANEL_PX_H;
+                    layers[n++] = (const XrCompositionLayerBaseHeader *)l;
+                }
+            }
+        }
+        /* the panel: the app's own screens, see-through where the player left a hole for the picture */
+        q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
         q.space = X.local;
         q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
         q.subImage.swapchain = X.chain;
@@ -430,7 +650,7 @@ void vr_frame_end(void)
         q.subImage.imageArrayIndex = 0;
         q.pose.orientation.x = X.panel_rot[0]; q.pose.orientation.y = X.panel_rot[1]; q.pose.orientation.z = X.panel_rot[2]; q.pose.orientation.w = X.panel_rot[3];
         q.pose.position.x = X.panel_pos[0]; q.pose.position.y = X.panel_pos[1]; q.pose.position.z = X.panel_pos[2];
-        q.size.width = PANEL_M_W; q.size.height = PANEL_M_H;
+        q.size.width = PANEL_M_W * X.scale; q.size.height = PANEL_M_H * X.scale;
         layers[n++] = (const XrCompositionLayerBaseHeader *)&q;
     }
     XrFrameEndInfo fe = { XR_TYPE_FRAME_END_INFO };
@@ -443,6 +663,8 @@ void vr_frame_end(void)
 
 void vr_shutdown(void)
 {
+    if (V.surface) { JNIEnv *je = (JNIEnv *)SDL_AndroidGetJNIEnv(); if (je) (*je)->DeleteGlobalRef(je, V.surface); }
+    memset(&V, 0, sizeof V);
     if (X.session) { if (X.running) xrEndSession(X.session); xrDestroySession(X.session); }
     if (X.inst) xrDestroyInstance(X.inst);
     memset(&X, 0, sizeof X);
