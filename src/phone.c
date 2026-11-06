@@ -1456,9 +1456,14 @@ int phone_hand_over(const char *what)
         snprintf(body, sizeof body, "%s", what ? what : "");
         int rn = snprintf(req, sizeof req, "POST /open HTTP/1.0\r\nHost: x\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n%s", strlen(body), body);
         send_all(fd, req, (size_t)rn);
-        ssize_t got = recv(fd, buf, sizeof buf - 1, 0);
+        size_t got = 0;   /* the answer can come in pieces (the header, then the body): read to the end */
+        for (;;) {
+            ssize_t r = recv(fd, buf + got, sizeof buf - 1 - got, 0);
+            if (r <= 0 || (got += (size_t)r) >= sizeof buf - 1) break;
+        }
         sock_close(fd);
-        if (got > 0) { buf[got] = 0; if (strstr(buf, "\"app\":\"cuelight\"")) return 1; }
+        buf[got] = 0;
+        if (strstr(buf, "\"app\":\"cuelight\"")) return 1;
     }
     return 0;
 }
