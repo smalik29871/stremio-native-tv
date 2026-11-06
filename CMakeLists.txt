@@ -45,6 +45,7 @@ add_library(sntv_core STATIC
   src/store.c
   src/vault.c
   src/report.c
+  src/wintask.c
   src/sha256.c
   src/subs.c
   src/skip.c
@@ -116,7 +117,7 @@ if(SNTV_FFMPEG_PREFIX)
       if(NOT EXISTS ${FF}/libavformat.dll.a)
         target_link_libraries(sntv_core PUBLIC ${FF}/libz.a)
       endif()
-      target_link_libraries(sntv_core PUBLIC ws2_32 secur32 bcrypt crypt32 ncrypt ole32 user32 d3d11 dxgi)
+      target_link_libraries(sntv_core PUBLIC ws2_32 secur32 bcrypt crypt32 ncrypt ole32 uuid user32 d3d11 dxgi)
     else()
       target_link_libraries(sntv_core PUBLIC ssl crypto z m)
     endif()
@@ -193,9 +194,9 @@ elseif(SNTV_PLATFORM STREQUAL "windows")
   target_compile_definitions(sntv_core PUBLIC _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN)
   target_compile_options(sntv_core PUBLIC -include ${CMAKE_SOURCE_DIR}/src/platform/win_posix.h)
   target_sources(sntv_core PRIVATE src/platform/win_posix.c)
-  target_link_libraries(sntv_core PUBLIC ws2_32 iphlpapi shlwapi crypt32)
+  target_link_libraries(sntv_core PUBLIC ws2_32 iphlpapi shlwapi crypt32 ole32 uuid)
   set(SNTV_LINK_LIBS mingw32 ${SNTV_WIN_DEPS}/lib/libSDL2main.a ${SNTV_WIN_DEPS}/lib/libSDL2.dll.a
-      ${SNTV_WIN_DEPS}/lib/libGLESv2.dll.a ws2_32 iphlpapi shlwapi crypt32 m)
+      ${SNTV_WIN_DEPS}/lib/libGLESv2.dll.a ws2_32 iphlpapi shlwapi crypt32 ole32 uuid m)
   foreach(o CURL_USE_SCHANNEL CURL_DISABLE_LDAP CURL_ZLIB CURL_WINDOWS_SSPI)
     set(${o} ON CACHE BOOL "" FORCE)
   endforeach()

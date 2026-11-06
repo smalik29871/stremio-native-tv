@@ -29,6 +29,9 @@ char *phone_take_restore(void);
 /* Diagnostics: offers `text` at a link with a fresh random key (written to url, 1 when
  * the server is up) while the QR is open; NULL takes it down. */
 int phone_offer_log(const char *text, char *url, size_t n);
+int phone_hand_over(const char *what);   /* a Cuelight is open on this computer: gives it a file or link (or just a raise) and returns 1 */
+int phone_take_open(char *out, size_t n);   /* something another launch handed over, 1 when there was */
+int phone_take_raise(void);                 /* another launch asked this window to come to the front */
 /* Sync with another device: while a bundle is offered, its code (url: /sync/<random key>)
  * opens a page that hands over to the Cuelight app, which fetches the bundle and may send
  * one back (phone_take_sync, malloc'd). NULL closes it and forgets the key. */

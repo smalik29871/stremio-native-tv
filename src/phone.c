@@ -196,6 +196,29 @@ static SDL_cond *g_frames_cond;
 static SDL_Thread *g_frames_thread;
 enum { FRAMES_WAITING = 3 };
 
+/* ---- a second launch hands over to the Cuelight that is open ------------------------------------
+ * Another start on this computer (a double-clicked film, a cuelight:// link) asks the first over the
+ * loopback (POST /open, the file or link as the body, or nothing: just come to the front) and ends. */
+static char g_open_q[4][1300];
+static int g_open_n, g_raise;
+
+int phone_take_open(char *out, size_t n)
+{
+    SDL_LockMutex(g_lock);
+    int got = g_open_n > 0;
+    if (got) { snprintf(out, n, "%s", g_open_q[0]); memmove(g_open_q[0], g_open_q[1], sizeof g_open_q[0] * 3); g_open_n--; }
+    SDL_UnlockMutex(g_lock);
+    return got;
+}
+
+int phone_take_raise(void)
+{
+    SDL_LockMutex(g_lock);
+    int r = g_raise; g_raise = 0;
+    SDL_UnlockMutex(g_lock);
+    return r;
+}
+
 static void respond_text(int fd, const char *status, const char *text)
 {
     char head[256];
@@ -682,6 +705,17 @@ static int handle(int fd, const struct sockaddr_in *peer)
     ssize_t n = recv(fd, req, sizeof req - 1, 0);
     if (n <= 0) return 0;
     req[n] = 0;
+    if (!strncmp(req, "POST /open ", 11) && peer->sin_addr.s_addr == htonl(INADDR_LOOPBACK)) {   /* another launch on this computer */
+        const char *body = strstr(req, "\r\n\r\n");
+        body = body ? body + 4 : "";
+        SDL_LockMutex(g_lock);
+        g_raise = 1;
+        if (*body && g_open_n < 4) snprintf(g_open_q[g_open_n++], sizeof g_open_q[0], "%s", body);
+        SDL_UnlockMutex(g_lock);
+        LOGI("open: handed over by another launch%s", *body ? " (with something to open)" : "");
+        respond_text(fd, "200 OK", "{\"app\":\"cuelight\"}");
+        return 0;
+    }
     if (handle_backup(fd, req, n)) return 0;
     if (handle_sync(fd, req, n, peer)) return 0;
     if (handle_log(fd, req)) return 0;
@@ -1397,4 +1431,34 @@ int phone_scan_results(PhoneFound *out, int max, int *finished)
     if (finished) *finished = g_scan_state != 1;
     SDL_UnlockMutex(g_lock);
     return n;
+}
+
+/* A Cuelight is already open on this computer: give it `what` (a file, a link, or "") and say so.
+ * 1 when it took it, 0 when none answers (this one starts). */
+int phone_hand_over(const char *what)
+{
+#ifdef _WIN32
+    WSADATA wd;
+    WSAStartup(MAKEWORD(2, 2), &wd);
+#endif
+    const char *e = getenv("SNTV_PHONE_PORT");
+    int base = e && atoi(e) > 0 ? atoi(e) : 11471;
+    for (int port = base; port < base + 9; port++) {
+        int fd = (int)socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) continue;
+        sock_timeout(fd, SO_RCVTIMEO, 2);
+        sock_timeout(fd, SO_SNDTIMEO, 2);
+        struct sockaddr_in a;
+        memset(&a, 0, sizeof a);
+        a.sin_family = AF_INET; a.sin_port = htons((uint16_t)port); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (connect(fd, (struct sockaddr *)&a, sizeof a) != 0) { sock_close(fd); continue; }
+        char body[1300], req[1500], buf[256] = "";
+        snprintf(body, sizeof body, "%s", what ? what : "");
+        int rn = snprintf(req, sizeof req, "POST /open HTTP/1.0\r\nHost: x\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n%s", strlen(body), body);
+        send_all(fd, req, (size_t)rn);
+        ssize_t got = recv(fd, buf, sizeof buf - 1, 0);
+        sock_close(fd);
+        if (got > 0) { buf[got] = 0; if (strstr(buf, "\"app\":\"cuelight\"")) return 1; }
+    }
+    return 0;
 }

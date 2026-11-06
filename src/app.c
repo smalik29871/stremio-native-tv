@@ -815,6 +815,9 @@ int app_addon_index(const char *link)
 /* Opened with an addon's install link (stremio://host/.../manifest.json, as addon pages offer):
  * it installs, as Settings > Addons would. Only the host goes in the log: an addon's address
  * often carries its configuration, a debrid key among it. */
+static char g_queued_link[1300];
+void app_queue_link(const char *link) { snprintf(g_queued_link, sizeof g_queued_link, "%s", link); }   /* a link another launch brought: opened as one the system gave */
+
 void app_open_links(void)
 {
     static float looked;
@@ -824,7 +827,8 @@ void app_open_links(void)
     static int env_done;
     const char *env = env_done ? NULL : getenv("SNTV_OPEN_LINK");   /* tests: as if opened with this link */
     env_done = 1;
-    if (env && *env) snprintf(link, sizeof link, "%s", env);
+    if (g_queued_link[0]) { snprintf(link, sizeof link, "%s", g_queued_link); g_queued_link[0] = 0; }
+    else if (env && *env) snprintf(link, sizeof link, "%s", env);
     else if (!video_take_open_url(link, sizeof link)) return;
     if (!strncmp(link, "cuelight://party", 16)) {   /* a Cue Party's code, scanned on this phone */
         const char *c = strstr(link, "code=");

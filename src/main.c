@@ -3,6 +3,7 @@
 #include "audio.h"
 #include "breaks.h"
 #include "phone.h"
+#include "wintask.h"
 #include "ui/accessibility.h"
 #include "ui/widgets.h"
 #include "ui/rail.h"
@@ -772,6 +773,13 @@ static void window_dropped(const char *what)
     g_app.last_input = g_app.time;
 }
 
+/* What another launch (or this one's own first argument) asks to open: a link goes where links go, a file or address plays */
+static void open_given(const char *what)
+{
+    if (!strncmp(what, "cuelight://", 11) || !strncmp(what, "stremio://", 10)) app_queue_link(what);
+    else window_dropped(what);
+}
+
 /* W in the player: the window shrinks to a corner of the screen and stays above the other windows
  * (a film in the corner while you work); W again, or the film ending, puts it back. */
 static struct { int x, y, w, h, max; } g_mini_was;
@@ -1143,6 +1151,10 @@ int main(int argc, char **argv)
 {
     g_perf_fill = getenv("SNTV_PERF_FILL") != NULL;
     (void)argc; (void)argv;
+#ifdef SNTV_DESKTOP_KEYS
+    /* a second launch on this computer (a film opened from a folder, a cuelight:// link) gives it to the Cuelight that is open and ends */
+    if (!getenv("SNTV_MULTI") && phone_hand_over(argc > 1 && argv[1][0] != '-' ? argv[1] : "")) return 0;
+#endif
     int frame = 0;
 #ifdef SIGPIPE
     signal(SIGPIPE, SIG_IGN);   /* a player hanging up on the phone server must not end the app */
@@ -1251,6 +1263,7 @@ int main(int argc, char **argv)
 #endif
 #ifdef SNTV_DESKTOP_KEYS
     g_kwin = win;
+    wintask_init(win);   /* Windows: the taskbar's progress and thumbnail buttons */
     if (win && win_max) SDL_MaximizeWindow(win);
 #endif
     if (!win) { LOGE("SDL_CreateWindow: %s", SDL_GetError()); return 1; }
@@ -1486,6 +1499,14 @@ int main(int argc, char **argv)
                 if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
             }
+#ifdef _WIN32
+            else if (e.type == SDL_SYSWMEVENT) {   /* a thumbnail button of the taskbar */
+                int act = wintask_message(e.syswm.msg);
+                Screen *wt = app_top();
+                if (act && wt && !strcmp(wt->name, "player")) { dispatch_key(act == WINTASK_PLAYPAUSE ? KEY_PLAY : act == WINTASK_BACK ? KEY_LEFT : KEY_RIGHT); g_app.last_input = g_app.time; }
+                continue;
+            }
+#endif
 #ifdef SNTV_DESKTOP_KEYS
             else if (e.type == SDL_DROPFILE || e.type == SDL_DROPTEXT) {   /* a file or a link dropped on the window: it plays */
                 if (e.drop.file) { window_dropped(e.drop.file); SDL_free(e.drop.file); }
@@ -1563,6 +1584,22 @@ int main(int argc, char **argv)
         }
         STAGE("http", http_pump());
 #ifdef SNTV_DESKTOP_KEYS
+        {   /* another launch on this computer: its window comes forward, what it brought opens */
+            static int args_done;
+            if (phone_take_raise() && g_kwin) { if (SDL_GetWindowFlags(g_kwin) & SDL_WINDOW_MINIMIZED) SDL_RestoreWindow(g_kwin); SDL_RaiseWindow(g_kwin); }
+            char given[1300];
+            while (phone_take_open(given, sizeof given)) open_given(given);
+            if (!args_done && g_app.time > 1.0f) { args_done = 1; if (argc > 1 && argv[1][0] != '-') open_given(argv[1]); }
+        }
+        {   /* the taskbar button shows how far a film is (twice a second is plenty) */
+            static float tb_at;
+            if (g_app.time - tb_at > 0.5f) {
+                tb_at = g_app.time;
+                Screen *tt = app_top();
+                if (tt && !strcmp(tt->name, "player")) { VideoInfo tv; video_info(&tv); wintask_update(tv.state == VIDEO_PLAYING || tv.state == VIDEO_PAUSED, tv.state == VIDEO_PAUSED, tv.position, tv.duration); }
+                else wintask_update(0, 0, 0, 0);
+            }
+        }
         { Screen *mt = app_top(); if (g_mini && !(mt && !strcmp(mt->name, "player"))) window_mini_toggle(); }   /* the film is over: the window comes back */
         if (g_win_dirty && SDL_GetTicks() - g_win_dirty_at > 1500) { g_win_dirty = 0; window_remember(win); store_save(); }   /* once it has settled */
 #endif
@@ -1680,6 +1717,7 @@ int main(int argc, char **argv)
 #ifdef SNTV_DESKTOP_KEYS
     window_remember(win);
 #endif
+    wintask_shutdown();
     video_shutdown();
     audio_shutdown();
     phone_stop();

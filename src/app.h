@@ -314,6 +314,7 @@ int  app_sync_apply(const char *json, int with_look, char *summary, size_t n);
 int  app_restore_settings(const char *json);
 /* Plays a direct video link (sent from a phone); nothing is saved against a title. */
 void app_play_link(const char *url);
+void app_queue_link(const char *link);   /* a link another launch brought (cuelight://..., stremio://...): opened at the next look */
 void app_play_named(const char *url, const char *name);   /* a link with a name to show */
 void app_note_frame(float ms);          /* feeds the Auto effects level */
 float app_test_frame_ms(float ms);      /* tests: SNTV_FAKE_FRAME_MS in place of the measured time */

@@ -68,6 +68,7 @@ export SNTV_WEATHER_API=http://127.0.0.1:$PORT/weather SNTV_IPAPI=http://127.0.0
 export SNTV_ITUNES_API=http://127.0.0.1:$PORT/noitunes   # no soundtracks, and nothing asked of the real store; the music runs set /itunes
 export SNTV_NO_WHATSNEW=1   # every profile here is "set up", which reads as just updated; the whatsnew run turns it on
 export SNTV_NO_BUFFER=1   # the runs below test what they did before the buffer ahead; the buffer_ runs turn it on
+export SNTV_MULTI=1   # a second launch hands over to the first one (single_instance below turns that on): the runs here are many at once
 export HOME="$OUT/home"; mkdir -p "$HOME"
 # preferred subtitles = English so the player auto-loads the fake addon's SRT
 mkdir -p "$HOME/.local/share/stremio/nativetv"
@@ -511,6 +512,18 @@ echo hello > "$OUT/notes.txt"
 run drop_file 300 "drop:/nonexistent/film.mkv,wait,drop:/etc,wait,drop:$OUT/notes.txt,wait,drop:https://127.0.0.1:9/video.mp4,wait"
 grep -q "drop: playing https://127.0.0.1:9" "$OUT/drop_file.log" && grep -q "toast: That file cannot be opened" "$OUT/drop_file.log" && grep -q "toast: That is a folder" "$OUT/drop_file.log" && grep -q "toast: That is not a video file" "$OUT/drop_file.log" \
   || { echo "dropping on the window did not do the right thing"; grep -E "drop:|toast:" "$OUT/drop_file.log"; exit 1; }
+# A second launch hands what it was given to the Cuelight that is open, and ends at once
+SI_PORT=$((PORT + 3000))
+SI_HOME="$(home_with single '{"prefSubs":"","setupDone":1}')"
+( env -u SNTV_MULTI HOME="$SI_HOME" SNTV_PHONE_PORT=$SI_PORT SNTV_SCREENSHOT="$OUT/single_instance.ppm" SNTV_SCREENSHOT_FRAMES=1400 \
+    xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" > "$OUT/single_instance.log" 2>&1 & )
+for _ in $(seq 1 40); do grep -q "phone: type-on-your-phone page" "$OUT/single_instance.log" 2>/dev/null && break; sleep 0.5; done
+SI_T0=$(date +%s)
+env -u SNTV_MULTI HOME="$SI_HOME" SNTV_PHONE_PORT=$SI_PORT "$BUILD/stremio-tv" "cuelight://sync" > "$OUT/single_instance_2.log" 2>&1; SI_RC=$?
+SI_T1=$(date +%s)
+for _ in $(seq 1 60); do grep -q "main: closed" "$OUT/single_instance.log" 2>/dev/null && break; sleep 0.5; done
+{ [ "$SI_RC" = 0 ] && [ $((SI_T1 - SI_T0)) -le 3 ] && [ ! -s "$OUT/single_instance_2.log" ] && grep -q "open: handed over by another launch (with something to open)" "$OUT/single_instance.log" && grep -q "app: opened with a sync code" "$OUT/single_instance.log"; } \
+  || { echo "a second launch did not hand over to the first"; echo "rc=$SI_RC"; cat "$OUT/single_instance_2.log" | head -5; grep -E "open:|app: opened" "$OUT/single_instance.log"; exit 1; }
 # K pauses and plays, the frame step works while paused, and nothing of it reaches a screen outside the player
 run player_desktop_pause 400 "right,ok,down,down,play,wait,key:k,wait,key:period,key:comma,key:k,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
 run desktop_keys_home 150 "key:j,key:l,key:5,key:question,key:pgdn,key:pgup,key:slash,wait"
