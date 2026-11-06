@@ -170,9 +170,14 @@ static int make_swapchain(void)
 static int vr_init_inner(void)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
-    jobject activity = (jobject)SDL_AndroidGetActivity();
+    jobject local_activity = (jobject)SDL_AndroidGetActivity();
     JavaVM *vm = NULL;
-    if (!env || !activity || (*env)->GetJavaVM(env, &vm) != JNI_OK) return -1;
+    if (!env || !local_activity || (*env)->GetJavaVM(env, &vm) != JNI_OK) return -1;
+    /* the runtime keeps this past this call (and on another thread): a global reference, not SDL's local one */
+    static jobject activity;
+    if (!activity) activity = (*env)->NewGlobalRef(env, local_activity);
+    (*env)->DeleteLocalRef(env, local_activity);
+    if (!activity) return -1;
 
     PFN_xrInitializeLoaderKHR init_loader = NULL;
     xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", (PFN_xrVoidFunction *)&init_loader);
@@ -185,8 +190,8 @@ static int vr_init_inner(void)
     uint32_t ne = 0;
     XrResult r = xrEnumerateInstanceExtensionProperties(NULL, 0, &ne, NULL);
     if (XR_FAILED(r)) { LOGI("vr: no OpenXR runtime here (%d): the app runs flat", (int)r); return -1; }
-    XrExtensionProperties ep[128];
-    if (ne > 128) ne = 128;
+    XrExtensionProperties *ep = (XrExtensionProperties *)calloc(ne ? ne : 1, sizeof *ep);   /* by the count the runtime gives, never a fixed list */
+    if (!ep) return -1;
     for (uint32_t i = 0; i < ne; i++) { ep[i].type = XR_TYPE_EXTENSION_PROPERTIES; ep[i].next = NULL; }
     xrEnumerateInstanceExtensionProperties(NULL, ne, &ne, ep);
     int has_gles = 0, has_android = 0;
@@ -194,6 +199,7 @@ static int vr_init_inner(void)
         if (!strcmp(ep[i].extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME)) has_gles = 1;
         if (!strcmp(ep[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) has_android = 1;
     }
+    free(ep);
     LOGI("vr: the runtime offers %u extensions (OpenGL ES %s, Android instance %s)", ne, has_gles ? "yes" : "NO", has_android ? "yes" : "NO");
     if (!has_gles || !has_android) return -1;
 
@@ -291,6 +297,7 @@ static void poll_events(void)
             default: break;
             }
         } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) X.quit = 1;
+        else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) { X.panel_placed = 0; LOGI("vr: recentred, the panel comes back in front of you"); }
     }
 }
 

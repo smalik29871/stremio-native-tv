@@ -1127,6 +1127,11 @@ int main(int argc, char **argv)
     }
 #endif
 
+#ifdef SNTV_VR
+    /* In a headset the Android window loses focus whenever the system menu or a notification opens, yet the
+     * OpenXR session goes on: SDL must not block its loop while paused, or the app freezes on the loading screen. */
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
@@ -1564,12 +1569,18 @@ int main(int argc, char **argv)
         int must_draw = g_app.need_redraw || frame < 60 || getenv("SNTV_SCREENSHOT");
 #ifdef SNTV_VR
         int vr_rc = -1;   /* -1 not running, 0 running and nothing to draw, 1 draw the panel now */
+        static VrInput vr_last; static int vr_cw, vr_ch;   /* where the ray meets the panel, and the panel's size in pixels */
         if (vr_session) {
             g_app.fx_setting = FX_LIGHT; g_app.fx_light = 1;   /* a headset's chip is a phone's: the light effects (their motion stays) */
             int vw = 0, vh = 0;
             vr_rc = vr_frame_begin(must_draw, &vw, &vh);   /* paced by the headset's display */
-            if (vr_rc >= 0) { VrInput vin; vr_input(&vin); vr_inject(&vin); }
-            if (vr_rc == 1) gfx_set_external(vw, vh);
+            if (vr_rc >= 0) {
+                VrInput vin; vr_input(&vin); vr_inject(&vin);
+                float dx = vin.x - vr_last.x, dy = vin.y - vr_last.y;
+                if (vin.have_pointer != vr_last.have_pointer || (vin.have_pointer && dx * dx + dy * dy > 1e-6f)) g_app.need_redraw = 1;   /* the dot follows the ray */
+                vr_last = vin;
+            }
+            if (vr_rc == 1) { gfx_set_external(vw, vh); vr_cw = vw; vr_ch = vh; }
             if (vr_quit_requested()) g_app.quit = 1;
             must_draw = vr_rc == 1;
         }
@@ -1595,6 +1606,13 @@ int main(int argc, char **argv)
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();
             Uint64 pc_swap = SDL_GetPerformanceCounter();
+#ifdef SNTV_VR
+            if (vr_session && vr_last.have_pointer && vr_cw > 0) {   /* the ray's end: a dot with a dark rim, readable on light and dark artwork */
+                float px = vr_last.x * (float)vr_cw, py = vr_last.y * (float)vr_ch, r = (float)vr_ch / 90.0f;
+                gfx_circle(px, py, r + 3.0f, RGBA(0, 0, 0, 0xA0));
+                gfx_circle(px, py, r, vr_last.down ? RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RGBA(0xE0, 0xE8, 0xFF, 0xE0));
+            }
+#endif
             gfx_end_frame();
             Uint64 pc_end = SDL_GetPerformanceCounter();
             { double ms = 1000.0 / (double)SDL_GetPerformanceFrequency(); perf_phases((float)((double)(pc_draw - pc) * ms), (float)((double)(pc_swap - pc_draw) * ms), (float)((double)(pc_end - pc_swap) * ms)); }
