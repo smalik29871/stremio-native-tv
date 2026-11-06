@@ -7763,6 +7763,7 @@ void player_toggle_mute(void)
 }
 
 #ifdef SNTV_DESKTOP_KEYS
+void window_screenshot(void);   /* main.c: the frame being drawn, saved as a PNG */
 /* ---- a computer's keyboard in the player ----------------------------------------------------
  * The keys the other players share (YouTube, Netflix, VLC, mpv, Kodi), on top of the arrows, Enter, Esc, F, M and P:
  *   K play/pause   J / L back / on 10 s   Shift+Left/Right 3 s   Ctrl+Left/Right 1 min   0-9 to 0-90 %   Home / End
@@ -7830,6 +7831,19 @@ static void audio_step(Player *p)
     show_overlay(p);
 }
 
+/* what a picture of this moment is called: the title and how far in (no character a file name cannot have) */
+void player_shot_name(char *out, size_t n)
+{
+    VideoInfo vi;
+    video_info(&vi);
+    const char *t = g_live && g_live->meta.name && g_live->meta.name[0] ? g_live->meta.name : "Cuelight";
+    char clean[120];
+    snprintf(clean, sizeof clean, "%s", t);
+    for (char *c = clean; *c; c++) if (strchr("\\/:*?\"<>|", *c) || (unsigned char)*c < 32) *c = '_';
+    int sec = (int)vi.position;
+    snprintf(out, n, "%s - %02d-%02d-%02d", clean, sec / 3600, sec / 60 % 60, sec % 60);
+}
+
 static void clock_text(double t, char *out, size_t n)
 {
     int sec = (int)(t + 0.5);
@@ -7887,6 +7901,7 @@ int player_desktop_key(Screen *top, int key_sym, unsigned mod)
     int free_keys = !p->menu && !p->ph_sheet && !p->cast_open && !p->scenes_open;
     if (k == SDLK_QUESTION || (k == SDLK_SLASH && shift)) { p->keys_help = 1; LOGI("player: the list of keys is shown"); app_redraw(); return 1; }
     if ((k == SDLK_LEFT || k == SDLK_RIGHT) && (shift || ctrl) && free_keys) { seek_by(p, (k == SDLK_RIGHT ? 1 : -1) * (ctrl ? 60 : 3)); return 1; }
+    if ((k == SDLK_s && ctrl && !shift) || k == SDLK_F12) { LOGI("player: a picture of the screen"); window_screenshot(); return 1; }
     if ((k == SDLK_UP || k == SDLK_DOWN) && ctrl) { key_volume(p, k == SDLK_UP ? 0.05f : -0.05f); return 1; }
     if (!free_keys || ctrl) return 0;
     switch (k) {
@@ -7949,7 +7964,7 @@ static void draw_keys_help(Player *p)
 #endif
         { "+  -  Ctrl + Up / Down", "Volume" }, { "M", "Mute" },
         { "C", "Subtitles on or off" }, { "V", "Next subtitles" }, { "G  H", "Subtitles earlier, later" }, { "B", "Next sound track" },
-        { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "E", "Repeat a section (start, end, off)" }, { "T", "Sleep timer" }, { "X  Esc", "Stop" },
+        { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "E", "Repeat a section (start, end, off)" }, { "T", "Sleep timer" }, { "Ctrl + S  F12", "Save a picture of the screen" }, { "X  Esc", "Stop" },
         { "F  F11  Alt + Enter", "Full screen" }, { "I  F1", "Stream details" }, { "O", "Controls" } };
     int n = (int)(sizeof L / sizeof L[0]), rows = (n + 1) / 2;
     float w = 1180, lh = 42, h = 120 + rows * lh, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;

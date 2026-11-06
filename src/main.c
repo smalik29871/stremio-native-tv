@@ -599,6 +599,100 @@ static void touch_event(const SDL_Event *e)
     if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
 }
 #ifdef SNTV_DESKTOP_KEYS
+/* ---- a picture of the screen, as a PNG (Ctrl+S or F12 in the player) ----------------------------
+ * Uncompressed deflate blocks: no library, and a PNG every program opens. */
+static void shot_mkdirs(const char *path)   /* every folder above the file */
+{
+    char d[1200];
+    snprintf(d, sizeof d, "%s", path);
+    for (char *c = d + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(d, 0755); *c = '/'; }
+}
+
+static unsigned png_crc(unsigned crc, const unsigned char *d, size_t n)
+{
+    static unsigned t[256];
+    if (!t[1]) for (unsigned i = 0; i < 256; i++) { unsigned c = i; for (int k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1; t[i] = c; }
+    crc = ~crc;
+    for (size_t i = 0; i < n; i++) crc = t[(crc ^ d[i]) & 255] ^ (crc >> 8);
+    return ~crc;
+}
+
+static void png_put32(unsigned char *b, unsigned v) { b[0] = (unsigned char)(v >> 24); b[1] = (unsigned char)(v >> 16); b[2] = (unsigned char)(v >> 8); b[3] = (unsigned char)v; }
+
+static void png_chunk(FILE *f, const char *type, const unsigned char *d, unsigned n)
+{
+    unsigned char h[8], t[4];
+    png_put32(h, n); memcpy(h + 4, type, 4);
+    fwrite(h, 1, 8, f);
+    if (n) fwrite(d, 1, n, f);
+    unsigned c = png_crc(0, (const unsigned char *)type, 4);
+    if (n) c = png_crc(c, d, n);
+    png_put32(t, c);
+    fwrite(t, 1, 4, f);
+}
+
+/* rgba: w x h rows, the top row first */
+static int png_write(const char *path, const unsigned char *rgba, int w, int h)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return -1;
+    static const unsigned char sig[8] = { 137, 80, 78, 71, 13, 10, 26, 10 };
+    fwrite(sig, 1, 8, f);
+    unsigned char hdr[13] = { 0 };
+    png_put32(hdr, (unsigned)w); png_put32(hdr + 4, (unsigned)h); hdr[8] = 8; hdr[9] = 2;
+    png_chunk(f, "IHDR", hdr, 13);
+    size_t row = 1 + (size_t)w * 3, raw = row * (size_t)h;
+    unsigned char *img = malloc(raw);
+    if (!img) { fclose(f); return -1; }
+    for (int y = 0; y < h; y++) {
+        unsigned char *o = img + row * (size_t)y; *o++ = 0;
+        for (int x = 0; x < w; x++, o += 3) { const unsigned char *q = rgba + ((size_t)y * w + x) * 4; o[0] = q[0]; o[1] = q[1]; o[2] = q[2]; }
+    }
+    /* zlib: a header, stored blocks of up to 65535 bytes, the Adler-32 of what they hold */
+    size_t blocks = (raw + 65534) / 65535, zlen = 2 + raw + blocks * 5 + 4;
+    unsigned char *z = malloc(zlen);
+    if (!z) { free(img); fclose(f); return -1; }
+    size_t o = 0; z[o++] = 0x78; z[o++] = 0x01;
+    unsigned a = 1, b = 0;
+    for (size_t i = 0; i < raw; i += 65535) {
+        unsigned n = raw - i > 65535 ? 65535 : (unsigned)(raw - i);
+        z[o++] = i + n >= raw; z[o++] = (unsigned char)n; z[o++] = (unsigned char)(n >> 8); z[o++] = (unsigned char)~n; z[o++] = (unsigned char)(~n >> 8);
+        memcpy(z + o, img + i, n); o += n;
+        for (unsigned k = 0; k < n; k++) { a = (a + img[i + k]) % 65521; b = (b + a) % 65521; }
+    }
+    png_put32(z + o, (b << 16) | a); o += 4;
+    png_chunk(f, "IDAT", z, (unsigned)o);
+    png_chunk(f, "IEND", NULL, 0);
+    free(z); free(img);
+    return fclose(f);
+}
+
+static int g_shot_req;
+void window_screenshot(void) { g_shot_req = 1; app_redraw(); }
+
+/* the frame just drawn, into Pictures/Cuelight/<title - time>.png */
+static void take_screenshot(SDL_Window *win)
+{
+    int w, h;
+    SDL_GL_GetDrawableSize(win, &w, &h);
+    unsigned char *px = malloc((size_t)w * h * 4), *flip = malloc((size_t)w * h * 4);
+    if (!px || !flip) { free(px); free(flip); app_toast("Not enough memory for a picture"); return; }
+    gfx_flush();
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    for (int y = 0; y < h; y++) memcpy(flip + (size_t)y * w * 4, px + (size_t)(h - 1 - y) * w * 4, (size_t)w * 4);   /* GL's rows run bottom up */
+    const char *own = getenv("SNTV_PICTURES");   /* tests: a folder of their own */
+    const char *base = own && *own ? own : getenv("USERPROFILE");
+    if (!base || !*base) base = getenv("HOME");
+    char name[200], path[1200];
+    player_shot_name(name, sizeof name);
+    if (own && *own) snprintf(path, sizeof path, "%s/%s.png", own, name);
+    else snprintf(path, sizeof path, "%s/Pictures/Cuelight/%s.png", base ? base : ".", name);
+    shot_mkdirs(path);
+    if (png_write(path, flip, w, h) == 0) { LOGI("screenshot: saved %s (%dx%d)", path, w, h); app_toast("Picture saved in Pictures/Cuelight"); }
+    else { LOGW("screenshot: could not write %s", path); app_toast("Could not save the picture"); }
+    free(px); free(flip);
+}
+
 /* A computer's window comes back as it was left: its size and place, maximised or not. What was
  * saved is trusted only where the title bar can still be grabbed (a screen unplugged since, a
  * resolution changed), and a window too small for the layout is not kept. */
@@ -1447,6 +1541,9 @@ int main(int argc, char **argv)
 #endif
             intro_draw();
             ui_access_publish();
+#ifdef SNTV_DESKTOP_KEYS
+            if (g_shot_req) { g_shot_req = 0; take_screenshot(win); }
+#endif
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();
             Uint64 pc_swap = SDL_GetPerformanceCounter();

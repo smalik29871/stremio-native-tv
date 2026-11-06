@@ -487,6 +487,21 @@ run player_desktop_repeat 700 "right,ok,down,down,play,wait,wait,key:5,wait,key:
 for want in "player: repeat starts at" "player: repeating " "player: repeat, back to the start of the section" "player: repeat off" "player: sleep timer, 15 minutes" "player: sleep timer, 90 minutes" "player: sleep timer, the end of this episode" "player: sleep timer off"; do
   grep -q "$want" "$OUT/player_desktop_repeat.log" || { echo "the repeat or the sleep timer did nothing: $want"; grep -E "player: (repeat|sleep)|toast:" "$OUT/player_desktop_repeat.log" | tail -20; exit 1; }
 done
+# Ctrl+S (or F12) saves the screen as a PNG in the pictures folder
+rm -rf "$OUT/pictures"
+run player_desktop_picture 500 "right,ok,down,down,play,wait,wait,key:ctrl+s,wait,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100 SNTV_PICTURES="$OUT/pictures"
+PNG="$(ls "$OUT/pictures"/*.png 2>/dev/null | head -1)"
+{ [ -n "$PNG" ] && [ "$(head -c 8 "$PNG" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ] && python3 -c "
+import sys,zlib,struct
+d=open(sys.argv[1],'rb').read(); p=8; idat=b''; w=h=0
+while p<len(d):
+    n,=struct.unpack('>I',d[p:p+4]); t=d[p+4:p+8]; c=d[p+8:p+8+n]
+    assert zlib.crc32(t+c)&0xffffffff==struct.unpack('>I',d[p+8+n:p+12+n])[0], 'chunk crc'
+    if t==b'IHDR': w,h=struct.unpack('>II',c[:8])
+    if t==b'IDAT': idat+=c
+    p+=12+n
+raw=zlib.decompress(idat); assert len(raw)==h*(1+3*w) and w>=640 and h>=360, 'size'
+" "$PNG"; } || { echo "Ctrl+S did not save a picture of the screen"; ls -la "$OUT/pictures" 2>&1 | head; grep -E "screenshot|toast" "$OUT/player_desktop_picture.log" | tail -5; exit 1; }
 # K pauses and plays, the frame step works while paused, and nothing of it reaches a screen outside the player
 run player_desktop_pause 400 "right,ok,down,down,play,wait,key:k,wait,key:period,key:comma,key:k,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
 run desktop_keys_home 150 "key:j,key:l,key:5,key:question,key:pgdn,key:pgup,key:slash,wait"

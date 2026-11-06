@@ -399,6 +399,8 @@ void player_toggle_mute(void);   /* a computer: M in the player */
 #define SNTV_DESKTOP_KEYS 1   /* a computer's keyboard (the Linux test build too, with its fake video) */
 #endif
 int  player_desktop_key(Screen *top, int key, unsigned mod);   /* a computer: the other players' keys in the player (YouTube, VLC, mpv, Kodi); 1 when used */
+void player_shot_name(char *out, size_t n);   /* a computer: what a picture of this moment is called (title and time) */
+void window_screenshot(void);   /* a computer: the screen as drawn, saved as a PNG in Pictures/Cuelight */
 int window_fullscreen(void);     /* a computer: the window fills the screen */
 int  player_pip_done(Screen *s);
 const char *player_video_id(Screen *s);
