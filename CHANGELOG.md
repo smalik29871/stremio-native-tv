@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.112
+
+- **Stability fixes.**
+
 ## 0.10.111
 
 - **Stability fixes.**
