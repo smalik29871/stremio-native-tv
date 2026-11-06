@@ -119,3 +119,23 @@ real headset before any of it is called done (CLAUDE.md).
 - ffmpeg MV-HEVC support in our build.
 - Loader packaging in our Gradle build.
 - Whether the store accepts a debrid and addon app (policy review, not a technical question).
+
+## The Quest build as it stands (controls and film)
+
+Controllers: trigger taps where the ray meets the screen; A is OK, B is Back, X plays or pauses, Y
+changes the view (flat, 3D side by side, 3D top and bottom, 180 and 360 degrees); the thumbstick is the
+arrow keys (seek in the player); the left menu button brings the screen back in front of you; the grip
+takes hold of the screen and carries it, and while it is held the stick pushes and pulls the screen
+(up and down) and makes it bigger or smaller (right and left).
+
+Film: ExoPlayer decodes into the Android surface of an OpenXR swapchain
+(`XR_KHR_android_surface_swapchain`), shown as a quad behind the panel (the player screen leaves a
+see-through hole there), or as the inside of a sphere (`XR_KHR_composition_layer_equirect2`) for 180 and
+360 degree films. 3D films are the two halves of that one surface, one for each eye. A release name with
+SBS, HSBS, 3DH, OU, TB, 180 or 360 in it picks the view; Y changes it.
+
+Not checked on a headset: which way up the surface's rectangle runs for top and bottom films (a swapped
+pair of eyes means it is the other way), the runtime's treatment of the create-info fields for a surface
+swapchain (two forms are tried), HDR films (the Quest 2 shows SDR, so they will look flat until tone
+mapping is added), and everything about frame timing. Still to build: a curved screen, subtitles in 3D,
+a lit room, the player's own controls drawn for pointing at in space.
