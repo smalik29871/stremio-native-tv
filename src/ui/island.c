@@ -141,7 +141,7 @@ void island_draw(int in_player, int show_clock)
     static float last;
     float dt = g_app.time - last; last = g_app.time;
     if (dt < 0 || dt > 0.1f) dt = 0.1f;
-    if (g_app.fx_light) { I.w = tw; I.h = th; I.wv = I.hv = 0; }
+    if (g_app.fx_still) { I.w = tw; I.h = th; I.wv = I.hv = 0; }
     else { I.w = ui_ease(I.w, tw, &I.wv, dt, 20); I.h = ui_ease(I.h, th, &I.hv, dt, 20); }
 
     float right = SNTV_UI_W - THEME_MARGIN, y = 47;
@@ -172,7 +172,7 @@ void island_draw(int in_player, int show_clock)
     float a = (g_app.time - I.kind_at) / 0.18f, near = 1 - fabsf(I.w - tw) / 200;
     if (a > near) a = near;
     if (a < 0) a = 0;
-    if (a > 1 || g_app.fx_light) a = 1;
+    if (a > 1 || g_app.fx_still) a = 1;
     if (a < 1) app_redraw();
     if (g_focus && kind == IS_RESUME) gfx_rrect_ring(x - 5, y - 5, I.w + 10, I.h + 10, r + 5, 4, THEME_FOCUS);   /* outside the clip */
     gfx_clip_push(x, y, I.w, I.h);

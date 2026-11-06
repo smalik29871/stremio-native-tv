@@ -122,7 +122,7 @@ static float status_line(const Brk *b, const VideoInfo *vi, char *line, size_t n
 static void draw(Screen *s)
 {
     Brk *b = s->st;
-    float k = g_app.fx_light ? 1 : b->intro;
+    float k = g_app.fx_still ? 1 : b->intro;
     if (b->show_video) {   /* the recording's picture full screen, the break's words in a band below */
         VideoInfo vi; video_info(&vi);
         gfx_video_hole(0, 0, SNTV_UI_W, SNTV_UI_H);

@@ -23,7 +23,7 @@ void intro_start(void)
     const char *force = getenv("SNTV_INTRO");
     if (force && *force) { g_on = atoi(force) != 0; return; }
     /* scripted runs and screenshots go straight to the screen */
-    g_on = g_app.transitions && !g_app.fx_light && !getenv("SNTV_KEYS") && !getenv("SNTV_NO_TRANSITIONS");
+    g_on = g_app.transitions && !g_app.fx_still && !getenv("SNTV_KEYS") && !getenv("SNTV_NO_TRANSITIONS");
 }
 
 int intro_active(void) { return g_on; }

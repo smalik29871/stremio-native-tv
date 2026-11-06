@@ -1118,6 +1118,11 @@ grep -q "perf: frames slow (.* a refresh is 21 ms; twice in a row) -> light effe
 # a TV saved on light effects whose frames keep up with a 60 Hz screen (17 ms with the wait for it) goes back to full
 run fx_stuck 700 "" SNTV_FX_ADAPT=1 SNTV_FX_WINDOW=30 SNTV_FAKE_FRAME_MS="17" HOME="$(home_with fxs '{"setupDone":1,"fx":0,"fxAutoLight":1}')"
 grep -q "perf: light effects keep up with the screen .* -> full effects" "$OUT/fx_stuck.log" || { echo "a TV kept on light effects never went back to full"; grep "perf:" "$OUT/fx_stuck.log"; exit 1; }
+# Light effects keep their motion; where frames still drop while it runs the motion goes for a while
+run motion_light_slow 900 "right,left,right,left,right,left" SNTV_FX_ADAPT=1 SNTV_FAKE_FRAME_MS="40" HOME="$(home_with mslow '{"setupDone":1,"fx":2}')"
+grep -q "perf: frames drop while things move (.* ms average, a refresh is [0-9]* ms) -> no motion for 20 s" "$OUT/motion_light_slow.log" || { echo "light effects with dropping frames kept their motion"; grep "perf:" "$OUT/motion_light_slow.log"; exit 1; }
+run motion_light_fast 900 "right,left,right,left,right,left" SNTV_FX_ADAPT=1 SNTV_FAKE_FRAME_MS="17" HOME="$(home_with mfast '{"setupDone":1,"fx":2}')"
+! grep -q "no motion for" "$OUT/motion_light_fast.log" || { echo "light effects that keep up lost their motion"; grep "perf:" "$OUT/motion_light_fast.log"; exit 1; }
 run home_mem_tight 600 "right,right" SNTV_FAKE_MEM=3000000,90000 SNTV_MEM_SAMPLE_S=0.5   # read twice a second: the step down comes whatever the frame rate
 grep -q "memory saver on (memory got tight)" "$OUT/home_mem_tight.log" && grep -q "memory: tight (87 MB free of 2929): the saver" "$OUT/home_mem_tight.log" || { echo "a tight TV did not step down"; grep -E "memory" "$OUT/home_mem_tight.log"; exit 1; }
 # the reading from an LG with 1.7 GB: 425 MB free, the app 88 MB: the room past the TV's own line is kept as artwork (160 MB instead of 96)

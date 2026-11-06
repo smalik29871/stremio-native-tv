@@ -624,7 +624,7 @@ static void phone_row(Home *h, int ri, float y)
         if (!r->shown_at) { for (int j = 0; j < 4; j++) ui_skeleton(PH_X + j * (cw + PH_GAP) - r->scroll_x, cy, cw, ch, R_CARD); return; }
     }
     float rise = (g_app.time - r->shown_at) / 0.3f;   /* then they come in together */
-    if (rise < 1 && !g_app.fx_light) { gfx_set_alpha(rise); app_redraw(); }
+    if (rise < 1 && !g_app.fx_still) { gfx_set_alpha(rise); app_redraw(); }
     char buf[512];
     for (int pass = 0; pass < 2; pass++)
         for (int j = 0; j < r->n; j++) {
@@ -634,10 +634,10 @@ static void phone_row(Home *h, int ri, float y)
             if ((pass == 1) != foc) continue;
             const MetaPreview *m = &r->metas[j];
             const char *art = ph_land(r) ? app_art_background(m, buf, sizeof buf) : app_art_poster(m, buf, sizeof buf);
-            ui_card(art, px, cy, cw, ch, foc ? (g_app.fx_light ? 1 : h->focus_t) : 0, 0, m->name, ph_land(r) ? CARD_TRUE_COLOUR : 0);
+            ui_card(art, px, cy, cw, ch, foc ? (g_app.fx_still ? 1 : h->focus_t) : 0, 0, m->name, ph_land(r) ? CARD_TRUE_COLOUR : 0);
             ui_hit(px, cy, cw, ch, HIT_CARD(ri, j));
             if (ph_land(r)) {   /* as on the TV: the label inside the card */
-                float f = foc ? (g_app.fx_light ? 1 : h->focus_t) : 0, sc = ui_focus_scale(f);
+                float f = foc ? (g_app.fx_still ? 1 : h->focus_t) : 0, sc = ui_focus_scale(f);
                 float w2 = cw * sc, h2 = ch * sc;
                 cw_label(m, px - (w2 - cw) / 2, cy - (h2 - ch) / 2 - ui_focus_lift(f), w2, h2);
             }
@@ -990,13 +990,13 @@ static void hero_depth(Home *h)
 static void draw_hero(Home *h, const MetaPreview *p)
 {
     if (g_theme.id == THEME_APERTURE) {
-        float k = g_app.fx_light ? 1 : h->hero_text_t;
+        float k = g_app.fx_still ? 1 : h->hero_text_t;
         float ax = 700 - 20 * k, ah = rows_y() + 60;
         float tv = bgtrailer_shown(h->hero_id);   /* its trailer plays in the artwork window, as behind the other themes' heroes */
         ui_backdrop_fades(ax + 460, ah - 300, ah);
         ui_backdrop_video(tv, ah);
         if (tv < 1) hero_depth(h);   /* not under a trailer that hides it */
-        ui_aperture_art(h->hero_bg, ax, 0, SNTV_UI_W - ax, ah, (g_app.fx_light ? 1 : h->hero_fade) * (1 - tv));
+        ui_aperture_art(h->hero_bg, ax, 0, SNTV_UI_W - ax, ah, (g_app.fx_still ? 1 : h->hero_fade) * (1 - tv));
         ui_backdrop_depth(0, 0);
         gfx_gradient_h(ax - 1, 0, 460, ah, THEME_BG, COLOR_ALPHA(THEME_BG, 0));
         gfx_gradient_v(0, ah - 300, SNTV_UI_W, 300, COLOR_ALPHA(THEME_BG, 0), THEME_BG);
@@ -1022,7 +1022,7 @@ static void draw_hero(Home *h, const MetaPreview *p)
         gfx_set_translate(tdx, tdy);
         return;
     }
-    float k = g_app.fx_light ? 1.0f : h->hero_text_t;
+    float k = g_app.fx_still ? 1.0f : h->hero_text_t;
     int a = (int)(255 * k);
     float x = LX, y = 168 - HERO_LIFT + (1 - k) * 18;
     float maxw = 860;
@@ -1127,7 +1127,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
     float room = 0; int room_right = 1;
     if (focused_row && r->kind != ROW_CONTINUE && r->focus < r->n) {
         float fpx = LX + r->focus * (cw + GAP) - r->scroll_x + nudge(h, 1);
-        float sc = ui_focus_scale(g_app.fx_light ? 1.0f : h->focus_t), w2 = cw * sc;
+        float sc = ui_focus_scale(g_app.fx_still ? 1.0f : h->focus_t), w2 = cw * sc;
         room = ui_peek_room(&h->peek, &r->metas[r->focus], fpx - (w2 - cw) / 2, w2, ch * sc, LX, SNTV_UI_W - 40, &room_right);
     }
     /* draw unfocused first so the focused card's shadow and ring sit on top */
@@ -1141,10 +1141,10 @@ static void draw_row(Home *h, int ri, float y, float alpha)
             if ((pass == 1) != (is_focus || is_prev)) continue;
             /* titles just arrived: each card rises and fades in a beat after the one before */
             float k = (g_app.time - r->shown_at - (j - first) * 0.04f) / 0.3f, ce = 1;
-            if (k < 1 && !g_app.fx_light) { ce = k < 0 ? 0 : 1 - (1 - k) * (1 - k) * (1 - k); app_redraw(); }
+            if (k < 1 && !g_app.fx_still) { ce = k < 0 ? 0 : 1 - (1 - k) * (1 - k) * (1 - k); app_redraw(); }
             gfx_set_alpha(alpha * ce);
             float ry = cy + 22 * (1 - ce);
-            float f = is_focus ? (g_app.fx_light ? 1.0f : h->focus_t) : is_prev ? h->prev_t : 0;
+            float f = is_focus ? (g_app.fx_still ? 1.0f : h->focus_t) : is_prev ? h->prev_t : 0;
             float dim = focused_row ? 0 : 0.45f;
             const MetaPreview *m = &r->metas[j];
             if (g_theme.id == THEME_APERTURE) {
@@ -1183,7 +1183,7 @@ static void draw_row(Home *h, int ri, float y, float alpha)
     gfx_set_alpha(alpha);
     if (see_all(r)) {
         float px = LX + r->n * (cw + GAP) - r->scroll_x + (focused_row ? nudge(h, 1) : 0);
-        if (px < SNTV_UI_W + 40) see_all_card(px, cy, cw, ch, focused_row && r->focus == r->n ? (g_app.fx_light ? 1.0f : h->focus_t) : 0, r->n, HIT_CARD(ri, r->n));
+        if (px < SNTV_UI_W + 40) see_all_card(px, cy, cw, ch, focused_row && r->focus == r->n ? (g_app.fx_still ? 1.0f : h->focus_t) : 0, r->n, HIT_CARD(ri, r->n));
     }
     if (m_peek) {   /* in the room its neighbours made, after both passes */
         float sc = ui_focus_scale(f_peek), w2 = cw * sc, h2 = ch * sc;
@@ -1207,7 +1207,7 @@ static void draw(Screen *s)
         }
     } else if (hero && g_app.home_style != HOME_COMPACT) {
         int iw, ih, pw, ph;
-        float fade = g_app.fx_light ? 1.0f : h->hero_fade;
+        float fade = g_app.fx_still ? 1.0f : h->hero_fade;
         unsigned prev = h->hero_prev_bg[0] && fade < 1 ? image_get(h->hero_prev_bg, &pw, &ph) : 0;
         unsigned cur = h->hero_bg[0] ? image_get(h->hero_bg, &iw, &ih) : 0;
         float bh = SNTV_UI_H * (g_app.home_style == HOME_SHOWCASE ? 0.92f : 0.86f);

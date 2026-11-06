@@ -249,7 +249,7 @@ void ui_background(Color tint)
 {
     if (!tint) tint = g_theme.art_accent ? g_theme.base_accent : THEME_ACCENT;   /* no artwork: the theme's own colour */
     float tr = (float)((tint >> 24) & 255), tg = (float)((tint >> 16) & 255), tb = (float)((tint >> 8) & 255);
-    float k = g_app.fx_light ? 1.0f : 0.06f;
+    float k = g_app.fx_still ? 1.0f : 0.06f;
     g_tint[0] += (tr - g_tint[0]) * k; g_tint[1] += (tg - g_tint[1]) * k; g_tint[2] += (tb - g_tint[2]) * k;
     if (fabsf(tr - g_tint[0]) + fabsf(tg - g_tint[1]) + fabsf(tb - g_tint[2]) > 3) app_redraw();
     Color t = RGBA((int)g_tint[0], (int)g_tint[1], (int)g_tint[2], 0xFF);
@@ -300,7 +300,7 @@ void ui_cover_uv(int iw, int ih, float w, float h, float *u0, float *v0, float *
 float ui_spring(float t0, float amp)
 {
     float t = g_app.time - t0;
-    if (t < 0 || t > 0.5f || g_app.fx_light || amp == 0) return 0;
+    if (t < 0 || t > 0.5f || g_app.fx_still || amp == 0) return 0;
     app_redraw();
     return amp * sinf(t * 19.0f) * expf(-t * 8.0f) * 1.6f;
 }
@@ -308,7 +308,7 @@ float ui_spring(float t0, float amp)
 /* Item i of a group that appeared at t0: 0..1 as it eases in, each a beat after the one before. */
 float ui_enter(float t0, int i)
 {
-    if (g_app.fx_light || t0 <= 0) return 1;
+    if (g_app.fx_still || t0 <= 0) return 1;
     float k = (g_app.time - t0 - i * 0.035f) / 0.32f;
     if (k >= 1) return 1;
     app_redraw();
@@ -698,7 +698,7 @@ void ui_peek_step(Peek *p, const MetaPreview *m, float dt)
     if (g_app.time - p->since < PEEK_DWELL) { app_redraw(); return; }   /* a frame lands at the dwell */
     if (!p->asked) { app_details_want(m->type, m->id); p->asked = 1; }
     if (p->t >= 1) return;
-    p->t = g_app.fx_light ? 1 : p->t + (1 - p->t) * (dt * 9 > 1 ? 1 : dt * 9);
+    p->t = g_app.fx_still ? 1 : p->t + (1 - p->t) * (dt * 9 > 1 ? 1 : dt * 9);
     if (p->t > 0.995f) p->t = 1;
     app_redraw();
 }
@@ -1519,7 +1519,7 @@ float ui_focus_scale(float focus)
 {
     float k = g_theme.focus_style == FOCUS_APERTURE ? 0.015f : g_theme.focus_style == FOCUS_GLASS || g_theme.focus_style == FOCUS_OUTLINE ? 0.08f : g_theme.focus_style == FOCUS_MIST ? 0.05f : g_theme.focus_style == FOCUS_LIGHTBAR ? 0.05f : 0.04f;
     float s = 1.0f + k * focus, t = g_app.time - g_app.press_at;
-    if (focus > 0.5f && t >= 0 && t < 0.2f && !g_app.fx_light) {   /* OK pressed: a quick dip and back */
+    if (focus > 0.5f && t >= 0 && t < 0.2f && !g_app.fx_still) {   /* OK pressed: a quick dip and back */
         s *= 1.0f - 0.05f * sinf(3.14159f * t / 0.2f);
         app_redraw();
     }
@@ -1694,7 +1694,7 @@ void ui_card(const char *url, float x, float y, float w, float h, float focus, f
     if (tex) {
         float u0, v0, u1, v1;
         cover_uv(iw, ih, cw, ch, &u0, &v0, &u1, &v1);
-        float a = g_app.fx_light ? 1.0f : (age >= 10 ? 1.0f : age / 10.0f);
+        float a = g_app.fx_still ? 1.0f : (age >= 10 ? 1.0f : age / 10.0f);
         if (a < 1) { gfx_rrect(cx, cy, cw, ch, R_CARD, THEME_POSTER_PH); app_redraw(); }
         int shade = (int)(255 - dim * 90);
         gfx_rtex_uv(tex, cx, cy, cw, ch, R_CARD, u0, v0, u1, v1, RGBA(shade, shade, shade, (int)(255 * a)), blur ? 4.5f : 0);

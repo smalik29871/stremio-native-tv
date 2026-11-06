@@ -52,7 +52,9 @@ have been visited. Without FFmpeg or the configured thumbnail helper, preview
 slots remain placeholders. Low-memory mode shows one preview. Decoded preview
 frames are letterboxed, and drawers overlay the video without resizing it.
 
-Light effects disables artwork/transition interpolation. The existing transitions
+Light effects drop shadows, glows and glass but keep the motion (glides, fades, a slide for
+pages; a card no longer grows into its page), which stops for a while where frames still
+drop. The existing transitions
 setting is honored; full Aperture transitions finish in 220 ms. Aperture's artwork
 windows use still images, so background trailers are not started in this theme.
 The main film still uses the TV's video pipeline. All layouts use the existing

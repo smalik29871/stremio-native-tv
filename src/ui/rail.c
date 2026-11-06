@@ -38,7 +38,7 @@ static void draw_tabs(int active)
         float want = px + 8 + tw * sel, dt = g_app.time - last_t;
         if (dt < 0 || dt > 0.05f) dt = 0.05f;
         last_t = g_app.time;
-        if (glide < 0 || g_app.fx_light) { glide = want; glide_v = 0; }
+        if (glide < 0 || g_app.fx_still) { glide = want; glide_v = 0; }
         else glide = ui_ease(glide, want, &glide_v, dt, 16);
         if (SDL_fabsf(glide - want) > 0.5f) app_redraw();
         gfx_rrect(glide, py + 8, tw, ph - 16, (ph - 16) / 2, COLOR_ALPHA(THEME_TEXT, 0x1C));

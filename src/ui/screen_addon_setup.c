@@ -73,7 +73,7 @@ static void step(int n, const char *text, float x, float y, float w, float *out_
 static void draw(Screen *s)
 {
     Setup *o = s->st;
-    float k = g_app.fx_light ? 1 : 1 - (1 - o->t) * (1 - o->t) * (1 - o->t);
+    float k = g_app.fx_still ? 1 : 1 - (1 - o->t) * (1 - o->t) * (1 - o->t);
     Screen *below = g_app.depth >= 2 ? g_app.stack[g_app.depth - 2] : NULL;
     if (below && below->draw) { ui_hits_begin(below); below->draw(below); ui_hits_begin(s); } else ui_background(0);
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(170 * k)));

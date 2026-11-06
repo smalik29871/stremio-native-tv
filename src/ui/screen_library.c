@@ -283,7 +283,7 @@ static void draw(Screen *s)
     /* details open on the focused card: the others in its row slide aside to make room */
     float room = 0; int room_right = 1, room_row = -1;
     if (!SNTV_PHONE && l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
-        float sc = ui_focus_scale(g_app.fx_light ? 1.0f : l->focus_t), w2 = CELL_W * sc;
+        float sc = ui_focus_scale(g_app.fx_still ? 1.0f : l->focus_t), w2 = CELL_W * sc;
         float fx = gx + (l->focus % COLS) * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
         room = ui_peek_room(&l->peek, &l->items[l->focus], fx, w2, CELL_H * sc, gx, SNTV_UI_W - 40, &room_right);
         room_row = l->focus / COLS;
@@ -301,7 +301,7 @@ static void draw(Screen *s)
             if ((pass == 1) != foc) continue;
             gfx_set_alpha(ce);
             char pb[512];
-            float f = foc ? (g_app.fx_light ? 1 : l->focus_t) : 0;
+            float f = foc ? (g_app.fx_still ? 1 : l->focus_t) : 0;
             if (foc) { peek_x = px; peek_y = py; }
             ui_card(app_art_poster(&l->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, f, l->zone == Z_GRID && !foc ? 0.25f : 0, l->items[i].name, 0);
             ui_hit(px, py, CELL_W, CELL_H, i);
@@ -324,7 +324,7 @@ static void draw(Screen *s)
         }
     gfx_set_alpha(1);
     if (!SNTV_PHONE && l->zone == Z_GRID && l->rail_focus < 0 && l->focus < l->n) {
-        float f = g_app.fx_light ? 1 : l->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
+        float f = g_app.fx_still ? 1 : l->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
         ui_peek_draw(&l->peek, &l->items[l->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
     }
     gfx_clip_pop();

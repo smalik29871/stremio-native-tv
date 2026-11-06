@@ -36,7 +36,7 @@ static float ease_out(float t) { t = t < 0 ? 0 : t > 1 ? 1 : t; return 1 - (1 - 
 static void draw(Screen *s)
 {
     Opt *o = s->st;
-    float k = g_app.fx_light ? 1 : ease_out(o->t);
+    float k = g_app.fx_still ? 1 : ease_out(o->t);
     Screen *below = g_app.depth >= 2 ? g_app.stack[g_app.depth - 2] : NULL;
     if (below && below->draw) { ui_hits_begin(below); below->draw(below); ui_hits_begin(s); } else ui_background(0);   /* what is below is not this sheet's to tap */
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(140 * k)));
@@ -60,7 +60,7 @@ static void draw(Screen *s)
     float ry = y + head;
     if (body_lines) { font_draw_wrapped(o->body, x + pad, ry, FONT_S, THEME_TEXT_DIM, w - 2 * pad, 12); ry += body_h; }
     for (int i = 0; i < o->n; i++, ry += item_h) {
-        float ik = g_app.fx_light ? 1 : ease_out((o->t - 0.35f - i * 0.08f) / 0.5f);
+        float ik = g_app.fx_still ? 1 : ease_out((o->t - 0.35f - i * 0.08f) / 0.5f);
         if (ik <= 0) continue;
         int foc = i == o->focus;
         float ix = x + 24 + (1 - ik) * 40, iw = w - 48;

@@ -1085,7 +1085,7 @@ static void draw(Screen *sc)
     }
     float room = 0; int room_right = 1, room_row = -1;
     if (s->focus_grid == 1 && s->grid_focus < s->n) {
-        float sc2 = ui_focus_scale(g_app.fx_light ? 1.0f : s->focus_t), w2 = CELL_W * sc2;
+        float sc2 = ui_focus_scale(g_app.fx_still ? 1.0f : s->focus_t), w2 = CELL_W * sc2;
         float fx = gx + s->cell[s->grid_focus].col * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
         room = ui_peek_room(&s->peek, &s->results[s->grid_focus], fx, w2, CELL_H * sc2, gx - 30, gx + grid_w + 30, &room_right);
         room_row = s->cell[s->grid_focus].row;
@@ -1103,7 +1103,7 @@ static void draw(Screen *sc)
             gfx_set_alpha(ce);
             char pb[512];
             if (foc) { peek_x = px; peek_y = py; }
-            ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : s->focus_t) : 0,
+            ui_card(app_art_poster(&s->results[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_still ? 1 : s->focus_t) : 0,
                     s->focus_grid == 1 && !foc ? 0.3f : 0, s->results[i].name, 0);
             ui_hit(px, py, CELL_W, CELL_H, i);
             if (i < s->n_picks) { gfx_circle(px + CELL_W - 22, py + 22, 16, COLOR_ALPHA(THEME_PANEL, 0xD0)); ui_icon(ICON_STAR, px + CELL_W - 22, py + 22, 18, THEME_ACCENT2); }
@@ -1115,7 +1115,7 @@ static void draw(Screen *sc)
         }
     gfx_set_alpha(1);
     if (s->focus_grid == 1 && s->grid_focus < s->n) {
-        float f = g_app.fx_light ? 1 : s->focus_t, sc2 = ui_focus_scale(f), w2 = CELL_W * sc2, h2 = CELL_H * sc2;
+        float f = g_app.fx_still ? 1 : s->focus_t, sc2 = ui_focus_scale(f), w2 = CELL_W * sc2, h2 = CELL_H * sc2;
         ui_peek_draw(&s->peek, &s->results[s->grid_focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx - 30, gx + grid_w + 30);
     }
     gfx_clip_pop();

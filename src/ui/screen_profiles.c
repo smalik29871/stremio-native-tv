@@ -63,7 +63,7 @@ static void draw(Screen *s)
 {
     Profiles *p = s->st;
     ui_background(p->n ? colour_of(p->emails[p->focus]) : 0);
-    float k = g_app.fx_light ? 1 : p->intro;
+    float k = g_app.fx_still ? 1 : p->intro;
     int a = (int)(255 * k);
     font_draw_center("Who's watching?", SNTV_UI_W / 2, 250 - (1 - k) * 20, FONT_XL | FONT_B, COLOR_ALPHA(THEME_TEXT, a));
     if (SNTV_PHONE) font_draw_wrapped("Each profile is a Stremio account saved here: its own library, addons and progress.", 40, 336, FONT_S, COLOR_ALPHA(THEME_TEXT_DIM, a), SNTV_UI_W - 80, 3);
@@ -77,7 +77,7 @@ static void draw(Screen *s)
     float tile = step - 40 < TILE ? step - 40 : TILE;
     for (int i = 0; i < p->n; i++) {
         int foc = p->focus == i;
-        float f = foc ? (g_app.fx_light ? 1 : p->focus_t) : 0, sc = 1 + 0.10f * f, r = tile / 2 * sc, cx = x0 + (i % per_row) * step, cy = cy0 + (i / per_row) * 400;
+        float f = foc ? (g_app.fx_still ? 1 : p->focus_t) : 0, sc = 1 + 0.10f * f, r = tile / 2 * sc, cx = x0 + (i % per_row) * step, cy = cy0 + (i / per_row) * 400;
         char name[128], ini[3];
         name_of(p->emails[i], name, sizeof name, ini);
         Color c = colour_of(p->emails[i]);

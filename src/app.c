@@ -49,7 +49,8 @@ void app_redraw(void) { g_app.need_redraw = 1; }
 #define PHONE_ANIM 1.5f   /* how much faster a phone's animations run than a TV's */
 float ui_ease(float from, float to, float *vel, float dt, float speed)
 {
-    if (g_app.fx_light) { if (vel) *vel = 0; return to; }   /* light mode: no interpolation */
+    if (g_app.fx_still) { if (vel) *vel = 0; return to; }   /* frames are dropping: no interpolation */
+    if (g_app.fx_light) speed *= 1.7f;   /* light effects: the same glide, settled in about a third fewer frames */
     if (vel) {
         /* a critically damped spring, solved exactly for the step: it eases in as well as
          * out, never overshoots, and a new target mid-flight keeps the speed it had */
@@ -96,12 +97,12 @@ static void trans_begin(Screen *from, int owned, int dir, const float *rect, con
 {
     trans_finish();
     Screen *top = app_top();
-    if (!g_app.transitions || g_app.fx_light || !from || !transitional(from) || !transitional(top) || (getenv("SNTV_NO_TRANSITIONS") && *getenv("SNTV_NO_TRANSITIONS"))) {
+    if (!g_app.transitions || g_app.fx_still || !from || !transitional(from) || !transitional(top) || (getenv("SNTV_NO_TRANSITIONS") && *getenv("SNTV_NO_TRANSITIONS"))) {
         if (owned && from && from->destroy) from->destroy(from);
         return;
     }
     g_trans.from = from; g_trans.owned = owned; g_trans.dir = dir; g_trans.t = 0; g_trans.active = 1;
-    g_trans.zoom = rect != NULL;
+    g_trans.zoom = rect != NULL && !g_app.fx_light;   /* light: a slide, which shades one screen of pixels, not the card growing into a page */
     if (rect) memcpy(g_trans.rect, rect, sizeof g_trans.rect);
     snprintf(g_trans.url, sizeof g_trans.url, "%s", rect && url ? url : "");
     app_redraw();
@@ -150,7 +151,7 @@ void app_draw_screen(Screen *top, float dt)
     if (want != sideways) { sideways = want; video_landscape_only(want); LOGI("display: %s", want ? "sideways only (a full screen video, or a screen with no upright layout)" : "upright allowed"); }
     if (!g_trans.active) { if (top && top->draw) draw_one(top); return; }
     /* a slow frame (a page building, a picture going up) slows the move instead of jumping it */
-    g_trans.t += (dt > 1 / 30.0f ? 1 / 30.0f : dt) / ((g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.36f : 0.26f) * (SNTV_PHONE ? 0.7f : 1.0f));   /* a phone: shorter, the thumb is waiting */
+    g_trans.t += (dt > 1 / 30.0f ? 1 / 30.0f : dt) / ((g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.36f : g_app.fx_light ? 0.2f : 0.26f) * (SNTV_PHONE ? 0.7f : 1.0f));   /* a phone: shorter, the thumb is waiting */
     if (g_trans.t >= 1 || !top) { trans_finish(); if (top && top->draw) draw_one(top); return; }
     float t = g_trans.t, e = 1 - (1 - t) * (1 - t) * (1 - t);
     float W = SNTV_UI_W;
@@ -2445,8 +2446,40 @@ float app_test_frame_ms(float ms)
     return seen++ < first_n ? first : then;
 }
 
+/* Light effects keep their motion (a glide, a slide, a fade: cheap to draw), but where frames
+ * still drop while it runs the motion would only drag: it goes for a while, and comes back
+ * to be tried again, a longer wait after each failed try. */
+static void motion_guard(float ms)
+{
+    static int n, trips;
+    static float sum, back_at, tried_at;
+    static int adapt = -1;
+    if (adapt < 0) { const char *e = getenv("SNTV_FX_ADAPT"); adapt = !(e && *e == '0'); }
+    if (!g_app.fx_light || !adapt) { g_app.fx_still = 0; n = 0; sum = 0; trips = 0; return; }
+    if (g_app.fx_still) {
+        if (g_app.time < back_at) return;
+        g_app.fx_still = 0; tried_at = g_app.time; n = 0; sum = 0;
+        LOGI("perf: motion is tried again");
+        app_redraw();
+        return;
+    }
+    Screen *top = app_top();
+    if (g_app.time < 3.0f || (top && (!strcmp(top->name, "player") || !strcmp(top->name, "ambient")))) return;
+    sum += ms;
+    if (++n < 24) return;
+    float avg = sum / n, period = perf_frame_period_ms();
+    n = 0; sum = 0;
+    if (avg <= 1.7f * period) return;
+    trips = tried_at > 0 && g_app.time - tried_at < 90 ? trips + 1 : 0;   /* it did not last: longer before the next try */
+    float hold = 20.0f * (float)(1 << (trips < 3 ? trips : 3));
+    g_app.fx_still = 1; back_at = g_app.time + hold;
+    LOGI("perf: frames drop while things move (%.1f ms average, a refresh is %.0f ms) -> no motion for %.0f s", avg, period, hold);
+    app_redraw();
+}
+
 void app_note_frame(float ms)
 {
+    motion_guard(ms);
     static int n, slow_runs, fast_runs, want = -1;
     static float sum, last_avg;
     static int adapt = -1;

@@ -96,7 +96,8 @@ typedef struct App {
 
     /* preferences */
     FxLevel fx_setting;        /* what the user chose */
-    int fx_light;              /* effective: 1 = light effects (resolved from Auto) */
+    int fx_light;              /* effective: 1 = light effects (resolved from Auto): no shadows, glows, glass or drift, motion kept */
+    int fx_still;              /* 1 = nothing glides or fades (light effects whose frames were dropping, until they keep up again) */
     int spoiler_blur;          /* blur thumbnails of unwatched episodes */
     int advisory;              /* the rating and content advisory when a video starts */
     int living_letterbox;      /* a film narrower or wider than the screen, its bars: LB_OFF, LB_GLOW (its colours, blurred), LB_COLOUR (its main colour) */

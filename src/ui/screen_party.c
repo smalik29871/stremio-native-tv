@@ -127,7 +127,7 @@ static void draw_join(Party *s, float k)
     for (int i = 0; i < PAD_KEYS; i++) {
         float xx = kx + (i % cols) * (ks + kg), yy = ky + (i / cols) * (kh + kg);
         int f = foc && s->focus == i;
-        if (f) ui_focus_under(xx, yy, ks, kh, 14, g_app.fx_light ? 1 : s->focus_t);
+        if (f) ui_focus_under(xx, yy, ks, kh, 14, g_app.fx_still ? 1 : s->focus_t);
         gfx_rrect(xx, yy, ks, kh, 14, f ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x14));
         char d[2] = { ALPHABET[i], 0 };
         font_draw_center(d, xx + ks / 2, yy + kh / 2 - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, f ? THEME_ON_FOCUS : THEME_TEXT);
@@ -229,7 +229,7 @@ static void draw(Screen *sc)
     Party *s = sc->st;
     if (s->player) gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, 0xC8));   /* over the video: it goes on behind */
     else ui_background(0);
-    float k = g_app.fx_light ? 1 : s->intro;
+    float k = g_app.fx_still ? 1 : s->intro;
     if (s->view == V_CHOOSE) draw_choose(s, k);
     else if (s->view == V_JOIN) draw_join(s, k);
     else draw_party(s, k);

@@ -470,7 +470,7 @@ static void draw(Screen *s)
     /* details open on the focused card: the others in its row slide aside to make room */
     float room = 0; int room_right = 1, room_row = -1;
     if (!SNTV_PHONE && e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
-        float sc = ui_focus_scale(g_app.fx_light ? 1.0f : e->focus_t), w2 = CELL_W * sc;
+        float sc = ui_focus_scale(g_app.fx_still ? 1.0f : e->focus_t), w2 = CELL_W * sc;
         float fx = gx + (e->focus % COLS) * (CELL_W + CELL_GAP) - (w2 - CELL_W) / 2;
         room = ui_peek_room(&e->peek, &e->items[e->focus], fx, w2, CELL_H * sc, gx, SNTV_UI_W - 40, &room_right);
         room_row = e->focus / COLS;
@@ -489,7 +489,7 @@ static void draw(Screen *s)
             gfx_set_alpha(ce);
             char pb[512];
             if (foc) { peek_x = px; peek_y = py; }
-            ui_card(app_art_poster(&e->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_light ? 1 : e->focus_t) : 0, e->zone == Z_GRID && !foc ? 0.25f : 0, e->items[i].name, 0);
+            ui_card(app_art_poster(&e->items[i], pb, sizeof pb), px, py, CELL_W, CELL_H, foc ? (g_app.fx_still ? 1 : e->focus_t) : 0, e->zone == Z_GRID && !foc ? 0.25f : 0, e->items[i].name, 0);
             ui_hit(px, py, CELL_W, CELL_H, i);
             font_draw_fit(e->items[i].name, px, py + CELL_H + (foc ? 24 : 12), FONT_XS | FONT_B, foc ? THEME_TEXT : THEME_TEXT_DIM, CELL_W);
             if (foc && ui_hold_hint(px, py + CELL_H + 52, CELL_W)) {}
@@ -497,7 +497,7 @@ static void draw(Screen *s)
         }
     gfx_set_alpha(1);
     if (!SNTV_PHONE && e->zone == Z_GRID && e->rail_focus < 0 && e->focus < e->n) {
-        float f = g_app.fx_light ? 1 : e->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
+        float f = g_app.fx_still ? 1 : e->focus_t, sc = ui_focus_scale(f), w2 = CELL_W * sc, h2 = CELL_H * sc;
         ui_peek_draw(&e->peek, &e->items[e->focus], peek_x - (w2 - CELL_W) / 2, peek_y - (h2 - CELL_H) / 2 - ui_focus_lift(f), w2, h2, gx, SNTV_UI_W - 40);
     }
     gfx_clip_pop();

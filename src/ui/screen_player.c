@@ -3105,7 +3105,7 @@ static void update(Screen *s, float dt)
         int rest = vi.state == VIDEO_PAUSED && !p->menu && p->seek_commit <= 0 && p->paused_since > 0
                 && g_app.time - p->paused_since > PAUSE_REST && g_app.time > p->overlay_until + PAUSE_REST - 4;
         if (rest && p->rest_t == 0) LOGI("player: paused and idle, the controls step aside");
-        if (g_app.fx_light) p->rest_t = (float)rest;
+        if (g_app.fx_still) p->rest_t = (float)rest;
         else p->rest_t = ui_ease(p->rest_t * 100, rest * 100.0f, NULL, dt, 5) / 100;
         if (fabsf(p->rest_t - rest) > 0.005f) app_redraw(); else p->rest_t = (float)rest;
     }
@@ -3399,7 +3399,7 @@ static void draw_sources_panel(Player *p)
 {
     const float SW = 820, SX = SNTV_UI_W - 64 - SW, SY = 32, SH = SNTV_UI_H - SY - 48, PAD = 40;
     const float ROW_H = 112, ROW_GAP = 4, EXTRA = 34, HEAD_H = 52;
-    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; }
+    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_still ? 1 : 0; }
     if (p->menu_t < 1) { p->menu_t += 0.1f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
     float e = 1 - (1 - p->menu_t) * (1 - p->menu_t);
     gfx_gradient_h(SX - 700, 0, 700 + SW + 64, SNTV_UI_H, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, (int)(0x6B * e)));   /* a side veil, no full one */
@@ -3570,7 +3570,7 @@ static void draw_menu(Player *p)
     int aperture = g_theme.id == THEME_APERTURE;
     if (aperture) { w = 640; x = SNTV_UI_W - w; y = 0; h = SNTV_UI_H; }
     if (p->menu_seen != p->menu) {
-        p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0;
+        p->menu_seen = p->menu; p->menu_t = g_app.fx_still ? 1 : 0;
         if (getenv("SNTV_SCREENSHOT")) LOGI("UI check: player drawer=%d", p->menu);
     }
     if (p->menu_t < 1) { p->menu_t += 0.09f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
@@ -4861,7 +4861,7 @@ static void draw(Screen *s)
     int ap = g_theme.id == THEME_APERTURE;
     if (ap) { bx = THEME_MARGIN + 130; bw = SNTV_UI_W - 2 * THEME_MARGIN - 130 - 230; by = SNTV_UI_H - 170; }   /* "32:18 ──●──── 1:15:42 left" on one line */
     float oe = 1;
-    if (!overlay || g_app.fx_light) p->ov_k = overlay;
+    if (!overlay || g_app.fx_still) p->ov_k = overlay;
     else {
         float step = g_app.time - p->ov_kt;
         if (p->ov_k < 1) { p->ov_k += step / 0.22f; if (p->ov_k > 1) p->ov_k = 1; app_redraw(); }
@@ -5599,12 +5599,12 @@ static void draw_subs_panel(Player *p)
 {
     const float SW = 960, SX = SNTV_UI_W - 64 - SW, SY = 32, SH = SNTV_UI_H - SY - 48, PAD = 36;
     const float LW = 300, ROW = 76, OROW = 92;
-    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_light ? 1 : 0; if (getenv("SNTV_SCREENSHOT")) LOGI("UI check: player drawer=%d", p->menu); }
+    if (p->menu_seen != p->menu) { p->menu_seen = p->menu; p->menu_t = g_app.fx_still ? 1 : 0; if (getenv("SNTV_SCREENSHOT")) LOGI("UI check: player drawer=%d", p->menu); }
     if (p->menu_t < 1) { p->menu_t += 0.1f; if (p->menu_t > 1) p->menu_t = 1; app_redraw(); }
     float e = 1 - (1 - p->menu_t) * (1 - p->menu_t);
     float want = subs_tuning(p) ? 1 : 0;   /* the drawer gives way to the panel, and back */
     if ((int)want != p->tune_on) { p->tune_on = (int)want; LOGI("player: subtitles %s", want ? "Look and timing panel, the drawer aside" : "drawer"); }
-    if (g_app.fx_light || p->menu_t < 1) p->tune_t = want;
+    if (g_app.fx_still || p->menu_t < 1) p->tune_t = want;
     else if (p->tune_t != want) { p->tune_t += want > p->tune_t ? 0.125f : -0.125f; if (p->tune_t < 0) p->tune_t = 0; if (p->tune_t > 1) p->tune_t = 1; app_redraw(); }
     float k = 1 - (1 - p->tune_t) * (1 - p->tune_t);
     if (k > 0) draw_subs_tuner(p, e * k);
@@ -6538,7 +6538,7 @@ static void desk_timeline(Player *p, const VideoInfo *vi, float x, float y, floa
     int held = p->tch == 1, hover = held || (dur > 0 && dk_over(x - 12, y - 30, w + 24, 60) && !p->ph_sheet);
     float step = g_app.time - p->dk_hkt;
     p->dk_hkt = g_app.time;
-    if (g_app.fx_light) p->dk_hk = hover;
+    if (g_app.fx_still) p->dk_hk = hover;
     else { p->dk_hk += ((float)hover - p->dk_hk) * (step * 18 > 1 ? 1 : step * 18); if (fabsf(hover - p->dk_hk) < 0.02f) p->dk_hk = (float)hover; else app_redraw(); }
     float th = 6 + 6 * p->dk_hk, ty = y - th / 2, frac = dur > 0 ? (float)(pos / dur) : 0;
     if (frac < 0) frac = 0;
@@ -6595,7 +6595,7 @@ static float desk_next_k(Player *p)
     int on = p->up_next_shown && p->next_video_id && !p->still_asking && !p->pip && !p->ph_sheet;
     float step = g_app.time - p->dk_nkt;
     p->dk_nkt = g_app.time;
-    if (g_app.fx_light) p->dk_nk = (float)on;
+    if (g_app.fx_still) p->dk_nk = (float)on;
     else {
         p->dk_nk += ((float)on - p->dk_nk) * (step * 6 > 1 ? 1 : step * 6);
         if (fabsf((float)on - p->dk_nk) < 0.01f) p->dk_nk = (float)on; else app_redraw();
@@ -6742,9 +6742,9 @@ static void desk_controls(Player *p, const VideoInfo *vi, int shown, int failed)
         int rest = desk_resting(p, vi);
         float step = g_app.time - p->dk_rkt;
         p->dk_rkt = g_app.time;
-        if (!rest || g_app.fx_light) p->dk_rk = rest;
+        if (!rest || g_app.fx_still) p->dk_rk = rest;
         else if (p->dk_rk < 1) { p->dk_rk += step / 0.8f; if (p->dk_rk > 1) p->dk_rk = 1; app_redraw(); }
-        if (rest && p->dk_rk < 1 && g_app.fx_light == 0) app_redraw();
+        if (rest && p->dk_rk < 1 && g_app.fx_still == 0) app_redraw();
         if (p->dk_rk > 0) desk_rest_card(p, vi, p->dk_rk * p->dk_rk * (3 - 2 * p->dk_rk));
         if (!rest && vi->state == VIDEO_PAUSED && p->paused_since > 0 && g_app.time < p->paused_since + env_s("SNTV_REST_S", 5.0f) + 0.2f) app_redraw();   /* to come in on time */
     }
@@ -6921,7 +6921,7 @@ static void full_draw(Player *p, const VideoInfo *vi)
     {   /* the controls fade in from the edges, and out again */
         float want = shown ? 1 : 0, step = g_app.time - p->fs_kt;
         p->fs_kt = g_app.time;
-        if (g_app.fx_light) p->fs_k = want;
+        if (g_app.fx_still) p->fs_k = want;
         else { p->fs_k += (want - p->fs_k) * (step * 16 > 1 ? 1 : step * 16); if (fabsf(want - p->fs_k) < 0.01f) p->fs_k = want; else app_redraw(); }
     }
 #ifdef SNTV_DESKTOP_PLAYER

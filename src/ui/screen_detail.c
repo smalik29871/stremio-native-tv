@@ -329,7 +329,7 @@ static void ask_open(Detail *d)
 
 static void draw_ask(Detail *d)
 {
-    float k = g_app.fx_light ? 1 : d->ask_t;
+    float k = g_app.fx_still ? 1 : d->ask_t;
     gfx_rect(0, 0, SNTV_UI_W, SNTV_UI_H, RGBA(0, 0, 0, (int)(150 * k)));
     float w = 640, x = SNTV_UI_W - w * k, y = 0, pad = 44;
     gfx_rrect(x, y, w, SNTV_UI_H, 0, COLOR_ALPHA(THEME_PANEL, 0xF4));
@@ -780,7 +780,7 @@ static void update(Screen *s, float dt)
     if (ut > ut_max) ut = ut_max;
     if (ut < 0) ut = 0;
     if (SNTV_PHONE) ;
-    else if (g_app.fx_light) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; d->mus_x = ut; }
+    else if (g_app.fx_still) { d->scroll = st; d->scroll_v = 0; d->cast_x = ct; d->sim_x = mt; d->fr_x = ft; d->mus_x = ut; }
     else if (ui_pointer()) {   /* on its side, or with a mouse: the page and the episodes follow a finger (or the wheel) too */
         ui_pan(&d->ph_pan, &d->scroll, st, d->has_meta ? page_bottom(d, n_cast) - SNTV_UI_H : st, dt, 11);
         d->cast_x = ui_ease(d->cast_x, ct, NULL, dt, 14);
@@ -849,7 +849,7 @@ static void nice_date(const char *iso, char *out, size_t n)
 static void draw_episode_info(const Detail *d, const LibraryItem *li, float x, float y, float w)
 {
     const MetaVideo *v = &d->meta.videos[d->ep_index[d->ep_focus]];
-    int a = (int)(255 * (g_app.fx_light ? 1.0f : d->focus_t));
+    int a = (int)(255 * (g_app.fx_still ? 1.0f : d->focus_t));
     char kicker[96], date[32] = "", meta[160] = "";
     if (v->season > 0 && v->episode >= 0) snprintf(kicker, sizeof kicker, "SEASON %d  \xC2\xB7  EPISODE %d OF %d", v->season, v->episode, d->n_eps);
     else if (v->season == 0) snprintf(kicker, sizeof kicker, "SPECIAL %d OF %d", d->ep_focus + 1, d->n_eps);
@@ -924,7 +924,7 @@ static void draw_about(Detail *d, const TmdbInfo *tm, const LibraryItem *li, flo
     if (ABOUT_Y - d->scroll > SNTV_UI_H) return;   /* not in view yet */
     int n_cast = cast_count(d, tm), series = d->meta.n_videos > 0;
     AboutLayout L = about_layout(d, n_cast);
-    float right = SNTV_UI_W - THEME_MARGIN, f = g_app.fx_light ? 1.0f : d->focus_t;
+    float right = SNTV_UI_W - THEME_MARGIN, f = g_app.fx_still ? 1.0f : d->focus_t;
     ui_row_header(0, "About", d->preview.type && strcmp(d->preview.type, "series") == 0 ? "Series" : "Film", 0, x, ABOUT_Y, right, d->area == AREA_ABOUT);
 
     /* the facts: the full synopsis, then who made it, when and where */
@@ -1186,7 +1186,7 @@ static void draw_series(Detail *d, const LibraryItem *li, float x)
             if (px > SNTV_UI_W + 20 || px + EP_W < -20) continue;
             int foc = d->area == AREA_EPISODES && d->ep_focus == kk;
             if ((pass == 1) != foc) continue;
-            float f = foc ? (g_app.fx_light ? 1.0f : d->focus_t) : 0;
+            float f = foc ? (g_app.fx_still ? 1.0f : d->focus_t) : 0;
             int watched = ep_watched(d, kk, li, cur_idx);
             int is_cur = kk == cur_idx;
             int bc = before_current(d, kk, li);   /* -1: nothing watched of it yet */
@@ -1398,7 +1398,7 @@ static void phone_draw(Detail *d)
             if (ix > W || ix + PH_SIM_W < 0) continue;
             int foc = d->area == AREA_SIMILAR && d->sim_focus == i;
             char pb[512];
-            ui_card(app_art_poster(&d->similar[i], pb, sizeof pb), ix, y, PH_SIM_W, PH_SIM_H, foc ? (g_app.fx_light ? 1 : d->focus_t) : 0, 0, d->similar[i].name, 0);
+            ui_card(app_art_poster(&d->similar[i], pb, sizeof pb), ix, y, PH_SIM_W, PH_SIM_H, foc ? (g_app.fx_still ? 1 : d->focus_t) : 0, 0, d->similar[i].name, 0);
             ui_hit(ix, y, PH_SIM_W, PH_SIM_H, HIT(AREA_SIMILAR, i));
         }
         ph_focus(d, d->area == AREA_SIMILAR, y - 64, PH_SIM_H + 64);
@@ -1470,7 +1470,7 @@ static int phone_key(Screen *s, KeyAction a)
 /* The page arriving: block i of it eases in a beat after the one before (0..1). */
 static float stage(const Detail *d, int i)
 {
-    if (g_app.fx_light) return 1;
+    if (g_app.fx_still) return 1;
     float k = (d->age - 0.05f - i * 0.07f) / 0.42f;
     if (k >= 1) return 1;
     app_redraw();
@@ -1493,7 +1493,7 @@ static void draw(Screen *s)
     int iw, ih;
     unsigned bgt = bg && g_theme.id != THEME_APERTURE ? image_get(bg, &iw, &ih) : 0;
     int series = d->meta.n_videos > 0;
-    float k = g_app.fx_light ? 1.0f : d->intro;
+    float k = g_app.fx_still ? 1.0f : d->intro;
     float tv = bgtrailer_shown(d->preview.id);   /* the trailer playing behind the artwork */
     if (g_theme.id == THEME_APERTURE) {
         float ah = series ? RAIL_Y - 110 : SNTV_UI_H;
@@ -1507,7 +1507,7 @@ static void draw(Screen *s)
         ui_backdrop_fades(1250, series ? 420 : 560, SNTV_UI_H);
         ui_backdrop_video(tv, SNTV_UI_H);
         {   /* the backdrop settles from a little nearer as the page arrives */
-            float t = g_app.fx_light ? 1 : d->age / 1.1f, e = t >= 1 ? 1 : 1 - (1 - t) * (1 - t) * (1 - t);
+            float t = g_app.fx_still ? 1 : d->age / 1.1f, e = t >= 1 ? 1 : 1 - (1 - t) * (1 - t) * (1 - t);
             if (e < 1) { gfx_set_scale(1.06f - 0.06f * e, SNTV_UI_W * 0.7f, SNTV_UI_H * 0.4f); app_redraw(); }
             ui_backdrop_image(bgt, iw, ih, k * (1 - tv), SNTV_UI_H);
             if (e < 1) gfx_set_scale(1, 0, 0);

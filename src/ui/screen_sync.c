@@ -409,7 +409,7 @@ static void draw_client(Sync *s, float k)
     for (int i = 0; i < DO_COUNT; i++) {
         float cy = y + i * (ch + gap);
         int foc = s->focus == i && (!gfx_handheld() || s->keyed);
-        float f = foc ? (g_app.fx_light ? 1 : s->focus_t) : 0;
+        float f = foc ? (g_app.fx_still ? 1 : s->focus_t) : 0;
         if (foc) ui_focus_under(x, cy, w, ch, R_PANEL, f);
         gfx_rrect(x, cy, w, ch, R_PANEL, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x10));
         Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, dim = foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_DIM;
@@ -438,7 +438,7 @@ static void draw_find(Sync *s, float k)
     for (int i = 0; i < s->n_found; i++) {
         float ry = y + i * (rh + gap);
         int foc = s->hfocus == i && (!gfx_handheld() || s->keyed);
-        float f = foc ? (g_app.fx_light ? 1 : s->focus_t) : 0;
+        float f = foc ? (g_app.fx_still ? 1 : s->focus_t) : 0;
         if (foc) ui_focus_under(x, ry, w, rh, R_PANEL, f);
         gfx_rrect(x, ry, w, rh, R_PANEL, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x10));
         Color fg = foc ? THEME_ON_FOCUS : THEME_TEXT, dim = foc ? COLOR_ALPHA(THEME_ON_FOCUS, 0xB0) : THEME_TEXT_MUTED;
@@ -492,7 +492,7 @@ static void draw_pin(Sync *s, float k)
         if (!PAD[i][0]) continue;
         float xx = kx + (i % 3) * (ks + kg), yy = ky + (i / 3) * (kh + kg);
         int foc = s->hfocus == i && (!gfx_handheld() || s->keyed);
-        if (foc) ui_focus_under(xx, yy, ks, kh, 16, g_app.fx_light ? 1 : s->focus_t);
+        if (foc) ui_focus_under(xx, yy, ks, kh, 16, g_app.fx_still ? 1 : s->focus_t);
         gfx_rrect(xx, yy, ks, kh, 16, foc ? THEME_FOCUS : COLOR_ALPHA(THEME_TEXT, 0x14));
         if (i == 9) ui_icon(ICON_BACK, xx + ks / 2, yy + kh / 2, 34, foc ? THEME_ON_FOCUS : THEME_TEXT);   /* delete */
         else font_draw_center(PAD[i], xx + ks / 2, yy + kh / 2 - font_height(FONT_M | FONT_B) / 2, FONT_M | FONT_B, foc ? THEME_ON_FOCUS : THEME_TEXT);
@@ -505,7 +505,7 @@ static void draw(Screen *sc)
 {
     Sync *s = sc->st;
     ui_background(0);
-    float k = g_app.fx_light ? 1 : s->intro;
+    float k = g_app.fx_still ? 1 : s->intro;
     if (s->host) { if (s->hmode == H_FIND) draw_find(s, k); else if (s->hmode == H_PIN) draw_pin(s, k); else draw_host(s, k); }
     else draw_client(s, k);
 }

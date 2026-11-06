@@ -414,7 +414,7 @@ static const char *row_desc(int id)
     case IT_AUTO_TRAILER: return "When you stay on a title, its trailer plays behind the artwork on Home and the title page, then the artwork comes back.";
     case IT_HIDE_WATCHED: return "Films and series you finished leave the catalog rows.";
     case IT_BLUR: return "Episode stills stay blurred until you watch them.";
-    case IT_FX: return "Light drops shadows and glows; Automatic follows frame times, back and forth.";
+    case IT_FX: return "Light drops shadows and glows and keeps the motion, which pauses where frames still drop; Automatic follows frame times, back and forth.";
     case IT_TRANSITIONS: return "Screens slide and fade as you move between them.";
     case IT_DEPTH: return depth_off() == 1 && mem_saver_lasting() ? "Off while the memory saver is on (Memory use, further down): Depth needs room for its maps."
                         : depth_off() == 1 ? "Off for now: the TV is short of memory. It comes back by itself when there is room again."
@@ -671,7 +671,7 @@ static void update(Screen *s, float dt)
         for (int i = 0; i < n; i++) total += row_h(ids[i]);
         st->scroll_max = total - (SNTV_UI_H - ROWS_TOP) + 1.5f * ROW_H;
         int fid = st->zone == 1 && st->focus < n ? ids[st->focus] : -1;
-        if (fid != st->panel_id) { st->panel_id = fid; st->panel_t = g_app.fx_light ? 1 : 0; }
+        if (fid != st->panel_id) { st->panel_id = fid; st->panel_t = g_app.fx_still ? 1 : 0; }
     }
     ui_pan(&st->pan, &st->scroll, st->scroll_target, st->scroll_max, dt, 12);
     if (SNTV_PHONE) {   /* the categories: the focused one kept above the tab bar */
@@ -682,11 +682,11 @@ static void update(Screen *s, float dt)
         if (st->search_foc || want < 0) want = 0;
         ui_pan(&st->cat_pan, &st->cat_y, want, PH_CAT_Y + ((CAT_COUNT + cols - 1) / cols) * PH_CAT_H + 20 - view, dt, 14);
     }
-    if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_light ? 1 : 0; }
+    if (st->pane_cat != st->cat) { st->pane_cat = st->cat; st->pane_t = g_app.fx_still ? 1 : 0; }
     if (st->pane_t < 1) { st->pane_t += dt * 5; if (st->pane_t > 1) st->pane_t = 1; app_redraw(); }
     if (st->panel_t < 1) { st->panel_t += dt * 6; if (st->panel_t > 1) st->panel_t = 1; app_redraw(); }
     float want = st->zone == 1 && st->edit == EDIT_NONE ? 1.0f : 0.0f;
-    if (g_app.fx_light || !g_app.transitions) st->wide_t = want;
+    if (g_app.fx_still || !g_app.transitions) st->wide_t = want;
     else if (st->wide_t != want) {
         st->wide_t += (want > st->wide_t ? 1 : -1) * dt * 6;
         if (st->wide_t < 0) st->wide_t = 0;
