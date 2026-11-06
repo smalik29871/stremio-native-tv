@@ -44,6 +44,7 @@ add_library(sntv_core STATIC
   src/mkvsubs.c
   src/store.c
   src/vault.c
+  src/report.c
   src/sha256.c
   src/subs.c
   src/skip.c
@@ -461,6 +462,9 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_mkvsubs PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_mkvsubs PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME mkv_subtitles COMMAND test_mkvsubs)
+  add_executable(test_report tests/test_report.c)
+  target_link_libraries(test_report PRIVATE sntv_core ${SNTV_LINK_LIBS})
+  add_test(NAME report_redaction COMMAND test_report)
   add_executable(test_tidy tests/test_tidy.c)
   target_link_libraries(test_tidy PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME data_folder_tidy COMMAND test_tidy)
