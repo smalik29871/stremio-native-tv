@@ -1,5 +1,6 @@
 #include <math.h>
 #include "app.h"
+#include "vr/vr.h"
 #include "audio.h"
 #include "breaks.h"
 #include "phone.h"
@@ -1067,6 +1068,29 @@ static void ask_frame_rate(float hz) { (void)hz; }
 #endif
 static int g_refresh_hz;   /* the display's refresh rate where the platform tells it (Android), else 0 */
 static int eff_hz(void) { int live = perf_live_hz(); return live ? live : g_refresh_hz / g_frame_div; }
+#ifdef SNTV_VR
+/* The controllers as the screens' own inputs: the trigger is a finger on the panel where the ray
+ * meets it, the thumbstick the arrow keys, A the OK key, B Back. */
+static void vr_inject(const VrInput *in)
+{
+    static int was_down;
+    SDL_Event e; SDL_zero(e);
+    e.tfinger.fingerId = 7; e.tfinger.timestamp = SDL_GetTicks();
+    if (in->have_pointer) { e.tfinger.x = in->x; e.tfinger.y = in->y; }
+    if (in->down && !was_down && in->have_pointer) { e.type = SDL_FINGERDOWN; touch_event(&e); }
+    else if (in->down && was_down && in->have_pointer) { e.type = SDL_FINGERMOTION; touch_event(&e); }
+    else if (!in->down && was_down) { e.type = SDL_FINGERUP; e.tfinger.x = in->have_pointer ? in->x : g_touch.x; e.tfinger.y = in->have_pointer ? in->y : g_touch.y; touch_event(&e); }
+    was_down = in->down;
+    if (in->ok) dispatch_key(KEY_OK);
+    if (in->back) dispatch_key(KEY_BACK);
+    if (in->up_k) dispatch_key(KEY_UP);
+    if (in->down_k) dispatch_key(KEY_DOWN);
+    if (in->left_k) dispatch_key(KEY_LEFT);
+    if (in->right_k) dispatch_key(KEY_RIGHT);
+    if (in->ok || in->back || in->up_k || in->down_k || in->left_k || in->right_k) g_app.last_input = g_app.time;
+}
+#endif
+
 int main(int argc, char **argv)
 {
     g_perf_fill = getenv("SNTV_PERF_FILL") != NULL;
@@ -1136,7 +1160,11 @@ int main(int argc, char **argv)
     }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#ifdef SNTV_VR
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);   /* OpenXR's OpenGL ES binding wants 3.0 or newer */
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+#endif
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
@@ -1195,6 +1223,13 @@ int main(int argc, char **argv)
     SDL_GL_SetSwapInterval(1);
 
     if (gfx_init(win) != 0) return 1;
+#ifdef SNTV_VR
+    int vr_session = vr_init() == 0;   /* a headset's runtime answered: the screens go onto a panel in front of you */
+    LOGI("vr: %s", vr_session ? "in a headset" : "no headset, the app runs flat");
+#else
+    int vr_session = 0;
+#endif
+    (void)vr_session;
     {   /* a phone or a tablet: touch, and drawn larger where the screen is wider than 16:9;
          * SNTV_HANDHELD=1 tries it on the desktop */
         const char *hh = getenv("SNTV_HANDHELD");   /* 1 a phone, 2 a tablet */
@@ -1526,6 +1561,18 @@ int main(int argc, char **argv)
         { VideoInfo pv; video_info(&pv); if (pv.state == VIDEO_PLAYING) g_app.need_redraw = 1; }   /* a computer draws the picture itself: every refresh while one plays, so each frame shows on time */
 #endif
         int must_draw = g_app.need_redraw || frame < 60 || getenv("SNTV_SCREENSHOT");
+#ifdef SNTV_VR
+        int vr_rc = -1;   /* -1 not running, 0 running and nothing to draw, 1 draw the panel now */
+        if (vr_session) {
+            g_app.fx_setting = FX_LIGHT; g_app.fx_light = 1;   /* a headset's chip is a phone's: the light effects (their motion stays) */
+            int vw = 0, vh = 0;
+            vr_rc = vr_frame_begin(must_draw, &vw, &vh);   /* paced by the headset's display */
+            if (vr_rc >= 0) { VrInput vin; vr_input(&vin); vr_inject(&vin); }
+            if (vr_rc == 1) gfx_set_external(vw, vh);
+            if (vr_quit_requested()) g_app.quit = 1;
+            must_draw = vr_rc == 1;
+        }
+#endif
         if (must_draw) {
             g_app.need_redraw = 0;
             Uint64 pc_draw = SDL_GetPerformanceCounter();
@@ -1567,10 +1614,16 @@ int main(int argc, char **argv)
             /* A swap that waited for the display already paced the frame; sleeping on top of
              * it only delays the next key. Cap the rate only when the swap returned at once. */
             Uint32 cap = g_refresh_hz ? 1000u / (unsigned)eff_hz() - (g_frame_div > 1 ? 1u : 0u) : 16;   /* a hair under a refresh: the swap then waits for the display and paces the frame */
-            if (end - swap_at < 2 && spent < cap) SDL_Delay(cap - spent);
-        } else {
+            if (!vr_session && end - swap_at < 2 && spent < cap) SDL_Delay(cap - spent);
+        } else if (!vr_session) {
             SDL_WaitEventTimeout(NULL, 25);   /* idle: wake the moment a key arrives, else poll the network at 40 Hz */
         }
+#ifdef SNTV_VR
+        if (vr_session) {
+            if (vr_rc >= 0) vr_frame_end();   /* the panel and the frame to the compositor, drawn this time or not */
+            else SDL_WaitEventTimeout(NULL, 30);   /* the headset is not ready (off the face, or in its own menu) */
+        }
+#endif
         if (g_perf_fill) {   /* how often each screen draws when left alone: idle redraws cost a TV its keys' speed */
             static Uint32 t0; static int n0, f0;
             Uint32 t = SDL_GetTicks();

@@ -5,6 +5,8 @@
 plugins { id "com.android.application" }
 
 def repo = file("../../..")
+// -PquestVr: the Quest build (docs/VR-PLAN.md), its own app next to the normal one: the screens on a panel in a headset, through OpenXR
+def questVr = project.hasProperty("questVr")
 def version = new groovy.json.JsonSlurper().parse(new File(repo, "deploy/webos/appinfo.json")).version
 def parts = version.tokenize(".").collect { it as int }
 
@@ -14,7 +16,9 @@ android {
     ndkVersion "27.2.12479018"
 
     defaultConfig {
-        applicationId "app.cuelight.tv"
+        applicationId questVr ? "app.cuelight.vr" : "app.cuelight.tv"
+        manifestPlaceholders = [appLabel: questVr ? "Cuelight VR" : "Cuelight",
+                                vrCategory: questVr ? "org.khronos.openxr.intent.category.IMMERSIVE_HMD" : "android.intent.category.DEFAULT"]
         minSdk 24
         targetSdk 35
         testInstrumentationRunner "app.cuelight.tv.MobileInstrumentation"
@@ -23,7 +27,7 @@ android {
         ndk { abiFilters "arm64-v8a", "armeabi-v7a" }
         externalNativeBuild {
             cmake {
-                arguments "-DSNTV_PLATFORM=android", "-DSNTV_BUILD_TESTS=OFF", "-DANDROID_STL=c++_shared",
+                arguments "-DSNTV_PLATFORM=android", "-DSNTV_BUILD_TESTS=OFF", "-DANDROID_STL=c++_shared", "-DSNTV_VR=" + (questVr ? "ON" : "OFF"),
                           "-DSNTV_TMDB_BUILTIN_KEY=" + (System.getenv("TMDB_API_KEY") ?: ""),
                           "-DSNTV_OPENSUBTITLES_KEY=" + (System.getenv("OPENSUBTITLES_KEY") ?: ""),
                           "-DSNTV_TRAKT_CLIENT_ID=" + (System.getenv("TRAKT_CLIENT_ID") ?: ""),
@@ -59,7 +63,7 @@ android {
             signingConfig System.getenv("ANDROID_KEYSTORE") ? signingConfigs.release : signingConfigs.debug
         }
     }
-    buildFeatures { buildConfig true }
+    buildFeatures { buildConfig true; prefab questVr }
     compileOptions { sourceCompatibility JavaVersion.VERSION_11; targetCompatibility JavaVersion.VERSION_11 }
     packagingOptions { jniLibs { useLegacyPackaging true } }   // libraries unpacked on install: the P2P engine runs from there
 }
@@ -72,4 +76,5 @@ dependencies {   // the video player (CuelightPlayer.java)
     implementation "androidx.media3:media3-ui:$media3"
     implementation "androidx.core:core:1.13.1"   // FileProvider: the downloaded update handed to the installer
     implementation "com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0"   // YouTube's own player (MIT), where YouTube refuses ours
+    if (questVr) implementation "org.khronos.openxr:openxr_loader_for_android:1.1.54"   // the OpenXR loader and headers (Khronos, Apache-2.0)
 }

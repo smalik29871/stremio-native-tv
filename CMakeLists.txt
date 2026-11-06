@@ -284,6 +284,17 @@ else()
   set(SNTV_VIDEO_SRC src/video/video_null.c)
 endif()
 
+# ---- Quest (docs/VR-PLAN.md) ------------------------------------------------
+# SNTV_VR: the screens on a panel in a headset through OpenXR. The Khronos loader and headers come
+# from its Android package (Maven, Apache-2.0) as a Gradle prefab dependency (deploy/android).
+option(SNTV_VR "Quest build: an OpenXR panel (src/vr)" OFF)
+set(SNTV_VR_SRC "")
+if(SNTV_VR AND SNTV_PLATFORM STREQUAL "android")
+  find_package(OpenXR REQUIRED CONFIG)
+  set(SNTV_VR_SRC src/vr/vr_math.c src/vr/vr_openxr.c)
+  list(APPEND SNTV_LINK_LIBS OpenXR::openxr_loader GLESv3 EGL)
+endif()
+
 # ---- app ---------------------------------------------------------------------
 file(GLOB SNTV_UI_SRC CONFIGURE_DEPENDS src/ui/*.c)
 # What's new: this version's CHANGELOG.md section, built in (tools/whatsnew.cmake)
@@ -303,6 +314,7 @@ set(SNTV_APP_SRC
   src/memwatch.c
   ${SNTV_UI_SRC}
   ${SNTV_VIDEO_SRC}
+  ${SNTV_VR_SRC}
   ${SNTV_WHATSNEW})
 if(SNTV_PLATFORM STREQUAL "android")
   add_library(stremio-tv SHARED ${SNTV_APP_SRC})   # libmain.so, what SDL's activity loads
@@ -320,6 +332,9 @@ else()
   add_executable(stremio-tv ${SNTV_APP_SRC})
 endif()
 target_include_directories(stremio-tv PRIVATE ${SNTV_PLATFORM_INCLUDES} ${CMAKE_BINARY_DIR}/generated)
+if(SNTV_VR_SRC)
+  target_compile_definitions(stremio-tv PRIVATE SNTV_VR=1)
+endif()
 target_link_libraries(stremio-tv PRIVATE sntv_core webpdecoder ${SNTV_LINK_LIBS})
 
 install(TARGETS stremio-tv RUNTIME DESTINATION .)
@@ -460,6 +475,10 @@ if(SNTV_BUILD_TESTS AND NOT SNTV_PLATFORM STREQUAL "wasm")
   target_link_libraries(test_mkvsubs PRIVATE sntv_core ${SNTV_LINK_LIBS})
   target_compile_definitions(test_mkvsubs PRIVATE SNTV_FIXTURES="${CMAKE_SOURCE_DIR}/tests/fixtures")
   add_test(NAME mkv_subtitles COMMAND test_mkvsubs)
+  add_executable(test_vr_math tests/test_vr_math.c src/vr/vr_math.c)
+  target_include_directories(test_vr_math PRIVATE src)
+  target_link_libraries(test_vr_math PRIVATE m)
+  add_test(NAME vr_panel_math COMMAND test_vr_math)
   add_executable(test_tidy tests/test_tidy.c)
   target_link_libraries(test_tidy PRIVATE sntv_core ${SNTV_LINK_LIBS})
   add_test(NAME data_folder_tidy COMMAND test_tidy)

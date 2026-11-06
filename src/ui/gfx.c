@@ -284,10 +284,14 @@ void gfx_update_layout(int width, int height)
     g_aa = 0.8f / g_scale;   /* one physical pixel of feathering, in logical units */
 }
 
+static int g_ext_w, g_ext_h;   /* drawing into a target of its own (a headset's panel) instead of the window: its size, 0 for the window */
+void gfx_set_external(int w, int h) { g_ext_w = w; g_ext_h = h; }
+
 void gfx_begin_frame(Color clear)
 {
     int width, height;
-    SDL_GL_GetDrawableSize(g_win, &width, &height);
+    if (g_ext_w > 0) { width = g_ext_w; height = g_ext_h; }
+    else SDL_GL_GetDrawableSize(g_win, &width, &height);
     gfx_update_layout(width, height);
 
     glViewport(0, 0, g_draw_w, g_draw_h);
@@ -349,6 +353,7 @@ void gfx_end_frame(void)
     flush();
     g_last_calls = g_calls;
     g_last_shade = g_shade; g_last_heavy = g_heavy;
+    if (g_ext_w > 0) return;   /* the target is handed on by its owner, nothing to swap */
     SDL_GL_SwapWindow(g_win);
 }
 

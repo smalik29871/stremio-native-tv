@@ -6,6 +6,8 @@
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <!-- a headset: 6DoF tracking (Quest); other devices ignore it -->
+    <uses-feature android:name="android.hardware.vr.headtracking" android:required="false" android:version="1" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -13,18 +15,25 @@
     <!-- updating itself: the new APK goes to Android's installer, which asks before it installs -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- the OpenXR loader finds the headset's runtime through these -->
+    <queries>
+        <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
+        <intent><action android:name="org.khronos.openxr.OpenXRRuntimeService" /></intent>
+    </queries>
+
     <application
-        android:label="Cuelight"
+        android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/banner"
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        <meta-data android:name="com.oculus.supportedDevices" android:value="quest|quest2|questpro|quest3|quest3s" />
         <activity
             android:name=".CuelightActivity"
             android:exported="true"
-            android:label="Cuelight"
+            android:label="${appLabel}"
             android:screenOrientation="sensorLandscape"
             android:launchMode="singleInstance"
             android:supportsPictureInPicture="true"
@@ -36,6 +45,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <!-- the Quest build: started as a headset app (the normal build lists a harmless default) -->
+                <category android:name="${vrCategory}" />
             </intent-filter>
             <!-- an addon's install link (stremio://host/manifest.json): Cuelight installs it -->
             <intent-filter>

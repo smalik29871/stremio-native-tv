@@ -36,6 +36,7 @@ void gfx_flush(void);          /* submit pending quads (e.g. before glReadPixels
 float gfx_scale(void);
 void  gfx_pixels_to_ui(float px, float py, float *x, float *y);   /* a window pixel to canvas units */
 void  gfx_drawable_size(int *w, int *h);
+void  gfx_set_external(int w, int h);   /* draw into a target bound by the caller (a headset's panel), of this size: no window swap. 0: the window again */
 /* UI-canvas rectangle -> window pixels (for the video plane) */
 void  gfx_ui_to_pixels(float x, float y, float w, float h, int *px, int *py, int *pw, int *ph);
 int  gfx_draw_calls(void);   /* last frame, for the perf overlay */

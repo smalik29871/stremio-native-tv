@@ -75,6 +75,12 @@ use, and what they return stays under their terms:
 Your addons are third-party services of your choosing; Cuelight plays only what they
 return.
 
+## In the Quest build only
+
+- [OpenXR loader](https://github.com/KhronosGroup/OpenXR-SDK) (Khronos Group, Apache 2.0), from its
+  Android package on Maven Central: connects the Quest APK (`app.cuelight.vr`, built from
+  `src/vr`) to the headset's OpenXR runtime.
+
 ## Used to build Cuelight, not shipped
 
 - [Depth Anything V2 Small](https://huggingface.co/depth-anything/Depth-Anything-V2-Small)
@@ -89,5 +95,6 @@ return.
 Some features follow the design of other open-source projects: Stremio-Kai, the Nuvio
 port [nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy) and NuvioMobile
 (GPL 3.0), [youtube-webos](https://github.com/webosbrew/youtube-webos) (GPL 3.0), and
-stremio-core for the shapes of Stremio's API. Cuelight's code is written independently;
+stremio-core for the shapes of Stremio's API. The VR plan (docs/VR-PLAN.md) read Meta's and others' OpenXR samples and the
+GPL VR projects it lists for how they work; none of their code is in Cuelight. Cuelight's code is written independently;
 no code from those projects is copied into it.
