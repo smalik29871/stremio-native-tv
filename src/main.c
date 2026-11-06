@@ -1242,7 +1242,7 @@ int main(int argc, char **argv)
         if (SDL_IsAndroidTV()) handheld = 0;   /* a TV is never one, whatever its size reads as: its remote, its words, its screensaver */
         if (handheld) SDL_EnableScreenSaver();   /* a phone or tablet sleeps on its own timeout; a video, or the screensaver on the charger, keeps it on */
 #endif
-        if (vr_session) handheld = 0;   /* a panel in a headset is a 16:9 screen with a pointer: the TV-style layout, not a tablet's
+        if (vr_session) handheld = 0;   /* a panel in a headset is a 16:9 screen with a pointer: the TV-style layout, not a tablet's */
         LOGI("screen: %dx%d%s", w, h, handheld == 2 ? ", handheld: drawn larger (a tablet)" : handheld ? ", handheld: drawn larger (a phone)" : "");
         if (handheld) gfx_set_handheld(handheld);
     }
