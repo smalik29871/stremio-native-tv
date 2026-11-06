@@ -502,6 +502,15 @@ while p<len(d):
     p+=12+n
 raw=zlib.decompress(idat); assert len(raw)==h*(1+3*w) and w>=640 and h>=360, 'size'
 " "$PNG"; } || { echo "Ctrl+S did not save a picture of the screen"; ls -la "$OUT/pictures" 2>&1 | head; grep -E "screenshot|toast" "$OUT/player_desktop_picture.log" | tail -5; exit 1; }
+# W shrinks the window to the corner above the rest and back; a dropped file or link plays
+run player_desktop_mini 560 "right,ok,down,down,play,wait,wait,key:w,wait,key:w,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
+for want in "window: mini, 480x270 in the corner" "window: back from mini"; do
+  grep -q "$want" "$OUT/player_desktop_mini.log" || { echo "the mini window did not work: $want"; grep -E "window:|player: key W" "$OUT/player_desktop_mini.log"; exit 1; }
+done
+echo hello > "$OUT/notes.txt"
+run drop_file 300 "drop:/nonexistent/film.mkv,wait,drop:/etc,wait,drop:$OUT/notes.txt,wait,drop:https://127.0.0.1:9/video.mp4,wait"
+grep -q "drop: playing https://127.0.0.1:9" "$OUT/drop_file.log" && grep -q "toast: That file cannot be opened" "$OUT/drop_file.log" && grep -q "toast: That is a folder" "$OUT/drop_file.log" && grep -q "toast: That is not a video file" "$OUT/drop_file.log" \
+  || { echo "dropping on the window did not do the right thing"; grep -E "drop:|toast:" "$OUT/drop_file.log"; exit 1; }
 # K pauses and plays, the frame step works while paused, and nothing of it reaches a screen outside the player
 run player_desktop_pause 400 "right,ok,down,down,play,wait,key:k,wait,key:period,key:comma,key:k,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
 run desktop_keys_home 150 "key:j,key:l,key:5,key:question,key:pgdn,key:pgup,key:slash,wait"

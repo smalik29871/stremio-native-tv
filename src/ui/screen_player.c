@@ -7939,6 +7939,7 @@ int player_desktop_key(Screen *top, int key_sym, unsigned mod)
     case SDLK_s: { const SkipSeg *sk = g_app.skip_mode == 0 ? skippable(p, &vi) : NULL; if (sk) do_skip(p, sk); return sk != NULL; }
     case SDLK_x: return top->key ? top->key(top, KEY_STOP) : 0;
     case SDLK_e: repeat_step(p, &vi); return 1;
+    case SDLK_w: LOGI("player: key W, the mini window"); window_mini_toggle(); return 1;
     case SDLK_t: sleep_step(p, &vi); return 1;
     case SDLK_i: p->stats = !p->stats; app_redraw(); return 1;
     case SDLK_o: show_overlay(p); return 1;
@@ -7964,7 +7965,7 @@ static void draw_keys_help(Player *p)
 #endif
         { "+  -  Ctrl + Up / Down", "Volume" }, { "M", "Mute" },
         { "C", "Subtitles on or off" }, { "V", "Next subtitles" }, { "G  H", "Subtitles earlier, later" }, { "B", "Next sound track" },
-        { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "E", "Repeat a section (start, end, off)" }, { "T", "Sleep timer" }, { "Ctrl + S  F12", "Save a picture of the screen" }, { "X  Esc", "Stop" },
+        { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "E", "Repeat a section (start, end, off)" }, { "T", "Sleep timer" }, { "Ctrl + S  F12", "Save a picture of the screen" }, { "W", "Mini window in the corner, above the rest" }, { "X  Esc", "Stop" },
         { "F  F11  Alt + Enter", "Full screen" }, { "I  F1", "Stream details" }, { "O", "Controls" } };
     int n = (int)(sizeof L / sizeof L[0]), rows = (n + 1) / 2;
     float w = 1180, lh = 42, h = 120 + rows * lh, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;

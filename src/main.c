@@ -349,6 +349,12 @@ static void dev_hooks(SDL_Window *win, int frame)
                 e.type = SDL_KEYUP; SDL_PushEvent(&e);
                 continue;
             }
+            if (!strncmp(tok, "drop:", 5)) {   /* a file dropped on the window: "drop:/path/film.mkv" */
+                SDL_Event de; SDL_zero(de);
+                de.type = SDL_DROPFILE; de.drop.file = SDL_strdup(tok + 5);
+                SDL_PushEvent(&de);
+                continue;
+            }
             if (!strncmp(tok, "key:", 4)) {   /* a computer keyboard's key: "key:k", "key:shift+right", "key:ctrl+left", "key:comma", "key:question" */
                 static const struct { const char *n; SDL_Keycode k; } names[] = {
                     { "left", SDLK_LEFT }, { "right", SDLK_RIGHT }, { "up", SDLK_UP }, { "down", SDLK_DOWN }, { "home", SDLK_HOME }, { "end", SDLK_END },
@@ -699,9 +705,11 @@ static void take_screenshot(SDL_Window *win)
 static int g_win_dirty;
 static Uint32 g_win_dirty_at;
 
+static int g_mini;   /* in the corner (below): that size is not the one to come back to */
+
 static void window_remember(SDL_Window *win)
 {
-    if (!win || (getenv("SNTV_WINDOW") && *getenv("SNTV_WINDOW"))) return;
+    if (!win || g_mini || (getenv("SNTV_WINDOW") && *getenv("SNTV_WINDOW"))) return;
     Uint32 fl = SDL_GetWindowFlags(win);
     if (fl & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_MINIMIZED)) return;
     int max = (fl & SDL_WINDOW_MAXIMIZED) != 0;
@@ -733,6 +741,70 @@ static int window_saved(int *x, int *y, int *w, int *h)
     if (*w < 640 || *h < 360 || *w > 16000 || *h > 16000) return 0;
     if (!window_title_bar_reachable(*x, *y, *w)) { LOGI("window: the saved place is off every screen, centred instead"); return 0; }
     return 1;
+}
+
+/* A file or a link dropped on the window: it plays (a folder, or something that is no video, says so) */
+static void window_dropped(const char *what)
+{
+    char path[1300];
+    snprintf(path, sizeof path, "%s", what);
+    char *nl = strpbrk(path, "\r\n"); if (nl) *nl = 0;   /* a text drop can carry several lines: the first */
+    const char *scheme = strstr(path, "://");
+    if (!strncmp(path, "file://", 7)) memmove(path, path + 7, strlen(path + 7) + 1);   /* a file manager's own form */
+    int web = !strncmp(path, "http://", 7) || !strncmp(path, "https://", 8);
+    if (!web && scheme && strncmp(path, "file://", 7) != 0) { app_toast("Cuelight plays links that start with http:// or https://"); return; }
+    if (!web) {
+        struct stat st;
+        if (stat(path, &st) != 0) { app_toast("That file cannot be opened"); return; }
+        if (S_ISDIR(st.st_mode)) { app_toast("That is a folder: drop a video file"); return; }
+        const char *dot = strrchr(path, '.');
+        static const char *const EXT[] = { "mkv", "mp4", "m4v", "avi", "mov", "webm", "ts", "m2ts", "mpg", "mpeg", "wmv", "flv", "ogv", "3gp", "m3u8", "mp3", "flac", "m4a", "opus", NULL };
+        int ok = 0;
+        for (int i = 0; dot && EXT[i]; i++) if (!strcasecmp(dot + 1, EXT[i])) ok = 1;
+        if (!ok) { app_toast("That is not a video file"); LOGI("drop: %s is not a video", path); return; }
+    }
+    char url[1400];
+    if (web) snprintf(url, sizeof url, "%s", path); else snprintf(url, sizeof url, "file:%s", path);
+    Screen *top = app_top();
+    if (top && !strcmp(top->name, "player")) app_pop();   /* what plays now makes way */
+    LOGI("drop: playing %s", url);
+    app_play_link(url);
+    g_app.last_input = g_app.time;
+}
+
+/* W in the player: the window shrinks to a corner of the screen and stays above the other windows
+ * (a film in the corner while you work); W again, or the film ending, puts it back. */
+static struct { int x, y, w, h, max; } g_mini_was;
+static SDL_Window *g_kwin;
+
+void window_mini_toggle(void)
+{
+    SDL_Window *win = g_kwin;
+    if (!win) return;
+    if (!g_mini) {
+        Uint32 fl = SDL_GetWindowFlags(win);
+        if (fl & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) SDL_SetWindowFullscreen(win, 0);
+        g_mini_was.max = (fl & SDL_WINDOW_MAXIMIZED) != 0;
+        if (g_mini_was.max) SDL_RestoreWindow(win);
+        SDL_GetWindowPosition(win, &g_mini_was.x, &g_mini_was.y);
+        SDL_GetWindowSize(win, &g_mini_was.w, &g_mini_was.h);
+        SDL_Rect b = { 0, 0, 1920, 1080 };
+        SDL_GetDisplayUsableBounds(SDL_GetWindowDisplayIndex(win) >= 0 ? SDL_GetWindowDisplayIndex(win) : 0, &b);
+        int w = 480, h = 270;
+        SDL_SetWindowAlwaysOnTop(win, SDL_TRUE);
+        SDL_SetWindowSize(win, w, h);
+        SDL_SetWindowPosition(win, b.x + b.w - w - 24, b.y + b.h - h - 24);
+        g_mini = 1;
+        LOGI("window: mini, %dx%d in the corner, above the other windows", w, h);
+    } else {
+        SDL_SetWindowAlwaysOnTop(win, SDL_FALSE);
+        SDL_SetWindowSize(win, g_mini_was.w, g_mini_was.h);
+        SDL_SetWindowPosition(win, g_mini_was.x, g_mini_was.y);
+        if (g_mini_was.max) SDL_MaximizeWindow(win);
+        g_mini = 0;
+        LOGI("window: back from mini, %dx%d", g_mini_was.w, g_mini_was.h);
+    }
+    app_redraw();
 }
 #endif
 #ifdef SNTV_DESKTOP_PLAYER
@@ -1178,6 +1250,7 @@ int main(int argc, char **argv)
     g_win = win;
 #endif
 #ifdef SNTV_DESKTOP_KEYS
+    g_kwin = win;
     if (win && win_max) SDL_MaximizeWindow(win);
 #endif
     if (!win) { LOGE("SDL_CreateWindow: %s", SDL_GetError()); return 1; }
@@ -1412,7 +1485,14 @@ int main(int argc, char **argv)
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
                 if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
-            } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_MOVED) {
+            }
+#ifdef SNTV_DESKTOP_KEYS
+            else if (e.type == SDL_DROPFILE || e.type == SDL_DROPTEXT) {   /* a file or a link dropped on the window: it plays */
+                if (e.drop.file) { window_dropped(e.drop.file); SDL_free(e.drop.file); }
+                continue;
+            }
+#endif
+            else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_MOVED) {
 #ifdef SNTV_DESKTOP_KEYS
                 g_win_dirty = 1; g_win_dirty_at = SDL_GetTicks();   /* kept a moment after it stops moving */
 #endif
@@ -1483,6 +1563,7 @@ int main(int argc, char **argv)
         }
         STAGE("http", http_pump());
 #ifdef SNTV_DESKTOP_KEYS
+        { Screen *mt = app_top(); if (g_mini && !(mt && !strcmp(mt->name, "player"))) window_mini_toggle(); }   /* the film is over: the window comes back */
         if (g_win_dirty && SDL_GetTicks() - g_win_dirty_at > 1500) { g_win_dirty = 0; window_remember(win); store_save(); }   /* once it has settled */
 #endif
         STAGE("party", party_app_tick());
