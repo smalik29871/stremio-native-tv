@@ -1283,7 +1283,8 @@ static void probe_result(Probe *pr)
     cJSON *j = cJSON_Parse(body + 4);
     const cJSON *app = cJSON_GetObjectItemCaseSensitive(j, "app"), *dev = cJSON_GetObjectItemCaseSensitive(j, "device");
     if (cJSON_IsString(app) && !strcmp(app->valuestring, "cuelight")) {
-        struct in_addr a = { htonl(pr->ip) };
+        struct in_addr a;
+        a.s_addr = htonl(pr->ip);   /* not `= { htonl(..) }`: on Windows that fills only the union's first byte (192.0.0.0) */
         char ip[32]; inet_ntop(AF_INET, &a, ip, sizeof ip);
         SDL_LockMutex(g_lock);
         if (g_n_found < PHONE_FOUND_MAX) {
