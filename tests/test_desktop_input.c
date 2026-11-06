@@ -2,7 +2,7 @@
 #include "ui/input.h"
 #include <stdio.h>
 
-int g_ui_portrait;
+int g_ui_portrait, g_ui_mobile;
 int gfx_handheld(void) { return 0; }
 
 static int failures;

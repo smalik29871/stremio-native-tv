@@ -3,7 +3,7 @@
 
 App g_app;
 Theme g_theme;
-int g_ui_w = 1920, g_ui_h = 1080, g_ui_portrait;
+int g_ui_w = 1920, g_ui_h = 1080, g_ui_portrait, g_ui_mobile;
 static VideoInfo test_video;
 static int rate_calls, failures;
 static double last_rate;
