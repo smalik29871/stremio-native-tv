@@ -23,6 +23,8 @@
 - The full suite passes before any release.
 
 ## Releases
+- A release for some devices only: `0.10.111 [tv]: ...`, `[mobile]` or `[desktop]` (any together; no flag is every
+  family). See docs/RELEASE-CHANNELS.md.
 - Wait for the owner's go-ahead before a release commit.
 - A release goes out as a beta: devices with Settings > About > Beta updates on get it first.
   It goes to everyone only when the owner runs the Promote workflow with its version.

@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Dry run of the release steps that change with a "[mobile]" release, without GitHub: each step's
-shell is taken out of .github/workflows and run in a scratch folder, with a stand-in `gh` that
-records what it was asked to do.
+"""Dry run of the release steps that change with a "[tv]", "[mobile]" or "[desktop]" release, without GitHub: each
+step's shell is taken out of .github/workflows and run in a scratch folder, with a stand-in `gh` that records what it
+was asked to do. The workflow's `if:` conditions (which jobs a release runs, when it is published) are evaluated by a
+small reading of GitHub's expression syntax, for every combination of flags.
 
   python3 tests/test_release_channels.py        (needs PyYAML; says so and skips without it)
 
-A release for all devices writes every update file; a [mobile] one only mobile.json, never takes the
-"latest" slot (every TV's and computer's update address lives there) and puts its phone file into the
-release that is latest."""
+A release for all devices writes every update file. One for some families (any of [tv], [mobile], [desktop]) builds
+and writes only theirs, never takes the "latest" slot (every device's update address lives there) and puts its update
+files into the release that is latest."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,33 +34,100 @@ def check(cond, what):
         print("FAIL:", what)
 
 
-def step(workflow, job, name):
-    d = yaml.safe_load(open(os.path.join(ROOT, ".github", "workflows", workflow + ".yml")))
-    for s in d["jobs"][job]["steps"]:
+def workflow(name):
+    return yaml.safe_load(open(os.path.join(ROOT, ".github", "workflows", name + ".yml")))
+
+
+def step(wf, job, name):
+    for s in workflow(wf)["jobs"][job]["steps"]:
         if s.get("name") == name:
             return s
-    raise SystemExit("no step %r in %s/%s" % (name, workflow, job))
+    raise SystemExit("no step %r in %s/%s" % (name, wf, job))
 
 
+# ---- GitHub's `if:` expressions, as far as these workflows use them ---------------------------------------
+def gha_if(expr, msg, needs, ref="refs/heads/main", event="push", promoted="false"):
+    py = " ".join(str(expr).split())
+    py = re.sub(r"contains\(github\.event\.head_commit\.message, '([^']*)'\)", lambda m: "(%r in MSG)" % m.group(1), py)
+    py = re.sub(r"startsWith\(github\.event\.head_commit\.message, '([^']*)'\)", lambda m: "MSG.startswith(%r)" % m.group(1), py)
+    py = re.sub(r"startsWith\(github\.ref, '([^']*)'\)", lambda m: "REF.startswith(%r)" % m.group(1), py)
+    py = re.sub(r"github\.ref == '([^']*)'", lambda m: "(REF == %r)" % m.group(1), py)
+    py = re.sub(r"github\.event_name == '([^']*)'", lambda m: "(EVENT == %r)" % m.group(1), py)
+    py = re.sub(r"needs\.(\w+)\.result == '(\w+)'", lambda m: "(NEEDS.get(%r, 'skipped') == %r)" % (m.group(1), m.group(2)), py)
+    py = re.sub(r"needs\.promote\.outputs\.promoted == '(\w+)'", lambda m: "(PROMOTED == %r)" % m.group(1), py)
+    py = py.replace("always()", "True").replace("&&", " and ").replace("||", " or ")
+    py = re.sub(r"!(?!=)", " not ", py)
+    return bool(eval(py, {"MSG": msg, "REF": ref, "EVENT": event, "NEEDS": needs, "PROMOTED": promoted}))
+
+
+def runs(job, msg, ref="refs/heads/main", event="push"):
+    return gha_if(workflow("build")["jobs"][job]["if"], msg, {}, ref, event)
+
+
+T = " [tested here]"
+FLAG_CASES = [   # message -> the build jobs that run (the test jobs are skipped by [tested here])
+    ("0.10.111: headline" + T, {"webos", "android", "windows"}),
+    ("0.10.111 [mobile]: headline" + T, {"android"}),
+    ("0.10.111 [tv]: headline" + T, {"webos", "android"}),
+    ("0.10.111 [desktop]: headline" + T, {"windows"}),
+    ("0.10.111 [tv][desktop]: headline" + T, {"webos", "android", "windows"}),
+    ("0.10.111 [mobile][desktop]: headline" + T, {"android", "windows"}),
+    ("0.10.111 [tv][mobile]: headline" + T, {"webos", "android"}),
+]
+for msg, want in FLAG_CASES:
+    got = {j for j in ("webos", "android", "windows") if runs(j, msg)}
+    check(got == want, "%r runs %s, wanted %s" % (msg, sorted(got), sorted(want)))
+check(all(runs(j, "Player: a fix") for j in ("webos", "android", "windows")), "an ordinary commit on main builds every package, as it always did")
+check(all(runs(j, "", event="workflow_dispatch") for j in ("webos", "android", "windows")), "a run started by hand builds every family")
+check(not any(runs(j, "Player: a fix", ref="refs/heads/feat/x") for j in ("webos", "android", "windows")), "an ordinary branch commit builds no package")
+
+# Publish release and Move main: the jobs a release needs, and what a failed one costs
+rel = workflow("build")["jobs"]["release"]["if"]
+mv = workflow("build")["jobs"]["promote"]["if"]
+OK, SK, FA = "success", "skipped", "failure"
+
+
+def release_runs(msg, webos, android, windows, ui=SK, desktop=SK):
+    return gha_if(rel, msg, {"webos": webos, "android": android, "windows": windows, "ui": ui, "desktop": desktop})
+
+
+check(release_runs("0.10.111: x" + T, OK, OK, OK), "an all-device release publishes when everything built")
+check(release_runs("0.10.111: x" + T, OK, FA, FA), "an all-device release does not wait for the APK or the Windows zip (a failure only leaves it out)")
+check(not release_runs("0.10.111: x" + T, FA, OK, OK), "an all-device release waits for the LG package")
+check(release_runs("0.10.111 [mobile]: x" + T, SK, OK, SK), "a [mobile] release publishes with only the APK")
+check(not release_runs("0.10.111 [mobile]: x" + T, SK, FA, SK), "a [mobile] release does not publish without its APK")
+check(release_runs("0.10.111 [tv]: x" + T, OK, OK, SK), "a [tv] release publishes with the LG package and the APK")
+check(not release_runs("0.10.111 [tv]: x" + T, OK, FA, SK), "a [tv] release does not publish without the APK (Android TV and Fire TV read it)")
+check(not release_runs("0.10.111 [tv]: x" + T, FA, OK, SK), "a [tv] release does not publish without the LG package")
+check(release_runs("0.10.111 [desktop]: x" + T, SK, SK, OK), "a [desktop] release publishes with only the Windows files")
+check(not release_runs("0.10.111 [desktop]: x" + T, SK, SK, FA), "a [desktop] release does not publish without its Windows files")
+check(release_runs("0.10.111 [mobile][desktop]: x" + T, SK, OK, OK), "[mobile][desktop] publishes with the APK and the Windows files")
+check(not release_runs("0.10.111 [mobile][desktop]: x" + T, SK, OK, FA), "[mobile][desktop] waits for both")
+check(not release_runs("0.10.111: x", OK, OK, OK, ui=SK, desktop=SK), "without [tested here] the test jobs must have run")
+check(release_runs("0.10.111: x", OK, OK, OK, ui=OK, desktop=OK), "with them green it publishes")
+for msg, w, a, wi, want in (("0.10.111 [mobile]: x" + T, SK, OK, SK, True), ("0.10.111 [desktop]: x" + T, SK, SK, OK, True),
+                            ("0.10.111 [tv]: x" + T, OK, OK, SK, True), ("0.10.111: x" + T, OK, OK, OK, True), ("0.10.111: x" + T, SK, OK, OK, False)):
+    got = gha_if(mv, msg, {"webos": w, "android": a, "windows": wi, "ui": SK, "desktop": SK}, ref="refs/heads/feat/x")
+    check(got == want, "Move main for %r with webos %s: %s, wanted %s" % (msg, w, got, want))
+
+# ---- the shell steps ------------------------------------------------------------------------------------------
 GH = r"""#!/bin/bash
 # a stand-in for gh: every call is logged; what the steps ask about is answered from GH_FAKE_*
 echo "gh $*" >> "$GH_LOG"
 case "$1 $2" in
   "release view")
-    if [ "$3" = "--repo" ]; then   # no tag: the release that is latest
-      case "$*" in *tagName*) echo "$GH_FAKE_LATEST"; exit 0;; esac
-    fi
     case "$*" in
-      *"--json assets"*) tr ',' '\n' <<< "$GH_FAKE_ASSETS"; exit 0;;
+      *"--json tagName"*) echo "$GH_FAKE_LATEST"; exit 0;;
+      *"--json name"*) echo "$GH_FAKE_NAME"; exit 0;;
     esac
     exit 0;;
   "release download")
-    dir=""; while [ $# -gt 0 ]; do [ "$1" = "--dir" ] && dir="$2"; shift; done
-    echo '{"version":"0.10.101"}' > "$dir/mobile.json"; exit 0;;
+    dir=""; pat=""; while [ $# -gt 0 ]; do [ "$1" = "--dir" ] && dir="$2"; [ "$1" = "--pattern" ] && pat="$2"; shift; done
+    case ",$GH_FAKE_ASSETS," in *",$pat,"*) echo '{"version":"0.10.101"}' > "$dir/$pat"; exit 0;; esac
+    exit 1;;
 esac
 exit 0
 """
-
 
 GIT = r"""#!/bin/bash
 # a stand-in for git: no network, ever. The releases repository "has commits" (so nothing is seeded)
@@ -68,96 +137,132 @@ exit 0
 """
 
 
-def run(workflow, job, name, env, workdir, extra_env=None):
-    s = step(workflow, job, name)
+def run(wf, job, name, env, workdir):
+    s = step(wf, job, name)
     e = dict(os.environ)
     e.update({k: str(v) for k, v in (s.get("env") or {}).items() if "${{" not in str(v)})
     e.update(env)
-    r = subprocess.run(["bash", "-eo", "pipefail", "-c", s["run"]], cwd=workdir, env=e, capture_output=True, text=True)
-    return r
+    return subprocess.run(["bash", "-eo", "pipefail", "-c", s["run"]], cwd=workdir, env=e, capture_output=True, text=True)
 
 
 def scratch(files):
     d = tempfile.mkdtemp(prefix="relchan_")
     os.makedirs(os.path.join(d, "bin"))
-    open(os.path.join(d, "bin", "gh"), "w").write(GH)
-    os.chmod(os.path.join(d, "bin", "gh"), 0o755)
-    open(os.path.join(d, "bin", "git"), "w").write(GIT)
-    os.chmod(os.path.join(d, "bin", "git"), 0o755)
+    for n, body in (("gh", GH), ("git", GIT)):
+        open(os.path.join(d, "bin", n), "w").write(body)
+        os.chmod(os.path.join(d, "bin", n), 0o755)
     os.makedirs(os.path.join(d, "dist"))
+    os.makedirs(os.path.join(d, "tools"))
+    for t in ("release_families.sh", "release_notes.py"):
+        shutil.copy(os.path.join(ROOT, "tools", t), os.path.join(d, "tools"))
     for f in files:
         open(os.path.join(d, "dist", f), "w").write("x" if f.endswith((".apk", ".ipk", ".exe")) else "{}")
     return d
 
 
-def base_env(d):
+def base_env(d, msg):
     return {"PATH": os.path.join(d, "bin") + os.pathsep + os.environ["PATH"], "GH_LOG": os.path.join(d, "gh.log"),
-            "RELEASES_REPO": "owner/releases", "VERSION": "0.10.101", "TAG": "v0.10.101", "GH_TOKEN": "t"}
+            "RELEASES_REPO": "owner/releases", "VERSION": "0.10.101", "TAG": "v0.10.101", "GH_TOKEN": "t", "MSG": msg}
 
 
-# ---- the Android update notice ------------------------------------------------------------------
-for mobile in ("false", "true"):
-    d = scratch(["Cuelight-0.10.101.apk", "repo.json", "windows.json"] if mobile == "false" else ["Cuelight-0.10.101.apk"])
-    e = base_env(d); e["MOBILE"] = mobile
-    r = run("build", "release", "The Android app's update notice", e, d)
-    check(r.returncode == 0, "the Android notice step runs (mobile=%s): %s" % (mobile, r.stderr))
-    files = sorted(os.listdir(os.path.join(d, "dist")))
-    mj = json.load(open(os.path.join(d, "dist", "mobile.json"))) if "mobile.json" in files else {}
-    check(mj.get("version") == "0.10.101" and mj.get("apkUrl", "").endswith("/v0.10.101/Cuelight-0.10.101.apk") and len(mj.get("sha256", "")) == 64,
-          "mobile.json names this version's APK and its hash (mobile=%s): %s" % (mobile, mj))
-    if mobile == "false":
-        check("android.json" in files and "mobile.json" in files, "an all-device release writes android.json and mobile.json: %s" % files)
+APK = "Cuelight-0.10.101.apk"
+# message -> (the files the builds leave in dist, the update files written, the title's family label)
+RELEASES = [
+    ("0.10.101: x", [APK, "repo.json", "windows.json"], {"android.json", "mobile.json"}, "", "all"),
+    ("0.10.101 [mobile]: x", [APK], {"mobile.json"}, "mobile", "mobile"),
+    ("0.10.101 [tv]: x", [APK, "repo.json"], {"android.json"}, "tv", "tv"),
+    ("0.10.101 [desktop]: x", ["windows.json"], set(), "desktop", "desktop"),
+    ("0.10.101 [tv][mobile]: x", [APK, "repo.json"], {"android.json", "mobile.json"}, "tv + mobile", "tv+mobile"),
+]
+
+# ---- which families a message names --------------------------------------------------------------------------------
+for msg, _, _, label, kind in RELEASES:
+    r = subprocess.run(["bash", "-c", '. tools/release_families.sh; echo "$FAM_TV$FAM_MOBILE$FAM_DESKTOP|$FAM_ALL|$FAM_FOR|$FAM_LABEL"'],
+                       cwd=ROOT, env=dict(os.environ, MSG=msg), capture_output=True, text=True)
+    out = r.stdout.strip()
+    want = {"all": "111|1|tv,phone,desktop|", "mobile": "010|0|phone|mobile", "tv": "100|0|tv|tv", "desktop": "001|0|desktop|desktop",
+            "tv+mobile": "110|0|tv,phone|tv + mobile"}[kind]
+    check(out == want, "families of %r: %r, wanted %r" % (msg, out, want))
+
+# ---- the Android update notice ----------------------------------------------------------------------------------
+for msg, files, written, label, kind in RELEASES:
+    d = scratch(files)
+    r = run("build", "release", "The Android app's update notice", base_env(d, msg), d)
+    check(r.returncode == 0, "the Android notice step runs (%s): %s" % (kind, r.stderr))
+    got = {f for f in os.listdir(os.path.join(d, "dist")) if f in ("android.json", "mobile.json")}
+    check(got == written, "%s release writes %s, got %s" % (kind, sorted(written), sorted(got)))
+    if APK in files:
+        for f in got:
+            j = json.load(open(os.path.join(d, "dist", f)))
+            check(j.get("version") == "0.10.101" and j.get("apkUrl", "").endswith("/v0.10.101/" + APK) and len(j.get("sha256", "")) == 64,
+                  "%s names this version's APK and its hash (%s): %s" % (f, kind, j))
+    if kind == "all":
         check(open(os.path.join(d, "dist", "android.json")).read() == open(os.path.join(d, "dist", "mobile.json")).read(), "both say the same")
-    else:
-        check("android.json" not in files, "a mobile release writes no android.json (Android TV must not be offered it): %s" % files)
-        check(not {"repo.json", "windows.json"} & set(files), "and none for LG or Windows: %s" % files)
+    # the files of the other builds are left alone
+    check({"repo.json", "windows.json"} & set(files) <= set(os.listdir(os.path.join(d, "dist"))), "the LG and Windows files stay (%s)" % kind)
     shutil.rmtree(d)
 
-# ---- the release notes ----------------------------------------------------------------------------
-for mobile in ("false", "true"):
-    d = scratch(["Cuelight-0.10.101.apk"])
+# ---- the release notes --------------------------------------------------------------------------------------------------
+for msg, files, written, label, kind in RELEASES:
+    d = scratch(files + (["Cuelight-0.10.101-windows-setup.exe"] if "windows.json" in files else []))
     shutil.copy(os.path.join(ROOT, "CHANGELOG.md"), d)
-    os.makedirs(os.path.join(d, "tools"))
-    shutil.copy(os.path.join(ROOT, "tools", "release_notes.py"), os.path.join(d, "tools"))
-    # the newest section of the changelog stands in for this version's
     first = [l for l in open(os.path.join(d, "CHANGELOG.md")) if l.startswith("## ")][0].strip()[3:]
-    e = base_env(d); e["MOBILE"] = mobile; e["VERSION"] = first
+    e = base_env(d, msg); e["VERSION"] = first
     r = run("build", "release", "Release notes from CHANGELOG", e, d)
-    check(r.returncode == 0, "the notes step runs (mobile=%s): %s" % (mobile, r.stderr))
+    check(r.returncode == 0, "the notes step runs (%s): %s" % (kind, r.stderr))
     notes = open(os.path.join(d, "notes.md")).read()
-    check(("Homebrew Channel" in notes) == (mobile == "false"), "the LG install section is there only for an all-device release (mobile=%s)" % mobile)
-    check(("A mobile release" in notes) == (mobile == "true"), "a mobile release says so (mobile=%s)" % mobile)
-    check("Install on Android" in notes, "the Android section is always there (mobile=%s)" % mobile)
-    if first.startswith("0.10.100"):
-        check("### Android phones and tablets" in notes, "the notes are grouped by device (mobile=%s)" % mobile)
-        check("### For everyone" in notes, "what is for everyone is there (mobile=%s)" % mobile)
+    tv = kind in ("all", "tv", "tv+mobile")
+    check(("Homebrew Channel" in notes) == tv, "the LG install section is there only for a release with TVs (%s)" % kind)
+    check(("A release for" in notes) == (kind != "all"), "a release for some families says so (%s)" % kind)
+    check(("Install on Android" in notes) == (APK in files), "the Android section follows the APK (%s)" % kind)
+    check(("Install on Windows" in notes) == ("windows.json" in files), "the Windows section follows the installer (%s)" % kind)
     shutil.rmtree(d)
 
-# ---- the release's title ---------------------------------------------------------------------------
-for mobile, title in (("false", "Cuelight v0.10.101 (beta)"), ("true", "Cuelight v0.10.101 (mobile beta)")):
-    d = scratch(["Cuelight-0.10.101.apk"])
+# the notes of a section with tags, by family
+sample = "## 9.9.9\n\n- [phone] **P.** a\n- [tv] **T.** b\n- [desktop] **D.** c\n- **E.** d\n"
+for flags, have, lack in (([], "PTDE", ""), (["--mobile"], "PE", "TD"), (["--for", "tv"], "TE", "PD"), (["--for", "tv,phone"], "PTE", "D"), (["--for", "desktop"], "DE", "PT")):
+    d = scratch([])
+    open(os.path.join(d, "c.md"), "w").write(sample)
+    r = subprocess.run([sys.executable, os.path.join(d, "tools", "release_notes.py"), "9.9.9"] + flags + [os.path.join(d, "c.md")], capture_output=True, text=True)
+    out = r.stdout
+    check(all(("**%s.**" % c) in out for c in have) and not any(("**%s.**" % c) in out for c in lack), "notes %s: %r" % (flags, out))
+    shutil.rmtree(d)
+
+# ---- the release's title ---------------------------------------------------------------------------------------------------
+for msg, files, written, label, kind in RELEASES:
+    title = "Cuelight v0.10.101 (%sbeta)" % (label + " " if label else "")
+    d = scratch([APK])
     open(os.path.join(d, "notes.md"), "w").write("notes")
-    e = base_env(d); e["MOBILE"] = mobile; e["GH_FAKE_LATEST"] = "v0.10.100"
+    e = base_env(d, msg); e["GH_FAKE_LATEST"] = "v0.10.100"
     r = run("build", "release", "Create the release in the public repository", e, d)
     log = open(os.path.join(d, "gh.log")).read() if os.path.exists(os.path.join(d, "gh.log")) else ""
-    check(r.returncode == 0 and ('--title %s' % title) in log, "the release is titled %r (mobile=%s): %s %s" % (title, mobile, r.stderr, log))
+    check(r.returncode == 0 and ("--title %s" % title) in log, "the release is titled %r (%s): %s %s" % (title, kind, r.stderr, log))
     shutil.rmtree(d)
 
-# ---- Promote -----------------------------------------------------------------------------------------
-for assets, kind in (("repo.json,android.json,mobile.json,windows.json,x.ipk", "all"), ("Cuelight-0.10.101.apk,mobile.json", "mobile")):
+# ---- Promote --------------------------------------------------------------------------------------------------------------
+for name, assets, kind, label in (("Cuelight v0.10.101 (beta)", "repo.json,android.json,mobile.json,windows.json", "all", ""),
+                                  ("Cuelight v0.10.101 (mobile beta)", "mobile.json", "mobile", "mobile"),
+                                  ("Cuelight v0.10.101 (tv beta)", "repo.json,android.json", "tv", "tv"),
+                                  ("Cuelight v0.10.101 (desktop beta)", "windows.json", "desktop", "desktop"),
+                                  ("Cuelight v0.10.101 (tv + mobile beta)", "repo.json,android.json,mobile.json", "tv+mobile", "tv + mobile")):
     d = scratch([])
-    e = base_env(d); e["GH_FAKE_ASSETS"] = assets; e["GH_FAKE_LATEST"] = "v0.10.100"
+    e = base_env(d, ""); e["GH_FAKE_ASSETS"] = assets; e["GH_FAKE_LATEST"] = "v0.10.100"; e["GH_FAKE_NAME"] = name
     outf = os.path.join(d, "out"); e["GITHUB_OUTPUT"] = outf
     r = run("promote", "promote", "Make it the latest release", e, d)
     log = open(os.path.join(d, "gh.log")).read()
     check(r.returncode == 0, "Promote runs (%s release): %s" % (kind, r.stderr))
     if kind == "all":
         check("release edit v0.10.101" in log and "--latest " in log + " " and "--latest=false" not in log, "an all-device release becomes latest: %s" % log)
-        check("mobile=false" in open(outf).read(), "and says it is not a mobile one")
+        check("partial=false" in open(outf).read(), "and says it is a whole one")
     else:
-        check("--latest=false" in log and "--prerelease=false" in log, "a mobile release is released but never takes the latest slot: %s" % log)
-        check("release upload v0.10.100 mobile/mobile.json" in log and "--clobber" in log, "its phone file goes into the latest release: %s" % log)
-        check("mobile=true" in open(outf).read(), "and says it is a mobile one (no README refresh)")
+        check("--latest=false" in log and "--prerelease=false" in log, "a %s release is released but never takes the latest slot: %s" % (kind, log))
+        check("--title Cuelight v0.10.101 (%s)" % label in log, "and is titled for its families (%s): %s" % (kind, log))
+        up = [l for l in log.splitlines() if l.startswith("gh release upload v0.10.100")]
+        check(len(up) == 1 and "--clobber" in up[0], "its update files go into the latest release: %s" % log)
+        for f in assets.split(","):
+            check(("upd/%s" % f) in up[0] or "upd/*.json" in up[0], "%s is handed on (%s)" % (f, kind))
+        check(sorted(os.listdir(os.path.join(d, "upd"))) == sorted(assets.split(",")), "exactly its own update files (%s): %s" % (kind, os.listdir(os.path.join(d, "upd"))))
+        check("partial=true" in open(outf).read(), "and says it is a partial one (no README refresh)")
     shutil.rmtree(d)
 
 if failures:

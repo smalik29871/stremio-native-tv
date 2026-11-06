@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """The release notes of one version, from CHANGELOG.md, grouped by the device each note is for.
 
-  python3 tools/release_notes.py 0.10.100 [--mobile] [CHANGELOG.md]
+  python3 tools/release_notes.py 0.10.100 [--for tv,phone,desktop] [--mobile] [CHANGELOG.md]
 
 A note is a "- " item; a [phone], [tv] or [desktop] tag opens it ([phone,tv] names several, no tag is for
 everyone: the same tags the app reads, src/whatsnew_notes.h). A changelog section with no tags prints as it
-stands. --mobile: a mobile release, so only what is for everyone and for phones."""
+stands. --for: a release for some families only (tv, phone, desktop, comma-separated), so only what is for everyone
+and for those; --mobile is --for phone."""
 import re
 import sys
 
@@ -59,14 +60,14 @@ def notes(lines):
     return items
 
 
-def render(version, text, mobile=False):
+def render(version, text, only=None):
     lines = section(text, version)
     items = notes(lines)
     if not any(tags != {"all"} for tags, _ in items):   # nothing tagged: as it stands
         return "\n".join(lines) + ("\n" if lines else "")
     out = []
     for key, title in GROUPS:
-        if mobile and key not in ("all", "phone"):
+        if only and key != "all" and key not in only:
             continue
         mine = [body for tags, body in items if key in tags]
         if not mine:
@@ -81,13 +82,25 @@ def render(version, text, mobile=False):
 
 
 def main(argv):
-    args = [a for a in argv if not a.startswith("--")]
+    only, args, i = set(), [], 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--mobile":
+            only.add("phone")
+        elif a == "--for" and i + 1 < len(argv):
+            i += 1
+            only |= {TAGS[t.strip()] for t in argv[i].split(",") if t.strip() in TAGS}
+        elif not a.startswith("--"):
+            args.append(a)
+        i += 1
     if not args:
         print(__doc__)
         return 2
+    if only >= {"phone", "tv", "desktop"}:   # every family: nothing is left out
+        only = set()
     path = args[1] if len(args) > 1 else "CHANGELOG.md"
     with open(path, encoding="utf-8") as f:
-        sys.stdout.write(render(args[0], f.read(), "--mobile" in argv))
+        sys.stdout.write(render(args[0], f.read(), only))
     return 0
 
 
