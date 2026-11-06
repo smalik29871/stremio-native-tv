@@ -250,6 +250,9 @@ grep -q "island: resume tt0903747" "$OUT/island_resume.log" || { echo "Blue did 
 run island_resume_detail 620 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,wait,blue,back,left,down,down,down,down,down,ok,wait,blue" SNTV_FAKE_START=200 HOME="$(home_with island_d '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 [ "$(grep -c "island: resume tt0903747" "$OUT/island_resume_detail.log")" = 1 ] || { echo "Blue did not open the title left mid-way from Settings only"; grep -iE "island|settings" "$OUT/island_resume_detail.log"; exit 1; }
 # by touch: a tap on the card opens it (a phone has no Blue key; the card shows no Blue label there)
+# the resume card steps aside while a keyboard is up: on a phone it sits over the keyboard's bottom row (Search, Done) and took those taps
+run island_typing 560 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,search,ok,t:ab,wait" SNTV_FAKE_START=200 HOME="$(home_with island_ty '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":0}')"
+grep -q "island: the resume card waits while the keyboard is up" "$OUT/island_typing.log" || { echo "the resume card stayed over the keyboard"; grep -iE "island|search" "$OUT/island_typing.log"; exit 1; }
 run island_resume_tap 560 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,tap:1650:88,wait" SNTV_FAKE_START=200 HOME="$(home_with island_t '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
 grep -q "island: resume tt0903747" "$OUT/island_resume_tap.log" || { echo "a tap on the resume card did not open the title"; grep -iE "island|UI check" "$OUT/island_resume_tap.log"; exit 1; }
 run island_resume_up 540 "right,ok,down,down,play,wait,wait,wait,wait,wait,wait,back,back,back,back,wait,up,up,up,ok" SNTV_FAKE_START=200 HOME="$(home_with island_up '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"
@@ -1660,6 +1663,42 @@ run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXP
 # a phone held upright: the player always starts full screen (sideways only), not in the small upright window
 run phone_player_sideways 420 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with phpl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "display: sideways only" "$OUT/phone_player_sideways.log" || { echo "the player did not start full screen on a phone held upright"; grep -E "display:|screen:" "$OUT/phone_player_sideways.log"; exit 1; }
+# The main screens on other devices than the TV, a phone and a sideways phone (tablets, a small phone, a normal Android phone, a big window):
+# each draws and lands on the screen asked for (a screenshot to look at, and the layout code's own checks). Upright ones have the tab bar
+# at the foot (a tap on it), the others the rail (keys)
+for dev in tabp:800:1280:1 tabl:1280:800:1 phs:360:640:1 phm:412:915:1 big:1920:1080:0; do
+  IFS=: read dn dw dh hh <<< "$dev"
+  ty=$(( 780 * dh / dw - 73 )); up=0; [ "$dh" -gt "$dw" ] && up=1
+  for scr in home detail streams search explore library settings player; do
+    case $scr in
+      home) keys="wait,wait";;
+      detail) keys="wait,right,right,ok";;
+      streams) if [ $up = 1 ]; then keys="wait,right,right,ok,wait,ok,wait"; else keys="right,ok,down,down,yellow,down,down,down,ok,wait"; fi;;
+      search) keys="search,ok,t:brea";;
+      player) keys="right,ok,down,down,play,wait";;
+      explore) if [ $up = 1 ]; then keys="wait,tap:234:$ty,wait,wait"; else keys="left,down,ok,right,down"; fi;;
+      library) if [ $up = 1 ]; then keys="wait,tap:546:$ty,wait,wait"; else keys="left,down,down,down,ok"; fi;;
+      settings) if [ $up = 1 ]; then keys="wait,tap:702:$ty,wait,wait"; else keys="left,down,down,down,down,down,ok"; fi;;
+    esac
+    run "aud_${dn}_${scr}" 300 "$keys" SNTV_WINDOW=${dw}x${dh} SNTV_HANDHELD=$hh SNTV_EXPECT_SCREEN=$scr HOME="$(home_with "aud_${dn}_${scr}" '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":0}')"
+  done
+done
+# Every theme on the TV layout and on a normal Android phone, on the screens that carry the most (a screenshot each to look at)
+for dev in tv:1280:720:0 phm:412:915:1; do
+  IFS=: read dn dw dh hh <<< "$dev"
+  for th in 0 1 2 3 4 5 6 7; do
+    for scr in home detail streams search settings; do
+      case $scr in
+        home) keys="wait,wait";;
+        detail) keys="wait,right,right,ok";;
+        streams) if [ $hh = 1 ]; then keys="wait,right,right,ok,wait,ok,wait"; else keys="right,ok,down,down,yellow,down,down,down,ok,wait"; fi;;
+        search) keys="search,ok,t:brea";;
+        settings) if [ $hh = 1 ]; then keys="wait,tap:702:$(( 780 * dh / dw - 73 )),wait,wait"; else keys="left,down,down,down,down,down,ok"; fi;;
+      esac
+      run "thm_${dn}_${th}_${scr}" 300 "$keys" SNTV_WINDOW=${dw}x${dh} SNTV_HANDHELD=$hh SNTV_EXPECT_SCREEN=$scr HOME="$(home_with "thm_${dn}_${th}_${scr}" '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"tvKeyboard":0,"theme":'$th'}')"
+    done
+  done
+done
 LS="SNTV_WINDOW=1000x450 SNTV_HANDHELD=1"
 # a phone sideways while the source opens: the loading card, as on a TV (not a paused player at 0:00), and Back leaves
 run fs_loading 300 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait" $LS SNTV_FAKE_STUCK=1 SNTV_EXPECT_SCREEN=player HOME="$(home_with fsl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"

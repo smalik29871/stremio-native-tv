@@ -562,9 +562,9 @@ static void touch_event(const SDL_Event *e)
     if (v < -14000) v = -14000;   /* (the fling's gain comes after, so a hard flick may go further) */
     static int told;
 #ifdef SNTV_DESKTOP_PLAYER
-    if (!told) { told = 1; app_toast("Click anything to open it  \xC2\xB7  Wheel to scroll  \xC2\xB7  Right-click for options"); }
+    if (!told && !input_typing()) { told = 1; app_toast("Click anything to open it  \xC2\xB7  Wheel to scroll  \xC2\xB7  Right-click for options"); }
 #else
-    if (!told) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
+    if (!told && !input_typing()) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
 #endif
     if (g_touch.mode == 1) { ui_pan_release(SNTV_PHONE ? v * PHONE_FLING : v); return; }   /* a phone: a flick carries about twice as far as it did (see ui_pan) */
     if (g_touch.mode == 4) return;   /* a drag over nothing: not a tap either */

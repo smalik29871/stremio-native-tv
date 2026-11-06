@@ -1,5 +1,6 @@
 /* The island: the clock pill that becomes notices, progress and a resume card. */
 #include "island.h"
+#include "input.h"
 #include "rail.h"
 #include "../http.h"
 #include "font.h"
@@ -89,13 +90,21 @@ int island_key_blue(void)
     return 1;
 }
 
+static int g_said;   /* the card stepping aside for a keyboard has been logged (once per time the keys are up) */
+
 static int current_kind(int show_clock)
 {
     if (g_app.toast[0] && g_app.time < g_app.toast_until) return IS_NOTICE;
     if (I.progress[0] && g_app.time - I.progress_at < 0.5f) return IS_PROGRESS;
     const char *here = screen_detail_id(app_top());
     int on_its_page = here && I.resume.id && !strcmp(here, I.resume.id);   /* its own Resume button is right there */
-    if (I.has_resume && g_app.time - I.resume_at < RESUME_FOR && show_clock && !on_its_page) return IS_RESUME;
+    int card = I.has_resume && g_app.time - I.resume_at < RESUME_FOR && show_clock && !on_its_page;
+    if (card && input_typing()) {   /* the card would sit over the keyboard's bottom row (Search, Done) and take the taps meant for it: it comes back when the keys go */
+        if (!g_said) { g_said = 1; LOGI("island: the resume card waits while the keyboard is up"); }
+        card = 0;
+    }
+    if (!input_typing()) g_said = 0;
+    if (card) return IS_RESUME;
     if (show_clock && g_app.clock_mode != 2 && !SNTV_PHONE) return IS_CLOCK;   /* a phone shows its own */
     return IS_NONE;
 }

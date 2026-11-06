@@ -126,6 +126,8 @@ int input_system_kb_default(void)
 #endif
 }
 
+int input_typing(void) { return g_typing; }
+
 void input_text_system(int on)
 {
     g_typing = on;
