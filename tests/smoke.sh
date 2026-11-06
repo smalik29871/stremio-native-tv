@@ -492,17 +492,7 @@ done
 rm -rf "$OUT/pictures"
 run player_desktop_picture 500 "right,ok,down,down,play,wait,wait,key:ctrl+s,wait,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100 SNTV_PICTURES="$OUT/pictures"
 PNG="$(ls "$OUT/pictures"/*.png 2>/dev/null | head -1)"
-{ [ -n "$PNG" ] && [ "$(head -c 8 "$PNG" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ] && python3 -c "
-import sys,zlib,struct
-d=open(sys.argv[1],'rb').read(); p=8; idat=b''; w=h=0
-while p<len(d):
-    n,=struct.unpack('>I',d[p:p+4]); t=d[p+4:p+8]; c=d[p+8:p+8+n]
-    assert zlib.crc32(t+c)&0xffffffff==struct.unpack('>I',d[p+8+n:p+12+n])[0], 'chunk crc'
-    if t==b'IHDR': w,h=struct.unpack('>II',c[:8])
-    if t==b'IDAT': idat+=c
-    p+=12+n
-raw=zlib.decompress(idat); assert len(raw)==h*(1+3*w) and w>=640 and h>=360, 'size'
-" "$PNG"; } || { echo "Ctrl+S did not save a picture of the screen"; ls -la "$OUT/pictures" 2>&1 | head; grep -E "screenshot|toast" "$OUT/player_desktop_picture.log" | tail -5; exit 1; }
+{ [ -n "$PNG" ] && python3 -I "$ROOT/tests/check_png.py" "$PNG"; } || { echo "Ctrl+S did not save a picture of the screen"; ls -la "$OUT/pictures" 2>&1 | head; grep -E "screenshot|toast" "$OUT/player_desktop_picture.log" | tail -5; exit 1; }
 # W shrinks the window to the corner above the rest and back; a dropped file or link plays
 run player_desktop_mini 560 "right,ok,down,down,play,wait,wait,key:w,wait,key:w,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
 for want in "window: mini, 480x270 in the corner" "window: back from mini"; do
@@ -513,17 +503,7 @@ run drop_file 300 "drop:/nonexistent/film.mkv,wait,drop:/etc,wait,drop:$OUT/note
 grep -q "drop: playing https://127.0.0.1:9" "$OUT/drop_file.log" && grep -q "toast: That file cannot be opened" "$OUT/drop_file.log" && grep -q "toast: That is a folder" "$OUT/drop_file.log" && grep -q "toast: That is not a video file" "$OUT/drop_file.log" \
   || { echo "dropping on the window did not do the right thing"; grep -E "drop:|toast:" "$OUT/drop_file.log"; exit 1; }
 # A second launch hands what it was given to the Cuelight that is open, and ends at once
-SI_PORT=$((PORT + 3000))
-SI_HOME="$(home_with single '{"prefSubs":"","setupDone":1}')"
-( env -u SNTV_MULTI HOME="$SI_HOME" SNTV_PHONE_PORT=$SI_PORT SNTV_SCREENSHOT="$OUT/single_instance.ppm" SNTV_SCREENSHOT_FRAMES=1400 \
-    xvfb-run -a -n "${SMOKE_XVFB_N:-99}" -s "-screen 0 1920x1080x24" "$BUILD/stremio-tv" > "$OUT/single_instance.log" 2>&1 & )
-for _ in $(seq 1 40); do grep -q "phone: type-on-your-phone page" "$OUT/single_instance.log" 2>/dev/null && break; sleep 0.5; done
-SI_T0=$(date +%s)
-env -u SNTV_MULTI HOME="$SI_HOME" SNTV_PHONE_PORT=$SI_PORT "$BUILD/stremio-tv" "cuelight://sync" > "$OUT/single_instance_2.log" 2>&1; SI_RC=$?
-SI_T1=$(date +%s)
-for _ in $(seq 1 60); do grep -q "main: closed" "$OUT/single_instance.log" 2>/dev/null && break; sleep 0.5; done
-{ [ "$SI_RC" = 0 ] && [ $((SI_T1 - SI_T0)) -le 3 ] && [ ! -s "$OUT/single_instance_2.log" ] && grep -q "open: handed over by another launch (with something to open)" "$OUT/single_instance.log" && grep -q "app: opened with a sync code" "$OUT/single_instance.log"; } \
-  || { echo "a second launch did not hand over to the first"; echo "rc=$SI_RC"; cat "$OUT/single_instance_2.log" | head -5; grep -E "open:|app: opened" "$OUT/single_instance.log"; exit 1; }
+bash "$ROOT/tests/single_instance.sh" "$BUILD" "$OUT" "$PORT" || { echo "a second launch did not hand over to the first"; exit 1; }
 # K pauses and plays, the frame step works while paused, and nothing of it reaches a screen outside the player
 run player_desktop_pause 400 "right,ok,down,down,play,wait,key:k,wait,key:period,key:comma,key:k,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
 run desktop_keys_home 150 "key:j,key:l,key:5,key:question,key:pgdn,key:pgup,key:slash,wait"
