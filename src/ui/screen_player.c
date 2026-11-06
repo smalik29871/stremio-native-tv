@@ -257,6 +257,9 @@ struct Player {
     float last_live_seek;     /* live scrub: the video follows the key every third of a second */
 
     /* stats for nerds (Red) */
+    double ab_a, ab_b;        /* a section on repeat (E: its start, then its end, then off): -1 when not set */
+    int sleep_end;            /* T: the sleep timer stops at the end of this episode, and no next one starts */
+    double sleep_at;          /* T: ... or at this time (app time), 0 for none */
     int stats, keys_help, subs_off_from;   /* keys_help: the computer's key list on screen; subs_off_from: the subtitles C turned off (their place in the list)*/
     int stalls; float stall_s, stall_since; int was_buffering;
     float pp_since; int pp_logged;          /* the pipeline paused by itself (LG reports a stall so): since when, 0 none */
@@ -3075,6 +3078,14 @@ static void update(Screen *s, float dt)
     if (p->tb_held) { p->tb_held = 0; start_candidate(p, p->cur, p->tb_held_start); }   /* back on top: TorBox's answer starts now */
     VideoInfo vi;
     video_info(&vi);
+    if (p->ab_b >= 0 && vi.state == VIDEO_PLAYING && vi.position >= p->ab_b) { LOGI("player: repeat, back to the start of the section"); player_seek(p->ab_a); }   /* a section on repeat */
+    if (p->sleep_at > 0 && g_app.time >= p->sleep_at) {   /* the sleep timer */
+        p->sleep_at = 0;
+        LOGI("player: the sleep timer ended playback");
+        app_toast("Sleep timer: playback stopped");
+        if (s->key) s->key(s, KEY_STOP);
+        return;
+    }
     playback_watch_update(&p->watch, vi.position, dt, RATES[p->rate_idx],
                           vi.state == VIDEO_PLAYING && !vi.buffering && !video_paused_on_purpose(), p->seek_commit > 0);
     if (!p->trailer) perf_playback_sample(vi.position, dt, vi.state == VIDEO_PLAYING, vi.buffering, vi.dropped_frames, p->own_load, vi.seek_version);
@@ -3314,7 +3325,7 @@ static void update(Screen *s, float dt)
     if (!stalled && p->was_buffering && p->stall_since > 0) { p->stall_s += g_app.time - p->stall_since; p->stall_since = 0; }
     p->was_buffering = stalled;
     if (p->stats && (int)(g_app.time * 2) != (int)((g_app.time - dt) * 2)) app_redraw();
-    if (p->up_next_shown && p->next_video_id && ((g_app.autoplay_next && p->next_at < vi.duration && vi.position >= p->next_at && !still_watching_due()) || p->next_wanted)
+    if (p->up_next_shown && p->next_video_id && ((g_app.autoplay_next && !p->sleep_end && p->next_at < vi.duration && vi.position >= p->next_at && !still_watching_due()) || p->next_wanted)
         && vi.state == VIDEO_PLAYING && !p->menu && next_ready(p)) {   /* never under an open menu, and not before it's ready: the credits play on meanwhile */
         LOGI("player: the next episode is ready%s", p->next_wanted ? " (asked for on the card)" : "");
         if (p->next_wanted) go_up_next(p); else go_up_next_auto(p);
@@ -3322,7 +3333,8 @@ static void update(Screen *s, float dt)
     }
     if (p->up_next_shown && !at_credits && !near_end) { p->up_next_shown = 0; p->next_wanted = 0; }   /* seeked back out of its window (with or without markers) */
     if (vi.state == VIDEO_ENDED) {
-        if (p->next_video_id && (g_app.autoplay_next || p->next_wanted)) {   /* asked for on the card counts too */
+        if (p->sleep_end && !p->next_wanted) { LOGI("player: the sleep timer stops at the end of the episode"); app_toast("Sleep timer: the episode ended"); }
+        else if (p->next_video_id && (g_app.autoplay_next || p->next_wanted)) {   /* asked for on the card counts too */
             if (p->menu) { p->menu = 0; LOGI("player: the episode ended with a menu open; closing it for the next one"); }   /* nobody left to close it */
             if (p->next_wanted) { go_up_next(p); return; }
             if (!still_watching_due()) { go_up_next_auto(p); return; }
@@ -6636,7 +6648,7 @@ static void desk_next_screen(Player *p, const VideoInfo *vi, float k)
     }
     /* the next one: when it starts, its picture, its name, what happens */
     double at = p->next_at > 0 ? p->next_at : vi->duration, left = at - vi->position, window = at < vi->duration ? 20.0 : 45.0;
-    int counting = g_app.autoplay_next && vi->duration > 0 && left > 0.5 && !p->next_wanted;
+    int counting = g_app.autoplay_next && !p->sleep_end && vi->duration > 0 && left > 0.5 && !p->next_wanted;
     char when[64];
     if (counting) snprintf(when, sizeof when, "Next episode in %d", (int)(left + 0.5));
     else snprintf(when, sizeof when, p->next_wanted || !next_ready(p) ? "Next episode, getting it ready\xE2\x80\xA6" : "Next episode");
@@ -7555,6 +7567,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
 {
     Screen *s = calloc(1, sizeof *s);
     Player *p = calloc(1, sizeof *p);
+    p->ab_a = p->ab_b = -1;
     p->bright = p->vol = -1;
     p->veil = 1;
     p->lb_shown = -1;
@@ -7817,6 +7830,49 @@ static void audio_step(Player *p)
     show_overlay(p);
 }
 
+static void clock_text(double t, char *out, size_t n)
+{
+    int sec = (int)(t + 0.5);
+    if (sec >= 3600) snprintf(out, n, "%d:%02d:%02d", sec / 3600, sec / 60 % 60, sec % 60);
+    else snprintf(out, n, "%d:%02d", sec / 60, sec % 60);
+}
+
+/* E: the start of a section to repeat, then its end (it plays over and over), then off */
+static void repeat_step(Player *p, const VideoInfo *vi)
+{
+    char a[24], b[24];
+    if (p->ab_b >= 0) { p->ab_a = p->ab_b = -1; LOGI("player: repeat off"); app_toast("Repeat off"); }
+    else if (p->ab_a < 0) { p->ab_a = vi->position; clock_text(p->ab_a, a, sizeof a); LOGI("player: repeat starts at %s", a); app_toast("Repeat from %s  \xC2\xB7  E again marks its end", a); }
+    else if (vi->position > p->ab_a + 1) {
+        p->ab_b = vi->position;
+        clock_text(p->ab_a, a, sizeof a); clock_text(p->ab_b, b, sizeof b);
+        LOGI("player: repeating %s to %s", a, b);
+        app_toast("Repeating %s to %s  \xC2\xB7  E turns it off", a, b);
+    } else app_toast("The end of the section has to come after its start");
+    show_overlay(p);
+}
+
+/* T: the sleep timer. 15, 30, 45, 60 and 90 minutes, then the end of this episode (no next one starts), then off. */
+static void sleep_step(Player *p, const VideoInfo *vi)
+{
+    static const int MIN[] = { 15, 30, 45, 60, 90 };
+    int next = -1;   /* index into MIN, 5 the episode's end, -1 off */
+    if (p->sleep_end) next = -1;
+    else if (p->sleep_at > 0) {
+        float left = p->sleep_at - g_app.time;
+        int cur = 0;
+        for (int i = 0; i < 5; i++) if (left > MIN[i] * 60 - 30) cur = i;
+        next = cur + 1;
+    } else next = 0;
+    p->sleep_end = 0; p->sleep_at = 0;
+    if (next >= 0 && next < 5) { p->sleep_at = g_app.time + MIN[next] * 60; LOGI("player: sleep timer, %d minutes", MIN[next]); app_toast("Sleep timer: in %d minutes", MIN[next]); }
+    else if (next == 5) {
+        if (vi->duration <= 0) { app_toast("Sleep timer off"); LOGI("player: sleep timer off"); }
+        else { p->sleep_end = 1; LOGI("player: sleep timer, the end of this episode"); app_toast("Sleep timer: it stops when this ends"); }
+    } else { LOGI("player: sleep timer off"); app_toast("Sleep timer off"); }
+    show_overlay(p);
+}
+
 /* 1 when the key was used here; main.c asks for the player's keys before the shared mapping */
 int player_desktop_key(Screen *top, int key_sym, unsigned mod)
 {
@@ -7867,6 +7923,8 @@ int player_desktop_key(Screen *top, int key_sym, unsigned mod)
     case SDLK_n: if (p->next_video_id) go_up_next(p); else app_toast("No next episode"); return 1;
     case SDLK_s: { const SkipSeg *sk = g_app.skip_mode == 0 ? skippable(p, &vi) : NULL; if (sk) do_skip(p, sk); return sk != NULL; }
     case SDLK_x: return top->key ? top->key(top, KEY_STOP) : 0;
+    case SDLK_e: repeat_step(p, &vi); return 1;
+    case SDLK_t: sleep_step(p, &vi); return 1;
     case SDLK_i: p->stats = !p->stats; app_redraw(); return 1;
     case SDLK_o: show_overlay(p); return 1;
     default: break;
@@ -7891,7 +7949,7 @@ static void draw_keys_help(Player *p)
 #endif
         { "+  -  Ctrl + Up / Down", "Volume" }, { "M", "Mute" },
         { "C", "Subtitles on or off" }, { "V", "Next subtitles" }, { "G  H", "Subtitles earlier, later" }, { "B", "Next sound track" },
-        { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "X  Esc", "Stop" },
+        { "A  Z", "Picture shape" }, { "N", "Next episode" }, { "S", "Skip intro or recap" }, { "E", "Repeat a section (start, end, off)" }, { "T", "Sleep timer" }, { "X  Esc", "Stop" },
         { "F  F11  Alt + Enter", "Full screen" }, { "I  F1", "Stream details" }, { "O", "Controls" } };
     int n = (int)(sizeof L / sizeof L[0]), rows = (n + 1) / 2;
     float w = 1180, lh = 42, h = 120 + rows * lh, x = (SNTV_UI_W - w) / 2, y = (SNTV_UI_H - h) / 2;

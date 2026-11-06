@@ -482,6 +482,11 @@ run player_desktop_keys 640 "right,ok,down,down,play,wait,wait,wait,wait,key:gre
 for want in "toast: Speed 1.5x" "toast: Normal speed" "player: key L, on 10 s" "player: key J, back 10 s" "player: key 5, to 50% of the film" "toast: Volume" "toast: Picture:" "player: the list of keys is shown"; do
   grep -q "$want" "$OUT/player_desktop_keys.log" || { echo "a computer's key did nothing in the player: $want"; grep -E "toast:|player: key|list of keys" "$OUT/player_desktop_keys.log" | tail -20; exit 1; }
 done
+# E repeats a section (its start, its end: the playing goes back to the start), T is the sleep timer
+run player_desktop_repeat 700 "right,ok,down,down,play,wait,wait,key:5,wait,key:e,key:8,wait,key:e,wait,wait,key:e,wait,key:t,key:t,key:t,key:t,key:t,key:t,key:t,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
+for want in "player: repeat starts at" "player: repeating " "player: repeat, back to the start of the section" "player: repeat off" "player: sleep timer, 15 minutes" "player: sleep timer, 90 minutes" "player: sleep timer, the end of this episode" "player: sleep timer off"; do
+  grep -q "$want" "$OUT/player_desktop_repeat.log" || { echo "the repeat or the sleep timer did nothing: $want"; grep -E "player: (repeat|sleep)|toast:" "$OUT/player_desktop_repeat.log" | tail -20; exit 1; }
+done
 # K pauses and plays, the frame step works while paused, and nothing of it reaches a screen outside the player
 run player_desktop_pause 400 "right,ok,down,down,play,wait,key:k,wait,key:period,key:comma,key:k,wait" SNTV_FAKE_DURATION=600 SNTV_FAKE_START=100
 run desktop_keys_home 150 "key:j,key:l,key:5,key:question,key:pgdn,key:pgup,key:slash,wait"
