@@ -69,6 +69,34 @@ int main(void)
     CHECK(!strcmp(store_get_str("authKey", "none"), "none"));
     store_shutdown();
 
+    /* secrets are sealed on disk and plain in memory (the stand-in cipher; Windows seals with DPAPI) */
+    setenv("SNTV_FAKE_VAULT", "1", 1);
+    put("settings.json", "{\"authKey\":\"plain-old-key\",\"theme\":3}");   /* an older, unsealed file */
+    store_init(dir);
+    CHECK(!strcmp(store_get_str("authKey", ""), "plain-old-key"));
+    store_set_str("torboxKey", "tb-secret-123");
+    store_set_str("userName", "visible-name");
+    store_save();
+    store_flush();
+    {
+        char path[400], body[2000] = "";
+        snprintf(path, sizeof path, "%s/settings.json", dir);
+        FILE *f = fopen(path, "rb");
+        if (f) { size_t n = fread(body, 1, sizeof body - 1, f); body[n] = 0; fclose(f); }
+        CHECK(!strstr(body, "plain-old-key") && !strstr(body, "tb-secret-123"));   /* neither written as they are */
+        CHECK(strstr(body, "fake1:") != NULL);
+        CHECK(strstr(body, "visible-name") != NULL);                               /* what is no secret stays readable */
+    }
+    store_shutdown();
+    store_init(dir);
+    CHECK(!strcmp(store_get_str("authKey", ""), "plain-old-key") && !strcmp(store_get_str("torboxKey", ""), "tb-secret-123"));
+    store_shutdown();
+    put("settings.json", "{\"authKey\":\"fake1:zz\",\"torboxKey\":\"fake1:0\"}");   /* sealed for no one here: dropped, not garbage */
+    store_init(dir);
+    CHECK(!strcmp(store_get_str("authKey", "x"), "") && !strcmp(store_get_str("torboxKey", "x"), ""));
+    store_shutdown();
+    unsetenv("SNTV_FAKE_VAULT");
+
     char cmd[300];
     snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
     if (system(cmd) != 0) fprintf(stderr, "could not remove %s\n", dir);

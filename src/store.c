@@ -1,4 +1,5 @@
 #include "store.h"
+#include "vault.h"
 #include <SDL.h>
 #include "log.h"
 #include <fcntl.h>
@@ -96,13 +97,38 @@ static int writer_main(void *arg)
     return 0;
 }
 
+/* The secrets (vault.h) are sealed on disk and plain in memory. A sealed value that cannot be opened
+ * (another user's, another PC's) is dropped: signed out, not a broken key. */
+static void unseal_secrets(cJSON *root)
+{
+    for (cJSON *it = root->child; it; it = it->next) {
+        if (!cJSON_IsString(it) || !it->string || !vault_is_secret_key(it->string) || !vault_is_sealed(it->valuestring)) continue;
+        char *plain = vault_open(it->valuestring);
+        if (!plain) { LOGW("store: %s was sealed for another user and is dropped", it->string); plain = strdup(""); }
+        cJSON_SetValuestring(it, plain);
+        free(plain);
+    }
+}
+
+static cJSON *sealed_copy(const cJSON *root)
+{
+    cJSON *copy = cJSON_Duplicate(root, 1);
+    if (!copy) return NULL;
+    for (cJSON *it = copy->child; it; it = it->next) {
+        if (!cJSON_IsString(it) || !it->string || !vault_is_secret_key(it->string) || !it->valuestring[0] || vault_is_sealed(it->valuestring)) continue;
+        char *sealed = vault_seal(it->valuestring);
+        if (sealed) { cJSON_SetValuestring(it, sealed); free(sealed); }
+    }
+    return copy;
+}
+
 /* settings.json, else the copy before it: a power cut while saving used to leave an
  * empty or cut-off file, and the app started as if new (signed out, setup again). */
 static cJSON *load_settings(void)
 {
     char *txt = store_read_file("settings.json");
     cJSON *root = txt ? cJSON_Parse(txt) : NULL;
-    if (root && cJSON_IsObject(root)) { free(txt); return root; }
+    if (root && cJSON_IsObject(root)) { free(txt); unseal_secrets(root); return root; }
     cJSON_Delete(root);
     char *bak = store_read_file("settings.json.bak");
     root = bak ? cJSON_Parse(bak) : NULL;
@@ -116,6 +142,7 @@ static cJSON *load_settings(void)
                                           !txt ? "missing" : !txt[0] ? "empty" : "damaged");
     else if (txt || bak) { LOGW("store: settings and their backup are unreadable; starting fresh"); cJSON_Delete(root); root = NULL; }
     free(txt); free(bak);
+    if (root) unseal_secrets(root);
     return root;
 }
 
@@ -169,7 +196,9 @@ cJSON *store_get_json(const char *key)
 
 int store_save(void)
 {
-    char *txt = cJSON_Print(g_root);
+    cJSON *out = vault_available() ? sealed_copy(g_root) : NULL;
+    char *txt = cJSON_Print(out ? out : g_root);
+    cJSON_Delete(out);
     if (!txt) return -1;
     if (!g_wlock) { g_wlock = SDL_CreateMutex(); g_wcond = SDL_CreateCond(); }
     SDL_LockMutex(g_wlock);

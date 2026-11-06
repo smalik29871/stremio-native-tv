@@ -43,6 +43,7 @@ add_library(sntv_core STATIC
   src/relay.c
   src/mkvsubs.c
   src/store.c
+  src/vault.c
   src/sha256.c
   src/subs.c
   src/skip.c
@@ -191,9 +192,9 @@ elseif(SNTV_PLATFORM STREQUAL "windows")
   target_compile_definitions(sntv_core PUBLIC _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN)
   target_compile_options(sntv_core PUBLIC -include ${CMAKE_SOURCE_DIR}/src/platform/win_posix.h)
   target_sources(sntv_core PRIVATE src/platform/win_posix.c)
-  target_link_libraries(sntv_core PUBLIC ws2_32 iphlpapi shlwapi)
+  target_link_libraries(sntv_core PUBLIC ws2_32 iphlpapi shlwapi crypt32)
   set(SNTV_LINK_LIBS mingw32 ${SNTV_WIN_DEPS}/lib/libSDL2main.a ${SNTV_WIN_DEPS}/lib/libSDL2.dll.a
-      ${SNTV_WIN_DEPS}/lib/libGLESv2.dll.a ws2_32 iphlpapi shlwapi m)
+      ${SNTV_WIN_DEPS}/lib/libGLESv2.dll.a ws2_32 iphlpapi shlwapi crypt32 m)
   foreach(o CURL_USE_SCHANNEL CURL_DISABLE_LDAP CURL_ZLIB CURL_WINDOWS_SSPI)
     set(${o} ON CACHE BOOL "" FORCE)
   endforeach()
