@@ -69,6 +69,12 @@ static struct {
     XrAction x_click, y_click, squeeze;
     int has_equirect, has_cylinder, has_pass, has_hands;
     int64_t sc_format;
+    /* the dock under the screen */
+    VrChain dock;
+    float dock_alpha, rs_x, rs_x0, rs_scale0, two_sep0, two_scale0;
+    int dock_hover, dock_pressed, dock_drag, dock_hold, dock_trig_was, dock_q, dock_dh, dock_dp, dock_dc, dock_failed, two;
+    Uint32 dock_until;
+    double dock_repeat_at;
     float yaw, pitch;                 /* where the panel is from the head, as angles */
     int size_applied, dist_applied, bed_applied, follow_on, recenter, auto_key;
     /* a room to see (the passthrough camera), made when asked for */
@@ -449,6 +455,7 @@ static int vr_init_inner(void)
     if (make_swapchain() != 0) return -1;
     if (has_surface) make_video_surface(env);
     X.dist = PANEL_DIST; X.scale = 1.0f;
+    X.dock_hover = -1; X.dock_pressed = -1; X.dock_hold = -1; X.dock_dh = -2; X.dock_dp = -2; X.dock_dc = -1;
 
     /* the panel's first place, before the head has been located: straight ahead */
     const float p0[3] = { 0, -PANEL_LOWER, -PANEL_DIST }; memcpy(X.panel_pos, p0, sizeof p0);
@@ -554,6 +561,51 @@ static void poll_events(void)
     }
 }
 
+/* ---- the dock ------------------------------------------------------------------------------ */
+
+static float dock_w(void) { return 0.9f * X.dist; }                        /* the same size to the eye at any distance */
+static float dock_h(void) { return dock_w() * (float)DOCK_H / (float)DOCK_W; }
+static void dock_pos(float out[3])
+{
+    static const float AY[3] = { 0, 1, 0 };
+    float ay[3]; vr_rotate(X.panel_rot, AY, ay);
+    float off = PANEL_M_H * X.scale * 0.5f + 0.10f + dock_h() * 0.5f;     /* just under the screen */
+    for (int k = 0; k < 3; k++) out[k] = X.panel_pos[k] - ay[k] * off;
+}
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static void set_dist(float d)
+{
+    X.dist = clampf(d, 0.8f, 8.0f);
+    vr_pref_set(VR_PREF_DIST, (int)(X.dist * 10 + 0.5f));
+    X.dist_applied = vr_pref(VR_PREF_DIST);
+    if (X.panel_placed) put_panel();
+}
+
+static void dock_step(int id)   /* the buttons that step a size or a distance: also what holding them repeats */
+{
+    switch (id) {
+    case DOCK_SMALLER: X.scale = clampf(X.scale * 0.9f, 0.4f, 3.5f); break;
+    case DOCK_BIGGER: X.scale = clampf(X.scale * 1.1f, 0.4f, 3.5f); break;
+    case DOCK_NEARER: set_dist(X.dist - 0.2f); break;
+    case DOCK_FARTHER: set_dist(X.dist + 0.2f); break;
+    default: break;
+    }
+}
+
+static void dock_press(int id, double now)
+{
+    switch (id) {
+    case DOCK_MOVE: X.dock_drag = 1; break;                                      /* carried like a grip does */
+    case DOCK_RESIZE: X.dock_drag = 2; X.rs_x0 = X.rs_x; X.rs_scale0 = X.scale; break;
+    case DOCK_CURVE: if (X.has_cylinder) vr_pref_set(VR_PREF_CURVED, !vr_pref(VR_PREF_CURVED)); break;
+    case DOCK_VIEW: X.input.view = 1; break;                                     /* main cycles the view and says which */
+    case DOCK_CINEMA: X.input.menu = 1; break;                                   /* and opens the sheet */
+    case DOCK_CENTER: X.recenter = 1; break;
+    default: dock_step(id); X.dock_hold = id; X.dock_repeat_at = now + 0.4; break;
+    }
+}
+
 static int edge(int now, int *was) { int e = now && !*was; *was = now; return e; }
 
 static void sync_input(XrTime t)
@@ -592,7 +644,28 @@ static void sync_input(XrTime t)
         int hit = (vr_pref(VR_PREF_CURVED) && X.has_cylinder)
             ? vr_ray_cylinder(o, d, X.panel_pos, X.panel_rot, X.dist, PANEL_M_W * X.scale / X.dist, PANEL_M_H * X.scale, &u, &v, &dist)
             : vr_ray_panel(o, d, X.panel_pos, X.panel_rot, PANEL_M_W * X.scale, PANEL_M_H * X.scale, &u, &v, &dist);
+        /* the dock: it shows when the ray is near the bottom of the screen or on it */
+        Uint32 nowms = SDL_GetTicks();
+        float dp[3], du = 0, dv = 0, dd = 0;
+        dock_pos(dp);
+        int on_dock = (nowms < X.dock_until || X.dock_drag) && vr_ray_panel(o, d, dp, X.panel_rot, dock_w(), dock_h(), &du, &dv, &dd);
+        if ((hit && v > 0.72f) || on_dock || X.dock_drag) X.dock_until = nowms + 2500;
+        X.dock_hover = on_dock ? vr_dock_at(du, dv) : -1;
+        if (X.dock_drag == 2) { float ru, rv, rd; if (vr_ray_plane_uv(o, d, dp, X.panel_rot, dock_w(), dock_h(), &ru, &rv, &rd)) X.rs_x = (ru - 0.5f) * dock_w(); }
+        else { float ru, rv, rd; if (on_dock && vr_ray_plane_uv(o, d, dp, X.panel_rot, dock_w(), dock_h(), &ru, &rv, &rd)) X.rs_x = (ru - 0.5f) * dock_w(); }
+        if (on_dock || X.dock_drag) hit = 0;   /* the screens do not see a ray that is on the dock */
         if (hit) { X.input.have_pointer = 1; X.input.x = u; X.input.y = v; }
+    }
+    {   /* the dock's buttons and handles, by the trigger */
+        int raw = trig[hand] > (X.dock_trig_was ? 0.35f : 0.65f);
+        int pressed_now = raw && !X.dock_trig_was;
+        double nowt = SDL_GetTicks() / 1000.0;
+        X.dock_trig_was = raw;
+        if (pressed_now && X.dock_hover >= 0) dock_press(X.dock_hover, nowt);
+        else if (raw && X.dock_hold >= 0 && X.dock_hover == X.dock_hold && nowt >= X.dock_repeat_at) { dock_step(X.dock_hold); X.dock_repeat_at = nowt + 0.09; }
+        if (!raw) { X.dock_drag = 0; X.dock_hold = -1; }
+        if (X.dock_drag == 2) X.scale = clampf(X.rs_scale0 * expf((X.rs_x - X.rs_x0) * 1.1f), 0.4f, 3.5f);
+        X.dock_pressed = X.dock_drag == 1 ? DOCK_MOVE : X.dock_drag == 2 ? DOCK_RESIZE : (raw && X.dock_hover >= 0 ? X.dock_hover : -1);
     }
     /* the grip: take hold of the screen and carry it (the thumbstick then pushes and pulls it, and makes it bigger or smaller) */
     float grip[2] = { 0, 0 };
@@ -602,8 +675,21 @@ static void sync_input(XrTime t)
         XrActionStateFloat gf = { XR_TYPE_ACTION_STATE_FLOAT };
         if (XR_SUCCEEDED(xrGetActionStateFloat(X.session, &gi, &gf)) && gf.isActive) grip[h] = gf.currentState;
     }
-    int gh = grip[1] > grip[0] ? 1 : 0;
+    int gh = grip[1] > grip[0] ? 1 : 0;   /* the hand that squeezes harder */
     int want_grab = grip[gh] > (X.grab ? 0.4f : 0.7f);
+    if (X.dock_drag == 1) { gh = hand; want_grab = 1; }   /* the dock's Move handle: carried by the hand that holds the trigger */
+    /* both grips: pull the hands apart or together to make the screen bigger or smaller */
+    if (grip[0] > 0.7f && grip[1] > 0.7f && X.dock_drag != 1) {
+        XrSpaceLocation l0 = { XR_TYPE_SPACE_LOCATION }, l1 = { XR_TYPE_SPACE_LOCATION };
+        if (XR_SUCCEEDED(xrLocateSpace(X.aim_space[0], X.local, t, &l0)) && XR_SUCCEEDED(xrLocateSpace(X.aim_space[1], X.local, t, &l1))
+            && (l0.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && (l1.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
+            float dx = l0.pose.position.x - l1.pose.position.x, dy = l0.pose.position.y - l1.pose.position.y, dz = l0.pose.position.z - l1.pose.position.z;
+            float sep = sqrtf(dx * dx + dy * dy + dz * dz);
+            if (!X.two) { X.two = 1; X.two_sep0 = sep > 0.05f ? sep : 0.05f; X.two_scale0 = X.scale; }
+            X.scale = clampf(X.two_scale0 * sep / X.two_sep0, 0.4f, 3.5f);
+        }
+        want_grab = 0;
+    } else X.two = 0;
     static Uint32 last_ms;
     Uint32 ms = SDL_GetTicks();
     float dt = last_ms ? (ms - last_ms) / 1000.0f : 0.016f;
@@ -650,7 +736,7 @@ static void sync_input(XrTime t)
         }
         X.grab = 0;
     }
-    X.input.grabbing = X.grab;
+    X.input.grabbing = X.grab || X.two;
     if (X.grab) { sx = sy2 = 0; }   /* the stick was moving the screen, not the menus */
 
     /* a trigger pressed hard is down, let go well below it: no flutter at the edge */
@@ -672,9 +758,9 @@ static void sync_input(XrTime t)
     }
     X.input.ok = edge(pressed[0] || pressed[3], &X.pressed_was[0]);
     X.input.back = edge(pressed[1], &X.pressed_was[1]);
-    X.input.menu = edge(pressed[2], &X.pressed_was[2]);
+    X.input.menu |= edge(pressed[2], &X.pressed_was[2]);   /* (the dock can have set it) */
     X.input.play = edge(pressed[4], &X.pressed_was[3]);
-    X.input.view = edge(pressed[5], &X.pressed_was[4]);
+    X.input.view |= edge(pressed[5], &X.pressed_was[4]);
 
     /* the thumbstick as arrow keys: a push is one press, held it repeats after a pause */
     int dir = 0;   /* 1 up 2 down 3 left 4 right */
@@ -764,7 +850,7 @@ void vr_frame_end(void)
         X.acquired = 0;
     }
     const XrCompositionLayerBaseHeader *layers[16];
-    XrCompositionLayerQuad roomq[VR_ROOM_N], subq;
+    XrCompositionLayerQuad roomq[VR_ROOM_N], subq, dockq;
     uint32_t n = 0;
     XrCompositionLayerQuad vq[2], q = { XR_TYPE_COMPOSITION_LAYER_QUAD };
     XrCompositionLayerEquirect2KHR eq[2];
@@ -929,6 +1015,34 @@ void vr_frame_end(void)
                 for (int k = 0; k < 3; k++) { float p = X.head_pos[k] + (on_screen[k] - X.head_pos[k]) * ratio; if (k == 0) subq.pose.position.x = p; else if (k == 1) subq.pose.position.y = p; else subq.pose.position.z = p; }
                 subq.size.width = wf * mw * ratio; subq.size.height = subq.size.width * (float)sr[3] / (float)sr[2];
                 layers[n++] = (const XrCompositionLayerBaseHeader *)&subq;
+            }
+        }
+        /* the dock under the screen: it fades in when you point near the bottom of the screen and out after a moment */
+        {
+            int want = SDL_GetTicks() < X.dock_until || X.dock_drag;
+            X.dock_alpha += ((want ? 1.0f : 0.0f) - X.dock_alpha) * 0.22f;
+            if (X.dock_alpha < 0.02f) X.dock_alpha = 0;
+            if (X.dock_alpha > 0 && !X.dock.handle && !X.dock_failed && vr_chain_make(&X.dock, PANEL_PX_W, PANEL_PX_H) != 0) { X.dock_failed = 1; LOGW("vr: no swapchain for the dock"); }
+            if (X.dock_alpha > 0 && X.dock.handle) {
+                int q = (int)(X.dock_alpha * 12 + 0.5f), cv = vr_pref(VR_PREF_CURVED);
+                if (q != X.dock_q || X.dock_hover != X.dock_dh || X.dock_pressed != X.dock_dp || cv != X.dock_dc) {
+                    vr_dock_render(&X.dock, X.dock_hover, X.dock_pressed, q / 12.0f);
+                    X.dock_q = q; X.dock_dh = X.dock_hover; X.dock_dp = X.dock_pressed; X.dock_dc = cv;
+                }
+                if (X.dock.ever) {
+                    float dp[3]; dock_pos(dp);
+                    memset(&dockq, 0, sizeof dockq);
+                    dockq.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                    dockq.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    dockq.space = X.local; dockq.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    dockq.subImage.swapchain = (XrSwapchain)X.dock.handle;
+                    dockq.subImage.imageRect.offset.x = (PANEL_PX_W - DOCK_W) / 2; dockq.subImage.imageRect.offset.y = (PANEL_PX_H - DOCK_H) / 2;   /* centred: it does not matter which way up the rows run */
+                    dockq.subImage.imageRect.extent.width = DOCK_W; dockq.subImage.imageRect.extent.height = DOCK_H;
+                    dockq.pose.orientation.x = X.panel_rot[0]; dockq.pose.orientation.y = X.panel_rot[1]; dockq.pose.orientation.z = X.panel_rot[2]; dockq.pose.orientation.w = X.panel_rot[3];
+                    dockq.pose.position.x = dp[0]; dockq.pose.position.y = dp[1]; dockq.pose.position.z = dp[2];
+                    dockq.size.width = dock_w(); dockq.size.height = dock_h();
+                    layers[n++] = (const XrCompositionLayerBaseHeader *)&dockq;
+                }
             }
         }
         /* the panel: the app's own screens, see-through where the player left a hole for the picture */

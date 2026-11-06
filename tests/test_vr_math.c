@@ -100,5 +100,12 @@ int main(void)
     CHECK(vr_ray_cylinder(HD, dc2, CPOS, ID, RAD, ang, ht, &u, &v, &d));
     CHECK(u > 0.4f && u < 0.6f);
 
+    /* off the panel the plane's coordinates still come: a metre to the right of the edge of a 2.4 m panel is u = 1.4167 */
+    { float to3[3] = { 1.2f + 1.0f, 0, -2 }, l3 = sqrtf(to3[0] * to3[0] + 4), d3[3] = { to3[0] / l3, 0, -2 / l3 };
+      CHECK(!vr_ray_panel(O, d3, POS, ID, 2.4f, 1.35f, &u, &v, &d));
+      CHECK(vr_ray_plane_uv(O, d3, POS, ID, 2.4f, 1.35f, &u, &v, &d));
+      CHECK(NEAR(u, 0.5f + 2.2f / 2.4f) && NEAR(v, 0.5f)); }
+    CHECK(!vr_ray_plane_uv(O, BACK, POS, ID, 2.4f, 1.35f, &u, &v, &d));
+
     return 0;
 }

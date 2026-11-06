@@ -176,3 +176,12 @@ counts rows.
 Not checked on a headset: all of it. The picture orientation through the texture path, the room's look and
 strength (the falloff constants are in the shader), the cost of the passes on the Quest 2's GPU, and
 whether a runtime reads the layers as premultiplied the way they are drawn.
+
+### Moving and sizing the screen
+
+The dock: point near the bottom of the screen and a bar fades in under it (and out again after a moment). Hold
+the trigger on **Move** and drag to carry the screen about; hold it on **Resize** and drag sideways to make it
+bigger or smaller; tap **Smaller**, **Bigger**, **Nearer**, **Farther** (hold to repeat), **Curve**, **View**,
+**Cinema** (the sheet) or **Center**. With both grips closed, pull the hands apart or together to stretch the
+screen. The old ways still work: one grip carries it and the stick pushes, pulls and sizes it, and the menu
+button opens the sheet. The distance you leave it at is the one the sheet shows and Center returns to.

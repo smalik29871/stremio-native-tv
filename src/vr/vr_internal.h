@@ -31,4 +31,13 @@ void vr_subs_render(void);                      /* after the panel is drawn: the
 int  vr_subs_layer(VrChain **chain, int rect[4], float *cy_frac, float *w_frac);   /* 1 when there are lines on show: the swapchain, the rectangle of it, where its middle is down the canvas and how much of the canvas width it is (0..1) */
 int  vr_subs_capture(const char *text, float bottom, int size, int style, float k, float width);   /* ui_subtitle_ex: 1 when taken instead of drawn */
 float vr_subs_ratio(void);                      /* how much nearer than the screen they float: 1 on it, smaller closer */
+
+/* The dock under the screen (vr_dock.c): a bar of handles and buttons that fades in when you point near the bottom
+ * of the screen, to move and size it the way a window is in other headset apps. */
+enum { DOCK_MOVE, DOCK_SMALLER, DOCK_BIGGER, DOCK_NEARER, DOCK_FARTHER, DOCK_CURVE, DOCK_VIEW, DOCK_CINEMA, DOCK_CENTER, DOCK_RESIZE, DOCK_N };
+#define DOCK_W 1560              /* the bar's size in canvas pixels; the layer shows just this band of its swapchain */
+#define DOCK_H 150
+int  vr_dock_at(float u, float v);                         /* the button at that place of the bar (0..1 across and down), or -1 */
+void vr_dock_render(VrChain *c, int hover, int pressed, float alpha);   /* the bar into the swapchain */
+
 #endif

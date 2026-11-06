@@ -12,6 +12,11 @@ void vr_rotate(const float q[4], const float v[3], float out[3]);
 int vr_ray_panel(const float origin[3], const float dir[3], const float pos[3], const float rot[4],
                  float width, float height, float *u, float *v, float *dist);
 
+/* The same without the edges: where the ray meets the panel's plane, u and v as above but beyond 0..1 when it is off the
+ * panel (to drag something about by pointing past it). 1 when the plane is in front of the ray. */
+int vr_ray_plane_uv(const float origin[3], const float dir[3], const float pos[3], const float rot[4],
+                    float width, float height, float *u, float *v, float *dist);
+
 /* A pose facing the viewer: in front of `head` (position and orientation) by `distance`, level with
  * the head plus `lower` metres down, turned only about the vertical to the way the head looks. */
 void vr_panel_in_front(const float head_pos[3], const float head_rot[4], float distance, float lower,

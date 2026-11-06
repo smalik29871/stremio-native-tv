@@ -14,8 +14,8 @@ void vr_rotate(const float q[4], const float v[3], float out[3])
 
 static float dot3(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
-int vr_ray_panel(const float origin[3], const float dir[3], const float pos[3], const float rot[4],
-                 float width, float height, float *u, float *v, float *dist)
+int vr_ray_plane_uv(const float origin[3], const float dir[3], const float pos[3], const float rot[4],
+                    float width, float height, float *u, float *v, float *dist)
 {
     static const float X[3] = { 1, 0, 0 }, Y[3] = { 0, 1, 0 }, Z[3] = { 0, 0, 1 };
     float n[3], ax[3], ay[3];
@@ -26,9 +26,17 @@ int vr_ray_panel(const float origin[3], const float dir[3], const float pos[3], 
     float t = dot3(n, to) / denom;
     if (t <= 0) return 0;   /* behind the hand */
     float p[3] = { origin[0] + t * dir[0] - pos[0], origin[1] + t * dir[1] - pos[1], origin[2] + t * dir[2] - pos[2] };
-    float lx = dot3(p, ax), ly = dot3(p, ay);
-    float fu = lx / width + 0.5f, fv = 0.5f - ly / height;
     if (dist) *dist = t;
+    if (u) *u = dot3(p, ax) / width + 0.5f;
+    if (v) *v = 0.5f - dot3(p, ay) / height;
+    return 1;
+}
+
+int vr_ray_panel(const float origin[3], const float dir[3], const float pos[3], const float rot[4],
+                 float width, float height, float *u, float *v, float *dist)
+{
+    float fu, fv;
+    if (!vr_ray_plane_uv(origin, dir, pos, rot, width, height, &fu, &fv, dist)) return 0;
     if (u) *u = fu;
     if (v) *v = fv;
     return fu >= 0 && fu <= 1 && fv >= 0 && fv <= 1;
