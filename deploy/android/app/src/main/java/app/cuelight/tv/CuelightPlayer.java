@@ -15,6 +15,7 @@ import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.PixelCopy;
+import android.graphics.SurfaceTexture;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
@@ -148,9 +149,42 @@ public final class CuelightPlayer {
         run(() -> { if (sPlayer != null) applyOutput(); });
     }
     private static void applyOutput() {
-        Surface vr = sVrSurface;
-        if (vr != null && vr.isValid()) sPlayer.setVideoSurface(vr);
+        Surface tex = sVrTexSurface, vr = sVrSurface;
+        if (tex != null && tex.isValid()) sPlayer.setVideoSurface(tex);        // the app draws the film itself (the room's light)
+        else if (vr != null && vr.isValid()) sPlayer.setVideoSurface(vr);      // the compositor shows it as it is
         else sPlayer.setVideoSurfaceView(sView);
+    }
+
+    /* The film into a texture the app draws (src/vr/vr_film.c): the room is lit by its colours. Made and
+     * updated on the app's GL thread, where the texture's context is current. */
+    private static SurfaceTexture sVrTex;
+    private static volatile Surface sVrTexSurface;
+    private static volatile boolean sVrTexNew;
+    public static void vrTexInit(final int tex, final int w, final int h) {
+        vrTexDrop();
+        try {
+            SurfaceTexture st = new SurfaceTexture(tex);
+            st.setDefaultBufferSize(w, h);
+            st.setOnFrameAvailableListener(t -> sVrTexNew = true);
+            sVrTex = st;
+            sVrTexSurface = new Surface(st);
+            Log.i(TAG, "vr: the film goes to the app's texture");
+        } catch (RuntimeException e) { Log.w(TAG, "vr: no texture for the film: " + e); sVrTex = null; sVrTexSurface = null; }
+        run(() -> { if (sPlayer != null) applyOutput(); });
+    }
+    /* A new picture is in the texture (and the matrix that turns its coordinates the right way up is in m): true. */
+    public static boolean vrTexUpdate(final float[] m) {
+        SurfaceTexture st = sVrTex;
+        if (st == null || !sVrTexNew) return false;
+        sVrTexNew = false;
+        try { st.updateTexImage(); st.getTransformMatrix(m); return true; }
+        catch (RuntimeException e) { Log.w(TAG, "vr: the film's texture did not update: " + e); return false; }
+    }
+    public static void vrTexDrop() {
+        SurfaceTexture st = sVrTex;
+        Surface sf = sVrTexSurface;
+        sVrTex = null; sVrTexSurface = null; sVrTexNew = false;
+        run(() -> { if (sPlayer != null) applyOutput(); if (sf != null) sf.release(); if (st != null) st.release(); });
     }
 
     private static ExoPlayer player() {

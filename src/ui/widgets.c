@@ -1,3 +1,4 @@
+#include "../vr/vr.h"
 #include "widgets.h"
 #include "accessibility.h"
 #include "../http.h"
@@ -1360,6 +1361,7 @@ void ui_subtitle(const char *text, float bottom, int size_setting, int style) { 
 void ui_subtitle_ex(const char *text, float bottom, int size_setting, int style, float k, float width)
 {
     if (!text || !*text) return;
+    if (vr_subs_capture(text, bottom, size_setting, style, k, width)) return;   /* in a headset the lines float in a layer of their own */
     int size = ui_subtitle_font(size_setting);
     float zs = subtitle_scale(size_setting) * k;
     gfx_set_scale(zs, SNTV_UI_W / 2, bottom);   /* grows up and out from the bottom line's centre */

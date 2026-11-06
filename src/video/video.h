@@ -110,6 +110,13 @@ int video_subtitle_text(char *out, size_t n);
 
 /* Window-pixel rectangle the video should cover (full window by default). */
 void video_set_display_rect(int x, int y, int w, int h);
+#ifdef SNTV_VR
+/* Android in a headset (src/vr/vr_film.c): the film into a texture the app draws, or back to the compositor's own surface. */
+void video_vr_tex_init(unsigned tex, int w, int h);
+void video_vr_tex_drop(void);
+int  video_vr_tex_update(float m[16]);
+void video_vr_direct(void);
+#endif
 /* App went to background / came back (webOS pauses the pipeline itself, but we keep state honest). */
 void video_app_background(void);
 void video_app_foreground(void);

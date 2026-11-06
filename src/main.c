@@ -1603,6 +1603,7 @@ int main(int argc, char **argv)
         if (must_draw) {
             g_app.need_redraw = 0;
             Uint64 pc_draw = SDL_GetPerformanceCounter();
+            vr_subs_begin();   /* a headset: the lines the player draws this time are caught for their own layer */
             gfx_begin_frame(g_app.oled ? RGBA(0, 0, 0, 0xFF) : THEME_BG);
             STAGE("screen draw", app_draw_screen(top, dt));
             int in_player = top && strcmp(top->name, "player") == 0;
@@ -1635,6 +1636,7 @@ int main(int argc, char **argv)
             }
 #endif
             gfx_end_frame();
+            vr_subs_render();
             Uint64 pc_end = SDL_GetPerformanceCounter();
             { double ms = 1000.0 / (double)SDL_GetPerformanceFrequency(); perf_phases((float)((double)(pc_draw - pc) * ms), (float)((double)(pc_swap - pc_draw) * ms), (float)((double)(pc_end - pc_swap) * ms)); }
             Uint32 end = SDL_GetTicks(), spent = end - now;

@@ -153,3 +153,26 @@ Geometry (the curved screen's ray, the angles the screen is placed by, the tilt)
 checked on a headset: where the runtime puts a curved layer relative to its pose (the code takes the
 pose as the bend's axis and the screen a radius ahead of it; if the curved screen shows at the wrong
 distance, that is the place), the hand profile's path names, and passthrough (grey on the Quest 2).
+
+### The lit room and the floating subtitles
+
+**Room light** (Cinema sheet: off, soft, strong; on by default). The film no longer goes straight to the
+compositor: ExoPlayer decodes into a SurfaceTexture, `vr_film.c` draws each picture into the screen's swapchain,
+boils it down on the GPU to a 32 x 18 grid of colours (eased over time, nothing read back to the CPU), and
+draws five soft glows from the grid's edges onto five quad layers: the wall behind the screen, the floor, the
+ceiling and the two side walls, each fading with distance from the screen and with how dark the scene is. Over
+the passthrough room they tint your real walls. With the light off the film takes the zero-copy path as
+before; if the texture path delivers no picture in 4.5 s it turns itself off (and says so).
+
+**Subtitles** (on the screen, in front, close up; in front by default). The lines the player screen draws
+are caught in `ui_subtitle_ex` and drawn into a swapchain of their own, a layer that floats 22 % (in front) or
+42 % (close up) of the way toward you from the screen, scaled so it looks the same size and sits in the same
+direction. In 3D films and in 180/360 views they then sit nearer than the picture, in true depth, instead of
+fighting it. The layer's rectangle is centred on the image so it does not matter which way up the runtime
+counts rows.
+
+3D eyes (normal or swapped) turns the two halves of a side-by-side or top-and-bottom film around.
+
+Not checked on a headset: all of it. The picture orientation through the texture path, the room's look and
+strength (the falloff constants are in the shader), the cost of the passes on the Quest 2's GPU, and
+whether a runtime reads the layers as premultiplied the way they are drawn.

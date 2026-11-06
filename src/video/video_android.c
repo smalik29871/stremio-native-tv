@@ -17,7 +17,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_VR_SURFACE, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_VR_SURFACE, M_VR_TEX_INIT, M_VR_TEX_UPDATE, M_VR_TEX_DROP, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;DJ)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -28,7 +28,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
     { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" }, { "subtitleLift", "(F)V" },
-    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" }, { "vrSurface", "(Landroid/view/Surface;)V" },
+    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" }, { "vrSurface", "(Landroid/view/Surface;)V" }, { "vrTexInit", "(III)V" }, { "vrTexUpdate", "([F)Z" }, { "vrTexDrop", "()V" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -378,3 +378,24 @@ void video_glow_idle(void)   /* from video_update: a new copy is drawn; not aske
     clear(e);
     if (seq != g_glow_seq) app_redraw();
 }
+
+#ifdef SNTV_VR
+/* The film into a texture the app draws (vr_film.c): the player's output is the surface of a SurfaceTexture
+ * that belongs to `tex` in the current GL context. */
+void video_vr_tex_init(unsigned tex, int w, int h) { CALL(M_VR_TEX_INIT, (jint)tex, (jint)w, (jint)h); }
+void video_vr_tex_drop(void) { CALL(M_VR_TEX_DROP); }
+int video_vr_tex_update(float m[16])   /* 1 when a new picture arrived (m: the matrix for its texture coordinates) */
+{
+    JNIEnv *e = env();
+    if (!e) return 0;
+    static jfloatArray arr;
+    if (!arr) { jfloatArray a = (*e)->NewFloatArray(e, 16); arr = (jfloatArray)(*e)->NewGlobalRef(e, a); (*e)->DeleteLocalRef(e, a); }
+    jboolean got = (*e)->CallStaticBooleanMethod(e, g_cls, g_m[M_VR_TEX_UPDATE], arr);
+    clear(e);
+    if (!got) return 0;
+    (*e)->GetFloatArrayRegion(e, arr, 0, 16, m);
+    return 1;
+}
+/* back to the compositor's own surface (the room's light is off) */
+void video_vr_direct(void) { void *vs = vr_video_surface(); if (vs) CALL(M_VR_SURFACE, (jobject)vs); }
+#endif

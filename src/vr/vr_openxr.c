@@ -9,6 +9,7 @@
 #include "vr_math.h"
 #include "../log.h"
 #include "../video/video.h"
+#include "vr_internal.h"
 #include <ctype.h>
 #include <math.h>
 #include <SDL.h>
@@ -67,6 +68,7 @@ static struct {
     float grab_dist;
     XrAction x_click, y_click, squeeze;
     int has_equirect, has_cylinder, has_pass, has_hands;
+    int64_t sc_format;
     float yaw, pitch;                 /* where the panel is from the head, as angles */
     int size_applied, dist_applied, bed_applied, follow_on, recenter, auto_key;
     /* a room to see (the passthrough camera), made when asked for */
@@ -197,6 +199,7 @@ static int make_swapchain(void)
     if (have_srgb && can_off) { pick = GL_SRGB8_ALPHA8_; X.srgb_write_off = 1; }
     else for (uint32_t i = 0; i < nf; i++) if (formats[i] == GL_RGBA8_) pick = GL_RGBA8_;
     if (!pick && nf) pick = formats[0];
+    X.sc_format = pick;
     LOGI("vr: swapchain format 0x%llx (%u offered, sRGB write control %s)", (unsigned long long)pick, nf, can_off ? "yes" : "no");
     free(formats);
     if (!pick) { LOGW("vr: the headset offered no usable picture format"); return -1; }
@@ -220,6 +223,58 @@ static int make_swapchain(void)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     LOGI("vr: %u swapchain images, %dx%d", n, PANEL_PX_W, PANEL_PX_H);
     return 0;
+}
+
+/* More swapchains like the panel's, for what the app draws besides the screens (the film, the room's light, the subtitles). */
+int vr_chain_make(VrChain *c, int w, int h)
+{
+    memset(c, 0, sizeof *c);
+    if (!X.session || !X.sc_format) return -1;
+    XrSwapchainCreateInfo ci = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    ci.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    ci.format = X.sc_format; ci.sampleCount = 1; ci.width = (uint32_t)w; ci.height = (uint32_t)h; ci.faceCount = 1; ci.arraySize = 1; ci.mipCount = 1;
+    XrSwapchain sc = XR_NULL_HANDLE;
+    if (!xr_ok(xrCreateSwapchain(X.session, &ci, &sc), "xrCreateSwapchain (extra)")) return -1;
+    uint32_t n = 0;
+    xrEnumerateSwapchainImages(sc, 0, &n, NULL);
+    if (n > MAX_IMAGES) n = MAX_IMAGES;
+    XrSwapchainImageOpenGLESKHR img[MAX_IMAGES];
+    for (uint32_t i = 0; i < n; i++) { memset(&img[i], 0, sizeof img[i]); img[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR; }
+    if (!xr_ok(xrEnumerateSwapchainImages(sc, n, &n, (XrSwapchainImageBaseHeader *)img), "xrEnumerateSwapchainImages (extra)")) { xrDestroySwapchain(sc); return -1; }
+    GLuint fbo[MAX_IMAGES];
+    glGenFramebuffers((GLsizei)n, fbo);
+    for (uint32_t i = 0; i < n; i++) {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, img[i].image, 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) { LOGW("vr: an extra swapchain's framebuffer is incomplete"); glBindFramebuffer(GL_FRAMEBUFFER, 0); xrDestroySwapchain(sc); return -1; }
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    c->handle = (uint64_t)sc; c->n = (int)n; c->w = w; c->h = h;
+    for (uint32_t i = 0; i < n; i++) c->fbo[i] = fbo[i];
+    return 0;
+}
+
+int vr_chain_acquire(VrChain *c)
+{
+    if (!c || !c->handle) return 0;
+    uint32_t idx = 0;
+    XrSwapchainImageAcquireInfo ai = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    if (!xr_ok(xrAcquireSwapchainImage((XrSwapchain)c->handle, &ai, &idx), "xrAcquireSwapchainImage (extra)")) return 0;
+    XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wi.timeout = XR_INFINITE_DURATION;
+    if (!xr_ok(xrWaitSwapchainImage((XrSwapchain)c->handle, &wi), "xrWaitSwapchainImage (extra)")) return 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, c->fbo[idx < (uint32_t)c->n ? idx : 0]);
+    glViewport(0, 0, c->w, c->h);
+    if (X.srgb_write_off) glDisable(GL_FRAMEBUFFER_SRGB_EXT_);
+    return 1;
+}
+
+void vr_chain_release(VrChain *c)
+{
+    if (!c || !c->handle) return;
+    glFlush();
+    XrSwapchainImageReleaseInfo ri = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    if (xr_ok(xrReleaseSwapchainImage((XrSwapchain)c->handle, &ri), "xrReleaseSwapchainImage (extra)")) c->ever = 1;
 }
 
 /* The surface the film is decoded into. Its swapchain has no images the app touches: MediaCodec
@@ -708,7 +763,8 @@ void vr_frame_end(void)
         if (xr_ok(xrReleaseSwapchainImage(X.chain, &ri), "xrReleaseSwapchainImage")) X.ever_released = 1;
         X.acquired = 0;
     }
-    const XrCompositionLayerBaseHeader *layers[6];
+    const XrCompositionLayerBaseHeader *layers[16];
+    XrCompositionLayerQuad roomq[VR_ROOM_N], subq;
     uint32_t n = 0;
     XrCompositionLayerQuad vq[2], q = { XR_TYPE_COMPOSITION_LAYER_QUAD };
     XrCompositionLayerEquirect2KHR eq[2];
@@ -725,6 +781,7 @@ void vr_frame_end(void)
     if (X.frame.shouldRender && X.ever_released) {
         /* behind the panel: the film, where there is one on show */
         VideoInfo vi; video_info(&vi);
+        vr_film_step(&vi, PANEL_M_W * X.scale, PANEL_M_H * X.scale, X.dist);   /* the film, the room's light and the subtitles, drawn for this frame */
         const ViewMode *vm = &MODES[V.mode];
         if (vr_pref(VR_PREF_SIZE) == 4 && vi.width > 0 && vi.height > 0) {   /* fit the film: a wide film gets a wider screen, the height stays comfortable */
             int key = vi.width * 7919 + vi.height;
@@ -735,14 +792,56 @@ void vr_frame_end(void)
                 X.scale = sc < 0.9f ? 0.9f : sc > 1.6f ? 1.6f : sc;
             }
         }
-        if (V.ok && V.chain && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) && vi.width > 0 && vi.height > 0) {
+        int on_show = (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) && vi.width > 0 && vi.height > 0;
+        VrChain *fc = vr_film_chain();   /* the app's own drawing of the film (the room's light is on), else the compositor's surface */
+        XrSwapchain film_sc = fc ? (XrSwapchain)fc->handle : V.chain;
+        int film_ok = fc ? fc->ever : (V.ok && V.chain);
+        int swap_eyes = vr_pref(VR_PREF_EYES);
+        /* the room's light, behind the screen and the film */
+        VrChain *rc0 = vr_room_chain(0);
+        if (on_show && rc0 && rc0->ever) {
+            float mw = PANEL_M_W * X.scale, mh = PANEL_M_H * X.scale, L = vr_room_length(X.dist);
+            static const float AX[3] = { 1, 0, 0 }, AY[3] = { 0, 1, 0 }, AZ[3] = { 0, 0, 1 };
+            float ax[3], ay[3], az[3];
+            vr_rotate(X.panel_rot, AX, ax); vr_rotate(X.panel_rot, AY, ay); vr_rotate(X.panel_rot, AZ, az);
+            for (int i = 0; i < VR_ROOM_N; i++) {
+                VrChain *rc = vr_room_chain(i);
+                if (!rc || !rc->ever) continue;
+                float lq[4] = { 0, 0, 0, 1 }, cen[3] = { X.panel_pos[0], X.panel_pos[1], X.panel_pos[2] }, sw, sh;
+                const float H = 0.70710678f;   /* sin and cos of 45 degrees: a quarter turn */
+                switch (i) {
+                case 0: sw = mw * VR_ROOM_BACK_K; sh = mh * VR_ROOM_BACK_K; for (int k = 0; k < 3; k++) cen[k] -= az[k] * 0.04f; break;   /* the wall behind the screen */
+                case 1: lq[0] = -H; lq[3] = H; sw = mw * VR_ROOM_SPAN_K; sh = L; for (int k = 0; k < 3; k++) cen[k] += -ay[k] * mh * 0.5f + az[k] * L * 0.5f; break;   /* the floor: turned to face up */
+                case 2: lq[0] = H; lq[3] = H; sw = mw * VR_ROOM_SPAN_K; sh = L; for (int k = 0; k < 3; k++) cen[k] += ay[k] * mh * 0.5f + az[k] * L * 0.5f; break;   /* the ceiling: facing down */
+                case 3: lq[1] = H; lq[3] = H; sw = L; sh = mh * VR_ROOM_SPAN_K; for (int k = 0; k < 3; k++) cen[k] += -ax[k] * mw * 0.5f + az[k] * L * 0.5f; break;   /* the left wall: facing in */
+                default: lq[1] = -H; lq[3] = H; sw = L; sh = mh * VR_ROOM_SPAN_K; for (int k = 0; k < 3; k++) cen[k] += ax[k] * mw * 0.5f + az[k] * L * 0.5f; break;   /* the right wall */
+                }
+                const float *a = X.panel_rot;
+                XrCompositionLayerQuad *rq = &roomq[i];
+                memset(rq, 0, sizeof *rq);
+                rq->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                rq->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                rq->space = X.local; rq->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                rq->subImage.swapchain = (XrSwapchain)rc->handle;
+                rq->subImage.imageRect.extent.width = rc->w; rq->subImage.imageRect.extent.height = rc->h;
+                rq->pose.orientation.x = a[3] * lq[0] + a[0] * lq[3] + a[1] * lq[2] - a[2] * lq[1];   /* the panel's turn, then the surface's own */
+                rq->pose.orientation.y = a[3] * lq[1] - a[0] * lq[2] + a[1] * lq[3] + a[2] * lq[0];
+                rq->pose.orientation.z = a[3] * lq[2] + a[0] * lq[1] - a[1] * lq[0] + a[2] * lq[3];
+                rq->pose.orientation.w = a[3] * lq[3] - a[0] * lq[0] - a[1] * lq[1] - a[2] * lq[2];
+                rq->pose.position.x = cen[0]; rq->pose.position.y = cen[1]; rq->pose.position.z = cen[2];
+                rq->size.width = sw; rq->size.height = sh;
+                layers[n++] = (const XrCompositionLayerBaseHeader *)rq;
+            }
+        }
+        if (film_ok && on_show) {
             int eyes = vm->stereo ? 2 : 1;
             for (int e = 0; e < eyes; e++) {
                 XrSwapchainSubImage si; memset(&si, 0, sizeof si);
-                si.swapchain = V.chain;
+                int half = swap_eyes ? 1 - e : e;   /* which half of the picture this eye looks at */
+                si.swapchain = film_sc;
                 si.imageRect.extent.width = VIDEO_PX_W; si.imageRect.extent.height = VIDEO_PX_H;
-                if (vm->stereo == 1) { si.imageRect.extent.width = VIDEO_PX_W / 2; si.imageRect.offset.x = e ? VIDEO_PX_W / 2 : 0; }
-                if (vm->stereo == 2) { si.imageRect.extent.height = VIDEO_PX_H / 2; si.imageRect.offset.y = e ? VIDEO_PX_H / 2 : 0; }
+                if (vm->stereo == 1) { si.imageRect.extent.width = VIDEO_PX_W / 2; si.imageRect.offset.x = half ? VIDEO_PX_W / 2 : 0; }
+                if (vm->stereo == 2) { si.imageRect.extent.height = VIDEO_PX_H / 2; si.imageRect.offset.y = half ? VIDEO_PX_H / 2 : 0; }
                 XrEyeVisibility vis = !vm->stereo ? XR_EYE_VISIBILITY_BOTH : (e ? XR_EYE_VISIBILITY_RIGHT : XR_EYE_VISIBILITY_LEFT);
                 if (vm->proj) {   /* the inside of half or all of a sphere around where your head was */
                     XrCompositionLayerEquirect2KHR *l = &eq[e];
@@ -809,6 +908,27 @@ void vr_frame_end(void)
                     l->size.width = mw * fw / PANEL_PX_W; l->size.height = mh * fh / PANEL_PX_H;
                     layers[n++] = (const XrCompositionLayerBaseHeader *)l;
                 }
+            }
+        }
+        /* the subtitles, nearer than the screen, the same size to the eye */
+        {
+            VrChain *sc; int sr[4]; float cyf, wf;
+            if (vr_subs_layer(&sc, sr, &cyf, &wf) && sc->ever) {
+                static const float AY2[3] = { 0, 1, 0 };
+                float ay2[3]; vr_rotate(X.panel_rot, AY2, ay2);
+                float mw = PANEL_M_W * X.scale, mh = PANEL_M_H * X.scale, ratio = vr_subs_ratio();
+                float on_screen[3] = { X.panel_pos[0] + ay2[0] * -(cyf - 0.5f) * mh, X.panel_pos[1] + ay2[1] * -(cyf - 0.5f) * mh, X.panel_pos[2] + ay2[2] * -(cyf - 0.5f) * mh };
+                memset(&subq, 0, sizeof subq);
+                subq.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                subq.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                subq.space = X.local; subq.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                subq.subImage.swapchain = (XrSwapchain)sc->handle;
+                subq.subImage.imageRect.offset.x = sr[0]; subq.subImage.imageRect.offset.y = sr[1];
+                subq.subImage.imageRect.extent.width = sr[2]; subq.subImage.imageRect.extent.height = sr[3];
+                subq.pose.orientation.x = X.panel_rot[0]; subq.pose.orientation.y = X.panel_rot[1]; subq.pose.orientation.z = X.panel_rot[2]; subq.pose.orientation.w = X.panel_rot[3];
+                for (int k = 0; k < 3; k++) { float p = X.head_pos[k] + (on_screen[k] - X.head_pos[k]) * ratio; if (k == 0) subq.pose.position.x = p; else if (k == 1) subq.pose.position.y = p; else subq.pose.position.z = p; }
+                subq.size.width = wf * mw * ratio; subq.size.height = subq.size.width * (float)sr[3] / (float)sr[2];
+                layers[n++] = (const XrCompositionLayerBaseHeader *)&subq;
             }
         }
         /* the panel: the app's own screens, see-through where the player left a hole for the picture */

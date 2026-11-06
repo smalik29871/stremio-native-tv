@@ -15,11 +15,11 @@
 #include <stdlib.h>
 #include <math.h>
 
-static int g_pref[VR_PREF_COUNT] = { 0, 1, 0, 0, 0, 22 };   /* flat, cinema size, stay, upright, dark room, 2.2 m */
+static int g_pref[VR_PREF_COUNT] = { 0, 1, 0, 0, 0, 22, 1, 1, 0 };   /* flat, cinema size, stay, upright, dark room, 2.2 m, soft light, subtitles in front, eyes as they are */
 static int g_loaded, g_open;
 static float g_open_t;       /* 0 closed .. 1 open, eased */
 
-static const char *PREF_NAME[VR_PREF_COUNT] = { "curved", "size", "follow", "bed", "pass", "dist" };
+static const char *PREF_NAME[VR_PREF_COUNT] = { "curved", "size", "follow", "bed", "pass", "dist", "light", "subs", "eyes" };
 
 static void cfg_path(char *out, size_t n)
 {
@@ -79,6 +79,9 @@ static const Row ROWS[] = {
     { "Follow my head", VR_PREF_FOLLOW, 3, { "Stay", "Lazy", "Always" } },
     { "Lying down", VR_PREF_BED, 2, { "Off", "On" } },
     { "Room", VR_PREF_PASS, 2, { "Dark", "See my room" } },
+    { "Room light", VR_PREF_LIGHT, 3, { "Off", "Soft", "Strong" } },
+    { "Subtitles", VR_PREF_SUBS, 3, { "On the screen", "In front", "Close up" } },
+    { "3D eyes", VR_PREF_EYES, 2, { "As they are", "Swapped" } },
 };
 #define N_ROWS ((int)(sizeof ROWS / sizeof ROWS[0]))
 
@@ -112,7 +115,7 @@ int vr_cinema_draw(float dt, int show_way_in)
         return 0;
     }
     float a = g_open_t;
-    float pw = 1240, rowh = 84, ph = 150 + (N_ROWS + 3) * rowh + 60;
+    float pw = 1240, rowh = 72, ph = 140 + (N_ROWS + 3) * rowh + 40;
     if (pw > W - 80) pw = W - 80;
     if (ph > H - 40) ph = H - 40;
     float px = (W - pw) / 2, py = (H - ph) / 2 + (1 - a) * 30;
@@ -124,29 +127,29 @@ int vr_cinema_draw(float dt, int show_way_in)
     font_draw("Menu button closes this", px + 48, py + 84, FONT_XS, RGBA(0x8A, 0x94, 0xA6, 0xFF));
     chip(px + pw - 150, py + 30, 110, 56, "Done", 0, 6, 0, 0);
 
-    float y = py + 140;
+    float y = py + 128;
     float lx = px + 48, cx0 = px + 380;
     for (int i = 0; i < N_ROWS; i++) {
         const Row *r = &ROWS[i];
         if (r->pref == VR_PREF_PASS && !vr_passthrough_available()) continue;
-        font_draw(r->label, lx, y + (64 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
+        font_draw(r->label, lx, y + (58 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
         float cw = (pw - 380 - 48 - (r->n - 1) * 14) / r->n;
         if (cw > 230) cw = 230;
-        for (int k = 0; k < r->n; k++) chip(cx0 + k * (cw + 14), y, cw, 64, r->opts[k], vr_pref(r->pref) == k, 1, r->pref, k);
+        for (int k = 0; k < r->n; k++) chip(cx0 + k * (cw + 14), y, cw, 58, r->opts[k], vr_pref(r->pref) == k, 1, r->pref, k);
         y += rowh;
     }
     /* distance */
-    font_draw("Distance", lx, y + (64 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
-    chip(cx0, y, 80, 64, "-", 0, 2, 0, 0);
+    font_draw("Distance", lx, y + (58 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
+    chip(cx0, y, 80, 58, "-", 0, 2, 0, 0);
     char dbuf[24]; snprintf(dbuf, sizeof dbuf, "%.1f m", vr_pref(VR_PREF_DIST) / 10.0);
-    font_draw_center(dbuf, cx0 + 80 + 14 + 80, y + (64 - font_height(FONT_M)) / 2, FONT_M | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
-    chip(cx0 + 80 + 14 + 160 + 14, y, 80, 64, "+", 0, 3, 0, 0);
+    font_draw_center(dbuf, cx0 + 80 + 14 + 80, y + (58 - font_height(FONT_M)) / 2, FONT_M | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+    chip(cx0 + 80 + 14 + 160 + 14, y, 80, 58, "+", 0, 3, 0, 0);
     y += rowh;
     /* the view of the film */
-    font_draw("Film view", lx, y + (64 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
-    chip(cx0, y, 640, 64, vr_video_view_name(), 0, 4, 0, 0);
+    font_draw("Film view", lx, y + (58 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
+    chip(cx0, y, 640, 58, vr_video_view_name(), 0, 4, 0, 0);
     y += rowh;
-    chip(cx0, y, 300, 64, "Bring it in front of me", 0, 5, 0, 0);
+    chip(cx0, y, 340, 58, "Bring it in front of me", 0, 5, 0, 0);
     gfx_set_alpha(1);
     return fabsf(target - g_open_t) > 0.01f;
 }

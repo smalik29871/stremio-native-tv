@@ -16,7 +16,7 @@ typedef struct {
 } VrInput;
 
 /* What the Cinema sheet keeps (vr.cfg): */
-enum { VR_PREF_CURVED, VR_PREF_SIZE, VR_PREF_FOLLOW, VR_PREF_BED, VR_PREF_PASS, VR_PREF_DIST, VR_PREF_COUNT };
+enum { VR_PREF_CURVED, VR_PREF_SIZE, VR_PREF_FOLLOW, VR_PREF_BED, VR_PREF_PASS, VR_PREF_DIST, VR_PREF_LIGHT, VR_PREF_SUBS, VR_PREF_EYES, VR_PREF_COUNT };
 
 #ifdef SNTV_VR
 int  vr_init(void);                       /* 0 when a headset runtime answered, -1 otherwise (the app runs flat) */
@@ -34,6 +34,9 @@ void vr_recenter(void);                   /* the screen comes back in front of y
 int  vr_passthrough_available(void);
 int  vr_pref(int which);                  /* a Cinema choice (VR_PREF_*) */
 void vr_pref_set(int which, int value);
+void vr_subs_begin(void);                 /* the player screen is about to draw */
+void vr_subs_render(void);                /* after it has: the subtitle lines into their own layer */
+int  vr_subs_capture(const char *text, float bottom, int size, int style, float k, float width);   /* ui_subtitle_ex: 1 when taken */
 int  vr_cinema_is_open(void);
 void vr_cinema_toggle(void);
 void vr_cinema_close(void);
@@ -57,6 +60,9 @@ static inline void vr_cinema_close(void) {}
 static inline int  vr_cinema_draw(float dt, int s) { (void)dt; (void)s; return 0; }
 static inline int  vr_cinema_tap(float x, float y) { (void)x; (void)y; return 0; }
 static inline int  vr_pref(int which) { (void)which; return 0; }
+static inline void vr_subs_begin(void) {}
+static inline void vr_subs_render(void) {}
+static inline int  vr_subs_capture(const char *t, float b, int s, int st, float k, float w) { (void)t; (void)b; (void)s; (void)st; (void)k; (void)w; return 0; }
 static inline void vr_shutdown(void) {}
 #endif
 
