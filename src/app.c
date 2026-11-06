@@ -147,7 +147,7 @@ void app_draw_screen(Screen *top, float dt)
 {
     static int sideways = -1;   /* a phone: upright only where the screen on top has a layout for it */
     int want = gfx_handheld() && top && !top->phone;
-    if (want != sideways) { sideways = want; video_landscape_only(want); }
+    if (want != sideways) { sideways = want; video_landscape_only(want); LOGI("display: %s", want ? "sideways only (a full screen video, or a screen with no upright layout)" : "upright allowed"); }
     if (!g_trans.active) { if (top && top->draw) draw_one(top); return; }
     /* a slow frame (a page building, a picture going up) slows the move instead of jumping it */
     g_trans.t += (dt > 1 / 30.0f ? 1 / 30.0f : dt) / ((g_theme.id == THEME_APERTURE ? 0.22f : g_trans.zoom ? 0.36f : 0.26f) * (SNTV_PHONE ? 0.7f : 1.0f));   /* a phone: shorter, the thumb is waiting */

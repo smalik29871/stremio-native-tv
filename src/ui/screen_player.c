@@ -7588,7 +7588,7 @@ Screen *screen_player_create(const MetaPreview *meta, const char *video_id, cons
     if (!p->trailer) perf_playback_begin();
     g_live = p;
     s->name = "player"; s->st = p;
-    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 1;
+    s->update = update; s->draw = draw; s->key = key; s->tap = tap; s->drag = drag; s->destroy = destroy; s->phone = 0;   /* a phone turns sideways to play: always full screen to start (the button at the top left turns it upright, "Full screen" turns it back) */
     if (!p->trailer) { start_s = welcome_back(p, start_s); marks_load(p); }
     party_player_open(&p->party, video_id, p->trailer);
     if (!p->trailer && g_app.advisory) advisory_fetch(meta->id);

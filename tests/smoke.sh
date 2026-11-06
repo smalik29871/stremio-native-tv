@@ -1657,6 +1657,9 @@ run phone_home_library 300 "wait,wait,wait,wait,wait,wait,wait,wait" $PH SNTV_EX
 grep -q "home: the hero shows [1-9][0-9]* titles" "$OUT/phone_home_library.log" || { echo "with a library the phone's hero never came"; exit 1; }
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
+# a phone held upright: the player always starts full screen (sideways only), not in the small upright window
+run phone_player_sideways 420 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with phpl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+grep -q "display: sideways only" "$OUT/phone_player_sideways.log" || { echo "the player did not start full screen on a phone held upright"; grep -E "display:|screen:" "$OUT/phone_player_sideways.log"; exit 1; }
 LS="SNTV_WINDOW=1000x450 SNTV_HANDHELD=1"
 # a phone sideways while the source opens: the loading card, as on a TV (not a paused player at 0:00), and Back leaves
 run fs_loading 300 "right,right,ok,wait,ok,wait,wait,wait,ok,wait,wait,wait" $LS SNTV_FAKE_STUCK=1 SNTV_EXPECT_SCREEN=player HOME="$(home_with fsl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
