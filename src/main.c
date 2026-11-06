@@ -1619,6 +1619,9 @@ int main(int argc, char **argv)
 #ifdef SNTV_DESKTOP_KEYS
             if (g_shot_req) { g_shot_req = 0; take_screenshot(win); }
 #endif
+#ifdef SNTV_VR_PREVIEW
+            { extern void vr_preview_draw(void); vr_preview_draw(); }   /* a desktop look at the headset's own overlays */
+#endif
             dev_hooks(win, frame++);
             Uint32 swap_at = SDL_GetTicks();
             Uint64 pc_swap = SDL_GetPerformanceCounter();

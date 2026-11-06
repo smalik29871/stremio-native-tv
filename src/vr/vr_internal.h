@@ -39,5 +39,6 @@ enum { DOCK_MOVE, DOCK_SMALLER, DOCK_BIGGER, DOCK_NEARER, DOCK_FARTHER, DOCK_CUR
 #define DOCK_H 150
 int  vr_dock_at(float u, float v);                         /* the button at that place of the bar (0..1 across and down), or -1 */
 void vr_dock_render(VrChain *c, int hover, int pressed, float alpha);   /* the bar into the swapchain */
+void vr_dock_draw(int hover, int pressed, float alpha);                 /* the bar into whatever is being drawn (the desktop preview) */
 
 #endif

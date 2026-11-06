@@ -37,11 +37,8 @@ int vr_dock_at(float u, float v)
     return -1;
 }
 
-void vr_dock_render(VrChain *c, int hover, int pressed, float alpha)
+void vr_dock_draw(int hover, int pressed, float alpha)
 {
-    if (!vr_chain_acquire(c)) return;
-    gfx_begin_frame(RGBA(0, 0, 0, 0));
-    glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);   /* see-through around the bar */
     gfx_set_alpha(alpha);
     float W = (float)SNTV_UI_W, H = (float)SNTV_UI_H;
     float ox = (W - DOCK_W) / 2, oy = (H - DOCK_H) / 2;
@@ -61,6 +58,14 @@ void vr_dock_render(VrChain *c, int hover, int pressed, float alpha)
         }
     }
     gfx_set_alpha(1);
+}
+
+void vr_dock_render(VrChain *c, int hover, int pressed, float alpha)
+{
+    if (!vr_chain_acquire(c)) return;
+    gfx_begin_frame(RGBA(0, 0, 0, 0));
+    glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);   /* see-through around the bar */
+    vr_dock_draw(hover, pressed, alpha);
     gfx_end_frame();
     vr_chain_release(c);
 }
