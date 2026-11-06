@@ -1073,9 +1073,22 @@ static int eff_hz(void) { int live = perf_live_hz(); return live ? live : g_refr
  * meets it, the thumbstick the arrow keys, A the OK key, B Back. */
 static void vr_inject(const VrInput *in)
 {
-    static int was_down;
+    static int was_down, swallow;
     SDL_Event e; SDL_zero(e);
     e.tfinger.fingerId = 7; e.tfinger.timestamp = SDL_GetTicks();
+    /* the Cinema sheet is the headset's own: it takes the taps that land on it, and the menu button opens it */
+    if (in->menu) { vr_cinema_toggle(); g_app.need_redraw = 1; }
+    if (in->down && !was_down && in->have_pointer && vr_cinema_tap(in->x * (float)SNTV_UI_W, in->y * (float)SNTV_UI_H)) { swallow = 1; g_app.need_redraw = 1; }
+    if (swallow) {
+        if (!in->down) swallow = 0;
+        was_down = in->down;
+        return;
+    }
+    if (vr_cinema_is_open()) {   /* while it is open the keys are for it: Back closes it */
+        if (in->back) { vr_cinema_close(); g_app.need_redraw = 1; }
+        was_down = in->down;
+        return;
+    }
     if (in->have_pointer) { e.tfinger.x = in->x; e.tfinger.y = in->y; }
     if (in->down && !was_down && in->have_pointer) { e.type = SDL_FINGERDOWN; touch_event(&e); }
     else if (in->down && was_down && in->have_pointer) { e.type = SDL_FINGERMOTION; touch_event(&e); }
@@ -1571,7 +1584,7 @@ int main(int argc, char **argv)
         int must_draw = g_app.need_redraw || frame < 60 || getenv("SNTV_SCREENSHOT");
 #ifdef SNTV_VR
         int vr_rc = -1;   /* -1 not running, 0 running and nothing to draw, 1 draw the panel now */
-        static VrInput vr_last; static int vr_cw, vr_ch;   /* where the ray meets the panel, and the panel's size in pixels */
+        static VrInput vr_last; static int vr_cw, vr_ch; static Uint32 vr_move_ms;   /* where the ray meets the panel, and the panel's size in pixels */
         if (vr_session) {
             g_app.fx_setting = FX_LIGHT; g_app.fx_light = 1;   /* a headset's chip is a phone's: the light effects (their motion stays) */
             int vw = 0, vh = 0;
@@ -1579,7 +1592,7 @@ int main(int argc, char **argv)
             if (vr_rc >= 0) {
                 VrInput vin; vr_input(&vin); vr_inject(&vin);
                 float dx = vin.x - vr_last.x, dy = vin.y - vr_last.y;
-                if (vin.have_pointer != vr_last.have_pointer || (vin.have_pointer && dx * dx + dy * dy > 1e-6f)) g_app.need_redraw = 1;   /* the dot follows the ray */
+                if (vin.have_pointer != vr_last.have_pointer || (vin.have_pointer && dx * dx + dy * dy > 1e-6f)) { g_app.need_redraw = 1; vr_move_ms = SDL_GetTicks(); }   /* the dot follows the ray */
                 vr_last = vin;
             }
             if (vr_rc == 1) { gfx_set_external(vw, vh); vr_cw = vw; vr_ch = vh; }
@@ -1609,8 +1622,14 @@ int main(int argc, char **argv)
             Uint32 swap_at = SDL_GetTicks();
             Uint64 pc_swap = SDL_GetPerformanceCounter();
 #ifdef SNTV_VR
+            if (vr_session) {   /* the headset's own sheet, over the screens; its way in shows while the ray has moved lately */
+                static Uint32 prev_ms; Uint32 nowms = SDL_GetTicks();
+                float cdt = prev_ms ? (nowms - prev_ms) / 1000.0f : 0.016f; prev_ms = nowms;
+                int in_player = top && !strcmp(top->name, "player");
+                if (vr_cinema_draw(cdt > 0.1f ? 0.1f : cdt, !in_player || (nowms - vr_move_ms) < 3000)) g_app.need_redraw = 1;
+            }
             if (vr_session && vr_last.have_pointer && vr_cw > 0) {   /* the ray's end: a dot with a dark rim, readable on light and dark artwork */
-                float px = vr_last.x * (float)vr_cw, py = vr_last.y * (float)vr_ch, r = (float)vr_ch / 90.0f;
+                float px = vr_last.x * (float)SNTV_UI_W, py = vr_last.y * (float)SNTV_UI_H, r = (float)SNTV_UI_H / 90.0f;
                 gfx_circle(px, py, r + 3.0f, RGBA(0, 0, 0, 0xA0));
                 gfx_circle(px, py, r, vr_last.down ? RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RGBA(0xE0, 0xE8, 0xFF, 0xE0));
             }

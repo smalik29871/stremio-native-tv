@@ -17,4 +17,19 @@ int vr_ray_panel(const float origin[3], const float dir[3], const float pos[3], 
 void vr_panel_in_front(const float head_pos[3], const float head_rot[4], float distance, float lower,
                        float out_pos[3], float out_rot[4]);
 
+/* The way something is, as angles: yaw about the vertical (0 straight ahead, positive to the left,
+ * OpenXR's -Z being ahead) and pitch up (positive looking up), from a unit direction. */
+void vr_dir_angles(const float dir[3], float *yaw, float *pitch);
+
+/* A pose facing the viewer, `distance` away from `head_pos` toward (yaw, pitch), `lower` metres down:
+ * its normal is back toward the head, so it tilts with the pitch (a screen over a bed). */
+void vr_panel_from_angles(const float head_pos[3], float yaw, float pitch, float distance, float lower,
+                          float out_pos[3], float out_rot[4]);
+
+/* The same for a panel bent into a cylinder around a vertical axis through `axis` (the viewer's
+ * side of the panel's own pose, `radius` behind it), `angle` radians wide and `height` tall. 1 when the
+ * ray meets it from inside; u and v are across and down, 0 to 1. */
+int vr_ray_cylinder(const float origin[3], const float dir[3], const float pos[3], const float rot[4],
+                    float radius, float angle, float height, float *u, float *v, float *dist);
+
 #endif

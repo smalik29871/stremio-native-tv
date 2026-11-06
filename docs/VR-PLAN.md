@@ -139,3 +139,17 @@ pair of eyes means it is the other way), the runtime's treatment of the create-i
 swapchain (two forms are tried), HDR films (the Quest 2 shows SDR, so they will look flat until tone
 mapping is added), and everything about frame timing. Still to build: a curved screen, subtitles in 3D,
 a lit room, the player's own controls drawn for pointing at in space.
+
+### The Cinema sheet
+
+The left menu button (or the small "Cinema" chip at the bottom left, for hands) opens a sheet over the
+screens, kept in vr.cfg: Screen flat or curved; Size small, cinema, big, huge or fit the film (a wide film
+gets a wider screen); Follow my head (stay, lazy: it comes round once you have turned well away, always:
+it eases after you); Lying down (the screen tilts to wherever you look, up at a ceiling); Room (dark, or
+the headset's cameras behind the screen); Distance; Film view; Bring it in front of me. Hands work as a
+pointer where the runtime offers hand interaction (a pinch is the trigger).
+
+Geometry (the curved screen's ray, the angles the screen is placed by, the tilt) is unit-tested. Not
+checked on a headset: where the runtime puts a curved layer relative to its pose (the code takes the
+pose as the bend's axis and the screen a radius ahead of it; if the curved screen shows at the wrong
+distance, that is the place), the hand profile's path names, and passthrough (grey on the Quest 2).

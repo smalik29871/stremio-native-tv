@@ -60,5 +60,45 @@ int main(void)
 
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("vr math: ok\n");
+    /* angles: straight ahead is yaw 0, pitch 0; to the left is positive; up is positive */
+    float yw, pt;
+    const float FWD[3] = { 0, 0, -1 }, LF[3] = { -1, 0, 0 }, UP[3] = { 0, 1, 0 };
+    vr_dir_angles(FWD, &yw, &pt); CHECK(NEAR(yw, 0) && NEAR(pt, 0));
+    vr_dir_angles(LF, &yw, &pt); CHECK(NEAR(yw, 1.5707963f) && NEAR(pt, 0));
+    vr_dir_angles(UP, &yw, &pt); CHECK(NEAR(pt, 1.5707963f));
+
+    /* a panel from angles matches the yaw-only one, and a pitched one lies over the head */
+    float p2[3], q2[4];
+    vr_panel_from_angles(HEAD, 0, 0, 2, 0, p2, q2);
+    CHECK(NEAR(p2[0], 0) && NEAR(p2[1], 1.6f) && NEAR(p2[2], -2) && NEAR(fabsf(q2[3]), 1));
+    vr_panel_from_angles(HEAD, 1.5707963f, 0, 2, 0.1f, p2, q2);   /* to the left */
+    vr_panel_in_front(HEAD, Y90, 2, 0.1f, p, q);
+    CHECK(NEAR(p2[0], p[0]) && NEAR(p2[1], p[1]) && NEAR(p2[2], p[2]));
+    vr_panel_from_angles(HEAD, 0, 1.5707963f, 2, 0, p2, q2);   /* straight overhead, facing down */
+    CHECK(NEAR(p2[0], 0) && NEAR(p2[1], 3.6f) && NEAR(p2[2], 0));
+    float nrm[3]; vr_rotate(q2, z, nrm);
+    CHECK(NEAR(nrm[1], -1));
+    vr_panel_from_angles(HEAD, 0, 0.5f, 2, 0, p2, q2);   /* up a little: its normal comes back down toward the head */
+    vr_rotate(q2, z, nrm);
+    { float tx = HEAD[0] - p2[0], ty = HEAD[1] - p2[1], tz = HEAD[2] - p2[2], tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      CHECK(NEAR(nrm[0], tx / tl) && NEAR(nrm[1], ty / tl) && NEAR(nrm[2], tz / tl)); }
+
+    /* a curved screen 2.2 m away, 2.8 m wide: straight ahead is the middle; the edge ray hits its edge */
+    const float RAD = 2.2f, CPOS[3] = { 0, 0, -2.2f };
+    float ang = 2.8f / RAD, ht = 1.575f;
+    CHECK(vr_ray_cylinder(O, FWD, CPOS, ID, RAD, ang, ht, &u, &v, &d));
+    CHECK(NEAR(u, 0.5f) && NEAR(v, 0.5f) && NEAR(d, 2.2f));
+    float edge = ang / 2 - 0.01f, ed[3] = { sinf(edge), 0, -cosf(edge) };
+    CHECK(vr_ray_cylinder(O, ed, CPOS, ID, RAD, ang, ht, &u, &v, &d));
+    CHECK(u > 0.98f && u < 1.0f && NEAR(d, 2.2f));   /* the wall is the same distance everywhere from the middle */
+    float past[3] = { sinf(edge + 0.1f), 0, -cosf(edge + 0.1f) };
+    CHECK(!vr_ray_cylinder(O, past, CPOS, ID, RAD, ang, ht, &u, &v, &d));
+    CHECK(!vr_ray_cylinder(O, BACK, CPOS, ID, RAD, ang, ht, &u, &v, &d));
+    /* a hand off to the side reaches the same wall */
+    const float HD[3] = { 0.3f, -0.3f, -0.3f };
+    float tc[3] = { -0.3f, 0.3f, -1.9f }, tcl = sqrtf(0.09f + 0.09f + 3.61f), dc2[3] = { tc[0] / tcl, tc[1] / tcl, tc[2] / tcl };
+    CHECK(vr_ray_cylinder(HD, dc2, CPOS, ID, RAD, ang, ht, &u, &v, &d));
+    CHECK(u > 0.4f && u < 0.6f);
+
     return 0;
 }

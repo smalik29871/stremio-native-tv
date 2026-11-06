@@ -291,7 +291,7 @@ option(SNTV_VR "Quest build: an OpenXR panel (src/vr)" OFF)
 set(SNTV_VR_SRC "")
 if(SNTV_VR AND SNTV_PLATFORM STREQUAL "android")
   find_package(OpenXR REQUIRED CONFIG)
-  set(SNTV_VR_SRC src/vr/vr_math.c src/vr/vr_openxr.c)
+  set(SNTV_VR_SRC src/vr/vr_math.c src/vr/vr_openxr.c src/vr/vr_cinema.c)
   list(APPEND SNTV_LINK_LIBS OpenXR::openxr_loader GLESv3 EGL)
 endif()
 

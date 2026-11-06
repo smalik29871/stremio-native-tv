@@ -15,6 +15,9 @@ typedef struct {
     int up_k, down_k, left_k, right_k;   /* the thumbstick pushed a direction (repeating while held): 1 on those frames */
 } VrInput;
 
+/* What the Cinema sheet keeps (vr.cfg): */
+enum { VR_PREF_CURVED, VR_PREF_SIZE, VR_PREF_FOLLOW, VR_PREF_BED, VR_PREF_PASS, VR_PREF_DIST, VR_PREF_COUNT };
+
 #ifdef SNTV_VR
 int  vr_init(void);                       /* 0 when a headset runtime answered, -1 otherwise (the app runs flat) */
 int  vr_active(void);                     /* the session is running and the app is drawing for it */
@@ -26,6 +29,16 @@ void *vr_video_surface(void);             /* the android.view.Surface the film i
 void vr_video_box(int x, int y, int w, int h);   /* where the player screen wants the picture, in panel pixels */
 const char *vr_video_hint(const char *text);     /* what was loaded (its title or address): 3D, 180 and 360 tags in it choose the view; the view's name */
 const char *vr_video_cycle(void);         /* the next view; its name */
+const char *vr_video_view_name(void);     /* the view now */
+void vr_recenter(void);                   /* the screen comes back in front of you */
+int  vr_passthrough_available(void);
+int  vr_pref(int which);                  /* a Cinema choice (VR_PREF_*) */
+void vr_pref_set(int which, int value);
+int  vr_cinema_is_open(void);
+void vr_cinema_toggle(void);
+void vr_cinema_close(void);
+int  vr_cinema_draw(float dt, int show_way_in);   /* over the screens; 1 while it is still moving */
+int  vr_cinema_tap(float x, float y);     /* canvas units; 1 when the sheet took the tap */
 void vr_shutdown(void);
 #else
 static inline int  vr_init(void) { return -1; }
@@ -38,6 +51,12 @@ static inline void *vr_video_surface(void) { return 0; }
 static inline void vr_video_box(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
 static inline const char *vr_video_hint(const char *text) { (void)text; return ""; }
 static inline const char *vr_video_cycle(void) { return ""; }
+static inline int  vr_cinema_is_open(void) { return 0; }
+static inline void vr_cinema_toggle(void) {}
+static inline void vr_cinema_close(void) {}
+static inline int  vr_cinema_draw(float dt, int s) { (void)dt; (void)s; return 0; }
+static inline int  vr_cinema_tap(float x, float y) { (void)x; (void)y; return 0; }
+static inline int  vr_pref(int which) { (void)which; return 0; }
 static inline void vr_shutdown(void) {}
 #endif
 

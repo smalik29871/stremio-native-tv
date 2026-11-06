@@ -50,3 +50,52 @@ void vr_panel_in_front(const float head_pos[3], const float head_rot[4], float d
     float yaw = atan2f(-f[0], -f[2]);   /* the angle taking +Z to (-f) */
     out_rot[0] = 0; out_rot[1] = sinf(yaw / 2); out_rot[2] = 0; out_rot[3] = cosf(yaw / 2);
 }
+
+void vr_dir_angles(const float dir[3], float *yaw, float *pitch)
+{
+    float y = dir[1] > 1 ? 1 : dir[1] < -1 ? -1 : dir[1];
+    if (pitch) *pitch = asinf(y);
+    if (yaw) *yaw = (dir[0] * dir[0] + dir[2] * dir[2] < 1e-8f) ? 0 : atan2f(-dir[0], -dir[2]);
+}
+
+void vr_panel_from_angles(const float head_pos[3], float yaw, float pitch, float distance, float lower,
+                          float out_pos[3], float out_rot[4])
+{
+    float cp = cosf(pitch), sp = sinf(pitch), sy = sinf(yaw), cy = cosf(yaw);
+    out_pos[0] = head_pos[0] + (-sy * cp) * distance;
+    out_pos[1] = head_pos[1] + sp * distance - lower;
+    out_pos[2] = head_pos[2] + (-cy * cp) * distance;
+    float hy = sinf(yaw / 2), cyh = cosf(yaw / 2), hx = sinf(pitch / 2), cxh = cosf(pitch / 2);
+    /* turn about Y by the yaw, then about X by the pitch: q = qy * qx */
+    out_rot[0] = cyh * hx; out_rot[1] = cxh * hy; out_rot[2] = -hy * hx; out_rot[3] = cyh * cxh;
+}
+
+int vr_ray_cylinder(const float origin[3], const float dir[3], const float pos[3], const float rot[4],
+                    float radius, float angle, float height, float *u, float *v, float *dist)
+{
+    static const float X[3] = { 1, 0, 0 }, Y[3] = { 0, 1, 0 }, Z[3] = { 0, 0, 1 };
+    if (radius <= 0 || angle <= 0 || height <= 0) return 0;
+    float ax[3], ay[3], az[3];
+    vr_rotate(rot, X, ax); vr_rotate(rot, Y, ay); vr_rotate(rot, Z, az);
+    /* the axis: radius back from the panel's middle toward the viewer */
+    float c[3] = { pos[0] + az[0] * radius, pos[1] + az[1] * radius, pos[2] + az[2] * radius };
+    float o[3] = { origin[0] - c[0], origin[1] - c[1], origin[2] - c[2] };
+    float oa = dot3(o, ax), ob = dot3(o, ay), oc = dot3(o, az);
+    float da = dot3(dir, ax), db = dot3(dir, ay), dc = dot3(dir, az);
+    float A = da * da + dc * dc;
+    if (A < 1e-8f) return 0;   /* straight up or down: parallel to the axis */
+    float B = 2 * (oa * da + oc * dc), C = oa * oa + oc * oc - radius * radius;
+    float disc = B * B - 4 * A * C;
+    if (disc < 0) return 0;
+    float sq = sqrtf(disc);
+    float t = (-B + sq) / (2 * A);   /* from inside, the far root is the wall in front */
+    if (t <= 0) return 0;
+    float pa = oa + t * da, pb = ob + t * db, pc = oc + t * dc;
+    if (pc >= 0) return 0;   /* the wall behind the viewer */
+    float theta = atan2f(pa, -pc);   /* 0 straight ahead, positive to the right */
+    float fu = theta / angle + 0.5f, fv = 0.5f - pb / height;
+    if (dist) *dist = t;
+    if (u) *u = fu;
+    if (v) *v = fv;
+    return fu >= 0 && fu <= 1 && fv >= 0 && fv <= 1;
+}

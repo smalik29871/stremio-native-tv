@@ -66,7 +66,16 @@ static struct {
     int grab, grab_was;
     float grab_dist;
     XrAction x_click, y_click, squeeze;
-    int has_equirect;
+    int has_equirect, has_cylinder, has_pass, has_hands;
+    float yaw, pitch;                 /* where the panel is from the head, as angles */
+    int size_applied, dist_applied, bed_applied, follow_on, recenter, auto_key;
+    /* a room to see (the passthrough camera), made when asked for */
+    XrPassthroughFB pt;
+    XrPassthroughLayerFB ptl;
+    PFN_xrCreatePassthroughFB pt_create;
+    PFN_xrDestroyPassthroughFB pt_destroy;
+    PFN_xrCreatePassthroughLayerFB ptl_create;
+    PFN_xrDestroyPassthroughLayerFB ptl_destroy;
 } X;
 
 /* The film: ExoPlayer draws into an Android surface that the compositor shows (no copy through
@@ -147,6 +156,17 @@ static int setup_input(void)
     ib.interactionProfile = path_of("/interaction_profiles/oculus/touch_controller");
     ib.suggestedBindings = sb; ib.countSuggestedBindings = (uint32_t)(sizeof sb / sizeof sb[0]);
     if (!xr_ok(xrSuggestInteractionProfileBindings(X.inst, &ib), "xrSuggestInteractionProfileBindings")) return -1;
+    if (X.has_hands) {   /* hands without controllers: the pinch is the trigger, the hand's aim the ray */
+        struct { XrAction a; const char *path; } hb[] = {
+            { X.aim, "/user/hand/left/input/aim/pose" }, { X.aim, "/user/hand/right/input/aim/pose" },
+            { X.trigger, "/user/hand/left/input/pinch_ext/value" }, { X.trigger, "/user/hand/right/input/pinch_ext/value" } };
+        XrActionSuggestedBinding hs[4];
+        for (int i = 0; i < 4; i++) { hs[i].action = hb[i].a; hs[i].binding = path_of(hb[i].path); }
+        XrInteractionProfileSuggestedBinding hib = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+        hib.interactionProfile = path_of("/interaction_profiles/ext/hand_interaction_ext");
+        hib.suggestedBindings = hs; hib.countSuggestedBindings = 4;
+        if (!xr_ok(xrSuggestInteractionProfileBindings(X.inst, &hib), "hand bindings")) X.has_hands = 0;   /* controllers still work */
+    }
     return 0;
 }
 
@@ -299,21 +319,28 @@ static int vr_init_inner(void)
     if (!ep) return -1;
     for (uint32_t i = 0; i < ne; i++) { ep[i].type = XR_TYPE_EXTENSION_PROPERTIES; ep[i].next = NULL; }
     xrEnumerateInstanceExtensionProperties(NULL, ne, &ne, ep);
-    int has_gles = 0, has_android = 0, has_surface = 0;
+    int has_gles = 0, has_android = 0, has_surface = 0, has_ht = 0, has_hi = 0;
     for (uint32_t i = 0; i < ne; i++) {
         if (!strcmp(ep[i].extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME)) has_gles = 1;
         if (!strcmp(ep[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) has_android = 1;
         if (!strcmp(ep[i].extensionName, XR_KHR_ANDROID_SURFACE_SWAPCHAIN_EXTENSION_NAME)) has_surface = 1;
         if (!strcmp(ep[i].extensionName, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)) X.has_equirect = 1;
+        if (!strcmp(ep[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) X.has_cylinder = 1;
+        if (!strcmp(ep[i].extensionName, XR_FB_PASSTHROUGH_EXTENSION_NAME)) X.has_pass = 1;
+        if (!strcmp(ep[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) has_ht = 1;
+        if (!strcmp(ep[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) has_hi = 1;
     }
     free(ep);
-    LOGI("vr: the runtime offers %u extensions (OpenGL ES %s, Android instance %s, video surface %s, 180/360 %s)", ne, has_gles ? "yes" : "NO", has_android ? "yes" : "NO", has_surface ? "yes" : "NO", X.has_equirect ? "yes" : "no");
+    LOGI("vr: the runtime offers %u extensions (OpenGL ES %s, Android instance %s, video surface %s, 180/360 %s, curved %s, passthrough %s, hands %s)", ne, has_gles ? "yes" : "NO", has_android ? "yes" : "NO", has_surface ? "yes" : "NO", X.has_equirect ? "yes" : "no", X.has_cylinder ? "yes" : "no", X.has_pass ? "yes" : "no", has_ht && has_hi ? "yes" : "no");
     if (!has_gles || !has_android) return -1;
 
-    const char *want[4] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
+    const char *want[10] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
     uint32_t n_want = 2;
     if (has_surface) want[n_want++] = XR_KHR_ANDROID_SURFACE_SWAPCHAIN_EXTENSION_NAME;
     if (X.has_equirect) want[n_want++] = XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME;
+    if (X.has_cylinder) want[n_want++] = XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME;
+    if (X.has_pass) want[n_want++] = XR_FB_PASSTHROUGH_EXTENSION_NAME;
+    if (has_ht && has_hi) { want[n_want++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME; want[n_want++] = XR_EXT_HAND_INTERACTION_EXTENSION_NAME; X.has_hands = 1; }
     XrInstanceCreateInfoAndroidKHR ai = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
     ai.applicationVM = vm; ai.applicationActivity = activity;
     XrInstanceCreateInfo ci = { XR_TYPE_INSTANCE_CREATE_INFO };
@@ -375,17 +402,75 @@ static int vr_init_inner(void)
     return 0;
 }
 
-static void place_panel_in_front(XrTime t)
+static const float SIZES[4] = { 0.7f, 1.0f, 1.45f, 2.1f };   /* small, cinema, big, huge: a multiple of the first screen's width */
+
+static int locate_head(XrTime t, float pos[3], float dir[3])
 {
     XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
-    if (!XR_SUCCEEDED(xrLocateSpace(X.view, X.local, t, &loc))) return;
-    if (!(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) || !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) return;
-    float hp[3] = { loc.pose.position.x, loc.pose.position.y, loc.pose.position.z };
-    float hr[4] = { loc.pose.orientation.x, loc.pose.orientation.y, loc.pose.orientation.z, loc.pose.orientation.w };
-    vr_panel_in_front(hp, hr, X.dist, PANEL_LOWER, X.panel_pos, X.panel_rot);
+    if (!XR_SUCCEEDED(xrLocateSpace(X.view, X.local, t, &loc))) return 0;
+    if (!(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) || !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) return 0;
+    pos[0] = loc.pose.position.x; pos[1] = loc.pose.position.y; pos[2] = loc.pose.position.z;
+    float q[4] = { loc.pose.orientation.x, loc.pose.orientation.y, loc.pose.orientation.z, loc.pose.orientation.w };
+    const float fwd[3] = { 0, 0, -1 };
+    vr_rotate(q, fwd, dir);
+    return 1;
+}
+
+/* the panel from the head position, the angles and the distance; lying down it is not lowered */
+static void put_panel(void)
+{
+    vr_panel_from_angles(X.head_pos, X.yaw, X.pitch, X.dist, vr_pref(VR_PREF_BED) ? 0 : PANEL_LOWER, X.panel_pos, X.panel_rot);
+}
+
+/* in front of you, wherever you look now (up too, lying down) */
+static void place_panel_in_front(XrTime t)
+{
+    float hp[3], f[3], yaw, pitch;
+    if (!locate_head(t, hp, f)) return;
+    vr_dir_angles(f, &yaw, &pitch);
     memcpy(X.head_pos, hp, sizeof hp);
-    X.panel_placed = 1;
+    X.yaw = yaw; X.pitch = vr_pref(VR_PREF_BED) ? pitch : 0;
+    put_panel();
+    X.panel_placed = 1; X.recenter = 0;
     LOGI("vr: the panel is %.1f m ahead of you", X.dist);
+}
+
+void vr_recenter(void) { X.recenter = 1; }
+int vr_passthrough_available(void) { return X.has_pass; }
+const char *vr_video_view_name(void) { return MODES[V.mode].name; }
+
+static float wrap_pi(float a) { while (a > 3.14159265f) a -= 6.2831853f; while (a < -3.14159265f) a += 6.2831853f; return a; }
+
+/* what is chosen in the Cinema sheet, taken up as it changes; and the screen following the head */
+static void apply_prefs_and_follow(XrTime t, float dt)
+{
+    int sz = vr_pref(VR_PREF_SIZE);
+    if (sz != X.size_applied) { X.size_applied = sz; if (sz >= 0 && sz < 4) X.scale = SIZES[sz]; else X.auto_key = 0; }
+    int dd = vr_pref(VR_PREF_DIST);
+    if (dd != X.dist_applied) {
+        X.dist_applied = dd; X.dist = dd / 10.0f;
+        if (X.dist < 0.8f) X.dist = 0.8f;
+        if (X.panel_placed) put_panel();
+    }
+    int bed = vr_pref(VR_PREF_BED);
+    if (bed != X.bed_applied) { X.bed_applied = bed; X.recenter = 1; }
+    if (X.recenter) { place_panel_in_front(t); return; }
+    int follow = vr_pref(VR_PREF_FOLLOW);
+    if (!follow || X.grab || !X.panel_placed) { X.follow_on = 0; return; }
+    float hp[3], f[3], hyaw, hpitch;
+    if (!locate_head(t, hp, f)) return;
+    vr_dir_angles(f, &hyaw, &hpitch);
+    float tp = bed ? hpitch : 0;
+    float dy = wrap_pi(hyaw - X.yaw), dp = tp - X.pitch;
+    int far = fabsf(dy) > 0.6f || fabsf(dp) > 0.5f, near = fabsf(dy) < 0.05f && fabsf(dp) < 0.05f;
+    if (follow == 2) X.follow_on = !near;                         /* always: ease after the head */
+    else if (!X.follow_on && far) X.follow_on = 1;                /* lazy: only once you have turned well away */
+    else if (X.follow_on && near) X.follow_on = 0;
+    if (!X.follow_on) return;
+    float k = 1.0f - expf(-(follow == 2 ? 5.0f : 2.2f) * dt);
+    X.yaw = wrap_pi(X.yaw + dy * k); X.pitch += dp * k;
+    memcpy(X.head_pos, hp, sizeof hp);   /* it keeps its distance from you as you move */
+    put_panel();
 }
 
 static void poll_events(void)
@@ -449,7 +534,10 @@ static void sync_input(XrTime t)
         float d[3];
         vr_rotate(q, fwd, d);
         float u, v, dist;
-        if (vr_ray_panel(o, d, X.panel_pos, X.panel_rot, PANEL_M_W * X.scale, PANEL_M_H * X.scale, &u, &v, &dist)) { X.input.have_pointer = 1; X.input.x = u; X.input.y = v; }
+        int hit = (vr_pref(VR_PREF_CURVED) && X.has_cylinder)
+            ? vr_ray_cylinder(o, d, X.panel_pos, X.panel_rot, X.dist, PANEL_M_W * X.scale / X.dist, PANEL_M_H * X.scale, &u, &v, &dist)
+            : vr_ray_panel(o, d, X.panel_pos, X.panel_rot, PANEL_M_W * X.scale, PANEL_M_H * X.scale, &u, &v, &dist);
+        if (hit) { X.input.have_pointer = 1; X.input.x = u; X.input.y = v; }
     }
     /* the grip: take hold of the screen and carry it (the thumbstick then pushes and pulls it, and makes it bigger or smaller) */
     float grip[2] = { 0, 0 };
@@ -468,7 +556,6 @@ static void sync_input(XrTime t)
     last_ms = ms;
     if (want_grab) {
         XrSpaceLocation gl = { XR_TYPE_SPACE_LOCATION };
-        XrSpaceLocation hl = { XR_TYPE_SPACE_LOCATION };
         if (XR_SUCCEEDED(xrLocateSpace(X.aim_space[gh], X.local, t, &gl)) && (gl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) && (gl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
             float o[3] = { gl.pose.position.x, gl.pose.position.y, gl.pose.position.z };
             float q[4] = { gl.pose.orientation.x, gl.pose.orientation.y, gl.pose.orientation.z, gl.pose.orientation.w };
@@ -486,17 +573,28 @@ static void sync_input(XrTime t)
             X.scale *= 1.0f + sx * 0.9f * dt;   /* right bigger, left smaller */
             if (X.scale < 0.4f) X.scale = 0.4f;
             if (X.scale > 3.0f) X.scale = 3.0f;
-            for (int k = 0; k < 3; k++) X.panel_pos[k] = o[k] + d[k] * X.grab_dist;
-            if (XR_SUCCEEDED(xrLocateSpace(X.view, X.local, t, &hl)) && (hl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {   /* and it faces you, upright */
-                float fx = X.panel_pos[0] - hl.pose.position.x, fz = X.panel_pos[2] - hl.pose.position.z;
-                float yaw = atan2f(-fx, -fz);
-                X.panel_rot[0] = 0; X.panel_rot[1] = sinf(yaw / 2); X.panel_rot[2] = 0; X.panel_rot[3] = cosf(yaw / 2);
-                X.head_pos[0] = hl.pose.position.x; X.head_pos[1] = hl.pose.position.y; X.head_pos[2] = hl.pose.position.z;
-                X.dist = sqrtf(fx * fx + fz * fz);   /* where the menu button brings it back to */
-                if (X.dist < 0.8f) X.dist = 0.8f;
+            float hp[3], hf[3];
+            if (locate_head(t, hp, hf)) {   /* the angles and distance from your head, so the screen can keep them when it follows */
+                float lower = vr_pref(VR_PREF_BED) ? 0 : PANEL_LOWER;
+                float v3[3] = { o[0] + d[0] * X.grab_dist - hp[0], o[1] + d[1] * X.grab_dist - hp[1] + lower, o[2] + d[2] * X.grab_dist - hp[2] };
+                float vl = sqrtf(v3[0] * v3[0] + v3[1] * v3[1] + v3[2] * v3[2]);
+                if (vl > 0.3f) {
+                    for (int k = 0; k < 3; k++) v3[k] /= vl;
+                    vr_dir_angles(v3, &X.yaw, &X.pitch);
+                    X.dist = vl;
+                    memcpy(X.head_pos, hp, sizeof hp);
+                    put_panel();
+                }
             }
         }
-    } else X.grab = 0;
+    } else {
+        if (X.grab) {   /* let go: the distance it was left at is the one the Cinema sheet shows and the menu button returns to */
+            int dd = (int)(X.dist * 10 + 0.5f);
+            vr_pref_set(VR_PREF_DIST, dd);
+            X.dist_applied = vr_pref(VR_PREF_DIST);
+        }
+        X.grab = 0;
+    }
     X.input.grabbing = X.grab;
     if (X.grab) { sx = sy2 = 0; }   /* the stick was moving the screen, not the menus */
 
@@ -544,6 +642,33 @@ int vr_active(void) { return X.session != XR_NULL_HANDLE; }
 int vr_quit_requested(void) { return X.quit; }
 void vr_input(VrInput *in) { *in = X.input; }
 
+/* the room: the headset's cameras behind everything, switched on and off from the Cinema sheet */
+static void pass_sync(void)
+{
+    int want = X.has_pass && vr_pref(VR_PREF_PASS);
+    if (want && !X.pt) {
+        if (!X.pt_create) {
+            xrGetInstanceProcAddr(X.inst, "xrCreatePassthroughFB", (PFN_xrVoidFunction *)&X.pt_create);
+            xrGetInstanceProcAddr(X.inst, "xrDestroyPassthroughFB", (PFN_xrVoidFunction *)&X.pt_destroy);
+            xrGetInstanceProcAddr(X.inst, "xrCreatePassthroughLayerFB", (PFN_xrVoidFunction *)&X.ptl_create);
+            xrGetInstanceProcAddr(X.inst, "xrDestroyPassthroughLayerFB", (PFN_xrVoidFunction *)&X.ptl_destroy);
+        }
+        if (!X.pt_create || !X.pt_destroy || !X.ptl_create || !X.ptl_destroy) { LOGW("vr: passthrough functions are missing"); vr_pref_set(VR_PREF_PASS, 0); return; }
+        XrPassthroughCreateInfoFB pi = { XR_TYPE_PASSTHROUGH_CREATE_INFO_FB };
+        pi.flags = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB;
+        if (!xr_ok(X.pt_create(X.session, &pi, &X.pt), "xrCreatePassthroughFB")) { X.pt = XR_NULL_HANDLE; vr_pref_set(VR_PREF_PASS, 0); return; }
+        XrPassthroughLayerCreateInfoFB li = { XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB };
+        li.passthrough = X.pt; li.flags = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB; li.purpose = XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB;
+        if (!xr_ok(X.ptl_create(X.session, &li, &X.ptl), "xrCreatePassthroughLayerFB")) { X.pt_destroy(X.pt); X.pt = XR_NULL_HANDLE; X.ptl = XR_NULL_HANDLE; vr_pref_set(VR_PREF_PASS, 0); return; }
+        LOGI("vr: passthrough is on: the room is behind the screen");
+    } else if (!want && X.pt) {
+        if (X.ptl) X.ptl_destroy(X.ptl);
+        X.pt_destroy(X.pt);
+        X.pt = XR_NULL_HANDLE; X.ptl = XR_NULL_HANDLE;
+        LOGI("vr: passthrough is off");
+    }
+}
+
 int vr_frame_begin(int dirty, int *w, int *h)
 {
     X.in_frame = 0; X.acquired = 0;
@@ -553,9 +678,11 @@ int vr_frame_begin(int dirty, int *w, int *h)
     if (!xr_ok(xrWaitFrame(X.session, NULL, &X.frame), "xrWaitFrame")) return -1;
     if (!xr_ok(xrBeginFrame(X.session, NULL), "xrBeginFrame")) return -1;
     X.in_frame = 1;
-    if (!X.panel_placed) place_panel_in_front(X.frame.predictedDisplayTime);
+    {   static Uint32 prev_ms; Uint32 ms = SDL_GetTicks(); float fdt = prev_ms ? (ms - prev_ms) / 1000.0f : 0.014f; prev_ms = ms; if (fdt > 0.1f) fdt = 0.1f;
+        if (!X.panel_placed) place_panel_in_front(X.frame.predictedDisplayTime);
+        apply_prefs_and_follow(X.frame.predictedDisplayTime, fdt);
+        pass_sync(); }
     sync_input(X.frame.predictedDisplayTime);
-    if (X.input.menu) place_panel_in_front(X.frame.predictedDisplayTime);   /* the left menu button: the panel comes back in front of you */
     if (!X.frame.shouldRender || (!dirty && X.ever_released)) return 0;
 
     uint32_t idx = 0;
@@ -581,14 +708,33 @@ void vr_frame_end(void)
         if (xr_ok(xrReleaseSwapchainImage(X.chain, &ri), "xrReleaseSwapchainImage")) X.ever_released = 1;
         X.acquired = 0;
     }
-    const XrCompositionLayerBaseHeader *layers[4];
+    const XrCompositionLayerBaseHeader *layers[6];
     uint32_t n = 0;
     XrCompositionLayerQuad vq[2], q = { XR_TYPE_COMPOSITION_LAYER_QUAD };
     XrCompositionLayerEquirect2KHR eq[2];
+    XrCompositionLayerCylinderKHR vc[2], pc;
+    XrCompositionLayerPassthroughFB pl;
+    int curved = vr_pref(VR_PREF_CURVED) && X.has_cylinder;
+    if (X.frame.shouldRender && X.pt && X.ptl) {   /* the room, behind everything */
+        memset(&pl, 0, sizeof pl);
+        pl.type = XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB;
+        pl.flags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        pl.layerHandle = X.ptl;
+        layers[n++] = (const XrCompositionLayerBaseHeader *)&pl;
+    }
     if (X.frame.shouldRender && X.ever_released) {
         /* behind the panel: the film, where there is one on show */
         VideoInfo vi; video_info(&vi);
         const ViewMode *vm = &MODES[V.mode];
+        if (vr_pref(VR_PREF_SIZE) == 4 && vi.width > 0 && vi.height > 0) {   /* fit the film: a wide film gets a wider screen, the height stays comfortable */
+            int key = vi.width * 7919 + vi.height;
+            if (key != X.auto_key) {
+                X.auto_key = key;
+                float a = (float)vi.width / (float)vi.height;
+                float sc = sqrtf(a / 1.7778f) * 1.1f;
+                X.scale = sc < 0.9f ? 0.9f : sc > 1.6f ? 1.6f : sc;
+            }
+        }
         if (V.ok && V.chain && (vi.state == VIDEO_PLAYING || vi.state == VIDEO_PAUSED) && vi.width > 0 && vi.height > 0) {
             int eyes = vm->stereo ? 2 : 1;
             for (int e = 0; e < eyes; e++) {
@@ -627,6 +773,31 @@ void vr_frame_end(void)
                     static const float AX[3] = { 1, 0, 0 }, AY[3] = { 0, 1, 0 };
                     float ax[3], ay[3];
                     vr_rotate(X.panel_rot, AX, ax); vr_rotate(X.panel_rot, AY, ay);
+                    if (curved) {   /* the same rectangle on the bend */
+                        float R = X.dist, angFull = mw / R;
+                        float theta = ((bx + bw * 0.5f) / PANEL_PX_W - 0.5f) * angFull;
+                        float qy[4] = { 0, sinf(-theta / 2), 0, cosf(-theta / 2) }, qo[4];
+                        const float *a = X.panel_rot;   /* the panel's turn, then the turn about the bend's own vertical */
+                        qo[0] = a[3] * qy[0] + a[0] * qy[3] + a[1] * qy[2] - a[2] * qy[1];
+                        qo[1] = a[3] * qy[1] - a[0] * qy[2] + a[1] * qy[3] + a[2] * qy[0];
+                        qo[2] = a[3] * qy[2] + a[0] * qy[1] - a[1] * qy[0] + a[2] * qy[3];
+                        qo[3] = a[3] * qy[3] - a[0] * qy[0] - a[1] * qy[1] - a[2] * qy[2];
+                        static const float AZ[3] = { 0, 0, 1 };
+                        float az[3]; vr_rotate(X.panel_rot, AZ, az);
+                        XrCompositionLayerCylinderKHR *c = &vc[e];
+                        memset(c, 0, sizeof *c);
+                        c->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
+                        c->space = X.local; c->eyeVisibility = vis; c->subImage = si;
+                        c->pose.orientation.x = qo[0]; c->pose.orientation.y = qo[1]; c->pose.orientation.z = qo[2]; c->pose.orientation.w = qo[3];
+                        c->pose.position.x = X.panel_pos[0] + az[0] * R + ay[0] * oy;   /* the bend's axis: its radius behind the screen, level with the picture */
+                        c->pose.position.y = X.panel_pos[1] + az[1] * R + ay[1] * oy;
+                        c->pose.position.z = X.panel_pos[2] + az[2] * R + ay[2] * oy;
+                        c->radius = R;
+                        c->centralAngle = angFull * fw / PANEL_PX_W;
+                        c->aspectRatio = (R * c->centralAngle) / (mh * fh / PANEL_PX_H);
+                        layers[n++] = (const XrCompositionLayerBaseHeader *)c;
+                        continue;
+                    }
                     XrCompositionLayerQuad *l = &vq[e];
                     memset(l, 0, sizeof *l);
                     l->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
@@ -641,17 +812,35 @@ void vr_frame_end(void)
             }
         }
         /* the panel: the app's own screens, see-through where the player left a hole for the picture */
-        q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-        q.space = X.local;
-        q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-        q.subImage.swapchain = X.chain;
-        q.subImage.imageRect.offset.x = 0; q.subImage.imageRect.offset.y = 0;
-        q.subImage.imageRect.extent.width = PANEL_PX_W; q.subImage.imageRect.extent.height = PANEL_PX_H;
-        q.subImage.imageArrayIndex = 0;
-        q.pose.orientation.x = X.panel_rot[0]; q.pose.orientation.y = X.panel_rot[1]; q.pose.orientation.z = X.panel_rot[2]; q.pose.orientation.w = X.panel_rot[3];
-        q.pose.position.x = X.panel_pos[0]; q.pose.position.y = X.panel_pos[1]; q.pose.position.z = X.panel_pos[2];
-        q.size.width = PANEL_M_W * X.scale; q.size.height = PANEL_M_H * X.scale;
-        layers[n++] = (const XrCompositionLayerBaseHeader *)&q;
+        if (curved) {
+            static const float AZ[3] = { 0, 0, 1 };
+            float az[3]; vr_rotate(X.panel_rot, AZ, az);
+            float R = X.dist;
+            memset(&pc, 0, sizeof pc);
+            pc.type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
+            pc.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            pc.space = X.local; pc.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            pc.subImage.swapchain = X.chain;
+            pc.subImage.imageRect.extent.width = PANEL_PX_W; pc.subImage.imageRect.extent.height = PANEL_PX_H;
+            pc.pose.orientation.x = X.panel_rot[0]; pc.pose.orientation.y = X.panel_rot[1]; pc.pose.orientation.z = X.panel_rot[2]; pc.pose.orientation.w = X.panel_rot[3];
+            pc.pose.position.x = X.panel_pos[0] + az[0] * R; pc.pose.position.y = X.panel_pos[1] + az[1] * R; pc.pose.position.z = X.panel_pos[2] + az[2] * R;
+            pc.radius = R;
+            pc.centralAngle = PANEL_M_W * X.scale / R;
+            pc.aspectRatio = (float)PANEL_PX_W / (float)PANEL_PX_H;
+            layers[n++] = (const XrCompositionLayerBaseHeader *)&pc;
+        } else {
+            q.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            q.space = X.local;
+            q.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            q.subImage.swapchain = X.chain;
+            q.subImage.imageRect.offset.x = 0; q.subImage.imageRect.offset.y = 0;
+            q.subImage.imageRect.extent.width = PANEL_PX_W; q.subImage.imageRect.extent.height = PANEL_PX_H;
+            q.subImage.imageArrayIndex = 0;
+            q.pose.orientation.x = X.panel_rot[0]; q.pose.orientation.y = X.panel_rot[1]; q.pose.orientation.z = X.panel_rot[2]; q.pose.orientation.w = X.panel_rot[3];
+            q.pose.position.x = X.panel_pos[0]; q.pose.position.y = X.panel_pos[1]; q.pose.position.z = X.panel_pos[2];
+            q.size.width = PANEL_M_W * X.scale; q.size.height = PANEL_M_H * X.scale;
+            layers[n++] = (const XrCompositionLayerBaseHeader *)&q;
+        }
     }
     XrFrameEndInfo fe = { XR_TYPE_FRAME_END_INFO };
     fe.displayTime = X.frame.predictedDisplayTime;
@@ -665,6 +854,7 @@ void vr_shutdown(void)
 {
     if (V.surface) { JNIEnv *je = (JNIEnv *)SDL_AndroidGetJNIEnv(); if (je) (*je)->DeleteGlobalRef(je, V.surface); }
     memset(&V, 0, sizeof V);
+    X.pt = XR_NULL_HANDLE; X.ptl = XR_NULL_HANDLE;   /* they go with the session */
     if (X.session) { if (X.running) xrEndSession(X.session); xrDestroySession(X.session); }
     if (X.inst) xrDestroyInstance(X.inst);
     memset(&X, 0, sizeof X);

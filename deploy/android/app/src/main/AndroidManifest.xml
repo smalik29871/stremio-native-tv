@@ -8,6 +8,10 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <!-- a headset: 6DoF tracking (Quest); other devices ignore it -->
     <uses-feature android:name="android.hardware.vr.headtracking" android:required="${headtrackingRequired}" android:version="1" />
+    <!-- a Quest: the room through its cameras behind the screen, and hands as a pointer (other devices ignore these) -->
+    <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="false" />
+    <uses-feature android:name="oculus.software.handtracking" android:required="false" />
+    <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
