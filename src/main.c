@@ -1596,6 +1596,7 @@ int main(int argc, char **argv)
             }
             if (vr_rc == 1) { gfx_set_external(vw, vh); vr_cw = vw; vr_ch = vh; }
             if (vr_quit_requested()) g_app.quit = 1;
+            { static int hinted; if (!hinted && vr_rc >= 0 && frame > 150) { hinted = 1; app_toast("Left menu button: controls (Back, Home, play, screen). B: back. Right stick: screen near and far, big and small."); } }
             must_draw = vr_rc == 1;
         }
 #endif

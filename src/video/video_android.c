@@ -17,7 +17,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_VR_SURFACE, M_VR_TEX_INIT, M_VR_TEX_UPDATE, M_VR_TEX_DROP, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_VR_SURFACE, M_VR_TEX_INIT, M_VR_TEX_UPDATE, M_VR_TEX_DROP, M_SUB_TEXT, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;DJ)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -28,7 +28,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
     { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" }, { "subtitleLift", "(F)V" },
-    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" }, { "vrSurface", "(Landroid/view/Surface;)V" }, { "vrTexInit", "(III)V" }, { "vrTexUpdate", "([F)Z" }, { "vrTexDrop", "()V" },
+    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" }, { "vrSurface", "(Landroid/view/Surface;)V" }, { "vrTexInit", "(III)V" }, { "vrTexUpdate", "([F)Z" }, { "vrTexDrop", "()V" }, { "subtitleText", "()Ljava/lang/String;" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -188,7 +188,7 @@ void video_hold_screensaver(int on) { g_saver_held = on; CALL(M_AWAKE, (jboolean
 void video_keep_awake_charging(int on) { g_charging = on; CALL(M_AWAKE, (jboolean)(g_awake || g_saver_held || g_charging)); }
 void video_memory_stage(int stage) { CALL(M_MEM_STAGE, (jint)stage); }
 unsigned video_frame_texture(int *w, int *h, float *aspect) { (void)w; (void)h; (void)aspect; return 0; }   /* the video is a plane of its own */
-int video_subtitle_text(char *out, size_t n) { if (n) *out = 0; return 0; }
+int video_subtitle_text(char *out, size_t n);   /* below, after copy_string */
 
 /* CuelightActivity.onTrimMemory, on Android's thread: the watch acts on the next frame. */
 JNIEXPORT void JNICALL Java_app_cuelight_tv_CuelightActivity_nativeTrimMemory(JNIEnv *e, jclass c, jint level) { (void)e; (void)c; mem_system_trim((int)level); }
@@ -231,6 +231,18 @@ static void copy_string(JNIEnv *e, int m, char *out, size_t n)
     const char *c = (*e)->GetStringUTFChars(e, s, NULL);
     if (c) { snprintf(out, n, "%s", c); (*e)->ReleaseStringUTFChars(e, s, c); }
     (*e)->DeleteLocalRef(e, s);
+}
+
+/* The film's own subtitle line, for the app to draw. Only in a headset: there the window's own subtitle view is not
+ * what is looked at, so the lines come here as text (everywhere else that view draws them). */
+int video_subtitle_text(char *out, size_t n)
+{
+    if (n) *out = 0;
+#ifdef SNTV_VR
+    JNIEnv *e = env();
+    if (e && n && vr_active()) { copy_string(e, M_SUB_TEXT, out, n); return *out != 0; }
+#endif
+    return 0;
 }
 
 void video_glow_idle(void);

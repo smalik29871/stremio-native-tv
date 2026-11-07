@@ -379,6 +379,8 @@ void vr_subs_render(void)
         S_rect[0] = ((int)W - bw) / 2; S_rect[1] = ((int)H - bh) / 2; S_rect[2] = bw; S_rect[3] = bh;
         S_cy = center / H; S_wf = (float)bw / W;
         S_visible = 1;
+        static int said;
+        if (said < 12) { said++; LOGI("vr: %d subtitle line(s) go to their own layer (band %dx%d, %.0f%% of the way to you)", S_n, bw, bh, (1 - vr_subs_ratio()) * 100); }
     }
     restore(&sv);
 }

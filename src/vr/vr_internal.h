@@ -15,11 +15,9 @@ int  vr_chain_make(VrChain *c, int w, int h);   /* a colour swapchain like the p
 int  vr_chain_acquire(VrChain *c);              /* waits for an image and binds it as the draw target: 1 when it is */
 void vr_chain_release(VrChain *c);
 
-/* The control box: its size in canvas pixels (the layer shows this middle band of its swapchain), and the key code
- * that means "Home" (not a KeyAction: main pops every screen). */
+/* The control box: its size in canvas pixels (the layer shows this middle band of its swapchain). */
 #define VR_BOX_W 1600
 #define VR_BOX_H 940
-#define VR_KEY_HOME 1000
 
 void vr_box_render(VrChain *c, float px, float py);   /* the control box into the swapchain (vr_cinema.c) */
 

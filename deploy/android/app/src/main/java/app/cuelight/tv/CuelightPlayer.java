@@ -187,6 +187,10 @@ public final class CuelightPlayer {
         run(() -> { if (sPlayer != null) applyOutput(); if (sf != null) sf.release(); if (st != null) st.release(); });
     }
 
+    private static volatile String sCueText = "";
+    /* the film's own subtitle line now showing (its own tracks), as text */
+    public static String subtitleText() { return sCueText; }
+
     private static ExoPlayer player() {
         if (sPlayer != null) return sPlayer;
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
@@ -230,7 +234,13 @@ public final class CuelightPlayer {
             @Override public void onTracksChanged(Tracks t) { tracks(t); }
             @Override public void onVideoSizeChanged(VideoSize v) { layout(); snapshot(); }
             @Override public void onRenderedFirstFrame() { sFirstFrame = true; snapshot(); }
-            @Override public void onCues(CueGroup cues) { sSubs.setCues(cleanCues(cues.cues)); }
+            @Override public void onCues(CueGroup cues) {
+                List<Cue> clean = cleanCues(cues.cues);
+                sSubs.setCues(clean);
+                StringBuilder sb = new StringBuilder();   // the same lines as text, for the app to draw where this window is not what is looked at (a headset)
+                for (Cue c : clean) { if (c.text == null) continue; String t = c.text.toString().trim(); if (t.isEmpty()) continue; if (sb.length() > 0) sb.append('\n'); sb.append(t); }
+                sCueText = sb.toString();
+            }
         });
         sPlayer.addAnalyticsListener(new AnalyticsListener() {
             @Override public void onDroppedVideoFrames(EventTime time, int count, long elapsedMs) {
@@ -251,7 +261,7 @@ public final class CuelightPlayer {
             sReady = false; sStart = start; sError = ""; sCodec = ""; sState = LOADING;
             sFirstFrame = false; sFailure = 0; sDroppedFrames = 0;
             sAudio = new String[0]; sText = new String[0]; sTracksVersion++;
-            sSubs.setCues(new ArrayList<>());
+            sSubs.setCues(new ArrayList<>()); sCueText = "";
             MediaItem.Builder b = new MediaItem.Builder().setUri(Uri.parse(url));
             String path = Uri.parse(url).getPath();
             String low = path != null ? path.toLowerCase(Locale.ROOT) : "";

@@ -16,7 +16,9 @@ typedef struct {
     int up_k, down_k, left_k, right_k;   /* the thumbstick pushed a direction (repeating while held): 1 on those frames */
 } VrInput;
 
-/* What the Cinema sheet keeps (vr.cfg): */
+#define VR_KEY_HOME 1000   /* in VrInput.key: not a KeyAction, it means "pop every screen back to the first" */
+
+/* What the control box keeps (vr.cfg): */
 enum { VR_PREF_CURVED, VR_PREF_SIZE, VR_PREF_FOLLOW, VR_PREF_BED, VR_PREF_PASS, VR_PREF_DIST, VR_PREF_LIGHT, VR_PREF_SUBS, VR_PREF_EYES, VR_PREF_COUNT };
 
 #ifdef SNTV_VR
