@@ -87,8 +87,6 @@ run() { # name frames keys [extra env assignments...]
 run home 150 "right,right"
 run detail_movie 170 "right,right,ok"
 run detail_series 170 "right,ok"
-run detail_shuffle 260 "right,ok,right,right,ok" SNTV_SHUFFLE_SEED=7   # the Shuffle button (third, for a series not begun: Play, Trailer, Shuffle) plays a random aired episode, never a special
-grep -qE "detail: shuffle picked S[1-9][0-9]* E[0-9]+" "$OUT/detail_shuffle.log" && grep -q "UI check: screen=player" "$OUT/detail_shuffle.log" || { echo "Shuffle did not pick an episode and play it"; grep -E "shuffle|UI check" "$OUT/detail_shuffle.log"; exit 1; }
 # About, below the fold, on a profile with no Continue Watching: the first card is a Drama film
 ABOUT_HOME='{"prefSubs":"eng","subsAlways":1,"setupDone":1}'
 run detail_about 260 "wait,ok,down" HOME="$(home_with about "$ABOUT_HOME")"

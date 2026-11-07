@@ -4,7 +4,6 @@
  * badges, resume progress and spoiler blur for what you haven't seen yet.
  * Below the fold (Down) the page scrolls to About: the facts, a ratings card, the
  * cast with their photos and more titles of the same genre. */
-#include <time.h>
 #include "../perfstat.h"
 #include "../app.h"
 #include "../ratings.h"
@@ -34,7 +33,7 @@
 #include <string.h>
 
 enum { AREA_ACTIONS, AREA_SEASONS, AREA_EPISODES, AREA_ABOUT, AREA_CAST, AREA_FRANCHISE, AREA_MUSIC, AREA_SIMILAR };
-enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_SHUFFLE, BTN_LIBRARY, BTN_RATE, BTN_COUNT };
+enum { BTN_PLAY, BTN_RESTART, BTN_SOURCES, BTN_TRAILER, BTN_LIBRARY, BTN_RATE, BTN_COUNT };
 #define HIT(area, i) ((area) << 12 | (i))   /* touch: what is where, by area and place in it */
 #define HIT_BACK 0x7FFFFF0
 #define EP_W (g_theme.id == THEME_APERTURE ? 456.0f : 384.0f)
@@ -94,25 +93,16 @@ static int has_trailer(const Detail *d) { return d->meta.trailer_yt || !strncmp(
 /* Resume plays the saved link: "Other sources" picks another, from the same place */
 static int other_sources(const Detail *d) { return d->resume_label[0] && d->resume_url[0]; }
 
-/* A series with enough episodes to be worth a throw of the dice (Shuffle plays a random one that has aired) */
-static int has_shuffle(const Detail *d)
-{
-    int n = 0;
-    for (int i = 0; i < d->meta.n_videos; i++) if (d->meta.videos[i].season > 0 && d->meta.videos[i].episode >= 0) n++;
-    return n >= 3;
-}
-
-/* the visible buttons in order: Play/Resume, [From the start], [Other sources], [Trailer], [Shuffle], Library, Rate */
+/* the visible buttons in order: Play/Resume, [From the start], [Other sources], [Trailer], Library, Rate */
 static int btn_at(const Detail *d, int pos)
 {
     if (pos == 0) return BTN_PLAY;
     if (d->resume_label[0]) { if (pos == 1) return BTN_RESTART; pos--; }
     if (other_sources(d)) { if (pos == 1) return BTN_SOURCES; pos--; }
     if (has_trailer(d)) { if (pos == 1) return BTN_TRAILER; pos--; }
-    if (has_shuffle(d)) { if (pos == 1) return BTN_SHUFFLE; pos--; }
     return pos == 1 ? BTN_LIBRARY : BTN_RATE;
 }
-static int n_buttons_d(const Detail *d) { return 3 + (d->resume_label[0] ? 1 : 0) + other_sources(d) + (has_trailer(d) ? 1 : 0) + (has_shuffle(d) ? 1 : 0); }
+static int n_buttons_d(const Detail *d) { return 3 + (d->resume_label[0] ? 1 : 0) + other_sources(d) + (has_trailer(d) ? 1 : 0); }
 
 /* "Rate", or "Rated 4.5" once you have */
 static const char *rate_label(const Detail *d, char *out, size_t n, int brief)
@@ -1316,8 +1306,8 @@ static void phone_draw(Detail *d)
             int b = btn_at(d, pos), foc = d->area == AREA_ACTIONS && d->btn == pos;
             int getting = b == BTN_TRAILER && g_trailer.busy && strcmp(g_trailer.id, d->preview.id) == 0;
             char rl[24];
-            const char *lab = b == BTN_RESTART ? "From start" : b == BTN_SOURCES ? "Sources" : b == BTN_SHUFFLE ? "Shuffle" : b == BTN_TRAILER ? (getting ? "Getting\xE2\x80\xA6" : "Trailer") : b == BTN_RATE ? rate_label(d, rl, sizeof rl, 0) : in_lib ? "In Library" : "Library";
-            Icon ic = b == BTN_RESTART ? ICON_PREV : b == BTN_SOURCES ? ICON_SWAP : b == BTN_SHUFFLE ? ICON_RELOAD : b == BTN_TRAILER ? ICON_TV : b == BTN_RATE ? ICON_STAR : in_lib ? ICON_CHECK : ICON_PLUS;
+            const char *lab = b == BTN_RESTART ? "From start" : b == BTN_SOURCES ? "Sources" : b == BTN_TRAILER ? (getting ? "Getting\xE2\x80\xA6" : "Trailer") : b == BTN_RATE ? rate_label(d, rl, sizeof rl, 0) : in_lib ? "In Library" : "Library";
+            Icon ic = b == BTN_RESTART ? ICON_PREV : b == BTN_SOURCES ? ICON_SWAP : b == BTN_TRAILER ? ICON_TV : b == BTN_RATE ? ICON_STAR : in_lib ? ICON_CHECK : ICON_PLUS;
             float tx = x + (pos - 1) * (tw + gap);
             ph_tile(lab, ic, tx, y, tw, th, foc);
             ui_hit(tx, y, tw, th, HIT(AREA_ACTIONS, pos));
@@ -1630,7 +1620,6 @@ static void draw(Screen *s)
             bw = ui_aperture_button(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", ICON_TV, bx, by, 0, cur == BTN_TRAILER);
             ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44;
         }
-        if (has_shuffle(d)) { bw = ui_aperture_button("Shuffle", ICON_RELOAD, bx, by, 0, cur == BTN_SHUFFLE); ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44; }
         bw = ui_aperture_button(in_lib ? "In your library" : "Add to library", in_lib ? ICON_CHECK : ICON_PLUS, bx, by, 0, cur == BTN_LIBRARY);
         ui_hit(bx, by, bw, 64, HIT(AREA_ACTIONS, pos++)); bx += bw + 44;
         char rl[24];
@@ -1652,7 +1641,6 @@ static void draw(Screen *s)
         bw = ui_pill(getting ? "Getting trailer\xE2\x80\xA6" : "Trailer", 1, ICON_TV, bx2, by, 72, PILL_SECONDARY, cur == BTN_TRAILER);
         ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18;
     }
-    if (has_shuffle(d)) { bw = ui_pill("Shuffle", 1, ICON_RELOAD, bx2, by, 72, PILL_SECONDARY, cur == BTN_SHUFFLE); ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18; }
     bw = ui_pill(in_lib ? "In Library" : "Add to Library", 1, in_lib ? ICON_CHECK : ICON_PLUS, bx2, by, 72, PILL_SECONDARY, cur == BTN_LIBRARY);
     ui_hit(bx2, by, bw, 72, HIT(AREA_ACTIONS, pos++)); bx2 += bw + 18;
     char rl[24];
@@ -1686,43 +1674,6 @@ static void open_streams_for_video_ex(Detail *d, int video_idx, int play_now)
 static void open_streams_for_video(Detail *d, int video_idx) { open_streams_for_video_ex(d, video_idx, 0); }
 /* An episode chosen to watch: it starts on the recommended source */
 static void play_episode(Detail *d, int video_idx) { open_streams_for_video_ex(d, video_idx, 1); }
-
-/* Shuffle: a random episode, one that has aired (no specials, no future dates), from the ones not marked watched while
- * there are any, and never the one picked last time. SNTV_SHUFFLE_SEED fixes the dice for tests. */
-static int shuffle_pick(const Detail *d, unsigned *seed, int last)
-{
-    char today[16] = "";
-    time_t now = time(NULL);
-    struct tm tm; localtime_r(&now, &tm);
-    strftime(today, sizeof today, "%Y-%m-%d", &tm);
-    int pool[2048], n = 0;
-    for (int pass = 0; pass < 2 && n == 0; pass++) {   /* pass 0: unwatched only; pass 1: any */
-        for (int i = 0; i < d->meta.n_videos && n < 2048; i++) {
-            const MetaVideo *v = &d->meta.videos[i];
-            if (v->season <= 0 || v->episode < 0 || !v->id) continue;
-            if (v->released && strlen(v->released) >= 10 && strncmp(v->released, today, 10) > 0) continue;   /* not out yet */
-            if (pass == 0 && app_episode_mark(d->preview.id, v->id) == 1) continue;
-            if (i == last && n + 1 < 2048 && d->meta.n_videos > 1) continue;
-            pool[n++] = i;
-        }
-    }
-    if (!n) return -1;
-    *seed = *seed * 1664525u + 1013904223u;
-    return pool[(*seed >> 8) % (unsigned)n];
-}
-
-static void shuffle_play(Detail *d)
-{
-    static unsigned seed; static int last = -1;
-    if (!seed) { const char *e = getenv("SNTV_SHUFFLE_SEED"); seed = e && *e ? (unsigned)atoi(e) : (unsigned)(time(NULL) ^ SDL_GetTicks()); }
-    int k = shuffle_pick(d, &seed, last);
-    if (k < 0) { app_toast("No episode to shuffle yet"); return; }
-    last = k;
-    const MetaVideo *v = &d->meta.videos[k];
-    LOGI("detail: shuffle picked S%d E%d (%s)", v->season, v->episode, v->title ? v->title : "");
-    app_toast("Shuffle: S%d E%d", v->season, v->episode);
-    play_episode(d, k);
-}
 
 static void focus_ep(Detail *d, int k) { if (k != d->ep_focus) { d->ep_focus = k; d->focus_t = 0; } }
 
@@ -1862,7 +1813,6 @@ static int key(Screen *s, KeyAction a)
             if (btn_at(d, d->btn) == BTN_LIBRARY) { app_library_toggle(&d->preview); return 1; }
             if (btn_at(d, d->btn) == BTN_RATE) { rate_open(d, -1); return 1; }
             if (btn_at(d, d->btn) == BTN_TRAILER) { trailer_play(d); return 1; }
-            if (btn_at(d, d->btn) == BTN_SHUFFLE) { shuffle_play(d); return 1; }
             if (btn_at(d, d->btn) == BTN_RESTART) {   /* the sources for the resumed video, played from 0:00 */
                 const char *vid = d->resume_video[0] ? d->resume_video : d->meta.default_video_id ? d->meta.default_video_id : d->preview.id;
                 app_push(screen_streams_create_from_start(&d->preview, vid, NULL));   /* replaces a corner video of it too */
