@@ -40,7 +40,8 @@ public class CuelightActivity extends SDLActivity {
         UiModeManager ui = (UiModeManager) getSystemService(UI_MODE_SERVICE);
         PackageManager pm = getPackageManager();
         return (ui != null && ui.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION)
-            || pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature("amazon.hardware.fire_tv");
+            || pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature("amazon.hardware.fire_tv")
+            || "app.cuelight.vr".equals(getPackageName());   /* the Quest build: a panel in a headset is a big screen with a pointer, not a phone */
     }
 
     static boolean sPhone;

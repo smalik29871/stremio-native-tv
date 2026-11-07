@@ -124,6 +124,9 @@ public final class CuelightPlayer {
         if (sActivity != a) return;
         if (sMain != null) sMain.removeCallbacksAndMessages(null);
         sGlowOn = false; sGlowBusy = false; sGlowBmp = null;
+        sCueText = ""; sVrTexNew = false;
+        if (sVrTexSurface != null) { sVrTexSurface.release(); sVrTexSurface = null; }
+        if (sVrTex != null) { sVrTex.release(); sVrTex = null; }
         if (sPlayer != null) { sPlayer.release(); sPlayer = null; }
         if (sYtView != null) { sYtView.release(); sYtView = null; }
         sYt = null; sYtPending = null; sEmbed = false;
@@ -164,10 +167,13 @@ public final class CuelightPlayer {
         vrTexDrop();
         try {
             SurfaceTexture st = new SurfaceTexture(tex);
-            st.setDefaultBufferSize(w, h);
-            st.setOnFrameAvailableListener(t -> sVrTexNew = true);
-            sVrTex = st;
-            sVrTexSurface = new Surface(st);
+            try {
+                st.setDefaultBufferSize(w, h);
+                st.setOnFrameAvailableListener(t -> { if (t == sVrTex) sVrTexNew = true; });   // only this texture's own frames
+                Surface sf = new Surface(st);
+                sVrTex = st; sVrTexNew = false;
+                sVrTexSurface = sf;
+            } catch (RuntimeException e) { st.release(); throw e; }
             Log.i(TAG, "vr: the film goes to the app's texture");
         } catch (RuntimeException e) { Log.w(TAG, "vr: no texture for the film: " + e); sVrTex = null; sVrTexSurface = null; }
         run(() -> { if (sPlayer != null) applyOutput(); });
@@ -286,7 +292,7 @@ public final class CuelightPlayer {
         run(() -> {
             embedStop();
             if (sPlayer != null) { sPlayer.stop(); sPlayer.clearMediaItems(); }
-            sState = IDLE; sReady = false; sSubs.setCues(new ArrayList<>());
+            sState = IDLE; sReady = false; sSubs.setCues(new ArrayList<>()); sCueText = "";
             sBox.setVisibility(View.INVISIBLE);
             sSubs.setVisibility(View.INVISIBLE);
             keepAwake(); snapshot();

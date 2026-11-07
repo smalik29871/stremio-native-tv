@@ -13,6 +13,7 @@
 #include "../ui/gfx.h"
 #include "../ui/font.h"
 #include "../ui/input.h"
+#include "../app.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <string.h>
@@ -77,7 +78,7 @@ void vr_pref_set(int which, int value)
 int vr_cinema_is_open(void) { return g_open; }
 void vr_cinema_toggle(void) { g_open = !g_open; g_version++; }
 void vr_cinema_close(void) { if (g_open) { g_open = 0; g_version++; } }
-unsigned vr_box_version(void) { return g_version; }
+unsigned vr_box_version(void) { return g_version + (g_update_version[0] ? 1u << 20 : 0); }   /* what the box shows changes when an update turns up */
 void vr_box_set_tab(int t) { if (t != g_tab) { g_tab = t; g_version++; } }
 int vr_cinema_take_key(void) { int k = g_key; g_key = 0; return k; }
 
@@ -95,7 +96,7 @@ static const Row ROWS[] = {
 #define N_ROWS ((int)(sizeof ROWS / sizeof ROWS[0]))
 
 /* what each control does */
-enum { K_CHOOSE = 1, K_KEY, K_STEP, K_VIEW, K_CENTER, K_CLOSE, K_TAB, K_HOME, K_CURVE };
+enum { K_CHOOSE = 1, K_KEY, K_STEP, K_VIEW, K_CENTER, K_CLOSE, K_TAB, K_HOME, K_CURVE, K_UPDATE };
 
 typedef struct { float x, y, w, h; int kind, a, b; } Hit;
 static Hit g_hit[64];
@@ -164,7 +165,10 @@ void vr_box_draw(float px, float py)
         y += sh + 14;
         char vb[96]; snprintf(vb, sizeof vb, "Film view: %s  (tap for the next)", vr_video_view_name());
         big(lx, y, cw, 84, vb, K_VIEW, 0, 0);
-        font_draw("Right thumbstick: up and down for distance, left and right for size.  Grip: carry the screen.", lx, oy + VR_BOX_H - 56, FONT_XS, RGBA(0x8A, 0x94, 0xA6, 0xFF));
+        if (g_update_version[0]) {   /* a newer build is there: the way to take it is on the first page */
+            char ub[96]; snprintf(ub, sizeof ub, "Update ready: %s  (tap to install)", g_update_version);
+            chip_ex(lx, oy + VR_BOX_H - 100, cw, 66, ub, 1, K_UPDATE, 1, 0, FONT_S);
+        } else font_draw("Right thumbstick: up and down for distance, left and right for size.  Grip: carry the screen.", lx, oy + VR_BOX_H - 56, FONT_XS, RGBA(0x8A, 0x94, 0xA6, 0xFF));
     } else {
         float rowh = 78, cx0 = ox + 420;
         for (int i = 0; i < N_ROWS; i++) {
@@ -181,6 +185,12 @@ void vr_box_draw(float px, float py)
         char db[24]; snprintf(db, sizeof db, "%.1f m", vr_pref(VR_PREF_DIST) / 10.0);
         font_draw_center(db, cx0 + 90 + 14 + 80, y + (62 - font_height(FONT_M)) / 2, FONT_M | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
         chip(cx0 + 90 + 14 + 160 + 14, y, 90, 62, "+", 0, K_STEP, DOCK_FARTHER, 0);
+        y += rowh;
+        font_draw("Updates", lx, y + (62 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
+        chip(cx0, y, 250, 62, "Check now", 0, K_UPDATE, 0, 0);
+        if (g_update_version[0]) { char ub[64]; snprintf(ub, sizeof ub, "Install %s", g_update_version); chip(cx0 + 264, y, 340, 62, ub, 1, K_UPDATE, 1, 0); }
+        char vb[80]; snprintf(vb, sizeof vb, "You have %s", app_update_running());
+        font_draw(vb, cx0 + (g_update_version[0] ? 264 + 340 + 24 : 264), y + (62 - font_height(FONT_S)) / 2, FONT_S, RGBA(0x8A, 0x94, 0xA6, 0xFF));
     }
 }
 
@@ -218,6 +228,7 @@ int vr_box_tap(float x, float y)
         case K_CENTER: vr_recenter(); break;
         case K_CURVE: vr_pref_set(VR_PREF_CURVED, !vr_pref(VR_PREF_CURVED)); break;
         case K_TAB: vr_box_set_tab(h->a); break;
+        case K_UPDATE: g_key = h->a ? VR_KEY_UPDATE_INSTALL : VR_KEY_UPDATE_CHECK; g_version++; break;
         case K_CLOSE: g_open = 0; g_version++; break;
         }
         return 1;

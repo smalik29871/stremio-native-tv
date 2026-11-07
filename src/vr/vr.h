@@ -17,6 +17,8 @@ typedef struct {
 } VrInput;
 
 #define VR_KEY_HOME 1000   /* in VrInput.key: not a KeyAction, it means "pop every screen back to the first" */
+#define VR_KEY_UPDATE_CHECK 1001   /* look for a newer build now */
+#define VR_KEY_UPDATE_INSTALL 1002 /* the update question (download, then Android installs it) */
 
 /* What the control box keeps (vr.cfg): */
 enum { VR_PREF_CURVED, VR_PREF_SIZE, VR_PREF_FOLLOW, VR_PREF_BED, VR_PREF_PASS, VR_PREF_DIST, VR_PREF_LIGHT, VR_PREF_SUBS, VR_PREF_EYES, VR_PREF_COUNT };

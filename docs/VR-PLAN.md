@@ -198,3 +198,16 @@ The right thumbstick moves the screen with nothing held (up and down away and ne
 smaller); the left thumbstick is the arrow keys (move about, seek). B goes back one screen and, at the first
 screen, does nothing (it used to close the app). The Meta button stays the system's: its long press recentres the
 whole view, and the screen follows (a recentre brings it back in front of you).
+
+### Updating from inside the headset
+
+Each Quest build the CI makes is a newer version of the one before (the fourth part of its version is the run
+number: 0.10.117.14, and the Android version code follows). When the release key is present the CI puts the APK and
+a small manifest (quest.json: version, apkUrl, sha256) into the releases repository's fixed "quest" pre-release,
+never "latest" (that is every other device's). The app asks for that manifest at start and every six hours (the
+Quest build only), says so when something newer is there (the menu box shows "Update ready" on its first page and
+Check now / Install on its second), and installs the way the Android app does: it downloads, checks the checksum,
+and hands the file to Android's installer (the first time Android asks to allow Cuelight to install apps).
+
+The first install has to be sideloaded as before; later ones come from inside. Not checked on a headset: whether
+Horizon OS shows the package installer for an app that asks (the same flow as the phone app's).

@@ -1092,6 +1092,8 @@ static void vr_inject(const VrInput *in)
         g_app.need_redraw = 1;
     }
     if (in->key == VR_KEY_HOME) { LOGI("vr: Home"); while (g_app.depth > 1) app_pop(); g_app.need_redraw = 1; }
+    else if (in->key == VR_KEY_UPDATE_CHECK) { LOGI("vr: looking for an update"); app_update_check_now(); }
+    else if (in->key == VR_KEY_UPDATE_INSTALL) { LOGI("vr: the update question"); vr_cinema_close(); app_push(screen_update_create(0)); g_app.need_redraw = 1; }
     else if (in->key) {
         if (in->key == KEY_BACK && g_app.depth <= 1) LOGI("vr: Back at the first screen: nothing to go back to");
         else { LOGI("vr: box key %d on %s", in->key, app_top() ? app_top()->name : "?"); dispatch_key((KeyAction)in->key); }

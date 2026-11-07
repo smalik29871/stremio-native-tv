@@ -288,6 +288,7 @@ endif()
 # SNTV_VR: the screens on a panel in a headset through OpenXR. The Khronos loader and headers come
 # from its Android package (Maven, Apache-2.0) as a Gradle prefab dependency (deploy/android).
 option(SNTV_VR "Quest build: an OpenXR panel (src/vr)" OFF)
+set(SNTV_VR_BUILD "0" CACHE STRING "the Quest build's number (the CI run): the fourth part of its version, so each build can update the one before")
 set(SNTV_VR_SRC "")
 if(SNTV_VR AND SNTV_PLATFORM STREQUAL "android")
   find_package(OpenXR REQUIRED CONFIG)
@@ -342,7 +343,7 @@ target_include_directories(stremio-tv PRIVATE ${SNTV_PLATFORM_INCLUDES} ${CMAKE_
 if(SNTV_VR_PREVIEW AND NOT SNTV_VR)
   target_compile_definitions(stremio-tv PRIVATE SNTV_VR_PREVIEW=1)
 elseif(SNTV_VR_SRC)
-  target_compile_definitions(stremio-tv PRIVATE SNTV_VR=1)
+  target_compile_definitions(stremio-tv PRIVATE SNTV_VR=1 SNTV_VR_BUILD=${SNTV_VR_BUILD})
 endif()
 target_link_libraries(stremio-tv PRIVATE sntv_core webpdecoder ${SNTV_LINK_LIBS})
 

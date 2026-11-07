@@ -54,6 +54,7 @@
                 <category android:name="${vrCategory}" />
                 <category android:name="${vrCategory2}" />
             </intent-filter>
+            <meta-data android:name="com.oculus.vr.focusaware" android:value="true" />
             <!-- an addon's install link (stremio://host/manifest.json): Cuelight installs it -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

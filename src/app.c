@@ -1503,11 +1503,26 @@ char g_update_version[16], g_update_url[600], g_update_sha256[80];
 static int g_update_offered;   /* the question was asked this run (Later means: at the next start) */
 static int g_update_manual;    /* a check the viewer asked for: say the result */
 
-static int version_newer(const char *a, const char *b)   /* a > b, dotted numbers */
+/* What is running, for the comparison with what is on offer. The Quest build is made again and again at the same
+ * version, so it carries a build number as a fourth part ("0.10.117.14"); every other build has three. */
+#ifdef SNTV_VR
+#ifndef SNTV_VR_BUILD
+#define SNTV_VR_BUILD 0
+#endif
+#define UPDATE_STR_(x) #x
+#define UPDATE_STR(x) UPDATE_STR_(x)
+#define UPDATE_RUNNING SNTV_APP_VERSION "." UPDATE_STR(SNTV_VR_BUILD)
+#else
+#define UPDATE_RUNNING SNTV_APP_VERSION
+#endif
+
+const char *app_update_running(void) { return UPDATE_RUNNING; }
+
+static int version_newer(const char *a, const char *b)   /* a > b, dotted numbers (three parts, or four with a build number) */
 {
-    int x[3] = { 0 }, y[3] = { 0 };
-    sscanf(a, "%d.%d.%d", &x[0], &x[1], &x[2]); sscanf(b, "%d.%d.%d", &y[0], &y[1], &y[2]);
-    for (int i = 0; i < 3; i++) if (x[i] != y[i]) return x[i] > y[i];
+    int x[4] = { 0 }, y[4] = { 0 };
+    sscanf(a, "%d.%d.%d.%d", &x[0], &x[1], &x[2], &x[3]); sscanf(b, "%d.%d.%d.%d", &y[0], &y[1], &y[2], &y[3]);
+    for (int i = 0; i < 4; i++) if (x[i] != y[i]) return x[i] > y[i];
     return 0;
 }
 
@@ -1516,7 +1531,7 @@ static const char *releases_dl(const char *file);
 static void on_repo(HttpResponse *r, void *user)
 {
     int version_only = user == (void *)1;   /* the TV's list, asked by a computer: the version, nothing to install */
-#ifdef SNTV_PLATFORM_ANDROID
+#if defined(SNTV_PLATFORM_ANDROID) && !defined(SNTV_VR)   /* (the Quest build has one file, never another device's) */
     if (r->status == 404 && user == NULL && gfx_handheld() && !getenv("SNTV_UPDATE_URL")) {   /* no phone file in that release (the first one with it is still to come): the shared Android file */
         http_request_async(releases_dl(update_manifest_file(1, 0, 0)), NULL, on_repo, (void *)2);
         return;
@@ -1549,17 +1564,17 @@ static void on_repo(HttpResponse *r, void *user)
         sha = cJSON_GetObjectItemCaseSensitive(root, "sha256");
     }
     if (version_only) url = sha = NULL;
-    if (cJSON_IsString(v) && version_newer(v->valuestring, SNTV_APP_VERSION)) {
+    if (cJSON_IsString(v) && version_newer(v->valuestring, UPDATE_RUNNING)) {
         snprintf(g_update_version, sizeof g_update_version, "%s", v->valuestring);
         snprintf(g_update_url, sizeof g_update_url, "%s", cJSON_IsString(url) ? url->valuestring : "");
         snprintf(g_update_sha256, sizeof g_update_sha256, "%s", cJSON_IsString(sha) ? sha->valuestring : "");
-        LOGI("update: %s available (running %s)", v->valuestring, SNTV_APP_VERSION);
+        LOGI("update: %s available (running %s)", v->valuestring, UPDATE_RUNNING);
         if (manual) g_update_offered = 0;   /* asked for it: the question comes at once */
         if (!g_app.auto_update && strcmp(store_get_str("updateToldFor", ""), v->valuestring) != 0) {
             app_toast("Version %s is ready: Settings > About > Update", v->valuestring);
             store_set_str("updateToldFor", v->valuestring); store_save();
         }
-    } else if (manual) app_toast(SNTV_APP_NAME " %s is the newest version", SNTV_APP_VERSION);
+    } else if (manual) app_toast(SNTV_APP_NAME " %s is the newest version", UPDATE_RUNNING);
     if (root) cJSON_Delete(root);
 }
 
@@ -1578,7 +1593,12 @@ static const char *repo_url(void)
 {
     const char *url = getenv("SNTV_UPDATE_URL");
 #ifdef SNTV_PLATFORM_ANDROID
+#ifdef SNTV_VR
+    /* the Quest build has a channel of its own: the newest build, a fixed address the CI writes after each one (never "latest": that is every other device's) */
+    return url ? url : "https://github.com/smalik29871/cuelight-releases/releases/download/quest/quest.json";
+#else
     return url ? url : RELEASES_DL(update_manifest_file(1, 0, gfx_handheld()));   /* the APK of the same release: a phone's or tablet's own file, a TV's the shared one */
+#endif
 #elif defined(SNTV_PLATFORM_WINDOWS)
     return url ? url : RELEASES_DL(update_manifest_file(0, 1, 0));   /* the installer of the same release */
 #else
@@ -1642,7 +1662,7 @@ static void ask_to_update(void)
     static const char *const ITEMS[] = { "Later", "Update now" };
     static const int ICONS[] = { ICON_CLOCK, ICON_RELOAD };
     char sub[80], body[300];
-    snprintf(sub, sizeof sub, "Version %s  \xC2\xB7  you have %s", g_update_version, SNTV_APP_VERSION);
+    snprintf(sub, sizeof sub, "Version %s  \xC2\xB7  you have %s", g_update_version, UPDATE_RUNNING);
 #ifdef SNTV_DESKTOP_PLAYER
     if (!g_update_url[0] || !g_update_sha256[0]) {   /* a release without the installer: its page */
         static const char *const GET[] = { "Later", "Open the download page" };
