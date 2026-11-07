@@ -471,8 +471,11 @@ static struct {
     SDL_FingerID id;
     KeyAction step;
     int vertical;
+    float sx, sy;   /* where a drag started (past the slop) */
+    int long_done;  /* held long enough: the long press went while the finger was down, the lift does nothing */
 } g_touch;
 static void dispatch_key(KeyAction a);
+static void touch_tap(float ux, float uy, KeyAction press);
 
 static void touch_to_ui(float fx, float fy, float *ux, float *uy)
 {
@@ -481,23 +484,30 @@ static void touch_to_ui(float fx, float fy, float *ux, float *uy)
     gfx_pixels_to_ui(fx * pw, fy * ph, ux, uy);
 }
 
-/* How fast the finger was going as it lifted: across the last 100 ms of its moves (a finger
- * that stopped before lifting gives about 0). Canvas units a second. */
-#define PHONE_FLING 1.5f   /* a phone's flick: how much faster the page leaves the finger than the finger moved */
+/* How fast the finger was going as it lifted: a straight line fitted through its moves of the last 80 ms (as
+ * Android's own velocity tracker does: one pair of points under-reads a flick that speeds up as it leaves, and
+ * the times come in whole milliseconds); a finger that rested 40 ms before lifting gives 0. Canvas units a second. */
 static float touch_speed(Uint32 now)
 {
     int n = g_touch.n_trail < 16 ? g_touch.n_trail : 16;
     if (n < 2) return 0;
-    int last = (g_touch.n_trail - 1) % 16, first = last;
-    for (int k = 1; k < n; k++) {
+    int last = (g_touch.n_trail - 1) % 16;
+    if (now - g_touch.trail[last].t > 40) return 0;
+    double st = 0, sa = 0; int m = 0;
+    int idx[16];
+    for (int k = 0; k < n; k++) {
         int i = (last - k + 16) % 16;
-        if (now - g_touch.trail[i].t > 100) break;
-        first = i;
+        if (now - g_touch.trail[i].t > 80) break;
+        idx[m++] = i; st += g_touch.trail[i].t; sa += g_touch.trail[i].along;
     }
-    if (first == last) return 0;
-    Uint32 dt = g_touch.trail[last].t - g_touch.trail[first].t;
-    if (dt < 8) dt = 8;
-    return (g_touch.trail[last].along - g_touch.trail[first].along) * 1000.0f / (float)dt;
+    if (m < 2) return 0;
+    double mt = st / m, ma = sa / m, num = 0, den = 0;
+    for (int k = 0; k < m; k++) { double dt = g_touch.trail[idx[k]].t - mt; num += dt * (g_touch.trail[idx[k]].along - ma); den += dt * dt; }
+    if (den <= 0) {   /* all in one millisecond: the two ends, a millisecond apart at least */
+        Uint32 dt = g_touch.trail[last].t - g_touch.trail[idx[m - 1]].t;
+        return (g_touch.trail[last].along - g_touch.trail[idx[m - 1]].along) * 1000.0f / (float)(dt ? dt : 8);
+    }
+    return (float)(num / den * 1000.0);
 }
 
 static Uint32 g_touch_now;   /* the event being handled: its time */
@@ -517,7 +527,10 @@ static void touch_motion(float fx, float fy)
     float dx = fx - g_touch.x, dy = (fy - g_touch.y) * (pw > 0 ? (float)ph / pw : 9.0f / 16.0f);   /* in screen widths, both ways (held upright too) */
     float dist = SDL_sqrtf(dx * dx + dy * dy);
     if (!g_touch.mode) {
-        if (dist < 0.02f) return;   /* still a tap */
+        float slop = 0.02f;   /* a TV's touch screen or a computer: 2% of the width */
+        if (SNTV_PHONE) { float uw = SNTV_UI_W * gfx_dp_per_unit(); slop = uw > 0 ? 8.0f / uw : 0.02f; }   /* a phone or tablet: 8 dp, as Android's own lists */
+        if (dist < slop) return;   /* still a tap */
+        g_touch.sx = fx; g_touch.sy = fy;   /* the drag starts here: no jump by the distance it took to tell */
         g_touch.vertical = SDL_fabsf(dy) > SDL_fabsf(dx);
         float ux, uy;
         touch_to_ui(g_touch.x, g_touch.y, &ux, &uy);
@@ -536,7 +549,7 @@ static void touch_motion(float fx, float fy)
         }
     }
     float x0, y0, x1, y1;
-    touch_to_ui(g_touch.x, g_touch.y, &x0, &y0);
+    touch_to_ui(g_touch.mode == 1 && SNTV_PHONE ? g_touch.sx : g_touch.x, g_touch.mode == 1 && SNTV_PHONE ? g_touch.sy : g_touch.y, &x0, &y0);
     touch_to_ui(fx, fy, &x1, &y1);
     float along = g_touch.vertical ? y1 - y0 : x1 - x0;
     int i = g_touch.n_trail++ % 16;
@@ -591,7 +604,7 @@ static void touch_event(const SDL_Event *e)
 #else
     if (!told && !input_typing()) { told = 1; app_toast("Tap anything to open it  \xC2\xB7  Drag to scroll  \xC2\xB7  Hold for options"); }
 #endif
-    if (g_touch.mode == 1) { ui_pan_release(SNTV_PHONE ? v * PHONE_FLING : v); return; }   /* a phone: a flick carries about twice as far as it did (see ui_pan) */
+    if (g_touch.mode == 1) { ui_pan_release(v); return; }   /* a phone: along Android's own fling curve (ui_pan) */
     if (g_touch.mode == 4) return;   /* a drag over nothing: not a tap either */
     if (g_touch.mode == 2) {   /* a quick flick goes a few steps further */
         float fast = SDL_fabsf(v) / SNTV_UI_W;   /* screen widths a second */
@@ -601,11 +614,16 @@ static void touch_event(const SDL_Event *e)
         return;
     }
     if (g_touch.caught) { app_redraw(); return; }
-    /* a tap: on what is under the finger, where the screen says what that is */
-    KeyAction press = held >= 500 ? KEY_LONG_OK : KEY_OK;
-    int id;
+    if (g_touch.long_done) { app_redraw(); return; }   /* the long press went already, while the finger was down */
     float ux, uy;
     touch_to_ui(e->tfinger.x, e->tfinger.y, &ux, &uy);
+    touch_tap(ux, uy, held >= 500 ? KEY_LONG_OK : KEY_OK);
+}
+
+/* A tap (or a long press) on what is under the finger, where the screen says what that is */
+static void touch_tap(float ux, float uy, KeyAction press)
+{
+    int id;
     ui_pan_keys();   /* what it does may move the focus: the lists follow it again */
     Screen *top = app_top();
     if (top && strcmp(top->name, "player") && island_tap(ux, uy)) { app_redraw(); return; }   /* the resume card, over the screen */
@@ -622,6 +640,20 @@ static void touch_event(const SDL_Event *e)
         return;
     }
     if (!top || !top->tap) dispatch_key(press);   /* a screen that does not say where things are: OK on its focus */
+}
+
+/* Every frame: a finger held still for 400 ms is a long press now, while it is still down (with a buzz), as on
+ * any Android app; it used to wait for the finger to lift */
+static void touch_hold_tick(void)
+{
+    if (!g_touch.down || g_touch.mode || g_touch.caught || g_touch.long_done) return;
+    if (SDL_GetTicks() - g_touch.t < 400) { app_redraw(); return; }   /* (keep drawing so the moment comes) */
+    g_touch.long_done = 1;
+    float ux, uy;
+    touch_to_ui(g_touch.x, g_touch.y, &ux, &uy);
+    ui_haptic(HAPTIC_LONG_PRESS);
+    LOGI("touch: held at %.0f,%.0f: a long press", ux, uy);
+    touch_tap(ux, uy, KEY_LONG_OK);
 }
 #ifdef SNTV_DESKTOP_KEYS
 /* ---- a picture of the screen, as a PNG (Ctrl+S or F12 in the player) ----------------------------
@@ -1654,6 +1686,8 @@ int main(int argc, char **argv)
         top = app_top();
         /* Screensaver after a quiet spell, never over a playing video. */
         charging_tick();
+        touch_hold_tick();
+        top = app_top();
         if (top && !g_backgrounded && ambient_due(top)) { app_push(screen_ambient_create()); top = app_top(); }   /* never behind the TV's Home (the fireplace has sound) */
 
         /* Idle frame skipping: when nothing animates or arrives, don't redraw at all.

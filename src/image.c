@@ -37,6 +37,7 @@ typedef struct Img {
     int w, h;
     size_t bytes;
     unsigned last_used, ready_at;
+    Uint32 ready_ms;   /* when it became ready, in milliseconds: its fade-in is timed, not counted in frames */
     unsigned tint;
     float box[4];          /* the picture inside black bars baked into it (x0, y0, x1, y1, 0..1) */
     unsigned char grid[IMAGE_GRID_BYTES];   /* its colours in 4 x 2 cells, inside the box */
@@ -477,7 +478,7 @@ unsigned image_get_ex(const char *url, ImageFlags flags, int *w, int *h, unsigne
     if (i->state != IMG_READY) return 0;
     if (w) *w = i->w;
     if (h) *h = i->h;
-    if (age) *age = g_clock - i->ready_at;
+    if (age) { Uint32 ms = SDL_GetTicks() - i->ready_ms; *age = ms > 100000 ? 6000 : ms * 60 / 1000; }   /* in 60ths of a second: the same fade at 60, 90 or 120 Hz */
     return i->tex;
 }
 
@@ -544,6 +545,7 @@ static void upload_done(Img *i)
     i->pixels = NULL;
     i->state = IMG_READY;
     i->ready_at = g_clock;
+    i->ready_ms = SDL_GetTicks();
 }
 
 /* Closes the frame's uploads: what they took, for Diagnostics > Speed (and the log when one ran long). */

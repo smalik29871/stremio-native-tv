@@ -2,6 +2,7 @@
 #include "../app.h"
 #include "../platform/platform.h"
 #include "gfx.h"
+#include "../log.h"
 #ifdef SNTV_PLATFORM_ANDROID
 #include "cJSON.h"
 #include <SDL_system.h>
@@ -149,5 +150,24 @@ JNIEXPORT void JNICALL Java_app_cuelight_tv_CuelightActivity_nativeAccessibility
     event.user.data2 = (void *)(uintptr_t)version;
     event.user.windowID = (Uint32)action;
     SDL_PushEvent(&event);
+}
+
+/* the buzz: the activity's view performs the system's own haptic for it (no permission needed; off when the user
+ * turned touch feedback off) */
+void ui_haptic(int kind)
+{
+    static jmethodID m;
+    JNIEnv *e = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    if (!e) return;
+    if (!g_class) bridge();
+    if (!g_class) return;
+    if (!m) { m = (*e)->GetStaticMethodID(e, g_class, "haptic", "(I)V"); if ((*e)->ExceptionCheck(e)) { (*e)->ExceptionClear(e); m = NULL; return; } }
+    if (m) (*e)->CallStaticVoidMethod(e, g_class, m, (jint)kind);
+}
+#else
+void ui_haptic(int kind)
+{
+    static const char *const NAMES[] = { "long press", "tick", "confirm" };
+    LOGI("haptic: %s", kind >= 0 && kind < 3 ? NAMES[kind] : "?");   /* no motor here: said, for the tests */
 }
 #endif

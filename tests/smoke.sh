@@ -1730,6 +1730,12 @@ PHL="$(home_with phlib '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')"; cp "
 run phone_home_library 300 "wait,wait,wait,wait,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$PHL"
 grep -q "home: the hero shows [1-9][0-9]* titles" "$OUT/phone_home_library.log" || { echo "with a library the phone's hero never came"; exit 1; }
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
+# a flick ends on Android's curve: a set distance and time, never a crawl lasting seconds
+grep -Eq "touch: fling at [0-9]+ dp/s: [0-9]+ dp over [0-2]\.[0-9]+ s" "$OUT/phone_drag_page.log" || { echo "the page's fling did not follow Android's curve"; grep -E "touch:" "$OUT/phone_drag_page.log"; exit 1; }
+# a finger held still on a card: the long press goes at 400 ms while it is down (options open, with a buzz), not at the lift
+run phone_long_press 260 "wait,wait,wait,press:200:1050,wait,wait" $PH SNTV_EXPECT_SCREEN=options HOME="$(home_with plp '{"setupDone":1}')"
+grep -q "touch: held at .*: a long press" "$OUT/phone_long_press.log" && grep -q "haptic: long press" "$OUT/phone_long_press.log" \
+  || { echo "a held finger did not long-press while down"; grep -E "touch:|haptic|UI check" "$OUT/phone_long_press.log"; exit 1; }
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
 # a phone held upright: the player always starts full screen (sideways only), not in the small upright window
 run phone_player_sideways 480 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,resize,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with phpl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"

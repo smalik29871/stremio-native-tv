@@ -1,4 +1,5 @@
 #include "widgets.h"
+#include "../log.h"
 #include "accessibility.h"
 #include "../http.h"
 #include "font.h"
@@ -1799,9 +1800,9 @@ int ui_pan_catch(float x, float y)
     int caught = 0;
     for (int k = 0; k < g_n_pans; k++) {   /* every scroller there that is gliding */
         UiPan *p = g_pans[k].pan;
-        if (g_pans[k].owner != app_top() || !ui_pan_free(p) || SDL_fabsf(p->vel) < 60) continue;
+        if (g_pans[k].owner != app_top() || !ui_pan_free(p) || SDL_fabsf(p->vel) < (SNTV_PHONE ? 300 : 60)) continue;   /* a glide nearly at rest: a tap there is a tap */
         if (x < g_pans[k].x || x >= g_pans[k].x + g_pans[k].w || y < g_pans[k].y || y >= g_pans[k].y + g_pans[k].h) continue;
-        p->vel = 0; caught = 1;
+        p->vel = 0; p->fl_dur = 0; caught = 1;
     }
     return caught;
 }
@@ -1837,9 +1838,72 @@ void ui_pan_drag(float d)
     app_redraw();
 }
 
+/* A phone's fling on the curve every Android list uses (its scroller's spline: the distance grows a little faster than
+ * the speed, and every fling ends in a set time, under a second for a gentle one): a gentle flick goes a short way and
+ * stops, a hard one carries far. Friction a little under Android's 0.015, so a flick goes a little further. */
+#define FLING_FRICTION 0.012f
+#define FLING_INFLEXION 0.35f
+#define FLING_DECEL_RATE 2.358201815f   /* ln(0.78) / ln(0.9) */
+enum { FLING_SAMPLES = 100 };
+static float g_spline[FLING_SAMPLES + 1];
+static void spline_init(void)
+{
+    if (g_spline[FLING_SAMPLES] > 0) return;
+    const float P1 = 0.5f * FLING_INFLEXION, P2 = 1.0f - (1.0f - FLING_INFLEXION);
+    float x_min = 0;
+    for (int i = 0; i < FLING_SAMPLES; i++) {   /* the curve's position at even steps of time, by bisection */
+        float alpha = (float)i / FLING_SAMPLES, x_max = 1, x = 0, coef = 0;
+        for (int k = 0; k < 60; k++) {
+            x = x_min + (x_max - x_min) / 2;
+            coef = 3 * x * (1 - x);
+            float tx = coef * ((1 - x) * P1 + x * P2) + x * x * x;
+            if (SDL_fabsf(tx - alpha) < 1e-5f) break;
+            if (tx > alpha) x_max = x; else x_min = x;
+        }
+        g_spline[i] = coef * ((1 - x) * 0.5f + x) + x * x * x;
+    }
+    g_spline[FLING_SAMPLES] = 1;
+}
+static float spline_at(float t, float *slope)   /* 0..1 of the time -> 0..1 of the way, and how fast (per unit of time) */
+{
+    if (t >= 1) { *slope = 0; return 1; }
+    if (t < 0) t = 0;
+    int i = (int)(t * FLING_SAMPLES);
+    float t0 = (float)i / FLING_SAMPLES, a = g_spline[i], b = g_spline[i + 1];
+    *slope = (b - a) * FLING_SAMPLES;
+    return a + (t - t0) * *slope;
+}
+
+/* v in canvas units a second (the page's own direction) -> the distance and the time, as Android works them out in pixels */
+void ui_fling_plan(float v, float *dist, float *secs)
+{
+    spline_init();
+    float dpu = gfx_dp_per_unit(), dens = gfx_scale() > 0 ? gfx_scale() / dpu : 1;   /* pixels per dp */
+    float vpx = SDL_fabsf(v) * gfx_scale();
+    if (vpx > 8000 * dens) vpx = 8000 * dens;   /* Android's top fling speed: 8000 dp a second */
+    float decel = 9.80665f * 39.37f * 160.0f * dens * 0.84f;   /* the "physical" deceleration, in pixels */
+    float l = SDL_logf(FLING_INFLEXION * vpx / (FLING_FRICTION * decel));
+    if (vpx <= 0 || !(l == l)) { *dist = 0; *secs = 0; return; }
+    float dpx = FLING_FRICTION * decel * SDL_expf(FLING_DECEL_RATE / (FLING_DECEL_RATE - 1) * l);
+    *secs = SDL_expf(l / (FLING_DECEL_RATE - 1));
+    *dist = (v < 0 ? -dpx : dpx) / (gfx_scale() > 0 ? gfx_scale() : 1);
+}
+
 void ui_pan_release(float v)
 {
-    if (g_drag.pan && g_drag.owner == app_top()) { g_drag.pan->vel = -v; g_drag.pan->free = 1; }
+    if (g_drag.pan && g_drag.owner == app_top()) {
+        UiPan *p = g_drag.pan;
+        p->vel = -v; p->free = 1; p->fl_dur = 0;
+        if (SNTV_PHONE && p->at) {
+            float d, t;
+            ui_fling_plan(-v, &d, &t);
+            if (t > 0.02f && SDL_fabsf(d) > 1) {
+                p->fl_from = *p->at; p->fl_dist = d; p->fl_dur = t; p->fl_t = 0;
+                LOGI("touch: fling at %.0f dp/s: %.0f dp over %.2f s", SDL_fabsf(v) * gfx_dp_per_unit(), SDL_fabsf(d) * gfx_dp_per_unit(), t);
+            }
+            else p->vel = 0;
+        }
+    }
     g_drag.pan = NULL;
     app_redraw();
 }
@@ -1866,8 +1930,17 @@ float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed)
         *pos = x;
         return x;
     }
-    if (!p->free) { *pos = ui_ease(*pos, want, &p->vel, dt, speed); return *pos; }
+    if (!p->free) { p->fl_dur = 0; *pos = ui_ease(*pos, want, &p->vel, dt, speed); return *pos; }
     float x = *pos;
+    if (p->fl_dur > 0) {   /* a phone's fling, along its curve */
+        p->fl_t += dt;
+        float slope, f = spline_at(p->fl_t / p->fl_dur, &slope);
+        x = p->fl_from + p->fl_dist * f;
+        p->vel = p->fl_dist * slope / p->fl_dur;
+        if (p->fl_t >= p->fl_dur) { p->fl_dur = 0; p->vel = 0; }
+        else if (x < 0 || x > max) p->fl_dur = 0;   /* into an end: the edge takes the speed it has */
+        else { *pos = x; app_redraw(); return x; }
+    }
     if (x < 0 || x > max) {   /* past an end: back to it */
         if ((x < 0 && p->vel < 0) || (x > max && p->vel > 0)) p->vel *= SDL_expf(-dt * 24);   /* a glide running out there */
         x = ui_ease(x, x < 0 ? 0 : max, &p->vel, dt, 20);

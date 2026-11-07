@@ -202,7 +202,7 @@ int  ui_hit_find(float x, float y, const struct Screen *top, int *id);
  * scroll is where the finger puts it (stretching past the ends); let go, it glides on and
  * slows, springing back from an end, and stays there. A remote key, a typed key or a
  * tap that acts brings back focus-led scrolling (want). max: the furthest it scrolls. */
-typedef struct UiPan { float vel; int free; unsigned epoch; float *at; float max; } UiPan;
+typedef struct UiPan { float vel; int free; unsigned epoch; float *at; float max; float fl_from, fl_dist, fl_dur, fl_t; } UiPan;   /* fl_*: a phone's fling on Android's own curve */
 void  ui_pan_area(UiPan *p, float x, float y, float w, float h, int vertical);
 float ui_pan(UiPan *p, float *pos, float want, float max, float dt, float speed);
 int   ui_pan_free(const UiPan *p);     /* moved by the finger, not following the focus */
@@ -212,6 +212,7 @@ int   ui_pan_catch(float x, float y);  /* down: stops a glide under the finger (
 int   ui_pan_grab(float x, float y, int vertical);   /* a drag starts there: 1 = a scroller has it */
 void  ui_pan_drag(float d);            /* how far the finger has gone along it since the grab */
 void  ui_pan_release(float v);         /* let go, moving at v canvas units a second */
+void  ui_fling_plan(float v, float *dist, float *secs);   /* a phone's fling: how far (canvas units, signed) and how long (s) at v units a second */
 void  ui_pan_keys(void);               /* a key: every scroller follows its focus again */
 void  ui_pan_hold(void);
 /* Driven by a pointer (a finger, or a mouse on a computer): pages and rows scroll by it,

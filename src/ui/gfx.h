@@ -35,6 +35,7 @@ void gfx_begin_frame(Color clear);
 void gfx_end_frame(void);
 void gfx_flush(void);          /* submit pending quads (e.g. before glReadPixels) */
 float gfx_scale(void);
+float gfx_dp_per_unit(void);
 void  gfx_pixels_to_ui(float px, float py, float *x, float *y);   /* a window pixel to canvas units */
 void  gfx_drawable_size(int *w, int *h);
 /* UI-canvas rectangle -> window pixels (for the video plane) */

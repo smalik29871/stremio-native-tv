@@ -582,7 +582,14 @@ static void phone_scroll_hero(Home *h, float dt)
     float w = SNTV_UI_W;
     if (n < 1) { h->hero_x = 0; return; }
     if (!ui_pan_held(&h->hero_pan) && ui_pan_free(&h->hero_pan)) {
-        int page = (int)floorf((h->hero_x + h->hero_pan.vel * 0.2f) / w + 0.5f);
+        /* to the next page past 16% of its width, or with a light flick its way (Android's pagers: 16% or about
+         * 300 px a second); a long throw still carries further */
+        int cur = h->feat % n, page = (int)floorf((h->hero_x + h->hero_pan.vel * 0.2f) / w + 0.5f);
+        float d = h->hero_x - cur * w, vel = h->hero_pan.vel;
+        if (page == cur) {
+            if (d > 0.16f * w || (vel > 180 && d > 0)) page = cur + 1;
+            else if (d < -0.16f * w || (vel < -180 && d < 0)) page = cur - 1;
+        }
         if (page < 0) page = 0;
         if (page > n - 1) page = n - 1;
         if (page != h->feat % n) { h->feat = page; LOGI("home: hero swiped to %d of %d", page + 1, n); }

@@ -7,6 +7,8 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.HapticFeedbackConstants;
+import android.view.View;
 import android.view.WindowInsets;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -22,6 +24,19 @@ public class CuelightActivity extends SDLActivity {
     public static void accessibilityUpdate(byte[] nodes, long version, String screen) {
         CuelightAccessibility view = sAccessibility;
         if (view != null) view.post(() -> { if (view == sAccessibility) view.update(nodes, version, screen); });
+    }
+    /* a short buzz for the C app (src/ui/accessibility.c ui_haptic): the system's own, so it follows the
+     * phone's touch-feedback setting */
+    public static void haptic(int kind) {
+        final SDLActivity a = mSingleton;
+        if (a == null) return;
+        a.runOnUiThread(() -> {
+            View v = a.getWindow() != null ? a.getWindow().getDecorView() : null;
+            if (v == null) return;
+            int c = kind == 0 ? HapticFeedbackConstants.LONG_PRESS : kind == 1 ? HapticFeedbackConstants.CLOCK_TICK
+                  : android.os.Build.VERSION.SDK_INT >= 30 ? HapticFeedbackConstants.CONFIRM : HapticFeedbackConstants.VIRTUAL_KEY;
+            v.performHapticFeedback(c);
+        });
     }
     @Override
     protected String[] getLibraries() {

@@ -213,6 +213,8 @@ static float density(void)
     return n > 0 ? n / 1000.0f : d && atof(d) > 0.5 ? (float)atof(d) : 0;
 }
 int gfx_portrait(void) { return g_ui_portrait; }
+/* dp in one canvas unit (a phone: about 0.62); where the device's density is unknown, 0.62 */
+float gfx_dp_per_unit(void) { float d = density(); return d > 0.5f && g_scale > 0 ? g_scale / d : 0.62f; }
 int gfx_tablet(void) { return gfx_handheld() == 2; }
 int g_grid_adjust;
 int gfx_grid_columns(void)

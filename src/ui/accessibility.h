@@ -4,6 +4,9 @@
 
 struct Screen;
 #define SNTV_ACCESS_EVENT 0x534E4158
+/* A short buzz under the finger, as Android apps give: a long press, a step on a slider or a list moved, a choice made */
+enum { HAPTIC_LONG_PRESS, HAPTIC_TICK, HAPTIC_CONFIRM };
+void ui_haptic(int kind);
 #ifdef SNTV_PLATFORM_ANDROID
 void ui_access_begin(struct Screen *screen);
 void ui_access_text(const char *text, size_t n, float x, float y, float w, float h, int priority);
