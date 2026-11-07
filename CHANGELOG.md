@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.119
+
+- **Your starred release group comes first.** A starred group's release that plays right away (cached on TorBox or in your TorBox, a working link, this episode) now heads the Sources list and is the one recommended, above copies already in your TorBox. One that would need a download first, or whose link is dead, stays first only among its kind.
+- **"Cached on TorBox" instead of "From your TorBox".** The label on torrents TorBox has cached said "your", which read as a copy you had saved; copies in your account still say "In your TorBox".
+- **The screensaver waits while a trailer plays.** A trailer behind Home or the title page, or one played full screen, counts as someone watching, also while it stalls, and the screensaver's wait starts again when it ends. It used to appear the moment a trailer longer than the wait finished.
+- [phone] **The upright player shows the picture again.** Turned upright, the player showed a black band with only the sound, and the subtitles at the bottom of the screen: the video stayed laid out for the whole screen behind the page. It now plays in the band under the top bar, with its subtitles, and fills the screen again when you go back to full screen.
+
 ## 0.10.118
 
 - [phone] **Choose your tab bar.** Settings > Interface > Tab bar: Floating (the pill over the page, now with a soft glow of your accent under the open tab), Compact (a narrower pill of icons where only the open tab names itself) or Classic (a flat bar the full width with an accent line over the open tab). Automatic, the default, is Floating upright and Compact on a wide screen such as a tablet on its side, where the full-width pill stretched too far. The setting shows all three, and no page moves when you change it.
