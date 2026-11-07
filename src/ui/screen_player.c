@@ -55,7 +55,7 @@ enum { MAX_ADDON_SUBS = 64, MAX_TRACKS = 16 };
 enum { MENU_NONE, MENU_AUDIO, MENU_SUBS, MENU_SOURCES, MENU_EPISODES };
 /* Subtitles menu rows: the controls first, then Off and the tracks */
 enum { SUB_CHOOSE, SUB_TIMING, SUB_SIZE, SUB_STYLE, SUB_POS, SUB_SYNC, SUB_OFF, SUB_TRACKS };
-enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_CAST, BTN_PARTY, BTN_COUNT };
+enum { BTN_PREV, BTN_PLAY, BTN_NEXT, BTN_RELOAD, BTN_SUBS, BTN_AUDIO, BTN_ASPECT, BTN_SOURCES, BTN_EXTERNAL, BTN_EPISODES, BTN_SCENES, BTN_STATS, BTN_CAST, BTN_PARTY, BTN_COUNT };
 enum { ASPECT_FIT, ASPECT_FILL, ASPECT_ZOOM, ASPECT_COUNT };
 /* The touch controls over the picture: a phone or tablet's, and a computer's by the mouse
  * (it has no remote: play, seek, tracks and sources are buttons there too). */
@@ -167,6 +167,7 @@ struct Player {
     SubTrack track; int track_loaded; int active_addon_sub;   /* -1 none */
     unsigned sub_req;
     SubTrack track2; int track2_loaded; int active_addon_sub2;   /* second subtitles, drawn above the main ones */
+    char cur_load[1100];   /* the address the video was started on (what another app is handed) */
     SubTrack emb; int emb_app, emb_for, emb_num, emb_taken, emb_tried, emb_buffered, emb_dirty;   /* the film's own text subtitles, drawn by the app from the buffer (emb_app) instead of the TV */
     float emb_off_at; int emb_off_n;   /* the TV's drawing turned off again a few times after the takeover: its pipeline applies a selection late */
     int assign_second;        /* the subtitles menu picks for the second slot */
@@ -2228,6 +2229,7 @@ static void start_candidate(Player *p, int idx, double start)
         LOGI("player: source %d opens where its link led a moment ago (%.*s)", idx + 1, (int)strcspn(hs, "/:?"), hs);
         load = final;
     }
+    snprintf(p->cur_load, sizeof p->cur_load, "%s", load);
     if (video_load(load, p->title, start) != 0) app_toast("Could not start playback");
     if (paused) { video_pause(); p->viewer_paused = 1; }
     free(relayed);
@@ -3889,6 +3891,7 @@ static int bar_buttons(const Player *p, int *ids, const char **labels, Icon *ico
     ids[k] = BTN_ASPECT; labels[k] = "Aspect ratio"; icons[k++] = ICON_ASPECT;
     snprintf(src_label, n, p->n_cands > 1 ? "Sources (%d)" : "Sources", p->n_cands);
     if (!p->trailer) { ids[k] = BTN_SOURCES; labels[k] = src_label; icons[k++] = ICON_SWAP; }   /* a trailer has no sources or episodes */
+    if (!p->trailer && video_external_available()) { ids[k] = BTN_EXTERNAL; labels[k] = "Play in another app"; icons[k++] = ICON_TV; }   /* VLC, MX Player...: from where it is */
     if (n_eps > 1 && !p->trailer) { ids[k] = BTN_EPISODES; labels[k] = "Episodes"; icons[k++] = ICON_LIST; }
     if (!p->trailer && vi.duration > 0) { ids[k] = BTN_SCENES; labels[k] = "Scenes"; icons[k++] = ICON_CLOCK; }
     ids[k] = BTN_STATS; labels[k] = p->stats ? "Hide stats" : "Stats"; icons[k++] = ICON_INFO;
@@ -4027,6 +4030,10 @@ static void bar_activate(Player *p, const VideoInfo *vi)
     case BTN_SCENES: p->scenes_open = 1; p->scenes_focus = scene_now(p, vi->position); p->overlay_until = 0; LOGI("player: scenes rail (%d)", scenes_list(p, vi->duration, NULL, NULL, 0)); break;
     case BTN_STATS: p->stats = !p->stats; break;
     case BTN_CAST: open_cast(p); break;
+    case BTN_EXTERNAL:
+        if (p->cur_load[0] && video_open_external(p->cur_load, p->title ? p->title : "", vi->position)) { video_pause(); p->viewer_paused = 1; LOGI("player: another app was offered this video"); }
+        else app_toast("No other app can play this");
+        break;
     case BTN_PARTY: app_push(screen_party_create(NULL)); return;
     }
     show_overlay(p);

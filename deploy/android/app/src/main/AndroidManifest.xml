@@ -13,6 +13,11 @@
     <!-- updating itself: the new APK goes to Android's installer, which asks before it installs -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- other video apps (VLC, MX Player...): "Play in another app" asks which can take a link -->
+    <queries>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:mimeType="video/*" /></intent>
+    </queries>
+
     <application
         android:label="Cuelight"
         android:icon="@mipmap/ic_launcher"

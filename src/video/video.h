@@ -76,6 +76,10 @@ int  video_pick_text_start(void);                              /* Android: the f
 char *video_pick_text_take(void);                              /* what the picker returned (malloc'd, once), or NULL */
 /* A web page (an addon's settings) in the device's browser: 1 when one opened, else 0. */
 int  video_open_browser(const char *url);
+/* Hand what is playing to another app on this device (Android: VLC, MX Player, Just Player...), from where it is.
+ * available: at least one app can take a video link; open: 1 when the choice was shown. 0 where there is no such way. */
+int  video_external_available(void);
+int  video_open_external(const char *url, const char *title, double position_s);
 /* A YouTube video in the device's own YouTube app (signed in, so YouTube's "are you a bot"
  * check is not ours to pass): 1 when it was handed over. has: there is such an app to try. */
 int  video_has_youtube_app(void);

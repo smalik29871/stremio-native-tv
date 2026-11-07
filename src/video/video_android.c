@@ -16,7 +16,7 @@
 
 enum { M_LOAD, M_PLAY, M_PAUSE, M_SEEK, M_STOP, M_RATE, M_VOLUME, M_MUTED, M_AWAKE, M_RECT, M_SELECT, M_STYLE,
        M_STATUS, M_ERROR, M_CODEC, M_WARNING, M_TRACKS, M_LANDSCAPE, M_DEV_VOL, M_SET_DEV_VOL, M_BRIGHT, M_SET_BRIGHT,
-       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_COUNT };
+       M_INSTALL, M_INSTALL_STATE, M_INSTALL_TEXT, M_PIP_ALLOW, M_PIP_ENTER, M_IN_PIP, M_TAKE_URL, M_MEM_STAGE, M_GLOW_ON, M_GLOW_FRAME, M_SUB_LIFT, M_SHARE, M_PICK, M_TAKE_PICKED, M_EXT_AVAILABLE, M_EXT_OPEN, M_COUNT };
 static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "load", "(Ljava/lang/String;DJ)V" }, { "play", "()V" }, { "pause", "()V" }, { "seek", "(D)V" }, { "stop", "()V" },
     { "setRate", "(D)V" }, { "setVolume", "(I)V" }, { "setMuted", "(Z)V" }, { "setKeepAwake", "(Z)V" }, { "setRect", "(IIII)V" },
@@ -27,7 +27,7 @@ static const struct { const char *name, *sig; } METHODS[M_COUNT] = {
     { "installUpdate", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "installState", "()I" }, { "installText", "()Ljava/lang/String;" },
     { "pipAllow", "(Z)V" }, { "pipEnter", "()Z" }, { "inPip", "()Z" }, { "takeOpenUrl", "()Ljava/lang/String;" },
     { "setMemoryStage", "(I)V" }, { "glowOn", "(Z)V" }, { "glowFrame", "([I)I" }, { "subtitleLift", "(F)V" },
-    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" },
+    { "shareText", "(Ljava/lang/String;Ljava/lang/String;)V" }, { "pickText", "()V" }, { "takePicked", "()Ljava/lang/String;" }, { "externalAvailable", "()Z" }, { "openExternal", "(Ljava/lang/String;Ljava/lang/String;D)Z" },
 };
 static jclass g_cls;
 static jmethodID g_m[M_COUNT];
@@ -144,6 +144,24 @@ char *video_pick_text_take(void)
     return out;
 }
 int video_open_browser(const char *url) { return url && SDL_OpenURL(url) == 0; }   /* 0 where nothing opens web links (some TV boxes) */
+int video_external_available(void)
+{
+    static int known = -1;
+    JNIEnv *e = env();
+    if (!e) return 0;
+    if (known < 0) { known = (*e)->CallStaticBooleanMethod(e, g_cls, g_m[M_EXT_AVAILABLE]) ? 1 : 0; clear(e); }
+    return known;
+}
+int video_open_external(const char *url, const char *title, double position_s)
+{
+    JNIEnv *e = env();
+    if (!e || !url || !*url) return 0;
+    jstring u = (*e)->NewStringUTF(e, url), t = (*e)->NewStringUTF(e, title ? title : "");
+    jboolean ok = (*e)->CallStaticBooleanMethod(e, g_cls, g_m[M_EXT_OPEN], u, t, (jdouble)position_s);
+    (*e)->DeleteLocalRef(e, u); (*e)->DeleteLocalRef(e, t);
+    clear(e);
+    return ok ? 1 : 0;
+}
 int video_has_youtube_app(void) { return 1; }
 int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!youtube_id_valid(id)) return 0; snprintf(out, n, "youtube-embed:%.20s", id); return 1; }
 int video_open_youtube(const char *id)   /* the YouTube app's own link first; a browser takes the page where there is no app */

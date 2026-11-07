@@ -160,6 +160,8 @@ int video_share_text(const char *name, const char *text) { (void)name; (void)tex
 int video_pick_text_start(void) { return 0; }
 char *video_pick_text_take(void) { return NULL; }
 int video_open_browser(const char *url) { (void)url; return 0; }   /* no browser to hand a page to: the phone opens it */
+int video_external_available(void) { return 0; }
+int video_open_external(const char *url, const char *title, double position_s) { (void)url; (void)title; (void)position_s; return 0; }   /* no other app to hand a video to */
 int video_has_youtube_app(void) { return 0; }
 int video_open_youtube(const char *id) { (void)id; return 0; }
 int video_youtube_embed_url(const char *id, char *out, size_t n) { (void)id; (void)out; (void)n; return 0; }

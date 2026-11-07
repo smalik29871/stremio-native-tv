@@ -212,6 +212,8 @@ grep -q "player: subtitles in" "$OUT/player_subs.log" || { echo "the Subtitles s
 run player_subs_files 360 "right,ok,down,down,play,wait" HOME="$(home_with subsfiles '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"subsPreferFiles":1}')"
 grep -q "player: subtitles: the file matched to this video, before its own track" "$OUT/player_subs_files.log" || { echo "with files preferred, the video's own track was kept"; grep -E "subtitles|subs:" "$OUT/player_subs_files.log"; exit 1; }
 run player_audio 400 "right,ok,down,down,play,wait,down,right,right,right,right,ok,down"
+run player_external 400 "right,ok,down,down,play,wait,down,right,right,right,right,right,right,right,ok,wait" SNTV_FAKE_EXTERNAL=1   # the bar's "Play in another app" (after Sources) hands the video, from where it is, to another app and pauses
+grep -q 'video: another app was offered "' "$OUT/player_external.log" && grep -q "player: another app was offered this video" "$OUT/player_external.log" || { echo "Play in another app did not hand the video over"; grep -E "another app|UI check" "$OUT/player_external.log"; exit 1; }
 run player_cue 300 "right,ok,down,down,play,wait" SNTV_FAKE_NO_TEXT_TRACKS=1
 run player_seek 268 "right,ok,down,down,play,wait,right,right,right" SNTV_FAKE_DURATION=1 SNTV_NO_CLIP_CHECK=1
 # an episode watched to the end, the next one not played: the series stays in Continue Watching at the next episode
