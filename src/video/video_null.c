@@ -242,6 +242,8 @@ int video_youtube_embed_url(const char *id, char *out, size_t n) { if (!getenv("
 int video_has_youtube_app(void) { return getenv("SNTV_FAKE_BROWSER") != NULL; }   /* tests: as Android does */
 int video_open_youtube(const char *id) { if (!video_has_youtube_app() || !youtube_id_valid(id)) return 0; LOGI("video: the YouTube app opened %s", id); return 1; }
 int video_open_browser(const char *url) { (void)url; if (!getenv("SNTV_FAKE_BROWSER")) return 0; LOGI("video: a browser opened the page"); return 1; }   /* tests: as Android does */
+int video_external_available(void) { return getenv("SNTV_FAKE_EXTERNAL") != NULL; }   /* tests: as Android does */
+int video_open_external(const char *url, const char *title, double position_s) { (void)url; if (!getenv("SNTV_FAKE_EXTERNAL")) return 0; LOGI("video: another app was offered \"%s\" from %.0f s", title ? title : "", position_s); return 1; }
 void video_pip_allow(int on) { (void)on; }   /* no picture in picture on a TV or the desktop */
 int  video_pip_enter(void) { return 0; }
 int  video_in_pip(void) { return 0; }

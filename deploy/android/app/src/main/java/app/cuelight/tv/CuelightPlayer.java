@@ -140,6 +140,39 @@ public final class CuelightPlayer {
         if (h != null) h.post(() -> { if (h == sMain && sActivity != null) r.run(); });
     }
 
+    /* ---- another app plays it: VLC, MX Player, Just Player and the like, from where this one is ---- */
+
+    private static Intent externalIntent(String url, String title, double position) {
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(Uri.parse(url), "video/*");
+        i.putExtra("title", title);
+        i.putExtra("position", (int) (position * 1000));      // MX Player, VLC (milliseconds)
+        i.putExtra("from_start", false);
+        i.putExtra("return_result", false);
+        return i;
+    }
+    /* at least one app other than this one takes a video link */
+    public static boolean externalAvailable() {
+        try {
+            Activity a = sActivity;
+            if (a == null) return false;
+            for (android.content.pm.ResolveInfo r : a.getPackageManager().queryIntentActivities(externalIntent("http://example.com/v.mp4", "", 0), 0)) {
+                if (r.activityInfo != null && !a.getPackageName().equals(r.activityInfo.packageName)) return true;
+            }
+        } catch (RuntimeException e) { Log.w(TAG, "external players: " + e); }
+        return false;
+    }
+    public static boolean openExternal(final String url, final String title, final double position) {
+        if (sActivity == null) return false;
+        run(() -> {
+            try {
+                if (sPlayer != null) sPlayer.pause();
+                sActivity.startActivity(Intent.createChooser(externalIntent(url, title, position), "Play with"));
+            } catch (RuntimeException e) { Log.w(TAG, "external player: " + e); }
+        });
+        return true;
+    }
+
     private static ExoPlayer player() {
         if (sPlayer != null) return sPlayer;
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()

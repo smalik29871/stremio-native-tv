@@ -1170,6 +1170,8 @@ int video_open_browser(const char *url)
     return SDL_OpenURL(url) == 0;
 }
 int video_has_youtube_app(void) { return 1; }   /* the browser stands in for it */
+int video_external_available(void) { return 0; }
+int video_open_external(const char *url, const char *title, double position_s) { (void)url; (void)title; (void)position_s; return 0; }   /* a computer has its own player: no other app is offered */
 int video_open_youtube(const char *id)
 {
     if (!youtube_id_valid(id)) return 0;

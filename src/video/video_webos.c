@@ -1317,6 +1317,8 @@ int video_share_text(const char *name, const char *text) { (void)name; (void)tex
 int video_pick_text_start(void) { return 0; }
 char *video_pick_text_take(void) { return NULL; }
 int video_open_browser(const char *url) { (void)url; return 0; }   /* no browser to hand a page to: the phone opens it */
+int video_external_available(void) { return 0; }
+int video_open_external(const char *url, const char *title, double position_s) { (void)url; (void)title; (void)position_s; return 0; }   /* no other app to hand a video to */
 /* The launch is accepted at once and answered later: a refusal is only known here */
 static int on_launch_reply(LSHandle *sh, LSMessage *msg, void *ctx)
 {
