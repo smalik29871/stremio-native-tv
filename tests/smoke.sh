@@ -645,7 +645,7 @@ grep -q "whatsnew: updated from an earlier version" "$OUT/sync_kept.log" && grep
   && python3 -I -c "import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if s.get('authKey')=='testkey' and s.get('email')=='sam.rivera@example.com' else 1)" "$KEPT/.local/share/stremio/nativetv/settings.json" \
   || { echo "after the update the Stremio sign-in was not kept"; grep -E "account|library|addons|whatsnew" "$OUT/sync_kept.log"; exit 1; }
 # What's new: once after an update, not again at the next start; About shows what Cuelight is with the same notes
-run whatsnew_update 200 "wait" HOME="$(home_with wn '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"seenVersion":"0.10.1"}')" SNTV_NO_WHATSNEW= SNTV_EXPECT_SCREEN=whatsnew
+run whatsnew_update 200 "wait" HOME="$(home_with wn '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"seenVersion":"0.10.1"}')" SNTV_NO_WHATSNEW= SNTV_WHATSNEW_TEXT="- **A note for everyone.** It reads the same on every device." SNTV_EXPECT_SCREEN=whatsnew
 run whatsnew_again 200 "wait" HOME="$OUT/home_wn" SNTV_NO_WHATSNEW= SNTV_EXPECT_SCREEN=home
 run about 460 "left,down,down,down,down,down,ok,down,down,down,down,down,down,down,down,down,down,right,ok,wait,wait" HOME="$(home_with ab '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_EXPECT_SCREEN=whatsnew
 # ...the TV keeps its own list (one addon down at this start stays on it), and signing in adds this TV's addons to the account

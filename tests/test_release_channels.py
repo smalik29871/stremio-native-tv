@@ -205,8 +205,12 @@ for msg, files, written, label, kind in RELEASES:
 # ---- the release notes --------------------------------------------------------------------------------------------------
 for msg, files, written, label, kind in RELEASES:
     d = scratch(files + (["Cuelight-0.10.101-windows-setup.exe"] if "windows.json" in files else []))
-    shutil.copy(os.path.join(ROOT, "CHANGELOG.md"), d)
-    first = [l for l in open(os.path.join(d, "CHANGELOG.md")) if l.startswith("## 0.")][0].strip()[3:]   # a released version, not the notes so far
+    # notes of its own, for every family, ahead of the real changelog: what the newest real release happens to say
+    # (one phone note, say) must not decide what this checks
+    real = open(os.path.join(ROOT, "CHANGELOG.md")).read()
+    fixture = "## 0.99.0\n\n- **A note for everyone.** It reads the same on every device.\n- [tv] **A TV note.** Only TVs.\n- [phone] **A phone note.** Only phones.\n- [desktop] **A computer note.** Only computers.\n\n"
+    open(os.path.join(d, "CHANGELOG.md"), "w").write(real.replace("# Changelog\n\n", "# Changelog\n\n" + fixture, 1))
+    first = "0.99.0"
     e = base_env(d, msg); e["VERSION"] = first
     r = run("build", "release", "Release notes from CHANGELOG", e, d)
     check(r.returncode == 0, "the notes step runs (%s): %s" % (kind, r.stderr))

@@ -47,6 +47,13 @@ static const char *const ABOUT[] = {
 };
 
 /* the kind of device this is, for the notes that are only for some */
+/* the notes: this build's, or a test's own (SNTV_WHATSNEW_TEXT) so a test does not hang on what the newest release says */
+static const char *notes_text(void)
+{
+    const char *t = getenv("SNTV_WHATSNEW_TEXT");
+    return t && *t ? t : WHATSNEW;
+}
+
 static int device(void)
 {
     if (gfx_handheld()) return NOTE_PHONE;
@@ -136,7 +143,7 @@ Screen *screen_whatsnew_create(int about)
     WhatsNew *w = calloc(1, sizeof *w);
     w->about = about;
     w->notes = calloc(ITEMS_MAX, sizeof *w->notes);
-    w->n = notes_parse(WHATSNEW, device(), w->notes, ITEMS_MAX);
+    w->n = notes_parse(notes_text(), device(), w->notes, ITEMS_MAX);
     s->name = "whatsnew"; s->st = w;
     s->update = update; s->draw = draw; s->key = key; s->destroy = destroy; s->phone = 1;
     return s;
@@ -154,9 +161,9 @@ void app_whatsnew_check(void)
     store_set_str("seenVersion", SNTV_APP_VERSION);
     store_save();
     const char *quiet = getenv("SNTV_NO_WHATSNEW");   /* tests */
-    if (!updated || (quiet && *quiet) || !WHATSNEW[0]) return;
+    if (!updated || (quiet && *quiet) || !notes_text()[0]) return;
     Note *probe = calloc(1, sizeof *probe);
-    int any = probe && notes_parse(WHATSNEW, device(), probe, 1);   /* nothing for this device: not worth an interruption */
+    int any = probe && notes_parse(notes_text(), device(), probe, 1);   /* nothing for this device: not worth an interruption */
     free(probe);
     if (!any) { LOGI("whatsnew: updated from %s to %s, nothing in it for this device", seen ? seen : "an earlier version", SNTV_APP_VERSION); return; }
     LOGI("whatsnew: updated from %s to %s", seen ? seen : "an earlier version", SNTV_APP_VERSION);
