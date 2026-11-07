@@ -397,6 +397,14 @@ static void fetch_start(Streams *st, const Stream *s)
     app_redraw();
 }
 
+/* A starred group's release that plays right away (cached or in your TorBox, a working link, this
+ * episode, within your rules, nothing to download first): it goes above everything, your own copies too */
+static int fav_ready(const Streams *st, const Stream *s)
+{
+    return is_fav(s) && playable(s) && !is_notice(s) && !is_p2p(s) && s->tags.cached >= 0 && !s->headers
+        && !(s->url && app_link_dead(s->url)) && s->probe_state != 4 && !ineligible(st, s);
+}
+
 static long rank(const Streams *st, const Stream *s)
 {
     long r = g_app.quality_mode == QUAL_ADDON_ORDER ? s->addon_order * 10L : (200000L - s->score) * 10L + s->addon_order;
@@ -409,7 +417,8 @@ static long rank(const Streams *st, const Stream *s)
     if (s->headers) r += 3000000L;   /* it asks for request headers the TV's player can't send: after the others */
     { const char *g = ineligible(st, s); if (g && !strcmp(g, "it is another episode")) r += 150000000L; }   /* below every source that is this episode */
     if (s->url && app_link_dead(s->url)) r += 20000000L;
-    if (is_fav(s) && playable(s) && !is_notice(s)) r -= 1000000L;   /* a starred release group: on top among its kind (in the addons' order too), never over a cached copy or past a dead link */
+    if (!st->chaining && fav_ready(st, s)) r -= 90000000L;   /* a starred release group ready to play: first of all, over your own TorBox copies too */
+    else if (is_fav(s) && playable(s) && !is_notice(s)) r -= 1000000L;   /* one that is not ready (to download, a dead link): first among its kind only */
     if (st->chaining) {   /* the next episode: like the one just played, below the working-link penalties */
         int m = same_release(st, s);
         int works = s->tags.cached >= 0 && !(s->url && app_link_dead(s->url)) && !s->headers;
@@ -672,7 +681,7 @@ static void sort_items(Streams *st)
         { int al = has_audio_lang(s); if (al == 2) s->score += 250; else if (al == 1) s->score += 120; else if (al < 0) s->score -= 300; }   /* only another language: a dub */
         if (is_mine(s)) s->score += 1500;           /* your TorBox first: it is what you chose to keep */
         else if (from_torbox(s) && s->tags.cached <= 0) s->score += 150;   /* cached on TorBox: as any cached copy, not above a better one */
-        if (is_fav(s)) s->score += 1000;            /* a starred release group (Green on a source): above any quality difference, never past your rules or a dead link */
+        if (is_fav(s)) s->score += fav_ready(st, s) ? 3000 : 1000;   /* a starred release group (Green on a source): ready to play, recommended over your own TorBox copies too; never past your rules or a dead link */
         if (s->headers) s->score -= 100;            /* needs headers: the relay sends them, the direct link does not */
         if (rule_broken(s)) s->score -= 2000;                            /* Settings > Sources > Rules */
         if (s->url) s->score -= srchealth_penalty(s->url, s->addon_name);   /* servers that keep failing here, at this hour */
@@ -1379,7 +1388,7 @@ static void draw_aperture(Streams *st)
             : quality_warnings(&sm->tags, &g_app.tv, &qp, warn, 1) ? warn[0] : sm->url ? srchealth_note(sm->url, sm->addon_name) : NULL;
         char p2p[48]; snprintf(p2p, sizeof p2p, "P2P on this %s", SNTV_PHONE ? "phone" : "TV");
         if (is_p2p(sm) && sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders);
-        const char *flag = is_mine(sm) ? "In your TorBox" : from_torbox(sm) ? "From your TorBox" : is_p2p(sm) ? p2p : same_release(st, sm) ? "Same release"
+        const char *flag = is_mine(sm) ? "In your TorBox" : from_torbox(sm) ? "Cached on TorBox" : is_p2p(sm) ? p2p : same_release(st, sm) ? "Same release"
             : sm->probe_state == 2 && ok ? "Verified" : NULL;
         int tb = fetching(st, sm);   /* on its way to your TorBox: the same as the other themes show */
         if (tb) { font_draw_fit(st->fetch_note, x + 24, y + 62, FONT_XS | FONT_B, st->fetch_state == 4 ? THEME_DANGER : st->fetch_state == 3 ? THEME_OK : THEME_TEXT, w - 280); note = NULL; }
@@ -1574,7 +1583,7 @@ static void draw(Screen *s)
         }
         char p2p[48];
         if (is_p2p(sm)) { if (sm->tags.seeders > 0) snprintf(p2p, sizeof p2p, "P2P \xC2\xB7 %d seeders", sm->tags.seeders); else snprintf(p2p, sizeof p2p, "P2P on this %s", SNTV_PHONE ? "phone" : "TV"); }
-        const char *flag = is_mine(sm) ? "In your TorBox" : sm->info_hash ? (from_torbox(sm) ? "From your TorBox" : g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
+        const char *flag = is_mine(sm) ? "In your TorBox" : sm->info_hash ? (from_torbox(sm) ? "Cached on TorBox" : g_app.streaming_server ? NULL : is_p2p(sm) ? p2p : "Needs streaming server") : sm->yt_id ? "YouTube" : sm->external_url ? "Opens externally" : NULL;
         if (same_release(st, sm)) flag = "Same release";
         int tb = fetching(st, sm);
         if (tb) flag = st->fetch_note;

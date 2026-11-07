@@ -1176,6 +1176,10 @@ grep -q "player: candidate 1/[0-9]* .* @20[0-9]s" "$OUT/break_paused.log" && gre
 run break_no_saver 900 "right,ok,down,down,play,wait" HOME="$(home_with brkns '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"breaksOn":1,"breakSched":7,"breakCustom1":720}')" SNTV_NOW=12:00+3 SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=break" "$OUT/break_no_saver.log" || { echo "the screensaver covered a break"; grep "UI check" "$OUT/break_no_saver.log"; exit 1; }
 # nor a playing video; only one the viewer paused (a stall webOS reports as a pause is not one)
+# a trailer that plays longer than the screensaver's wait: when it ends the wait starts again (it came the moment a trailer ended)
+run trailer_end_saver 2600 "wait,ok,right,ok" HOME="$(home_with trsaver "$ABOUT_HOME")" SNTV_AMBIENT_SECONDS=3 SNTV_FAKE_DURATION=5
+grep -q "ambient: the video stopped; the screensaver waits 3 s from now" "$OUT/trailer_end_saver.log" && ! grep -Eq "ambient: [0-2] s with nothing pressed or playing" "$OUT/trailer_end_saver.log" \
+  || { echo "the screensaver did not wait again after a trailer ended"; grep -E "ambient|detail: trailer|UI check" "$OUT/trailer_end_saver.log"; exit 1; }
 run player_no_saver 700 "right,ok,down,down,play,wait,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=player" "$OUT/player_no_saver.log" || { echo "the screensaver covered a playing video"; grep "UI check" "$OUT/player_no_saver.log"; exit 1; }
 run player_paused_saver 700 "right,ok,down,down,play,wait,ok,wait" SNTV_FAKE_START=200 HOME="$(home_with pausesaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
@@ -1460,6 +1464,10 @@ grep -q "torbox: F00DF00DF00DF00DF00DF00DF00DF00DF00DF00D added to your TorBox (
   && grep -q "is ready on your TorBox" "$OUT/torbox_get.log" && grep -q "torbox: f00df00df00df00df00df00df00df00df00df00d plays from TorBox" "$OUT/torbox_get.log" \
   && ! grep -q "tbkey" "$OUT/torbox_get.log" && ! grep -q "streams: #[0-9]* .*Netflix" "$OUT/torbox_get.log" \
   || { echo "a torrent was not got onto TorBox and played from there (or a link only another app opens was listed)"; grep -E "torbox|candidate|toast" "$OUT/torbox_get.log"; exit 1; }
+# a starred release group's copy cached on TorBox heads the sources over your own TorBox copy, is recommended and plays first
+run torbox_library_star 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,up,ok,wait" "$TB" HOME="$(home_with tbstar '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey","srcFavGroups":"STAR"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
+grep -q "streams: #1 score [0-9]*  Torrents" "$OUT/torbox_library_star.log" && grep -q "player: candidate 1/[0-9]* Torrents" "$OUT/torbox_library_star.log" \
+  || { echo "a starred group's cached copy did not come before your own TorBox copy"; grep -E "torbox|streams: #|candidate" "$OUT/torbox_library_star.log"; exit 1; }
 # your own TorBox copy of the title heads the sources and plays first, through its direct link (a remake with another year does not match)
 run torbox_library 700 "wait,ok,ok,wait,wait,wait,wait,wait,wait,wait,wait,up,ok,wait" "$TB" HOME="$(home_with tblib '{"prefSubs":"eng","subsAlways":1,"setupDone":1,"torboxKey":"tbkey"}')" SNTV_DEFAULT_ADDONS="http://127.0.0.1:$PORT/manifest.json,http://127.0.0.1:$PORT/tbsrc/manifest.json"
 grep -q "torbox: 1 of your videos matches tt0111161" "$OUT/torbox_library.log" && grep -q "streams: #1 score [0-9]*  My TorBox Your copy" "$OUT/torbox_library.log" \

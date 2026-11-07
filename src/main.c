@@ -224,16 +224,27 @@ static int ambient_due(const Screen *top)
     float limit = idle_after > 0 ? idle_after : g_app.ambient_minutes * 60.0f;
     if (!g_app.ambient_minutes && idle_after <= 0) return 0;
     if (gfx_handheld() && g_charging != 1) return 0;   /* a phone or tablet: only on the charger */
-    if (g_app.time - g_app.last_input < limit) return 0;
+    /* a video playing, loading or stalled (a trailer behind Home or the title page, one in the player) is someone
+     * watching: the wait starts again when it stops, so a trailer that ends or stalls is not taken for an idle TV */
+    if (g_app.time - g_app.last_input < limit) return 0;   /* (the video is asked only past this: once a frame on a TV is not free) */
+    static float busy_at = -1000;
+    static int busy_was;
+    VideoInfo vi;
+    video_info(&vi);
+    int busy = vi.buffering || vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING;
+    if (busy) busy_at = g_app.time;
+    if (busy_was && !busy) LOGI("ambient: the video stopped; the screensaver waits %.0f s from now", limit);
+    busy_was = busy;
+    if (busy) return 0;   /* full screen or in the corner */
+    float since = g_app.time - (g_app.last_input > busy_at ? g_app.last_input : busy_at);
+    if (since < limit) return 0;
     /* nothing takes over a video but a break (which counts down and resumes it itself):
      * not while it plays, stalls or changes source, full screen or in the corner; only
      * once the viewer paused it */
     static const char *const NEVER_UNDER[] = { "ambient", "login", "break", "pin", "update" };
     if (player_holds_screen() || streams_starting()) return 0;   /* nor the next episode on its way */
     for (size_t i = 0; i < sizeof NEVER_UNDER / sizeof *NEVER_UNDER; i++) if (strcmp(top->name, NEVER_UNDER[i]) == 0) return 0;
-    VideoInfo vi;
-    video_info(&vi);
-    if (vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING) return 0;   /* full screen or in the corner */
+    LOGI("ambient: %.0f s with nothing pressed or playing", since);
     return 1;
 }
 

@@ -958,7 +958,7 @@ class H(BaseHTTPRequestHandler):
                     + ([{"name": "Torrents\n720p", "title": "Breaking Bad S01 720p WEB x264-PACK", "infoHash": "CAFE5EED" * 5}] if disc else [])}).encode())
             if p.startswith("/stream/"):
                 return self.send(200, json.dumps({"streams": [
-                    {"name": "Torrents\n1080p", "title": "Movie.2024.1080p.WEB.x264.mkv", "infoHash": "CAFE" * 10, "fileIdx": 1},
+                    {"name": "Torrents\n1080p", "title": "Movie.2024.1080p.WEB.x264-STAR.mkv", "infoHash": "CAFE" * 10, "fileIdx": 1},
                     {"name": "Torrents\n2160p", "title": "Movie.2024.2160p.WEB.x265.mkv", "infoHash": "BEEF" * 10, "fileIdx": 0}]}).encode())
         if p.startswith("/lighter/"):   # 2160p and 480p copies of every video, for the "buffering keeps stopping" offer
             p = p[8:]
