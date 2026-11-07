@@ -1178,7 +1178,7 @@ grep -q "UI check: screen=break" "$OUT/break_no_saver.log" || { echo "the screen
 # nor a playing video; only one the viewer paused (a stall webOS reports as a pause is not one)
 # a trailer that plays longer than the screensaver's wait: when it ends the wait starts again (it came the moment a trailer ended)
 run trailer_end_saver 2600 "wait,ok,right,ok" HOME="$(home_with trsaver "$ABOUT_HOME")" SNTV_AMBIENT_SECONDS=3 SNTV_FAKE_DURATION=5
-grep -q "ambient: the video stopped; the screensaver waits 3 s from now" "$OUT/trailer_end_saver.log" && ! grep -Eq "ambient: [0-2] s with nothing pressed or playing" "$OUT/trailer_end_saver.log" \
+grep -q "ambient: the video stopped; the wait starts again (3 s)" "$OUT/trailer_end_saver.log" && ! grep -Eq "ambient: [0-2] s with nothing pressed or playing" "$OUT/trailer_end_saver.log" \
   || { echo "the screensaver did not wait again after a trailer ended"; grep -E "ambient|detail: trailer|UI check" "$OUT/trailer_end_saver.log"; exit 1; }
 run player_no_saver 700 "right,ok,down,down,play,wait,wait" HOME="$(home_with nosaver '{"prefSubs":"eng","subsAlways":1,"setupDone":1}')" SNTV_AMBIENT_SECONDS=1
 grep -q "UI check: screen=player" "$OUT/player_no_saver.log" || { echo "the screensaver covered a playing video"; grep "UI check" "$OUT/player_no_saver.log"; exit 1; }

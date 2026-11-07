@@ -233,7 +233,7 @@ static int ambient_due(const Screen *top)
     video_info(&vi);
     int busy = vi.buffering || vi.state == VIDEO_PLAYING || vi.state == VIDEO_LOADING;
     if (busy) busy_at = g_app.time;
-    if (busy_was && !busy) LOGI("ambient: the video stopped; the screensaver waits %.0f s from now", limit);
+    if (busy_was && !busy) LOGI("ambient: the video stopped; the wait starts again (%.0f s)", limit);
     busy_was = busy;
     if (busy) return 0;   /* full screen or in the corner */
     float since = g_app.time - (g_app.last_input > busy_at ? g_app.last_input : busy_at);
