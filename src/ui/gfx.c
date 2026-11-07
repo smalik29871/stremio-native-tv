@@ -214,11 +214,14 @@ static float density(void)
 }
 int gfx_portrait(void) { return g_ui_portrait; }
 int gfx_tablet(void) { return gfx_handheld() == 2; }
+int g_grid_adjust;
 int gfx_grid_columns(void)
 {
     if (!SNTV_PHONE) return 7;
     int n = (int)((SNTV_UI_W - 80) / (220 * gfx_font_scale()));
-    return gfx_tablet() && n > 3 ? n : 3;
+    n = gfx_tablet() && n > 3 ? n : 3;
+    n += g_grid_adjust;
+    return n < 2 ? 2 : n > 9 ? 9 : n;
 }
 float gfx_font_scale(void)
 {

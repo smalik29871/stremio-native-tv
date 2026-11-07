@@ -62,7 +62,7 @@ enum { IT_ACCOUNT, IT_SERVER, IT_AUTOPLAY, IT_SKIP, IT_CLOCK, IT_SCRUB, IT_PREF_
        IT_INSTALL, IT_DIAG, IT_REPORT, IT_STORAGE, IT_SETUP, IT_WHATSNEW, IT_ABOUT_APP, IT_THUMBS, IT_PIN, IT_PIN_SETTINGS, IT_HIDE_ADULT, IT_TMDB, IT_MEMORY, IT_TRANSITIONS, IT_PIP, IT_SUBS_SYNC, IT_SUBS_FILES, IT_BUFFER, IT_TV_KB, IT_SUBS_XL, IT_BR_VIDEO, IT_ADDON_WAIT, IT_SRC_AUDIO, IT_SRC_SIZE, IT_SRC_HDR, IT_SRC_CACHED, IT_SRC_EXCLUDE, IT_TVCAP, IT_TRAKT, IT_SIMKL, IT_MDBLIST, IT_OS_KEY, IT_OS_LOGIN, IT_PLAY_LINK, IT_BACKUP, IT_P2P, IT_UPDATE, IT_AUTO_UPDATE, IT_AI_PROVIDER, IT_AI_KEY, IT_AI_BASE, IT_AI_MODEL, IT_AI_EVERY,
        IT_BR_TEST, IT_BR_ON, IT_BR_SCHED, IT_BR_METHOD, IT_BR_ASR, IT_BR_LOCATION, IT_BR_DETECT, IT_BR_TODAY, IT_BR_LEAD, IT_BR_LEN, IT_BR_SOUND, IT_BR_AUDIO, IT_BR_END,
        IT_BR_HEALTH, IT_BR_HEALTH_LEN, IT_BR_BED, IT_BR_CUSTOM1, IT_BR_CUSTOM2, IT_BR_CUSTOM3, IT_BR_WHERE, IT_BG, IT_AMBIENT_STYLE, IT_FIRE_VIDEO, IT_TORBOX, IT_TORBOX_FILES, IT_FIRE_TORBOX, IT_BR_TORBOX, IT_ASK_PROFILE, IT_ISLAND_STYLE, IT_CLOCK_FACE, IT_NIGHT, IT_PALETTE, IT_AMBIENT_DIM, IT_AMBIENT_OFF, IT_ADVISORY, IT_LETTERBOX, IT_DEPTH, IT_SYNC_DEVICES, IT_PARTY, IT_AMBIENT_PREVIEW, IT_FIRE_FREE, IT_HELP, IT_GET_APPS, IT_BROWSE, IT_SUBS_BARS, IT_BETA,
-       IT_SCENES, IT_SCENES_STRENGTH, IT_SCENES_SOURCE, IT_SCENE_NUDITY, IT_SCENE_SEX, IT_SCENE_VIOLENCE, IT_SCENE_LANGUAGE, IT_SCENE_DRUGS, IT_SCENE_FEAR, IT_SRC_FAVS, IT_NAV_STYLE, IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
+       IT_SCENES, IT_SCENES_STRENGTH, IT_SCENES_SOURCE, IT_SCENE_NUDITY, IT_SCENE_SEX, IT_SCENE_VIOLENCE, IT_SCENE_LANGUAGE, IT_SCENE_DRUGS, IT_SCENE_FEAR, IT_SRC_FAVS, IT_NAV_STYLE, IT_POSTER_CORNERS, IT_POSTER_SIZE, IT_SEC_BASE = 900, IT_ROWS_BASE = 1000, IT_ADDON_BASE = 2000, IT_ACCT_BASE = 3000, IT_REC_BASE = 4000 };
 /* Section headings inside a category: rows of their own that focus skips. */
 enum { SEC_STREMIO, SEC_SERVER, SEC_EPISODES, SEC_PLAYER, SEC_LANGS, SEC_SUBS_LOOK, SEC_SUBS_SMART, SEC_RANKING, SEC_STARTING, SEC_FALLBACK,
        SEC_LOOK, SEC_HOME, SEC_MOTION, SEC_SYSTEM, SEC_BR_MAIN, SEC_BR_PLACE, SEC_BR_ALERT, SEC_BR_MORE, SEC_META, SEC_AI, SEC_UPDATES, SEC_HELP, SEC_CUELIGHT, SEC_SUBS_ACCT, SEC_RECOMMENDED, SEC_SCENES, SEC_COUNT };
@@ -171,7 +171,7 @@ static int rows_for(Settings *st, int cat, int *ids, int max)
         break;
     case CAT_INTERFACE:
         SEC(SEC_LOOK); ids[n++] = IT_THEME; ids[n++] = IT_PALETTE; ids[n++] = IT_ACCENT; ids[n++] = IT_BG; ids[n++] = IT_OLED;
-        if (SNTV_PHONE) ids[n++] = IT_NAV_STYLE;
+        ids[n++] = IT_POSTER_CORNERS; if (SNTV_PHONE) { ids[n++] = IT_POSTER_SIZE; ids[n++] = IT_NAV_STYLE; }
         SEC(SEC_HOME); ids[n++] = IT_HOME_STYLE; ids[n++] = IT_CARD_DETAILS; ids[n++] = IT_AUTO_TRAILER; ids[n++] = IT_HIDE_WATCHED; ids[n++] = IT_BLUR;
         SEC(SEC_MOTION); ids[n++] = IT_FX; ids[n++] = IT_TRANSITIONS; ids[n++] = IT_DEPTH;
         SEC(SEC_SYSTEM); ids[n++] = IT_TV_KB; ids[n++] = IT_AMBIENT; if (g_app.ambient_minutes) ids[n++] = IT_AMBIENT_STYLE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_CLOCK) ids[n++] = IT_CLOCK_FACE; if (g_app.ambient_minutes && g_app.ambient_style == AMBIENT_FIRE) { ids[n++] = IT_FIRE_VIDEO; if (torbox_enabled()) ids[n++] = IT_FIRE_TORBOX; ids[n++] = IT_FIRE_FREE; } ids[n++] = IT_AMBIENT_PREVIEW; if (g_app.ambient_minutes) { ids[n++] = IT_AMBIENT_DIM; ids[n++] = IT_AMBIENT_OFF; } ids[n++] = IT_MEMORY;
@@ -306,6 +306,8 @@ static const char *row_title(int id)
     case IT_AUTO_TRAILER: return "Trailers play on their own";
     case IT_HOME_STYLE: return "Home screen";
     case IT_NAV_STYLE: return "Tab bar";
+    case IT_POSTER_CORNERS: return "Poster corners";
+    case IT_POSTER_SIZE: return "Poster size";
     case IT_HIDE_WATCHED: return "Hide watched titles in catalogs";
     case IT_FX: return "Visual effects";
     case IT_OLED: return "Pure black (OLED)";
@@ -415,6 +417,8 @@ static const char *row_desc(int id)
     case IT_PALETTE: return "An accent and a background that go together. Accent and Background below mix your own.";
     case IT_ACCENT: return "Focus, highlights and progress.";
     case IT_HOME_STYLE: return "How much room the focused title's artwork takes.";
+    case IT_POSTER_CORNERS: return "How round the corners of posters and cards are: the theme's own, square, soft or round.";
+    case IT_POSTER_SIZE: return "How many posters fit across Library and Explore: Small fits one more, Large one fewer.";
     case IT_NAV_STYLE: return "Floating is a pill over the page, Compact shows icons and names only the open one, Classic is a full-width bar. Automatic is Floating upright and Compact on a wide screen.";
     case IT_CARD_DETAILS: return "After a moment on a card it widens with the rating, runtime and synopsis; the cards beside it make room.";
     case IT_AUTO_TRAILER: return "When you stay on a title, its trailer plays behind the artwork on Home and the title page, then the artwork comes back.";
@@ -464,7 +468,7 @@ static int row_takes_left(int id)
     case IT_SUBS_WHEN: case IT_CLOCK: case IT_ISLAND_STYLE: case IT_CLOCK_FACE: case IT_QUALITY: case IT_RES_CAP: case IT_SRC_SIZE: case IT_SRC_HDR: case IT_AI_PROVIDER: case IT_MEMORY:
     case IT_BR_SCHED: case IT_BR_METHOD: case IT_BR_ASR: case IT_BR_LEAD: case IT_BR_LEN: case IT_BR_SOUND:
     case IT_BR_HEALTH: case IT_BR_HEALTH_LEN: case IT_BR_BED: case IT_BR_CUSTOM1: case IT_BR_CUSTOM2: case IT_BR_CUSTOM3:
-    case IT_BR_WHERE: case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_NAV_STYLE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_LETTERBOX: case IT_AMBIENT_DIM: case IT_AMBIENT_OFF:
+    case IT_BR_WHERE: case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: case IT_HOME_STYLE: case IT_NAV_STYLE: case IT_POSTER_CORNERS: case IT_POSTER_SIZE: case IT_FX: case IT_AMBIENT: case IT_AMBIENT_STYLE: case IT_LETTERBOX: case IT_AMBIENT_DIM: case IT_AMBIENT_OFF:
         return 1;
     default: return 0;   /* switches and actions: Left goes back to the categories */
     }
@@ -748,6 +752,8 @@ static PreviewKind preview_for(int id)
     case IT_THEME: case IT_PALETTE: case IT_ACCENT: case IT_BG: return PV_THEME;
     case IT_HOME_STYLE: return PV_HOME_STYLE;
     case IT_NAV_STYLE: return PV_NAV_STYLE;
+    case IT_POSTER_CORNERS: return PV_POSTER_CORNERS;
+    case IT_POSTER_SIZE: return PV_POSTER_SIZE;
     case IT_SUBS_SIZE: case IT_SUBS_STYLE: case IT_SUBS_COLOUR: return PV_SUBS;
     case IT_CLOCK: case IT_ISLAND_STYLE: return PV_CLOCK;
     case IT_CLOCK_FACE: return PV_AMBIENT;
@@ -1226,6 +1232,8 @@ static void draw(Screen *s)
             }
             break;
         }
+        case IT_POSTER_CORNERS: draw_row(y, ICON_LIBRARY, "Poster corners", POSTER_CORNER_NAMES[g_app.poster_corners], foc, KIND_CHOICE, 0); break;
+        case IT_POSTER_SIZE: draw_row(y, ICON_LIBRARY, "Poster size", POSTER_SIZE_NAMES[g_app.poster_size], foc, KIND_CHOICE, 0); break;
         case IT_NAV_STYLE: draw_row(y, ICON_LIST, "Tab bar", NAV_STYLE_NAMES[g_app.nav_style], foc, KIND_CHOICE, 0); break;
         case IT_HOME_STYLE: draw_row(y, ICON_HOME, "Home screen", HOME_STYLE_NAMES[g_app.home_style], foc, KIND_CHOICE, 0); break;
         case IT_HIDE_WATCHED: draw_row(y, ICON_EYE, "Hide watched titles in catalogs", NULL, foc, KIND_TOGGLE, g_app.hide_watched); break;
@@ -1819,6 +1827,8 @@ static int adjust(Settings *st, int id, int dir)
         theme_apply(g_app.theme, g_app.theme_accent, g_app.theme_bg);
         break;
     case IT_HOME_STYLE: g_app.home_style = (g_app.home_style + dir + HOME_STYLE_COUNT) % HOME_STYLE_COUNT; break;
+    case IT_POSTER_CORNERS: g_app.poster_corners = (g_app.poster_corners + dir + 4) % 4; g_poster_corners = g_app.poster_corners; app_redraw(); break;
+    case IT_POSTER_SIZE: g_app.poster_size = (g_app.poster_size + dir + 3) % 3; g_grid_adjust = 1 - g_app.poster_size; app_redraw(); break;
     case IT_NAV_STYLE: g_app.nav_style = (g_app.nav_style + dir + NAV_STYLE_COUNT) % NAV_STYLE_COUNT; app_redraw(); break;
     case IT_HIDE_WATCHED: g_app.hide_watched = !g_app.hide_watched; break;
     case IT_TRANSITIONS: g_app.transitions = !g_app.transitions; break;

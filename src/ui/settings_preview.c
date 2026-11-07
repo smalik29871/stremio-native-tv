@@ -235,6 +235,28 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         }
         return;
     }
+    case PV_POSTER_CORNERS: {   /* three posters of each corner choice: the theme's own, square, soft, round */
+        static const float RAD[] = { 0, 2, 10, 22 };
+        float gap = 18, mw = (sw - 3 * gap) / 4, mh = mw * 1.5f;
+        if (mh > sh - 4) { mh = sh - 4; mw = mh / 1.5f; }
+        float my = sy + (sh - mh) / 2, left = sx + (sw - 4 * mw - 3 * gap) / 2;
+        for (int i = 0; i < 4; i++) {
+            float mx = left + i * (mw + gap), r = i ? RAD[i] : g_theme.r_card;
+            art(mx, my, mw, mh, r, i + 1, 0);
+            if (i == g_app.poster_corners) gfx_rrect_ring(mx - 4, my - 4, mw + 8, mh + 8, r + 4, 3, THEME_FOCUS);
+            label(POSTER_CORNER_NAMES[i], mx + mw / 2, base, i == g_app.poster_corners);
+        }
+        return;
+    }
+    case PV_POSTER_SIZE: {   /* a grid of the size chosen */
+        int cols = 5 + (1 - g_app.poster_size) * 2 - 0;
+        float gap = 8, cw = (sw - (cols - 1) * gap) / cols, ch = cw * 1.5f;
+        int rows = (int)((sh + gap) / (ch + gap)); if (rows < 1) rows = 1;
+        for (int r = 0; r < rows; r++)
+            for (int c = 0; c < cols; c++) art(sx + c * (cw + gap), sy + r * (ch + gap), cw, ch, R_CARD * 0.6f, r * cols + c, 0);
+        label(POSTER_SIZE_NAMES[g_app.poster_size], x + w / 2, base, 1);
+        return;
+    }
     case PV_SUBS: {
         art(sx, sy, sw, sh, R_KEY, 1, 0);
         gfx_rrect_grad_v(sx, sy + sh * 0.4f, sw, sh * 0.6f, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0x90));

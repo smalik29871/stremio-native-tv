@@ -3,6 +3,8 @@
 ## Unreleased
 
 - [phone] **Choose your tab bar.** Settings > Interface > Tab bar: Floating (the pill over the page, now with a soft glow of your accent under the open tab), Compact (a narrower pill of icons where only the open tab names itself) or Classic (a flat bar the full width with an accent line over the open tab). Automatic, the default, is Floating upright and Compact on a wide screen such as a tablet on its side, where the full-width pill stretched too far. The setting shows all three, and no page moves when you change it.
+- **Poster corners.** Settings > Interface > Poster corners makes the corners of every poster and card the theme's own, square, soft or round, with a preview of each.
+- [phone] **Poster size.** Settings > Interface > Poster size: Small fits one more poster across Library and Explore, Large one fewer (two across on a phone), with a preview of the grid.
 
 ## 0.10.117
 

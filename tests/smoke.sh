@@ -1638,9 +1638,15 @@ grep -q "rail: the tab bar is Floating" "$OUT/phone_nav_auto_upright.log" || { e
 run phone_nav_auto_tablet 120 "wait,wait" SNTV_WINDOW=1280x800 SNTV_HANDHELD=2 HOME="$(home_with phnt '{"setupDone":1}')"
 grep -q "rail: the tab bar is Compact" "$OUT/phone_nav_auto_tablet.log" || { echo "Automatic was not the compact bar on a wide tablet"; grep -E "gfx|rail" "$OUT/phone_nav_auto_tablet.log"; exit 1; }
 # Settings > Interface > Tab bar: the arrow steps Automatic, Floating, Compact, and the bar of the page behind changes with it
-run phone_nav_setting 420 "wait,wait,tap:107:1664,wait,tap:672:1664,wait,wait,tap:390:912,wait,wait,tap:700:750,wait,tap:700:750,wait,tap:80:76,wait,wait,wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phns '{"setupDone":1}')"
+run phone_nav_setting 420 "wait,wait,tap:107:1664,wait,tap:672:1664,wait,wait,tap:390:912,wait,wait,tap:700:963,wait,tap:700:963,wait,tap:80:76,wait,wait,wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phns '{"setupDone":1}')"
 grep -q "rail: the tab bar is Compact" "$OUT/phone_nav_setting.log" && grep -Eq '"navStyle":[[:space:]]*2' "$OUT/home_phns/.local/share/stremio/nativetv/settings.json" \
   || { echo "the Tab bar setting did not change the bar"; grep -E "rail|UI check" "$OUT/phone_nav_setting.log"; exit 1; }
+# Settings > Interface > Poster corners and Poster size: one step each (Square, Large), kept in the settings
+run phone_poster_setting 420 "wait,wait,tap:107:1664,wait,tap:672:1664,wait,wait,tap:390:912,wait,wait,tap:700:750,wait,tap:700:850,wait,tap:80:76,wait,wait,wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phps '{"setupDone":1}')"
+grep -Eq '"posterCorners":[[:space:]]*1' "$OUT/home_phps/.local/share/stremio/nativetv/settings.json" && grep -Eq '"posterSize":[[:space:]]*2' "$OUT/home_phps/.local/share/stremio/nativetv/settings.json" \
+  || { echo "the poster settings did not change"; cat "$OUT/home_phps/.local/share/stremio/nativetv/settings.json"; exit 1; }
+# Large posters with round corners on Home (a screenshot to look at)
+run phone_poster_large 160 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phpl '{"setupDone":1,"posterSize":2,"posterCorners":3}')"
 # a phone's screensaver is a bedside clock on the charger: none on battery (the phone sleeps on its own timeout)
 run phone_saver_battery 260 "wait,wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 SNTV_CHARGING=0 SNTV_AMBIENT_SECONDS=1 HOME="$(home_with hhsb '{"setupDone":1}')"
 grep -q "power: on battery" "$OUT/phone_saver_battery.log" && ! grep -q "UI check: screen=ambient" "$OUT/phone_saver_battery.log" \

@@ -239,6 +239,13 @@ void theme_apply(int id, int accent_idx, int bg_idx)
     g_theme = t;
 }
 
+int g_poster_corners;
+float theme_card_r(void)
+{
+    static const float R[] = { 0, 2, 10, 22 };
+    return g_poster_corners > 0 && g_poster_corners < 4 ? R[g_poster_corners] : g_theme.r_card;
+}
+
 const unsigned char THEME_PALETTE[THEME_PALETTES][2] = { { 0, 0 }, { 4, 1 }, { 2, 2 }, { 3, 3 }, { 5, 1 }, { 1, 3 } };
 
 int theme_palette_index(int accent_idx, int bg_idx)

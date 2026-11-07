@@ -98,7 +98,9 @@ const char *theme_accent_name(int id, int accent_idx);
 #define THEME_BLUE        RGBA(0x38, 0xBD, 0xF8, 0xFF)
 
 #define THEME_MARGIN 96.0f
-#define R_CARD  (g_theme.r_card)
+extern int g_poster_corners;      /* 0 the theme's own, 1 square, 2 soft, 3 round: Settings > Interface > Poster corners */
+float theme_card_r(void);
+#define R_CARD  (theme_card_r())
 #define R_PANEL (g_theme.r_panel)
 #define R_KEY   (g_theme.r_key)
 

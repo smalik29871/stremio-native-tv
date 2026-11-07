@@ -26,6 +26,7 @@ int  gfx_tablet(void);
 int  gfx_portrait(void);
 float gfx_font_scale(void);
 int  gfx_grid_columns(void);
+extern int g_grid_adjust;   /* poster size: +1 a column more (smaller posters) on a phone or tablet, -1 one fewer (larger) */
 void gfx_update_layout(int width, int height);
 void gfx_shutdown(void);
 

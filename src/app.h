@@ -72,6 +72,8 @@ enum { LB_OFF, LB_GLOW, LB_COLOUR, LB_STYLE_COUNT };
 extern const char *const LB_STYLE_NAMES[LB_STYLE_COUNT];
 extern const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT];
 extern const char *const NAV_STYLE_NAMES[NAV_STYLE_COUNT];
+extern const char *const POSTER_CORNER_NAMES[4];
+extern const char *const POSTER_SIZE_NAMES[3];
 
 typedef struct App {
     Addon *addons; int n_addons;
@@ -137,6 +139,8 @@ typedef struct App {
     int preflight;             /* read the top candidates' headers before recommending */
     int live_scrub;            /* the video follows the seek bar while the key is held */
     int home_style;            /* HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT */
+    int poster_corners;        /* 0 the theme's, 1 square, 2 soft, 3 round */
+    int poster_size;           /* 0 small, 1 standard, 2 large: how many posters a phone or tablet grid fits across */
     int nav_style;             /* NAV_AUTO, NAV_FLOATING, NAV_COMPACT, NAV_CLASSIC: the tab bar of a phone or tablet */
     int hide_watched;          /* catalogs skip titles the library marks watched */
     char *thumb_server;        /* optional seek preview server (tools/thumbs) */

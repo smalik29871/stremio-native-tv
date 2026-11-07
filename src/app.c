@@ -2265,6 +2265,8 @@ static void load_prefs(void)
     g_app.live_scrub = store_get_int("liveScrub", 1);
     g_app.home_style = store_get_int("homeStyle", HOME_CINEMATIC);
     g_app.nav_style = store_get_int("navStyle", NAV_AUTO);
+    g_app.poster_corners = store_get_int("posterCorners", 0);
+    g_app.poster_size = store_get_int("posterSize", 1);
     g_app.hide_watched = store_get_int("hideWatched", 0);
     snprintf(g_app.parental_pin, sizeof g_app.parental_pin, "%.7s", store_get_str("parentalPin", ""));
     g_app.pin_settings = store_get_int("pinSettings", 0);
@@ -2292,6 +2294,9 @@ static void load_prefs(void)
     CLAMP_PREF(g_app.subs_size, 4, 1);
     CLAMP_PREF(g_app.home_style, HOME_STYLE_COUNT, HOME_CINEMATIC);
     CLAMP_PREF(g_app.nav_style, NAV_STYLE_COUNT, NAV_AUTO);
+    CLAMP_PREF(g_app.poster_corners, 4, 0);
+    CLAMP_PREF(g_app.poster_size, 3, 1);
+    g_poster_corners = g_app.poster_corners; g_grid_adjust = 1 - g_app.poster_size;
     CLAMP_PREF(g_app.ai_provider, AI_PROVIDER_COUNT, 0);
     CLAMP_PREF(g_app.memory_mode, 3, 0);
     CLAMP_PREF(g_app.break_sched, BRK_SCHED_COUNT, 0);
@@ -2374,6 +2379,8 @@ void app_save_prefs(void)
     store_set_int("liveScrub", g_app.live_scrub);
     store_set_int("homeStyle", g_app.home_style);
     store_set_int("navStyle", g_app.nav_style);
+    store_set_int("posterCorners", g_app.poster_corners);
+    store_set_int("posterSize", g_app.poster_size);
     store_set_int("hideWatched", g_app.hide_watched);
     store_set_int("pinSettings", g_app.pin_settings);
     store_set_int("askProfile", g_app.ask_profile);
@@ -2708,6 +2715,8 @@ void play_candidates_free(PlayCandidate *c, int n)
 /* ---- shared widgets -------------------------------------------------------- */
 
 const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT] = { "Cinematic", "Showcase", "Compact" };
+const char *const POSTER_CORNER_NAMES[4] = { "Theme", "Square", "Soft", "Round" };
+const char *const POSTER_SIZE_NAMES[3] = { "Small", "Standard", "Large" };
 const char *const NAV_STYLE_NAMES[NAV_STYLE_COUNT] = { "Automatic", "Floating", "Compact", "Classic" };
 const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT] = { "Time", "Day and time", "With seconds", "Small dial" };
 const char *const LB_STYLE_NAMES[LB_STYLE_COUNT] = { "Off", "Glow", "One colour" };
