@@ -49,6 +49,9 @@ static void load(void)
         for (int i = 0; i < VR_PREF_COUNT; i++) if (!strcmp(line, PREF_NAME[i])) g_pref[i] = atoi(eq + 1);
     }
     fclose(f);
+    if (g_pref[VR_PREF_DIST] < 8) g_pref[VR_PREF_DIST] = 8;      /* a file edited by hand or half written: kept in range */
+    if (g_pref[VR_PREF_DIST] > 80) g_pref[VR_PREF_DIST] = 80;
+    if (g_pref[VR_PREF_SIZE] < 0 || g_pref[VR_PREF_SIZE] > 4) g_pref[VR_PREF_SIZE] = 1;
 }
 
 static void save(void)
@@ -79,7 +82,9 @@ int vr_cinema_is_open(void) { return g_open; }
 void vr_cinema_toggle(void) { g_open = !g_open; g_version++; }
 void vr_cinema_close(void) { if (g_open) { g_open = 0; g_version++; } }
 unsigned vr_box_version(void) { return g_version + (g_update_version[0] ? 1u << 20 : 0); }   /* what the box shows changes when an update turns up */
-void vr_box_set_tab(int t) { if (t != g_tab) { g_tab = t; g_version++; } }
+void vr_box_set_tab(int t) { g_tab = t; g_version++; }
+int vr_box_tab(void) { return g_tab; }
+
 int vr_cinema_take_key(void) { int k = g_key; g_key = 0; return k; }
 
 typedef struct { const char *label; int pref; int n; const char *opts[5]; } Row;
@@ -220,7 +225,7 @@ int vr_box_tap(float x, float y)
         const Hit *h = &g_hit[i];
         if (x < h->x || x > h->x + h->w || y < h->y || y > h->y + h->h) continue;
         switch (h->kind) {
-        case K_CHOOSE: vr_pref_set(h->a, h->b); break;
+        case K_CHOOSE: vr_pref_set(h->a, h->b); if (h->a == VR_PREF_SIZE || h->a == VR_PREF_DIST) vr_apply_prefs_again(); break;   /* a tap on the size already marked puts the screen back at it */
         case K_KEY: g_key = h->a; g_version++; break;
         case K_HOME: g_key = VR_KEY_HOME; g_version++; break;
         case K_STEP: vr_screen_step(h->a); g_version++; break;

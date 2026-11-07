@@ -1600,6 +1600,7 @@ int main(int argc, char **argv)
             if (vr_quit_requested()) g_app.quit = 1;
             { static int hinted; if (!hinted && vr_rc >= 0 && frame > 150) { hinted = 1; app_toast("Left menu button: controls (Back, Home, play, screen). B: back. Right stick: screen near and far, big and small."); } }
             must_draw = vr_rc == 1;
+            top = app_top();   /* Back or Home above may have taken the screen away (and freed it): never draw the one fetched before */
         }
 #endif
         if (must_draw) {

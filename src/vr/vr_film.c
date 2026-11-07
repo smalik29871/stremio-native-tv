@@ -87,7 +87,7 @@ static const char *VS =
 /* the film, upright, into the screen's swapchain */
 static const char *FS_FILM =
     "#extension GL_OES_EGL_image_external : require\n"
-    "precision mediump float; varying vec2 v; uniform samplerExternalOES tex; uniform mat4 tm;\n"
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n varying vec2 v; uniform samplerExternalOES tex; uniform mat4 tm;\n"
     "void main() { gl_FragColor = vec4(texture2D(tex, (tm * vec4(v, 0.0, 1.0)).xy).rgb, 1.0); }\n";
 
 /* the picture as a grid of colours: each cell the mean of 36 taps, eased toward the last grid */
@@ -211,9 +211,8 @@ static int setup(void)
 static void fail(const char *why)
 {
     LOGW("vr: the room's light is off: %s", why);
-    F.failed = 1;
+    F.failed = 1;   /* for this run: the choice stays, and the next start tries again */
     if (F.on) { video_vr_tex_drop(); video_vr_direct(); F.on = 0; F.have = 0; }
-    vr_pref_set(VR_PREF_LIGHT, 0);
     app_toast("Room light could not start (%s): the film shows as it is", why);
 }
 
@@ -295,7 +294,6 @@ void vr_film_step(const VideoInfo *vi, float mw, float mh, float dist)
     if (!light && F.on) leave();
     if (!F.on) return;
     Uint32 now = SDL_GetTicks();
-    int playing = vi->state == VIDEO_PLAYING || vi->state == VIDEO_PAUSED;
     Saved sv; save(&sv);
     float m[16];
     if (video_vr_tex_update(m)) {
@@ -312,7 +310,7 @@ void vr_film_step(const VideoInfo *vi, float mw, float mh, float dist)
     if (F.have && F.rooms_ok && F.room_dirty && now - F.room_ms >= 50) room_pass(mw, mh, dist);
     restore(&sv);
     /* a film that plays and shows nothing here: back to the compositor's own surface */
-    if (playing) { if (!F.play_ms) F.play_ms = now; if (F.frames == 0 && now - F.play_ms > 4500) fail("no pictures arrived"); }
+    if (vi->state == VIDEO_PLAYING && vi->width > 0) { if (!F.play_ms) F.play_ms = now; if (F.frames == 0 && now - F.play_ms > 4500) fail("no pictures arrived"); }   /* only a film that is playing shows a picture; a paused one may not yet */
     else F.play_ms = 0;
 }
 

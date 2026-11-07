@@ -87,7 +87,9 @@ int video_load(const char *url, const char *title, double start)
     g_paused_on_purpose = 0;
     if (!e) { g.state = VIDEO_ERROR; snprintf(g.error, sizeof g.error, "The video player did not start on this device"); return -1; }
     g.state = VIDEO_LOADING;
-    { char tag[1100]; snprintf(tag, sizeof tag, "%s %s", title ? title : "", url ? url : ""); const char *vn = vr_video_hint(tag); if (*vn && strcmp(vn, "Flat")) { LOGI("vr: the name says %s", vn); app_toast("View: %s (Y changes it)", vn); } }   /* the headset's view: 3D, 180 or 360 where the name says so */
+    { char tag[1100], nm[512] = "";
+      if (url) { const char *q = url + strcspn(url, "?#"), *sl = q; while (sl > url && sl[-1] != '/') sl--; snprintf(nm, sizeof nm, "%.*s", (int)(q - sl), sl); }   /* the file's own name: a folder or a query of the address says nothing of the film */
+      snprintf(tag, sizeof tag, "%s %s", title ? title : "", nm); const char *vn = vr_video_hint(tag); if (*vn && strcmp(vn, "Flat")) { LOGI("vr: the name says %s", vn); app_toast("View: %s (Y changes it)", vn); } }   /* the headset's view: 3D, 180 or 360 where the name says so */
     jstring u = (*e)->NewStringUTF(e, url);
     (*e)->CallStaticVoidMethod(e, g_cls, g_m[M_LOAD], u, (jdouble)(start > 0 ? start : 0), (jlong)g_loads);
     (*e)->DeleteLocalRef(e, u);

@@ -50,6 +50,8 @@ int  vr_box_tap(float x, float y);        /* canvas units; 1 when it was on a co
 int  vr_box_hover(float x, float y);      /* a number for the control there (0 none), to know when the highlight moved */
 unsigned vr_box_version(void);            /* changes when what the box shows does */
 void vr_box_set_tab(int t);
+int  vr_box_tab(void);
+void vr_apply_prefs_again(void);          /* the size and distance chosen are put on the screen again (it was moved by hand since) */
 int  vr_cinema_take_key(void);            /* the key a button asked for (0 none), taken */
 void vr_screen_step(int id);              /* the screen smaller, bigger, nearer, farther (DOCK_* of vr_internal.h) */
 void vr_shutdown(void);

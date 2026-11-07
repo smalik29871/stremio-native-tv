@@ -58,8 +58,6 @@ int main(void)
     CHECK(NEAR(p[0], 0) && NEAR(p[1], 1.6f) && NEAR(p[2], -2));
     CHECK(NEAR(q[1], 0) && NEAR(fabsf(q[3]), 1));
 
-    if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
-    printf("vr math: ok\n");
     /* angles: straight ahead is yaw 0, pitch 0; to the left is positive; up is positive */
     float yw, pt;
     const float FWD[3] = { 0, 0, -1 }, LF[3] = { -1, 0, 0 }, UP[3] = { 0, 1, 0 };
@@ -107,5 +105,7 @@ int main(void)
       CHECK(NEAR(u, 0.5f + 2.2f / 2.4f) && NEAR(v, 0.5f)); }
     CHECK(!vr_ray_plane_uv(O, BACK, POS, ID, 2.4f, 1.35f, &u, &v, &d));
 
+    if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
+    printf("vr math: ok\n");
     return 0;
 }

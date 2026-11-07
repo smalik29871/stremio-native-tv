@@ -65,7 +65,7 @@ static struct {
     /* where the panel is and how big: moved by hand (the grip), brought back by the menu button */
     float dist, scale, head_pos[3];
     int grab, grab_was;
-    float grab_dist;
+    float grab_dist, grab_off[3];   /* how far the screen is from the hand, and where its middle is from the point the hand aims at (so it does not jump to the aim) */
     XrAction x_click, y_click, squeeze;
     int has_equirect, has_cylinder, has_pass, has_hands;
     int64_t sc_format;
@@ -78,7 +78,7 @@ static struct {
     /* the control box: in front of you while open */
     VrChain box;
     unsigned box_ver;
-    int box_hover_drawn, box_on, box_was_open, box_failed, stick_moved;
+    int box_hover_drawn, box_on, box_was_open, box_failed, stick_moved, box_placed;
     float box_pos[3], box_rot[4], box_px, box_py;
     float yaw, pitch;                 /* where the panel is from the head, as angles */
     int size_applied, dist_applied, bed_applied, follow_on, recenter, auto_key;
@@ -273,7 +273,11 @@ int vr_chain_acquire(VrChain *c)
     if (!xr_ok(xrAcquireSwapchainImage((XrSwapchain)c->handle, &ai, &idx), "xrAcquireSwapchainImage (extra)")) return 0;
     XrSwapchainImageWaitInfo wi = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
     wi.timeout = XR_INFINITE_DURATION;
-    if (!xr_ok(xrWaitSwapchainImage((XrSwapchain)c->handle, &wi), "xrWaitSwapchainImage (extra)")) return 0;
+    if (!xr_ok(xrWaitSwapchainImage((XrSwapchain)c->handle, &wi), "xrWaitSwapchainImage (extra)")) {   /* an image taken and not waited for: given back, or no later one can be taken */
+        XrSwapchainImageReleaseInfo rl = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+        xrReleaseSwapchainImage((XrSwapchain)c->handle, &rl);
+        return 0;
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, c->fbo[idx < (uint32_t)c->n ? idx : 0]);
     glViewport(0, 0, c->w, c->h);
     if (X.srgb_write_off) glDisable(GL_FRAMEBUFFER_SRGB_EXT_);
@@ -303,6 +307,11 @@ static void make_video_surface(JNIEnv *env)
         V.chain = XR_NULL_HANDLE; surf = NULL;
         r = V.create(X.session, &ci, &V.chain, &surf);
     }
+    if (XR_FAILED(r)) {   /* and one with the fields a surface swapchain ignores left at zero */
+        ci.usageFlags = 0; ci.sampleCount = 0; ci.faceCount = 0; ci.arraySize = 0; ci.mipCount = 0;
+        V.chain = XR_NULL_HANDLE; surf = NULL;
+        r = V.create(X.session, &ci, &V.chain, &surf);
+    }
     if (!xr_ok(r, "xrCreateSwapchainAndroidSurfaceKHR") || !surf) { V.chain = XR_NULL_HANDLE; return; }
     V.surface = (*env)->NewGlobalRef(env, surf);
     (*env)->DeleteLocalRef(env, surf);
@@ -316,6 +325,7 @@ int vr_video_mode(void) { return V.mode; }
 
 const char *vr_video_cycle(void)
 {
+    vr_box_set_tab(vr_box_tab());   /* what the box says of the view changes: it is drawn again */
     for (int i = 1; i <= N_MODES; i++) {
         int m = (V.mode + i) % N_MODES;
         if (MODES[m].proj && !X.has_equirect) continue;   /* this runtime has no 180 or 360 */
@@ -460,6 +470,7 @@ static int vr_init_inner(void)
     if (make_swapchain() != 0) return -1;
     if (has_surface) make_video_surface(env);
     X.dist = PANEL_DIST; X.scale = 1.0f;
+    X.size_applied = -2; X.dist_applied = -2; X.bed_applied = -2;   /* nothing applied yet: the saved choices are, on the first frame */
     X.dock_hover = -1; X.dock_pressed = -1; X.dock_hold = -1; X.dock_dh = -2; X.dock_dp = -2; X.dock_dc = -1;
 
     /* the panel's first place, before the head has been located: straight ahead */
@@ -503,6 +514,7 @@ static void place_panel_in_front(XrTime t)
 }
 
 void vr_recenter(void) { X.recenter = 1; }
+void vr_apply_prefs_again(void) { X.size_applied = -2; X.dist_applied = -2; }
 int vr_passthrough_available(void) { return X.has_pass; }
 const char *vr_video_view_name(void) { return MODES[V.mode].name; }
 
@@ -568,16 +580,20 @@ static void poll_events(void)
 
 /* ---- the control box --------------------------------------------------------------------- */
 
+/* how far round the bend of a curved screen reaches: its width over its radius, kept inside what a layer may be (under a full turn) */
+static float cyl_angle(void) { float a = PANEL_M_W * X.scale / X.dist; return a > 5.8f ? 5.8f : a; }
+
 static float box_w(void) { return 1.5f; }
 static float box_h(void) { return box_w() * (float)VR_BOX_H / (float)VR_BOX_W; }
 
 /* in front of you, a little below your eyes, where it was when it was opened */
-static void place_box(XrTime t)
+static int place_box(XrTime t)
 {
     float hp[3], f[3], yaw, pitch;
-    if (!locate_head(t, hp, f)) return;
+    if (!locate_head(t, hp, f)) return 0;
     vr_dir_angles(f, &yaw, &pitch);
     vr_panel_from_angles(hp, yaw, 0, 1.35f, 0.18f, X.box_pos, X.box_rot);
+    return 1;
 }
 
 /* ---- the dock ------------------------------------------------------------------------------ */
@@ -596,8 +612,7 @@ static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ?
 static void set_dist(float d)
 {
     X.dist = clampf(d, 0.8f, 8.0f);
-    vr_pref_set(VR_PREF_DIST, (int)(X.dist * 10 + 0.5f));
-    X.dist_applied = vr_pref(VR_PREF_DIST);
+    X.stick_moved = 1;   /* the file is written when the steps stop (as with the stick), not at every one */
     if (X.panel_placed) put_panel();
 }
 
@@ -665,11 +680,11 @@ static void sync_input(XrTime t)
         vr_rotate(q, fwd, d);
         float u, v, dist;
         int hit = (vr_pref(VR_PREF_CURVED) && X.has_cylinder)
-            ? vr_ray_cylinder(o, d, X.panel_pos, X.panel_rot, X.dist, PANEL_M_W * X.scale / X.dist, PANEL_M_H * X.scale, &u, &v, &dist)
+            ? vr_ray_cylinder(o, d, X.panel_pos, X.panel_rot, X.dist, cyl_angle(), PANEL_M_H * X.scale, &u, &v, &dist)
             : vr_ray_panel(o, d, X.panel_pos, X.panel_rot, PANEL_M_W * X.scale, PANEL_M_H * X.scale, &u, &v, &dist);
         /* the control box, in front of everything while it is open */
         float bu = 0, bv = 0, bd = 0;
-        int on_box = vr_cinema_is_open() && vr_ray_panel(o, d, X.box_pos, X.box_rot, box_w(), box_h(), &bu, &bv, &bd);
+        int on_box = vr_cinema_is_open() && X.box_placed && vr_ray_panel(o, d, X.box_pos, X.box_rot, box_w(), box_h(), &bu, &bv, &bd);
         X.box_on = on_box;
         if (on_box) { X.box_px = ((float)PANEL_PX_W - VR_BOX_W) / 2 + bu * VR_BOX_W; X.box_py = ((float)PANEL_PX_H - VR_BOX_H) / 2 + bv * VR_BOX_H; }
         /* the dock: it shows when the ray is near the bottom of the screen or on it */
@@ -735,6 +750,7 @@ static void sync_input(XrTime t)
             if (!X.grab) {   /* the screen stays as far from the hand as it is */
                 float dx = X.panel_pos[0] - o[0], dy = X.panel_pos[1] - o[1], dz = X.panel_pos[2] - o[2];
                 X.grab_dist = sqrtf(dx * dx + dy * dy + dz * dz);
+                for (int k = 0; k < 3; k++) X.grab_off[k] = X.panel_pos[k] - (o[k] + d[k] * X.grab_dist);
                 X.grab = 1;
             }
             X.grab_dist += sy2 * 1.6f * dt;   /* the stick up pushes it away, down pulls it in */
@@ -746,7 +762,7 @@ static void sync_input(XrTime t)
             float hp[3], hf[3];
             if (locate_head(t, hp, hf)) {   /* the angles and distance from your head, so the screen can keep them when it follows */
                 float lower = vr_pref(VR_PREF_BED) ? 0 : PANEL_LOWER;
-                float v3[3] = { o[0] + d[0] * X.grab_dist - hp[0], o[1] + d[1] * X.grab_dist - hp[1] + lower, o[2] + d[2] * X.grab_dist - hp[2] };
+                float v3[3] = { o[0] + d[0] * X.grab_dist + X.grab_off[0] - hp[0], o[1] + d[1] * X.grab_dist + X.grab_off[1] - hp[1] + lower, o[2] + d[2] * X.grab_dist + X.grab_off[2] - hp[2] };
                 float vl = sqrtf(v3[0] * v3[0] + v3[1] * v3[1] + v3[2] * v3[2]);
                 if (vl > 0.3f) {
                     for (int k = 0; k < 3; k++) v3[k] /= vl;
@@ -872,7 +888,7 @@ int vr_frame_begin(int dirty, int *w, int *h)
     {   static Uint32 prev_ms; Uint32 ms = SDL_GetTicks(); float fdt = prev_ms ? (ms - prev_ms) / 1000.0f : 0.014f; prev_ms = ms; if (fdt > 0.1f) fdt = 0.1f;
         if (!X.panel_placed) place_panel_in_front(X.frame.predictedDisplayTime);
         apply_prefs_and_follow(X.frame.predictedDisplayTime, fdt);
-        { int open = vr_cinema_is_open(); if (open && !X.box_was_open) place_box(X.frame.predictedDisplayTime); X.box_was_open = open; }
+        { int open = vr_cinema_is_open(); if (open && !X.box_was_open) { if (place_box(X.frame.predictedDisplayTime)) X.box_placed = 1; else open = 0; } if (!open) X.box_placed = 0; X.box_was_open = open; }   /* (tracking lost as it opens: tried again next frame, never shown unplaced) */
         pass_sync(); }
     sync_input(X.frame.predictedDisplayTime);
     if (!X.frame.shouldRender || (!dirty && X.ever_released)) return 0;
@@ -1010,7 +1026,7 @@ void vr_frame_end(void)
                     float ax[3], ay[3];
                     vr_rotate(X.panel_rot, AX, ax); vr_rotate(X.panel_rot, AY, ay);
                     if (curved) {   /* the same rectangle on the bend */
-                        float R = X.dist, angFull = mw / R;
+                        float R = X.dist, angFull = cyl_angle();
                         float theta = ((bx + bw * 0.5f) / PANEL_PX_W - 0.5f) * angFull;
                         float qy[4] = { 0, sinf(-theta / 2), 0, cosf(-theta / 2) }, qo[4];
                         const float *a = X.panel_rot;   /* the panel's turn, then the turn about the bend's own vertical */
@@ -1110,7 +1126,7 @@ void vr_frame_end(void)
             pc.pose.orientation.x = X.panel_rot[0]; pc.pose.orientation.y = X.panel_rot[1]; pc.pose.orientation.z = X.panel_rot[2]; pc.pose.orientation.w = X.panel_rot[3];
             pc.pose.position.x = X.panel_pos[0] + az[0] * R; pc.pose.position.y = X.panel_pos[1] + az[1] * R; pc.pose.position.z = X.panel_pos[2] + az[2] * R;
             pc.radius = R;
-            pc.centralAngle = PANEL_M_W * X.scale / R;
+            pc.centralAngle = cyl_angle();
             pc.aspectRatio = (float)PANEL_PX_W / (float)PANEL_PX_H;
             layers[n++] = (const XrCompositionLayerBaseHeader *)&pc;
         } else {
@@ -1127,7 +1143,7 @@ void vr_frame_end(void)
             layers[n++] = (const XrCompositionLayerBaseHeader *)&q;
         }
         /* the control box: in front of everything while it is open */
-        if (vr_cinema_is_open()) {
+        if (vr_cinema_is_open() && X.box_placed) {
             if (!X.box.handle && !X.box_failed && vr_chain_make(&X.box, PANEL_PX_W, PANEL_PX_H) != 0) { X.box_failed = 1; LOGW("vr: no swapchain for the control box"); }
             if (X.box.handle) {
                 int hov = X.box_on ? vr_box_hover(X.box_px, X.box_py) : 0;
