@@ -89,6 +89,20 @@ static struct {
     PFN_xrDestroyPassthroughFB pt_destroy;
     PFN_xrCreatePassthroughLayerFB ptl_create;
     PFN_xrDestroyPassthroughLayerFB ptl_destroy;
+    PFN_xrPassthroughLayerSetStyleFB ptl_style;
+    float pt_dim;                  /* how far the room is dimmed now, 0..1 (1: a film plays) */
+    /* the display's refresh rate matched to the film (XR_FB_display_refresh_rate) */
+    int has_refresh;
+    PFN_xrEnumerateDisplayRefreshRatesFB rates_enum;
+    PFN_xrRequestDisplayRefreshRateFB rate_req;
+    float rates[16]; int n_rates;
+    float rate_menu, rate_asked;   /* the rate the session began with (kept for the menus), the one last asked for */
+    int rate_fps;                  /* the film's frames per second the rate was chosen for (0: none) */
+    /* the compositor's own filtering of the layers (XR_FB_composition_layer_settings, XR_META_automatic_layer_filter) */
+    int has_lsettings, has_autofilter;
+    /* CPU and GPU levels (XR_EXT_performance_settings), and the headset saying it is getting warm */
+    int has_perf, perf_cpu, perf_gpu, hot;
+    PFN_xrPerfSettingsSetPerformanceLevelEXT perf_set;
 } X;
 
 /* The film: ExoPlayer draws into an Android surface that the compositor shows (no copy through
@@ -405,18 +419,28 @@ static int vr_init_inner(void)
         if (!strcmp(ep[i].extensionName, XR_FB_PASSTHROUGH_EXTENSION_NAME)) X.has_pass = 1;
         if (!strcmp(ep[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) has_ht = 1;
         if (!strcmp(ep[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) has_hi = 1;
+        if (!strcmp(ep[i].extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME)) X.has_refresh = 1;
+        if (!strcmp(ep[i].extensionName, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)) X.has_lsettings = 1;
+        if (!strcmp(ep[i].extensionName, XR_META_AUTOMATIC_LAYER_FILTER_EXTENSION_NAME)) X.has_autofilter = 1;
+        if (!strcmp(ep[i].extensionName, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME)) X.has_perf = 1;
     }
+    if (!X.has_lsettings) X.has_autofilter = 0;   /* it only adds a flag to the settings */
     free(ep);
     LOGI("vr: the runtime offers %u extensions (OpenGL ES %s, Android instance %s, video surface %s, 180/360 %s, curved %s, passthrough %s, hands %s)", ne, has_gles ? "yes" : "NO", has_android ? "yes" : "NO", has_surface ? "yes" : "NO", X.has_equirect ? "yes" : "no", X.has_cylinder ? "yes" : "no", X.has_pass ? "yes" : "no", has_ht && has_hi ? "yes" : "no");
     if (!has_gles || !has_android) return -1;
 
-    const char *want[10] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
+    const char *want[16] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME };
     uint32_t n_want = 2;
     if (has_surface) want[n_want++] = XR_KHR_ANDROID_SURFACE_SWAPCHAIN_EXTENSION_NAME;
     if (X.has_equirect) want[n_want++] = XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME;
     if (X.has_cylinder) want[n_want++] = XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME;
     if (X.has_pass) want[n_want++] = XR_FB_PASSTHROUGH_EXTENSION_NAME;
     if (has_ht && has_hi) { want[n_want++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME; want[n_want++] = XR_EXT_HAND_INTERACTION_EXTENSION_NAME; X.has_hands = 1; }
+    if (X.has_refresh) want[n_want++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
+    if (X.has_lsettings) want[n_want++] = XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME;
+    if (X.has_autofilter) want[n_want++] = XR_META_AUTOMATIC_LAYER_FILTER_EXTENSION_NAME;
+    if (X.has_perf) want[n_want++] = XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME;
+    LOGI("vr: refresh rates %s, layer sharpening %s%s, performance levels %s", X.has_refresh ? "yes" : "no", X.has_lsettings ? "yes" : "no", X.has_autofilter ? " (automatic)" : "", X.has_perf ? "yes" : "no");
     XrInstanceCreateInfoAndroidKHR ai = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
     ai.applicationVM = vm; ai.applicationActivity = activity;
     XrInstanceCreateInfo ci = { XR_TYPE_INSTANCE_CREATE_INFO };
@@ -458,6 +482,23 @@ static int vr_init_inner(void)
     XrSessionCreateInfo si = { XR_TYPE_SESSION_CREATE_INFO };
     si.next = &gb; si.systemId = X.system;
     if (!xr_ok(xrCreateSession(X.inst, &si, &X.session), "xrCreateSession")) return -1;
+    if (X.has_refresh) {
+        xrGetInstanceProcAddr(X.inst, "xrEnumerateDisplayRefreshRatesFB", (PFN_xrVoidFunction *)&X.rates_enum);
+        xrGetInstanceProcAddr(X.inst, "xrRequestDisplayRefreshRateFB", (PFN_xrVoidFunction *)&X.rate_req);
+        PFN_xrGetDisplayRefreshRateFB rate_get = NULL;
+        xrGetInstanceProcAddr(X.inst, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction *)&rate_get);
+        uint32_t nr = 0;
+        if (X.rates_enum && X.rate_req && XR_SUCCEEDED(X.rates_enum(X.session, 0, &nr, NULL)) && nr) {
+            if (nr > 16) nr = 16;
+            if (XR_SUCCEEDED(X.rates_enum(X.session, nr, &nr, X.rates))) X.n_rates = (int)nr;
+        }
+        if (rate_get) rate_get(X.session, &X.rate_menu);
+        char list[160] = ""; for (int i = 0; i < X.n_rates; i++) { size_t u = strlen(list); snprintf(list + u, sizeof list - u, "%s%.0f", i ? ", " : "", X.rates[i]); }
+        LOGI("vr: the display runs at %.0f Hz and offers %s", X.rate_menu, X.n_rates ? list : "no other rate");
+        if (!X.n_rates) X.has_refresh = 0;
+    }
+    if (X.has_perf) xrGetInstanceProcAddr(X.inst, "xrPerfSettingsSetPerformanceLevelEXT", (PFN_xrVoidFunction *)&X.perf_set);
+    if (!X.perf_set) X.has_perf = 0;
 
     XrReferenceSpaceCreateInfo rs = { XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
     rs.poseInReferenceSpace.orientation.w = 1;
@@ -480,7 +521,10 @@ static int vr_init_inner(void)
     return 0;
 }
 
-static const float SIZES[4] = { 0.7f, 1.0f, 1.45f, 2.1f };   /* small, cinema, big, huge: a multiple of the first screen's width */
+/* seats, as a share of the view at the starting distance (2.2 m): back row about 35 degrees across, middle 50
+ * (where the eyes take in the whole picture without roaming, and subtitles stay in the lenses' sharp middle),
+ * front row 70, IMAX 90; a multiple of the 2.8 m panel's width */
+static const float SIZES[4] = { 0.50f, 0.73f, 1.10f, 1.57f };
 
 static int locate_head(XrTime t, float pos[3], float dir[3])
 {
@@ -575,6 +619,17 @@ static void poll_events(void)
             }
         } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) X.quit = 1;
         else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) { X.panel_placed = 0; LOGI("vr: recentred, the panel comes back in front of you"); }
+        else if (ev.type == XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB) {
+            const XrEventDataDisplayRefreshRateChangedFB *e = (const XrEventDataDisplayRefreshRateChangedFB *)&ev;
+            LOGI("vr: the display now runs at %.0f Hz (was %.0f)", e->toDisplayRefreshRate, e->fromDisplayRefreshRate);
+        } else if (ev.type == XR_TYPE_EVENT_DATA_PERF_SETTINGS_EXT) {
+            const XrEventDataPerfSettingsEXT *e = (const XrEventDataPerfSettingsEXT *)&ev;
+            int hot = e->toLevel != XR_PERF_SETTINGS_NOTIF_LEVEL_NORMAL_EXT;
+            LOGI("vr: the headset's %s is %s", e->domain == XR_PERF_SETTINGS_DOMAIN_GPU_EXT ? "GPU" : "CPU",
+                 e->toLevel == XR_PERF_SETTINGS_NOTIF_LEVEL_IMPAIRED_EXT ? "too hot: frames will drop" : hot ? "warm" : "back to normal");
+            if (hot && !X.hot && vr_pref(VR_PREF_LIGHT)) { vr_pref_set(VR_PREF_LIGHT, 0); LOGI("vr: the room light goes off to cool the headset"); }
+            X.hot = hot;
+        }
     }
 }
 
@@ -876,6 +931,91 @@ static void pass_sync(void)
     }
 }
 
+/* The display's rate to suit the film: a rate the film's frames divide into evenly (24 fps at 72 Hz, 25 at 100,
+ * 30 and 60 at 60, 90 or 120), so every frame shows for the same time and pans do not judder; the menu's rate
+ * again when nothing plays. Only rates the headset lists, from 60 up. */
+static void refresh_sync(const VideoInfo *vi)
+{
+    if (!X.has_refresh) return;
+    int playing = vi->state == VIDEO_PLAYING || vi->state == VIDEO_PAUSED || vi->buffering;
+    int fps = playing && vi->fps >= 20 && vi->fps <= 120 ? vi->fps : 0;
+    if (fps == X.rate_fps) return;
+    X.rate_fps = fps;
+    float want = X.rate_menu > 0 ? X.rate_menu : 0;
+    if (fps) {
+        double f = (double)fps;   /* 23.976 and 29.97 report as 24 and 30: the same rate suits them */
+        float best = 0;
+        for (int i = 0; i < X.n_rates; i++) {
+            float r = X.rates[i];
+            if (r < 59.5f || r > 120.5f) continue;
+            double k = floor(r / f + 0.5);
+            if (k < 1 || fabs(r - k * f) / r > 0.006) continue;
+            if (!best || r < best) best = r;
+        }
+        if (best) want = best;
+    }
+    if (want <= 0 || fabsf(want - X.rate_asked) < 0.5f) return;
+    if (xr_ok(X.rate_req(X.session, want), "xrRequestDisplayRefreshRateFB")) {
+        X.rate_asked = want;
+        if (fps) LOGI("vr: %d fps film: the display asked for %.0f Hz", fps, want);
+        else LOGI("vr: nothing plays: the display back to %.0f Hz", want);
+    }
+}
+
+/* CPU and GPU levels: low and steady while the compositor shows the film (it does the work), higher for the GPU
+ * while the room is lit from the picture (the app draws every frame then) */
+static void perf_sync(const VideoInfo *vi)
+{
+    if (!X.has_perf) return;
+    int playing = vi->state == VIDEO_PLAYING;
+    int cpu = XR_PERF_SETTINGS_LEVEL_SUSTAINED_LOW_EXT;
+    int gpu = playing && vr_pref(VR_PREF_LIGHT) && !X.hot ? XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT : XR_PERF_SETTINGS_LEVEL_SUSTAINED_LOW_EXT;
+    if (cpu != X.perf_cpu) { X.perf_cpu = cpu; X.perf_set(X.session, XR_PERF_SETTINGS_DOMAIN_CPU_EXT, (XrPerfSettingsLevelEXT)cpu); }
+    if (gpu != X.perf_gpu) {
+        X.perf_gpu = gpu;
+        X.perf_set(X.session, XR_PERF_SETTINGS_DOMAIN_GPU_EXT, (XrPerfSettingsLevelEXT)gpu);
+        LOGI("vr: GPU level %s", gpu == XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT ? "sustained high (the room is lit from the film)" : "sustained low");
+    }
+}
+
+/* The real room through the cameras dims while a film plays and comes back when it pauses, as a cinema's lights do */
+static void pass_dim(const VideoInfo *vi, float dt)
+{
+    if (!X.pt || !X.ptl) { X.pt_dim = -1; return; }
+    if (!X.ptl_style) xrGetInstanceProcAddr(X.inst, "xrPassthroughLayerSetStyleFB", (PFN_xrVoidFunction *)&X.ptl_style);
+    if (!X.ptl_style) return;
+    float want = vi->state == VIDEO_PLAYING ? 1.0f : 0.0f, was = X.pt_dim < 0 ? -1 : X.pt_dim;
+    if (X.pt_dim < 0) X.pt_dim = 0;
+    float step = dt / (want > X.pt_dim ? 2.5f : 1.5f);   /* down over 2.5 s, up over 1.5 s */
+    if (X.pt_dim < want) { X.pt_dim += step; if (X.pt_dim > want) X.pt_dim = want; }
+    else if (X.pt_dim > want) { X.pt_dim -= step; if (X.pt_dim < want) X.pt_dim = want; }
+    if (was >= 0 && fabsf(was - X.pt_dim) < 0.0001f) return;
+    XrPassthroughBrightnessContrastSaturationFB bcs = { XR_TYPE_PASSTHROUGH_BRIGHTNESS_CONTRAST_SATURATION_FB };
+    bcs.brightness = -55.0f * X.pt_dim; bcs.contrast = 1.0f; bcs.saturation = 1.0f - 0.6f * X.pt_dim;
+    XrPassthroughStyleFB st = { XR_TYPE_PASSTHROUGH_STYLE_FB };
+    st.next = &bcs; st.textureOpacityFactor = 1.0f;
+    X.ptl_style(X.ptl, &st);
+}
+
+/* The compositor's filtering, asked for each layer: supersampling against shimmer, and on the film Meta's
+ * sharpening (an upscaler for 720p and 1080p); with automatic filtering the runtime applies them only where they help */
+static XrCompositionLayerSettingsFB g_ls_film = { XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB }, g_ls_text = { XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB };
+static void layer_settings(const XrCompositionLayerBaseHeader **layers, uint32_t n, const void *film_lo, const void *film_hi, const void *skip_lo, const void *skip_hi)
+{
+    if (!X.has_lsettings) return;
+    XrCompositionLayerSettingsFlagsFB aut = X.has_autofilter ? XR_COMPOSITION_LAYER_SETTINGS_AUTO_LAYER_FILTER_BIT_META : 0;
+    g_ls_film.layerFlags = XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB | XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB | aut;
+    g_ls_text.layerFlags = XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB | aut;
+    g_ls_film.next = g_ls_text.next = NULL;
+    for (uint32_t i = 0; i < n; i++) {
+        const void *l = layers[i];
+        if (layers[i]->type == XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB) continue;
+        if ((const char *)l >= (const char *)skip_lo && (const char *)l < (const char *)skip_hi) continue;   /* the room's glow quads: soft on purpose */
+        int film = (const char *)l >= (const char *)film_lo && (const char *)l < (const char *)film_hi;
+        ((XrCompositionLayerQuad *)(void *)l)->next = film ? (const void *)&g_ls_film : (const void *)&g_ls_text;   /* type and next lead every layer struct */
+    }
+}
+
 int vr_frame_begin(int dirty, int *w, int *h)
 {
     X.in_frame = 0; X.acquired = 0;
@@ -919,9 +1059,9 @@ void vr_frame_end(void)
     const XrCompositionLayerBaseHeader *layers[16];
     XrCompositionLayerQuad roomq[VR_ROOM_N], subq, dockq;
     uint32_t n = 0;
-    XrCompositionLayerQuad vq[2], q = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-    XrCompositionLayerEquirect2KHR eq[2];
-    XrCompositionLayerCylinderKHR vc[2], pc;
+    struct { XrCompositionLayerQuad vq[2]; XrCompositionLayerEquirect2KHR eq[2]; XrCompositionLayerCylinderKHR vc[2]; } F;   /* the film's layers, together: they get the film's filtering */
+    XrCompositionLayerQuad q = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+    XrCompositionLayerCylinderKHR pc;
     XrCompositionLayerPassthroughFB pl;
     int curved = vr_pref(VR_PREF_CURVED) && X.has_cylinder;
     if (X.frame.shouldRender && X.pt && X.ptl) {   /* the room, behind everything */
@@ -934,6 +1074,11 @@ void vr_frame_end(void)
     if (X.frame.shouldRender && X.ever_released) {
         /* behind the panel: the film, where there is one on show */
         VideoInfo vi; video_info(&vi);
+        {
+            static Uint32 last; Uint32 now = SDL_GetTicks(); float dt = last ? (now - last) / 1000.0f : 0; last = now;
+            if (dt > 0.1f) dt = 0.1f;
+            refresh_sync(&vi); perf_sync(&vi); pass_dim(&vi, dt);
+        }
         vr_film_step(&vi, PANEL_M_W * X.scale, PANEL_M_H * X.scale, X.dist);   /* the film, the room's light and the subtitles, drawn for this frame */
         const ViewMode *vm = &MODES[V.mode];
         if (vr_pref(VR_PREF_SIZE) == 4 && vi.width > 0 && vi.height > 0) {   /* fit the film: a wide film gets a wider screen, the height stays comfortable */
@@ -997,7 +1142,7 @@ void vr_frame_end(void)
                 if (vm->stereo == 2) { si.imageRect.extent.height = VIDEO_PX_H / 2; si.imageRect.offset.y = half ? VIDEO_PX_H / 2 : 0; }
                 XrEyeVisibility vis = !vm->stereo ? XR_EYE_VISIBILITY_BOTH : (e ? XR_EYE_VISIBILITY_RIGHT : XR_EYE_VISIBILITY_LEFT);
                 if (vm->proj) {   /* the inside of half or all of a sphere around where your head was */
-                    XrCompositionLayerEquirect2KHR *l = &eq[e];
+                    XrCompositionLayerEquirect2KHR *l = &F.eq[e];
                     memset(l, 0, sizeof *l);
                     l->type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
                     l->space = X.local; l->eyeVisibility = vis; l->subImage = si;
@@ -1036,7 +1181,7 @@ void vr_frame_end(void)
                         qo[3] = a[3] * qy[3] - a[0] * qy[0] - a[1] * qy[1] - a[2] * qy[2];
                         static const float AZ[3] = { 0, 0, 1 };
                         float az[3]; vr_rotate(X.panel_rot, AZ, az);
-                        XrCompositionLayerCylinderKHR *c = &vc[e];
+                        XrCompositionLayerCylinderKHR *c = &F.vc[e];
                         memset(c, 0, sizeof *c);
                         c->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
                         c->space = X.local; c->eyeVisibility = vis; c->subImage = si;
@@ -1050,7 +1195,7 @@ void vr_frame_end(void)
                         layers[n++] = (const XrCompositionLayerBaseHeader *)c;
                         continue;
                     }
-                    XrCompositionLayerQuad *l = &vq[e];
+                    XrCompositionLayerQuad *l = &F.vq[e];
                     memset(l, 0, sizeof *l);
                     l->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
                     l->space = X.local; l->eyeVisibility = vis; l->subImage = si;
@@ -1168,6 +1313,7 @@ void vr_frame_end(void)
             }
         }
     }
+    layer_settings(layers, n, &F, (const char *)&F + sizeof F, roomq, (const char *)roomq + sizeof roomq);
     XrFrameEndInfo fe = { XR_TYPE_FRAME_END_INFO };
     fe.displayTime = X.frame.predictedDisplayTime;
     fe.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;

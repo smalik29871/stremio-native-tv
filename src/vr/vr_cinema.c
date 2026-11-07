@@ -90,7 +90,7 @@ int vr_cinema_take_key(void) { int k = g_key; g_key = 0; return k; }
 typedef struct { const char *label; int pref; int n; const char *opts[5]; } Row;
 static const Row ROWS[] = {
     { "Screen", VR_PREF_CURVED, 2, { "Flat", "Curved" } },
-    { "Size", VR_PREF_SIZE, 5, { "Small", "Cinema", "Big", "Huge", "Fit the film" } },
+    { "Seat", VR_PREF_SIZE, 5, { "Back row", "Middle", "Front row", "IMAX", "Fit the film" } },
     { "Follow my head", VR_PREF_FOLLOW, 3, { "Stay", "Lazy", "Always" } },
     { "Lying down", VR_PREF_BED, 2, { "Off", "On" } },
     { "Room", VR_PREF_PASS, 2, { "Dark", "See my room" } },

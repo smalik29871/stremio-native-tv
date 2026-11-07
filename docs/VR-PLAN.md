@@ -211,3 +211,29 @@ and hands the file to Android's installer (the first time Android asks to allow 
 
 The first install has to be sideloaded as before; later ones come from inside. Not checked on a headset: whether
 Horizon OS shows the package installer for an app that asks (the same flow as the phone app's).
+
+### Picture, smoothness and power (from the November 2026 research)
+
+What the best Quest players and Meta's documentation agree on, and what Cuelight now does (each only where the
+headset offers the extension; the log lists which it found):
+
+- **The display's rate follows the film** (XR_FB_display_refresh_rate). 24 fps plays at 72 Hz, 25 at 100 Hz where
+  the headset lists it (Quest 3), 30 and 60 at 60 Hz (allowed for media players) or 90/120, so every frame shows
+  for the same time and pans do not judder. The menu's rate comes back when nothing plays.
+- **The compositor filters the layers** (XR_FB_composition_layer_settings, XR_META_automatic_layer_filter):
+  supersampling against shimmer on every layer, and on the film Meta's sharpening (Quest Super Resolution, an
+  upscaler for 720p and 1080p). With automatic filtering the runtime applies them only where they help.
+- **CPU and GPU levels** (XR_EXT_performance_settings): sustained low while the compositor shows the film, the GPU
+  higher only while the room is lit from the picture. When the headset says it is getting hot, the room light
+  goes off before frames drop.
+- **The real room dims** while a film plays in passthrough (brightness down, colours paler, over 2.5 s) and comes
+  back when it pauses.
+- **Seats instead of sizes**: back row about 35 degrees across, middle 50 (the new default: the eyes take in the
+  whole picture and subtitles stay in the lenses' sharp middle), front row 70, IMAX 90.
+
+Next, in order: a theatre lit by the film (baked light maps for the room plus a few "screen region" light maps
+mixed by the picture's colours, a reflection of the screen on the floor, a glow halo, a projector beam with dust,
+house lights that dim as the film starts); sound placed at the screen with room reverb, following the head;
+choosing streams by what the headset decodes in hardware; Rec.709 colour and HDR tone-mapped for the SDR panels;
+thumb microgestures (play, seek) for lying down; subtitles at the right depth in 3D films; watch-party presence.
+Not for video: Application SpaceWarp and foveation (they touch only the eye buffers, never compositor layers).
