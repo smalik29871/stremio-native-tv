@@ -1,6 +1,7 @@
 #include "rail.h"
 #include "intro.h"
 #include "../app.h"
+#include "../log.h"
 #include "font.h"
 #include "theme.h"
 #include "widgets.h"
@@ -21,35 +22,71 @@ static float item_y(int i)
 
 static int g_rail_active;   /* the section of the rail drawn last, for a tap */
 
-/* A phone held upright: the sections as tabs in a pill floating over the bottom of the page,
- * the page fading out under it; the highlight behind the open tab glides to a new one. */
+/* The style in force: Automatic is the floating pill upright and the compact one on a wide window (a tablet on its side). */
+static int nav_style(void)
+{
+    int st = g_app.nav_style;
+    if (st != NAV_AUTO) return st;
+    return SNTV_UI_W > SNTV_UI_H * 1.1f ? NAV_COMPACT : NAV_FLOATING;
+}
+
+/* A phone or tablet: the sections as five tabs. Floating: a pill over the bottom of the page, the page fading out
+ * under it and the highlight behind the open tab gliding to a new one, with a soft glow of the accent under it.
+ * Compact: a narrower pill of icons, the open one naming itself. Classic: a bar the whole width, flat, an accent
+ * line over the open tab. All three keep the height PHONE_TABS_H takes, so no page moves when the style changes. */
 static void draw_tabs(int active)
 {
     static const int TABS[] = { RAIL_HOME, RAIL_EXPLORE, RAIL_SEARCH, RAIL_LIBRARY, RAIL_SETTINGS };
     static float glide = -1, glide_v, last_t;
+    int style = nav_style();
+    static int logged = -1;
+    if (style != logged) { logged = style; LOGI("rail: the tab bar is %s", NAV_STYLE_NAMES[style]); }
     float W = SNTV_UI_W, m = 28, ph = PHONE_TABS_H - 28, pw = W - 2 * m, px = m, py = SNTV_UI_H - ph - 14;
-    float tw = (pw - 16) / 5;
-    gfx_gradient_v(0, SNTV_UI_H - PHONE_TABS_H - 30, W, PHONE_TABS_H + 30, COLOR_ALPHA(THEME_BG, 0), COLOR_ALPHA(THEME_BG, 0xF0));
-    ui_panel(px, py, pw, ph, ph / 2, COLOR_ALPHA(THEME_BG2, 0xF4));
-    gfx_rrect_ring(px, py, pw, ph, ph / 2, 2, COLOR_ALPHA(THEME_TEXT, 0x16));
+    if (style == NAV_COMPACT) {   /* icons only: a pill as wide as its five tabs, in the middle */
+        float tab = 124;
+        pw = tab * 5 + 16; if (pw > W - 2 * m) pw = W - 2 * m;
+        px = (W - pw) / 2; ph = 104; py = SNTV_UI_H - ph - 28;
+    } else if (style == NAV_CLASSIC) {   /* the whole width, down to the screen's edge */
+        px = 0; pw = W; ph = PHONE_TABS_H - 14; py = SNTV_UI_H - ph;
+    }
+    float tw = (pw - (style == NAV_CLASSIC ? 0 : 16)) / 5, pad = style == NAV_CLASSIC ? 0 : 8;
+    if (style == NAV_FLOATING) gfx_gradient_v(0, SNTV_UI_H - PHONE_TABS_H - 30, W, PHONE_TABS_H + 30, COLOR_ALPHA(THEME_BG, 0), COLOR_ALPHA(THEME_BG, 0xF0));
+    else if (style == NAV_COMPACT) gfx_gradient_v(0, SNTV_UI_H - ph - 90, W, ph + 90, COLOR_ALPHA(THEME_BG, 0), COLOR_ALPHA(THEME_BG, 0xB0));
+    if (style == NAV_CLASSIC) {
+        gfx_rect(px, py, pw, ph, THEME_BG2);
+        gfx_rect(px, py, pw, 2, COLOR_ALPHA(THEME_TEXT, 0x18));
+    } else {
+        ui_panel(px, py, pw, ph, ph / 2, COLOR_ALPHA(THEME_BG2, 0xF4));
+        gfx_rrect_ring(px, py, pw, ph, ph / 2, 2, COLOR_ALPHA(THEME_TEXT, 0x16));
+    }
     int sel = -1;
     for (int i = 0; i < 5; i++) if (TABS[i] == active || (TABS[i] == RAIL_LIBRARY && active == RAIL_CALENDAR)) sel = i;
     if (sel >= 0) {
-        float want = px + 8 + tw * sel, dt = g_app.time - last_t;
+        float want = px + pad + tw * sel, dt = g_app.time - last_t;
         if (dt < 0 || dt > 0.05f) dt = 0.05f;
         last_t = g_app.time;
         if (glide < 0 || g_app.fx_still) { glide = want; glide_v = 0; }
         else glide = ui_ease(glide, want, &glide_v, dt, 16);
         if (SDL_fabsf(glide - want) > 0.5f) app_redraw();
-        gfx_rrect(glide, py + 8, tw, ph - 16, (ph - 16) / 2, COLOR_ALPHA(THEME_TEXT, 0x1C));
+        if (style == NAV_CLASSIC) gfx_rrect(glide + tw * 0.28f, py, tw * 0.44f, 5, 2.5f, THEME_ACCENT);
+        else {
+            float hr = (ph - 16) / 2;
+            if (!g_app.fx_light) gfx_shadow(glide + 6, py + 14, tw - 12, ph - 16, hr, 26, COLOR_ALPHA(THEME_ACCENT, 0x44));   /* the glow under it */
+            gfx_rrect(glide, py + 8, tw, ph - 16, hr, COLOR_ALPHA(THEME_TEXT, 0x1C));
+        }
     }
     for (int i = 0; i < 5; i++) {
         int t = TABS[i], on = i == sel;
-        Color c = on ? THEME_TEXT : THEME_TEXT_MUTED;
-        float cx = px + 8 + tw * i + tw / 2;
-        ui_icon(ICONS[t], cx, py + 44, 40, c);
-        font_draw_center(LABELS[t], cx, py + 74, FONT_XS | FONT_B, c);
-        ui_hit(px + 8 + tw * i, py, tw, ph, HIT_RAIL + t);
+        Color c = on ? (style == NAV_CLASSIC ? THEME_ACCENT : THEME_TEXT) : THEME_TEXT_MUTED;
+        float cx = px + pad + tw * i + tw / 2;
+        if (style == NAV_COMPACT) {   /* the open tab lifts its icon and names itself */
+            ui_icon(ICONS[t], cx, on ? py + 38 : py + ph / 2, on ? 38 : 42, c);
+            if (on) font_draw_center(LABELS[t], cx, py + 62, FONT_XS | FONT_B, c);
+        } else {
+            ui_icon(ICONS[t], cx, py + 44 - (style == NAV_CLASSIC ? 2 : 0), 40, c);
+            font_draw_center(LABELS[t], cx, py + 74 - (style == NAV_CLASSIC ? 2 : 0), FONT_XS | FONT_B, c);
+        }
+        ui_hit(px + pad + tw * i, py, tw, ph, HIT_RAIL + t);
     }
 }
 

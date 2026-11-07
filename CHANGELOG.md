@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- [phone] **Choose your tab bar.** Settings > Interface > Tab bar: Floating (the pill over the page, now with a soft glow of your accent under the open tab), Compact (a narrower pill of icons where only the open tab names itself) or Classic (a flat bar the full width with an accent line over the open tab). Automatic, the default, is Floating upright and Compact on a wide screen such as a tablet on its side, where the full-width pill stretched too far. The setting shows all three, and no page moves when you change it.
+
 ## 0.10.117
 
 - [desktop] **Windows feels like a Windows app.** The window comes back where you left it (size, place, maximised; a place no screen shows is centred). A second launch hands its file or link to the Cuelight that is open instead of starting another, and the taskbar shows playback progress with back, play or pause and next buttons on its thumbnail.

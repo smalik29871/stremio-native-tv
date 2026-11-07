@@ -210,6 +210,31 @@ void settings_preview_draw(PreviewKind kind, float x, float y, float w, float h)
         }
         return;
     }
+    case PV_NAV_STYLE: {   /* the bottom of a phone in each style: the one drawn when Automatic, ringed */
+        float gap = 18, mw = (sw - 3 * gap) / 4, mh = mw * 1.1f, my = sy + (sh - mh) / 2;
+        int on = g_app.nav_style == NAV_AUTO ? (SNTV_UI_W > SNTV_UI_H * 1.1f ? NAV_COMPACT : NAV_FLOATING) : g_app.nav_style;
+        for (int i = 0; i < NAV_STYLE_COUNT; i++) {
+            float mx = sx + i * (mw + gap);
+            int st = i == NAV_AUTO ? on : i;
+            screen(mx, my, mw, mh);
+            mini_rows(mx + 8, my + 8, mw - 16, 1, 3, mh * 0.34f);
+            float by = my + mh - 30, bx = mx + 8, bw = mw - 16, bh = 22;
+            if (st == NAV_COMPACT) { bw *= 0.62f; bx = mx + (mw - bw) / 2; by -= 4; }
+            if (st == NAV_CLASSIC) { bx = mx; bw = mw; by = my + mh - 30; bh = 30; gfx_rect(bx, by, bw, bh, THEME_BG2); }
+            else gfx_rrect(bx, by, bw, bh, bh / 2, THEME_BG2);
+            for (int k = 0; k < 5; k++) {
+                float cx = bx + bw * (k + 0.5f) / 5;
+                if (k == 1) {
+                    if (st == NAV_CLASSIC) gfx_rrect(cx - 7, by, 14, 3, 1.5f, THEME_ACCENT);
+                    else gfx_rrect(cx - bw / 10 + 2, by + 3, bw / 5 - 4, bh - 6, (bh - 6) / 2, COLOR_ALPHA(THEME_TEXT, 0x30));
+                }
+                gfx_circle(cx, by + bh / 2, 3.5f, k == 1 ? THEME_TEXT : COLOR_ALPHA(THEME_TEXT, 0x70));
+            }
+            if (i == g_app.nav_style) chosen_ring(mx, my, mw, mh);
+            label(NAV_STYLE_NAMES[i], mx + mw / 2, base, i == g_app.nav_style);
+        }
+        return;
+    }
     case PV_SUBS: {
         art(sx, sy, sw, sh, R_KEY, 1, 0);
         gfx_rrect_grad_v(sx, sy + sh * 0.4f, sw, sh * 0.6f, R_KEY, COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0), COLOR_ALPHA(RGBA(0, 0, 0, 0xFF), 0x90));

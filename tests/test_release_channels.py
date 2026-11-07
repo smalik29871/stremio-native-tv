@@ -206,7 +206,7 @@ for msg, files, written, label, kind in RELEASES:
 for msg, files, written, label, kind in RELEASES:
     d = scratch(files + (["Cuelight-0.10.101-windows-setup.exe"] if "windows.json" in files else []))
     shutil.copy(os.path.join(ROOT, "CHANGELOG.md"), d)
-    first = [l for l in open(os.path.join(d, "CHANGELOG.md")) if l.startswith("## ")][0].strip()[3:]
+    first = [l for l in open(os.path.join(d, "CHANGELOG.md")) if l.startswith("## 0.")][0].strip()[3:]   # a released version, not the notes so far
     e = base_env(d, msg); e["VERSION"] = first
     r = run("build", "release", "Release notes from CHANGELOG", e, d)
     check(r.returncode == 0, "the notes step runs (%s): %s" % (kind, r.stderr))

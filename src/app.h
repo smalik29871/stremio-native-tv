@@ -61,6 +61,8 @@ typedef struct ChainHint {
 } ChainHint;
 
 enum { HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT, HOME_STYLE_COUNT };
+/* the phone and tablet tab bar: automatic is the floating one upright and the compact one on a wide window */
+enum { NAV_AUTO, NAV_FLOATING, NAV_COMPACT, NAV_CLASSIC, NAV_STYLE_COUNT };
 enum { ISLAND_TIME, ISLAND_DAY, ISLAND_SECONDS, ISLAND_DIAL, ISLAND_STYLE_COUNT };   /* the clock island's styles */
 extern const char *const ISLAND_STYLE_NAMES[ISLAND_STYLE_COUNT];
 enum { AMBIENT_ARTWORK, AMBIENT_WALL, AMBIENT_CLOCK, AMBIENT_LOGO, AMBIENT_FIRE, AMBIENT_AURORA, AMBIENT_RAIN, AMBIENT_MARQUEE,
@@ -69,6 +71,7 @@ extern const char *const AMBIENT_STYLE_NAMES[AMBIENT_STYLE_COUNT];
 enum { LB_OFF, LB_GLOW, LB_COLOUR, LB_STYLE_COUNT };
 extern const char *const LB_STYLE_NAMES[LB_STYLE_COUNT];
 extern const char *const HOME_STYLE_NAMES[HOME_STYLE_COUNT];
+extern const char *const NAV_STYLE_NAMES[NAV_STYLE_COUNT];
 
 typedef struct App {
     Addon *addons; int n_addons;
@@ -134,6 +137,7 @@ typedef struct App {
     int preflight;             /* read the top candidates' headers before recommending */
     int live_scrub;            /* the video follows the seek bar while the key is held */
     int home_style;            /* HOME_CINEMATIC, HOME_SHOWCASE, HOME_COMPACT */
+    int nav_style;             /* NAV_AUTO, NAV_FLOATING, NAV_COMPACT, NAV_CLASSIC: the tab bar of a phone or tablet */
     int hide_watched;          /* catalogs skip titles the library marks watched */
     char *thumb_server;        /* optional seek preview server (tools/thumbs) */
     char parental_pin[8];      /* "" when none */

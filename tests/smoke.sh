@@ -1626,6 +1626,21 @@ run phone_home_showcase 160 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOM
 grep -q "home: the hero shows" "$OUT/phone_home_showcase.log" || { echo "the phone Showcase Home has no hero"; exit 1; }
 run phone_home_compact 160 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phhk '{"setupDone":1,"homeStyle":2}')"
 ! grep -q "home: the hero shows" "$OUT/phone_home_compact.log" || { echo "the phone Compact Home still has a hero"; grep home "$OUT/phone_home_compact.log"; exit 1; }
+# the phone tab bar in each style (Settings > Interface > Tab bar), and a wide window (a tablet) gets the compact one by itself
+run phone_nav_floating 120 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phnf '{"setupDone":1,"navStyle":1}')"
+grep -q "rail: the tab bar is Floating" "$OUT/phone_nav_floating.log" || { echo "the floating tab bar was not drawn"; exit 1; }
+run phone_nav_compact 120 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phnc '{"setupDone":1,"navStyle":2}')"
+grep -q "rail: the tab bar is Compact" "$OUT/phone_nav_compact.log" || { echo "the compact tab bar was not drawn"; exit 1; }
+run phone_nav_classic 120 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phnk '{"setupDone":1,"navStyle":3}')"
+grep -q "rail: the tab bar is Classic" "$OUT/phone_nav_classic.log" || { echo "the classic tab bar was not drawn"; exit 1; }
+run phone_nav_auto_upright 120 "wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phna '{"setupDone":1}')"
+grep -q "rail: the tab bar is Floating" "$OUT/phone_nav_auto_upright.log" || { echo "Automatic was not the floating bar upright"; exit 1; }
+run phone_nav_auto_tablet 120 "wait,wait" SNTV_WINDOW=1280x800 SNTV_HANDHELD=2 HOME="$(home_with phnt '{"setupDone":1}')"
+grep -q "rail: the tab bar is Compact" "$OUT/phone_nav_auto_tablet.log" || { echo "Automatic was not the compact bar on a wide tablet"; grep -E "gfx|rail" "$OUT/phone_nav_auto_tablet.log"; exit 1; }
+# Settings > Interface > Tab bar: the arrow steps Automatic, Floating, Compact, and the bar of the page behind changes with it
+run phone_nav_setting 420 "wait,wait,tap:107:1664,wait,tap:672:1664,wait,wait,tap:390:912,wait,wait,tap:700:750,wait,tap:700:750,wait,tap:80:76,wait,wait,wait,wait" SNTV_WINDOW=450x1000 SNTV_HANDHELD=1 HOME="$(home_with phns '{"setupDone":1}')"
+grep -q "rail: the tab bar is Compact" "$OUT/phone_nav_setting.log" && grep -Eq '"navStyle":[[:space:]]*2' "$OUT/home_phns/.local/share/stremio/nativetv/settings.json" \
+  || { echo "the Tab bar setting did not change the bar"; grep -E "rail|UI check" "$OUT/phone_nav_setting.log"; exit 1; }
 # a phone's screensaver is a bedside clock on the charger: none on battery (the phone sleeps on its own timeout)
 run phone_saver_battery 260 "wait,wait,wait" SNTV_WINDOW=1920x864 SNTV_HANDHELD=1 SNTV_CHARGING=0 SNTV_AMBIENT_SECONDS=1 HOME="$(home_with hhsb '{"setupDone":1}')"
 grep -q "power: on battery" "$OUT/phone_saver_battery.log" && ! grep -q "UI check: screen=ambient" "$OUT/phone_saver_battery.log" \
