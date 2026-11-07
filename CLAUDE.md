@@ -27,5 +27,8 @@
 - A release for some devices only: `0.10.111 [tv]: ...`, `[mobile]` or `[desktop]` (any together; no flag is every
   family). See docs/RELEASE-CHANNELS.md.
 - Wait for the owner's go-ahead before a release commit.
+- Write the version's CHANGELOG.md section before the release commit: each change in plain words, what it does for
+  the person using it, tagged `[phone]`, `[tv]` or `[desktop]` where it is for one family. "Stability fixes" is not a
+  note, and the release workflow refuses it. The commit message names the same headlines.
 - A release goes out as a beta: devices with Settings > About > Beta updates on get it first.
   It goes to everyone only when the owner runs the Promote workflow with its version.

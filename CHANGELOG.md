@@ -2,63 +2,78 @@
 
 ## 0.10.117
 
-- **Stability fixes.**
+- [desktop] **Windows feels like a Windows app.** The window comes back where you left it (size, place, maximised; a place no screen shows is centred). A second launch hands its file or link to the Cuelight that is open instead of starting another, and the taskbar shows playback progress with back, play or pause and next buttons on its thumbnail.
+- [desktop] **More player keys.** Ctrl+S or F12 saves a PNG of the screen to Pictures/Cuelight, E repeats a section, T is a sleep timer (15 to 90 minutes, or the end of the episode), W keeps the window above the others in a corner, and a file or link dropped on the window plays.
+- [desktop] **Your sign-ins are sealed.** The sign-in and service keys in settings.json are encrypted with Windows DPAPI; an older plain file is sealed at its next save.
+- **Settings > About > Report a problem.** Saves this session's log with the private parts removed and opens the issue page, so a bug report carries what is needed.
+- **Light effects keep the motion.** Glides, fades and the page slide stay, without shadows, glows or glass, and pause themselves where frames still drop.
 
 ## 0.10.116
 
-- **Stability fixes.**
+- [desktop] **Pairing on Windows works.** A device found on the network showed the address 192.0.0.0, so Sync with another device could not pair. It now keeps its real address.
 
 ## 0.10.115
 
-- **Stability fixes.**
+- [tv] **Sources without the colour keys.** A remote reaches the search (Up from the list) and a source's star (Right, then OK) without the coloured buttons, Sources has a visible Search button, and the hints say how.
 
 ## 0.10.114
 
-- **Stability fixes.**
+- [phone] **A phone starts a video full screen again.** It opens sideways, as before; the upright view is one tap away, and the screen orientation is logged.
+- [phone] **The resume card waits for the keyboard.** While a keyboard is up the card stays out of the way, so Search remains tappable (the first-touch tip does too).
 
 ## 0.10.113
 
-- **Stability fixes.**
+- **Search the Sources list.** Yellow filters the list so only what matches shows, and Back clears it.
+- **Favourite release groups.** Green stars a source's release group, so that group's releases come first for every title; starred groups are listed in Settings > Sources > Rules.
 
 ## 0.10.112
 
-- **Stability fixes.**
+- [desktop] **Mouse and keyboard fixes.** Search and paste shortcuts work in the player and in text fields, a double-click on the picture toggles full screen without changing playback, clicks on controls stay on them, and a right-click on empty space no longer acts on the item focused before.
+- [desktop] **Scrolling and windows.** Trackpad scrolling keeps fractional movement and its direction, the audio and subtitle columns scroll on their own, open track panels keep keyboard navigation, and windows follow the display scaling with a first size that fits the usable screen.
+- [desktop] **Playback accuracy.** Speed controls the desktop player cannot honour are hidden, holding the mouse no longer reports double speed, and seeking a very short clip stays in range.
 
 ## 0.10.111
 
-- **Stability fixes.**
+- [phone] **Typing works on Android again.** The device keyboard returns in sign-in and settings, and release notes scroll by touch.
+- [phone] **Tablets get tablet layouts.** Grids, Settings and title pages adapt to the window, sizes refresh after resizing or unfolding, and controls stay clear of system bars and camera cutouts. Tab history stays bounded while each section keeps its place.
+- [phone] **Portrait playback and accessibility.** A video can play upright with a full-screen option, screen readers get labels and actions, Android's text size is followed, and playback pauses for audio interruptions and when headphones disconnect.
 
 ## 0.10.110
 
-- **Stability fixes.**
+- **TVs with memory to spare keep more artwork.** It is given back for video and when memory shrinks, and the screensaver falls back to the clock only while memory is tight right now; your chosen one returns when there is room.
 
 ## 0.10.109
 
-- **Stability fixes.**
+- **Skip intro and recap come back after a rewind** into them.
+- [desktop] **A computer's keyboard works like YouTube, VLC and mpv.** J/L, 0-9, < >, C/V, B and A, with ? opening the key list. A failed read after a seek is asked again (three times) before the source is given up, and the speed keys say so when the player cannot change speed.
+- **Cleaner subtitles.** Look-alike and escaped tags are cleaned, an LG track with raw tags is drawn by the app instead of the TV, and the Android player cleans its cues too.
+- **Explore opens on a list with genres.**
 
 ## 0.10.108
 
-- **Stability fixes.**
+- **Search has its own QWERTY keyboard.** It has a digit row, ten keys across, and is fitted to the space it has.
 
 ## 0.10.107
 
-- **Stability fixes.**
+- [phone] **Type with Cuelight's own keyboard.** Phones and tablets can use it instead of the device's (also upright), with no system keyboard over it on Android. The key a no longer shares its touch id with the trailer sound.
 
 ## 0.10.106
 
-- **Stability fixes.**
+- **One subtitle cleaner for every line.** Whichever way a line arrived, {\an8}, tags with no end, escaped braces and HTML tags never show.
 
 ## 0.10.105
 
-- **Stability fixes.**
+- **Find more sources answers sooner.** It lists what has answered after 4 seconds instead of waiting for the slowest addon, a resumed title's sources are fetched ahead, ten network threads work at once, and each addon's answer time is in the log.
+- [tv] **Search with the TV's keyboard.** Down reaches the recent searches and suggestions even after the TV closes its keyboard.
 
 ## 0.10.104
 
-- **Stability fixes.**
+- **A crash on actor pages is fixed.** Opening an actor with 24 or more credits could crash the title page's search, and a crash report now says where in the code it happened.
+- **A slow addon no longer holds up a title page.** The built-in catalog is asked beside it after 3 seconds, and Sources opens without waiting for the details.
 
 ## 0.10.103
 
-- **Stability fixes.**
+- **Pause screen shows the audience score.** What someone on Trakt said is switched off; the Popcornmeter, the audience's score, sits in the corner instead.
 
 ## 0.10.102
 

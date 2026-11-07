@@ -413,6 +413,10 @@ jobs:
           # grouped by the device each note is for (a [phone], [tv] or [desktop] tag in CHANGELOG.md); a release for some
           # families lists the notes of those and everyone's
           python3 tools/release_notes.py "$VERSION" --for "$FAM_FOR" > notes.md
+          # a release says what changed: the generic line is not a note
+          if ! grep -q '[a-z]' notes.md || grep -qi 'stability fixes' notes.md; then
+            echo "::error::CHANGELOG.md has no real notes for $VERSION (write what changed, per device, before the release commit)"; exit 1
+          fi
           {
             if [ "$FAM_ALL" != 1 ]; then
               echo
