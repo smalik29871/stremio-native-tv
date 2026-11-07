@@ -117,6 +117,7 @@ struct Player {
     float ph_scroll, ph_t;    /* the list's scroll, and when it last drew */
     UiPan ph_pan;
     float ph_pic[4], fs_barr[4];   /* where the picture and the bar are, in canvas units */
+    int ph_rect[4];                /* the upright picture's place in pixels, as last given to the video (0 wide: the whole screen) */
     float fs_until;           /* sideways on a phone: the controls show until */
     float fs_k, fs_kt;        /* how far they have come in (0..1), eased, and when it last moved */
     int ph_locked; float pinch_d, pinch_at, pinch_hint_at;   /* a phone: touches locked out (but the unlock); a pinch under way; the pinch hint shown at */
@@ -6888,6 +6889,15 @@ static void portrait_draw(Player *p, const VideoInfo *vi)
     ui_access_text("Full screen", 0, bx, 30, bw, 80, 2);
     p->ph_pic[0] = 0; p->ph_pic[1] = 140; p->ph_pic[2] = W; p->ph_pic[3] = vh;
     draw_video_area(p, 0, 140, W, vh);
+    {   /* the video (and the device's own subtitles) in the band under the bar, not behind the page: a black band and sound only otherwise */
+        int px, py, pw, ph;
+        gfx_ui_to_pixels(0, 140, W, vh, &px, &py, &pw, &ph);
+        if (px != p->ph_rect[0] || py != p->ph_rect[1] || pw != p->ph_rect[2] || ph != p->ph_rect[3]) {
+            p->ph_rect[0] = px; p->ph_rect[1] = py; p->ph_rect[2] = pw; p->ph_rect[3] = ph;
+            video_set_display_rect(px, py, pw, ph);
+            LOGI("player: upright picture %dx%d at %d,%d", pw, ph, px, py);
+        }
+    }
     draw_subtitle(p, vi);
     if (vi->state == VIDEO_LOADING || vi->buffering) { ui_spinner(W / 2, 140 + vh / 2, 26); app_redraw(); }
     float cy = 140 + vh + 70;
@@ -6922,6 +6932,11 @@ static void portrait_draw(Player *p, const VideoInfo *vi)
 static void full_draw(Player *p, const VideoInfo *vi)
 {
     float W = SNTV_UI_W, H = SNTV_UI_H;
+    if (p->ph_rect[2] && !p->pip) {   /* back from upright: the whole screen again */
+        p->ph_rect[0] = p->ph_rect[1] = p->ph_rect[2] = p->ph_rect[3] = 0;
+        apply_aspect(p);
+        LOGI("player: the picture fills the screen again");
+    }
     p->ph_pic[0] = 0; p->ph_pic[1] = 0; p->ph_pic[2] = W; p->ph_pic[3] = H;
     int rec = recovering(p, vi), shown = fs_shown(p, vi), failed = error_final(p, vi);
     if (failed) {
@@ -7461,6 +7476,7 @@ static void destroy(Screen *s)
     if (p->tb_waiting) { cand_drop(&p->tb_wait); p->tb_waiting = 0; }
     if (!p->start_timed) perf_start_cancel();   /* left before its first frame: not a start */
     if (p->bright >= 0) video_set_brightness(-1);   /* the screen's brightness is the system's again */
+    if (p->ph_rect[2]) { int w, h; gfx_drawable_size(&w, &h); video_set_display_rect(0, 0, w, h); }   /* closed upright: the next video fills the screen */
     if (p->tch_fast) video_set_rate(1.0);   /* closed with a finger still holding it fast */
     video_pip_allow(0);
     party_player_close(&p->party);

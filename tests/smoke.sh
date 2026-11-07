@@ -1734,6 +1734,8 @@ run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXP
 # a phone held upright: the player always starts full screen (sideways only), not in the small upright window
 run phone_player_sideways 420 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with phpl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "display: sideways only" "$OUT/phone_player_sideways.log" || { echo "the player did not start full screen on a phone held upright"; grep -E "display:|screen:" "$OUT/phone_player_sideways.log"; exit 1; }
+# drawn upright (the test window cannot turn), the video goes into the band under the top bar: it was left behind the page (sound only)
+grep -q "player: upright picture 450x253 at 0,81" "$OUT/phone_player_sideways.log" || { echo "the upright player did not place the video in its band"; grep -E "player: (upright|the picture)|display:" "$OUT/phone_player_sideways.log"; exit 1; }
 # The main screens on other devices than the TV, a phone and a sideways phone (tablets, a small phone, a normal Android phone, a big window):
 # each draws and lands on the screen asked for (a screenshot to look at, and the layout code's own checks). Upright ones have the tab bar
 # at the foot (a tap on it), the others the rail (keys)
