@@ -1,23 +1,28 @@
-/* The headset's own controls: a sheet drawn over the screens (the left menu button opens it) with what
- * only a headset has: the screen's shape and size, how far away it is, whether it follows your head or
- * lets you lie down under it, a room to see or a dark one. What is chosen is kept in vr.cfg next to the
- * app's settings. Drawn by the app's own renderer into the panel, pointed at like any screen. */
+/* The headset's own controls: a box that floats in front of you when the left menu button is pressed (and goes
+ * when it is pressed again), drawn by the app's own renderer into a layer of its own (vr_openxr.c places it and
+ * points at it). Two pages: what to do now (back, home, search, play, seek, next episode, the screen's size and
+ * distance) and how things are (the screen's shape and size, whether it follows your head or lets you lie down
+ * under it, a room to see or a dark one, the room's light, the subtitles' depth, 3D eyes). What is chosen is kept
+ * in vr.cfg next to the app's settings. */
 #ifdef SNTV_VR
 
 #include "vr.h"
+#include "vr_internal.h"
 #include "../log.h"
 #include "../platform/platform.h"
 #include "../ui/gfx.h"
 #include "../ui/font.h"
+#include "../ui/input.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <GLES3/gl3.h>
 
 static int g_pref[VR_PREF_COUNT] = { 0, 1, 0, 0, 0, 22, 1, 1, 0 };   /* flat, cinema size, stay, upright, dark room, 2.2 m, soft light, subtitles in front, eyes as they are */
-static int g_loaded, g_open;
-static float g_open_t;       /* 0 closed .. 1 open, eased */
+static int g_loaded, g_open, g_tab, g_key;
+static unsigned g_version = 1;
 
 static const char *PREF_NAME[VR_PREF_COUNT] = { "curved", "size", "follow", "bed", "pass", "dist", "light", "subs", "eyes" };
 
@@ -65,12 +70,16 @@ void vr_pref_set(int which, int value)
     load();
     if (which < 0 || which >= VR_PREF_COUNT || g_pref[which] == value) return;
     g_pref[which] = value;
+    g_version++;
     save();
 }
 
 int vr_cinema_is_open(void) { return g_open; }
-void vr_cinema_toggle(void) { g_open = !g_open; }
-void vr_cinema_close(void) { g_open = 0; }
+void vr_cinema_toggle(void) { g_open = !g_open; g_version++; }
+void vr_cinema_close(void) { if (g_open) { g_open = 0; g_version++; } }
+unsigned vr_box_version(void) { return g_version; }
+void vr_box_set_tab(int t) { if (t != g_tab) { g_tab = t; g_version++; } }
+int vr_cinema_take_key(void) { int k = g_key; g_key = 0; return k; }
 
 typedef struct { const char *label; int pref; int n; const char *opts[5]; } Row;
 static const Row ROWS[] = {
@@ -85,95 +94,135 @@ static const Row ROWS[] = {
 };
 #define N_ROWS ((int)(sizeof ROWS / sizeof ROWS[0]))
 
-/* where things were drawn this frame, so a tap can find them */
-typedef struct { float x, y, w, h; int kind, a, b; } Hit;   /* kind 1 choose (a pref, b value), 2 dist minus, 3 dist plus, 4 view, 5 recenter, 6 close, 7 open */
-static Hit g_hit[40];
-static int g_n_hit;
+/* what each control does */
+enum { K_CHOOSE = 1, K_KEY, K_STEP, K_VIEW, K_CENTER, K_CLOSE, K_TAB, K_HOME, K_CURVE };
 
-static void hit(float x, float y, float w, float h, int kind, int a, int b)
+typedef struct { float x, y, w, h; int kind, a, b; } Hit;
+static Hit g_hit[64];
+static int g_n_hit;
+static float g_px = -1, g_py = -1;
+
+static int hit_sig(const Hit *h) { return h->kind * 1000 + h->a * 10 + h->b + 1; }
+
+static void chip_ex(float x, float y, float w, float h, const char *text, int on, int kind, int a, int b, int size)
 {
+    int hov = g_px >= x && g_px <= x + w && g_py >= y && g_py <= y + h;
+    Color fill = on ? (hov ? RGBA(0x6F, 0xA0, 0xFF, 0xFF) : RGBA(0x4F, 0x8C, 0xFF, 0xFF)) : hov ? RGBA(0x3B, 0x44, 0x58, 0xFF) : RGBA(0x24, 0x29, 0x35, 0xFF);
+    gfx_rrect(x, y, w, h, h / 2 > 40 ? 40 : h / 2, fill);
+    Color fg = on || hov ? RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RGBA(0xD2, 0xD8, 0xE4, 0xFF);
+    font_draw_center(text, x + w / 2, y + (h - font_height(size)) / 2, size | (on ? FONT_B : 0), fg);
     if (g_n_hit < (int)(sizeof g_hit / sizeof g_hit[0])) g_hit[g_n_hit++] = (Hit){ x, y, w, h, kind, a, b };
 }
+static void chip(float x, float y, float w, float h, const char *text, int on, int kind, int a, int b) { chip_ex(x, y, w, h, text, on, kind, a, b, FONT_S); }
+static void big(float x, float y, float w, float h, const char *text, int kind, int a, int b) { chip_ex(x, y, w, h, text, 0, kind, a, b, FONT_M); }
 
-static void chip(float x, float y, float w, float h, const char *text, int on, int kind, int a, int b)
-{
-    gfx_rrect(x, y, w, h, h / 2, on ? RGBA(0x4F, 0x8C, 0xFF, 0xFF) : RGBA(0x2A, 0x2F, 0x3A, 0xFF));
-    font_draw_center(text, x + w / 2, y + (h - font_height(FONT_S)) / 2, FONT_S | (on ? FONT_B : 0), on ? RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RGBA(0xC8, 0xD0, 0xDC, 0xFF));
-    hit(x, y, w, h, kind, a, b);
-}
+static void label(const char *t, float x, float y) { font_draw(t, x, y, FONT_XS | FONT_B, RGBA(0x8A, 0x94, 0xA6, 0xFF)); }
 
-int vr_cinema_draw(float dt, int show_way_in)
+/* the box, in the middle band of the canvas (VR_BOX_W by VR_BOX_H); the pointer's place in canvas units shows what it is over */
+void vr_box_draw(float px, float py)
 {
-    g_n_hit = 0;
-    float target = g_open ? 1.0f : 0.0f;
-    g_open_t += (target - g_open_t) * (dt > 0 ? (1 - expf(-14.0f * dt)) : 1);
-    if (g_open_t < 0.01f && !g_open) g_open_t = 0;
+    g_n_hit = 0; g_px = px; g_py = py;
     float W = (float)SNTV_UI_W, H = (float)SNTV_UI_H;
+    float ox = (W - VR_BOX_W) / 2, oy = (H - VR_BOX_H) / 2;
+    gfx_shadow(ox, oy, VR_BOX_W, VR_BOX_H, 48, 30, RGBA(0, 0, 0, 0xA0));
+    gfx_rrect(ox, oy, VR_BOX_W, VR_BOX_H, 48, RGBA(0x12, 0x15, 0x1C, 0xF2));
+    float lx = ox + 56, y = oy + 32;
+    font_draw("Menu", lx, y + 6, FONT_L | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+    chip(ox + 300, y, 230, 58, "Controls", g_tab == 0, K_TAB, 0, 0);
+    chip(ox + 546, y, 290, 58, "Screen and room", g_tab == 1, K_TAB, 1, 0);
+    chip(ox + VR_BOX_W - 56 - 150, y, 150, 58, "Close", 0, K_CLOSE, 0, 0);
+    y += 100;
+    float cw = VR_BOX_W - 112;
 
-    if (g_open_t <= 0) {   /* a small way in, for hands with no menu button */
-        if (show_way_in) chip(24, H - 76, 188, 52, "Cinema", 0, 7, 0, 0);
-        return 0;
+    if (g_tab == 0) {
+        float bw3 = (cw - 2 * 16) / 3, bh = 104;
+        label("GO TO", lx, y); y += 30;
+        big(lx, y, bw3, bh, "Back", K_KEY, KEY_BACK, 0);
+        big(lx + bw3 + 16, y, bw3, bh, "Home", K_HOME, 0, 0);
+        big(lx + 2 * (bw3 + 16), y, bw3, bh, "Search", K_KEY, KEY_SEARCH, 0);
+        y += bh + 34;
+        label("PLAYING", lx, y); y += 30;
+        float bw5 = (cw - 4 * 14) / 5;
+        big(lx, y, bw5, bh, "-10 s", K_KEY, KEY_LEFT, 0);
+        big(lx + (bw5 + 14), y, bw5 * 1.0f, bh, "Play / Pause", K_KEY, KEY_PLAY_PAUSE, 0);
+        big(lx + 2 * (bw5 + 14), y, bw5, bh, "+10 s", K_KEY, KEY_RIGHT, 0);
+        big(lx + 3 * (bw5 + 14), y, bw5, bh, "-1 min", K_KEY, KEY_REWIND, 0);
+        big(lx + 4 * (bw5 + 14), y, bw5, bh, "+1 min", K_KEY, KEY_FORWARD, 0);
+        y += bh + 14;
+        big(lx, y, bw5 * 1.5f + 7, 84, "Next episode", K_KEY, KEY_GREEN, 0);
+        big(lx + bw5 * 1.5f + 21, y, bw5 * 1.5f + 7, 84, "Other source", K_KEY, KEY_YELLOW, 0);
+        big(lx + 3 * (bw5 + 14), y, bw5 * 2 + 14, 84, "Show the bar", K_KEY, KEY_MENU, 0);
+        y += 84 + 34;
+        label("THE SCREEN", lx, y); y += 30;
+        float bw6 = (cw - 5 * 12) / 6, sh = 92;
+        big(lx, y, bw6, sh, "Smaller", K_STEP, DOCK_SMALLER, 0);
+        big(lx + (bw6 + 12), y, bw6, sh, "Bigger", K_STEP, DOCK_BIGGER, 0);
+        big(lx + 2 * (bw6 + 12), y, bw6, sh, "Nearer", K_STEP, DOCK_NEARER, 0);
+        big(lx + 3 * (bw6 + 12), y, bw6, sh, "Farther", K_STEP, DOCK_FARTHER, 0);
+        big(lx + 4 * (bw6 + 12), y, bw6, sh, vr_pref(VR_PREF_CURVED) ? "Flat" : "Curve", K_CURVE, 0, 0);
+        big(lx + 5 * (bw6 + 12), y, bw6, sh, "Center", K_CENTER, 0, 0);
+        y += sh + 14;
+        char vb[96]; snprintf(vb, sizeof vb, "Film view: %s  (tap for the next)", vr_video_view_name());
+        big(lx, y, cw, 84, vb, K_VIEW, 0, 0);
+        font_draw("Right thumbstick: up and down for distance, left and right for size.  Grip: carry the screen.", lx, oy + VR_BOX_H - 56, FONT_XS, RGBA(0x8A, 0x94, 0xA6, 0xFF));
+    } else {
+        float rowh = 78, cx0 = ox + 420;
+        for (int i = 0; i < N_ROWS; i++) {
+            const Row *r = &ROWS[i];
+            if (r->pref == VR_PREF_PASS && !vr_passthrough_available()) continue;
+            font_draw(r->label, lx, y + (62 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
+            float w = (VR_BOX_W - 420 - 56 - (r->n - 1) * 14) / r->n;
+            if (w > 240) w = 240;
+            for (int k = 0; k < r->n; k++) chip(cx0 + k * (w + 14), y, w, 62, r->opts[k], vr_pref(r->pref) == k, K_CHOOSE, r->pref, k);
+            y += rowh;
+        }
+        font_draw("Distance", lx, y + (62 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
+        chip(cx0, y, 90, 62, "-", 0, K_STEP, DOCK_NEARER, 0);
+        char db[24]; snprintf(db, sizeof db, "%.1f m", vr_pref(VR_PREF_DIST) / 10.0);
+        font_draw_center(db, cx0 + 90 + 14 + 80, y + (62 - font_height(FONT_M)) / 2, FONT_M | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+        chip(cx0 + 90 + 14 + 160 + 14, y, 90, 62, "+", 0, K_STEP, DOCK_FARTHER, 0);
     }
-    float a = g_open_t;
-    float pw = 1240, rowh = 72, ph = 140 + (N_ROWS + 3) * rowh + 40;
-    if (pw > W - 80) pw = W - 80;
-    if (ph > H - 40) ph = H - 40;
-    float px = (W - pw) / 2, py = (H - ph) / 2 + (1 - a) * 30;
-    gfx_set_alpha(a);
-    gfx_rect(0, 0, W, H, RGBA(0, 0, 0, 0x70));
-    gfx_shadow(px, py, pw, ph, 36, 50, RGBA(0, 0, 0, 0xC0));
-    gfx_rrect(px, py, pw, ph, 36, RGBA(0x14, 0x17, 0x1E, 0xF4));
-    font_draw("Cinema", px + 48, py + 34, FONT_L | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
-    font_draw("Menu button closes this", px + 48, py + 84, FONT_XS, RGBA(0x8A, 0x94, 0xA6, 0xFF));
-    chip(px + pw - 150, py + 30, 110, 56, "Done", 0, 6, 0, 0);
-
-    float y = py + 128;
-    float lx = px + 48, cx0 = px + 380;
-    for (int i = 0; i < N_ROWS; i++) {
-        const Row *r = &ROWS[i];
-        if (r->pref == VR_PREF_PASS && !vr_passthrough_available()) continue;
-        font_draw(r->label, lx, y + (58 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
-        float cw = (pw - 380 - 48 - (r->n - 1) * 14) / r->n;
-        if (cw > 230) cw = 230;
-        for (int k = 0; k < r->n; k++) chip(cx0 + k * (cw + 14), y, cw, 58, r->opts[k], vr_pref(r->pref) == k, 1, r->pref, k);
-        y += rowh;
-    }
-    /* distance */
-    font_draw("Distance", lx, y + (58 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
-    chip(cx0, y, 80, 58, "-", 0, 2, 0, 0);
-    char dbuf[24]; snprintf(dbuf, sizeof dbuf, "%.1f m", vr_pref(VR_PREF_DIST) / 10.0);
-    font_draw_center(dbuf, cx0 + 80 + 14 + 80, y + (58 - font_height(FONT_M)) / 2, FONT_M | FONT_B, RGBA(0xFF, 0xFF, 0xFF, 0xFF));
-    chip(cx0 + 80 + 14 + 160 + 14, y, 80, 58, "+", 0, 3, 0, 0);
-    y += rowh;
-    /* the view of the film */
-    font_draw("Film view", lx, y + (58 - font_height(FONT_M)) / 2, FONT_M, RGBA(0xE6, 0xEA, 0xF2, 0xFF));
-    chip(cx0, y, 640, 58, vr_video_view_name(), 0, 4, 0, 0);
-    y += rowh;
-    chip(cx0, y, 340, 58, "Bring it in front of me", 0, 5, 0, 0);
-    gfx_set_alpha(1);
-    return fabsf(target - g_open_t) > 0.01f;
 }
 
-int vr_cinema_tap(float x, float y)
+void vr_box_render(VrChain *c, float px, float py)
 {
-    int took = 0;
+    if (!vr_chain_acquire(c)) return;
+    gfx_begin_frame(RGBA(0, 0, 0, 0));
+    glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);   /* see-through around the box */
+    vr_box_draw(px, py);
+    gfx_end_frame();
+    vr_chain_release(c);
+}
+
+/* a number for the control at that place (0 over none), to know when the highlight moved */
+int vr_box_hover(float x, float y)
+{
+    for (int i = 0; i < g_n_hit; i++) {
+        const Hit *h = &g_hit[i];
+        if (x >= h->x && x <= h->x + h->w && y >= h->y && y <= h->y + h->h) return hit_sig(h);
+    }
+    return 0;
+}
+
+int vr_box_tap(float x, float y)
+{
     for (int i = 0; i < g_n_hit; i++) {
         const Hit *h = &g_hit[i];
         if (x < h->x || x > h->x + h->w || y < h->y || y > h->y + h->h) continue;
-        took = 1;
         switch (h->kind) {
-        case 1: vr_pref_set(h->a, h->b); break;
-        case 2: { int d = vr_pref(VR_PREF_DIST) - 2; vr_pref_set(VR_PREF_DIST, d < 8 ? 8 : d); } break;
-        case 3: { int d = vr_pref(VR_PREF_DIST) + 2; vr_pref_set(VR_PREF_DIST, d > 80 ? 80 : d); } break;
-        case 4: vr_video_cycle(); break;
-        case 5: vr_recenter(); break;
-        case 6: g_open = 0; break;
-        case 7: g_open = 1; break;
+        case K_CHOOSE: vr_pref_set(h->a, h->b); break;
+        case K_KEY: g_key = h->a; g_version++; break;
+        case K_HOME: g_key = VR_KEY_HOME; g_version++; break;
+        case K_STEP: vr_screen_step(h->a); g_version++; break;
+        case K_VIEW: vr_video_cycle(); g_version++; break;
+        case K_CENTER: vr_recenter(); break;
+        case K_CURVE: vr_pref_set(VR_PREF_CURVED, !vr_pref(VR_PREF_CURVED)); break;
+        case K_TAB: vr_box_set_tab(h->a); break;
+        case K_CLOSE: g_open = 0; g_version++; break;
         }
-        break;
+        return 1;
     }
-    if (!took && g_open) { took = 1; g_open = 0; }   /* a tap outside the sheet closes it */
-    return took;
+    return 0;
 }
 
 #endif

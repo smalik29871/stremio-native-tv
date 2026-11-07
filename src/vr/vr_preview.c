@@ -10,6 +10,7 @@
 /* what the OpenXR side would answer */
 int vr_passthrough_available(void) { return 1; }
 void vr_recenter(void) {}
+void vr_screen_step(int id) { (void)id; }
 const char *vr_video_view_name(void) { return "Flat"; }
 const char *vr_video_cycle(void) { return "Flat"; }
 int vr_active(void) { return 1; }
@@ -20,14 +21,12 @@ void vr_preview_draw(void)
 {
     const char *m = getenv("SNTV_VR_PREVIEW");
     if (!m || !*m) return;
-    if (!strcmp(m, "sheet")) {
-        static int opened;
-        if (!opened) { opened = 1; vr_cinema_toggle(); }
-        vr_cinema_draw(1.0f, 0);
+    if (!strcmp(m, "box") || !strcmp(m, "box2")) {
+        vr_box_set_tab(!strcmp(m, "box2"));
+        vr_box_draw(-1, -1);   /* the box hangs in its own layer in the headset: here it is drawn over a screen */
     } else if (!strcmp(m, "dock")) {
         gfx_set_translate(0, 455);   /* under the picture, where the dock hangs */
         vr_dock_draw(getenv("SNTV_VR_HOVER") ? atoi(getenv("SNTV_VR_HOVER")) : -1, -1, 1.0f);
         gfx_set_translate(0, 0);
-        vr_cinema_draw(1.0f, 1);   /* the small way in, at the bottom left */
     }
 }

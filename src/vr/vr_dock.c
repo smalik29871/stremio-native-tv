@@ -13,7 +13,7 @@
 
 static const struct { const char *label; float w; } B[DOCK_N] = {
     { "Move", 190 }, { "Smaller", 130 }, { "Bigger", 130 }, { "Nearer", 130 }, { "Farther", 130 },
-    { "Curve", 120 }, { "View", 120 }, { "Cinema", 140 }, { "Center", 130 }, { "Resize", 180 },
+    { "Curve", 120 }, { "View", 120 }, { "Menu", 140 }, { "Center", 130 }, { "Resize", 180 },
 };
 #define GAP 8.0f
 #define PAD 24.0f

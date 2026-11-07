@@ -185,3 +185,16 @@ bigger or smaller; tap **Smaller**, **Bigger**, **Nearer**, **Farther** (hold to
 **Cinema** (the sheet) or **Center**. With both grips closed, pull the hands apart or together to stretch the
 screen. The old ways still work: one grip carries it and the stick pushes, pulls and sizes it, and the menu
 button opens the sheet. The distance you leave it at is the one the sheet shows and Center returns to.
+
+### The control box (replaces the sheet and the bottom chip)
+
+The left menu button opens a box that floats in front of you (and goes when pressed again; B closes it too). Its
+first page is what to do now: Back, Home, Search; -10 s, play or pause, +10 s, -1 and +1 minute, next episode,
+another source, show the bar; the screen smaller, bigger, nearer, farther, curved or flat, centred; the film view.
+Its second page is how things are (the old sheet's choices). It is drawn by the app's renderer into a layer of its
+own and pointed at like any other; taps on the screen behind it still reach the app.
+
+The right thumbstick moves the screen with nothing held (up and down away and near, left and right bigger and
+smaller); the left thumbstick is the arrow keys (move about, seek). B goes back one screen and, at the first
+screen, does nothing (it used to close the app). The Meta button stays the system's: its long press recentres the
+whole view, and the screen follows (a recentre brings it back in front of you).

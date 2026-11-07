@@ -1073,22 +1073,10 @@ static int eff_hz(void) { int live = perf_live_hz(); return live ? live : g_refr
  * meets it, the thumbstick the arrow keys, A the OK key, B Back. */
 static void vr_inject(const VrInput *in)
 {
-    static int was_down, swallow;
+    static int was_down;
     SDL_Event e; SDL_zero(e);
     e.tfinger.fingerId = 7; e.tfinger.timestamp = SDL_GetTicks();
-    /* the Cinema sheet is the headset's own: it takes the taps that land on it, and the menu button opens it */
-    if (in->menu) { vr_cinema_toggle(); g_app.need_redraw = 1; }
-    if (in->down && !was_down && in->have_pointer && vr_cinema_tap(in->x * (float)SNTV_UI_W, in->y * (float)SNTV_UI_H)) { swallow = 1; g_app.need_redraw = 1; }
-    if (swallow) {
-        if (!in->down) swallow = 0;
-        was_down = in->down;
-        return;
-    }
-    if (vr_cinema_is_open()) {   /* while it is open the keys are for it: Back closes it */
-        if (in->back) { vr_cinema_close(); g_app.need_redraw = 1; }
-        was_down = in->down;
-        return;
-    }
+    if (in->menu) { vr_cinema_toggle(); g_app.need_redraw = 1; }   /* the left menu button: the control box comes and goes */
     if (in->have_pointer) { e.tfinger.x = in->x; e.tfinger.y = in->y; }
     if (in->down && !was_down && in->have_pointer) { e.type = SDL_FINGERDOWN; touch_event(&e); }
     else if (in->down && was_down && in->have_pointer) { e.type = SDL_FINGERMOTION; touch_event(&e); }
@@ -1096,13 +1084,24 @@ static void vr_inject(const VrInput *in)
     was_down = in->down;
     if (in->play) dispatch_key(KEY_PLAY_PAUSE);   /* X */
     if (in->view) { const char *vn = vr_video_cycle(); if (*vn) app_toast("View: %s", vn); }   /* Y: flat, 3D, 180, 360 */
-    if (in->ok) dispatch_key(KEY_OK);
-    if (in->back) dispatch_key(KEY_BACK);
+    if (in->ok) { LOGI("vr: OK"); dispatch_key(KEY_OK); }
+    if (in->back) {   /* B: closes the box if it is open, else goes back; at the first screen it does nothing (it must not close the app) */
+        if (vr_cinema_is_open()) vr_cinema_close();
+        else if (g_app.depth <= 1) LOGI("vr: Back at the first screen: nothing to go back to");
+        else { LOGI("vr: Back from %s", app_top() ? app_top()->name : "?"); dispatch_key(KEY_BACK); }
+        g_app.need_redraw = 1;
+    }
+    if (in->key == VR_KEY_HOME) { LOGI("vr: Home"); while (g_app.depth > 1) app_pop(); g_app.need_redraw = 1; }
+    else if (in->key) {
+        if (in->key == KEY_BACK && g_app.depth <= 1) LOGI("vr: Back at the first screen: nothing to go back to");
+        else { LOGI("vr: box key %d on %s", in->key, app_top() ? app_top()->name : "?"); dispatch_key((KeyAction)in->key); }
+        g_app.need_redraw = 1;
+    }
     if (in->up_k) dispatch_key(KEY_UP);
     if (in->down_k) dispatch_key(KEY_DOWN);
     if (in->left_k) dispatch_key(KEY_LEFT);
     if (in->right_k) dispatch_key(KEY_RIGHT);
-    if (in->play || in->view || in->ok || in->back || in->up_k || in->down_k || in->left_k || in->right_k) g_app.last_input = g_app.time;
+    if (in->play || in->view || in->ok || in->back || in->key || in->up_k || in->down_k || in->left_k || in->right_k) g_app.last_input = g_app.time;
 }
 #endif
 
@@ -1626,12 +1625,6 @@ int main(int argc, char **argv)
             Uint32 swap_at = SDL_GetTicks();
             Uint64 pc_swap = SDL_GetPerformanceCounter();
 #ifdef SNTV_VR
-            if (vr_session) {   /* the headset's own sheet, over the screens; its way in shows while the ray has moved lately */
-                static Uint32 prev_ms; Uint32 nowms = SDL_GetTicks();
-                float cdt = prev_ms ? (nowms - prev_ms) / 1000.0f : 0.016f; prev_ms = nowms;
-                int in_player = top && !strcmp(top->name, "player");
-                if (vr_cinema_draw(cdt > 0.1f ? 0.1f : cdt, !in_player || (nowms - vr_move_ms) < 3000)) g_app.need_redraw = 1;
-            }
             if (vr_session && vr_last.have_pointer && vr_cw > 0) {   /* the ray's end: a dot with a dark rim, readable on light and dark artwork */
                 float px = vr_last.x * (float)SNTV_UI_W, py = vr_last.y * (float)SNTV_UI_H, r = (float)SNTV_UI_H / 90.0f;
                 gfx_circle(px, py, r + 3.0f, RGBA(0, 0, 0, 0xA0));

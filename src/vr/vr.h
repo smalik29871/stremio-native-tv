@@ -12,6 +12,7 @@ typedef struct {
     int ok, back, menu;        /* A (or the stick pressed), B, the left menu button: 1 on the frame they were pressed */
     int play, view;            /* X: play or pause; Y: the next way to look at the film (3D, 180, 360) */
     int grabbing;              /* a grip is closed on the screen: the hand is carrying it */
+    int key;                   /* a control box button asks for this key (a KeyAction: Back, Search, seek...), 0 none */
     int up_k, down_k, left_k, right_k;   /* the thumbstick pushed a direction (repeating while held): 1 on those frames */
 } VrInput;
 
@@ -37,11 +38,16 @@ void vr_pref_set(int which, int value);
 void vr_subs_begin(void);                 /* the player screen is about to draw */
 void vr_subs_render(void);                /* after it has: the subtitle lines into their own layer */
 int  vr_subs_capture(const char *text, float bottom, int size, int style, float k, float width);   /* ui_subtitle_ex: 1 when taken */
-int  vr_cinema_is_open(void);
+int  vr_cinema_is_open(void);             /* the control box (the left menu button) is open */
 void vr_cinema_toggle(void);
 void vr_cinema_close(void);
-int  vr_cinema_draw(float dt, int show_way_in);   /* over the screens; 1 while it is still moving */
-int  vr_cinema_tap(float x, float y);     /* canvas units; 1 when the sheet took the tap */
+void vr_box_draw(float px, float py);     /* the box into the middle band of the canvas; where the pointer is (canvas units, -1 none) */
+int  vr_box_tap(float x, float y);        /* canvas units; 1 when it was on a control (which has done its part) */
+int  vr_box_hover(float x, float y);      /* a number for the control there (0 none), to know when the highlight moved */
+unsigned vr_box_version(void);            /* changes when what the box shows does */
+void vr_box_set_tab(int t);
+int  vr_cinema_take_key(void);            /* the key a button asked for (0 none), taken */
+void vr_screen_step(int id);              /* the screen smaller, bigger, nearer, farther (DOCK_* of vr_internal.h) */
 void vr_shutdown(void);
 #else
 static inline int  vr_init(void) { return -1; }
@@ -57,8 +63,6 @@ static inline const char *vr_video_cycle(void) { return ""; }
 static inline int  vr_cinema_is_open(void) { return 0; }
 static inline void vr_cinema_toggle(void) {}
 static inline void vr_cinema_close(void) {}
-static inline int  vr_cinema_draw(float dt, int s) { (void)dt; (void)s; return 0; }
-static inline int  vr_cinema_tap(float x, float y) { (void)x; (void)y; return 0; }
 static inline int  vr_pref(int which) { (void)which; return 0; }
 static inline void vr_subs_begin(void) {}
 static inline void vr_subs_render(void) {}
