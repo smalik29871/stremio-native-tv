@@ -358,6 +358,7 @@ Screen *screen_streams_create_from_start(const MetaPreview *meta, const char *vi
 /* 1 while a video is on that nothing but a break may cover: playing, stalled, between
  * sources; 0 with no video, or paused by the viewer */
 int player_holds_screen(void);
+void player_rect_lost(void);   /* the video was put back over the whole window (it turned, it was resized): the upright view places it again */
 int streams_starting(void);   /* a Sources screen is starting a video by itself (the next episode, Play) */
 void player_bridge_cancel(void);   /* the next episode's sources were left before it started: no still to open on */
 Screen *screen_player_create(const MetaPreview *meta, const char *video_id, const char *title,

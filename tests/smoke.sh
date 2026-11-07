@@ -1732,10 +1732,13 @@ grep -q "home: the hero shows [1-9][0-9]* titles" "$OUT/phone_home_library.log" 
 run phone_drag_page 220 "wait,wait,wait,drag:390:1400:390:500,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd1 '{"setupDone":1}')"
 run phone_drag_row 220 "wait,wait,wait,drag:600:1050:100:1050,wait" $PH SNTV_EXPECT_SCREEN=home HOME="$(home_with pd2 '{"setupDone":1}')"
 # a phone held upright: the player always starts full screen (sideways only), not in the small upright window
-run phone_player_sideways 420 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with phpl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
+run phone_player_sideways 480 "wait,wait,tap:152:1050,wait,wait,tap:390:666,wait,wait,wait,ok,wait,wait,wait,wait,resize,wait,wait" $PH SNTV_EXPECT_SCREEN=player HOME="$(home_with phpl '{"setupDone":1,"prefSubs":"eng","subsAlways":1}')"
 grep -q "display: sideways only" "$OUT/phone_player_sideways.log" || { echo "the player did not start full screen on a phone held upright"; grep -E "display:|screen:" "$OUT/phone_player_sideways.log"; exit 1; }
 # drawn upright (the test window cannot turn), the video goes into the band under the top bar: it was left behind the page (sound only)
-grep -q "player: upright picture 450x253 at 0,81" "$OUT/phone_player_sideways.log" || { echo "the upright player did not place the video in its band"; grep -E "player: (upright|the picture)|display:" "$OUT/phone_player_sideways.log"; exit 1; }
+# and keeps it there when the window's late size-changed event (a phone sends it a frame or more after turning) puts the video back over the whole window
+grep -q "player: upright picture 450x253 at 0,81" "$OUT/phone_player_sideways.log" \
+  && awk '/video\(null\): the picture at 0,0, 450x1000/ { reset = 1 } /player: upright picture 450x253 at 0,81/ && reset { again = 1 } END { exit !again }' "$OUT/phone_player_sideways.log" \
+  || { echo "the upright player did not keep the video in its band"; grep -E "player: (upright|the picture)|video\(null\): the picture|display:" "$OUT/phone_player_sideways.log"; exit 1; }
 # The main screens on other devices than the TV, a phone and a sideways phone (tablets, a small phone, a normal Android phone, a big window):
 # each draws and lands on the screen asked for (a screenshot to look at, and the layout code's own checks). Upright ones have the tab bar
 # at the foot (a tap on it), the others the rail (keys)

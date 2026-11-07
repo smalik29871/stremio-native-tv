@@ -8005,6 +8005,11 @@ static void draw_keys_help(Player *p)
 }
 #endif
 
+void player_rect_lost(void)
+{
+    if (g_live) memset(g_live->ph_rect, 0, sizeof g_live->ph_rect);
+}
+
 int player_holds_screen(void)
 {
     if (!g_live || g_live->finished) return 0;

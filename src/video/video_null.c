@@ -104,7 +104,13 @@ void video_set_rate(double r) { g_rate = r; }
 void video_set_volume(int v) { LOGI("video(null): volume %d", v); }
 void video_set_muted(int m) { if (m != g_muted) LOGI("video(null): %s", m ? "muted" : "sound on"); g_muted = m; }
 unsigned video_load_count(void) { return (unsigned)g_loads; }
-void video_set_display_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; }
+void video_set_display_rect(int x, int y, int w, int h)
+{
+    static int last[4] = { -1, -1, -1, -1 };
+    if (x == last[0] && y == last[1] && w == last[2] && h == last[3]) return;
+    last[0] = x; last[1] = y; last[2] = w; last[3] = h;
+    LOGI("video(null): the picture at %d,%d, %dx%d", x, y, w, h);   /* where the device's video view would go */
+}
 void video_app_background(void) { video_pause(); }
 void video_app_foreground(void) {}
 void video_keep_awake(int on) { (void)on; }

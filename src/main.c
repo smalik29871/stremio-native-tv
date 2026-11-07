@@ -297,6 +297,13 @@ static void dev_hooks(SDL_Window *win, int frame)
         int i = 0;
         for (char *tok = strtok(copy, ","); tok; tok = strtok(NULL, ","), i++) {
             if (i != idx) continue;
+            if (!strcmp(tok, "resize")) {   /* the window's size-changed event a phone sends a frame or more after it turns */
+                SDL_Event e; memset(&e, 0, sizeof e);
+                e.type = SDL_WINDOWEVENT; e.window.event = SDL_WINDOWEVENT_SIZE_CHANGED; e.window.windowID = SDL_GetWindowID(win);
+                SDL_GetWindowSize(win, &e.window.data1, &e.window.data2);
+                SDL_PushEvent(&e);
+                break;
+            }
             float tx, ty;
             int taps = sscanf(tok, "dtap:%f:%f", &tx, &ty) == 2 ? 2 : sscanf(tok, "tap:%f:%f", &tx, &ty) == 2 ? 1 : 0;
             for (int k = 1; k < taps; k++) {   /* "dtap": a double tap there */
@@ -1507,6 +1514,7 @@ int main(int argc, char **argv)
                 g_win_dirty = 1; g_win_dirty_at = SDL_GetTicks();
 #endif
                 video_set_display_rect(0, 0, e.window.data1, e.window.data2);
+                player_rect_lost();   /* (it comes a frame or more after the turn: the upright view had placed the video already) */
                 if (g_app.pip) player_set_pip(g_app.pip, 1);
                 app_redraw();
             }
